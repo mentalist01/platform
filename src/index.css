@@ -20077,6 +20077,302 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   gap: 10px;
 }
 
+.schedule-shell__student-board {
+  display: grid;
+  gap: 12px;
+}
+
+.schedule-shell__student-reminder-compact {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(221, 214, 254, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #7c3aed;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 10px 24px rgba(124, 58, 237, 0.06);
+  transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.schedule-shell__student-reminder-compact > svg {
+  color: #8b5cf6;
+}
+
+.schedule-shell__student-reminder-compact:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #faf5ff;
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.12);
+}
+
+.schedule-shell__student-reminder-compact:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.schedule-shell__student-week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.schedule-shell__student-day-chip {
+  position: relative;
+  display: grid;
+  min-height: 50px;
+  place-items: center;
+  gap: 2px;
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.98);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.68);
+  color: #94a3b8;
+  animation: scheduleStudentItemIn 360ms ease both;
+  animation-delay: calc(var(--day-index, 0) * 34ms);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.schedule-shell__student-day-chip > span {
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+}
+
+.schedule-shell__student-day-chip > strong {
+  color: #334155;
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.schedule-shell__student-day-chip > em {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  display: inline-flex;
+  min-width: 19px;
+  height: 19px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #0ea5e9;
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 950;
+  box-shadow: 0 8px 16px rgba(14, 165, 233, 0.2);
+}
+
+.schedule-shell__student-day-chip--has-lessons {
+  border-color: rgba(125, 211, 252, 0.72);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.18), transparent 42%),
+    rgba(240, 249, 255, 0.86);
+  color: #0284c7;
+}
+
+.schedule-shell__student-day-chip--today {
+  border-color: rgba(168, 85, 247, 0.48);
+  box-shadow:
+    0 10px 22px rgba(124, 58, 237, 0.1),
+    inset 0 0 0 1px rgba(168, 85, 247, 0.08);
+}
+
+.schedule-shell__student-day-chip:hover {
+  transform: translateY(-2px);
+}
+
+.schedule-shell__student-lessons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+  gap: 10px;
+}
+
+.schedule-shell__student-lesson {
+  position: relative;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  overflow: hidden;
+  min-height: 74px;
+  padding: 10px 12px;
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9)),
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.12), transparent 42%);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.055);
+  animation: scheduleStudentItemIn 420ms ease both;
+  animation-delay: calc(var(--lesson-index, 0) * 52ms);
+  transition: transform 170ms ease, border-color 170ms ease, box-shadow 170ms ease;
+}
+
+.schedule-shell__student-lesson::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, #38bdf8, #8b5cf6);
+  opacity: 0.85;
+}
+
+.schedule-shell__student-lesson:hover {
+  transform: translateY(-2px);
+  border-color: rgba(56, 189, 248, 0.58);
+  box-shadow: 0 16px 32px rgba(14, 165, 233, 0.12);
+}
+
+.schedule-shell__student-lesson-date {
+  display: grid;
+  min-height: 52px;
+  place-items: center;
+  border: 1px solid rgba(186, 230, 253, 0.92);
+  border-radius: 15px;
+  background: rgba(240, 249, 255, 0.86);
+}
+
+.schedule-shell__student-lesson-date > span {
+  color: #0284c7;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+}
+
+.schedule-shell__student-lesson-date > strong {
+  color: #0f172a;
+  font-size: 19px;
+  font-weight: 950;
+  line-height: 0.95;
+}
+
+.schedule-shell__student-lesson-main {
+  min-width: 0;
+}
+
+.schedule-shell__student-lesson-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.schedule-shell__student-lesson-heading > span {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.schedule-shell__student-lesson-heading > em {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(219, 234, 254, 0.72);
+  color: #2563eb;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.schedule-shell__student-lesson-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: #64748b;
+}
+
+.schedule-shell__student-lesson-time > svg {
+  color: #64748b;
+}
+
+.schedule-shell__student-lesson-time > strong {
+  color: #1e293b;
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: -0.03em;
+}
+
+.schedule-shell__student-lesson-time > span {
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.schedule-shell__student-lesson-link {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid rgba(168, 85, 247, 0.28);
+  border-radius: 12px;
+  background: rgba(250, 245, 255, 0.92);
+  color: #7c3aed;
+  font-size: 12px;
+  font-weight: 950;
+  text-decoration: none;
+  transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.schedule-shell__student-lesson-link:hover {
+  transform: translateY(-1px);
+  background: #f3e8ff;
+  box-shadow: 0 10px 20px rgba(124, 58, 237, 0.12);
+}
+
+.schedule-shell__student-board-loading,
+.schedule-shell__student-board-empty {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 16px;
+  border: 1px dashed rgba(186, 230, 253, 0.95);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.schedule-shell__student-board-empty > svg,
+.schedule-shell__student-board-loading > svg {
+  color: #0ea5e9;
+  flex-shrink: 0;
+}
+
+.schedule-shell__student-board-empty strong {
+  display: block;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.schedule-shell__student-board-empty span {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+@keyframes scheduleStudentItemIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (max-width: 900px) {
   .schedule-shell__composer-grid {
     grid-template-columns: minmax(0, 1fr) minmax(145px, 0.45fr);
@@ -20102,6 +20398,26 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
 
   .schedule-shell__composer-heading {
     flex-direction: column;
+  }
+
+  .schedule-shell__student-reminder-compact {
+    width: 100%;
+    max-width: none;
+  }
+
+  .schedule-shell__student-week-strip {
+    grid-template-columns: repeat(7, minmax(58px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .schedule-shell__student-lesson {
+    grid-template-columns: 54px minmax(0, 1fr);
+  }
+
+  .schedule-shell__student-lesson-link {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 }
 
@@ -20219,6 +20535,78 @@ html[data-theme='dark'] .schedule-shell__slot-edit {
 html[data-theme='dark'] .schedule-shell__slot-delete {
   border-color: rgba(251, 113, 133, 0.54) !important;
   background: rgba(127, 29, 29, 0.44) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip > strong,
+html[data-theme='dark'] .schedule-shell__student-lesson-date > strong,
+html[data-theme='dark'] .schedule-shell__student-lesson-heading > span,
+html[data-theme='dark'] .schedule-shell__student-lesson-time > strong,
+html[data-theme='dark'] .schedule-shell__student-board-empty strong {
+  color: rgb(226, 232, 240) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-reminder-compact,
+html[data-theme='dark'] .schedule-shell__student-board-loading,
+html[data-theme='dark'] .schedule-shell__student-board-empty {
+  border-color: rgba(71, 85, 105, 0.62) !important;
+  background: rgba(15, 23, 42, 0.68) !important;
+  color: rgba(203, 213, 225, 0.82) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-link {
+  border-color: rgba(168, 85, 247, 0.34) !important;
+  background: rgba(88, 28, 135, 0.28) !important;
+  color: rgb(216, 180, 254) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-reminder-compact:hover:not(:disabled),
+html[data-theme='dark'] .schedule-shell__student-lesson-link:hover {
+  background: rgba(107, 33, 168, 0.38) !important;
+  box-shadow: 0 12px 22px rgba(2, 6, 23, 0.24) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip {
+  border-color: rgba(71, 85, 105, 0.58) !important;
+  background: rgba(15, 23, 42, 0.54) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--has-lessons {
+  border-color: rgba(56, 189, 248, 0.42) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.12), transparent 44%),
+    rgba(8, 47, 73, 0.3) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--today {
+  border-color: rgba(168, 85, 247, 0.46) !important;
+  box-shadow:
+    0 12px 24px rgba(2, 6, 23, 0.34),
+    inset 0 0 0 1px rgba(168, 85, 247, 0.14) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson {
+  border-color: rgba(71, 85, 105, 0.72) !important;
+  background:
+    linear-gradient(145deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.82)),
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.1), transparent 42%) !important;
+  box-shadow:
+    0 14px 28px rgba(2, 6, 23, 0.34),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson:hover {
+  border-color: rgba(56, 189, 248, 0.48) !important;
+  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.48) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-date {
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  background: rgba(8, 47, 73, 0.32) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-heading > em {
+  background: rgba(30, 64, 175, 0.24) !important;
+  color: rgb(147, 197, 253) !important;
 }
 
 html[data-theme='dark'] .schedule-shell__field {

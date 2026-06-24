@@ -6878,6 +6878,97 @@ const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
   };
 };
 
+const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}) => {
+  const studentId = String(student?.id || '').trim();
+  const teacherId = normalizeTeacherId(student?.teacherId);
+  const data = studentId ? getStudentData(studentId) : {};
+  const currentSchedule = Array.isArray(data.schedule) ? data.schedule : [];
+  const baseResult = {
+    ok: false,
+    importedCount: 0,
+    matchedCount: 0,
+    weekStart: '',
+    weekEnd: '',
+    settings: null,
+    schedule: currentSchedule,
+    changed: false,
+    skippedReason: '',
+  };
+  if (!studentId || !teacherId || !findTeacherById(teacherId)) {
+    return { ...baseResult, skippedReason: 'missing-teacher' };
+  }
+
+  const settings = getTeacherCalendarSyncSettings(teacherId);
+  const settingsResponse = buildTeacherCalendarSyncSettingsResponse(settings);
+  if (!settings.enabled || !settings.icalUrl) {
+    return {
+      ...baseResult,
+      settings: settingsResponse,
+      skippedReason: 'calendar-disabled',
+    };
+  }
+
+  const weekRange = getCalendarCurrentWeekRange();
+  if (!weekRange.startDayKey || !weekRange.endDayKey) {
+    throw new Error('Не удалось определить текущую неделю календаря.');
+  }
+
+  const googleEntries = await fetchTeacherGoogleCalendarEntries(teacherId, {
+    force: Boolean(options.force),
+    throwOnError: true,
+  });
+  const matchedEntries = googleEntries.filter((entry) => (
+    isDayKeyWithinRange(entry?.date, weekRange.startDayKey, weekRange.endDayKey)
+    && googleCalendarTitleMatchesStudent(entry?.subject, student)
+  ));
+  const existingGoogleEntriesById = new Map(
+    currentSchedule
+      .filter((entry) => isGoogleStudentScheduleEntry(entry) && entry?.id)
+      .map((entry) => [String(entry.id), entry])
+  );
+  const importedEntries = matchedEntries
+    .map((entry) => buildStudentScheduleEntryFromGoogleCalendar(entry, student, auth))
+    .filter(Boolean)
+    .map((entry) => {
+      const existing = existingGoogleEntriesById.get(String(entry.id));
+      if (!existing) return entry;
+      return {
+        ...entry,
+        createdAt: existing.createdAt || entry.createdAt,
+        createdByRole: existing.createdByRole || entry.createdByRole,
+        createdById: existing.createdById || entry.createdById,
+        createdByName: existing.createdByName || entry.createdByName,
+        updatedAt: existing.updatedAt || entry.updatedAt,
+      };
+    });
+  const manualSchedule = currentSchedule.filter((entry) => !isGoogleStudentScheduleEntry(entry));
+  const schedule = [...importedEntries, ...manualSchedule];
+  const changed = JSON.stringify(schedule) !== JSON.stringify(currentSchedule);
+  if (changed) {
+    setStudentData(studentId, { ...data, schedule });
+    if (options.notify !== false) {
+      notifyScheduleSyncUpdate({
+        scope: 'student-schedule',
+        action: 'google-calendar-sync',
+        teacherId,
+        studentId,
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    importedCount: importedEntries.length,
+    matchedCount: matchedEntries.length,
+    weekStart: weekRange.startDayKey,
+    weekEnd: weekRange.endDayKey,
+    settings: buildTeacherCalendarSyncSettingsResponse(getTeacherCalendarSyncSettings(teacherId)),
+    schedule,
+    changed,
+    skippedReason: '',
+  };
+};
+
 const resolveGoogleCalendarStudentMatch = (event, students = []) => {
   const summary = normalizeCalendarEventText(event?.summary);
   if (!summary) return null;
@@ -18741,12 +18832,23 @@ app.delete('/api/mocks/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/student-schedule', (req, res) => {
+app.get('/api/student-schedule', async (req, res) => {
   const { studentId } = req.query;
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
-  res.json(data.schedule || []);
+  let schedule = data.schedule || [];
+  try {
+    const syncResult = await syncStudentScheduleFromGoogleCalendar(
+      student,
+      { role: 'system', id: 'google-calendar', name: 'Google Calendar' },
+      { force: false }
+    );
+    schedule = Array.isArray(syncResult?.schedule) ? syncResult.schedule : schedule;
+  } catch {
+    schedule = data.schedule || [];
+  }
+  res.json(schedule);
 });
 
 app.post('/api/student-schedule/google-sync', async (req, res) => {
@@ -18763,47 +18865,27 @@ app.post('/api/student-schedule/google-sync', async (req, res) => {
   const teacher = ensureTeacherAccess(req, res, teacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
 
-  const settings = getTeacherCalendarSyncSettings(teacher.id);
-  if (!settings.enabled || !settings.icalUrl) {
-    return res.status(409).json({
-      error: 'Google Calendar не подключён. Добавьте iCal-ссылку в настройках календаря преподавателя.',
-      settings: buildTeacherCalendarSyncSettingsResponse(settings),
-    });
-  }
-
-  const weekRange = getCalendarCurrentWeekRange();
-  if (!weekRange.startDayKey || !weekRange.endDayKey) {
-    return res.status(500).json({ error: 'Не удалось определить текущую неделю календаря.' });
-  }
-
   try {
-    const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id, { force: true, throwOnError: true });
-    const matchedEntries = googleEntries.filter((entry) => (
-      isDayKeyWithinRange(entry?.date, weekRange.startDayKey, weekRange.endDayKey)
-      && googleCalendarTitleMatchesStudent(entry?.subject, student)
-    ));
-    const importedEntries = matchedEntries
-      .map((entry) => buildStudentScheduleEntryFromGoogleCalendar(entry, student, req.auth))
-      .filter(Boolean);
-    const data = getStudentData(student.id);
-    const manualSchedule = (Array.isArray(data.schedule) ? data.schedule : [])
-      .filter((entry) => !isGoogleStudentScheduleEntry(entry));
-    const schedule = [...importedEntries, ...manualSchedule];
-    setStudentData(student.id, { ...data, schedule });
-    notifyScheduleSyncUpdate({
-      scope: 'student-schedule',
-      action: 'google-calendar-sync',
-      teacherId: teacher.id,
-      studentId: student.id,
+    const syncResult = await syncStudentScheduleFromGoogleCalendar(student, req.auth, {
+      force: true,
     });
+    if (syncResult.skippedReason === 'calendar-disabled') {
+      return res.status(409).json({
+        error: 'Google Calendar не подключён. Добавьте iCal-ссылку в настройках календаря преподавателя.',
+        settings: syncResult.settings,
+      });
+    }
+    if (syncResult.skippedReason === 'missing-teacher') {
+      return res.status(400).json({ error: 'У ученика не указан преподаватель.' });
+    }
     return res.json({
       ok: true,
-      importedCount: importedEntries.length,
-      matchedCount: matchedEntries.length,
-      weekStart: weekRange.startDayKey,
-      weekEnd: weekRange.endDayKey,
-      settings: buildTeacherCalendarSyncSettingsResponse(getTeacherCalendarSyncSettings(teacher.id)),
-      schedule,
+      importedCount: syncResult.importedCount,
+      matchedCount: syncResult.matchedCount,
+      weekStart: syncResult.weekStart,
+      weekEnd: syncResult.weekEnd,
+      settings: syncResult.settings,
+      schedule: syncResult.schedule,
     });
   } catch (error) {
     return res.status(502).json({

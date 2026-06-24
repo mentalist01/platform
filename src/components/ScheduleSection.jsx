@@ -19,6 +19,15 @@ const SCHEDULE_WEEKDAYS = [
   { key: 'saturday', label: 'Суббота', order: 6 },
   { key: 'sunday', label: 'Воскресенье', order: 7 },
 ];
+const SCHEDULE_WEEKDAY_SHORT_LABELS = {
+  monday: 'ПН',
+  tuesday: 'ВТ',
+  wednesday: 'СР',
+  thursday: 'ЧТ',
+  friday: 'ПТ',
+  saturday: 'СБ',
+  sunday: 'ВС',
+};
 const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, item) => {
   acc[item.key] = item;
   return acc;
@@ -81,6 +90,100 @@ const normalizeScheduleEntry = (entry) => {
 const isGoogleCalendarScheduleEntry = (entry) => {
   const source = String(entry?.source || '').trim().toLowerCase();
   return Boolean(entry?.isGoogleCalendarSync) || source === 'google-calendar' || source === 'google-ical';
+};
+
+const parseScheduleDayKey = (value) => {
+  const match = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year
+    || date.getMonth() !== month - 1
+    || date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+};
+
+const formatScheduleDayKey = (date) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const addScheduleDays = (date, amount) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+};
+
+const getCurrentScheduleWeekDays = (date = new Date()) => {
+  const today = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+  const start = new Date(today);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  return SCHEDULE_WEEKDAYS.map((weekday, index) => {
+    const dayDate = addScheduleDays(start, index);
+    return {
+      ...weekday,
+      dateKey: formatScheduleDayKey(dayDate),
+      date: dayDate,
+    };
+  });
+};
+
+const buildCurrentWeekScheduleEntries = (entries = [], weekDays = []) => {
+  const weekByDate = new Map(weekDays.map((day) => [day.dateKey, day]));
+  const weekByOrder = new Map(weekDays.map((day) => [day.order, day]));
+  return (Array.isArray(entries) ? entries : [])
+    .map((entry) => {
+      const normalized = normalizeScheduleEntry(entry);
+      if (!normalized) return null;
+      const rawDate = String(normalized?.date || '').trim();
+      let weekDay = null;
+      if (rawDate) {
+        weekDay = weekByDate.get(rawDate) || null;
+        if (!weekDay) return null;
+      } else {
+        weekDay = weekByOrder.get(Number(normalized.weekdayOrder)) || null;
+        if (!weekDay) return null;
+        const excludedDates = Array.isArray(normalized.excludedDates) ? normalized.excludedDates : [];
+        if (excludedDates.includes(weekDay.dateKey)) return null;
+      }
+      return {
+        ...normalized,
+        currentWeekDate: weekDay.dateKey,
+        currentWeekDateObject: weekDay.date,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const dateDiff = String(left.currentWeekDate || '').localeCompare(String(right.currentWeekDate || ''), 'ru');
+      if (dateDiff !== 0) return dateDiff;
+      const timeDiff = String(left.time || '').localeCompare(String(right.time || ''), 'ru');
+      if (timeDiff !== 0) return timeDiff;
+      return String(left.createdAt || '').localeCompare(String(right.createdAt || ''), 'ru');
+    });
+};
+
+const getScheduleTimeRangeLabel = (entry) => {
+  const time = String(entry?.time || '').trim();
+  if (!/^\d{2}:\d{2}$/.test(time)) return time || 'Время не указано';
+  const [hours, minutes] = time.split(':').map(Number);
+  const duration = Number(entry?.durationMinutes);
+  const durationMinutes = Number.isFinite(duration) && duration > 0 ? Math.round(duration) : 60;
+  const startTotal = (hours * 60) + minutes;
+  const endTotal = startTotal + durationMinutes;
+  const endHours = Math.floor((endTotal / 60) % 24);
+  const endMinutes = endTotal % 60;
+  return `${time}–${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
 };
 
 const sortScheduleEntries = (entries = []) => (
@@ -197,7 +300,6 @@ const ScheduleSection = ({
   const [deletingId, setDeletingId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [scheduleCompactMode, setScheduleCompactMode] = useState(false);
-  const [studentScheduleCollapsed, setStudentScheduleCollapsed] = useState(role === 'student');
   const [lessonSchedule, setLessonSchedule] = useState([]);
   const [scheduleForm, setScheduleForm] = useState({ ...DEFAULT_SCHEDULE_FORM });
   const [scheduleLoading, setScheduleLoading] = useState(false);
@@ -352,7 +454,7 @@ const ScheduleSection = ({
   }, [effectiveStudentId, googleScheduleSyncing, role]);
 
   const loadScheduleRequests = useCallback(async () => {
-    if (!effectiveStudentId) {
+    if (!effectiveStudentId || role === 'student') {
       setScheduleRequests([]);
       setScheduleRequestsError('');
       setScheduleRequestsLoading(false);
@@ -491,7 +593,7 @@ const ScheduleSection = ({
       const [nextLessonResult, scheduleResult, scheduleRequestsResult, studentDataResult] = await Promise.allSettled([
         api.getStudentNextLesson(requestStudentId),
         api.getStudentSchedule(requestStudentId),
-        api.getStudentScheduleRequests(requestParams),
+        role === 'teacher' ? api.getStudentScheduleRequests(requestParams) : Promise.resolve([]),
         api.getStudentData(requestStudentId),
       ]);
       if (nextLessonResult.status === 'fulfilled') {
@@ -697,6 +799,112 @@ const ScheduleSection = ({
           disabled={studentsLoading || studentsList.length === 0}
           className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
         />
+      </div>
+    );
+  };
+
+  const getStudentWeekDateLabel = (entry) => {
+    const date = parseScheduleDayKey(entry?.currentWeekDate);
+    if (!date) return entry?.day || 'День занятия';
+    const todayKey = formatScheduleDayKey(new Date());
+    const tomorrowKey = formatScheduleDayKey(addScheduleDays(new Date(), 1));
+    const dateKey = formatScheduleDayKey(date);
+    const relativeLabel = dateKey === todayKey
+      ? 'Сегодня'
+      : (dateKey === tomorrowKey ? 'Завтра' : (entry?.day || 'День'));
+    const dateLabel = date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }).replace(' г.', '');
+    return `${relativeLabel}, ${dateLabel}`;
+  };
+
+  const renderStudentWeekSchedule = () => {
+    const todayKey = formatScheduleDayKey(new Date());
+    const lessonsByDate = currentWeekSchedule.reduce((acc, entry) => {
+      const key = String(entry?.currentWeekDate || '').trim();
+      if (!key) return acc;
+      const list = acc.get(key) || [];
+      list.push(entry);
+      acc.set(key, list);
+      return acc;
+    }, new Map());
+
+    return (
+      <div className="schedule-shell__student-board">
+        <div className="schedule-shell__student-week-strip" aria-label="Дни текущей недели">
+          {currentScheduleWeekDays.map((day, index) => {
+            const lessonsCount = lessonsByDate.get(day.dateKey)?.length || 0;
+            const isToday = day.dateKey === todayKey;
+            return (
+              <div
+                key={day.dateKey || day.key}
+                className={`schedule-shell__student-day-chip${lessonsCount > 0 ? ' schedule-shell__student-day-chip--has-lessons' : ''}${isToday ? ' schedule-shell__student-day-chip--today' : ''}`}
+                style={{ '--day-index': index }}
+              >
+                <span>{SCHEDULE_WEEKDAY_SHORT_LABELS[day.key] || day.label.slice(0, 2).toUpperCase()}</span>
+                <strong>{day.date?.getDate?.() || ''}</strong>
+                {lessonsCount > 0 && <em>{lessonsCount}</em>}
+              </div>
+            );
+          })}
+        </div>
+
+        {scheduleLoading && currentWeekSchedule.length === 0 ? (
+          <div className="schedule-shell__student-board-loading">
+            <RefreshCcw size={15} className="animate-spin" />
+            Загружаем занятия недели...
+          </div>
+        ) : currentWeekSchedule.length === 0 ? (
+          <div className="schedule-shell__student-board-empty">
+            <Calendar size={18} />
+            <div>
+              <strong>На этой неделе занятий нет</strong>
+              <span>Если расписание изменилось, преподаватель обновит его сам.</span>
+            </div>
+          </div>
+        ) : (
+          <div className="schedule-shell__student-lessons">
+            {currentWeekSchedule.map((entry, index) => {
+              const isGoogleSlot = isGoogleCalendarScheduleEntry(entry);
+              const lessonUrl = normalizeHttpUrl(entry?.lessonLink);
+              const duration = Number(entry?.durationMinutes);
+              const durationLabel = Number.isFinite(duration) && duration > 0 ? `${Math.round(duration)} мин` : '60 мин';
+              const lessonDate = parseScheduleDayKey(entry?.currentWeekDate);
+              const dayNumber = lessonDate?.getDate?.() || '';
+              return (
+                <article
+                  key={entry.id || `${entry.currentWeekDate}-${entry.weekdayKey}-${entry.time}-${entry.createdAt || 'slot'}`}
+                  className="schedule-shell__student-lesson"
+                  style={{ '--lesson-index': index }}
+                >
+                  <div className="schedule-shell__student-lesson-date">
+                    <span>{SCHEDULE_WEEKDAY_SHORT_LABELS[entry.weekdayKey] || 'ДЕНЬ'}</span>
+                    <strong>{dayNumber}</strong>
+                  </div>
+                  <div className="schedule-shell__student-lesson-main">
+                    <div className="schedule-shell__student-lesson-heading">
+                      <span>{getStudentWeekDateLabel(entry)}</span>
+                      <em>{isGoogleSlot ? 'Google Calendar' : 'Расписание'}</em>
+                    </div>
+                    <div className="schedule-shell__student-lesson-time">
+                      <Clock3 size={14} />
+                      <strong>{getScheduleTimeRangeLabel(entry)}</strong>
+                      <span>{durationLabel}</span>
+                    </div>
+                  </div>
+                  {lessonUrl && (
+                    <a
+                      href={lessonUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="schedule-shell__student-lesson-link"
+                    >
+                      Открыть
+                    </a>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   };
@@ -1027,6 +1235,18 @@ const ScheduleSection = ({
     return list.sort((a, b) => new Date(b?.issuedAt || 0) - new Date(a?.issuedAt || 0));
   }, [homeworks]);
   const sortedSchedule = useMemo(() => sortScheduleEntries(lessonSchedule), [lessonSchedule]);
+  const currentScheduleWeekDays = useMemo(() => getCurrentScheduleWeekDays(), [effectiveStudentId]);
+  const currentWeekSchedule = useMemo(
+    () => buildCurrentWeekScheduleEntries(lessonSchedule, currentScheduleWeekDays),
+    [currentScheduleWeekDays, lessonSchedule]
+  );
+  const studentWeekRangeLabel = useMemo(() => {
+    const first = currentScheduleWeekDays[0]?.date;
+    const last = currentScheduleWeekDays[currentScheduleWeekDays.length - 1]?.date;
+    if (!first || !last) return 'Текущая неделя';
+    const formatShort = (date) => date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }).replace('.', '');
+    return `${formatShort(first)} — ${formatShort(last)}`;
+  }, [currentScheduleWeekDays]);
   const sortedScheduleRequests = useMemo(() => {
     const list = Array.isArray(scheduleRequests) ? [...scheduleRequests] : [];
     return list.sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0));
@@ -1068,13 +1288,14 @@ const ScheduleSection = ({
     },
     {
       key: 'schedule-requests',
-      message: scheduleRequestsError,
+      message: role === 'teacher' ? scheduleRequestsError : '',
       tone: 'amber',
       label: 'Запросы на изменение расписания',
     },
   ].filter((entry) => String(entry.message || '').trim())), [
     error,
     mockExamsError,
+    role,
     scheduleError,
     scheduleRequestsError,
     testsDbError,
@@ -1216,15 +1437,10 @@ const ScheduleSection = ({
   const nextHomeworkPendingShortLabel = nextHomeworkPendingGoal?.heading
     ? String(nextHomeworkPendingGoal.heading).split('·')[0].trim()
     : '';
-  const isStudentScheduleCollapsed = role === 'student' && studentScheduleCollapsed;
 
   useEffect(() => {
     setShowHistory(false);
   }, [effectiveStudentId, totalHomeworkCount]);
-
-  useEffect(() => {
-    setStudentScheduleCollapsed(role === 'student');
-  }, [effectiveStudentId, role]);
 
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
     if (!entry) return null;
@@ -1906,7 +2122,7 @@ const ScheduleSection = ({
       )}
 
       {(role === 'teacher' || role === 'student') && (
-        <Card className="schedule-shell__lessons-card space-y-4 border-sky-200/70 bg-gradient-to-br from-white via-sky-50/50 to-indigo-50/40">
+        <Card className={`schedule-shell__lessons-card ${role === 'student' ? 'space-y-3' : 'space-y-4'} border-sky-200/70 bg-gradient-to-br from-white via-sky-50/50 to-indigo-50/40`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <span className="schedule-shell__lessons-icon inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-sky-200 bg-white text-sky-600 shadow-sm">
@@ -1919,7 +2135,7 @@ const ScheduleSection = ({
                 <p className="text-xs text-slate-500">
                   {role === 'teacher'
                     ? `Берём текущую неделю из Google Calendar по названию события${selectedStudent ? `: ${getStudentLabel(selectedStudent)}` : ' выбранного ученика'}.`
-                    : 'Добавляйте и меняйте занятия — преподаватель подтвердит запрос.'}
+                    : `${studentWeekRangeLabel} · ${currentWeekSchedule.length > 0 ? `${currentWeekSchedule.length} ${currentWeekSchedule.length === 1 ? 'занятие' : 'занятий'}` : 'занятий пока нет'} · без заявок и ручного редактирования.`}
                 </p>
               </div>
             </div>
@@ -1935,29 +2151,31 @@ const ScheduleSection = ({
                   {googleScheduleSyncing ? 'Сверяем...' : 'Взять из Google'}
                 </button>
               )}
-              <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
-                {`Слотов: ${sortedSchedule.length}`}
-              </span>
               {role === 'student' && (
                 <button
                   type="button"
-                  onClick={() => setStudentScheduleCollapsed((prev) => !prev)}
-                  aria-expanded={!isStudentScheduleCollapsed}
-                  aria-controls="student-schedule-details"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-white/90 px-3 py-1 text-[11px] font-semibold text-sky-700 shadow-sm transition hover:bg-sky-50"
+                  onClick={handleToggleLessonReminder}
+                  disabled={lessonReminderLoading || lessonReminderSaving || pushSyncing || pushBusy || !pushReady}
+                  className="schedule-shell__student-reminder-compact"
+                  title={lessonReminderError || pushError || lessonReminderStatusText || 'Напоминания о занятиях'}
                 >
-                  <ChevronRight
-                    size={13}
-                    className={`transition-transform ${isStudentScheduleCollapsed ? '' : 'rotate-90'}`}
-                  />
-                  {isStudentScheduleCollapsed ? 'Показать' : 'Свернуть'}
+                  {(pushEnabled && lessonReminderEnabled) ? <BellOff size={13} /> : <Bell size={13} />}
+                  {lessonReminderSaving
+                    ? '...'
+                    : (!pushEnabled
+                        ? 'Push'
+                        : (lessonReminderEnabled ? 'Напом.' : 'Напом.'))}
                 </button>
               )}
+              <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                {role === 'student'
+                  ? `${currentWeekSchedule.length} ${currentWeekSchedule.length === 1 ? 'занятие' : 'занятий'}`
+                  : `Слотов: ${sortedSchedule.length}`}
+              </span>
             </div>
           </div>
 
-          {!isStudentScheduleCollapsed && (
-            <div id={role === 'student' ? 'student-schedule-details' : undefined} className="space-y-4">
+          <div className="space-y-4">
               {scheduleRequestNotice && (
                 <div className="schedule-shell__notice-success rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-700">
                   {scheduleRequestNotice}
@@ -1974,6 +2192,10 @@ const ScheduleSection = ({
                 </div>
               )}
 
+              {role === 'student' ? (
+                renderStudentWeekSchedule()
+              ) : (
+                <>
               <div className="schedule-shell__support-grid">
               {role === 'student' && (
                 <div className="schedule-shell__reminder-card rounded-2xl border border-sky-200/80 bg-white/90 p-3">
@@ -2251,8 +2473,9 @@ const ScheduleSection = ({
                   })}
                 </div>
               )}
+                </>
+              )}
             </div>
-          )}
         </Card>
       )}
 
