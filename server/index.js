@@ -6747,19 +6747,48 @@ const calendarEventTextIncludesName = (haystack, name) => {
 };
 
 const getGoogleCalendarStudentMatchNames = (student) => {
-  const values = [
+  const secondaryValues = [
     student?.nickname,
     student?.studentNickname,
+  ];
+  const primaryValues = [
     student?.name,
     student?.mainName,
     student?.studentName,
     student?.displayName,
     student?.publicName,
   ];
-  return Array.from(new Set(
+  const normalizeValues = (values) => Array.from(new Set(
     values
       .map((value) => normalizeCalendarEventText(value))
       .filter((value) => value.length >= 2)
+  ));
+  const secondaryNames = normalizeValues(secondaryValues);
+  if (secondaryNames.length > 0) return secondaryNames;
+  return normalizeValues(primaryValues);
+};
+
+const pickUniqueGoogleCalendarStudentMatch = (matches = []) => {
+  const normalizedMatches = (Array.isArray(matches) ? matches : [])
+    .filter((item) => item?.student?.id && item?.name)
+    .sort((left, right) => right.name.length - left.name.length);
+  if (normalizedMatches.length === 0) return null;
+  const topLength = normalizedMatches[0].name.length;
+  const topMatches = normalizedMatches.filter((item) => item.name.length === topLength);
+  const uniqueStudentIds = new Set(topMatches.map((item) => String(item.student.id || '').trim()).filter(Boolean));
+  return uniqueStudentIds.size === 1 ? topMatches[0].student : null;
+};
+
+const getGoogleCalendarStudentMatchCandidates = (title, students = []) => {
+  const normalizedTitle = normalizeCalendarEventText(title);
+  if (!normalizedTitle) return [];
+  return Array.from(new Set(
+    (Array.isArray(students) ? students : [])
+      .filter((student) => student && !student.deletedAt)
+      .flatMap((student) => (
+        getGoogleCalendarStudentMatchNames(student).map((name) => ({ student, name }))
+      ))
+      .filter((item) => calendarEventTextIncludesName(normalizedTitle, item.name))
   ));
 };
 
@@ -6851,17 +6880,10 @@ const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
 
 const resolveGoogleCalendarStudentMatch = (event, students = []) => {
   const summary = normalizeCalendarEventText(event?.summary);
-  const description = normalizeCalendarEventText(event?.description);
-  const location = normalizeCalendarEventText(event?.location);
-  const haystack = `${summary} ${description} ${location}`;
-  if (!haystack.trim()) return null;
-  const candidates = (Array.isArray(students) ? students : [])
-    .filter((student) => student && !student.deletedAt)
-    .flatMap((student) => (
-      getGoogleCalendarStudentMatchNames(student).map((name) => ({ student, name }))
-    ))
-    .sort((left, right) => right.name.length - left.name.length);
-  return candidates.find((item) => calendarEventTextIncludesName(haystack, item.name))?.student || null;
+  if (!summary) return null;
+  const candidates = getGoogleCalendarStudentMatchCandidates(summary, students);
+  const exactMatches = candidates.filter((item) => summary === item.name);
+  return pickUniqueGoogleCalendarStudentMatch(exactMatches.length > 0 ? exactMatches : candidates);
 };
 
 const buildGoogleCalendarScheduleEntry = (event, teacherId, students = []) => {
@@ -7025,6 +7047,7 @@ const getTeacherScheduleEntries = (teacherId, options = {}) => {
     const schedule = Array.isArray(studentData?.schedule) ? studentData.schedule : [];
     schedule.forEach((entry) => {
       if (!entry || typeof entry !== 'object') return;
+      if (isGoogleStudentScheduleEntry(entry)) return;
       const rawDate = typeof entry?.date === 'string' ? entry.date.trim() : '';
       if (rawDate && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return;
       const weekdayMeta = resolveScheduleWeekdayMeta({
