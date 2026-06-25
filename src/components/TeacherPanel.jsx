@@ -1345,7 +1345,7 @@ const TeacherPanel = ({
 
       <div className="teacher-question-editor__body" onPaste={handlePasteImages}>
         <div className="teacher-question-editor__inline-grid">
-          <section className="teacher-question-editor__section">
+          <section className="teacher-question-editor__section teacher-question-editor__condition-section">
             <div className="teacher-question-editor__section-heading">
               <span className="teacher-question-editor__step">1</span>
               <div>
@@ -2683,7 +2683,7 @@ const TeacherPanel = ({
             
             <div className="teacher-question-editor__body" onPaste={handlePasteImages}>
               <div className="teacher-question-editor__intro-grid">
-                <section className="teacher-question-editor__section">
+                <section className="teacher-question-editor__section teacher-question-editor__condition-section">
                   <div className="teacher-question-editor__section-heading">
                     <span className="teacher-question-editor__step">1</span>
                     <div>

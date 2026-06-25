@@ -35,6 +35,7 @@ const MOCK_ARTIFACT_SHARD_COUNT = 28;
 const MOCK_ATTEMPT_MODE_CLASSIC = 'classic';
 const MOCK_ATTEMPT_MODE_TIMER = 'timer';
 const MOCK_EXAM_TIMER_DURATION_MS = 235 * 60 * 1000;
+const MOCK_EXAM_ANSWER_DRAFT_PREFIX = 'mock-exam-answer-draft-v1';
 
 const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -42,6 +43,65 @@ const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) =
   if (normalized === MOCK_ATTEMPT_MODE_CLASSIC) return MOCK_ATTEMPT_MODE_CLASSIC;
   return fallback;
 };
+
+const buildMockExamDraftKey = ({ studentId, examId, mode }) => {
+  const normalizedStudentId = String(studentId || 'anonymous').trim() || 'anonymous';
+  const normalizedExamId = String(examId || '').trim() || 'exam';
+  const normalizedMode = normalizeMockAttemptMode(mode);
+  return `${MOCK_EXAM_ANSWER_DRAFT_PREFIX}:${normalizedStudentId}:${normalizedExamId}:${normalizedMode}`;
+};
+
+const canUseMockExamDraftStorage = () => (
+  typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+);
+
+const hasMockExamDraftValue = (value) => {
+  if (Array.isArray(value)) return value.some((entry) => String(entry ?? '').trim());
+  return Boolean(String(value ?? '').trim());
+};
+
+const normalizeMockExamDraftAnswers = (answers) => {
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return {};
+  return Object.entries(answers).reduce((acc, [taskKey, value]) => {
+    const key = String(taskKey || '').trim();
+    if (!key || !hasMockExamDraftValue(value)) return acc;
+    acc[key] = Array.isArray(value)
+      ? value.map((entry) => String(entry ?? ''))
+      : String(value ?? '');
+    return acc;
+  }, {});
+};
+
+const readMockExamAnswerDraft = ({ studentId, examId, mode }) => {
+  if (!canUseMockExamDraftStorage()) return {};
+  const key = buildMockExamDraftKey({ studentId, examId, mode });
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || 'null');
+    return normalizeMockExamDraftAnswers(parsed?.answers);
+  } catch {
+    return {};
+  }
+};
+
+const writeMockExamAnswerDraft = ({ studentId, examId, mode, answers }) => {
+  if (!canUseMockExamDraftStorage() || !examId) return;
+  const key = buildMockExamDraftKey({ studentId, examId, mode });
+  const normalizedAnswers = normalizeMockExamDraftAnswers(answers);
+  if (Object.keys(normalizedAnswers).length === 0) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+  window.localStorage.setItem(key, JSON.stringify({
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    answers: normalizedAnswers,
+  }));
+};
+
+const mergeMockExamAnswersWithDraft = (attemptAnswers, draftAnswers) => ({
+  ...(attemptAnswers && typeof attemptAnswers === 'object' && !Array.isArray(attemptAnswers) ? attemptAnswers : {}),
+  ...(draftAnswers && typeof draftAnswers === 'object' && !Array.isArray(draftAnswers) ? draftAnswers : {}),
+});
 
 const formatMockTimerDuration = (value) => {
   const totalSeconds = Math.max(0, Math.ceil(Number(value) / 1000));
@@ -198,12 +258,17 @@ const MockExamModal = ({
 
   useEffect(() => {
     hasLocalAttemptChangesRef.current = false;
-    setDisplayAttempt(latestInitialAttemptRef.current && typeof latestInitialAttemptRef.current === 'object'
+    const nextAttempt = latestInitialAttemptRef.current && typeof latestInitialAttemptRef.current === 'object'
       ? latestInitialAttemptRef.current
-      : {});
-    setAnswers(readAttemptAnswers(latestInitialAttemptRef.current));
-    setSolved(readAttemptSolved(latestInitialAttemptRef.current));
-    setResults(readAttemptResults(latestInitialAttemptRef.current));
+      : {};
+    setDisplayAttempt(nextAttempt);
+    const nextMode = normalizeMockAttemptMode(nextAttempt?.mode, normalizeMockAttemptMode(attemptMode));
+    setAnswers(mergeMockExamAnswersWithDraft(
+      readAttemptAnswers(nextAttempt),
+      readMockExamAnswerDraft({ studentId, examId: exam?.id, mode: nextMode })
+    ));
+    setSolved(readAttemptSolved(nextAttempt));
+    setResults(readAttemptResults(nextAttempt));
     setSaveError('');
     setSaveStatus('');
     setChecking(false);
@@ -218,17 +283,31 @@ const MockExamModal = ({
       ? modalTaskNumbers.find((taskNumber) => String(taskNumber) === requestedTask)
       : null;
     setSelectedTask(initialTask || firstTaskNumber);
-  }, [exam?.id, studentId, firstTaskNumber, initialTaskNumber, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
+  }, [attemptMode, exam?.id, studentId, firstTaskNumber, initialTaskNumber, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
 
   useEffect(() => {
     if (hasLocalAttemptChangesRef.current) return;
-    setDisplayAttempt(initialAttempt && typeof initialAttempt === 'object' ? initialAttempt : {});
-    setAnswers(readAttemptAnswers(initialAttempt));
-    setSolved(readAttemptSolved(initialAttempt));
-    setResults(readAttemptResults(initialAttempt));
+    const nextAttempt = initialAttempt && typeof initialAttempt === 'object' ? initialAttempt : {};
+    setDisplayAttempt(nextAttempt);
+    const nextMode = normalizeMockAttemptMode(nextAttempt?.mode, normalizeMockAttemptMode(attemptMode));
+    setAnswers(mergeMockExamAnswersWithDraft(
+      readAttemptAnswers(nextAttempt),
+      readMockExamAnswerDraft({ studentId, examId: exam?.id, mode: nextMode })
+    ));
+    setSolved(readAttemptSolved(nextAttempt));
+    setResults(readAttemptResults(nextAttempt));
     setSaveError('');
     setSaveStatus('');
-  }, [initialAttempt, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
+  }, [attemptMode, exam?.id, initialAttempt, readAttemptAnswers, readAttemptResults, readAttemptSolved, studentId]);
+
+  useEffect(() => {
+    writeMockExamAnswerDraft({
+      studentId,
+      examId: exam?.id,
+      mode: effectiveAttemptMode,
+      answers,
+    });
+  }, [answers, effectiveAttemptMode, exam?.id, studentId]);
 
   useEffect(() => {
     if (!isTimerMode || timerPaused) return undefined;

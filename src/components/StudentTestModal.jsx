@@ -1,12 +1,89 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, ChevronLeft, Download, History, ListChecks, PlayCircle, RefreshCcw, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, History, ListChecks, PlayCircle, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
 import { Button } from './ui';
+
+const STUDENT_TEST_ANSWER_DRAFT_PREFIX = 'student-test-answer-draft-v1';
+
+const buildStudentTestDraftKey = ({ studentId, taskNumber, levelId }) => {
+  const normalizedStudentId = String(studentId || 'anonymous').trim() || 'anonymous';
+  const normalizedTaskNumber = String(taskNumber || '').trim() || 'task';
+  const normalizedLevelId = String(levelId || '').trim() || 'level';
+  return `${STUDENT_TEST_ANSWER_DRAFT_PREFIX}:${normalizedStudentId}:${normalizedTaskNumber}:${normalizedLevelId}`;
+};
+
+const canUseStudentTestDraftStorage = () => (
+  typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+);
+
+const hasStudentTestDraftValue = (value) => {
+  if (Array.isArray(value)) return value.some((entry) => String(entry ?? '').trim());
+  return Boolean(String(value ?? '').trim());
+};
+
+const readStudentTestAnswerDraft = ({ studentId, taskNumber, levelId, questions = [] }) => {
+  if (!canUseStudentTestDraftStorage()) return { answersByIndex: {}, currentIndex: null };
+  const key = buildStudentTestDraftKey({ studentId, taskNumber, levelId });
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || 'null');
+    const answersByQuestionId = parsed?.answersByQuestionId && typeof parsed.answersByQuestionId === 'object'
+      ? parsed.answersByQuestionId
+      : {};
+    const answersByIndex = {};
+    questions.forEach((question, index) => {
+      const questionId = String(question?.id ?? index);
+      if (!Object.prototype.hasOwnProperty.call(answersByQuestionId, questionId)) return;
+      const value = answersByQuestionId[questionId];
+      if (hasStudentTestDraftValue(value)) answersByIndex[index] = value;
+    });
+    const currentQuestionId = String(parsed?.currentQuestionId || '').trim();
+    const currentIndex = currentQuestionId
+      ? questions.findIndex((question, index) => String(question?.id ?? index) === currentQuestionId)
+      : null;
+    return {
+      answersByIndex,
+      currentIndex: Number.isFinite(currentIndex) && currentIndex >= 0 ? currentIndex : null,
+    };
+  } catch {
+    return { answersByIndex: {}, currentIndex: null };
+  }
+};
+
+const writeStudentTestAnswerDraft = ({ studentId, taskNumber, levelId, questions = [], currentIndex = 0, answers = {}, solvedIds = new Set() }) => {
+  if (!canUseStudentTestDraftStorage() || !levelId || !taskNumber) return;
+  const key = buildStudentTestDraftKey({ studentId, taskNumber, levelId });
+  const solvedSet = solvedIds instanceof Set ? solvedIds : new Set();
+  const answersByQuestionId = {};
+  Object.entries(answers || {}).forEach(([indexKey, value]) => {
+    const index = Number(indexKey);
+    if (!Number.isInteger(index) || index < 0 || index >= questions.length) return;
+    if (!hasStudentTestDraftValue(value)) return;
+    const questionId = String(questions[index]?.id ?? index);
+    if (solvedSet.has(questionId)) return;
+    answersByQuestionId[questionId] = Array.isArray(value)
+      ? value.map((entry) => String(entry ?? ''))
+      : String(value ?? '');
+  });
+
+  if (Object.keys(answersByQuestionId).length === 0) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+
+  const safeCurrentIndex = Math.max(0, Math.min(questions.length - 1, Number(currentIndex) || 0));
+  window.localStorage.setItem(key, JSON.stringify({
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    currentQuestionId: String(questions[safeCurrentIndex]?.id ?? safeCurrentIndex),
+    answersByQuestionId,
+  }));
+};
+
 const StudentTestModal = ({
   theme = '',
   task,
@@ -439,13 +516,19 @@ const StudentTestModal = ({
     setQuestions(qs);
     setQuestionNumbers(nextQuestionNumbers);
     setLevel(lvlId);
+    const draft = readStudentTestAnswerDraft({
+      studentId,
+      taskNumber: task.number,
+      levelId: lvlId,
+      questions: qs,
+    });
     const wantsStoredIndex = Number.isFinite(Number(options?.initialIndex));
-    const rawIndex = wantsStoredIndex ? Number(options.initialIndex) : 0;
+    const rawIndex = wantsStoredIndex ? Number(options.initialIndex) : (draft.currentIndex ?? 0);
     const safeIndex = qs.length > 0
       ? Math.max(0, Math.min(qs.length - 1, Math.floor(rawIndex)))
       : 0;
     setCurrentIndex(safeIndex);
-    setUserAnswers({});
+    setUserAnswers(draft.answersByIndex || {});
     setResults({});
     setSolvedIds(new Set());
     setSolvedAnswerById({});
@@ -533,6 +616,20 @@ const StudentTestModal = ({
     if (!Number.isFinite(currentIndex)) return;
     onQuestionChange?.(currentIndex);
   }, [currentIndex, stage, onQuestionChange]);
+
+  useEffect(() => {
+    if (stage !== 'testing') return;
+    if (!level || !questions.length) return;
+    writeStudentTestAnswerDraft({
+      studentId,
+      taskNumber: task.number,
+      levelId: level,
+      questions,
+      currentIndex,
+      answers: userAnswers,
+      solvedIds,
+    });
+  }, [currentIndex, level, questions, solvedIds, stage, studentId, task.number, userAnswers]);
 
   useEffect(() => {
     if (stage !== 'testing' || !questionCodeOpen) return;
@@ -711,6 +808,14 @@ const StudentTestModal = ({
         onComplete(task.id, levelConfig.maxScore, { skipServer: true });
       }
     }
+  };
+
+  const handlePreviousQuestion = () => {
+    setCurrentIndex((index) => Math.max(0, index - 1));
+  };
+
+  const handleNextQuestion = () => {
+    setCurrentIndex((index) => Math.min(Math.max(questions.length - 1, 0), index + 1));
   };
 
   const handleNext = () => {
@@ -968,6 +1073,29 @@ const StudentTestModal = ({
         return `${label}: ${value}`;
       }).join('; ');
     };
+    const getQuestionSideNavState = (index) => {
+      if (index < 0 || index >= questions.length) return 'unavailable';
+      const question = questions[index];
+      const questionId = String(question?.id ?? index);
+      if (solvedIds.has(questionId) || results[index] === true) return 'solved';
+      if (results[index] === false) return 'wrong';
+      if (hasStudentTestDraftValue(userAnswers[index])) return 'draft';
+      return 'pending';
+    };
+    const getQuestionSideNavLabel = (index) => {
+      if (index < 0) return 'Предыдущего вопроса нет';
+      if (index >= questions.length) return 'Следующего вопроса нет';
+      const state = getQuestionSideNavState(index);
+      const number = questionNumbers[index] ?? (index + 1);
+      if (state === 'solved') return `Вопрос №${number} решён`;
+      if (state === 'wrong') return `Вопрос №${number}: ответ неверный`;
+      if (state === 'draft') return `Вопрос №${number}: ответ введён`;
+      return `Вопрос №${number} не решён`;
+    };
+    const previousQuestionSideNavState = getQuestionSideNavState(currentIndex - 1);
+    const nextQuestionSideNavState = getQuestionSideNavState(currentIndex + 1);
+    const previousQuestionSideNavLabel = getQuestionSideNavLabel(currentIndex - 1);
+    const nextQuestionSideNavLabel = getQuestionSideNavLabel(currentIndex + 1);
 
     const modal = (
       <div className="student-test-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-0 sm:p-3 md:p-5">
@@ -1059,6 +1187,27 @@ const StudentTestModal = ({
               })}
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={handlePreviousQuestion}
+            disabled={currentIndex === 0}
+            className={`student-test-side-nav student-test-side-nav--prev is-${previousQuestionSideNavState}`}
+            aria-label={`Предыдущее задание. ${previousQuestionSideNavLabel}`}
+            title={previousQuestionSideNavLabel}
+          >
+            <ChevronLeft size={24} strokeWidth={2.5} />
+          </button>
+          <button
+            type="button"
+            onClick={handleNextQuestion}
+            disabled={currentIndex >= questions.length - 1}
+            className={`student-test-side-nav student-test-side-nav--next is-${nextQuestionSideNavState}`}
+            aria-label={`Следующее задание. ${nextQuestionSideNavLabel}`}
+            title={nextQuestionSideNavLabel}
+          >
+            <ChevronRight size={24} strokeWidth={2.5} />
+          </button>
 
           <div className="student-test-scroll flex-1 overflow-y-auto">
             <div key={`${level}:${currentId}`} className="student-test-content student-test-content--question-enter mx-auto w-full max-w-5xl">
@@ -1590,16 +1739,6 @@ const StudentTestModal = ({
           </div>
 
           <footer className="student-test-footer shrink-0">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setCurrentIndex((index) => Math.max(0, index - 1))}
-              disabled={currentIndex === 0}
-              className="student-test-back-action h-11 w-11 shrink-0 px-0 sm:w-auto sm:px-4"
-            >
-              <ChevronLeft size={18} />
-              <span className="hidden sm:inline">Назад</span>
-            </Button>
             <Button 
               onClick={(event) => {
                 if (!computedChecked) {
