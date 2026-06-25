@@ -1155,18 +1155,23 @@ const StudentTestModal = ({
                 const solved = solvedIds.has(qId);
                 const status = results[idx];
                 const isCurrent = idx === currentIndex;
+                const hasDraft = hasStudentTestDraftValue(userAnswers[idx]);
                 let btnClass = 'student-test-question-button ';
 
                 if (isCurrent && (solved || status === true)) {
                   btnClass += 'is-current is-correct';
                 } else if (isCurrent && status === false) {
                   btnClass += 'is-current is-wrong';
+                } else if (isCurrent && hasDraft) {
+                  btnClass += 'is-current is-draft';
                 } else if (isCurrent) {
                   btnClass += 'is-current';
                 } else if (solved || status === true) {
                   btnClass += 'is-correct';
                 } else if (status === false) {
                   btnClass += 'is-wrong';
+                } else if (hasDraft) {
+                  btnClass += 'is-draft';
                 }
 
                 return (
@@ -1175,7 +1180,13 @@ const StudentTestModal = ({
                     onClick={() => setCurrentIndex(idx)}
                     className={btnClass}
                     style={{ '--student-test-item-index': idx }}
-                    title={solved ? `Вопрос №${questionNumbers[idx] ?? (idx + 1)} решён` : `Вопрос №${questionNumbers[idx] ?? (idx + 1)}`}
+                    title={
+                      solved || status === true
+                        ? `Вопрос №${questionNumbers[idx] ?? (idx + 1)} решён`
+                        : hasDraft
+                          ? `Вопрос №${questionNumbers[idx] ?? (idx + 1)}: ответ введён`
+                          : `Вопрос №${questionNumbers[idx] ?? (idx + 1)}`
+                    }
                     type="button"
                     aria-current={isCurrent ? 'step' : undefined}
                   >

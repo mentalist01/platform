@@ -46934,10 +46934,24 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   background: #ecfdf5;
 }
 
+.student-test-question-button.is-draft:not(.is-current) {
+  border-color: #7dd3fc;
+  color: #0284c7;
+  background: #e0f2fe;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.13);
+}
+
 .student-test-question-button.is-current.is-correct {
   border-color: #10b981;
   background: linear-gradient(145deg, #10b981, #059669);
   box-shadow: 0 5px 14px rgba(5, 150, 105, 0.26), 0 0 0 3px rgba(16, 185, 129, 0.13);
+}
+
+.student-test-question-button.is-current.is-draft {
+  border-color: #0ea5e9;
+  color: #fff;
+  background: linear-gradient(145deg, #38bdf8, #0ea5e9);
+  box-shadow: 0 5px 14px rgba(14, 165, 233, 0.25), 0 0 0 3px rgba(56, 189, 248, 0.14);
 }
 
 .student-test-question-button.is-wrong:not(.is-current) {
@@ -47140,8 +47154,6 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
 
 .student-test-question-button {
   position: relative;
-  animation: studentTestQuestionButtonIn 0.38s cubic-bezier(0.2, 1.35, 0.35, 1) backwards;
-  animation-delay: calc(0.1s + (var(--student-test-item-index, 0) * 34ms));
 }
 
 .student-test-question-button:active {
@@ -48034,6 +48046,19 @@ html[data-theme='dark'] .student-test-question-button.is-correct:not(.is-current
   border-color: rgba(52, 211, 153, 0.36);
   color: #6ee7b7;
   background: rgba(6, 78, 59, 0.34);
+}
+
+html[data-theme='dark'] .student-test-question-button.is-draft:not(.is-current) {
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #7dd3fc;
+  background: rgba(14, 116, 144, 0.28);
+}
+
+html[data-theme='dark'] .student-test-question-button.is-current.is-draft {
+  border-color: rgba(125, 211, 252, 0.58);
+  color: #fff;
+  background: linear-gradient(145deg, #0ea5e9, #0284c7);
+  box-shadow: 0 5px 14px rgba(14, 165, 233, 0.25), 0 0 0 3px rgba(56, 189, 248, 0.14);
 }
 
 html[data-theme='dark'] .student-test-question-button.is-wrong:not(.is-current) {
