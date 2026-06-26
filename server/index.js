@@ -6747,25 +6747,19 @@ const calendarEventTextIncludesName = (haystack, name) => {
 };
 
 const getGoogleCalendarStudentMatchNames = (student) => {
-  const secondaryValues = [
-    student?.nickname,
-    student?.studentNickname,
-  ];
-  const primaryValues = [
+  const exactNameValues = [
     student?.name,
     student?.mainName,
     student?.studentName,
-    student?.displayName,
-    student?.publicName,
+    student?.nickname,
+    student?.studentNickname,
   ];
   const normalizeValues = (values) => Array.from(new Set(
     values
       .map((value) => normalizeCalendarEventText(value))
       .filter((value) => value.length >= 2)
   ));
-  const secondaryNames = normalizeValues(secondaryValues);
-  if (secondaryNames.length > 0) return secondaryNames;
-  return normalizeValues(primaryValues);
+  return normalizeValues(exactNameValues);
 };
 
 const pickUniqueGoogleCalendarStudentMatch = (matches = []) => {

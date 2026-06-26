@@ -44,6 +44,7 @@ import PythonSection from './components/PythonSection';
 import ScheduleSection from './components/ScheduleSection';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
 import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
+import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
@@ -15694,6 +15695,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setMenuOpen(false);
   }, [navigateToView, user.role]);
 
+  const handleOpenStudentPlatformLesson = useCallback(() => {
+    if (user.role !== 'student') return;
+    if (isCallViewAvailable) {
+      setCallPanelExpanded(true);
+      setCallAutoStartToken((current) => current + 1);
+      navigateToView('call');
+    } else {
+      navigateToView('board');
+    }
+    setMenuOpen(false);
+  }, [isCallViewAvailable, navigateToView, user.role]);
+
   const handleExpandGoalBlock = useCallback(() => {
     setGoalCollapsed(false);
     const mainNode = mainScrollRef.current;
@@ -17671,6 +17684,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               students={studentsWithNicknames}
               getStudentLabel={getStudentLabel}
               onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
+            />
+          )}
+          {user.role === 'student' && (
+            <StudentLessonJoinPrompt
+              studentId={user.id}
+              onOpenPlatformLesson={handleOpenStudentPlatformLesson}
             />
           )}
           {view === 'board' && (

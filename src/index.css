@@ -20497,6 +20497,275 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   }
 }
 
+.student-lesson-join-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.72), rgba(15, 23, 42, 0.56));
+  backdrop-filter: blur(16px) saturate(112%);
+  -webkit-backdrop-filter: blur(16px) saturate(112%);
+  animation: studentLessonJoinBackdropIn 180ms ease-out both;
+}
+
+.student-lesson-join-prompt__card {
+  position: relative;
+  isolation: isolate;
+  width: min(640px, 100%);
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.62);
+  border-radius: 24px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 255, 0.96) 54%, rgba(236, 253, 245, 0.94));
+  box-shadow:
+    0 28px 70px rgba(2, 6, 23, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  color: #0f172a;
+  animation: studentLessonJoinCardIn 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-lesson-join-prompt__card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 7px;
+  background: linear-gradient(90deg, #06b6d4, #22c55e, #8b5cf6);
+  pointer-events: none;
+}
+
+.student-lesson-join-prompt__close {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 2;
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #475569;
+  transition: transform 160ms ease, background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.student-lesson-join-prompt__close:hover {
+  transform: translateY(-1px);
+  border-color: rgba(14, 165, 233, 0.42);
+  background: rgba(240, 249, 255, 0.95);
+  color: #0f172a;
+}
+
+.student-lesson-join-prompt__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 28px 68px 12px 24px;
+}
+
+.student-lesson-join-prompt__badge,
+.student-lesson-join-prompt__countdown,
+.student-lesson-join-prompt__meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.student-lesson-join-prompt__badge {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(14, 165, 233, 0.22);
+  border-radius: 12px;
+  background: rgba(240, 249, 255, 0.86);
+  color: #0369a1;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.student-lesson-join-prompt__countdown {
+  min-width: 172px;
+  min-height: 48px;
+  justify-content: center;
+  padding: 6px 12px;
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  border-radius: 16px;
+  background: rgba(236, 253, 245, 0.9);
+  color: #047857;
+}
+
+.student-lesson-join-prompt__countdown > strong {
+  min-width: 44px;
+  color: #065f46;
+  font-size: 24px;
+  font-weight: 950;
+  line-height: 1;
+  text-align: center;
+}
+
+.student-lesson-join-prompt__countdown > span {
+  max-width: 82px;
+  color: #047857;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.12;
+}
+
+.student-lesson-join-prompt__body {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 14px 24px 10px;
+}
+
+.student-lesson-join-prompt__icon {
+  display: inline-flex;
+  width: 76px;
+  height: 76px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(14, 165, 233, 0.28);
+  border-radius: 20px;
+  background:
+    linear-gradient(145deg, rgba(14, 165, 233, 0.96), rgba(34, 197, 94, 0.88));
+  color: white;
+  box-shadow: 0 18px 34px rgba(14, 165, 233, 0.24);
+}
+
+.student-lesson-join-prompt__copy {
+  min-width: 0;
+}
+
+.student-lesson-join-prompt__copy h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 32px;
+  font-weight: 950;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.student-lesson-join-prompt__copy p {
+  margin: 8px 0 0;
+  color: #475569;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.student-lesson-join-prompt__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 18px 24px 10px;
+}
+
+.student-lesson-join-prompt__primary,
+.student-lesson-join-prompt__secondary {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 14px;
+  font-weight: 950;
+  line-height: 1.15;
+  text-align: center;
+  text-decoration: none;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.student-lesson-join-prompt__primary {
+  flex: 1 1 300px;
+  padding: 0 18px;
+  border: 1px solid rgba(6, 182, 212, 0.5);
+  background: linear-gradient(135deg, #06b6d4, #2563eb);
+  color: white;
+  box-shadow: 0 18px 38px rgba(37, 99, 235, 0.26);
+}
+
+.student-lesson-join-prompt__primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 44px rgba(37, 99, 235, 0.34);
+}
+
+.student-lesson-join-prompt__primary--disabled,
+.student-lesson-join-prompt__primary--disabled:hover {
+  cursor: not-allowed;
+  transform: none;
+  border-color: rgba(148, 163, 184, 0.34);
+  background: #e2e8f0;
+  color: #64748b;
+  box-shadow: none;
+}
+
+.student-lesson-join-prompt__secondary {
+  flex: 0 1 auto;
+  padding: 0 14px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(255, 255, 255, 0.78);
+  color: #334155;
+}
+
+.student-lesson-join-prompt__secondary--telemost {
+  flex: 0 1 260px;
+}
+
+.student-lesson-join-prompt__secondary:hover {
+  transform: translateY(-1px);
+  border-color: rgba(14, 165, 233, 0.36);
+  background: rgba(240, 249, 255, 0.94);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+}
+
+.student-lesson-join-prompt__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 24px 24px;
+}
+
+.student-lesson-join-prompt__meta span {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.54);
+  color: #475569;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+@keyframes studentLessonJoinBackdropIn {
+  from {
+    opacity: 0;
+    backdrop-filter: blur(0) saturate(100%);
+  }
+  to {
+    opacity: 1;
+    backdrop-filter: blur(16px) saturate(112%);
+  }
+}
+
+@keyframes studentLessonJoinCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (max-width: 900px) {
   .schedule-shell__composer-grid {
     grid-template-columns: minmax(0, 1fr) minmax(145px, 0.45fr);
@@ -20549,6 +20818,137 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
     grid-column: 1 / -1;
     width: 100%;
   }
+
+  .student-lesson-join-prompt {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .student-lesson-join-prompt__card {
+    border-radius: 20px;
+  }
+
+  .student-lesson-join-prompt__top {
+    flex-direction: column;
+    padding: 26px 58px 10px 16px;
+  }
+
+  .student-lesson-join-prompt__countdown {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .student-lesson-join-prompt__body {
+    grid-template-columns: 58px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px 16px 8px;
+  }
+
+  .student-lesson-join-prompt__icon {
+    width: 58px;
+    height: 58px;
+    border-radius: 16px;
+  }
+
+  .student-lesson-join-prompt__copy h2 {
+    font-size: 24px;
+  }
+
+  .student-lesson-join-prompt__copy p {
+    font-size: 13px;
+  }
+
+  .student-lesson-join-prompt__actions {
+    padding: 14px 16px 8px;
+  }
+
+  .student-lesson-join-prompt__primary,
+  .student-lesson-join-prompt__secondary {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .student-lesson-join-prompt__meta {
+    padding: 8px 16px 16px;
+  }
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt {
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.78), rgba(15, 23, 42, 0.66));
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__card {
+  border-color: rgba(34, 211, 238, 0.48);
+  background:
+    linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(8, 47, 73, 0.92) 56%, rgba(20, 83, 45, 0.86));
+  color: rgb(226, 232, 240);
+  box-shadow:
+    0 28px 76px rgba(2, 6, 23, 0.62),
+    inset 0 1px 0 rgba(148, 163, 184, 0.11);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__close,
+html[data-theme='dark'] .student-lesson-join-prompt__secondary,
+html[data-theme='dark'] .student-lesson-join-prompt__meta span {
+  border-color: rgba(100, 116, 139, 0.42);
+  background: rgba(15, 23, 42, 0.72);
+  color: rgba(226, 232, 240, 0.88);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__close:hover,
+html[data-theme='dark'] .student-lesson-join-prompt__secondary:hover {
+  border-color: rgba(34, 211, 238, 0.45);
+  background: rgba(8, 47, 73, 0.68);
+  color: rgb(248, 250, 252);
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.36);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__badge {
+  border-color: rgba(34, 211, 238, 0.28);
+  background: rgba(8, 47, 73, 0.58);
+  color: rgb(165, 243, 252);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__countdown {
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(6, 78, 59, 0.42);
+  color: rgb(167, 243, 208);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__countdown > strong,
+html[data-theme='dark'] .student-lesson-join-prompt__countdown > span {
+  color: rgb(187, 247, 208);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__copy h2 {
+  color: rgb(248, 250, 252);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__copy p {
+  color: rgba(203, 213, 225, 0.88);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__icon {
+  border-color: rgba(125, 211, 252, 0.24);
+  box-shadow: 0 18px 38px rgba(8, 145, 178, 0.25);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__primary {
+  border-color: rgba(125, 211, 252, 0.38);
+  box-shadow: 0 18px 40px rgba(14, 165, 233, 0.24);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__primary:hover {
+  box-shadow: 0 22px 48px rgba(14, 165, 233, 0.32);
+}
+
+html[data-theme='dark'] .student-lesson-join-prompt__primary--disabled,
+html[data-theme='dark'] .student-lesson-join-prompt__primary--disabled:hover {
+  border-color: rgba(71, 85, 105, 0.56);
+  background: rgba(51, 65, 85, 0.82);
+  color: rgba(148, 163, 184, 0.9);
+  box-shadow: none;
 }
 
 html[data-theme='dark'] .schedule-shell__hero {
