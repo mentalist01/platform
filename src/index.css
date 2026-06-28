@@ -32067,6 +32067,28 @@ html:not([data-theme='dark']) .collab-editor-surface {
   background: #020617;
 }
 
+.collab-editor-surface .monaco-editor,
+.collab-editor-surface .monaco-editor *,
+.collab-editor-surface .overflow-guard,
+.collab-editor-surface .overflow-guard * {
+  letter-spacing: 0px !important;
+  word-spacing: 0 !important;
+  font-variant-ligatures: none !important;
+  font-stretch: normal !important;
+  text-transform: none !important;
+}
+
+.collab-editor-surface .monaco-editor .view-lines,
+.collab-editor-surface .monaco-editor .view-line,
+.collab-editor-surface .monaco-editor .view-line span,
+.collab-editor-surface .monaco-editor textarea.ime-text-area,
+.collab-editor-surface .monaco-editor textarea.inputarea {
+  font-family: "JetBrains Mono", Consolas, "Courier New", monospace !important;
+  font-feature-settings: "liga" 0, "calt" 0 !important;
+  font-kerning: none !important;
+  font-optical-sizing: none;
+}
+
 .collab-editor-surface::before {
   content: '';
   position: absolute;

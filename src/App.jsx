@@ -1704,6 +1704,7 @@ const COLLAB_DEBUG_AUTOPLAY_MS = 75;
 const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
 const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
 const COLLAB_EDITOR_FONT_SIZE_DEFAULT = 18;
+const COLLAB_EDITOR_FONT_FAMILY = '"JetBrains Mono", Consolas, "Courier New", monospace';
 const COLLAB_AUX_PANEL_MODE_INPUT = 'input';
 const COLLAB_AUX_PANEL_MODE_TEST_FILE = 'test-file';
 const COLLAB_TOP_PANE_MODE_PDF = 'pdf';
@@ -1718,6 +1719,52 @@ const COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS = 1200;
 const COLLAB_BOARD_CODE_SPLIT_DEFAULT = 60;
 const COLLAB_BOARD_CODE_SPLIT_MIN = 36;
 const COLLAB_BOARD_CODE_SPLIT_MAX = 78;
+
+const clampCollabEditorFontSize = (value) => {
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue)
+    ? Math.min(36, Math.max(12, Math.round(nextValue)))
+    : COLLAB_EDITOR_FONT_SIZE_DEFAULT;
+};
+
+const getCollabEditorMetricOptions = (fontSize) => {
+  const normalizedFontSize = clampCollabEditorFontSize(fontSize);
+  return {
+    fontFamily: COLLAB_EDITOR_FONT_FAMILY,
+    fontSize: normalizedFontSize,
+    fontWeight: '600',
+    fontLigatures: false,
+    letterSpacing: 0,
+    lineHeight: Math.round(normalizedFontSize * 1.5),
+  };
+};
+
+const refreshCollabEditorMetrics = (editor) => {
+  if (!editor?.getModel?.()) return;
+  try {
+    editor.layout?.();
+    editor.render?.();
+  } catch {
+    // Monaco can be disposed while delayed font/layout refresh callbacks are still queued.
+  }
+};
+
+const scheduleCollabEditorMetricRefresh = (editor) => {
+  refreshCollabEditorMetrics(editor);
+  if (typeof window !== 'undefined') {
+    window.requestAnimationFrame?.(() => {
+      refreshCollabEditorMetrics(editor);
+      window.requestAnimationFrame?.(() => refreshCollabEditorMetrics(editor));
+    });
+    window.setTimeout(() => refreshCollabEditorMetrics(editor), 120);
+    window.setTimeout(() => refreshCollabEditorMetrics(editor), 420);
+  }
+  if (typeof document !== 'undefined' && document.fonts?.ready?.then) {
+    document.fonts.ready
+      .then(() => refreshCollabEditorMetrics(editor))
+      .catch(() => {});
+  }
+};
 
 const mergeRuntimeErrorText = (base, next) => {
   const baseText = typeof base === 'string' ? base : String(base ?? '');
@@ -3072,8 +3119,7 @@ const CollabSection = ({
   const canOpenSelectedNotesPdf = Boolean(selectedNotesPdfUrl) && notesPdfPreviewState.status === 'ready';
   const editorOptions = useMemo(() => ({
     minimap: { enabled: false },
-    fontSize: editorFontSize,
-    fontWeight: '650',
+    ...getCollabEditorMetricOptions(editorFontSize),
     tabSize: 4,
     insertSpaces: true,
     wordWrap: 'on',
@@ -3085,7 +3131,7 @@ const CollabSection = ({
       verticalScrollbarSize: isCollabFullscreen ? 8 : 10,
       horizontalScrollbarSize: isCollabFullscreen ? 6 : 8,
     },
-    mouseWheelZoom: true,
+    mouseWheelZoom: false,
     quickSuggestions: { other: true, comments: false, strings: true },
     suggestOnTriggerCharacters: true,
     acceptSuggestionOnEnter: 'on',
@@ -3565,6 +3611,8 @@ const CollabSection = ({
   const handleEditorMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    editor.updateOptions?.(getCollabEditorMetricOptions(editorFontSize));
+    scheduleCollabEditorMetricRefresh(editor);
     applyDebugGlyphScale(editor);
     if (monaco?.languages && !collabSnippetProviderRef.current) {
       collabSnippetProviderRef.current = monaco.languages.registerCompletionItemProvider('python', {
@@ -3767,6 +3815,7 @@ const CollabSection = ({
     setEditorMountVersion((prev) => prev + 1);
   }, [
     applyDebugGlyphScale,
+    editorFontSize,
     queueCollabEditorCursorClear,
     scheduleCollabEditorCursor,
   ]);
@@ -3963,8 +4012,7 @@ const CollabSection = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const clampLocalFontSize = (value) => Math.min(36, Math.max(12, Math.round(value)));
-    const forcedFontSize = clampLocalFontSize(COLLAB_EDITOR_FONT_SIZE_DEFAULT);
+    const forcedFontSize = clampCollabEditorFontSize(COLLAB_EDITOR_FONT_SIZE_DEFAULT);
     const migrationKey = `${fontSizeStorageKey}-default18-v1`;
     const alreadyForced = window.localStorage.getItem(migrationKey) === '1';
     if (!alreadyForced) {
@@ -3976,7 +4024,7 @@ const CollabSection = ({
     const raw = window.localStorage.getItem(fontSizeStorageKey);
     const parsed = Number(raw);
     if (Number.isFinite(parsed)) {
-      setEditorFontSize(clampLocalFontSize(parsed));
+      setEditorFontSize(clampCollabEditorFontSize(parsed));
     } else {
       setEditorFontSize(forcedFontSize);
     }
@@ -4057,7 +4105,8 @@ const CollabSection = ({
   }, []);
 
   useEffect(() => {
-    editorRef.current?.updateOptions?.({ fontSize: editorFontSize });
+    editorRef.current?.updateOptions?.(getCollabEditorMetricOptions(editorFontSize));
+    scheduleCollabEditorMetricRefresh(editorRef.current);
     applyDebugGlyphScale();
   }, [editorFontSize, applyDebugGlyphScale]);
 
@@ -5888,8 +5937,9 @@ const CollabSection = ({
     }
 
     const ytext = doc.getText('monaco');
-    const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]), provider.awareness);
+    const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+    provider.awareness.setLocalStateField('selection', null);
     provider.awareness.setLocalStateField('outputSelection', null);
     provider.awareness.setLocalStateField('testFileSelection', null);
     if (COLLAB_EDITOR_CURSOR_ENABLED) {
@@ -6005,6 +6055,7 @@ const CollabSection = ({
       if (COLLAB_EDITOR_CURSOR_ENABLED) {
         provider.awareness.setLocalStateField('editorCursor', null);
       }
+      provider.awareness.setLocalStateField('selection', null);
       provider.awareness.setLocalStateField('outputSelection', null);
       provider.awareness.setLocalStateField('testFileSelection', null);
       stopCollabOutputSelectionTracking();
