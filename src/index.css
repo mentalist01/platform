@@ -34169,35 +34169,29 @@ html[data-theme='dark'] .collab-task-files-note code {
 }
 
 .notes-explorer-shell .notes-solution-hover-preview {
+  position: fixed;
+  z-index: 1200;
   display: grid;
-  max-height: 0;
-  max-width: min(620px, calc(100vw - 3rem));
-  overflow: hidden;
+  max-width: calc(100vw - 2rem);
+  overflow: clip;
   border: 1px solid rgba(94, 234, 212, 0.34);
   border-radius: 0.9rem;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
-  opacity: 0;
-  transform: translateY(-4px);
-  transition:
-    max-height 0.18s ease,
-    opacity 0.16s ease,
-    transform 0.16s ease,
-    margin-top 0.16s ease;
-}
-
-.notes-explorer-shell .notes-explorer-file-row.is-solution-bundle:hover .notes-solution-hover-preview,
-.notes-explorer-shell .notes-explorer-file-row.is-solution-bundle:focus-within .notes-solution-hover-preview {
-  max-height: 220px;
-  margin-top: 0.55rem;
-  opacity: 1;
+  pointer-events: none;
   transform: translateY(0);
+  animation: notesSolutionHoverPreviewIn 0.14s ease both;
 }
 
-.notes-explorer-shell .notes-explorer-file-row.is-solution-bundle.is-preview-open .notes-solution-hover-preview {
-  max-height: 0;
-  margin-top: 0;
-  opacity: 0;
+@keyframes notesSolutionHoverPreviewIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .notes-explorer-shell .notes-solution-hover-preview__header {

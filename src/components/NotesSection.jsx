@@ -170,6 +170,7 @@ const NotesSection = ({
   const [pyRunOutput, setPyRunOutput] = useState('');
   const [pyRunError, setPyRunError] = useState('');
   const [pyRunLoading, setPyRunLoading] = useState(false);
+  const [solutionHoverPreview, setSolutionHoverPreview] = useState(null);
   const [showPyCreator, setShowPyCreator] = useState(false);
   const [pyDraftName, setPyDraftName] = useState('');
   const [pyDraftCode, setPyDraftCode] = useState('');
@@ -697,8 +698,20 @@ const NotesSection = ({
     setPyDraftCode('');
     setPyDraftError('');
     setPyDraftSaving(false);
+    setSolutionHoverPreview(null);
     setShowMobileFolderTools(false);
   }, [currentTask, currentCategory]);
+
+  useEffect(() => {
+    if (!solutionHoverPreview) return undefined;
+    const closePreview = () => setSolutionHoverPreview(null);
+    window.addEventListener('scroll', closePreview, true);
+    window.addEventListener('resize', closePreview);
+    return () => {
+      window.removeEventListener('scroll', closePreview, true);
+      window.removeEventListener('resize', closePreview);
+    };
+  }, [solutionHoverPreview]);
 
   useEffect(() => {
     if (!effectiveStudentId) return;
@@ -2185,6 +2198,31 @@ const NotesSection = ({
     }
     closeTaskExplorer();
   };
+  const openSolutionHoverPreview = (event, file, details) => {
+    if (!file?.id || typeof window === 'undefined') return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || 1280;
+    const viewportHeight = window.innerHeight || 720;
+    const width = Math.min(620, Math.max(320, viewportWidth - 32));
+    const height = 220;
+    let left = rect.left + 52;
+    if (left + width > viewportWidth - 16) left = viewportWidth - width - 16;
+    left = Math.max(16, left);
+    let top = rect.bottom + 8;
+    if (top + height > viewportHeight - 16) top = Math.max(16, rect.top - height - 8);
+    setSolutionHoverPreview({
+      fileId: file.id,
+      title: details?.title || getSavedSolutionTitle(file, details?.memory),
+      taskLabel: details?.taskLabel || 'Задание',
+      snapshotUrl: details?.snapshotUrl || '',
+      left,
+      top,
+      width,
+    });
+  };
+  const solutionHoverCode = solutionHoverPreview
+    ? getCodePreviewText(pyContent[solutionHoverPreview.fileId], pyLoadingId === solutionHoverPreview.fileId)
+    : '';
 
   return (
     <div className="notes-explorer-shell animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
@@ -2580,7 +2618,6 @@ const NotesSection = ({
                     const solutionTaskLabel = solutionTaskDisplay ? `Задание ${solutionTaskDisplay}` : 'Задание';
                     const solutionPreviewLabel = isExpanded ? 'Открыто: условие и решение' : 'Раскрыть: условие и решение';
                     const isEditingCurrentPy = editingPyId === f.id;
-                    const solutionCodePreview = getCodePreviewText(pyContent[f.id], pyLoadingId === f.id);
                     return (
                       <React.Fragment key={f.id}>
                         <tr
@@ -2599,11 +2636,31 @@ const NotesSection = ({
                             handleDragStartFile(e, f);
                           }}
                           onDragEnd={handleDragEndFile}
-                          onMouseEnter={() => {
-                            if (isSolutionBundle) void loadPyFileContent(f);
+                          onMouseEnter={(e) => {
+                            if (!isSolutionBundle || isExpanded) return;
+                            void loadPyFileContent(f);
+                            openSolutionHoverPreview(e, f, {
+                              title: solutionTitle,
+                              taskLabel: solutionTaskLabel,
+                              snapshotUrl: memorySnapshotUrl,
+                              memory,
+                            });
                           }}
-                          onFocus={() => {
-                            if (isSolutionBundle) void loadPyFileContent(f);
+                          onMouseLeave={() => {
+                            if (isSolutionBundle) setSolutionHoverPreview(null);
+                          }}
+                          onFocus={(e) => {
+                            if (!isSolutionBundle || isExpanded) return;
+                            void loadPyFileContent(f);
+                            openSolutionHoverPreview(e, f, {
+                              title: solutionTitle,
+                              taskLabel: solutionTaskLabel,
+                              snapshotUrl: memorySnapshotUrl,
+                              memory,
+                            });
+                          }}
+                          onBlur={() => {
+                            if (isSolutionBundle) setSolutionHoverPreview(null);
                           }}
                           onClick={(e) => {
                             setSelectedFolderId(null);
@@ -2690,22 +2747,6 @@ const NotesSection = ({
                                         <span className="block truncate text-xs font-medium text-slate-500">
                                           {f.name}
                                         </span>
-                                        <div className="notes-solution-hover-preview" aria-hidden="true">
-                                          <div className="notes-solution-hover-preview__header">
-                                            <span>{solutionTitle}</span>
-                                            <span>{solutionTaskLabel}</span>
-                                          </div>
-                                          <div className="notes-solution-hover-preview__body">
-                                            <div className="notes-solution-hover-preview__task">
-                                              {memorySnapshotUrl ? (
-                                                <img src={memorySnapshotUrl} alt="" loading="lazy" />
-                                              ) : (
-                                                <span>Условие не прикреплено</span>
-                                              )}
-                                            </div>
-                                            <pre className="notes-solution-hover-preview__code">{solutionCodePreview}</pre>
-                                          </div>
-                                        </div>
                                       </div>
                                     ) : (
                                       <span className="notes-explorer-file-name block truncate font-medium text-slate-800">{f.name}</span>
@@ -3220,6 +3261,32 @@ const NotesSection = ({
           </div>
         )}
       </div>
+      {solutionHoverPreview && (
+        <div
+          className="notes-solution-hover-preview"
+          aria-hidden="true"
+          style={{
+            left: `${solutionHoverPreview.left}px`,
+            top: `${solutionHoverPreview.top}px`,
+            width: `${solutionHoverPreview.width}px`,
+          }}
+        >
+          <div className="notes-solution-hover-preview__header">
+            <span>{solutionHoverPreview.title}</span>
+            <span>{solutionHoverPreview.taskLabel}</span>
+          </div>
+          <div className="notes-solution-hover-preview__body">
+            <div className="notes-solution-hover-preview__task">
+              {solutionHoverPreview.snapshotUrl ? (
+                <img src={solutionHoverPreview.snapshotUrl} alt="" loading="lazy" />
+              ) : (
+                <span>Условие не прикреплено</span>
+              )}
+            </div>
+            <pre className="notes-solution-hover-preview__code">{solutionHoverCode}</pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
