@@ -1705,6 +1705,8 @@ const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
 const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
 const COLLAB_EDITOR_FONT_SIZE_DEFAULT = 18;
 const COLLAB_EDITOR_FONT_FAMILY = '"JetBrains Mono", Consolas, "Courier New", monospace';
+const COLLAB_SAVE_NOTICE_VISIBLE_MS = 4400;
+const COLLAB_SAVE_NOTICE_STALE_MS = 8000;
 const COLLAB_AUX_PANEL_MODE_INPUT = 'input';
 const COLLAB_AUX_PANEL_MODE_TEST_FILE = 'test-file';
 const COLLAB_TOP_PANE_MODE_PDF = 'pdf';
@@ -2851,6 +2853,7 @@ const CollabSection = ({
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
   const [saveNameError, setSaveNameError] = useState(false);
+  const [collabSaveNotice, setCollabSaveNotice] = useState(null);
   const saveDraftSkipPersistRef = useRef(true);
   const openSaveToNotesTokenRef = useRef(0);
   const [runInput, setRunInput] = useState('');
@@ -2985,6 +2988,8 @@ const CollabSection = ({
   const suppressBreakpointSyncRef = useRef(false);
   const suppressTaskFilesSyncRef = useRef(false);
   const taskFilesSyncReadyRef = useRef(false);
+  const collabSaveNoticeTimerRef = useRef(null);
+  const collabSaveNoticeSeenRef = useRef('');
   const collabSnippetProviderRef = useRef(null);
   const collabCursorMoveDisposableRef = useRef(null);
   const collabCursorLeaveDisposableRef = useRef(null);
@@ -4625,6 +4630,70 @@ const CollabSection = ({
     return trimmed.replace(/[\\/]+/g, '').replace(/\0/g, '');
   };
 
+  const showCollabSaveNotice = useCallback((notice) => {
+    const noticeId = String(notice?.id || '').trim();
+    const noticePath = String(notice?.path || '').trim();
+    if (!noticeId || !noticePath || collabSaveNoticeSeenRef.current === noticeId) return;
+    collabSaveNoticeSeenRef.current = noticeId;
+    if (collabSaveNoticeTimerRef.current) {
+      clearTimeout(collabSaveNoticeTimerRef.current);
+      collabSaveNoticeTimerRef.current = null;
+    }
+    setCollabSaveNotice({
+      id: noticeId,
+      path: noticePath,
+      author: String(notice?.author || '').trim(),
+      ts: Number.isFinite(Number(notice?.ts)) ? Number(notice.ts) : Date.now(),
+    });
+    collabSaveNoticeTimerRef.current = setTimeout(() => {
+      collabSaveNoticeTimerRef.current = null;
+      setCollabSaveNotice((current) => (current?.id === noticeId ? null : current));
+    }, COLLAB_SAVE_NOTICE_VISIBLE_MS);
+  }, []);
+
+  useEffect(() => () => {
+    if (collabSaveNoticeTimerRef.current) {
+      clearTimeout(collabSaveNoticeTimerRef.current);
+      collabSaveNoticeTimerRef.current = null;
+    }
+  }, []);
+
+  const getSavedCodeNoticePath = (safeName) => {
+    const selectedTask = taskOptions.find((task) => String(task?.number ?? task?.id) === String(saveTaskNumber));
+    const taskLabel = selectedTask
+      ? `Задание ${getTaskDisplayNumber(selectedTask)}`
+      : `Задание ${formatTaskNumber(saveTaskNumber) || saveTaskNumber}`;
+    const categoryLabel = saveCategory === 'home' ? 'Домашка' : 'На уроке';
+    const selectedFolder = folders.find((folder) => String(folder?.id || '') === String(saveFolderId || ''));
+    const folderLabel = String(selectedFolder?.name || '').trim();
+    return ['Конспекты', taskLabel, categoryLabel, folderLabel, safeName]
+      .filter(Boolean)
+      .join(' / ');
+  };
+
+  const publishCollabCodeSaveNotice = (path) => {
+    const noticePath = String(path || '').trim();
+    if (!noticePath) return;
+    const notice = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      path: noticePath,
+      author: localName,
+      ts: Date.now(),
+    };
+    const runMap = runMapRef.current;
+    const doc = collabDocRef.current;
+    if (!runMap || !doc) {
+      showCollabSaveNotice(notice);
+      return;
+    }
+    doc.transact(() => {
+      runMap.set('saveNoticeId', notice.id);
+      runMap.set('saveNoticePath', notice.path);
+      runMap.set('saveNoticeAuthor', notice.author);
+      runMap.set('saveNoticeTs', notice.ts);
+    }, 'collab-code-save-notice');
+  };
+
   const normalizeRuntimePath = (value) => {
     const text = String(value || '').replace(/\0/g, '').trim();
     if (!text) return '';
@@ -4981,6 +5050,7 @@ const CollabSection = ({
         fileName: saveFileName,
       }, saveTaskNumbers);
       setSaveSuccess('Сохранено в конспекты.');
+      publishCollabCodeSaveNotice(getSavedCodeNoticePath(safeName));
     } catch (err) {
       setSaveError(err?.message || err);
     } finally {
@@ -5021,6 +5091,11 @@ const CollabSection = ({
       setNotesPanelMode(COLLAB_TOP_PANE_MODE_PDF);
       setNotesPdfFolderKey('');
       setNotesPdfFileId('');
+      if (collabSaveNoticeTimerRef.current) {
+        clearTimeout(collabSaveNoticeTimerRef.current);
+        collabSaveNoticeTimerRef.current = null;
+      }
+      setCollabSaveNotice(null);
       return;
     }
     const output = typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? '');
@@ -5141,6 +5216,20 @@ const CollabSection = ({
         ? runMap.get('notesPdfFileId')
         : String(runMap.get('notesPdfFileId') ?? '');
       setNotesPdfFileId(nextFileId);
+    }
+    if (runMap.has('saveNoticeId')) {
+      const noticeId = String(runMap.get('saveNoticeId') || '').trim();
+      const noticePath = String(runMap.get('saveNoticePath') || '').trim();
+      const noticeTsRaw = Number(runMap.get('saveNoticeTs'));
+      const noticeTs = Number.isFinite(noticeTsRaw) ? noticeTsRaw : 0;
+      if (noticeId && noticePath && noticeTs > 0 && Date.now() - noticeTs <= COLLAB_SAVE_NOTICE_STALE_MS) {
+        showCollabSaveNotice({
+          id: noticeId,
+          path: noticePath,
+          author: String(runMap.get('saveNoticeAuthor') || '').trim(),
+          ts: noticeTs,
+        });
+      }
     }
   };
 
@@ -6642,6 +6731,22 @@ const CollabSection = ({
     </div>
   ) : null;
 
+  const collabSaveNoticeOverlay = collabSaveNotice ? (
+    <div className="collab-save-notice" role="status" aria-live="polite">
+      <div className="collab-save-notice__card">
+        <div className="collab-save-notice__icon" aria-hidden="true">
+          <CheckCircle size={30} />
+        </div>
+        <div className="collab-save-notice__content">
+          <div className="collab-save-notice__title">Код сохранен в</div>
+          <div className="collab-save-notice__path" title={collabSaveNotice.path}>
+            {collabSaveNotice.path}
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const editorPane = (
     <div className={`collab-editor-surface ${showEditorHeader ? '' : 'collab-editor-surface--flush'} relative flex flex-col overflow-hidden rounded-xl border ${isSplitCollabLayout ? 'h-full' : ''} ${
       isCollabFullscreen
@@ -7745,6 +7850,7 @@ const CollabSection = ({
 
   return (
     <div ref={collabRootRef} className={collabShellClass} style={collabShellStyle}>
+      {collabSaveNoticeOverlay}
       {isCollabFullscreen && (
         <>
           <div className={`pointer-events-none absolute -left-24 top-[-110px] h-[320px] w-[320px] rounded-full blur-3xl ${
