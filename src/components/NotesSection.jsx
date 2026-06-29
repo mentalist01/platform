@@ -17,6 +17,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import ImageViewer from './ImageViewer';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -3261,7 +3262,7 @@ const NotesSection = ({
           </div>
         )}
       </div>
-      {solutionHoverPreview && (
+      {solutionHoverPreview && typeof document !== 'undefined' && createPortal(
         <div
           className="notes-solution-hover-preview"
           aria-hidden="true"
@@ -3285,7 +3286,8 @@ const NotesSection = ({
             </div>
             <pre className="notes-solution-hover-preview__code">{solutionHoverCode}</pre>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
