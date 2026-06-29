@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Expand, Minimize2, Minus, Plus, RefreshCcw } from 'lucide-react';
 
-const ImageViewer = ({ src, alt, maxHeight = '72vh', allowFullscreen = true }) => {
+const ImageViewer = ({ src, alt, maxHeight = '72vh', allowFullscreen = true, fitScaleMultiplier = 1 }) => {
   const containerRef = useRef(null);
   const imgRef = useRef(null);
   const [zoom, setZoom] = useState(1);
@@ -29,7 +29,11 @@ const ImageViewer = ({ src, alt, maxHeight = '72vh', allowFullscreen = true }) =
     const img = imgRef.current;
     if (!container || !img || !img.naturalWidth || !img.naturalHeight) return;
     const rect = container.getBoundingClientRect();
-    const scale = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight, 1);
+    const scale = clamp(
+      Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight, 1) * fitScaleMultiplier,
+      MIN_ZOOM,
+      MAX_ZOOM,
+    );
     const displayWidth = img.naturalWidth * scale;
     const displayHeight = img.naturalHeight * scale;
     const nextOffset = {
@@ -38,7 +42,7 @@ const ImageViewer = ({ src, alt, maxHeight = '72vh', allowFullscreen = true }) =
     };
     setZoom(scale);
     setOffset(nextOffset);
-  }, []);
+  }, [fitScaleMultiplier]);
 
   useEffect(() => {
     fitToView();

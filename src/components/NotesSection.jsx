@@ -2617,7 +2617,7 @@ const NotesSection = ({
                     const solutionTaskDisplay = formatTaskNumber(solutionTaskNumber) || solutionTaskNumber;
                     const solutionTitle = getSavedSolutionTitle(f, memory);
                     const solutionTaskLabel = solutionTaskDisplay ? `Задание ${solutionTaskDisplay}` : 'Задание';
-                    const solutionPreviewLabel = isExpanded ? 'Открыто: условие и решение' : 'Раскрыть: условие и решение';
+                    const solutionActionTitle = isExpanded ? 'Скрыть условие и решение' : 'Открыть условие и решение';
                     const isEditingCurrentPy = editingPyId === f.id;
                     return (
                       <React.Fragment key={f.id}>
@@ -2694,16 +2694,17 @@ const NotesSection = ({
                           }}
                           role="button"
                           tabIndex={renamingId === f.id ? -1 : 0}
-                          title={isSolutionBundle ? solutionPreviewLabel : (isPreviewable ? 'Один клик — открыть файл' : 'Выделить файл')}
+                          title={isSolutionBundle ? solutionActionTitle : (isPreviewable ? 'Один клик — открыть файл' : 'Выделить файл')}
                         >
                           <td className="px-3 py-2.5">
                             <div className="flex min-w-[260px] items-center gap-3">
                               {isSolutionBundle ? (
-                                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm">
+                                <span className={`notes-solution-bundle-icon ${isExpanded ? 'is-open' : ''}`}>
                                   <span className="relative flex h-7 w-7 items-center justify-center">
                                     <BookOpen size={22} strokeWidth={2.1} />
                                     <Code2 size={15} strokeWidth={2.3} className="absolute -bottom-1 -right-1 rounded-md bg-white p-0.5 text-violet-600 shadow-sm" />
                                   </span>
+                                  <span className="notes-solution-bundle-icon__state" aria-hidden="true" />
                                 </span>
                               ) : (
                                 <FileIcon name={f.name} compact />
@@ -2737,12 +2738,15 @@ const NotesSection = ({
                                           <span className="notes-explorer-file-name block truncate text-base font-extrabold text-slate-900">
                                             {solutionTitle}
                                           </span>
-                                          <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1 text-[11px] font-bold ${
-                                            isExpanded
-                                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                              : 'border-violet-200 bg-violet-50 text-violet-700'
-                                          }`}>
-                                            {solutionPreviewLabel}
+                                          <span
+                                            className={`notes-solution-row-state ${isExpanded ? 'is-open' : ''}`}
+                                            aria-hidden="true"
+                                          >
+                                            <ChevronRight size={14} className="notes-solution-row-state__chevron" />
+                                            <span className="notes-solution-row-state__track">
+                                              <span />
+                                              <span />
+                                            </span>
                                           </span>
                                         </div>
                                         <span className="block truncate text-xs font-medium text-slate-500">
@@ -2757,7 +2761,7 @@ const NotesSection = ({
                                         Добавлен: {addedAtLabel}
                                       </span>
                                     )}
-                                    {(sourceLabel || runLabel || hasBoardSnapshot) && (
+                                    {!isSolutionBundle && (sourceLabel || runLabel || hasBoardSnapshot) && (
                                       <span className="mt-1 flex flex-wrap gap-1">
                                         {sourceLabel && (
                                           <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
@@ -2811,7 +2815,7 @@ const NotesSection = ({
                                     toggleFilePreview(f);
                                   }}
                                   className="notes-explorer-file-action-btn notes-explorer-folder-open-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                                  title={isSolutionBundle ? solutionPreviewLabel : (isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
+                                  title={isSolutionBundle ? solutionActionTitle : (isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
                                   type="button"
                                 >
                                   <ChevronRight
@@ -2866,89 +2870,86 @@ const NotesSection = ({
                         {isPyFile(f.name) && (
                           <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'}`}>
                             <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
-                              <div className="notes-explorer-preview-panel space-y-3 rounded-xl border border-slate-200 bg-white p-2">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                                    {isEditingCurrentPy && !isSolutionBundle
-                                      ? `Размер: ${formatBytes(getPyFileSize(pyEditDraft))}`
-                                      : (isSolutionBundle ? solutionTitle : 'Просмотр Python')}
-                                  </span>
-                                  {isEditingCurrentPy && !isSolutionBundle ? (
-                                    <div className="flex w-full sm:w-auto items-center gap-2">
+                              <div className={`notes-explorer-preview-panel ${isSolutionBundle ? 'notes-solution-preview-panel' : 'space-y-3 rounded-xl border border-slate-200 bg-white p-2'}`}>
+                                {isSolutionBundle ? (
+                                  <div className="notes-solution-header">
+                                    <div className="min-w-0">
+                                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                        <span className="notes-solution-header__title truncate">{solutionTitle}</span>
+                                        {runLabel && (
+                                          <span className={`notes-solution-header__status ${
+                                            memory?.lastRunHadError ? 'is-error' : 'is-ok'
+                                          }`}>
+                                            {runLabel}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="notes-solution-header__meta">
+                                        <span>{solutionTaskLabel}</span>
+                                        {sourceLabel && <span>{sourceLabel}</span>}
+                                        {memory?.savedBy?.name && <span>{memory.savedBy.name}</span>}
+                                        {addedAtLabel && <span>{addedAtLabel}</span>}
+                                      </div>
+                                    </div>
+                                    {!isEditingCurrentPy && (
                                       <Button
                                         variant="secondary"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          cancelEditingPyFile();
+                                          startEditingPyFile(f);
                                         }}
-                                        disabled={pyEditSaving}
-                                        className="w-full sm:w-auto"
+                                        disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
+                                        className="notes-solution-edit-btn"
                                       >
-                                        Отмена
+                                        Редактировать код
                                       </Button>
-                                      <Button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          saveEditingPyFile(f);
-                                        }}
-                                        disabled={pyEditSaving}
-                                        className="w-full sm:w-auto"
-                                      >
-                                        {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
-                                      </Button>
-                                    </div>
-                                  ) : !isEditingCurrentPy ? (
-                                    <Button
-                                      variant="secondary"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        startEditingPyFile(f);
-                                      }}
-                                      disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
-                                      className="w-full sm:w-auto"
-                                    >
-                                      {isSolutionBundle ? 'Редактировать код' : 'Редактировать'}
-                                    </Button>
-                                  ) : (
-                                    <span className="hidden" aria-hidden="true" />
-                                  )}
-                                </div>
-                                {isSolutionBundle ? (
-                                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                      <span className="rounded-full border border-emerald-200 bg-white px-2 py-1 text-[11px] font-bold text-emerald-700">
-                                        Задание + решение
-                                      </span>
-                                      {sourceLabel && (
-                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
-                                          {sourceLabel}
-                                        </span>
-                                      )}
-                                      {memory?.savedBy?.name && (
-                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
-                                          Сохранил: {memory.savedBy.name}
-                                        </span>
-                                      )}
-                                      {hasBoardSnapshot && (
-                                        <span className="rounded-full border border-teal-200 bg-white px-2 py-1 text-[11px] font-semibold text-teal-700">
-                                          Условие прикреплено
-                                        </span>
-                                      )}
-                                      {runLabel && (
-                                        <span className={`rounded-full border bg-white px-2 py-1 text-[11px] font-semibold ${
-                                          memory?.lastRunHadError
-                                            ? 'border-rose-200 text-rose-600'
-                                            : 'border-emerald-200 text-emerald-700'
-                                        }`}>
-                                          {runLabel}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {memory?.description && (
-                                      <p className="mt-2 text-sm font-medium text-slate-700">{memory.description}</p>
                                     )}
                                   </div>
                                 ) : (
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                                      {isEditingCurrentPy ? `Размер: ${formatBytes(getPyFileSize(pyEditDraft))}` : 'Просмотр Python'}
+                                    </span>
+                                    {isEditingCurrentPy ? (
+                                      <div className="flex w-full sm:w-auto items-center gap-2">
+                                        <Button
+                                          variant="secondary"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            cancelEditingPyFile();
+                                          }}
+                                          disabled={pyEditSaving}
+                                          className="w-full sm:w-auto"
+                                        >
+                                          Отмена
+                                        </Button>
+                                        <Button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            saveEditingPyFile(f);
+                                          }}
+                                          disabled={pyEditSaving}
+                                          className="w-full sm:w-auto"
+                                        >
+                                          {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <Button
+                                        variant="secondary"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          startEditingPyFile(f);
+                                        }}
+                                        disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
+                                        className="w-full sm:w-auto"
+                                      >
+                                        Редактировать
+                                      </Button>
+                                    )}
+                                  </div>
+                                )}
+                                {!isSolutionBundle && (
                                   <div className={`notes-explorer-memory-card grid gap-3 rounded-xl border p-3 ${
                                     memory
                                       ? 'border-teal-100 bg-teal-50/60 md:grid-cols-[minmax(0,1fr)_220px]'
@@ -3066,11 +3067,11 @@ const NotesSection = ({
                                     </div>
                                   </div>
                                 ) : isSolutionBundle ? (
-                                  <div className={`grid gap-3 ${memorySnapshotUrl ? 'xl:grid-cols-[minmax(420px,0.95fr)_minmax(480px,1.05fr)]' : ''}`}>
+                                  <div className={`notes-solution-workspace ${memorySnapshotUrl ? 'has-task' : ''}`}>
                                     {memorySnapshotUrl ? (
-                                      <section className="min-w-0 overflow-hidden rounded-xl border border-teal-100 bg-white">
-                                        <div className="flex items-center justify-between gap-2 border-b border-teal-50 px-3 py-2">
-                                          <div className="flex items-center gap-2 text-sm font-extrabold text-slate-800">
+                                      <section className="notes-solution-pane notes-solution-pane--task">
+                                        <div className="notes-solution-pane__bar">
+                                          <div className="notes-solution-pane__title">
                                             <BookOpen size={16} className="text-teal-700" />
                                             Условие
                                           </div>
@@ -3079,7 +3080,7 @@ const NotesSection = ({
                                             target="_blank"
                                             rel="noreferrer"
                                             onClick={(e) => e.stopPropagation()}
-                                            className="rounded-full border border-teal-100 bg-teal-50 px-2 py-1 text-[11px] font-bold text-teal-700 hover:bg-teal-100"
+                                            className="notes-solution-pane__link"
                                           >
                                             Открыть отдельно
                                           </a>
@@ -3088,26 +3089,27 @@ const NotesSection = ({
                                           <ImageViewer
                                             src={memorySnapshotUrl}
                                             alt="Условие задания"
-                                            maxHeight="min(58vh, 560px)"
+                                            maxHeight="clamp(430px, 58vh, 660px)"
+                                            fitScaleMultiplier={1.22}
                                           />
                                         </div>
                                       </section>
                                     ) : (
-                                      <section className="min-w-0 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
+                                      <section className="notes-solution-pane notes-solution-pane--empty">
                                         <div className="flex items-center gap-2 text-sm font-bold text-slate-600">
                                           <BookOpen size={16} />
                                           Условие не прикреплено
                                         </div>
                                       </section>
                                     )}
-                                    <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
-                                        <div className="flex items-center gap-2 text-sm font-extrabold text-slate-800">
+                                    <section className="notes-solution-pane notes-solution-pane--code">
+                                      <div className="notes-solution-pane__bar">
+                                        <div className="notes-solution-pane__title">
                                           <Code2 size={16} className="text-violet-600" />
                                           Решение
                                         </div>
                                         {isEditingCurrentPy ? (
-                                          <div className="flex items-center gap-1.5">
+                                          <div className="notes-solution-pane__actions">
                                             <Button
                                               variant="secondary"
                                               onClick={(e) => {
@@ -3115,7 +3117,7 @@ const NotesSection = ({
                                                 cancelEditingPyFile();
                                               }}
                                               disabled={pyEditSaving}
-                                              className="px-3 py-1.5 text-xs"
+                                              className="notes-solution-pane__button"
                                             >
                                               Отмена
                                             </Button>
@@ -3125,20 +3127,20 @@ const NotesSection = ({
                                                 saveEditingPyFile(f);
                                               }}
                                               disabled={pyEditSaving}
-                                              className="px-3 py-1.5 text-xs"
+                                              className="notes-solution-pane__button"
                                             >
                                               {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
                                             </Button>
                                           </div>
                                         ) : (
-                                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-500">
+                                          <span className="notes-solution-pane__pill">
                                             Python
                                           </span>
                                         )}
                                       </div>
-                                      <div className={`${isEditingCurrentPy ? '' : 'max-h-[min(58vh,560px)] overflow-auto'}`}>
+                                      <div className={`notes-solution-code-body ${isEditingCurrentPy ? 'is-editing' : 'is-viewing'}`}>
                                         {isEditingCurrentPy ? (
-                                          <div className="overflow-hidden bg-white" onClick={(e) => e.stopPropagation()}>
+                                          <div className="notes-solution-editor-wrap" onClick={(e) => e.stopPropagation()}>
                                             <Editor
                                               height={solutionPyEditorHeight}
                                               language="python"

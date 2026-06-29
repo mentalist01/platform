@@ -1349,6 +1349,9 @@ const DESKTOP_NAV_COLLAPSED_KEY = 'ege_desktop_nav_collapsed_v1';
 const TEACHER_NOTIF_HISTORY_KEY_PREFIX = 'ege_teacher_notif_history_v1';
 const NOTES_SAVE_DRAFT_STORAGE_KEY_PREFIX = 'ege_notes_save_draft_v1';
 const NOTES_SAVE_DRAFT_CATEGORIES = new Set(['class', 'home']);
+const NOTES_SAVE_MODE_FULL_TASK = 'full-task';
+const NOTES_SAVE_MODE_CODE_ONLY = 'code-only';
+const NOTES_SAVE_MODES = new Set([NOTES_SAVE_MODE_FULL_TASK, NOTES_SAVE_MODE_CODE_ONLY]);
 
 const getNotesSaveTaskNumbers = (taskOptions) => (
   (Array.isArray(taskOptions) ? taskOptions : [])
@@ -1376,11 +1379,14 @@ const normalizeNotesSaveDraft = (value, taskNumbers = []) => {
     : defaultTaskNumber;
   const rawCategory = String(value?.category || '').trim();
   const category = NOTES_SAVE_DRAFT_CATEGORIES.has(rawCategory) ? rawCategory : 'class';
+  const rawSaveMode = String(value?.saveMode || '').trim();
+  const saveMode = NOTES_SAVE_MODES.has(rawSaveMode) ? rawSaveMode : NOTES_SAVE_MODE_FULL_TASK;
   return {
     taskNumber,
     category,
     folderId: String(value?.folderId ?? '').trim(),
     fileName: String(value?.fileName ?? '').replace(/\./g, ''),
+    saveMode,
   };
 };
 
@@ -2846,6 +2852,7 @@ const CollabSection = ({
   const [saveCategory, setSaveCategory] = useState('class');
   const [saveFolderId, setSaveFolderId] = useState('');
   const [saveFileName, setSaveFileName] = useState('');
+  const [saveMode, setSaveMode] = useState(NOTES_SAVE_MODE_FULL_TASK);
   const [folders, setFolders] = useState([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersError, setFoldersError] = useState('');
@@ -4556,6 +4563,7 @@ const CollabSection = ({
     setSaveCategory(draft.category);
     setSaveFolderId(draft.folderId);
     setSaveFileName(draft.fileName);
+    setSaveMode(draft.saveMode);
     setSaveError('');
     setSaveSuccess('');
     setSaveNameError(false);
@@ -4572,6 +4580,7 @@ const CollabSection = ({
       category: saveCategory,
       folderId: saveFolderId,
       fileName: saveFileName,
+      saveMode,
     }, saveTaskNumbers);
   }, [
     notesSaveDraftStorageKey,
@@ -4579,6 +4588,7 @@ const CollabSection = ({
     saveCategory,
     saveFolderId,
     saveFileName,
+    saveMode,
     saveTaskNumbers,
   ]);
 
@@ -4699,16 +4709,19 @@ const CollabSection = ({
     }, 'collab-code-save-notice');
   };
 
-  const buildCollabCodeMemory = (title = '') => {
+  const buildCollabCodeMemory = (title = '', source = 'collab-code') => {
     const output = String(runOutputRef.current || '').trim();
     const error = String(runErrorRef.current || '').trim();
     const status = String(runStatusRef.current || '').trim();
     const memoryTitle = String(title || '').replace(/\.[^.]+$/i, '').replace(/^конспект[-_\s]*/i, '').trim();
+    const normalizedSource = String(source || '').trim() || 'collab-code';
     return {
       taskNumber: Number(saveTaskNumber),
-      source: 'collab-code',
+      source: normalizedSource,
       title: memoryTitle,
-      description: 'Решение из совместного кода',
+      description: normalizedSource === 'collab-code'
+        ? 'Решение из совместного кода'
+        : 'Код из совместного редактора',
       tags: [],
       lastRunOutput: error || output,
       lastRunHadError: Boolean(error || status === 'error'),
@@ -5082,6 +5095,8 @@ const CollabSection = ({
       safeName += '.py';
     }
     const file = new File([code], safeName, { type: 'text/plain' });
+    const saveAsCodeOnly = saveMode === NOTES_SAVE_MODE_CODE_ONLY;
+    const fileSource = saveAsCodeOnly ? 'notes-python' : 'collab-code';
     setSaveBusy(true);
     try {
       const created = await api.uploadFile(
@@ -5091,20 +5106,27 @@ const CollabSection = ({
         saveFolderId || null,
         effectiveStudentId,
         {
-          source: 'collab-code',
-          memory: buildCollabCodeMemory(baseName),
+          source: fileSource,
+          memory: buildCollabCodeMemory(baseName, fileSource),
         }
       );
-      const snapshotResult = await attachCollabBoardSnapshotToFile(created?.id, safeName);
+      const snapshotResult = saveAsCodeOnly
+        ? { attached: false }
+        : await attachCollabBoardSnapshotToFile(created?.id, safeName);
       saveNotesSaveDraft(notesSaveDraftStorageKey, {
         taskNumber: saveTaskNumber,
         category: saveCategory,
         folderId: saveFolderId,
         fileName: saveFileName,
+        saveMode,
       }, saveTaskNumbers);
-      setSaveSuccess(snapshotResult.error
-        ? `Сохранено в конспекты. Снимок доски не прикрепился: ${snapshotResult.error}`
-        : (snapshotResult.attached ? 'Сохранено в конспекты со снимком доски.' : 'Сохранено в конспекты.'));
+      if (saveAsCodeOnly) {
+        setSaveSuccess('Сохранено в конспекты: только код.');
+      } else {
+        setSaveSuccess(snapshotResult.error
+          ? `Сохранено в конспекты. Снимок доски не прикрепился: ${snapshotResult.error}`
+          : (snapshotResult.attached ? 'Сохранено в конспекты со снимком доски.' : 'Сохранено в конспекты.'));
+      }
       publishCollabCodeSaveNotice(getSavedCodeNoticePath(safeName));
     } catch (err) {
       setSaveError(err?.message || err);
@@ -6747,6 +6769,53 @@ const CollabSection = ({
             />
           </div>
         </div>
+
+        <label className={`mt-3 flex cursor-pointer items-center gap-3 rounded-2xl border p-3 transition ${
+          saveMode === NOTES_SAVE_MODE_CODE_ONLY
+            ? 'border-sky-200 bg-sky-50/80 shadow-sm'
+            : 'border-emerald-200 bg-emerald-50/70'
+        }`}>
+          <input
+            type="checkbox"
+            checked={saveMode === NOTES_SAVE_MODE_CODE_ONLY}
+            onChange={(e) => {
+              setSaveMode(e.target.checked ? NOTES_SAVE_MODE_CODE_ONLY : NOTES_SAVE_MODE_FULL_TASK);
+              setSaveSuccess('');
+              setSaveError('');
+            }}
+            className="sr-only"
+          />
+          <span className={`relative flex h-7 w-12 shrink-0 items-center rounded-full border transition ${
+            saveMode === NOTES_SAVE_MODE_CODE_ONLY
+              ? 'border-sky-300 bg-sky-500'
+              : 'border-emerald-300 bg-emerald-500'
+          }`}>
+            <span className={`absolute left-1 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow transition ${
+              saveMode === NOTES_SAVE_MODE_CODE_ONLY ? 'translate-x-5 text-sky-600' : 'translate-x-0 text-emerald-600'
+            }`}>
+              {saveMode === NOTES_SAVE_MODE_CODE_ONLY ? <Code2 size={13} /> : <BookOpen size={13} />}
+            </span>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-extrabold text-slate-900">
+                {saveMode === NOTES_SAVE_MODE_CODE_ONLY ? 'Сохранить только код' : 'Сохранить задание целиком'}
+              </span>
+              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${
+                saveMode === NOTES_SAVE_MODE_CODE_ONLY
+                  ? 'border-sky-200 bg-white text-sky-700'
+                  : 'border-emerald-200 bg-white text-emerald-700'
+              }`}>
+                {saveMode === NOTES_SAVE_MODE_CODE_ONLY ? '.py' : 'условие + решение'}
+              </span>
+            </span>
+            <span className="mt-0.5 block text-xs font-medium text-slate-500">
+              {saveMode === NOTES_SAVE_MODE_CODE_ONLY
+                ? 'В конспекты попадёт обычный Python-файл без снимка доски.'
+                : 'В конспекты попадёт решение вместе с карточкой задания и видимой областью доски.'}
+            </span>
+          </span>
+        </label>
 
         <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input
