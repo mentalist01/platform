@@ -73,6 +73,20 @@ const getFileMemoryRunLabel = (memory) => {
   return memory.lastRunHadError ? 'Был запуск с ошибкой' : 'Запуск без ошибок';
 };
 
+const getSavedSolutionTitle = (file, memory) => {
+  const memoryTitle = String(memory?.title || '').trim();
+  const rawName = memoryTitle || String(file?.name || '').trim();
+  const withoutExtension = rawName.replace(/\.[^.\\/]+$/i, '').trim();
+  const withoutPrefix = withoutExtension.replace(/^конспект[-_\s]*/i, '').trim();
+  return withoutPrefix || withoutExtension || rawName || 'Задание и решение';
+};
+
+const getCodePreviewText = (value, loading = false) => {
+  const code = String(value || '').trim();
+  if (code) return code.split(/\r?\n/).slice(0, 8).join('\n');
+  return loading ? 'Загрузка кода...' : 'Код появится после раскрытия.';
+};
+
 const formatRussianCountLabel = (count, one, few, many) => {
   const value = Math.abs(Number(count) || 0);
   const mod10 = value % 10;
@@ -2562,9 +2576,11 @@ const NotesSection = ({
                     const isSolutionBundle = isPyFile(f.name) && (sourceRaw === 'collab-code' || hasBoardSnapshot);
                     const solutionTaskNumber = memory?.taskNumber ?? f?.taskNumber;
                     const solutionTaskDisplay = formatTaskNumber(solutionTaskNumber) || solutionTaskNumber;
-                    const solutionTitle = solutionTaskDisplay ? `Задание ${solutionTaskDisplay}: решение` : 'Задание и решение';
+                    const solutionTitle = getSavedSolutionTitle(f, memory);
+                    const solutionTaskLabel = solutionTaskDisplay ? `Задание ${solutionTaskDisplay}` : 'Задание';
                     const solutionPreviewLabel = isExpanded ? 'Открыто: условие и решение' : 'Раскрыть: условие и решение';
                     const isEditingCurrentPy = editingPyId === f.id;
+                    const solutionCodePreview = getCodePreviewText(pyContent[f.id], pyLoadingId === f.id);
                     return (
                       <React.Fragment key={f.id}>
                         <tr
@@ -2583,6 +2599,12 @@ const NotesSection = ({
                             handleDragStartFile(e, f);
                           }}
                           onDragEnd={handleDragEndFile}
+                          onMouseEnter={() => {
+                            if (isSolutionBundle) void loadPyFileContent(f);
+                          }}
+                          onFocus={() => {
+                            if (isSolutionBundle) void loadPyFileContent(f);
+                          }}
                           onClick={(e) => {
                             setSelectedFolderId(null);
                             setPressingFolderId(null);
@@ -2652,7 +2674,7 @@ const NotesSection = ({
                                 ) : (
                                   <>
                                     {isSolutionBundle ? (
-                                      <div className="min-w-0 space-y-1">
+                                      <div className="notes-solution-row-title min-w-0 space-y-1">
                                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                                           <span className="notes-explorer-file-name block truncate text-base font-extrabold text-slate-900">
                                             {solutionTitle}
@@ -2668,6 +2690,22 @@ const NotesSection = ({
                                         <span className="block truncate text-xs font-medium text-slate-500">
                                           {f.name}
                                         </span>
+                                        <div className="notes-solution-hover-preview" aria-hidden="true">
+                                          <div className="notes-solution-hover-preview__header">
+                                            <span>{solutionTitle}</span>
+                                            <span>{solutionTaskLabel}</span>
+                                          </div>
+                                          <div className="notes-solution-hover-preview__body">
+                                            <div className="notes-solution-hover-preview__task">
+                                              {memorySnapshotUrl ? (
+                                                <img src={memorySnapshotUrl} alt="" loading="lazy" />
+                                              ) : (
+                                                <span>Условие не прикреплено</span>
+                                              )}
+                                            </div>
+                                            <pre className="notes-solution-hover-preview__code">{solutionCodePreview}</pre>
+                                          </div>
+                                        </div>
                                       </div>
                                     ) : (
                                       <span className="notes-explorer-file-name block truncate font-medium text-slate-800">{f.name}</span>

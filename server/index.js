@@ -13215,6 +13215,7 @@ const normalizeFileMemory = (value, fallback = {}) => {
     source,
     savedBy,
     createdAt: clampMemoryText(raw.createdAt || fallback.createdAt, 40) || new Date().toISOString(),
+    title: clampMemoryText(raw.title || fallback.title, FILE_MEMORY_DESCRIPTION_LIMIT),
     description: clampMemoryText(raw.description, FILE_MEMORY_DESCRIPTION_LIMIT),
     tags: normalizeFileMemoryTags(raw.tags),
     lastRunOutput: clampMemoryText(raw.lastRunOutput, FILE_MEMORY_OUTPUT_LIMIT),

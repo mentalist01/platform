@@ -4699,13 +4699,15 @@ const CollabSection = ({
     }, 'collab-code-save-notice');
   };
 
-  const buildCollabCodeMemory = () => {
+  const buildCollabCodeMemory = (title = '') => {
     const output = String(runOutputRef.current || '').trim();
     const error = String(runErrorRef.current || '').trim();
     const status = String(runStatusRef.current || '').trim();
+    const memoryTitle = String(title || '').replace(/\.[^.]+$/i, '').replace(/^конспект[-_\s]*/i, '').trim();
     return {
       taskNumber: Number(saveTaskNumber),
       source: 'collab-code',
+      title: memoryTitle,
       description: 'Решение из совместного кода',
       tags: [],
       lastRunOutput: error || output,
@@ -5090,7 +5092,7 @@ const CollabSection = ({
         effectiveStudentId,
         {
           source: 'collab-code',
-          memory: buildCollabCodeMemory(),
+          memory: buildCollabCodeMemory(baseName),
         }
       );
       const snapshotResult = await attachCollabBoardSnapshotToFile(created?.id, safeName);
