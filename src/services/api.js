@@ -233,6 +233,18 @@ const buildChatMessagesQuery = (options = {}) => {
   return query ? `?${query}` : '';
 };
 
+export const uploadFileMemorySnapshot = async (id, file, itemCount = 0) => {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('itemCount', String(itemCount || 0));
+  const res = await apiFetch(`/api/files/${id}/memory-snapshot`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) throw new Error(await parseApiError(res));
+  return res.json();
+};
+
 export const api = {
   getCurrentSession: async () => {
     const res = await apiFetch('/api/session');
@@ -1645,13 +1657,17 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  uploadFile: async (file, taskNumber, category, folderId, studentId) => {
+  uploadFile: async (file, taskNumber, category, folderId, studentId, options = {}) => {
     const form = new FormData();
     form.append('file', file);
     form.append('taskNumber', String(taskNumber));
     form.append('category', category);
     form.append('studentId', studentId);
     if (folderId) form.append('folderId', folderId);
+    if (options?.source) form.append('source', String(options.source));
+    if (options?.memory && typeof options.memory === 'object') {
+      form.append('memory', JSON.stringify(options.memory));
+    }
 
     const res = await apiFetch('/api/files', { method: 'POST', body: form });
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -1688,7 +1704,17 @@ export const api = {
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
-  }
+  },
+  updateFileMemory: async (id, memory) => {
+    const res = await apiFetch(`/api/files/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memory }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  uploadFileMemorySnapshot,
 };
 
 

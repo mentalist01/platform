@@ -87,6 +87,7 @@ import {
   authenticatedUploadsFetch,
   resolveAuthenticatedUploadsUrl,
   setUnauthorizedHandler,
+  uploadFileMemorySnapshot,
   withStoredAuthToken,
 } from './services/api';
 
@@ -1707,6 +1708,7 @@ const COLLAB_EDITOR_FONT_SIZE_DEFAULT = 18;
 const COLLAB_EDITOR_FONT_FAMILY = '"JetBrains Mono", Consolas, "Courier New", monospace';
 const COLLAB_SAVE_NOTICE_VISIBLE_MS = 4400;
 const COLLAB_SAVE_NOTICE_STALE_MS = 8000;
+const COLLAB_MEMORY_SNAPSHOT_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const COLLAB_AUX_PANEL_MODE_INPUT = 'input';
 const COLLAB_AUX_PANEL_MODE_TEST_FILE = 'test-file';
 const COLLAB_TOP_PANE_MODE_PDF = 'pdf';
@@ -2990,6 +2992,7 @@ const CollabSection = ({
   const taskFilesSyncReadyRef = useRef(false);
   const collabSaveNoticeTimerRef = useRef(null);
   const collabSaveNoticeSeenRef = useRef('');
+  const collabBoardSnapshotRendererRef = useRef(null);
   const collabSnippetProviderRef = useRef(null);
   const collabCursorMoveDisposableRef = useRef(null);
   const collabCursorLeaveDisposableRef = useRef(null);
@@ -3005,6 +3008,9 @@ const CollabSection = ({
   const collabCursorSyncTimerRef = useRef(null);
   const collabCursorPendingRef = useRef(null);
   const collabCursorLastSyncAtRef = useRef(0);
+  const setCollabBoardMemorySnapshotRenderer = useCallback((renderer) => {
+    collabBoardSnapshotRendererRef.current = typeof renderer === 'function' ? renderer : null;
+  }, []);
   const selectedStudent = useMemo(
     () => (students || []).find((student) => student.id === activeStudentId),
     [students, activeStudentId]
@@ -4663,10 +4669,9 @@ const CollabSection = ({
     const taskLabel = selectedTask
       ? `Задание ${getTaskDisplayNumber(selectedTask)}`
       : `Задание ${formatTaskNumber(saveTaskNumber) || saveTaskNumber}`;
-    const categoryLabel = saveCategory === 'home' ? 'Домашка' : 'На уроке';
     const selectedFolder = folders.find((folder) => String(folder?.id || '') === String(saveFolderId || ''));
     const folderLabel = String(selectedFolder?.name || '').trim();
-    return ['Конспекты', taskLabel, categoryLabel, folderLabel, safeName]
+    return ['Конспекты', taskLabel, folderLabel, safeName]
       .filter(Boolean)
       .join(' / ');
   };
@@ -4692,6 +4697,41 @@ const CollabSection = ({
       runMap.set('saveNoticeAuthor', notice.author);
       runMap.set('saveNoticeTs', notice.ts);
     }, 'collab-code-save-notice');
+  };
+
+  const buildCollabCodeMemory = () => {
+    const output = String(runOutputRef.current || '').trim();
+    const error = String(runErrorRef.current || '').trim();
+    const status = String(runStatusRef.current || '').trim();
+    return {
+      taskNumber: Number(saveTaskNumber),
+      source: 'collab-code',
+      description: 'Решение из совместного кода',
+      tags: [],
+      lastRunOutput: error || output,
+      lastRunHadError: Boolean(error || status === 'error'),
+      lastRunAt: runTimestamp ? new Date(runTimestamp).toISOString() : '',
+    };
+  };
+
+  const attachCollabBoardSnapshotToFile = async (fileId, safeName) => {
+    const renderer = collabBoardSnapshotRendererRef.current;
+    if (!fileId || typeof renderer !== 'function') return { attached: false };
+    try {
+      const snapshot = await renderer();
+      const blob = snapshot?.blob;
+      if (!blob) return { attached: false };
+      if (blob.size > COLLAB_MEMORY_SNAPSHOT_MAX_FILE_BYTES) {
+        throw new Error(`Снимок доски больше ${formatBoardBytes(COLLAB_MEMORY_SNAPSHOT_MAX_FILE_BYTES)}.`);
+      }
+      const baseName = String(safeName || 'решение').replace(/\.[^.]+$/i, '').trim() || 'решение';
+      const snapshotFile = new File([blob], `${baseName}-доска.png`, { type: 'image/png' });
+      await uploadFileMemorySnapshot(fileId, snapshotFile, Number(snapshot?.itemCount) || 0);
+      return { attached: true };
+    } catch (err) {
+      console.warn('[collab] failed to attach board snapshot memory', err);
+      return { attached: false, error: err?.message || String(err || '') };
+    }
   };
 
   const normalizeRuntimePath = (value) => {
@@ -5042,14 +5082,27 @@ const CollabSection = ({
     const file = new File([code], safeName, { type: 'text/plain' });
     setSaveBusy(true);
     try {
-      await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId);
+      const created = await api.uploadFile(
+        file,
+        Number(saveTaskNumber),
+        saveCategory,
+        saveFolderId || null,
+        effectiveStudentId,
+        {
+          source: 'collab-code',
+          memory: buildCollabCodeMemory(),
+        }
+      );
+      const snapshotResult = await attachCollabBoardSnapshotToFile(created?.id, safeName);
       saveNotesSaveDraft(notesSaveDraftStorageKey, {
         taskNumber: saveTaskNumber,
         category: saveCategory,
         folderId: saveFolderId,
         fileName: saveFileName,
       }, saveTaskNumbers);
-      setSaveSuccess('Сохранено в конспекты.');
+      setSaveSuccess(snapshotResult.error
+        ? `Сохранено в конспекты. Снимок доски не прикрепился: ${snapshotResult.error}`
+        : (snapshotResult.attached ? 'Сохранено в конспекты со снимком доски.' : 'Сохранено в конспекты.'));
       publishCollabCodeSaveNotice(getSavedCodeNoticePath(safeName));
     } catch (err) {
       setSaveError(err?.message || err);
@@ -7600,6 +7653,7 @@ const CollabSection = ({
                     onSelectStudent={onSelectStudent}
                     studentsLoading={studentsLoading}
                     theme={theme}
+                    onMemorySnapshotRenderer={setCollabBoardMemorySnapshotRenderer}
                   />
                 </div>
                 {notesTopPaneResizeHandle}
@@ -8224,6 +8278,7 @@ const BoardSection = ({
   hideStudentPicker = false,
   showEmbeddedSummonButton = false,
   theme = THEME_LIGHT,
+  onMemorySnapshotRenderer = null,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
@@ -9424,7 +9479,14 @@ const BoardSection = ({
         safeName += '.png';
       }
       const file = new File([blob], safeName, { type: 'image/png' });
-      await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId);
+      await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId, {
+        source: 'board-save',
+        memory: {
+          taskNumber: Number(saveTaskNumber),
+          source: 'board-save',
+          description: 'Снимок доски',
+        },
+      });
       setSaveSuccess('Сохранено в конспекты.');
     } catch (err) {
       setSaveError(err?.message || err);
@@ -10594,6 +10656,94 @@ const BoardSection = ({
   useEffect(() => {
     renderBoard();
   }, [boardRevision, renderBoard]);
+
+  useEffect(() => {
+    if (typeof onMemorySnapshotRenderer !== 'function') return undefined;
+    const cropVisibleBoardContent = (sourceCanvas) => {
+      const width = sourceCanvas?.width || 0;
+      const height = sourceCanvas?.height || 0;
+      if (!width || !height) return sourceCanvas;
+      const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return sourceCanvas;
+      let pixels;
+      try {
+        pixels = ctx.getImageData(0, 0, width, height).data;
+      } catch {
+        return sourceCanvas;
+      }
+      let minX = width;
+      let minY = height;
+      let maxX = -1;
+      let maxY = -1;
+      const step = Math.max(1, Math.floor(Math.min(width, height) / 900));
+      for (let y = 0; y < height; y += step) {
+        for (let x = 0; x < width; x += step) {
+          const idx = (y * width + x) * 4;
+          const alpha = pixels[idx + 3];
+          if (alpha < 18) continue;
+          const r = pixels[idx];
+          const g = pixels[idx + 1];
+          const b = pixels[idx + 2];
+          const nearWhite = r > 246 && g > 246 && b > 246;
+          const faintNeutral = Math.abs(r - g) < 5 && Math.abs(g - b) < 5 && r > 238;
+          if (nearWhite || faintNeutral) continue;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+      if (maxX < minX || maxY < minY) return sourceCanvas;
+      const pad = Math.max(24, Math.round(Math.min(width, height) * 0.035));
+      const cropX = Math.max(0, minX - pad);
+      const cropY = Math.max(0, minY - pad);
+      const cropW = Math.min(width - cropX, maxX - minX + pad * 2);
+      const cropH = Math.min(height - cropY, maxY - minY + pad * 2);
+      if (cropW >= width * 0.94 && cropH >= height * 0.94) return sourceCanvas;
+      const targetCanvas = document.createElement('canvas');
+      targetCanvas.width = Math.max(1, Math.round(cropW));
+      targetCanvas.height = Math.max(1, Math.round(cropH));
+      const targetCtx = targetCanvas.getContext('2d');
+      if (!targetCtx) return sourceCanvas;
+      targetCtx.fillStyle = '#ffffff';
+      targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+      targetCtx.drawImage(
+        sourceCanvas,
+        cropX,
+        cropY,
+        cropW,
+        cropH,
+        0,
+        0,
+        targetCanvas.width,
+        targetCanvas.height
+      );
+      return targetCanvas;
+    };
+    onMemorySnapshotRenderer(async () => {
+      const canvas = canvasRef.current;
+      const items = boardItemsRef.current || [];
+      if (!canvas || !items.length) return null;
+      renderBoard();
+      const snapshotCanvas = cropVisibleBoardContent(canvas);
+      return new Promise((resolve, reject) => {
+        snapshotCanvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Не удалось сделать снимок видимой области доски.'));
+            return;
+          }
+          resolve({
+            blob,
+            itemCount: items.length,
+            mode: snapshotCanvas === canvas ? 'viewport' : 'visible-content',
+          });
+        }, 'image/png');
+      });
+    });
+    return () => {
+      onMemorySnapshotRenderer(null);
+    };
+  }, [onMemorySnapshotRenderer, renderBoard]);
 
   const selectedImage = useMemo(
     () => {

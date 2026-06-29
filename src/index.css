@@ -34143,9 +34143,106 @@ html[data-theme='dark'] .collab-task-files-note code {
   background: rgba(245, 247, 255, 0.96) !important;
 }
 
+.notes-explorer-shell .notes-explorer-file-row.is-solution-bundle td {
+  background: linear-gradient(90deg, rgba(236, 253, 245, 0.92), rgba(248, 250, 252, 0.86)) !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-solution-bundle:hover td {
+  background: linear-gradient(90deg, rgba(209, 250, 229, 0.96), rgba(241, 245, 249, 0.9)) !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-solution-bundle.is-preview-open td {
+  background: linear-gradient(90deg, rgba(204, 251, 241, 0.96), rgba(245, 247, 255, 0.96)) !important;
+}
+
 .notes-explorer-shell .notes-explorer-folder-file-row.is-selected .notes-explorer-folder-name-cell,
 .notes-explorer-shell .notes-explorer-file-row.is-selected td:first-child {
   box-shadow: inset 3px 0 0 rgba(59, 130, 246, 0.74) !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-solution-bundle td:first-child {
+  box-shadow: inset 4px 0 0 rgba(16, 185, 129, 0.72) !important;
+}
+
+.notes-explorer-shell pre.notes-python-code,
+.notes-explorer-shell pre.notes-python-code[class*='language-'] {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  text-shadow: none !important;
+}
+
+.notes-explorer-shell pre.notes-python-code code,
+.notes-explorer-shell pre.notes-python-code code[class*='language-'] {
+  background: transparent !important;
+  color: inherit !important;
+  text-shadow: none !important;
+}
+
+.notes-explorer-shell pre.notes-python-code .token.comment,
+.notes-explorer-shell pre.notes-python-code .token.prolog,
+.notes-explorer-shell pre.notes-python-code .token.doctype,
+.notes-explorer-shell pre.notes-python-code .token.cdata {
+  color: #047857 !important;
+}
+
+.notes-explorer-shell pre.notes-python-code .token.keyword {
+  color: #7c3aed !important;
+  font-weight: 700;
+}
+
+.notes-explorer-shell pre.notes-python-code .token.string,
+.notes-explorer-shell pre.notes-python-code .token.char {
+  color: #a16207 !important;
+}
+
+.notes-explorer-shell pre.notes-python-code .token.number,
+.notes-explorer-shell pre.notes-python-code .token.boolean {
+  color: #c2410c !important;
+}
+
+.notes-explorer-shell pre.notes-python-code .token.function,
+.notes-explorer-shell pre.notes-python-code .token.class-name {
+  color: #0f766e !important;
+}
+
+.notes-explorer-shell pre.notes-python-code .token.operator {
+  color: #2563eb !important;
+}
+
+.notes-explorer-shell pre.notes-python-code .token.punctuation {
+  color: #334155 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code,
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code[class*='language-'] {
+  background: #1f2937 !important;
+  color: #e5e7eb !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.comment,
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.prolog,
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.doctype,
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.cdata {
+  color: #86efac !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.keyword {
+  color: #d8b4fe !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.string,
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.char {
+  color: #fde68a !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.number,
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.boolean {
+  color: #fdba74 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.function,
+html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.class-name {
+  color: #6ee7b7 !important;
 }
 
 .notes-explorer-shell .notes-explorer-row-actions {

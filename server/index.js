@@ -7313,11 +7313,25 @@ const enrichFilesWithFolderPath = (files, folders) => {
     foldersById.set(sharedRootId, sharedRootFolder);
   });
   const resolveFolderPath = buildFolderPathResolver(foldersById);
+  const getStoredCreatedAt = (file) => {
+    if (typeof file?.createdAt === 'string' && file.createdAt.trim()) return file.createdAt.trim();
+    const safeStorageName = path.basename(String(file?.storageName || '').trim());
+    if (!safeStorageName) return '';
+    try {
+      const stat = fs.statSync(path.join(uploadsDir, safeStorageName));
+      const timestampMs = Number(stat.birthtimeMs) > 0 ? Number(stat.birthtimeMs) : Number(stat.mtimeMs);
+      return Number.isFinite(timestampMs) && timestampMs > 0 ? new Date(timestampMs).toISOString() : '';
+    } catch {
+      return '';
+    }
+  };
   return list.map((file) => {
     const folderPath = resolveFolderPath(file?.folderId);
-    if ((file?.folderPath || '') === folderPath) return file;
+    const createdAt = getStoredCreatedAt(file);
+    if ((file?.folderPath || '') === folderPath && (!createdAt || file?.createdAt === createdAt)) return file;
     return {
       ...file,
+      ...(createdAt ? { createdAt } : {}),
       folderPath,
     };
   });
@@ -13110,6 +13124,105 @@ const getFolderLimitError = (limitBytes) => (
 const getUploadFileLimitError = (limitBytes) => (
   `Файл больше ${formatLimitLabel(limitBytes)}`
 );
+
+const FILE_MEMORY_DESCRIPTION_LIMIT = 600;
+const FILE_MEMORY_OUTPUT_LIMIT = 8000;
+const FILE_MEMORY_TAG_LIMIT = 24;
+const FILE_MEMORY_TAGS_MAX = 12;
+const FILE_MEMORY_SOURCE_LIMIT = 48;
+const FILE_MEMORY_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024;
+
+const clampMemoryText = (value, limit) => {
+  const text = String(value ?? '').replace(/\0/g, '').trim();
+  if (!text) return '';
+  return text.length > limit ? text.slice(0, limit) : text;
+};
+
+const parseMemoryObject = (value) => {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const normalizeFileMemorySource = (value, fallback = 'notes-upload') => (
+  clampMemoryText(value, FILE_MEMORY_SOURCE_LIMIT) || fallback
+);
+
+const normalizeFileMemoryTags = (value) => {
+  const list = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const tags = [];
+  list.forEach((item) => {
+    const tag = clampMemoryText(item, FILE_MEMORY_TAG_LIMIT);
+    const key = tag.toLowerCase();
+    if (!tag || seen.has(key)) return;
+    seen.add(key);
+    tags.push(tag);
+  });
+  return tags.slice(0, FILE_MEMORY_TAGS_MAX);
+};
+
+const getFileMemoryActor = (auth) => {
+  const id = String(auth?.id || '').trim();
+  const role = String(auth?.role || '').trim();
+  const name = clampMemoryText(auth?.name || (role === 'teacher' ? 'Учитель' : role === 'student' ? 'Ученик' : 'Участник'), 80);
+  return {
+    ...(id ? { id } : {}),
+    ...(role ? { role } : {}),
+    name: name || 'Участник',
+  };
+};
+
+const normalizeFileMemorySnapshot = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const storageName = path.basename(String(source.storageName || '').trim());
+  const url = clampMemoryText(source.url, 400);
+  if (!storageName && !url) return null;
+  const sizeBytes = Number(source.sizeBytes);
+  const itemCount = Number(source.itemCount);
+  return {
+    name: clampMemoryText(source.name, 160) || 'Снимок доски.png',
+    ...(url ? { url } : {}),
+    ...(storageName ? { storageName } : {}),
+    size: clampMemoryText(source.size, 32),
+    sizeBytes: Number.isFinite(sizeBytes) && sizeBytes >= 0 ? Math.round(sizeBytes) : 0,
+    createdAt: clampMemoryText(source.createdAt, 40) || new Date().toISOString(),
+    itemCount: Number.isFinite(itemCount) && itemCount >= 0 ? Math.round(itemCount) : 0,
+  };
+};
+
+const normalizeFileMemory = (value, fallback = {}) => {
+  const raw = parseMemoryObject(value);
+  const source = normalizeFileMemorySource(raw.source ?? fallback.source, 'notes-upload');
+  const savedBy = raw.savedBy && typeof raw.savedBy === 'object'
+    ? {
+      id: clampMemoryText(raw.savedBy.id, 80),
+      role: clampMemoryText(raw.savedBy.role, 32),
+      name: clampMemoryText(raw.savedBy.name, 80) || fallback.savedBy?.name || 'Участник',
+    }
+    : (fallback.savedBy || {});
+  const taskNumber = Number(raw.taskNumber ?? fallback.taskNumber);
+  const lastRunHadErrorRaw = raw.lastRunHadError;
+  const boardSnapshot = normalizeFileMemorySnapshot(raw.boardSnapshot || fallback.boardSnapshot);
+  return {
+    taskNumber: Number.isFinite(taskNumber) ? taskNumber : null,
+    source,
+    savedBy,
+    createdAt: clampMemoryText(raw.createdAt || fallback.createdAt, 40) || new Date().toISOString(),
+    description: clampMemoryText(raw.description, FILE_MEMORY_DESCRIPTION_LIMIT),
+    tags: normalizeFileMemoryTags(raw.tags),
+    lastRunOutput: clampMemoryText(raw.lastRunOutput, FILE_MEMORY_OUTPUT_LIMIT),
+    lastRunHadError: typeof lastRunHadErrorRaw === 'boolean' ? lastRunHadErrorRaw : null,
+    lastRunAt: clampMemoryText(raw.lastRunAt, 40),
+    ...(boardSnapshot ? { boardSnapshot } : {}),
+  };
+};
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
@@ -20318,6 +20431,15 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     }
   }
   const id = req.fileId || crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const source = normalizeFileMemorySource(req.body?.source, 'notes-upload');
+  const savedBy = getFileMemoryActor(req.auth);
+  const memory = normalizeFileMemory(req.body?.memory, {
+    taskNumber: taskNum,
+    source,
+    savedBy,
+    createdAt,
+  });
   const entry = {
     id,
     studentId: isLessonSharedUpload ? buildLessonSharedStudentId(studentTeacherId) : student.id,
@@ -20328,7 +20450,11 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     name: normalizeFileName(req.file.originalname),
     size: formatSize(req.file.size),
     sizeBytes: req.file.size,
-    date: new Date().toLocaleDateString('ru-RU'),
+    date: new Date(createdAt).toLocaleDateString('ru-RU'),
+    createdAt,
+    source,
+    savedBy,
+    memory,
     url: `/uploads/${req.file.filename}`,
     storageName: req.file.filename,
     ...(isLessonSharedUpload ? {
@@ -20364,6 +20490,10 @@ app.delete('/api/files/:id', (req, res) => {
     const filePath = path.join(uploadsDir, removed.storageName);
     fs.unlink(filePath, () => {});
   }
+  const removedSnapshotStorageName = path.basename(String(removed?.memory?.boardSnapshot?.storageName || '').trim());
+  if (removedSnapshotStorageName && removedSnapshotStorageName !== path.basename(String(removed?.storageName || '').trim())) {
+    fs.unlink(path.join(uploadsDir, removedSnapshotStorageName), () => {});
+  }
 
   res.json({ ok: true });
 });
@@ -20372,6 +20502,7 @@ app.patch('/api/files/:id', (req, res) => {
   const { id } = req.params;
   const { name } = req.body || {};
   const hasContentField = Object.prototype.hasOwnProperty.call(req.body || {}, 'content');
+  const hasMemoryField = Object.prototype.hasOwnProperty.call(req.body || {}, 'memory');
   const content = hasContentField ? req.body.content : undefined;
 
   const db = readFilesDb();
@@ -20532,8 +20663,87 @@ app.patch('/api/files/:id', (req, res) => {
     updated.date = new Date().toLocaleDateString('ru-RU');
   }
 
+  if (hasMemoryField) {
+    updated.memory = normalizeFileMemory(req.body.memory, {
+      ...(updated.memory || {}),
+      taskNumber: updated.taskNumber,
+      source: updated.source || updated.memory?.source || 'notes-upload',
+      savedBy: updated.savedBy || updated.memory?.savedBy || getFileMemoryActor(req.auth),
+      createdAt: updated.createdAt || updated.memory?.createdAt || new Date().toISOString(),
+    });
+  }
+
   db[idx] = updated;
   writeFilesDb(db);
+  const [updatedWithFolderPath] = enrichFilesWithFolderPath([updated], readFoldersDb());
+  res.json(updatedWithFolderPath || updated);
+});
+
+app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => {
+  const cleanupUploadedSnapshot = () => {
+    if (!req.file?.path) return;
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch {}
+  };
+
+  const { id } = req.params;
+  if (!req.file) return res.status(400).json({ error: 'Снимок не найден' });
+  if (req.file.size > FILE_MEMORY_SNAPSHOT_MAX_BYTES) {
+    cleanupUploadedSnapshot();
+    return res.status(413).json({ error: `Снимок больше ${formatLimitLabel(FILE_MEMORY_SNAPSHOT_MAX_BYTES)}` });
+  }
+
+  const db = readFilesDb();
+  const idx = db.findIndex((f) => f.id === id);
+  if (idx === -1) {
+    cleanupUploadedSnapshot();
+    return res.status(404).json({ error: 'Файл не найден' });
+  }
+
+  const current = db[idx];
+  if (isLessonSharedFile(current)) {
+    if (!canWriteLessonSharedByTeacher(req.auth, current?.teacherId)) {
+      cleanupUploadedSnapshot();
+      return forbid(res);
+    }
+  } else if (!ensureStudentAccess(req, res, current?.studentId, { allowDeleted: true })) {
+    cleanupUploadedSnapshot();
+    return;
+  }
+
+  const createdAt = new Date().toISOString();
+  const itemCount = Number(req.body?.itemCount);
+  const snapshot = normalizeFileMemorySnapshot({
+    name: normalizeFileName(req.file.originalname) || 'Снимок доски.png',
+    url: `/uploads/${req.file.filename}`,
+    storageName: req.file.filename,
+    size: formatSize(req.file.size),
+    sizeBytes: req.file.size,
+    createdAt,
+    itemCount: Number.isFinite(itemCount) ? itemCount : 0,
+  });
+  const previousStorageName = path.basename(String(current?.memory?.boardSnapshot?.storageName || '').trim());
+  const updated = {
+    ...current,
+    memory: normalizeFileMemory({
+      ...(current.memory || {}),
+      boardSnapshot: snapshot,
+    }, {
+      taskNumber: current.taskNumber,
+      source: current.source || current.memory?.source || 'notes-upload',
+      savedBy: current.savedBy || current.memory?.savedBy || getFileMemoryActor(req.auth),
+      createdAt: current.createdAt || current.memory?.createdAt || createdAt,
+    }),
+  };
+
+  db[idx] = updated;
+  writeFilesDb(db);
+
+  if (previousStorageName && previousStorageName !== req.file.filename) {
+    fs.unlink(path.join(uploadsDir, previousStorageName), () => {});
+  }
+
   const [updatedWithFolderPath] = enrichFilesWithFolderPath([updated], readFoldersDb());
   res.json(updatedWithFolderPath || updated);
 });

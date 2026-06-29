@@ -1,7 +1,9 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  BookOpen,
   ChevronRight,
+  Code2,
   Download,
   FileSpreadsheet,
   FileText,
@@ -39,6 +41,37 @@ const mergeFolderLists = (lists) => {
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const DEFAULT_NOTES_CATEGORY = 'class';
 const ROOT_FOLDER_LABEL = 'Материалы задания';
+
+const formatFileAddedAt = (file) => {
+  const createdAt = String(file?.createdAt || '').trim();
+  if (createdAt) {
+    const date = new Date(createdAt);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+  }
+  return String(file?.date || '').trim();
+};
+
+const getFileMemorySourceLabel = (source) => {
+  const normalized = String(source || '').trim();
+  if (normalized === 'collab-code') return 'Совместный код';
+  if (normalized === 'notes-python') return 'Python-файл';
+  if (normalized === 'board-save') return 'Доска';
+  if (normalized === 'notes-upload') return 'Загрузка';
+  return normalized || 'Файл';
+};
+
+const getFileMemoryRunLabel = (memory) => {
+  if (!memory || typeof memory?.lastRunHadError !== 'boolean') return '';
+  return memory.lastRunHadError ? 'Был запуск с ошибкой' : 'Запуск без ошибок';
+};
 
 const formatRussianCountLabel = (count, one, few, many) => {
   const value = Math.abs(Number(count) || 0);
@@ -145,6 +178,7 @@ const NotesSection = ({
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const getFileUrl = (file) => withStudentId(file?.url, effectiveStudentId);
+  const getMemorySnapshotUrl = (file) => withStudentId(file?.memory?.boardSnapshot?.url, effectiveStudentId);
   const clearFolderMotionTimers = () => {
     if (folderPressTimeoutRef.current) {
       clearTimeout(folderPressTimeoutRef.current);
@@ -1184,7 +1218,21 @@ const NotesSection = ({
     setPyDraftError('');
     try {
       const file = new File([code], normalizedName, { type: 'text/x-python' });
-      const created = await api.uploadFile(file, uploadTaskNumber, currentCategory, currentFolderId || null, effectiveStudentId);
+      const created = await api.uploadFile(
+        file,
+        uploadTaskNumber,
+        currentCategory,
+        currentFolderId || null,
+        effectiveStudentId,
+        {
+          source: 'notes-python',
+          memory: {
+            taskNumber: uploadTaskNumber,
+            source: 'notes-python',
+            description: 'Python-файл из конспектов',
+          },
+        }
+      );
       setFiles((prev) => [created, ...prev]);
       setPyDraftName('');
       setPyDraftCode('');
@@ -2106,6 +2154,7 @@ const NotesSection = ({
     : false;
   const pyDraftEditorHeight = isMobileViewport ? '180px' : '220px';
   const pyFileEditorHeight = isMobileViewport ? '220px' : '340px';
+  const solutionPyEditorHeight = isMobileViewport ? '360px' : '520px';
   const pyIdleConsoleText = buildIdleConsoleText(pyRunInput, pyRunOutput, pyRunError);
   const pdfPreviewHeight = isMobileViewport ? '48vh' : '60vh';
   const imagePreviewMaxHeight = isMobileViewport ? '56vh' : '72vh';
@@ -2503,6 +2552,19 @@ const NotesSection = ({
                       expandedPyIds[f.id] || expandedPdfIds[f.id] || expandedImageIds[f.id] || expandedTextIds[f.id]
                     );
                     const isSelected = Boolean(selectedFileIds[f.id]);
+                    const addedAtLabel = formatFileAddedAt(f);
+                    const memory = f?.memory && typeof f.memory === 'object' ? f.memory : null;
+                    const sourceRaw = String(memory?.source || f?.source || '').trim();
+                    const sourceLabel = sourceRaw ? getFileMemorySourceLabel(sourceRaw) : '';
+                    const runLabel = getFileMemoryRunLabel(memory);
+                    const hasBoardSnapshot = Boolean(memory?.boardSnapshot?.url);
+                    const memorySnapshotUrl = hasBoardSnapshot ? getMemorySnapshotUrl(f) : '';
+                    const isSolutionBundle = isPyFile(f.name) && (sourceRaw === 'collab-code' || hasBoardSnapshot);
+                    const solutionTaskNumber = memory?.taskNumber ?? f?.taskNumber;
+                    const solutionTaskDisplay = formatTaskNumber(solutionTaskNumber) || solutionTaskNumber;
+                    const solutionTitle = solutionTaskDisplay ? `Задание ${solutionTaskDisplay}: решение` : 'Задание и решение';
+                    const solutionPreviewLabel = isExpanded ? 'Открыто: условие и решение' : 'Раскрыть: условие и решение';
+                    const isEditingCurrentPy = editingPyId === f.id;
                     return (
                       <React.Fragment key={f.id}>
                         <tr
@@ -2512,6 +2574,8 @@ const NotesSection = ({
                             isExpanded ? 'is-preview-open' : ''
                           } ${
                             isPreviewable ? 'is-previewable' : ''
+                          } ${
+                            isSolutionBundle ? 'is-solution-bundle' : ''
                           }`}
                           draggable={renamingId !== f.id && manageable}
                           onDragStart={(e) => {
@@ -2550,11 +2614,20 @@ const NotesSection = ({
                           }}
                           role="button"
                           tabIndex={renamingId === f.id ? -1 : 0}
-                          title={isPreviewable ? 'Один клик — открыть файл' : 'Выделить файл'}
+                          title={isSolutionBundle ? solutionPreviewLabel : (isPreviewable ? 'Один клик — открыть файл' : 'Выделить файл')}
                         >
                           <td className="px-3 py-2.5">
-                            <div className="flex min-w-[220px] items-center gap-3">
-                              <FileIcon name={f.name} compact />
+                            <div className="flex min-w-[260px] items-center gap-3">
+                              {isSolutionBundle ? (
+                                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm">
+                                  <span className="relative flex h-7 w-7 items-center justify-center">
+                                    <BookOpen size={22} strokeWidth={2.1} />
+                                    <Code2 size={15} strokeWidth={2.3} className="absolute -bottom-1 -right-1 rounded-md bg-white p-0.5 text-violet-600 shadow-sm" />
+                                  </span>
+                                </span>
+                              ) : (
+                                <FileIcon name={f.name} compact />
+                              )}
                               <div className="min-w-0">
                                 {renamingId === f.id ? (
                                   <div className="flex items-center gap-1 w-full">
@@ -2578,7 +2651,55 @@ const NotesSection = ({
                                   </div>
                                 ) : (
                                   <>
-                                    <span className="notes-explorer-file-name block truncate font-medium text-slate-800">{f.name}</span>
+                                    {isSolutionBundle ? (
+                                      <div className="min-w-0 space-y-1">
+                                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                          <span className="notes-explorer-file-name block truncate text-base font-extrabold text-slate-900">
+                                            {solutionTitle}
+                                          </span>
+                                          <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1 text-[11px] font-bold ${
+                                            isExpanded
+                                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                              : 'border-violet-200 bg-violet-50 text-violet-700'
+                                          }`}>
+                                            {solutionPreviewLabel}
+                                          </span>
+                                        </div>
+                                        <span className="block truncate text-xs font-medium text-slate-500">
+                                          {f.name}
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <span className="notes-explorer-file-name block truncate font-medium text-slate-800">{f.name}</span>
+                                    )}
+                                    {addedAtLabel && (
+                                      <span className="notes-explorer-file-added-at block truncate text-xs text-slate-400">
+                                        Добавлен: {addedAtLabel}
+                                      </span>
+                                    )}
+                                    {(sourceLabel || runLabel || hasBoardSnapshot) && (
+                                      <span className="mt-1 flex flex-wrap gap-1">
+                                        {sourceLabel && (
+                                          <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                                            {sourceLabel}
+                                          </span>
+                                        )}
+                                        {hasBoardSnapshot && (
+                                          <span className="rounded-full border border-teal-200 bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700">
+                                            Снимок доски
+                                          </span>
+                                        )}
+                                        {runLabel && (
+                                          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
+                                            memory?.lastRunHadError
+                                              ? 'border-rose-200 bg-rose-50 text-rose-600'
+                                              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                          }`}>
+                                            {runLabel}
+                                          </span>
+                                        )}
+                                      </span>
+                                    )}
                                     {isSearchMode && (
                                       <span className="notes-explorer-file-path block truncate text-xs">
                                         {f.folderPath ? `Папка: ${f.folderPath}` : ROOT_FOLDER_LABEL}
@@ -2591,9 +2712,13 @@ const NotesSection = ({
                           </td>
                           <td className="px-3 py-2.5 text-slate-600">
                             <div className="flex flex-col gap-0.5">
-                              <span>{f.size}</span>
+                              <span className={isSolutionBundle ? 'font-bold text-slate-700' : ''}>
+                                {isSolutionBundle ? 'Задание + решение' : f.size}
+                              </span>
                               {!isSearchMode && (
-                                <span className="text-xs text-slate-400">{getFileTypeLabel(f)}</span>
+                                <span className="text-xs text-slate-400">
+                                  {isSolutionBundle ? f.size : getFileTypeLabel(f)}
+                                </span>
                               )}
                             </div>
                           </td>
@@ -2606,7 +2731,7 @@ const NotesSection = ({
                                     toggleFilePreview(f);
                                   }}
                                   className="notes-explorer-file-action-btn notes-explorer-folder-open-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                                  title={isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр'}
+                                  title={isSolutionBundle ? solutionPreviewLabel : (isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
                                   type="button"
                                 >
                                   <ChevronRight
@@ -2661,14 +2786,14 @@ const NotesSection = ({
                         {isPyFile(f.name) && (
                           <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'}`}>
                             <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
-                              <div className="notes-explorer-preview-panel space-y-2 rounded-xl border border-slate-200 bg-white p-2">
+                              <div className="notes-explorer-preview-panel space-y-3 rounded-xl border border-slate-200 bg-white p-2">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <span className="text-xs text-gray-500">
-                                    {editingPyId === f.id
+                                  <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                                    {isEditingCurrentPy && !isSolutionBundle
                                       ? `Размер: ${formatBytes(getPyFileSize(pyEditDraft))}`
-                                      : 'Просмотр Python'}
+                                      : (isSolutionBundle ? solutionTitle : 'Просмотр Python')}
                                   </span>
-                                  {editingPyId === f.id ? (
+                                  {isEditingCurrentPy && !isSolutionBundle ? (
                                     <div className="flex w-full sm:w-auto items-center gap-2">
                                       <Button
                                         variant="secondary"
@@ -2692,7 +2817,7 @@ const NotesSection = ({
                                         {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
                                       </Button>
                                     </div>
-                                  ) : (
+                                  ) : !isEditingCurrentPy ? (
                                     <Button
                                       variant="secondary"
                                       onClick={(e) => {
@@ -2702,11 +2827,119 @@ const NotesSection = ({
                                       disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
                                       className="w-full sm:w-auto"
                                     >
-                                      Редактировать
+                                      {isSolutionBundle ? 'Редактировать код' : 'Редактировать'}
                                     </Button>
+                                  ) : (
+                                    <span className="hidden" aria-hidden="true" />
                                   )}
                                 </div>
-                                {editingPyId === f.id ? (
+                                {isSolutionBundle ? (
+                                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span className="rounded-full border border-emerald-200 bg-white px-2 py-1 text-[11px] font-bold text-emerald-700">
+                                        Задание + решение
+                                      </span>
+                                      {sourceLabel && (
+                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
+                                          {sourceLabel}
+                                        </span>
+                                      )}
+                                      {memory?.savedBy?.name && (
+                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
+                                          Сохранил: {memory.savedBy.name}
+                                        </span>
+                                      )}
+                                      {hasBoardSnapshot && (
+                                        <span className="rounded-full border border-teal-200 bg-white px-2 py-1 text-[11px] font-semibold text-teal-700">
+                                          Условие прикреплено
+                                        </span>
+                                      )}
+                                      {runLabel && (
+                                        <span className={`rounded-full border bg-white px-2 py-1 text-[11px] font-semibold ${
+                                          memory?.lastRunHadError
+                                            ? 'border-rose-200 text-rose-600'
+                                            : 'border-emerald-200 text-emerald-700'
+                                        }`}>
+                                          {runLabel}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {memory?.description && (
+                                      <p className="mt-2 text-sm font-medium text-slate-700">{memory.description}</p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className={`notes-explorer-memory-card grid gap-3 rounded-xl border p-3 ${
+                                    memory
+                                      ? 'border-teal-100 bg-teal-50/60 md:grid-cols-[minmax(0,1fr)_220px]'
+                                      : 'border-slate-200 bg-slate-50'
+                                  }`}>
+                                      <div className="min-w-0 space-y-2">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <span className={`rounded-full border bg-white px-2 py-1 text-[11px] font-bold ${
+                                            memory ? 'border-teal-200 text-teal-700' : 'border-slate-200 text-slate-600'
+                                          }`}>
+                                            Карточка-память
+                                          </span>
+                                          {sourceLabel && (
+                                            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
+                                              {sourceLabel}
+                                            </span>
+                                          )}
+                                          {memory?.savedBy?.name && (
+                                            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
+                                              Сохранил: {memory.savedBy.name}
+                                            </span>
+                                          )}
+                                          {runLabel && (
+                                            <span className={`rounded-full border bg-white px-2 py-1 text-[11px] font-semibold ${
+                                              memory?.lastRunHadError
+                                                ? 'border-rose-200 text-rose-600'
+                                                : 'border-emerald-200 text-emerald-700'
+                                            }`}>
+                                              {runLabel}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {!memory && (
+                                          <p className="text-sm font-medium text-slate-500">
+                                            Для этого файла пока сохранён только код.
+                                          </p>
+                                        )}
+                                        {memory?.description && (
+                                          <p className="text-sm font-medium text-slate-700">{memory.description}</p>
+                                        )}
+                                        {memory?.lastRunOutput && (
+                                          <div className="rounded-lg border border-slate-200 bg-white">
+                                            <div className="border-b border-slate-100 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                                              Последний вывод
+                                            </div>
+                                            <pre className="max-h-40 overflow-auto whitespace-pre-wrap px-3 py-2 text-xs leading-5 text-slate-700">{memory.lastRunOutput}</pre>
+                                          </div>
+                                        )}
+                                      </div>
+                                      {memorySnapshotUrl && (
+                                        <a
+                                          href={memorySnapshotUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="group block overflow-hidden rounded-xl border border-teal-100 bg-white"
+                                          onClick={(e) => e.stopPropagation()}
+                                          title="Открыть снимок доски"
+                                        >
+                                          <img
+                                            src={memorySnapshotUrl}
+                                            alt="Снимок видимой области доски"
+                                            className="h-36 w-full object-cover transition group-hover:scale-[1.02]"
+                                          />
+                                          <div className="px-2.5 py-1.5 text-[11px] font-semibold text-teal-700">
+                                            Видимая область доски
+                                          </div>
+                                        </a>
+                                      )}
+                                    </div>
+                                )}
+                                {!isSolutionBundle && isEditingCurrentPy ? (
                                   <div className="space-y-2">
                                     <div className="overflow-hidden rounded-xl border border-gray-800">
                                       <Editor
@@ -2752,28 +2985,149 @@ const NotesSection = ({
                                       />
                                     </div>
                                   </div>
+                                ) : isSolutionBundle ? (
+                                  <div className={`grid gap-3 ${memorySnapshotUrl ? 'xl:grid-cols-[minmax(420px,0.95fr)_minmax(480px,1.05fr)]' : ''}`}>
+                                    {memorySnapshotUrl ? (
+                                      <section className="min-w-0 overflow-hidden rounded-xl border border-teal-100 bg-white">
+                                        <div className="flex items-center justify-between gap-2 border-b border-teal-50 px-3 py-2">
+                                          <div className="flex items-center gap-2 text-sm font-extrabold text-slate-800">
+                                            <BookOpen size={16} className="text-teal-700" />
+                                            Условие
+                                          </div>
+                                          <a
+                                            href={memorySnapshotUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="rounded-full border border-teal-100 bg-teal-50 px-2 py-1 text-[11px] font-bold text-teal-700 hover:bg-teal-100"
+                                          >
+                                            Открыть отдельно
+                                          </a>
+                                        </div>
+                                        <div onClick={(e) => e.stopPropagation()}>
+                                          <ImageViewer
+                                            src={memorySnapshotUrl}
+                                            alt="Условие задания"
+                                            maxHeight="min(58vh, 560px)"
+                                          />
+                                        </div>
+                                      </section>
+                                    ) : (
+                                      <section className="min-w-0 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
+                                        <div className="flex items-center gap-2 text-sm font-bold text-slate-600">
+                                          <BookOpen size={16} />
+                                          Условие не прикреплено
+                                        </div>
+                                      </section>
+                                    )}
+                                    <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
+                                        <div className="flex items-center gap-2 text-sm font-extrabold text-slate-800">
+                                          <Code2 size={16} className="text-violet-600" />
+                                          Решение
+                                        </div>
+                                        {isEditingCurrentPy ? (
+                                          <div className="flex items-center gap-1.5">
+                                            <Button
+                                              variant="secondary"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                cancelEditingPyFile();
+                                              }}
+                                              disabled={pyEditSaving}
+                                              className="px-3 py-1.5 text-xs"
+                                            >
+                                              Отмена
+                                            </Button>
+                                            <Button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                saveEditingPyFile(f);
+                                              }}
+                                              disabled={pyEditSaving}
+                                              className="px-3 py-1.5 text-xs"
+                                            >
+                                              {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
+                                            </Button>
+                                          </div>
+                                        ) : (
+                                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-500">
+                                            Python
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className={`${isEditingCurrentPy ? '' : 'max-h-[min(58vh,560px)] overflow-auto'}`}>
+                                        {isEditingCurrentPy ? (
+                                          <div className="overflow-hidden bg-white" onClick={(e) => e.stopPropagation()}>
+                                            <Editor
+                                              height={solutionPyEditorHeight}
+                                              language="python"
+                                              theme={monacoTheme}
+                                              beforeMount={ensureMonacoColorTheme}
+                                              value={pyEditDraft}
+                                              onChange={(value) => {
+                                                setPyEditDraft(value ?? '');
+                                                if (pyEditError) setPyEditError('');
+                                              }}
+                                              options={{
+                                                ...pyEditorOptions,
+                                                fontSize: 15,
+                                                lineHeight: 24,
+                                              }}
+                                              loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+                                            />
+                                            {pyEditError && (
+                                              <p className="border-t border-rose-100 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600">
+                                                {pyEditError}
+                                              </p>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <>
+                                            {pyLoadingId === f.id && (
+                                              <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                                            )}
+                                            {pyLoadingId !== f.id && pyError[f.id] && (
+                                              <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
+                                            )}
+                                            {pyLoadingId !== f.id && !pyError[f.id] && (
+                                              pyContent[f.id]
+                                                ? (
+                                                  <pre className="notes-python-code language-python m-0 p-4 text-sm leading-6">
+                                                    <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
+                                                  </pre>
+                                                )
+                                                : (
+                                                  <pre className="notes-python-code language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
+                                                )
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
+                                    </section>
+                                  </div>
                                 ) : (
                                   <div className="max-h-[55vh] overflow-auto rounded-xl">
                                     {pyLoadingId === f.id && (
-                                      <pre className="language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                                      <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
                                     )}
                                     {pyLoadingId !== f.id && pyError[f.id] && (
-                                      <pre className="language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
+                                      <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
                                     )}
                                     {pyLoadingId !== f.id && !pyError[f.id] && (
                                       pyContent[f.id]
                                         ? (
-                                          <pre className="language-python m-0 p-4 text-sm">
+                                          <pre className="notes-python-code language-python m-0 p-4 text-sm">
                                             <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
                                           </pre>
                                         )
                                         : (
-                                          <pre className="language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
+                                          <pre className="notes-python-code language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
                                         )
                                     )}
                                   </div>
                                 )}
-                                {editingPyId === f.id && pyEditError && (
+                                {!isSolutionBundle && editingPyId === f.id && pyEditError && (
                                   <p className="text-xs text-red-500">{pyEditError}</p>
                                 )}
                               </div>
