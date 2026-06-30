@@ -1351,7 +1351,30 @@ const NOTES_SAVE_DRAFT_STORAGE_KEY_PREFIX = 'ege_notes_save_draft_v1';
 const NOTES_SAVE_DRAFT_CATEGORIES = new Set(['class', 'home']);
 const NOTES_SAVE_MODE_FULL_TASK = 'full-task';
 const NOTES_SAVE_MODE_CODE_ONLY = 'code-only';
-const NOTES_SAVE_MODES = new Set([NOTES_SAVE_MODE_FULL_TASK, NOTES_SAVE_MODE_CODE_ONLY]);
+const NOTES_SAVE_MODE_CHEATSHEET = 'cheatsheet';
+const NOTES_SAVE_MODES = new Set([NOTES_SAVE_MODE_FULL_TASK, NOTES_SAVE_MODE_CODE_ONLY, NOTES_SAVE_MODE_CHEATSHEET]);
+
+const buildCodeMemoryPreview = (value) => {
+  const code = String(value || '').trim();
+  if (!code) return '';
+  const lines = code
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line && !line.startsWith('#'));
+  if (!lines.length) return '';
+  const picks = [];
+  const addFirst = (matcher) => {
+    const found = lines.find((line) => matcher.test(line));
+    if (found && !picks.includes(found)) picks.push(found);
+  };
+  addFirst(/\bopen\s*\(/);
+  addFirst(/^(for|while)\s+/);
+  addFirst(/^if\s+/);
+  addFirst(/\b(print|return)\s*\(?/);
+  if (!picks.length) picks.push(...lines.slice(0, 3));
+  const preview = picks.slice(0, 4).join(' · ');
+  return preview.length > 220 ? `${preview.slice(0, 217).trimEnd()}...` : preview;
+};
 
 const getNotesSaveTaskNumbers = (taskOptions) => (
   (Array.isArray(taskOptions) ? taskOptions : [])
@@ -4709,23 +4732,27 @@ const CollabSection = ({
     }, 'collab-code-save-notice');
   };
 
-  const buildCollabCodeMemory = (title = '', source = 'collab-code') => {
+  const buildCollabCodeMemory = (title = '', source = 'collab-code', codeValue = '') => {
     const output = String(runOutputRef.current || '').trim();
     const error = String(runErrorRef.current || '').trim();
     const status = String(runStatusRef.current || '').trim();
-    const memoryTitle = String(title || '').replace(/\.[^.]+$/i, '').replace(/^конспект[-_\s]*/i, '').trim();
+    const memoryTitle = String(title || '').replace(/\.[^.]+$/i, '').replace(/^(конспект|шпаргалка)[-_\s]*/i, '').trim();
     const normalizedSource = String(source || '').trim() || 'collab-code';
+    const isCheatsheet = normalizedSource === 'notes-cheatsheet';
+    const codePreview = buildCodeMemoryPreview(codeValue);
     return {
       taskNumber: Number(saveTaskNumber),
       source: normalizedSource,
+      kind: isCheatsheet ? 'cheatsheet' : 'code',
       title: memoryTitle,
       description: normalizedSource === 'collab-code'
         ? 'Решение из совместного кода'
-        : 'Код из совместного редактора',
+        : (isCheatsheet ? 'Шпаргалка из совместного кода' : 'Код из совместного редактора'),
       tags: [],
       lastRunOutput: error || output,
       lastRunHadError: Boolean(error || status === 'error'),
       lastRunAt: runTimestamp ? new Date(runTimestamp).toISOString() : '',
+      ...(codePreview ? { codePreview } : {}),
     };
   };
 
@@ -5086,8 +5113,10 @@ const CollabSection = ({
       setSaveNameError(true);
       return;
     }
+    const saveAsCodeOnly = saveMode === NOTES_SAVE_MODE_CODE_ONLY;
+    const saveAsCheatsheet = saveMode === NOTES_SAVE_MODE_CHEATSHEET;
     let safeName = baseName;
-    const prefix = 'конспект-';
+    const prefix = saveAsCheatsheet ? 'шпаргалка-' : 'конспект-';
     if (!safeName.toLowerCase().startsWith(prefix)) {
       safeName = `${prefix}${safeName}`;
     }
@@ -5095,8 +5124,9 @@ const CollabSection = ({
       safeName += '.py';
     }
     const file = new File([code], safeName, { type: 'text/plain' });
-    const saveAsCodeOnly = saveMode === NOTES_SAVE_MODE_CODE_ONLY;
-    const fileSource = saveAsCodeOnly ? 'notes-python' : 'collab-code';
+    const fileSource = saveAsCheatsheet
+      ? 'notes-cheatsheet'
+      : (saveAsCodeOnly ? 'notes-python' : 'collab-code');
     setSaveBusy(true);
     try {
       const created = await api.uploadFile(
@@ -5107,10 +5137,10 @@ const CollabSection = ({
         effectiveStudentId,
         {
           source: fileSource,
-          memory: buildCollabCodeMemory(baseName, fileSource),
+          memory: buildCollabCodeMemory(baseName, fileSource, code),
         }
       );
-      const snapshotResult = saveAsCodeOnly
+      const snapshotResult = (saveAsCodeOnly || saveAsCheatsheet)
         ? { attached: false }
         : await attachCollabBoardSnapshotToFile(created?.id, safeName);
       saveNotesSaveDraft(notesSaveDraftStorageKey, {
@@ -5120,7 +5150,9 @@ const CollabSection = ({
         fileName: saveFileName,
         saveMode,
       }, saveTaskNumbers);
-      if (saveAsCodeOnly) {
+      if (saveAsCheatsheet) {
+        setSaveSuccess('Сохранено в конспекты: шпаргалка.');
+      } else if (saveAsCodeOnly) {
         setSaveSuccess('Сохранено в конспекты: только код.');
       } else {
         setSaveSuccess(snapshotResult.error
@@ -6687,6 +6719,33 @@ const CollabSection = ({
     );
   };
 
+  const notesSaveModeOptions = [
+    {
+      id: NOTES_SAVE_MODE_FULL_TASK,
+      title: 'Задание целиком',
+      badge: 'условие + решение',
+      description: 'Сохранится решение вместе с карточкой задания и видимой областью доски.',
+      Icon: BookOpen,
+      className: 'notes-save-mode-option--full',
+    },
+    {
+      id: NOTES_SAVE_MODE_CODE_ONLY,
+      title: 'Только код',
+      badge: '.py',
+      description: 'Сохранится обычный Python-файл без снимка доски.',
+      Icon: Code2,
+      className: 'notes-save-mode-option--code',
+    },
+    {
+      id: NOTES_SAVE_MODE_CHEATSHEET,
+      title: 'Шпаргалка',
+      badge: 'код-карточка',
+      description: 'Сохранится только код, но в конспектах он будет оформлен как отдельная красивая шпаргалка.',
+      Icon: TextSelect,
+      className: 'notes-save-mode-option--cheatsheet',
+    },
+  ];
+
   const saveModal = saveModalOpen ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
       <div className="surface-card modal-card rounded-3xl w-full max-w-3xl p-4 sm:p-5 md:p-6 shadow-2xl relative">
@@ -6770,52 +6829,42 @@ const CollabSection = ({
           </div>
         </div>
 
-        <label className={`mt-3 flex cursor-pointer items-center gap-3 rounded-2xl border p-3 transition ${
-          saveMode === NOTES_SAVE_MODE_CODE_ONLY
-            ? 'border-sky-200 bg-sky-50/80 shadow-sm'
-            : 'border-indigo-200 bg-indigo-50/70'
-        }`}>
-          <input
-            type="checkbox"
-            checked={saveMode === NOTES_SAVE_MODE_CODE_ONLY}
-            onChange={(e) => {
-              setSaveMode(e.target.checked ? NOTES_SAVE_MODE_CODE_ONLY : NOTES_SAVE_MODE_FULL_TASK);
-              setSaveSuccess('');
-              setSaveError('');
-            }}
-            className="sr-only"
-          />
-          <span className={`relative flex h-7 w-12 shrink-0 items-center rounded-full border transition ${
-            saveMode === NOTES_SAVE_MODE_CODE_ONLY
-              ? 'border-sky-300 bg-sky-500'
-              : 'border-indigo-300 bg-indigo-500'
-          }`}>
-            <span className={`absolute left-1 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow transition ${
-              saveMode === NOTES_SAVE_MODE_CODE_ONLY ? 'translate-x-5 text-sky-600' : 'translate-x-0 text-indigo-600'
-            }`}>
-              {saveMode === NOTES_SAVE_MODE_CODE_ONLY ? <Code2 size={13} /> : <BookOpen size={13} />}
-            </span>
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-extrabold text-slate-900">
-                {saveMode === NOTES_SAVE_MODE_CODE_ONLY ? 'Сохранить только код' : 'Сохранить задание целиком'}
-              </span>
-              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${
-                saveMode === NOTES_SAVE_MODE_CODE_ONLY
-                  ? 'border-sky-200 bg-white text-sky-700'
-                  : 'border-indigo-200 bg-white text-indigo-700'
-              }`}>
-                {saveMode === NOTES_SAVE_MODE_CODE_ONLY ? '.py' : 'условие + решение'}
-              </span>
-            </span>
-            <span className="mt-0.5 block text-xs font-medium text-slate-500">
-              {saveMode === NOTES_SAVE_MODE_CODE_ONLY
-                ? 'В конспекты попадёт обычный Python-файл без снимка доски.'
-                : 'В конспекты попадёт решение вместе с карточкой задания и видимой областью доски.'}
-            </span>
-          </span>
-        </label>
+        <div className="notes-save-mode-grid mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-3">
+          {notesSaveModeOptions.map((option) => {
+            const active = saveMode === option.id;
+            const OptionIcon = option.Icon;
+            return (
+              <label
+                key={option.id}
+                className={`notes-save-mode-option ${option.className} ${active ? 'is-active' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="notes-save-mode"
+                  value={option.id}
+                  checked={active}
+                  onChange={() => {
+                    setSaveMode(option.id);
+                    setSaveSuccess('');
+                    setSaveError('');
+                  }}
+                  className="sr-only"
+                />
+                <span className="notes-save-mode-option__icon" aria-hidden="true">
+                  <OptionIcon size={18} strokeWidth={2.3} />
+                  <span />
+                </span>
+                <span className="notes-save-mode-option__body">
+                  <span className="notes-save-mode-option__top">
+                    <span className="notes-save-mode-option__title">{option.title}</span>
+                    <span className="notes-save-mode-option__badge">{option.badge}</span>
+                  </span>
+                  <span className="notes-save-mode-option__description">{option.description}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
 
         <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input

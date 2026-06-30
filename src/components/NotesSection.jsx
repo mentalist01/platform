@@ -14,6 +14,8 @@ import {
   Pencil,
   Plus,
   Search,
+  Sparkles,
+  Star,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -64,6 +66,7 @@ const getFileMemorySourceLabel = (source) => {
   const normalized = String(source || '').trim();
   if (normalized === 'collab-code') return 'Совместный код';
   if (normalized === 'notes-python') return 'Python-файл';
+  if (normalized === 'notes-cheatsheet') return 'Шпаргалка';
   if (normalized === 'board-save') return 'Доска';
   if (normalized === 'notes-upload') return 'Загрузка';
   return normalized || 'Файл';
@@ -78,7 +81,7 @@ const getSavedSolutionTitle = (file, memory) => {
   const memoryTitle = String(memory?.title || '').trim();
   const rawName = memoryTitle || String(file?.name || '').trim();
   const withoutExtension = rawName.replace(/\.[^.\\/]+$/i, '').trim();
-  const withoutPrefix = withoutExtension.replace(/^конспект[-_\s]*/i, '').trim();
+  const withoutPrefix = withoutExtension.replace(/^(конспект|шпаргалка)[-_\s]*/i, '').trim();
   return withoutPrefix || withoutExtension || rawName || 'Задание и решение';
 };
 
@@ -86,6 +89,43 @@ const getCodePreviewText = (value, loading = false) => {
   const code = String(value || '').trim();
   if (code) return code.split(/\r?\n/).slice(0, 8).join('\n');
   return loading ? 'Загрузка кода...' : 'Код появится после раскрытия.';
+};
+
+const buildCodeMemoryPreview = (value) => {
+  const code = String(value || '').trim();
+  if (!code) return '';
+  const lines = code
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line && !line.startsWith('#'));
+  if (!lines.length) return '';
+  const picks = [];
+  const addFirst = (matcher) => {
+    const found = lines.find((line) => matcher.test(line));
+    if (found && !picks.includes(found)) picks.push(found);
+  };
+  addFirst(/\bopen\s*\(/);
+  addFirst(/^(for|while)\s+/);
+  addFirst(/^if\s+/);
+  addFirst(/\b(print|return)\s*\(?/);
+  if (!picks.length) picks.push(...lines.slice(0, 3));
+  const preview = picks.slice(0, 4).join(' · ');
+  return preview.length > 220 ? `${preview.slice(0, 217).trimEnd()}...` : preview;
+};
+
+const getCodeInlinePreviewText = (value, loading = false) => (
+  buildCodeMemoryPreview(value) || (loading ? 'Готовлю выжимку кода...' : 'Выжимка кода появится через секунду')
+);
+
+const isFileMemoryPinned = (memory) => Boolean(
+  memory?.isPinned || memory?.pinned || memory?.favorite || memory?.starred
+);
+
+const getFileMemoryPinnedAt = (memory) => {
+  const raw = String(memory?.pinnedAt || '').trim();
+  if (!raw) return 0;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 };
 
 const formatRussianCountLabel = (count, one, few, many) => {
@@ -161,6 +201,7 @@ const NotesSection = ({
   const [expandedImageIds, setExpandedImageIds] = useState({});
   const [expandedTextIds, setExpandedTextIds] = useState({});
   const [collapsingSolutionIds, setCollapsingSolutionIds] = useState({});
+  const [pinningFileIds, setPinningFileIds] = useState({});
   const [pyContent, setPyContent] = useState({});
   const [pyError, setPyError] = useState({});
   const [pyLoadingId, setPyLoadingId] = useState(null);
@@ -315,6 +356,7 @@ const NotesSection = ({
     setExpandedPdfIds({});
     setExpandedImageIds({});
     setExpandedTextIds({});
+    setPinningFileIds({});
     setDeletingFolderId(null);
     setEditingPyId(null);
     setPyEditDraft('');
@@ -783,6 +825,12 @@ const NotesSection = ({
     const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
     const sourceRaw = String(memory?.source || file?.source || '').trim();
     return isPyFile(file?.name) && (sourceRaw === 'collab-code' || Boolean(memory?.boardSnapshot?.url));
+  };
+  const isCheatsheetFile = (file) => {
+    const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
+    const sourceRaw = String(memory?.source || file?.source || '').trim();
+    const kindRaw = String(memory?.kind || '').trim();
+    return isPyFile(file?.name) && (sourceRaw === 'notes-cheatsheet' || kindRaw === 'cheatsheet');
   };
 
   const getImageExtensionFromMime = (mime) => {
@@ -1679,13 +1727,62 @@ const NotesSection = ({
     try {
       const content = String(pyEditDraft ?? '');
       const updated = await api.updateFileContent(file.id, content);
-      setFiles((prev) => prev.map((entry) => (entry.id === updated.id ? { ...entry, ...updated } : entry)));
+      const shouldRefreshMemoryPreview = isSavedSolutionBundleFile(file) || isCheatsheetFile(file);
+      let nextFile = updated;
+      if (shouldRefreshMemoryPreview) {
+        const nextCodePreview = buildCodeMemoryPreview(content);
+        const nextMemory = {
+          ...(updated?.memory || file?.memory || {}),
+          ...(nextCodePreview ? { codePreview: nextCodePreview } : { codePreview: '' }),
+        };
+        try {
+          nextFile = await api.updateFileMemory(file.id, nextMemory);
+        } catch (err) {
+          console.warn('[notes] failed to refresh code memory preview', err);
+          nextFile = { ...updated, memory: nextMemory };
+        }
+      }
+      setFiles((prev) => prev.map((entry) => (entry.id === nextFile.id ? { ...entry, ...nextFile } : entry)));
       setPyContent((prev) => ({ ...prev, [file.id]: content }));
       cancelEditingPyFile();
     } catch (err) {
       setPyEditError(err?.message || 'Не удалось сохранить файл');
     } finally {
       setPyEditSaving(false);
+    }
+  };
+
+  const togglePinnedFile = async (file) => {
+    if (!file?.id || !canManageFile(file)) return;
+    const fileId = String(file.id);
+    if (pinningFileIds[fileId]) return;
+    const currentMemory = file?.memory && typeof file.memory === 'object' ? file.memory : {};
+    const nextPinned = !isFileMemoryPinned(currentMemory);
+    const nextMemory = {
+      ...currentMemory,
+      isPinned: nextPinned,
+      pinnedAt: nextPinned ? new Date().toISOString() : '',
+    };
+    setPinningFileIds((prev) => ({ ...(prev || {}), [fileId]: true }));
+    setFiles((prev) => prev.map((entry) => (
+      entry.id === file.id ? { ...entry, memory: nextMemory } : entry
+    )));
+    try {
+      const updated = await api.updateFileMemory(file.id, nextMemory);
+      setFiles((prev) => prev.map((entry) => (
+        entry.id === updated.id ? { ...entry, ...updated } : entry
+      )));
+    } catch (err) {
+      console.error(err);
+      setFiles((prev) => prev.map((entry) => (
+        entry.id === file.id ? { ...entry, memory: currentMemory } : entry
+      )));
+    } finally {
+      setPinningFileIds((prev) => {
+        const next = { ...(prev || {}) };
+        delete next[fileId];
+        return next;
+      });
     }
   };
 
@@ -1922,6 +2019,63 @@ const NotesSection = ({
       }
     };
   }, [effectiveStudentId, handleRefreshData]);
+
+  useEffect(() => {
+    if (!Number.isFinite(normalizedCurrentTask) || !currentCategory) return undefined;
+    const normalizedSearch = fileSearch.trim().toLowerCase();
+    const candidates = files
+      .filter((file) => (
+        getNotesTaskNumber(file?.taskNumber) === normalizedCurrentTask
+        && file?.category === currentCategory
+      ))
+      .filter((file) => {
+        if (!normalizedSearch) {
+          return currentFolderId ? file?.folderId === currentFolderId : !file?.folderId;
+        }
+        const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
+        const haystack = [
+          file?.name,
+          file?.folderPath,
+          file?.folderName,
+          memory?.title,
+          memory?.description,
+          memory?.codePreview,
+          Array.isArray(memory?.tags) ? memory.tags.join(' ') : '',
+        ]
+          .map((value) => String(value || '').toLowerCase())
+          .join(' ');
+        return haystack.includes(normalizedSearch);
+      })
+      .filter((file) => {
+        const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
+        if (!isSavedSolutionBundleFile(file) && !isCheatsheetFile(file)) return false;
+        if (String(memory?.codePreview || '').trim()) return false;
+        if (Object.prototype.hasOwnProperty.call(pyContent, file.id)) return false;
+        if (pyError[file.id]) return false;
+        return true;
+      })
+      .slice(0, 8);
+    if (!candidates.length) return undefined;
+    let cancelled = false;
+    const preload = async () => {
+      for (const file of candidates) {
+        if (cancelled) break;
+        await loadPyFileContent(file);
+      }
+    };
+    void preload();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentCategory,
+    currentFolderId,
+    fileSearch,
+    files,
+    normalizedCurrentTask,
+    pyContent,
+    pyError,
+  ]);
 
   const renderStudentPicker = () => {
     if (role !== 'teacher') return null;
@@ -2174,6 +2328,10 @@ const NotesSection = ({
         getFileTypeLabel(file),
         file?.folderPath,
         file?.folderName,
+        file?.memory?.title,
+        file?.memory?.description,
+        file?.memory?.codePreview,
+        Array.isArray(file?.memory?.tags) ? file.memory.tags.join(' ') : '',
       ]
         .map((value) => String(value || '').toLowerCase())
         .join(' ');
@@ -2199,9 +2357,16 @@ const NotesSection = ({
     if (leftShared !== rightShared) return leftShared ? -1 : 1;
     return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
   });
-  const sortedVisibleFiles = [...visibleFiles].sort((left, right) => (
-    String(left?.name || '').localeCompare(String(right?.name || ''), 'ru')
-  ));
+  const sortedVisibleFiles = [...visibleFiles].sort((left, right) => {
+    const leftPinned = isFileMemoryPinned(left?.memory);
+    const rightPinned = isFileMemoryPinned(right?.memory);
+    if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+    if (leftPinned && rightPinned) {
+      const pinnedDiff = getFileMemoryPinnedAt(right?.memory) - getFileMemoryPinnedAt(left?.memory);
+      if (pinnedDiff) return pinnedDiff;
+    }
+    return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
+  });
   const visibleExplorerItems = [
     ...sortedVisibleFolders.map((folder) => ({ kind: 'folder', id: `folder-${folder.id}`, folder })),
     ...sortedVisibleFiles.map((file) => ({ kind: 'file', id: `file-${file.id}`, file })),
@@ -2682,15 +2847,26 @@ const NotesSection = ({
                     const runLabel = getFileMemoryRunLabel(memory);
                     const hasBoardSnapshot = Boolean(memory?.boardSnapshot?.url);
                     const memorySnapshotUrl = hasBoardSnapshot ? getMemorySnapshotUrl(f) : '';
-                    const isSolutionBundle = isPyFile(f.name) && (sourceRaw === 'collab-code' || hasBoardSnapshot);
+                    const isCheatsheet = isCheatsheetFile(f);
+                    const isSolutionBundle = isPyFile(f.name) && !isCheatsheet && (sourceRaw === 'collab-code' || hasBoardSnapshot);
+                    const isMemoryCodeCard = isSolutionBundle || isCheatsheet;
                     const isCollapsingSolution = isSolutionBundle && Boolean(collapsingSolutionIds[f.id]);
                     const isPreviewVisuallyOpen = isExpanded && !isCollapsingSolution;
                     const solutionTaskNumber = memory?.taskNumber ?? f?.taskNumber;
                     const solutionTaskDisplay = formatTaskNumber(solutionTaskNumber) || solutionTaskNumber;
                     const solutionTitle = getSavedSolutionTitle(f, memory);
                     const solutionTaskLabel = solutionTaskDisplay ? `Задание ${solutionTaskDisplay}` : 'Задание';
-                    const solutionActionTitle = isPreviewVisuallyOpen ? 'Скрыть условие и решение' : 'Открыть условие и решение';
+                    const solutionActionTitle = isCheatsheet
+                      ? (isPreviewVisuallyOpen ? 'Скрыть шпаргалку' : 'Открыть шпаргалку')
+                      : (isPreviewVisuallyOpen ? 'Скрыть условие и решение' : 'Открыть условие и решение');
                     const isEditingCurrentPy = editingPyId === f.id;
+                    const isPinned = isFileMemoryPinned(memory);
+                    const isPinning = Boolean(pinningFileIds[f.id]);
+                    const hasLoadedPyContent = Object.prototype.hasOwnProperty.call(pyContent, f.id);
+                    const inlineCodeSource = hasLoadedPyContent ? pyContent[f.id] : (memory?.codePreview || '');
+                    const inlineCodePreview = isMemoryCodeCard
+                      ? getCodeInlinePreviewText(inlineCodeSource, pyLoadingId === f.id)
+                      : '';
                     return (
                       <React.Fragment key={f.id}>
                         <tr
@@ -2702,6 +2878,10 @@ const NotesSection = ({
                             isPreviewable ? 'is-previewable' : ''
                           } ${
                             isSolutionBundle ? 'is-solution-bundle' : ''
+                          } ${
+                            isCheatsheet ? 'is-cheatsheet' : ''
+                          } ${
+                            isPinned ? 'is-pinned' : ''
                           }`}
                           draggable={renamingId !== f.id && manageable}
                           onDragStart={(e) => {
@@ -2766,11 +2946,18 @@ const NotesSection = ({
                           }}
                           role="button"
                           tabIndex={renamingId === f.id ? -1 : 0}
-                          title={isSolutionBundle ? solutionActionTitle : (isPreviewable ? 'Один клик — открыть файл' : 'Выделить файл')}
+                          title={isMemoryCodeCard ? solutionActionTitle : (isPreviewable ? 'Один клик — открыть файл' : 'Выделить файл')}
                         >
                           <td className="px-3 py-2.5">
                             <div className="flex min-w-[260px] items-center gap-3">
-                              {isSolutionBundle ? (
+                              {isCheatsheet ? (
+                                <span className={`notes-cheatsheet-icon ${isPreviewVisuallyOpen ? 'is-open' : ''}`}>
+                                  <span className="notes-cheatsheet-icon__spark">
+                                    <Sparkles size={13} strokeWidth={2.4} />
+                                  </span>
+                                  <Code2 size={22} strokeWidth={2.2} />
+                                </span>
+                              ) : isSolutionBundle ? (
                                 <span className={`notes-solution-bundle-icon ${isPreviewVisuallyOpen ? 'is-open' : ''}`}>
                                   <span className="relative flex h-7 w-7 items-center justify-center">
                                     <BookOpen size={22} strokeWidth={2.1} />
@@ -2804,7 +2991,24 @@ const NotesSection = ({
                                   </div>
                                 ) : (
                                   <>
-                                    {isSolutionBundle ? (
+                                    {isCheatsheet ? (
+                                      <div className="notes-cheatsheet-row-title min-w-0 space-y-1">
+                                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                          <span className="notes-explorer-file-name block truncate text-base font-extrabold text-slate-900">
+                                            {solutionTitle}
+                                          </span>
+                                          <span className="notes-cheatsheet-row-badge">
+                                            Шпаргалка
+                                          </span>
+                                        </div>
+                                        {inlineCodePreview && (
+                                          <span className="notes-code-inline-preview">
+                                            <Code2 size={12} strokeWidth={2.3} />
+                                            <span>{inlineCodePreview}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    ) : isSolutionBundle ? (
                                       <div className="notes-solution-row-title min-w-0 space-y-1">
                                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                                           <span className="notes-explorer-file-name block truncate text-base font-extrabold text-slate-900">
@@ -2821,9 +3025,12 @@ const NotesSection = ({
                                             </span>
                                           </span>
                                         </div>
-                                        <span className="block truncate text-xs font-medium text-slate-500">
-                                          {f.name}
-                                        </span>
+                                        {inlineCodePreview && (
+                                          <span className="notes-code-inline-preview">
+                                            <Code2 size={12} strokeWidth={2.3} />
+                                            <span>{inlineCodePreview}</span>
+                                          </span>
+                                        )}
                                       </div>
                                     ) : (
                                       <span className="notes-explorer-file-name block truncate font-medium text-slate-800">{f.name}</span>
@@ -2833,7 +3040,7 @@ const NotesSection = ({
                                         Добавлен: {addedAtLabel}
                                       </span>
                                     )}
-                                    {!isSolutionBundle && (sourceLabel || runLabel || hasBoardSnapshot) && (
+                                    {!isSolutionBundle && !isCheatsheet && (sourceLabel || runLabel || hasBoardSnapshot) && (
                                       <span className="mt-1 flex flex-wrap gap-1">
                                         {sourceLabel && (
                                           <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
@@ -2868,18 +3075,32 @@ const NotesSection = ({
                           </td>
                           <td className="px-3 py-2.5 text-slate-600">
                             <div className="flex flex-col gap-0.5">
-                              <span className={isSolutionBundle ? 'font-bold text-slate-700' : ''}>
-                                {isSolutionBundle ? 'Задание + решение' : f.size}
+                              <span className={isSolutionBundle || isCheatsheet ? 'font-bold text-slate-700' : ''}>
+                                {isSolutionBundle ? 'Задание + решение' : (isCheatsheet ? 'Шпаргалка' : f.size)}
                               </span>
                               {!isSearchMode && (
                                 <span className="text-xs text-slate-400">
-                                  {isSolutionBundle ? f.size : getFileTypeLabel(f)}
+                                  {isSolutionBundle || isCheatsheet ? f.size : getFileTypeLabel(f)}
                                 </span>
                               )}
                             </div>
                           </td>
                           <td className="px-3 py-2.5">
                             <div className="notes-explorer-row-actions flex items-center justify-end gap-1.5">
+                              {isMemoryCodeCard && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    togglePinnedFile(f);
+                                  }}
+                                  className={`notes-explorer-file-action-btn notes-explorer-pin-btn rounded-md p-1.5 ${isPinned ? 'is-active' : ''}`}
+                                  disabled={!manageable || isPinning}
+                                  title={isPinned ? 'Открепить' : 'Закрепить наверху'}
+                                  type="button"
+                                >
+                                  <Star size={16} fill={isPinned ? 'currentColor' : 'none'} />
+                                </button>
+                              )}
                               {isPreviewable && (
                                 <button
                                   onClick={(e) => {
@@ -2887,7 +3108,7 @@ const NotesSection = ({
                                     toggleFilePreview(f);
                                   }}
                                   className="notes-explorer-file-action-btn notes-explorer-folder-open-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                                  title={isSolutionBundle ? solutionActionTitle : (isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
+                                  title={isSolutionBundle || isCheatsheet ? solutionActionTitle : (isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
                                   type="button"
                                 >
                                   <ChevronRight
@@ -2940,10 +3161,10 @@ const NotesSection = ({
                           </td>
                         </tr>
                         {isPyFile(f.name) && (
-                          <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'} ${isSolutionBundle ? `notes-solution-preview-row ${isCollapsingSolution ? 'is-closing' : ''}` : ''}`}>
-                            <td colSpan={3} className={`notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3 ${isSolutionBundle ? `notes-solution-preview-cell ${isCollapsingSolution ? 'is-closing' : ''}` : ''}`}>
-                              <div className={`notes-explorer-preview-panel ${isSolutionBundle ? `notes-solution-preview-panel ${isCollapsingSolution ? 'is-closing' : ''}` : 'space-y-3 rounded-xl border border-slate-200 bg-white p-2'}`}>
-                                {!isSolutionBundle && (
+                          <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'} ${isSolutionBundle ? `notes-solution-preview-row ${isCollapsingSolution ? 'is-closing' : ''}` : ''} ${isCheatsheet ? 'notes-cheatsheet-preview-row' : ''}`}>
+                            <td colSpan={3} className={`notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3 ${isSolutionBundle ? `notes-solution-preview-cell ${isCollapsingSolution ? 'is-closing' : ''}` : ''} ${isCheatsheet ? 'notes-cheatsheet-preview-cell' : ''}`}>
+                              <div className={`notes-explorer-preview-panel ${isSolutionBundle ? `notes-solution-preview-panel ${isCollapsingSolution ? 'is-closing' : ''}` : (isCheatsheet ? 'notes-cheatsheet-preview-panel' : 'space-y-3 rounded-xl border border-slate-200 bg-white p-2')}`}>
+                                {!isSolutionBundle && !isCheatsheet && (
                                   <div className="flex flex-wrap items-center justify-between gap-2">
                                     <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
                                       {isEditingCurrentPy ? `Размер: ${formatBytes(getPyFileSize(pyEditDraft))}` : 'Просмотр Python'}
@@ -2987,7 +3208,7 @@ const NotesSection = ({
                                     )}
                                   </div>
                                 )}
-                                {!isSolutionBundle && (
+                                {!isSolutionBundle && !isCheatsheet && (
                                   <div className={`notes-explorer-memory-card grid gap-3 rounded-xl border p-3 ${
                                     memory
                                       ? 'border-teal-100 bg-teal-50/60 md:grid-cols-[minmax(0,1fr)_220px]'
@@ -3058,7 +3279,7 @@ const NotesSection = ({
                                       )}
                                     </div>
                                 )}
-                                {!isSolutionBundle && isEditingCurrentPy ? (
+                                {!isSolutionBundle && !isCheatsheet && isEditingCurrentPy ? (
                                   <div className="space-y-2">
                                     <div className="overflow-hidden rounded-xl border border-gray-800">
                                       <Editor
@@ -3239,6 +3460,119 @@ const NotesSection = ({
                                       </div>
                                     </section>
                                   </div>
+                                ) : isCheatsheet ? (
+                                  <section className="notes-cheatsheet-card">
+                                    <div className="notes-cheatsheet-card__header">
+                                      <div className="notes-cheatsheet-card__identity">
+                                        <span className="notes-cheatsheet-card__icon" aria-hidden="true">
+                                          <Sparkles size={15} strokeWidth={2.4} />
+                                          <Code2 size={18} strokeWidth={2.2} />
+                                        </span>
+                                        <div className="min-w-0">
+                                          <div className="notes-cheatsheet-card__eyebrow">Шпаргалка по коду</div>
+                                          <h4 className="notes-cheatsheet-card__title">{solutionTitle}</h4>
+                                          <div className="notes-cheatsheet-card__meta">
+                                            <span>{solutionTaskLabel}</span>
+                                            {sourceLabel && <span>{sourceLabel}</span>}
+                                            {memory?.savedBy?.name && <span>{memory.savedBy.name}</span>}
+                                            {addedAtLabel && <span>{addedAtLabel}</span>}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      {isEditingCurrentPy ? (
+                                        <div className="notes-cheatsheet-card__actions">
+                                          <Button
+                                            variant="secondary"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              cancelEditingPyFile();
+                                            }}
+                                            disabled={pyEditSaving}
+                                            className="notes-cheatsheet-card__button"
+                                          >
+                                            Отмена
+                                          </Button>
+                                          <Button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              saveEditingPyFile(f);
+                                            }}
+                                            disabled={pyEditSaving}
+                                            className="notes-cheatsheet-card__button"
+                                          >
+                                            {pyEditSaving ? 'Сохранение...' : 'Сохранить'}
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <div className="notes-cheatsheet-card__actions">
+                                          {runLabel && (
+                                            <span className={`notes-cheatsheet-card__pill ${memory?.lastRunHadError ? 'is-error' : ''}`}>
+                                              {runLabel}
+                                            </span>
+                                          )}
+                                          <Button
+                                            variant="secondary"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              startEditingPyFile(f);
+                                            }}
+                                            disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
+                                            className="notes-cheatsheet-card__button notes-cheatsheet-card__edit"
+                                          >
+                                            Редактировать код
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className={`notes-cheatsheet-code ${isEditingCurrentPy ? 'is-editing' : 'is-viewing'}`}>
+                                      {isEditingCurrentPy ? (
+                                        <div className="notes-cheatsheet-editor" onClick={(e) => e.stopPropagation()}>
+                                          <Editor
+                                            height={solutionPyEditorHeight}
+                                            language="python"
+                                            theme={monacoTheme}
+                                            beforeMount={ensureMonacoColorTheme}
+                                            value={pyEditDraft}
+                                            onChange={(value) => {
+                                              setPyEditDraft(value ?? '');
+                                              if (pyEditError) setPyEditError('');
+                                            }}
+                                            options={{
+                                              ...pyEditorOptions,
+                                              fontSize: 15,
+                                              lineHeight: 24,
+                                            }}
+                                            loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+                                          />
+                                          {pyEditError && (
+                                            <p className="border-t border-rose-100 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600">
+                                              {pyEditError}
+                                            </p>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <>
+                                          {pyLoadingId === f.id && (
+                                            <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                                          )}
+                                          {pyLoadingId !== f.id && pyError[f.id] && (
+                                            <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
+                                          )}
+                                          {pyLoadingId !== f.id && !pyError[f.id] && (
+                                            pyContent[f.id]
+                                              ? (
+                                                <pre className="notes-python-code language-python m-0 p-4 text-sm leading-6">
+                                                  <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
+                                                </pre>
+                                              )
+                                              : (
+                                                <pre className="notes-python-code language-python m-0 p-4 text-sm"><code># Пустая шпаргалка</code></pre>
+                                              )
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  </section>
                                 ) : (
                                   <div className="max-h-[55vh] overflow-auto rounded-xl">
                                     {pyLoadingId === f.id && (
@@ -3260,7 +3594,7 @@ const NotesSection = ({
                                     )}
                                   </div>
                                 )}
-                                {!isSolutionBundle && editingPyId === f.id && pyEditError && (
+                                {!isSolutionBundle && !isCheatsheet && editingPyId === f.id && pyEditError && (
                                   <p className="text-xs text-red-500">{pyEditError}</p>
                                 )}
                               </div>

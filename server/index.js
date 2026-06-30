@@ -13130,6 +13130,8 @@ const FILE_MEMORY_OUTPUT_LIMIT = 8000;
 const FILE_MEMORY_TAG_LIMIT = 24;
 const FILE_MEMORY_TAGS_MAX = 12;
 const FILE_MEMORY_SOURCE_LIMIT = 48;
+const FILE_MEMORY_KIND_LIMIT = 32;
+const FILE_MEMORY_CODE_PREVIEW_LIMIT = 240;
 const FILE_MEMORY_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024;
 
 const clampMemoryText = (value, limit) => {
@@ -13200,6 +13202,12 @@ const normalizeFileMemorySnapshot = (value) => {
 const normalizeFileMemory = (value, fallback = {}) => {
   const raw = parseMemoryObject(value);
   const source = normalizeFileMemorySource(raw.source ?? fallback.source, 'notes-upload');
+  const kind = clampMemoryText(raw.kind ?? fallback.kind, FILE_MEMORY_KIND_LIMIT);
+  const codePreview = clampMemoryText(raw.codePreview ?? fallback.codePreview, FILE_MEMORY_CODE_PREVIEW_LIMIT);
+  const isPinned = Boolean(raw.isPinned ?? raw.pinned ?? fallback.isPinned ?? fallback.pinned);
+  const pinnedAt = isPinned
+    ? (clampMemoryText(raw.pinnedAt ?? fallback.pinnedAt, 40) || new Date().toISOString())
+    : '';
   const savedBy = raw.savedBy && typeof raw.savedBy === 'object'
     ? {
       id: clampMemoryText(raw.savedBy.id, 80),
@@ -13213,6 +13221,7 @@ const normalizeFileMemory = (value, fallback = {}) => {
   return {
     taskNumber: Number.isFinite(taskNumber) ? taskNumber : null,
     source,
+    ...(kind ? { kind } : {}),
     savedBy,
     createdAt: clampMemoryText(raw.createdAt || fallback.createdAt, 40) || new Date().toISOString(),
     title: clampMemoryText(raw.title || fallback.title, FILE_MEMORY_DESCRIPTION_LIMIT),
@@ -13221,6 +13230,9 @@ const normalizeFileMemory = (value, fallback = {}) => {
     lastRunOutput: clampMemoryText(raw.lastRunOutput, FILE_MEMORY_OUTPUT_LIMIT),
     lastRunHadError: typeof lastRunHadErrorRaw === 'boolean' ? lastRunHadErrorRaw : null,
     lastRunAt: clampMemoryText(raw.lastRunAt, 40),
+    ...(codePreview ? { codePreview } : {}),
+    isPinned,
+    pinnedAt,
     ...(boardSnapshot ? { boardSnapshot } : {}),
   };
 };
