@@ -1207,6 +1207,8 @@ const StudentTestModal = ({
             aria-label={`Предыдущее задание. ${previousQuestionSideNavLabel}`}
             title={previousQuestionSideNavLabel}
           >
+            <span className="student-test-side-nav__glow" aria-hidden="true" />
+            <span className="student-test-side-nav__sheen" aria-hidden="true" />
             <ChevronLeft size={24} strokeWidth={2.5} />
           </button>
           <button
@@ -1217,6 +1219,8 @@ const StudentTestModal = ({
             aria-label={`Следующее задание. ${nextQuestionSideNavLabel}`}
             title={nextQuestionSideNavLabel}
           >
+            <span className="student-test-side-nav__glow" aria-hidden="true" />
+            <span className="student-test-side-nav__sheen" aria-hidden="true" />
             <ChevronRight size={24} strokeWidth={2.5} />
           </button>
 
