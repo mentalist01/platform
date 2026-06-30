@@ -6773,7 +6773,7 @@ const CollabSection = ({
         <label className={`mt-3 flex cursor-pointer items-center gap-3 rounded-2xl border p-3 transition ${
           saveMode === NOTES_SAVE_MODE_CODE_ONLY
             ? 'border-sky-200 bg-sky-50/80 shadow-sm'
-            : 'border-emerald-200 bg-emerald-50/70'
+            : 'border-indigo-200 bg-indigo-50/70'
         }`}>
           <input
             type="checkbox"
@@ -6788,10 +6788,10 @@ const CollabSection = ({
           <span className={`relative flex h-7 w-12 shrink-0 items-center rounded-full border transition ${
             saveMode === NOTES_SAVE_MODE_CODE_ONLY
               ? 'border-sky-300 bg-sky-500'
-              : 'border-emerald-300 bg-emerald-500'
+              : 'border-indigo-300 bg-indigo-500'
           }`}>
             <span className={`absolute left-1 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow transition ${
-              saveMode === NOTES_SAVE_MODE_CODE_ONLY ? 'translate-x-5 text-sky-600' : 'translate-x-0 text-emerald-600'
+              saveMode === NOTES_SAVE_MODE_CODE_ONLY ? 'translate-x-5 text-sky-600' : 'translate-x-0 text-indigo-600'
             }`}>
               {saveMode === NOTES_SAVE_MODE_CODE_ONLY ? <Code2 size={13} /> : <BookOpen size={13} />}
             </span>
@@ -6804,7 +6804,7 @@ const CollabSection = ({
               <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${
                 saveMode === NOTES_SAVE_MODE_CODE_ONLY
                   ? 'border-sky-200 bg-white text-sky-700'
-                  : 'border-emerald-200 bg-white text-emerald-700'
+                  : 'border-indigo-200 bg-white text-indigo-700'
               }`}>
                 {saveMode === NOTES_SAVE_MODE_CODE_ONLY ? '.py' : 'условие + решение'}
               </span>
@@ -7590,7 +7590,7 @@ const CollabSection = ({
               });
             }}
             aria-expanded={notesPdfPanelOpen}
-            className={`inline-flex items-center rounded-xl border transition ${
+            className={`collab-notes-pdf-toggle inline-flex items-center rounded-xl border transition ${
               isSplitCollabLayout ? 'gap-0.5 px-1.5 py-0.5 text-[9px]' : 'gap-0.5 px-1.5 py-0.5 text-[10px]'
             } ${
               isFullscreenDark
@@ -13511,21 +13511,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   };
   const navToneById = {
     schedule: 'sky',
-    'teacher-calendar': 'cyan',
-    finance: 'emerald',
+    'teacher-calendar': 'sky',
+    finance: 'slate',
     progress: 'blue',
-    review: 'amber',
-    lesson: 'rose',
-    call: 'rose',
-    board: 'pink',
-    collab: 'indigo',
+    review: 'indigo',
+    lesson: 'blue',
+    call: 'blue',
+    board: 'violet',
+    collab: 'blue',
     python: 'violet',
-    rating: 'orange',
-    chat: 'fuchsia',
-    [TEACHER_COMMS_VIEW]: 'fuchsia',
+    rating: 'slate',
+    chat: 'violet',
+    [TEACHER_COMMS_VIEW]: 'violet',
     teacher: 'slate',
     admin: 'slate',
-    notes: 'teal',
+    notes: 'violet',
     more: 'violet',
   };
   const getNavTone = (id) => navToneById[id] || 'violet';

@@ -160,6 +160,7 @@ const NotesSection = ({
   const [expandedPdfIds, setExpandedPdfIds] = useState({});
   const [expandedImageIds, setExpandedImageIds] = useState({});
   const [expandedTextIds, setExpandedTextIds] = useState({});
+  const [collapsingSolutionIds, setCollapsingSolutionIds] = useState({});
   const [pyContent, setPyContent] = useState({});
   const [pyError, setPyError] = useState({});
   const [pyLoadingId, setPyLoadingId] = useState(null);
@@ -187,6 +188,7 @@ const NotesSection = ({
   const dragDepthRef = useRef(0);
   const folderPressTimeoutRef = useRef(null);
   const folderOpenTimeoutRef = useRef(null);
+  const solutionCollapseTimersRef = useRef(new Map());
   const fileRef = useRef(null);
   const pyRunnerWorkerRef = useRef(null);
   const pyRunnerPendingRef = useRef(new Map());
@@ -204,6 +206,17 @@ const NotesSection = ({
       clearTimeout(folderOpenTimeoutRef.current);
       folderOpenTimeoutRef.current = null;
     }
+  };
+  const clearSolutionCollapseTimer = (fileId) => {
+    const key = String(fileId || '').trim();
+    if (!key) return;
+    const timer = solutionCollapseTimersRef.current.get(key);
+    if (timer) clearTimeout(timer);
+    solutionCollapseTimersRef.current.delete(key);
+  };
+  const clearAllSolutionCollapseTimers = () => {
+    solutionCollapseTimersRef.current.forEach((timer) => clearTimeout(timer));
+    solutionCollapseTimersRef.current.clear();
   };
   const selectFolder = (folderId) => {
     clearFolderMotionTimers();
@@ -686,6 +699,8 @@ const NotesSection = ({
     setExpandedPdfIds({});
     setExpandedImageIds({});
     setExpandedTextIds({});
+    clearAllSolutionCollapseTimers();
+    setCollapsingSolutionIds({});
     setEditingPyId(null);
     setPyEditDraft('');
     setPyEditSaving(false);
@@ -702,6 +717,10 @@ const NotesSection = ({
     setSolutionHoverPreview(null);
     setShowMobileFolderTools(false);
   }, [currentTask, currentCategory]);
+
+  useEffect(() => () => {
+    clearAllSolutionCollapseTimers();
+  }, []);
 
   useEffect(() => {
     if (!solutionHoverPreview) return undefined;
@@ -760,6 +779,11 @@ const NotesSection = ({
 
   const isImageMimeType = (value) => String(value || '').toLowerCase().startsWith('image/');
   const isImageFileName = (name) => /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico|heic|heif)$/i.test(String(name || ''));
+  const isSavedSolutionBundleFile = (file) => {
+    const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
+    const sourceRaw = String(memory?.source || file?.source || '').trim();
+    return isPyFile(file?.name) && (sourceRaw === 'collab-code' || Boolean(memory?.boardSnapshot?.url));
+  };
 
   const getImageExtensionFromMime = (mime) => {
     const normalized = String(mime || '').toLowerCase();
@@ -1543,11 +1567,57 @@ const NotesSection = ({
 
   const togglePyPreview = async (file) => {
     if (!isPyFile(file?.name)) return;
-    const willOpen = !expandedPyIds[file.id];
+    setSolutionHoverPreview(null);
+    const fileId = String(file.id || '').trim();
+    if (!fileId) return;
+    const isSolutionBundleFile = isSavedSolutionBundleFile(file);
+    if (isSolutionBundleFile && collapsingSolutionIds[fileId]) {
+      clearSolutionCollapseTimer(fileId);
+      setCollapsingSolutionIds((prev) => {
+        if (!prev[fileId]) return prev;
+        const next = { ...prev };
+        delete next[fileId];
+        return next;
+      });
+      await loadPyFileContent(file);
+      return;
+    }
+    const willOpen = !expandedPyIds[fileId];
+    if (!willOpen && isSolutionBundleFile) {
+      setCollapsingSolutionIds((prev) => ({ ...prev, [fileId]: true }));
+      if (editingPyId === file.id) {
+        setEditingPyId(null);
+        setPyEditDraft('');
+        setPyEditSaving(false);
+        setPyEditError('');
+        setPyRunInput('');
+        setPyRunOutput('');
+        setPyRunError('');
+        setPyRunLoading(false);
+      }
+      clearSolutionCollapseTimer(fileId);
+      const timer = setTimeout(() => {
+        solutionCollapseTimersRef.current.delete(fileId);
+        setExpandedPyIds((prev) => {
+          if (!prev[fileId]) return prev;
+          const next = { ...prev };
+          delete next[fileId];
+          return next;
+        });
+        setCollapsingSolutionIds((prev) => {
+          if (!prev[fileId]) return prev;
+          const next = { ...prev };
+          delete next[fileId];
+          return next;
+        });
+      }, 460);
+      solutionCollapseTimersRef.current.set(fileId, timer);
+      return;
+    }
     setExpandedPyIds((prev) => {
       const next = { ...prev };
-      if (next[file.id]) delete next[file.id];
-      else next[file.id] = true;
+      if (next[fileId]) delete next[fileId];
+      else next[fileId] = true;
       return next;
     });
     if (!willOpen && editingPyId === file.id) {
@@ -2613,11 +2683,13 @@ const NotesSection = ({
                     const hasBoardSnapshot = Boolean(memory?.boardSnapshot?.url);
                     const memorySnapshotUrl = hasBoardSnapshot ? getMemorySnapshotUrl(f) : '';
                     const isSolutionBundle = isPyFile(f.name) && (sourceRaw === 'collab-code' || hasBoardSnapshot);
+                    const isCollapsingSolution = isSolutionBundle && Boolean(collapsingSolutionIds[f.id]);
+                    const isPreviewVisuallyOpen = isExpanded && !isCollapsingSolution;
                     const solutionTaskNumber = memory?.taskNumber ?? f?.taskNumber;
                     const solutionTaskDisplay = formatTaskNumber(solutionTaskNumber) || solutionTaskNumber;
                     const solutionTitle = getSavedSolutionTitle(f, memory);
                     const solutionTaskLabel = solutionTaskDisplay ? `Задание ${solutionTaskDisplay}` : 'Задание';
-                    const solutionActionTitle = isExpanded ? 'Скрыть условие и решение' : 'Открыть условие и решение';
+                    const solutionActionTitle = isPreviewVisuallyOpen ? 'Скрыть условие и решение' : 'Открыть условие и решение';
                     const isEditingCurrentPy = editingPyId === f.id;
                     return (
                       <React.Fragment key={f.id}>
@@ -2625,7 +2697,7 @@ const NotesSection = ({
                           className={`notes-explorer-file-row border-t border-slate-100 ${
                             isSelected ? 'is-selected' : ''
                           } ${
-                            isExpanded ? 'is-preview-open' : ''
+                            isPreviewVisuallyOpen ? 'is-preview-open' : ''
                           } ${
                             isPreviewable ? 'is-previewable' : ''
                           } ${
@@ -2638,7 +2710,7 @@ const NotesSection = ({
                           }}
                           onDragEnd={handleDragEndFile}
                           onMouseEnter={(e) => {
-                            if (!isSolutionBundle || isExpanded) return;
+                            if (!isSolutionBundle || isExpanded || isCollapsingSolution) return;
                             void loadPyFileContent(f);
                             openSolutionHoverPreview(e, f, {
                               title: solutionTitle,
@@ -2651,7 +2723,7 @@ const NotesSection = ({
                             if (isSolutionBundle) setSolutionHoverPreview(null);
                           }}
                           onFocus={(e) => {
-                            if (!isSolutionBundle || isExpanded) return;
+                            if (!isSolutionBundle || isExpanded || isCollapsingSolution) return;
                             void loadPyFileContent(f);
                             openSolutionHoverPreview(e, f, {
                               title: solutionTitle,
@@ -2699,10 +2771,10 @@ const NotesSection = ({
                           <td className="px-3 py-2.5">
                             <div className="flex min-w-[260px] items-center gap-3">
                               {isSolutionBundle ? (
-                                <span className={`notes-solution-bundle-icon ${isExpanded ? 'is-open' : ''}`}>
+                                <span className={`notes-solution-bundle-icon ${isPreviewVisuallyOpen ? 'is-open' : ''}`}>
                                   <span className="relative flex h-7 w-7 items-center justify-center">
                                     <BookOpen size={22} strokeWidth={2.1} />
-                                    <Code2 size={15} strokeWidth={2.3} className="absolute -bottom-1 -right-1 rounded-md bg-white p-0.5 text-violet-600 shadow-sm" />
+                                    <Code2 size={15} strokeWidth={2.3} className="absolute -bottom-1 -right-1 rounded-md bg-white p-0.5 text-blue-600 shadow-sm" />
                                   </span>
                                   <span className="notes-solution-bundle-icon__state" aria-hidden="true" />
                                 </span>
@@ -2739,7 +2811,7 @@ const NotesSection = ({
                                             {solutionTitle}
                                           </span>
                                           <span
-                                            className={`notes-solution-row-state ${isExpanded ? 'is-open' : ''}`}
+                                             className={`notes-solution-row-state ${isPreviewVisuallyOpen ? 'is-open' : ''}`}
                                             aria-hidden="true"
                                           >
                                             <ChevronRight size={14} className="notes-solution-row-state__chevron" />
@@ -2821,7 +2893,7 @@ const NotesSection = ({
                                   <ChevronRight
                                     className="notes-explorer-folder-open-chevron"
                                     size={16}
-                                    style={{ transform: isExpanded ? 'rotate(90deg)' : undefined }}
+                                    style={{ transform: isPreviewVisuallyOpen ? 'rotate(90deg)' : undefined }}
                                   />
                                 </button>
                               )}
@@ -2868,44 +2940,10 @@ const NotesSection = ({
                           </td>
                         </tr>
                         {isPyFile(f.name) && (
-                          <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
-                              <div className={`notes-explorer-preview-panel ${isSolutionBundle ? 'notes-solution-preview-panel' : 'space-y-3 rounded-xl border border-slate-200 bg-white p-2'}`}>
-                                {isSolutionBundle ? (
-                                  <div className="notes-solution-header">
-                                    <div className="min-w-0">
-                                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                        <span className="notes-solution-header__title truncate">{solutionTitle}</span>
-                                        {runLabel && (
-                                          <span className={`notes-solution-header__status ${
-                                            memory?.lastRunHadError ? 'is-error' : 'is-ok'
-                                          }`}>
-                                            {runLabel}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="notes-solution-header__meta">
-                                        <span>{solutionTaskLabel}</span>
-                                        {sourceLabel && <span>{sourceLabel}</span>}
-                                        {memory?.savedBy?.name && <span>{memory.savedBy.name}</span>}
-                                        {addedAtLabel && <span>{addedAtLabel}</span>}
-                                      </div>
-                                    </div>
-                                    {!isEditingCurrentPy && (
-                                      <Button
-                                        variant="secondary"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          startEditingPyFile(f);
-                                        }}
-                                        disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
-                                        className="notes-solution-edit-btn"
-                                      >
-                                        Редактировать код
-                                      </Button>
-                                    )}
-                                  </div>
-                                ) : (
+                          <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'} ${isSolutionBundle ? `notes-solution-preview-row ${isCollapsingSolution ? 'is-closing' : ''}` : ''}`}>
+                            <td colSpan={3} className={`notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3 ${isSolutionBundle ? `notes-solution-preview-cell ${isCollapsingSolution ? 'is-closing' : ''}` : ''}`}>
+                              <div className={`notes-explorer-preview-panel ${isSolutionBundle ? `notes-solution-preview-panel ${isCollapsingSolution ? 'is-closing' : ''}` : 'space-y-3 rounded-xl border border-slate-200 bg-white p-2'}`}>
+                                {!isSolutionBundle && (
                                   <div className="flex flex-wrap items-center justify-between gap-2">
                                     <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
                                       {isEditingCurrentPy ? `Размер: ${formatBytes(getPyFileSize(pyEditDraft))}` : 'Просмотр Python'}
@@ -3072,7 +3110,7 @@ const NotesSection = ({
                                       <section className="notes-solution-pane notes-solution-pane--task">
                                         <div className="notes-solution-pane__bar">
                                           <div className="notes-solution-pane__title">
-                                            <BookOpen size={16} className="text-teal-700" />
+                                            <BookOpen size={16} className="text-blue-600" />
                                             Условие
                                           </div>
                                           <a
@@ -3133,9 +3171,22 @@ const NotesSection = ({
                                             </Button>
                                           </div>
                                         ) : (
-                                          <span className="notes-solution-pane__pill">
-                                            Python
-                                          </span>
+                                          <div className="notes-solution-pane__actions">
+                                            <span className="notes-solution-pane__pill">
+                                              Python
+                                            </span>
+                                            <Button
+                                              variant="secondary"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                startEditingPyFile(f);
+                                              }}
+                                              disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
+                                              className="notes-solution-pane__button notes-solution-pane__edit-action"
+                                            >
+                                              Редактировать код
+                                            </Button>
+                                          </div>
                                         )}
                                       </div>
                                       <div className={`notes-solution-code-body ${isEditingCurrentPy ? 'is-editing' : 'is-viewing'}`}>
@@ -3264,7 +3315,7 @@ const NotesSection = ({
           </div>
         )}
       </div>
-      {solutionHoverPreview && typeof document !== 'undefined' && createPortal(
+      {solutionHoverPreview && !expandedPyIds[solutionHoverPreview.fileId] && !collapsingSolutionIds[solutionHoverPreview.fileId] && typeof document !== 'undefined' && createPortal(
         <div
           className="notes-solution-hover-preview"
           aria-hidden="true"
