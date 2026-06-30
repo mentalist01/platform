@@ -30525,6 +30525,11 @@ html[data-theme='dark'] .student-artifact-altar__legendary-card[data-rank='SS'] 
     inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
+.notes-explorer-shell .notes-explorer-table-scroll {
+  overflow-x: hidden !important;
+  overflow-y: visible;
+}
+
 .notes-explorer-shell .notes-explorer-table thead {
   background:
     linear-gradient(180deg, rgba(241, 245, 249, 0.94), rgba(226, 232, 240, 0.74)) !important;
@@ -34371,6 +34376,52 @@ html[data-theme='dark'] .collab-task-files-note code {
     inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
 }
 
+.notes-explorer-shell .notes-explorer-file-row.is-solution-bundle.is-pinned td {
+  border-top-color: rgba(251, 191, 36, 0.34);
+  background:
+    linear-gradient(90deg, rgba(254, 243, 199, 0.68), rgba(240, 249, 255, 0.94) 28%, rgba(255, 255, 255, 0.98) 58%, rgba(239, 246, 255, 0.92)) !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned td {
+  border-top-color: rgba(251, 191, 36, 0.34);
+  background:
+    linear-gradient(90deg, rgba(254, 243, 199, 0.64), rgba(245, 243, 255, 0.94) 30%, rgba(255, 255, 255, 0.98) 58%, rgba(239, 246, 255, 0.9)) !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-pinned:hover td,
+.notes-explorer-shell .notes-explorer-file-row.is-pinned.is-preview-open td {
+  background:
+    linear-gradient(90deg, rgba(253, 230, 138, 0.78), rgba(239, 246, 255, 0.98) 31%, rgba(255, 255, 255, 0.98) 58%, rgba(237, 233, 254, 0.88)) !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-pinned td:first-child {
+  box-shadow:
+    inset 5px 0 0 rgba(245, 158, 11, 0.72),
+    inset 11px 0 24px rgba(251, 191, 36, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.74) !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-favorite-adding td {
+  animation: notesFavoriteRowAdd 0.78s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-favorite-removing td {
+  animation: notesFavoriteRowRemove 0.62s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-favorite-flight {
+  position: relative;
+  z-index: 6;
+  transform-origin: center center;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-favorite-flight td {
+  box-shadow:
+    inset 5px 0 0 rgba(245, 158, 11, 0.76),
+    inset 11px 0 24px rgba(251, 191, 36, 0.14),
+    0 18px 34px rgba(217, 119, 6, 0.12) !important;
+}
+
 .notes-explorer-shell .notes-solution-row-title {
   position: relative;
 }
@@ -34486,6 +34537,68 @@ html[data-theme='dark'] .collab-task-files-note code {
   padding: 0.16rem 0.5rem;
   font-size: 0.68rem;
   font-weight: 850;
+}
+
+.notes-explorer-shell .notes-favorite-row-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  overflow: hidden;
+  border: 1px solid rgba(251, 191, 36, 0.26);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.96), transparent 34%),
+    linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.78));
+  color: #b45309;
+  padding: 0.16rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 850;
+  box-shadow:
+    0 8px 18px rgba(217, 119, 6, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  animation: notesFavoriteBadgeIn 0.42s cubic-bezier(0.2, 0.86, 0.2, 1) both;
+}
+
+.notes-explorer-shell .notes-favorite-row-badge::after {
+  content: "";
+  position: absolute;
+  inset: -60% auto -60% -45%;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  transform: rotate(18deg);
+  animation: notesFavoriteBadgeShine 1.25s 0.16s ease both;
+}
+
+.notes-explorer-shell .notes-favorite-row-badge svg {
+  flex: 0 0 auto;
+  filter: drop-shadow(0 2px 5px rgba(217, 119, 6, 0.16));
+}
+
+.notes-explorer-shell .notes-favorite-row-badge.is-leaving {
+  animation: notesFavoriteBadgeOut 0.34s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.notes-explorer-shell .notes-shared-row-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: 1px solid rgba(14, 165, 233, 0.22);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.95), transparent 34%),
+    linear-gradient(135deg, rgba(240, 249, 255, 0.96), rgba(224, 242, 254, 0.78));
+  color: #0369a1;
+  padding: 0.16rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 850;
+  box-shadow:
+    0 8px 18px rgba(14, 165, 233, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.notes-explorer-shell .notes-shared-row-badge svg {
+  flex: 0 0 auto;
 }
 
 .notes-explorer-shell .notes-solution-bundle-icon {
@@ -35643,9 +35756,183 @@ html[data-theme='dark'] .notes-explorer-shell pre.notes-python-code .token.class
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
+.notes-explorer-shell .notes-explorer-pin-btn.is-adding {
+  animation: notesFavoriteButtonAdd 0.7s cubic-bezier(0.2, 0.86, 0.2, 1) both;
+}
+
+.notes-explorer-shell .notes-explorer-pin-btn.is-removing {
+  animation: notesFavoriteButtonRemove 0.52s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.notes-explorer-shell .notes-explorer-pin-btn.is-adding svg {
+  animation: notesFavoriteStarAdd 0.7s cubic-bezier(0.2, 0.86, 0.2, 1) both;
+}
+
+.notes-explorer-shell .notes-explorer-pin-btn.is-removing svg {
+  animation: notesFavoriteStarRemove 0.48s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
 .notes-explorer-shell .notes-explorer-pin-btn:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.notes-explorer-shell .notes-explorer-pin-btn.is-active:disabled {
+  opacity: 1;
+}
+
+.notes-explorer-shell .notes-explorer-share-btn {
+  color: #64748b !important;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.notes-explorer-shell .notes-explorer-share-btn:hover:not(:disabled) {
+  border-color: rgba(14, 165, 233, 0.3);
+  background:
+    radial-gradient(circle at 36% 18%, rgba(255, 255, 255, 0.96), transparent 34%),
+    linear-gradient(145deg, rgba(240, 249, 255, 0.96), rgba(255, 255, 255, 0.9)) !important;
+  color: #0284c7 !important;
+  transform: translateY(-1px) scale(1.02);
+}
+
+.notes-explorer-shell .notes-explorer-share-btn.is-active {
+  border-color: rgba(14, 165, 233, 0.36);
+  background:
+    radial-gradient(circle at 36% 18%, rgba(255, 255, 255, 0.96), transparent 34%),
+    linear-gradient(145deg, rgba(224, 242, 254, 0.98), rgba(240, 249, 255, 0.9)) !important;
+  color: #0284c7 !important;
+  box-shadow:
+    0 10px 22px rgba(14, 165, 233, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+@keyframes notesFavoriteRowAdd {
+  0% {
+    filter: saturate(1) brightness(1);
+    box-shadow: inset 0 0 0 rgba(251, 191, 36, 0);
+  }
+  34% {
+    filter: saturate(1.18) brightness(1.018);
+    box-shadow:
+      inset 0 0 0 999px rgba(255, 251, 235, 0.22),
+      0 0 28px rgba(251, 191, 36, 0.16);
+  }
+  100% {
+    filter: saturate(1) brightness(1);
+    box-shadow: inset 0 0 0 rgba(251, 191, 36, 0);
+  }
+}
+
+@keyframes notesFavoriteRowRemove {
+  0% {
+    filter: saturate(1.08) brightness(1.01);
+    opacity: 1;
+  }
+  100% {
+    filter: saturate(0.94) brightness(0.995);
+    opacity: 1;
+  }
+}
+
+@keyframes notesFavoriteBadgeIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes notesFavoriteBadgeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.86);
+  }
+}
+
+@keyframes notesFavoriteBadgeShine {
+  from {
+    transform: translateX(0) rotate(18deg);
+  }
+  to {
+    transform: translateX(420%) rotate(18deg);
+  }
+}
+
+@keyframes notesFavoriteButtonAdd {
+  0% {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
+  38% {
+    transform: translateY(-1px) scale(1.08);
+    box-shadow:
+      0 12px 26px rgba(217, 119, 6, 0.18),
+      0 0 0 6px rgba(251, 191, 36, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes notesFavoriteButtonRemove {
+  0% {
+    transform: scale(1);
+  }
+  48% {
+    transform: scale(0.92) rotate(-5deg);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes notesFavoriteStarAdd {
+  0% {
+    transform: scale(0.68) rotate(-18deg);
+  }
+  48% {
+    transform: scale(1.18) rotate(8deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes notesFavoriteStarRemove {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  52% {
+    transform: scale(0.74) rotate(-16deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notes-explorer-shell .notes-explorer-file-row.is-favorite-adding td,
+  .notes-explorer-shell .notes-explorer-file-row.is-favorite-removing td,
+  .notes-explorer-shell .notes-favorite-row-badge,
+  .notes-explorer-shell .notes-favorite-row-badge::after,
+  .notes-explorer-shell .notes-explorer-pin-btn.is-adding,
+  .notes-explorer-shell .notes-explorer-pin-btn.is-removing,
+  .notes-explorer-shell .notes-explorer-pin-btn.is-adding svg,
+  .notes-explorer-shell .notes-explorer-pin-btn.is-removing svg {
+    animation: none !important;
+  }
 }
 
 .notes-explorer-shell .notes-explorer-file-action-btn-danger {
@@ -36334,6 +36621,33 @@ html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-cheats
     linear-gradient(90deg, rgba(76, 29, 149, 0.34), rgba(15, 23, 42, 0.98) 48%, rgba(14, 116, 144, 0.22)) !important;
 }
 
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-pinned td {
+  border-top-color: rgba(251, 191, 36, 0.26) !important;
+  background:
+    linear-gradient(90deg, rgba(120, 53, 15, 0.34), rgba(15, 23, 42, 0.98) 35%, rgba(8, 47, 73, 0.2)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-pinned:hover td,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-pinned.is-preview-open td {
+  background:
+    linear-gradient(90deg, rgba(146, 64, 14, 0.4), rgba(15, 23, 42, 0.98) 36%, rgba(30, 41, 59, 0.64)) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-pinned td:first-child {
+  box-shadow:
+    inset 5px 0 0 rgba(245, 158, 11, 0.64),
+    inset 12px 0 28px rgba(251, 191, 36, 0.1),
+    inset 0 1px 0 rgba(180, 204, 235, 0.08) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-favorite-flight td {
+  box-shadow:
+    inset 5px 0 0 rgba(245, 158, 11, 0.72),
+    inset 12px 0 28px rgba(251, 191, 36, 0.12),
+    0 20px 36px rgba(2, 6, 23, 0.38),
+    0 0 28px rgba(217, 119, 6, 0.12) !important;
+}
+
 html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-icon,
 html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-card__header,
 html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-code {
@@ -36357,6 +36671,43 @@ html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-card__title {
 html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-card__meta,
 html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-card__eyebrow {
   color: #c4b5fd;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-favorite-row-badge {
+  border-color: rgba(251, 191, 36, 0.24);
+  background:
+    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(120, 53, 15, 0.48), rgba(24, 18, 43, 0.72));
+  color: #fbbf24;
+  box-shadow:
+    0 8px 18px rgba(217, 119, 6, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-favorite-row-badge::after {
+  background: linear-gradient(90deg, transparent, rgba(254, 243, 199, 0.28), transparent);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-shared-row-badge {
+  border-color: rgba(14, 165, 233, 0.24);
+  background:
+    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.1), transparent 34%),
+    linear-gradient(135deg, rgba(8, 47, 73, 0.48), rgba(15, 23, 42, 0.72));
+  color: rgba(125, 211, 252, 0.98);
+  box-shadow:
+    0 8px 18px rgba(14, 165, 233, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-share-btn.is-active {
+  border-color: rgba(14, 165, 233, 0.3);
+  background:
+    radial-gradient(circle at 36% 18%, rgba(255, 255, 255, 0.1), transparent 34%),
+    linear-gradient(145deg, rgba(8, 47, 73, 0.38), rgba(15, 23, 42, 0.82)) !important;
+  color: rgba(125, 211, 252, 0.98) !important;
+  box-shadow:
+    0 10px 22px rgba(14, 165, 233, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 /* Compact Python section pass: calmer surfaces, smaller tiles, no decorative glow. */

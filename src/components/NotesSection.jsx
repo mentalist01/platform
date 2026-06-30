@@ -18,6 +18,7 @@ import {
   Star,
   Trash2,
   Upload,
+  Users,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
@@ -202,6 +203,8 @@ const NotesSection = ({
   const [expandedTextIds, setExpandedTextIds] = useState({});
   const [collapsingSolutionIds, setCollapsingSolutionIds] = useState({});
   const [pinningFileIds, setPinningFileIds] = useState({});
+  const [favoriteMotionIds, setFavoriteMotionIds] = useState({});
+  const [favoriteFlightTick, setFavoriteFlightTick] = useState(0);
   const [pyContent, setPyContent] = useState({});
   const [pyError, setPyError] = useState({});
   const [pyLoadingId, setPyLoadingId] = useState(null);
@@ -230,6 +233,10 @@ const NotesSection = ({
   const folderPressTimeoutRef = useRef(null);
   const folderOpenTimeoutRef = useRef(null);
   const solutionCollapseTimersRef = useRef(new Map());
+  const favoriteMotionTimersRef = useRef(new Map());
+  const fileRowRefs = useRef(new Map());
+  const lastFileRowRectsRef = useRef(new Map());
+  const favoriteFlightIdsRef = useRef(new Set());
   const fileRef = useRef(null);
   const pyRunnerWorkerRef = useRef(null);
   const pyRunnerPendingRef = useRef(new Map());
@@ -258,6 +265,47 @@ const NotesSection = ({
   const clearAllSolutionCollapseTimers = () => {
     solutionCollapseTimersRef.current.forEach((timer) => clearTimeout(timer));
     solutionCollapseTimersRef.current.clear();
+  };
+  const clearFavoriteMotionTimer = (fileId) => {
+    const key = String(fileId || '').trim();
+    if (!key) return;
+    const timer = favoriteMotionTimersRef.current.get(key);
+    if (timer) clearTimeout(timer);
+    favoriteMotionTimersRef.current.delete(key);
+  };
+  const clearAllFavoriteMotionTimers = () => {
+    favoriteMotionTimersRef.current.forEach((timer) => clearTimeout(timer));
+    favoriteMotionTimersRef.current.clear();
+  };
+  const triggerFavoriteMotion = (fileId, motion) => {
+    const key = String(fileId || '').trim();
+    if (!key) return;
+    clearFavoriteMotionTimer(key);
+    setFavoriteMotionIds((prev) => ({ ...(prev || {}), [key]: motion }));
+    const timer = setTimeout(() => {
+      favoriteMotionTimersRef.current.delete(key);
+      setFavoriteMotionIds((prev) => {
+        if (!prev?.[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }, 780);
+    favoriteMotionTimersRef.current.set(key, timer);
+  };
+  const setFileRowRef = (fileId, node) => {
+    const key = String(fileId || '').trim();
+    if (!key) return;
+    if (node) fileRowRefs.current.set(key, node);
+    else fileRowRefs.current.delete(key);
+  };
+  const captureFileRowRects = () => {
+    const rects = new Map();
+    fileRowRefs.current.forEach((node, key) => {
+      if (!node?.isConnected) return;
+      rects.set(key, node.getBoundingClientRect());
+    });
+    lastFileRowRectsRef.current = rects;
   };
   const selectFolder = (folderId) => {
     clearFolderMotionTimers();
@@ -742,7 +790,9 @@ const NotesSection = ({
     setExpandedImageIds({});
     setExpandedTextIds({});
     clearAllSolutionCollapseTimers();
+    clearAllFavoriteMotionTimers();
     setCollapsingSolutionIds({});
+    setFavoriteMotionIds({});
     setEditingPyId(null);
     setPyEditDraft('');
     setPyEditSaving(false);
@@ -762,6 +812,7 @@ const NotesSection = ({
 
   useEffect(() => () => {
     clearAllSolutionCollapseTimers();
+    clearAllFavoriteMotionTimers();
   }, []);
 
   useEffect(() => {
@@ -1758,6 +1809,10 @@ const NotesSection = ({
     if (pinningFileIds[fileId]) return;
     const currentMemory = file?.memory && typeof file.memory === 'object' ? file.memory : {};
     const nextPinned = !isFileMemoryPinned(currentMemory);
+    captureFileRowRects();
+    favoriteFlightIdsRef.current.add(fileId);
+    setFavoriteFlightTick((tick) => tick + 1);
+    triggerFavoriteMotion(fileId, nextPinned ? 'adding' : 'removing');
     const nextMemory = {
       ...currentMemory,
       isPinned: nextPinned,
@@ -1774,6 +1829,10 @@ const NotesSection = ({
       )));
     } catch (err) {
       console.error(err);
+      captureFileRowRects();
+      favoriteFlightIdsRef.current.add(fileId);
+      setFavoriteFlightTick((tick) => tick + 1);
+      triggerFavoriteMotion(fileId, isFileMemoryPinned(currentMemory) ? 'adding' : 'removing');
       setFiles((prev) => prev.map((entry) => (
         entry.id === file.id ? { ...entry, memory: currentMemory } : entry
       )));
@@ -1783,6 +1842,46 @@ const NotesSection = ({
         delete next[fileId];
         return next;
       });
+    }
+  };
+
+  const toggleLessonSharedFile = async (file) => {
+    if (role !== 'teacher' || !file?.id || !canManageFile(file)) return;
+    const fileId = String(file.id);
+    const currentShared = isLessonSharedFile(file);
+    captureFileRowRects();
+    favoriteFlightIdsRef.current.add(fileId);
+    setFavoriteFlightTick((tick) => tick + 1);
+    triggerFavoriteMotion(fileId, currentShared ? 'removing' : 'adding');
+    setFiles((prev) => prev.map((entry) => (
+      entry.id === file.id
+        ? {
+          ...entry,
+          isLessonShared: !currentShared,
+          sharedScope: currentShared ? undefined : LESSON_SHARED_SCOPE,
+          memory: {
+            ...(entry.memory || {}),
+            isPinned: !currentShared,
+            pinnedAt: currentShared ? '' : ((entry.memory || {}).pinnedAt || new Date().toISOString()),
+          },
+        }
+        : entry
+    )));
+    try {
+      const updated = await api.updateFileLessonShared(file.id, !currentShared);
+      setFiles((prev) => prev.map((entry) => (
+        entry.id === updated.id ? { ...entry, ...updated } : entry
+      )));
+    } catch (err) {
+      console.error(err);
+      captureFileRowRects();
+      favoriteFlightIdsRef.current.add(fileId);
+      setFavoriteFlightTick((tick) => tick + 1);
+      triggerFavoriteMotion(fileId, currentShared ? 'adding' : 'removing');
+      setFiles((prev) => prev.map((entry) => (
+        entry.id === file.id ? file : entry
+      )));
+      alert(err?.message || 'Не удалось изменить общий доступ');
     }
   };
 
@@ -1888,6 +1987,12 @@ const NotesSection = ({
   const startRename = (file) => {
     if (!canManageFile(file)) return;
     setRenamingId(file.id);
+    if (isSavedSolutionBundleFile(file) || isCheatsheetFile(file)) {
+      const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
+      setRenameBase(getSavedSolutionTitle(file, memory));
+      setRenameExt('');
+      return;
+    }
     const { base, ext } = splitFileName(file?.name || '');
     setRenameBase(base);
     setRenameExt(ext);
@@ -1906,6 +2011,31 @@ const NotesSection = ({
     const base = (nameOverride ?? renameBase).trim();
     if (!base) {
       cancelRename();
+      return;
+    }
+    const renamesMemoryTitle = isSavedSolutionBundleFile(file) || isCheatsheetFile(file);
+    if (renamesMemoryTitle) {
+      const memory = file?.memory && typeof file.memory === 'object' ? file.memory : {};
+      const currentTitle = getSavedSolutionTitle(file, memory);
+      if (base === currentTitle) {
+        cancelRename();
+        return;
+      }
+      setIsRenaming(true);
+      try {
+        const updated = await api.updateFileMemory(file.id, {
+          ...memory,
+          title: base,
+        });
+        setFiles((prev) => prev.map((entry) => (
+          entry.id === updated.id ? { ...entry, ...updated } : entry
+        )));
+        cancelRename();
+      } catch (err) {
+        alert(err?.message || err);
+      } finally {
+        setIsRenaming(false);
+      }
       return;
     }
     const ext = renameExt ? `.${renameExt}` : '';
@@ -2019,6 +2149,54 @@ const NotesSection = ({
       }
     };
   }, [effectiveStudentId, handleRefreshData]);
+
+  React.useLayoutEffect(() => {
+    const previousRects = lastFileRowRectsRef.current;
+    const flightIds = favoriteFlightIdsRef.current;
+    const reduceMotion = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (previousRects.size && flightIds.size && !reduceMotion) {
+      fileRowRefs.current.forEach((node, key) => {
+        if (!node?.isConnected) return;
+        const previousRect = previousRects.get(key);
+        if (!previousRect) return;
+        const nextRect = node.getBoundingClientRect();
+        const deltaY = previousRect.top - nextRect.top;
+        const deltaX = previousRect.left - nextRect.left;
+        if (Math.abs(deltaY) < 1 && Math.abs(deltaX) < 1) return;
+        const isMainFlight = flightIds.has(key);
+        if (isMainFlight) node.classList.add('is-favorite-flight');
+        const animation = node.animate(
+          [
+            {
+              transform: `translate(${deltaX}px, ${deltaY}px)`,
+              filter: isMainFlight ? 'drop-shadow(0 18px 30px rgba(217, 119, 6, 0.18))' : 'none',
+            },
+            {
+              transform: 'translate(0, 0)',
+              filter: 'none',
+            },
+          ],
+          {
+            duration: isMainFlight ? 680 : 440,
+            easing: isMainFlight ? 'cubic-bezier(0.18, 0.88, 0.2, 1)' : 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+          }
+        );
+        animation.finished
+          .catch(() => {})
+          .finally(() => {
+            node.classList.remove('is-favorite-flight');
+          });
+      });
+    }
+    favoriteFlightIdsRef.current = new Set();
+    const nextRects = new Map();
+    fileRowRefs.current.forEach((node, key) => {
+      if (!node?.isConnected) return;
+      nextRects.set(key, node.getBoundingClientRect());
+    });
+    lastFileRowRectsRef.current = nextRects;
+  }, [currentCategory, currentFolderId, currentTask, favoriteFlightTick, fileSearch, files]);
 
   useEffect(() => {
     if (!Number.isFinite(normalizedCurrentTask) || !currentCategory) return undefined;
@@ -2358,8 +2536,8 @@ const NotesSection = ({
     return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
   });
   const sortedVisibleFiles = [...visibleFiles].sort((left, right) => {
-    const leftPinned = isFileMemoryPinned(left?.memory);
-    const rightPinned = isFileMemoryPinned(right?.memory);
+    const leftPinned = isFileMemoryPinned(left?.memory) || isLessonSharedFile(left);
+    const rightPinned = isFileMemoryPinned(right?.memory) || isLessonSharedFile(right);
     if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
     if (leftPinned && rightPinned) {
       const pinnedDiff = getFileMemoryPinnedAt(right?.memory) - getFileMemoryPinnedAt(left?.memory);
@@ -2675,7 +2853,7 @@ const NotesSection = ({
           </div>
         ) : (
           <div className="notes-explorer-table overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <div className="overflow-x-auto">
+            <div className="notes-explorer-table-scroll overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-100 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
@@ -2847,6 +3025,7 @@ const NotesSection = ({
                     const runLabel = getFileMemoryRunLabel(memory);
                     const hasBoardSnapshot = Boolean(memory?.boardSnapshot?.url);
                     const memorySnapshotUrl = hasBoardSnapshot ? getMemorySnapshotUrl(f) : '';
+                    const isSharedFile = isLessonSharedFile(f);
                     const isCheatsheet = isCheatsheetFile(f);
                     const isSolutionBundle = isPyFile(f.name) && !isCheatsheet && (sourceRaw === 'collab-code' || hasBoardSnapshot);
                     const isMemoryCodeCard = isSolutionBundle || isCheatsheet;
@@ -2860,8 +3039,12 @@ const NotesSection = ({
                       ? (isPreviewVisuallyOpen ? 'Скрыть шпаргалку' : 'Открыть шпаргалку')
                       : (isPreviewVisuallyOpen ? 'Скрыть условие и решение' : 'Открыть условие и решение');
                     const isEditingCurrentPy = editingPyId === f.id;
-                    const isPinned = isFileMemoryPinned(memory);
+                    const isPinned = isFileMemoryPinned(memory) || isSharedFile;
                     const isPinning = Boolean(pinningFileIds[f.id]);
+                    const favoriteMotion = favoriteMotionIds[f.id] || '';
+                    const showFavoriteBadge = isPinned || favoriteMotion === 'removing';
+                    const showFavoriteButton = isMemoryCodeCard || isSharedFile;
+                    const canToggleTeacherShared = role === 'teacher' && manageable && (!isSharedFile || f?.notesShared || f?.originalStudentId);
                     const hasLoadedPyContent = Object.prototype.hasOwnProperty.call(pyContent, f.id);
                     const inlineCodeSource = hasLoadedPyContent ? pyContent[f.id] : (memory?.codePreview || '');
                     const inlineCodePreview = isMemoryCodeCard
@@ -2870,6 +3053,7 @@ const NotesSection = ({
                     return (
                       <React.Fragment key={f.id}>
                         <tr
+                          ref={(node) => setFileRowRef(f.id, node)}
                           className={`notes-explorer-file-row border-t border-slate-100 ${
                             isSelected ? 'is-selected' : ''
                           } ${
@@ -2882,6 +3066,10 @@ const NotesSection = ({
                             isCheatsheet ? 'is-cheatsheet' : ''
                           } ${
                             isPinned ? 'is-pinned' : ''
+                          } ${
+                            favoriteMotion === 'adding' ? 'is-favorite-adding' : ''
+                          } ${
+                            favoriteMotion === 'removing' ? 'is-favorite-removing' : ''
                           }`}
                           draggable={renamingId !== f.id && manageable}
                           onDragStart={(e) => {
@@ -3000,6 +3188,18 @@ const NotesSection = ({
                                           <span className="notes-cheatsheet-row-badge">
                                             Шпаргалка
                                           </span>
+                                          {showFavoriteBadge && (
+                                            <span className={`notes-favorite-row-badge ${favoriteMotion === 'removing' ? 'is-leaving' : ''}`}>
+                                              <Star size={12} fill="currentColor" strokeWidth={2.2} />
+                                              Избранное
+                                            </span>
+                                          )}
+                                          {isSharedFile && (
+                                            <span className="notes-shared-row-badge">
+                                              <Users size={12} strokeWidth={2.2} />
+                                              Общее
+                                            </span>
+                                          )}
                                         </div>
                                         {inlineCodePreview && (
                                           <span className="notes-code-inline-preview">
@@ -3024,6 +3224,18 @@ const NotesSection = ({
                                               <span />
                                             </span>
                                           </span>
+                                          {showFavoriteBadge && (
+                                            <span className={`notes-favorite-row-badge ${favoriteMotion === 'removing' ? 'is-leaving' : ''}`}>
+                                              <Star size={12} fill="currentColor" strokeWidth={2.2} />
+                                              Избранное
+                                            </span>
+                                          )}
+                                          {isSharedFile && (
+                                            <span className="notes-shared-row-badge">
+                                              <Users size={12} strokeWidth={2.2} />
+                                              Общее
+                                            </span>
+                                          )}
                                         </div>
                                         {inlineCodePreview && (
                                           <span className="notes-code-inline-preview">
@@ -3040,8 +3252,14 @@ const NotesSection = ({
                                         Добавлен: {addedAtLabel}
                                       </span>
                                     )}
-                                    {!isSolutionBundle && !isCheatsheet && (sourceLabel || runLabel || hasBoardSnapshot) && (
+                                    {!isSolutionBundle && !isCheatsheet && (isSharedFile || sourceLabel || runLabel || hasBoardSnapshot) && (
                                       <span className="mt-1 flex flex-wrap gap-1">
+                                        {isSharedFile && (
+                                          <span className="notes-shared-row-badge">
+                                            <Users size={12} strokeWidth={2.2} />
+                                            Общее
+                                          </span>
+                                        )}
                                         {sourceLabel && (
                                           <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
                                             {sourceLabel}
@@ -3087,21 +3305,41 @@ const NotesSection = ({
                           </td>
                           <td className="px-3 py-2.5">
                             <div className="notes-explorer-row-actions flex items-center justify-end gap-1.5">
-                              {isMemoryCodeCard && (
+                              {showFavoriteButton && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    if (isSharedFile) return;
                                     togglePinnedFile(f);
                                   }}
-                                  className={`notes-explorer-file-action-btn notes-explorer-pin-btn rounded-md p-1.5 ${isPinned ? 'is-active' : ''}`}
+                                  className={`notes-explorer-file-action-btn notes-explorer-pin-btn rounded-md p-1.5 ${isPinned ? 'is-active' : ''} ${
+                                    favoriteMotion === 'adding' ? 'is-adding' : ''
+                                  } ${
+                                    favoriteMotion === 'removing' ? 'is-removing' : ''
+                                  }`}
                                   disabled={!manageable || isPinning}
-                                  title={isPinned ? 'Открепить' : 'Закрепить наверху'}
+                                  title={isSharedFile ? 'Общий файл всегда в избранном' : (isPinned ? 'Убрать из избранного' : 'Добавить в избранное')}
+                                  aria-pressed={isPinned}
                                   type="button"
                                 >
                                   <Star size={16} fill={isPinned ? 'currentColor' : 'none'} />
                                 </button>
                               )}
-                              {isPreviewable && (
+                              {canToggleTeacherShared && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleLessonSharedFile(f);
+                                  }}
+                                  className={`notes-explorer-file-action-btn notes-explorer-share-btn rounded-md p-1.5 ${isSharedFile ? 'is-active' : ''}`}
+                                  title={isSharedFile ? 'Убрать общий доступ' : 'Сделать общим для всех учеников'}
+                                  aria-pressed={isSharedFile}
+                                  type="button"
+                                >
+                                  <Users size={16} />
+                                </button>
+                              )}
+                              {isPreviewable && !isMemoryCodeCard && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();

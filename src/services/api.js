@@ -1714,6 +1714,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  updateFileLessonShared: async (id, lessonShared) => {
+    const res = await apiFetch(`/api/files/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lessonShared: Boolean(lessonShared) }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
   uploadFileMemorySnapshot,
 };
 

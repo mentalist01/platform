@@ -20516,6 +20516,7 @@ app.patch('/api/files/:id', (req, res) => {
   const { name } = req.body || {};
   const hasContentField = Object.prototype.hasOwnProperty.call(req.body || {}, 'content');
   const hasMemoryField = Object.prototype.hasOwnProperty.call(req.body || {}, 'memory');
+  const hasLessonSharedField = Object.prototype.hasOwnProperty.call(req.body || {}, 'lessonShared');
   const content = hasContentField ? req.body.content : undefined;
 
   const db = readFilesDb();
@@ -20534,6 +20535,86 @@ app.patch('/api/files/:id', (req, res) => {
     : normalizeTeacherId(ownerStudent?.teacherId);
 
   let updated = { ...current };
+
+  if (hasLessonSharedField) {
+    const nextLessonShared = Boolean(req.body.lessonShared);
+    const currentlyLessonShared = isLessonSharedFile(updated);
+    if (nextLessonShared) {
+      if (!ownerTeacherId || !canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) return forbid(res);
+      const movingSizeBytes = getEntrySizeBytes(db[idx]);
+      const sharedTaskLimitBytes = getTaskLimitBytes(true);
+      const sharedTaskTotal = db
+        .filter((file) => (
+          file.id !== id
+          && file.taskNumber === updated.taskNumber
+          && isLessonSharedFile(file)
+          && normalizeTeacherId(file.teacherId) === ownerTeacherId
+        ))
+        .reduce((sum, file) => sum + getEntrySizeBytes(file), 0);
+      if (sharedTaskTotal + movingSizeBytes > sharedTaskLimitBytes) {
+        return res.status(413).json({ error: getTaskLimitError(sharedTaskLimitBytes) });
+      }
+      if (!currentlyLessonShared) {
+        updated.originalStudentId = updated.studentId || null;
+        updated.originalFolderId = updated.folderId || null;
+        updated.originalFolderName = updated.folderName || null;
+      }
+      updated.studentId = buildLessonSharedStudentId(ownerTeacherId);
+      updated.teacherId = ownerTeacherId;
+      updated.sharedScope = LESSON_SHARED_SCOPE;
+      updated.isLessonShared = true;
+      updated.notesShared = true;
+      updated.folderId = null;
+      updated.folderName = null;
+      updated.memory = normalizeFileMemory({
+        ...(updated.memory || {}),
+        isPinned: true,
+        pinnedAt: updated.memory?.pinnedAt || new Date().toISOString(),
+      }, {
+        taskNumber: updated.taskNumber,
+        source: updated.source || updated.memory?.source || 'notes-upload',
+        savedBy: updated.savedBy || updated.memory?.savedBy || getFileMemoryActor(req.auth),
+        createdAt: updated.createdAt || updated.memory?.createdAt || new Date().toISOString(),
+      });
+    } else if (currentlyLessonShared) {
+      if (!ownerTeacherId || !canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) return forbid(res);
+      const originalStudentId = String(updated.originalStudentId || '').trim();
+      const owner = originalStudentId ? findStudentById(originalStudentId, { allowDeleted: true }) : null;
+      if (!owner || normalizeTeacherId(owner.teacherId) !== ownerTeacherId) {
+        return res.status(400).json({ error: 'Не удалось вернуть файл из общего доступа' });
+      }
+      const folders = readFoldersDb();
+      const originalFolderId = normalizeParentFolderId(updated.originalFolderId);
+      const originalFolder = originalFolderId
+        ? folders.find((folder) => (
+          folder.id === originalFolderId
+          && folder.studentId === owner.id
+          && folder.taskNumber === updated.taskNumber
+          && folder.category === updated.category
+        ))
+        : null;
+      updated.studentId = owner.id;
+      updated.folderId = originalFolder ? originalFolder.id : null;
+      updated.folderName = originalFolder ? originalFolder.name : null;
+      updated.isLessonShared = false;
+      delete updated.sharedScope;
+      delete updated.teacherId;
+      delete updated.notesShared;
+      delete updated.originalStudentId;
+      delete updated.originalFolderId;
+      delete updated.originalFolderName;
+      updated.memory = normalizeFileMemory({
+        ...(updated.memory || {}),
+        isPinned: false,
+        pinnedAt: '',
+      }, {
+        taskNumber: updated.taskNumber,
+        source: updated.source || updated.memory?.source || 'notes-upload',
+        savedBy: updated.savedBy || updated.memory?.savedBy || getFileMemoryActor(req.auth),
+        createdAt: updated.createdAt || updated.memory?.createdAt || new Date().toISOString(),
+      });
+    }
+  }
 
   if (typeof name !== 'undefined') {
     const newName = normalizeFolderName(name);
