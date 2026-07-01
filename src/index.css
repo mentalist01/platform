@@ -32467,6 +32467,32 @@ html:not([data-theme='dark']) .collab-editor-surface::before {
   opacity: 0.72;
 }
 
+.collab-remote-editor-caret {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: var(--collab-line-height, 27px);
+  border-radius: 999px;
+  background: var(--collab-remote-editor-caret-color, #8b5cf6);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.88),
+    0 0 10px color-mix(in srgb, var(--collab-remote-editor-caret-color, #8b5cf6) 64%, transparent);
+  animation: collabRemoteEditorCaretBlink 1s steps(2, start) infinite;
+}
+
+@keyframes collabRemoteEditorCaretBlink {
+  0%,
+  42% {
+    opacity: 1;
+  }
+
+  43%,
+  100% {
+    opacity: 0.42;
+  }
+}
+
 .collab-remote-cursor-indicator {
   position: absolute;
   z-index: 42;
