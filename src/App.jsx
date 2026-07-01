@@ -1734,7 +1734,7 @@ const COLLAB_DEBUG_AUTOPLAY_MS = 75;
 const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
 const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
 const COLLAB_EDITOR_FONT_SIZE_DEFAULT = 18;
-const COLLAB_EDITOR_FONT_FAMILY = '"JetBrains Mono", Consolas, "Courier New", monospace';
+const COLLAB_EDITOR_FONT_FAMILY = 'Consolas, "Courier New", monospace';
 const COLLAB_SAVE_NOTICE_VISIBLE_MS = 4400;
 const COLLAB_SAVE_NOTICE_STALE_MS = 8000;
 const COLLAB_MEMORY_SNAPSHOT_MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -1765,7 +1765,7 @@ const getCollabEditorMetricOptions = (fontSize) => {
   return {
     fontFamily: COLLAB_EDITOR_FONT_FAMILY,
     fontSize: normalizedFontSize,
-    fontWeight: '600',
+    fontWeight: '400',
     fontLigatures: false,
     fontVariations: false,
     letterSpacing: 0,
@@ -3170,6 +3170,7 @@ const CollabSection = ({
     scrollBeyondLastLine: false,
     smoothScrolling: true,
     cursorSmoothCaretAnimation: 'off',
+    disableLayerHinting: true,
     disableMonospaceOptimizations: true,
     experimentalWhitespaceRendering: 'off',
     renderWhitespace: 'none',
@@ -3177,6 +3178,7 @@ const CollabSection = ({
     formatOnPaste: false,
     formatOnType: false,
     autoIndent: 'brackets',
+    wrappingStrategy: 'simple',
     scrollbar: {
       verticalScrollbarSize: isCollabFullscreen ? 8 : 10,
       horizontalScrollbarSize: isCollabFullscreen ? 6 : 8,
