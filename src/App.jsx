@@ -1810,6 +1810,13 @@ const mergeRuntimeErrorText = (base, next) => {
 
 const normalizeCollabTextFileContent = (value) => String(value ?? '').replace(/\r\n?/g, '\n');
 
+const getCollabEditorModelPath = (roomId) => {
+  const safeRoomId = String(roomId || 'idle')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .slice(0, 96) || 'idle';
+  return `file:///collab/${safeRoomId}/main.py`;
+};
+
 const normalizeCollabAuxPanelMode = (value) => (
   String(value || '').trim() === COLLAB_AUX_PANEL_MODE_TEST_FILE
     ? COLLAB_AUX_PANEL_MODE_TEST_FILE
@@ -2939,6 +2946,7 @@ const CollabSection = ({
     : false;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const roomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
+  const collabEditorModelPath = useMemo(() => getCollabEditorModelPath(roomId), [roomId]);
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
     return buildNotesSaveDraftStorageKey('code', ownerId, effectiveStudentId);
@@ -3039,6 +3047,7 @@ const CollabSection = ({
   const collabCursorSyncTimerRef = useRef(null);
   const collabCursorPendingRef = useRef(null);
   const collabCursorLastSyncAtRef = useRef(0);
+  const editorViewportFrameRef = useRef(null);
   const remoteEditorCursorSeenRef = useRef(new Map());
   const setCollabBoardMemorySnapshotRenderer = useCallback((renderer) => {
     collabBoardSnapshotRendererRef.current = typeof renderer === 'function' ? renderer : null;
@@ -3662,6 +3671,18 @@ const CollabSection = ({
     }, Math.max(0, Number(delayMs) || 0));
   }, [clearCollabCursorClearTimer, scheduleCollabEditorCursor]);
 
+  const queueEditorViewportRefresh = useCallback(() => {
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      setEditorViewportVersion((prev) => prev + 1);
+      return;
+    }
+    if (editorViewportFrameRef.current != null) return;
+    editorViewportFrameRef.current = window.requestAnimationFrame(() => {
+      editorViewportFrameRef.current = null;
+      setEditorViewportVersion((prev) => prev + 1);
+    });
+  }, []);
+
   const handleEditorMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
@@ -3854,16 +3875,15 @@ const CollabSection = ({
       : null;
     collabCursorContentDisposableRef.current?.dispose?.();
     collabCursorContentDisposableRef.current = editor.onDidChangeModelContent(() => {
-      setEditorViewportVersion((prev) => prev + 1);
       publishCursorFromEditorPosition(true);
     });
     collabCursorLayoutDisposableRef.current?.dispose?.();
     collabCursorLayoutDisposableRef.current = editor.onDidLayoutChange(() => {
-      setEditorViewportVersion((prev) => prev + 1);
+      queueEditorViewportRefresh();
     });
     collabCursorScrollDisposableRef.current?.dispose?.();
     collabCursorScrollDisposableRef.current = editor.onDidScrollChange(() => {
-      setEditorViewportVersion((prev) => prev + 1);
+      queueEditorViewportRefresh();
     });
     setEditorReady(true);
     setEditorMountVersion((prev) => prev + 1);
@@ -3871,6 +3891,7 @@ const CollabSection = ({
     applyDebugGlyphScale,
     editorFontSize,
     queueCollabEditorCursorClear,
+    queueEditorViewportRefresh,
     scheduleCollabEditorCursor,
   ]);
 
@@ -3908,6 +3929,10 @@ const CollabSection = ({
     if (collabCursorSyncTimerRef.current) {
       clearTimeout(collabCursorSyncTimerRef.current);
       collabCursorSyncTimerRef.current = null;
+    }
+    if (editorViewportFrameRef.current != null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame?.(editorViewportFrameRef.current);
+      editorViewportFrameRef.current = null;
     }
     collabCursorPendingRef.current = null;
     if (debugPlaybackTimerRef.current) {
@@ -6126,14 +6151,12 @@ const CollabSection = ({
     }
 
     setStatus('connecting');
-    const doc = new Y.Doc();
-    collabDocRef.current = doc;
-    const provider = new WebsocketProvider(wsUrl, roomId, doc);
-    collabAwarenessRef.current = provider.awareness;
     const model = editorRef.current?.getModel?.();
+    const expectedModelUri = monacoRef.current?.Uri?.parse
+      ? monacoRef.current.Uri.parse(collabEditorModelPath).toString()
+      : collabEditorModelPath;
+    const actualModelUri = model?.uri?.toString?.() || '';
     if (!model) {
-      provider.destroy();
-      doc.destroy();
       collabDocRef.current = null;
       collabAwarenessRef.current = null;
       collabCursorWindowStopRef.current?.();
@@ -6148,6 +6171,14 @@ const CollabSection = ({
       setLocalTestFileSelection(null);
       return;
     }
+    if (expectedModelUri && actualModelUri && actualModelUri !== expectedModelUri) {
+      return;
+    }
+
+    const doc = new Y.Doc();
+    collabDocRef.current = doc;
+    const provider = new WebsocketProvider(wsUrl, roomId, doc);
+    collabAwarenessRef.current = provider.awareness;
 
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
@@ -6347,6 +6378,7 @@ const CollabSection = ({
     wsUrl,
     localName,
     localColor,
+    collabEditorModelPath,
     clearDebugSession,
     editorMountVersion,
     stopCollabOutputSelectionTracking,
@@ -7013,10 +7045,13 @@ const CollabSection = ({
           </div>
         )}
         <Editor
+          key={collabEditorModelPath}
           height="100%"
           language="python"
           theme={resolveMonacoColorTheme(theme)}
           beforeMount={ensureMonacoColorTheme}
+          path={collabEditorModelPath}
+          saveViewState={false}
           defaultValue=""
           onMount={handleEditorMount}
           options={editorOptions}
