@@ -1767,6 +1767,7 @@ const getCollabEditorMetricOptions = (fontSize) => {
     fontSize: normalizedFontSize,
     fontWeight: '600',
     fontLigatures: false,
+    fontVariations: false,
     letterSpacing: 0,
     lineHeight: Math.round(normalizedFontSize * 1.5),
   };
@@ -3038,6 +3039,7 @@ const CollabSection = ({
   const collabCursorSyncTimerRef = useRef(null);
   const collabCursorPendingRef = useRef(null);
   const collabCursorLastSyncAtRef = useRef(0);
+  const remoteEditorCursorSeenRef = useRef(new Map());
   const setCollabBoardMemorySnapshotRenderer = useCallback((renderer) => {
     collabBoardSnapshotRendererRef.current = typeof renderer === 'function' ? renderer : null;
   }, []);
@@ -3167,7 +3169,14 @@ const CollabSection = ({
     automaticLayout: true,
     scrollBeyondLastLine: false,
     smoothScrolling: true,
-    cursorSmoothCaretAnimation: 'on',
+    cursorSmoothCaretAnimation: 'off',
+    disableMonospaceOptimizations: true,
+    experimentalWhitespaceRendering: 'off',
+    renderWhitespace: 'none',
+    renderControlCharacters: false,
+    formatOnPaste: false,
+    formatOnType: false,
+    autoIndent: 'brackets',
     scrollbar: {
       verticalScrollbarSize: isCollabFullscreen ? 8 : 10,
       horizontalScrollbarSize: isCollabFullscreen ? 6 : 8,
@@ -3179,13 +3188,13 @@ const CollabSection = ({
     snippetSuggestions: 'inline',
     tabCompletion: 'on',
     suggest: { preview: true, showSnippets: true },
-    inlineSuggest: { enabled: true },
-    inlayHints: { enabled: 'on' },
+    inlineSuggest: { enabled: false },
+    inlayHints: { enabled: debugActive ? 'on' : 'off' },
     glyphMargin: false,
     lineNumbersMinChars: 2,
     lineDecorationsWidth: 6,
     readOnly: !roomId,
-  }), [roomId, editorFontSize, isCollabFullscreen]);
+  }), [roomId, editorFontSize, isCollabFullscreen, debugActive]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
   const compactCollabHeight = '100%';
   const editorHeight = isCollabFullscreen
@@ -3591,12 +3600,14 @@ const CollabSection = ({
     const column = Number(nextCursor?.column);
     const hasPosition = Number.isInteger(lineNumber) && lineNumber > 0
       && Number.isInteger(column) && column > 0;
+    const cursorX = Number(nextCursor?.x);
+    const cursorY = Number(nextCursor?.y);
+    const hasViewportPosition = Number.isFinite(cursorX) && Number.isFinite(cursorY);
     const normalizedCursor = nextCursor
-      && Number.isFinite(Number(nextCursor?.x))
-      && Number.isFinite(Number(nextCursor?.y))
+      && (hasViewportPosition || hasPosition)
       ? {
-        x: Math.max(0, Math.min(1, Number(nextCursor.x))),
-        y: Math.max(0, Math.min(1, Number(nextCursor.y))),
+        x: hasViewportPosition ? Math.max(0, Math.min(1, cursorX)) : 0.5,
+        y: hasViewportPosition ? Math.max(0, Math.min(1, cursorY)) : 0.5,
         ts: Number.isFinite(Number(nextCursor?.ts)) ? Number(nextCursor.ts) : Date.now(),
         ...(nextCursor?.typing ? {
           typing: true,
@@ -6098,6 +6109,7 @@ const CollabSection = ({
         collabCursorSyncTimerRef.current = null;
       }
       collabCursorPendingRef.current = null;
+      remoteEditorCursorSeenRef.current.clear();
       collabDocRef.current = null;
       collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
@@ -6126,6 +6138,7 @@ const CollabSection = ({
       collabCursorWindowStopRef.current = null;
       stopCollabOutputSelectionTracking();
       stopCollabTestFileSelectionTracking();
+      remoteEditorCursorSeenRef.current.clear();
       setRemoteParticipants([]);
       setRemoteEditorCursors([]);
       setRemoteOutputSelections([]);
@@ -6160,6 +6173,7 @@ const CollabSection = ({
     testFileYText.observe(syncTestFileFromDoc);
     syncTestFileFromDoc();
 
+    const cursorSeenByClient = remoteEditorCursorSeenRef.current;
     const handleStatus = (event) => {
       if (event?.status) setStatus(event.status);
     };
@@ -6174,8 +6188,11 @@ const CollabSection = ({
       const testFileSelections = [];
       const outputLength = String(runOutputRef.current || '').length;
       const testFileLength = String(testFileTextRef.current || '').length;
+      const presentRemoteClientIds = new Set();
       states.forEach((state, clientId) => {
         if (clientId === provider.awareness.clientID) return;
+        const remoteClientId = String(clientId);
+        presentRemoteClientIds.add(remoteClientId);
         const remoteUser = state?.user;
         const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
           ? remoteUser.name.trim()
@@ -6184,14 +6201,14 @@ const CollabSection = ({
           ? remoteUser.color
           : '#6366f1';
         participants.push({
-          id: String(clientId),
+          id: remoteClientId,
           name: remoteName,
           color: remoteColor,
         });
         const outputSelection = normalizeCollabOutputSelection(state?.outputSelection, outputLength);
         if (outputSelection) {
           outputSelections.push({
-            id: String(clientId),
+            id: remoteClientId,
             start: outputSelection.start,
             end: outputSelection.end,
             name: remoteName,
@@ -6201,7 +6218,7 @@ const CollabSection = ({
         const testFileSelection = normalizeCollabOutputSelection(state?.testFileSelection, testFileLength);
         if (testFileSelection) {
           testFileSelections.push({
-            id: String(clientId),
+            id: remoteClientId,
             start: testFileSelection.start,
             end: testFileSelection.end,
             name: remoteName,
@@ -6212,30 +6229,66 @@ const CollabSection = ({
           const cursor = state?.editorCursor;
           const cursorX = Number(cursor?.x);
           const cursorY = Number(cursor?.y);
-          if (!Number.isFinite(cursorX) || !Number.isFinite(cursorY)) return;
-          const cursorTsRaw = Number(cursor?.ts);
-          const cursorTs = Number.isFinite(cursorTsRaw) ? cursorTsRaw : now;
-          if ((now - cursorTs) > COLLAB_EDITOR_CURSOR_STALE_MS) return;
-          const typingTsRaw = Number(cursor?.typingTs);
-          const typingTs = Number.isFinite(typingTsRaw) ? typingTsRaw : cursorTs;
-          const isTyping = cursor?.typing === true
-            && (now - typingTs) <= COLLAB_EDITOR_TYPING_STALE_MS;
           const cursorLineNumber = Number(cursor?.lineNumber);
           const cursorColumn = Number(cursor?.column);
           const hasCursorPosition = Number.isInteger(cursorLineNumber) && cursorLineNumber > 0
             && Number.isInteger(cursorColumn) && cursorColumn > 0;
+          const hasViewportPosition = Number.isFinite(cursorX) && Number.isFinite(cursorY);
+          if (!cursor || (!hasViewportPosition && !hasCursorPosition)) {
+            cursorSeenByClient.delete(remoteClientId);
+            return;
+          }
+          const normalizedX = hasViewportPosition ? Math.max(0, Math.min(1, cursorX)) : 0.5;
+          const normalizedY = hasViewportPosition ? Math.max(0, Math.min(1, cursorY)) : 0.5;
+          const remoteCursorTs = Number(cursor?.ts);
+          const remoteTypingTs = Number(cursor?.typingTs);
+          const cursorSignature = [
+            normalizedX.toFixed(4),
+            normalizedY.toFixed(4),
+            hasCursorPosition ? cursorLineNumber : '',
+            hasCursorPosition ? cursorColumn : '',
+            Number.isFinite(remoteCursorTs) ? Math.round(remoteCursorTs) : '',
+            cursor?.typing === true ? '1' : '0',
+            Number.isFinite(remoteTypingTs) ? Math.round(remoteTypingTs) : '',
+          ].join('|');
+          const previousCursorSeen = cursorSeenByClient.get(remoteClientId) || null;
+          const seenAt = previousCursorSeen?.signature === cursorSignature
+            ? previousCursorSeen.seenAt
+            : now;
+          const typingSignature = cursor?.typing === true
+            ? `${cursorSignature}|typing`
+            : '';
+          const typingSeenAt = cursor?.typing === true
+            ? (
+              previousCursorSeen?.typingSignature === typingSignature
+                ? previousCursorSeen.typingSeenAt
+                : now
+            )
+            : 0;
+          cursorSeenByClient.set(remoteClientId, {
+            signature: cursorSignature,
+            seenAt,
+            typingSignature,
+            typingSeenAt,
+          });
+          if ((now - seenAt) > COLLAB_EDITOR_CURSOR_STALE_MS) return;
+          const isTyping = cursor?.typing === true
+            && (now - typingSeenAt) <= COLLAB_EDITOR_TYPING_STALE_MS;
           cursors.push({
-            id: String(clientId),
-            x: Math.max(0, Math.min(1, cursorX)),
-            y: Math.max(0, Math.min(1, cursorY)),
-            ts: cursorTs,
+            id: remoteClientId,
+            x: normalizedX,
+            y: normalizedY,
+            ts: seenAt,
             typing: isTyping,
-            typingTs,
+            typingTs: typingSeenAt || seenAt,
             ...(hasCursorPosition ? { lineNumber: cursorLineNumber, column: cursorColumn } : {}),
             name: remoteName,
             color: remoteColor,
           });
         }
+      });
+      cursorSeenByClient.forEach((_, clientId) => {
+        if (!presentRemoteClientIds.has(clientId)) cursorSeenByClient.delete(clientId);
       });
       setRemoteParticipants(participants.sort((left, right) => left.name.localeCompare(right.name, 'ru')));
       setRemoteEditorCursors(COLLAB_EDITOR_CURSOR_ENABLED ? cursors : []);
@@ -6274,6 +6327,7 @@ const CollabSection = ({
       collabDocRef.current = null;
       collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
+      cursorSeenByClient.clear();
       setTestFileText('');
       setRemoteParticipants([]);
       setRemoteEditorCursors([]);
@@ -6969,13 +7023,15 @@ const CollabSection = ({
         {remoteEditorCursorMarkers.map((cursor) => (
           <div
             key={cursor.id}
-            className="pointer-events-none absolute z-[15] select-none"
+            className="pointer-events-none absolute z-[32] select-none"
             style={{
               left: `${cursor.left}px`,
               top: `${cursor.top}px`,
               transform: 'translate(-1px, -1px)',
+              '--collab-remote-editor-caret-color': cursor.color,
             }}
           >
+            <span className="collab-remote-editor-caret" aria-hidden />
             <svg width="15" height="20" viewBox="0 0 15 20" fill="none" aria-hidden>
               <path
                 d="M1 1L7.2 16L9.6 10.9L14 9.3L1 1Z"
