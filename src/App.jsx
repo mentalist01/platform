@@ -1734,7 +1734,7 @@ const COLLAB_DEBUG_AUTOPLAY_MS = 75;
 const COLLAB_DEBUG_INLINE_HINT_MAX_CHARS = 90;
 const COLLAB_DEBUG_INLINE_HINT_LINES_MAX = 120;
 const COLLAB_EDITOR_FONT_SIZE_DEFAULT = 18;
-const COLLAB_EDITOR_FONT_FAMILY = 'Consolas, "Courier New", monospace';
+const COLLAB_EDITOR_FONT_FAMILY = '"JetBrains Mono", Consolas, "Courier New", monospace';
 const COLLAB_SAVE_NOTICE_VISIBLE_MS = 4400;
 const COLLAB_SAVE_NOTICE_STALE_MS = 8000;
 const COLLAB_MEMORY_SNAPSHOT_MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -1765,9 +1765,8 @@ const getCollabEditorMetricOptions = (fontSize) => {
   return {
     fontFamily: COLLAB_EDITOR_FONT_FAMILY,
     fontSize: normalizedFontSize,
-    fontWeight: '400',
+    fontWeight: '600',
     fontLigatures: false,
-    fontVariations: false,
     letterSpacing: 0,
     lineHeight: Math.round(normalizedFontSize * 1.5),
   };
@@ -1809,13 +1808,6 @@ const mergeRuntimeErrorText = (base, next) => {
 };
 
 const normalizeCollabTextFileContent = (value) => String(value ?? '').replace(/\r\n?/g, '\n');
-
-const getCollabEditorModelPath = (roomId) => {
-  const safeRoomId = String(roomId || 'idle')
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .slice(0, 96) || 'idle';
-  return `file:///collab/${safeRoomId}/main.py`;
-};
 
 const normalizeCollabAuxPanelMode = (value) => (
   String(value || '').trim() === COLLAB_AUX_PANEL_MODE_TEST_FILE
@@ -2946,7 +2938,6 @@ const CollabSection = ({
     : false;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const roomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
-  const collabEditorModelPath = useMemo(() => getCollabEditorModelPath(roomId), [roomId]);
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
     return buildNotesSaveDraftStorageKey('code', ownerId, effectiveStudentId);
@@ -3047,8 +3038,6 @@ const CollabSection = ({
   const collabCursorSyncTimerRef = useRef(null);
   const collabCursorPendingRef = useRef(null);
   const collabCursorLastSyncAtRef = useRef(0);
-  const editorViewportFrameRef = useRef(null);
-  const remoteEditorCursorSeenRef = useRef(new Map());
   const setCollabBoardMemorySnapshotRenderer = useCallback((renderer) => {
     collabBoardSnapshotRendererRef.current = typeof renderer === 'function' ? renderer : null;
   }, []);
@@ -3178,16 +3167,7 @@ const CollabSection = ({
     automaticLayout: true,
     scrollBeyondLastLine: false,
     smoothScrolling: true,
-    cursorSmoothCaretAnimation: 'off',
-    disableLayerHinting: true,
-    disableMonospaceOptimizations: true,
-    experimentalWhitespaceRendering: 'off',
-    renderWhitespace: 'none',
-    renderControlCharacters: false,
-    formatOnPaste: false,
-    formatOnType: false,
-    autoIndent: 'brackets',
-    wrappingStrategy: 'simple',
+    cursorSmoothCaretAnimation: 'on',
     scrollbar: {
       verticalScrollbarSize: isCollabFullscreen ? 8 : 10,
       horizontalScrollbarSize: isCollabFullscreen ? 6 : 8,
@@ -3199,13 +3179,13 @@ const CollabSection = ({
     snippetSuggestions: 'inline',
     tabCompletion: 'on',
     suggest: { preview: true, showSnippets: true },
-    inlineSuggest: { enabled: false },
-    inlayHints: { enabled: debugActive ? 'on' : 'off' },
+    inlineSuggest: { enabled: true },
+    inlayHints: { enabled: 'on' },
     glyphMargin: false,
     lineNumbersMinChars: 2,
     lineDecorationsWidth: 6,
     readOnly: !roomId,
-  }), [roomId, editorFontSize, isCollabFullscreen, debugActive]);
+  }), [roomId, editorFontSize, isCollabFullscreen]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
   const compactCollabHeight = '100%';
   const editorHeight = isCollabFullscreen
@@ -3611,14 +3591,12 @@ const CollabSection = ({
     const column = Number(nextCursor?.column);
     const hasPosition = Number.isInteger(lineNumber) && lineNumber > 0
       && Number.isInteger(column) && column > 0;
-    const cursorX = Number(nextCursor?.x);
-    const cursorY = Number(nextCursor?.y);
-    const hasViewportPosition = Number.isFinite(cursorX) && Number.isFinite(cursorY);
     const normalizedCursor = nextCursor
-      && (hasViewportPosition || hasPosition)
+      && Number.isFinite(Number(nextCursor?.x))
+      && Number.isFinite(Number(nextCursor?.y))
       ? {
-        x: hasViewportPosition ? Math.max(0, Math.min(1, cursorX)) : 0.5,
-        y: hasViewportPosition ? Math.max(0, Math.min(1, cursorY)) : 0.5,
+        x: Math.max(0, Math.min(1, Number(nextCursor.x))),
+        y: Math.max(0, Math.min(1, Number(nextCursor.y))),
         ts: Number.isFinite(Number(nextCursor?.ts)) ? Number(nextCursor.ts) : Date.now(),
         ...(nextCursor?.typing ? {
           typing: true,
@@ -3670,18 +3648,6 @@ const CollabSection = ({
       scheduleCollabEditorCursor(null, true);
     }, Math.max(0, Number(delayMs) || 0));
   }, [clearCollabCursorClearTimer, scheduleCollabEditorCursor]);
-
-  const queueEditorViewportRefresh = useCallback(() => {
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-      setEditorViewportVersion((prev) => prev + 1);
-      return;
-    }
-    if (editorViewportFrameRef.current != null) return;
-    editorViewportFrameRef.current = window.requestAnimationFrame(() => {
-      editorViewportFrameRef.current = null;
-      setEditorViewportVersion((prev) => prev + 1);
-    });
-  }, []);
 
   const handleEditorMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
@@ -3875,15 +3841,16 @@ const CollabSection = ({
       : null;
     collabCursorContentDisposableRef.current?.dispose?.();
     collabCursorContentDisposableRef.current = editor.onDidChangeModelContent(() => {
+      setEditorViewportVersion((prev) => prev + 1);
       publishCursorFromEditorPosition(true);
     });
     collabCursorLayoutDisposableRef.current?.dispose?.();
     collabCursorLayoutDisposableRef.current = editor.onDidLayoutChange(() => {
-      queueEditorViewportRefresh();
+      setEditorViewportVersion((prev) => prev + 1);
     });
     collabCursorScrollDisposableRef.current?.dispose?.();
     collabCursorScrollDisposableRef.current = editor.onDidScrollChange(() => {
-      queueEditorViewportRefresh();
+      setEditorViewportVersion((prev) => prev + 1);
     });
     setEditorReady(true);
     setEditorMountVersion((prev) => prev + 1);
@@ -3891,7 +3858,6 @@ const CollabSection = ({
     applyDebugGlyphScale,
     editorFontSize,
     queueCollabEditorCursorClear,
-    queueEditorViewportRefresh,
     scheduleCollabEditorCursor,
   ]);
 
@@ -3929,10 +3895,6 @@ const CollabSection = ({
     if (collabCursorSyncTimerRef.current) {
       clearTimeout(collabCursorSyncTimerRef.current);
       collabCursorSyncTimerRef.current = null;
-    }
-    if (editorViewportFrameRef.current != null && typeof window !== 'undefined') {
-      window.cancelAnimationFrame?.(editorViewportFrameRef.current);
-      editorViewportFrameRef.current = null;
     }
     collabCursorPendingRef.current = null;
     if (debugPlaybackTimerRef.current) {
@@ -6136,7 +6098,6 @@ const CollabSection = ({
         collabCursorSyncTimerRef.current = null;
       }
       collabCursorPendingRef.current = null;
-      remoteEditorCursorSeenRef.current.clear();
       collabDocRef.current = null;
       collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
@@ -6151,19 +6112,20 @@ const CollabSection = ({
     }
 
     setStatus('connecting');
+    const doc = new Y.Doc();
+    collabDocRef.current = doc;
+    const provider = new WebsocketProvider(wsUrl, roomId, doc);
+    collabAwarenessRef.current = provider.awareness;
     const model = editorRef.current?.getModel?.();
-    const expectedModelUri = monacoRef.current?.Uri?.parse
-      ? monacoRef.current.Uri.parse(collabEditorModelPath).toString()
-      : collabEditorModelPath;
-    const actualModelUri = model?.uri?.toString?.() || '';
     if (!model) {
+      provider.destroy();
+      doc.destroy();
       collabDocRef.current = null;
       collabAwarenessRef.current = null;
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
       stopCollabOutputSelectionTracking();
       stopCollabTestFileSelectionTracking();
-      remoteEditorCursorSeenRef.current.clear();
       setRemoteParticipants([]);
       setRemoteEditorCursors([]);
       setRemoteOutputSelections([]);
@@ -6171,14 +6133,6 @@ const CollabSection = ({
       setLocalTestFileSelection(null);
       return;
     }
-    if (expectedModelUri && actualModelUri && actualModelUri !== expectedModelUri) {
-      return;
-    }
-
-    const doc = new Y.Doc();
-    collabDocRef.current = doc;
-    const provider = new WebsocketProvider(wsUrl, roomId, doc);
-    collabAwarenessRef.current = provider.awareness;
 
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
@@ -6206,7 +6160,6 @@ const CollabSection = ({
     testFileYText.observe(syncTestFileFromDoc);
     syncTestFileFromDoc();
 
-    const cursorSeenByClient = remoteEditorCursorSeenRef.current;
     const handleStatus = (event) => {
       if (event?.status) setStatus(event.status);
     };
@@ -6221,11 +6174,8 @@ const CollabSection = ({
       const testFileSelections = [];
       const outputLength = String(runOutputRef.current || '').length;
       const testFileLength = String(testFileTextRef.current || '').length;
-      const presentRemoteClientIds = new Set();
       states.forEach((state, clientId) => {
         if (clientId === provider.awareness.clientID) return;
-        const remoteClientId = String(clientId);
-        presentRemoteClientIds.add(remoteClientId);
         const remoteUser = state?.user;
         const remoteName = typeof remoteUser?.name === 'string' && remoteUser.name.trim()
           ? remoteUser.name.trim()
@@ -6234,14 +6184,14 @@ const CollabSection = ({
           ? remoteUser.color
           : '#6366f1';
         participants.push({
-          id: remoteClientId,
+          id: String(clientId),
           name: remoteName,
           color: remoteColor,
         });
         const outputSelection = normalizeCollabOutputSelection(state?.outputSelection, outputLength);
         if (outputSelection) {
           outputSelections.push({
-            id: remoteClientId,
+            id: String(clientId),
             start: outputSelection.start,
             end: outputSelection.end,
             name: remoteName,
@@ -6251,7 +6201,7 @@ const CollabSection = ({
         const testFileSelection = normalizeCollabOutputSelection(state?.testFileSelection, testFileLength);
         if (testFileSelection) {
           testFileSelections.push({
-            id: remoteClientId,
+            id: String(clientId),
             start: testFileSelection.start,
             end: testFileSelection.end,
             name: remoteName,
@@ -6262,66 +6212,30 @@ const CollabSection = ({
           const cursor = state?.editorCursor;
           const cursorX = Number(cursor?.x);
           const cursorY = Number(cursor?.y);
+          if (!Number.isFinite(cursorX) || !Number.isFinite(cursorY)) return;
+          const cursorTsRaw = Number(cursor?.ts);
+          const cursorTs = Number.isFinite(cursorTsRaw) ? cursorTsRaw : now;
+          if ((now - cursorTs) > COLLAB_EDITOR_CURSOR_STALE_MS) return;
+          const typingTsRaw = Number(cursor?.typingTs);
+          const typingTs = Number.isFinite(typingTsRaw) ? typingTsRaw : cursorTs;
+          const isTyping = cursor?.typing === true
+            && (now - typingTs) <= COLLAB_EDITOR_TYPING_STALE_MS;
           const cursorLineNumber = Number(cursor?.lineNumber);
           const cursorColumn = Number(cursor?.column);
           const hasCursorPosition = Number.isInteger(cursorLineNumber) && cursorLineNumber > 0
             && Number.isInteger(cursorColumn) && cursorColumn > 0;
-          const hasViewportPosition = Number.isFinite(cursorX) && Number.isFinite(cursorY);
-          if (!cursor || (!hasViewportPosition && !hasCursorPosition)) {
-            cursorSeenByClient.delete(remoteClientId);
-            return;
-          }
-          const normalizedX = hasViewportPosition ? Math.max(0, Math.min(1, cursorX)) : 0.5;
-          const normalizedY = hasViewportPosition ? Math.max(0, Math.min(1, cursorY)) : 0.5;
-          const remoteCursorTs = Number(cursor?.ts);
-          const remoteTypingTs = Number(cursor?.typingTs);
-          const cursorSignature = [
-            normalizedX.toFixed(4),
-            normalizedY.toFixed(4),
-            hasCursorPosition ? cursorLineNumber : '',
-            hasCursorPosition ? cursorColumn : '',
-            Number.isFinite(remoteCursorTs) ? Math.round(remoteCursorTs) : '',
-            cursor?.typing === true ? '1' : '0',
-            Number.isFinite(remoteTypingTs) ? Math.round(remoteTypingTs) : '',
-          ].join('|');
-          const previousCursorSeen = cursorSeenByClient.get(remoteClientId) || null;
-          const seenAt = previousCursorSeen?.signature === cursorSignature
-            ? previousCursorSeen.seenAt
-            : now;
-          const typingSignature = cursor?.typing === true
-            ? `${cursorSignature}|typing`
-            : '';
-          const typingSeenAt = cursor?.typing === true
-            ? (
-              previousCursorSeen?.typingSignature === typingSignature
-                ? previousCursorSeen.typingSeenAt
-                : now
-            )
-            : 0;
-          cursorSeenByClient.set(remoteClientId, {
-            signature: cursorSignature,
-            seenAt,
-            typingSignature,
-            typingSeenAt,
-          });
-          if ((now - seenAt) > COLLAB_EDITOR_CURSOR_STALE_MS) return;
-          const isTyping = cursor?.typing === true
-            && (now - typingSeenAt) <= COLLAB_EDITOR_TYPING_STALE_MS;
           cursors.push({
-            id: remoteClientId,
-            x: normalizedX,
-            y: normalizedY,
-            ts: seenAt,
+            id: String(clientId),
+            x: Math.max(0, Math.min(1, cursorX)),
+            y: Math.max(0, Math.min(1, cursorY)),
+            ts: cursorTs,
             typing: isTyping,
-            typingTs: typingSeenAt || seenAt,
+            typingTs,
             ...(hasCursorPosition ? { lineNumber: cursorLineNumber, column: cursorColumn } : {}),
             name: remoteName,
             color: remoteColor,
           });
         }
-      });
-      cursorSeenByClient.forEach((_, clientId) => {
-        if (!presentRemoteClientIds.has(clientId)) cursorSeenByClient.delete(clientId);
       });
       setRemoteParticipants(participants.sort((left, right) => left.name.localeCompare(right.name, 'ru')));
       setRemoteEditorCursors(COLLAB_EDITOR_CURSOR_ENABLED ? cursors : []);
@@ -6360,7 +6274,6 @@ const CollabSection = ({
       collabDocRef.current = null;
       collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
-      cursorSeenByClient.clear();
       setTestFileText('');
       setRemoteParticipants([]);
       setRemoteEditorCursors([]);
@@ -6378,7 +6291,6 @@ const CollabSection = ({
     wsUrl,
     localName,
     localColor,
-    collabEditorModelPath,
     clearDebugSession,
     editorMountVersion,
     stopCollabOutputSelectionTracking,
@@ -7045,13 +6957,10 @@ const CollabSection = ({
           </div>
         )}
         <Editor
-          key={collabEditorModelPath}
           height="100%"
           language="python"
           theme={resolveMonacoColorTheme(theme)}
           beforeMount={ensureMonacoColorTheme}
-          path={collabEditorModelPath}
-          saveViewState={false}
           defaultValue=""
           onMount={handleEditorMount}
           options={editorOptions}
@@ -7060,15 +6969,13 @@ const CollabSection = ({
         {remoteEditorCursorMarkers.map((cursor) => (
           <div
             key={cursor.id}
-            className="pointer-events-none absolute z-[32] select-none"
+            className="pointer-events-none absolute z-[15] select-none"
             style={{
               left: `${cursor.left}px`,
               top: `${cursor.top}px`,
               transform: 'translate(-1px, -1px)',
-              '--collab-remote-editor-caret-color': cursor.color,
             }}
           >
-            <span className="collab-remote-editor-caret" aria-hidden />
             <svg width="15" height="20" viewBox="0 0 15 20" fill="none" aria-hidden>
               <path
                 d="M1 1L7.2 16L9.6 10.9L14 9.3L1 1Z"
