@@ -14437,14 +14437,17 @@ app.patch('/api/payment-sender-links', (req, res) => {
       if (!studentNameKey) {
         return res.status(400).json({ error: 'Укажите studentId или studentName.' });
       }
-      const matches = readStudentsDb().filter((entry) => (
-        normalizeTeacherId(entry?.teacherId) === teacher.id
-        && !entry?.deletedAt
-        && (
-          normalizePaymentNameKey(entry?.name) === studentNameKey
-          || normalizePaymentNameKey(entry?.nickname) === studentNameKey
-        )
+      const teacherStudents = readStudentsDb().filter((entry) => (
+        normalizeTeacherId(entry?.teacherId) === teacher.id && !entry?.deletedAt
       ));
+      const primaryNameMatches = teacherStudents.filter((entry) => (
+        normalizePaymentNameKey(entry?.name) === studentNameKey
+      ));
+      const matches = primaryNameMatches.length > 0
+        ? primaryNameMatches
+        : teacherStudents.filter((entry) => (
+          normalizePaymentNameKey(entry?.nickname) === studentNameKey
+        ));
       if (matches.length === 0) {
         return res.status(404).json({ error: 'Ученик с таким именем не найден.' });
       }
