@@ -1427,6 +1427,33 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getPaymentNotifications: async (teacherId = '') => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/payment-notifications?${qs}` : '/api/payment-notifications');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getPaymentSenderLinks: async (teacherId = '') => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/payment-sender-links?${qs}` : '/api/payment-sender-links');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updatePaymentSenderLink: async (payload = {}, teacherId = '') => {
+    const body = payload && typeof payload === 'object' ? { ...payload } : {};
+    if (teacherId) body.teacherId = String(teacherId);
+    const res = await apiFetch('/api/payment-sender-links', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getTeacherCalendarSync: async (teacherId) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', String(teacherId));

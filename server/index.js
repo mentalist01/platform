@@ -148,6 +148,8 @@ const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json');
 const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
+const paymentNotificationsFile = path.join(dataDir, 'payment-notifications.json');
+const paymentSenderLinksFile = path.join(dataDir, 'payment-sender-links.json');
 const finalReviewVideosFile = path.join(dataDir, 'final-review-videos.json');
 const finalReviewNotesFile = path.join(dataDir, 'final-review-notes.json');
 const authFile = path.join(dataDir, 'auth.json');
@@ -185,6 +187,17 @@ const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
 const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
 const TEACHER_NAME = process.env.TEACHER_NAME || '\u0423\u0447\u0438\u0442\u0435\u043b\u044c';
+const PAYMENT_NOTIFICATION_SECRET = String(
+  process.env.MACRODROID_PAYMENT_SECRET
+  || process.env.TBANK_PAYMENT_NOTIFICATION_SECRET
+  || process.env.PAYMENT_NOTIFICATION_SECRET
+  || ''
+).trim();
+const PAYMENT_NOTIFICATION_DEFAULT_TEACHER_ID = String(
+  process.env.PAYMENT_NOTIFICATION_TEACHER_ID
+  || process.env.TBANK_PAYMENT_TEACHER_ID
+  || ''
+).trim();
 const SIGNUP_DEFAULT_TEACHER_ID = String(
   process.env.SIGNUP_TEACHER_ID || process.env.DEFAULT_SIGNUP_TEACHER_ID || ''
 ).trim();
@@ -1481,6 +1494,155 @@ const writeTeacherCalendarSyncDb = (data) => {
 
 const writeTeacherCalendarMarksDb = (data) => {
   writeJsonFileAtomic(teacherCalendarMarksFile, normalizeTeacherCalendarMarksDb(data));
+};
+
+const PAYMENT_NOTIFICATION_STORAGE_LIMIT = 500;
+const PAYMENT_NOTIFICATION_TEXT_MAX_LENGTH = 500;
+const PAYMENT_NOTIFICATION_REASON_MAX_LENGTH = 300;
+const PAYMENT_NOTIFICATION_STATUSES = new Set(['applied', 'pending', 'ignored', 'duplicate']);
+
+const normalizePaymentNotificationText = (value) => (
+  String(value || '').replace(/\s+/g, ' ').trim().slice(0, PAYMENT_NOTIFICATION_TEXT_MAX_LENGTH)
+);
+
+const normalizePaymentNameKey = (value) => String(value || '')
+  .normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/ё/g, 'е')
+  .replace(/Ё/g, 'е')
+  .toLocaleLowerCase('ru-RU')
+  .replace(/[^a-z0-9а-я]+/gi, '');
+
+const normalizePaymentNotificationTimestamp = (value, fallback = '') => {
+  const raw = String(value || '').trim();
+  const parsed = raw ? Date.parse(raw) : NaN;
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  return fallback;
+};
+
+const normalizePaymentNotificationStatus = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return PAYMENT_NOTIFICATION_STATUSES.has(normalized) ? normalized : 'pending';
+};
+
+const normalizePaymentNotificationEntry = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const id = String(source.id || '').trim();
+  if (!id) return null;
+  const amount = roundTeacherFinanceNumber(source.amount);
+  return {
+    id,
+    source: normalizePaymentNotificationText(source.source).slice(0, 80),
+    provider: normalizePaymentNotificationText(source.provider).slice(0, 80),
+    title: normalizePaymentNotificationText(source.title),
+    text: normalizePaymentNotificationText(source.text),
+    amount,
+    currency: String(source.currency || 'RUB').trim().slice(0, 12) || 'RUB',
+    receivedAt: normalizePaymentNotificationTimestamp(source.receivedAt, ''),
+    createdAt: normalizePaymentNotificationTimestamp(source.createdAt, new Date().toISOString()),
+    status: normalizePaymentNotificationStatus(source.status),
+    reason: normalizePaymentNotificationText(source.reason).slice(0, PAYMENT_NOTIFICATION_REASON_MAX_LENGTH),
+    teacherId: String(source.teacherId || '').trim(),
+    studentId: String(source.studentId || '').trim(),
+    studentName: normalizePaymentNotificationText(source.studentName).slice(0, 120),
+    senderName: normalizePaymentNotificationText(source.senderName).slice(0, 120),
+    senderKey: normalizePaymentNameKey(source.senderKey || source.senderName).slice(0, 120),
+    matchMode: normalizePaymentNotificationText(source.matchMode).slice(0, 40),
+    markKeys: Array.isArray(source.markKeys)
+      ? source.markKeys.map((item) => normalizeTeacherCalendarMarkKey(item)).filter(Boolean).slice(0, 20)
+      : [],
+    rawHash: String(source.rawHash || '').trim().slice(0, 80),
+  };
+};
+
+const normalizePaymentNotificationsDb = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const items = Array.isArray(source.items) ? source.items : (Array.isArray(value) ? value : []);
+  const normalizedItems = [];
+  const seen = new Set();
+  items.forEach((entry) => {
+    const normalized = normalizePaymentNotificationEntry(entry);
+    if (!normalized || seen.has(normalized.id)) return;
+    seen.add(normalized.id);
+    normalizedItems.push(normalized);
+  });
+  normalizedItems.sort((left, right) => {
+    const leftMs = Date.parse(left.createdAt || left.receivedAt || '');
+    const rightMs = Date.parse(right.createdAt || right.receivedAt || '');
+    return (Number.isFinite(rightMs) ? rightMs : 0) - (Number.isFinite(leftMs) ? leftMs : 0);
+  });
+  return { items: normalizedItems.slice(0, PAYMENT_NOTIFICATION_STORAGE_LIMIT) };
+};
+
+const readPaymentNotificationsDb = () => {
+  try {
+    const raw = fs.readFileSync(paymentNotificationsFile, 'utf8');
+    const data = JSON.parse(raw);
+    return normalizePaymentNotificationsDb(data);
+  } catch {
+    return { items: [] };
+  }
+};
+
+const writePaymentNotificationsDb = (data) => {
+  writeJsonFileAtomic(paymentNotificationsFile, normalizePaymentNotificationsDb(data));
+};
+
+const normalizePaymentSenderLinkEntry = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const senderName = normalizePaymentNotificationText(source.senderName || source.name).slice(0, 120);
+  const senderKey = normalizePaymentNameKey(source.senderKey || senderName).slice(0, 120);
+  const studentId = String(source.studentId || '').trim();
+  if (!senderKey || !studentId) return null;
+  return {
+    senderName: senderName || senderKey,
+    senderKey,
+    studentId,
+    createdAt: normalizePaymentNotificationTimestamp(source.createdAt, ''),
+    updatedAt: normalizePaymentNotificationTimestamp(source.updatedAt, ''),
+  };
+};
+
+const normalizePaymentSenderLinksForTeacher = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const linksSource = source.links && typeof source.links === 'object' && !Array.isArray(source.links)
+    ? source.links
+    : source;
+  const rawLinks = Array.isArray(source.links)
+    ? source.links
+    : (Array.isArray(value) ? value : Object.values(linksSource));
+  const links = {};
+  rawLinks.forEach((entry) => {
+    const normalized = normalizePaymentSenderLinkEntry(entry);
+    if (!normalized) return;
+    links[normalized.senderKey] = normalized;
+  });
+  return { links };
+};
+
+const normalizePaymentSenderLinksDb = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([teacherId, teacherValue]) => {
+    const normalizedTeacherId = String(teacherId || '').trim();
+    if (!normalizedTeacherId) return;
+    normalized[normalizedTeacherId] = normalizePaymentSenderLinksForTeacher(teacherValue);
+  });
+  return normalized;
+};
+
+const readPaymentSenderLinksDb = () => {
+  try {
+    const raw = fs.readFileSync(paymentSenderLinksFile, 'utf8');
+    const data = JSON.parse(raw);
+    return normalizePaymentSenderLinksDb(data);
+  } catch {
+    return {};
+  }
+};
+
+const writePaymentSenderLinksDb = (data) => {
+  writeJsonFileAtomic(paymentSenderLinksFile, normalizePaymentSenderLinksDb(data));
 };
 
 const TEACHER_FINANCE_PRICING_MODES = new Set(['perLesson', 'monthly']);
@@ -11399,6 +11561,659 @@ const buildTeacherCalendarReminderPushPayload = (entry, reminder, student = null
   };
 };
 
+const getPaymentNotificationSecretFromRequest = (req, payload = {}) => {
+  const headers = req?.headers || {};
+  const readHeader = (name) => {
+    const value = headers[name];
+    if (typeof value === 'string') return value.trim();
+    if (Array.isArray(value)) return String(value[0] || '').trim();
+    return '';
+  };
+  const auth = readHeader('authorization');
+  const bearerMatch = auth.match(/^Bearer\s+(.+)$/i);
+  return (
+    readHeader('x-payment-secret')
+    || readHeader('x-macrodroid-secret')
+    || readHeader('x-tbank-secret')
+    || (bearerMatch?.[1] ? bearerMatch[1].trim() : '')
+    || String(payload.secret || payload.token || '').trim()
+    || String(req?.query?.secret || '').trim()
+  );
+};
+
+const timingSafeStringEqual = (left, right) => {
+  const leftValue = String(left || '');
+  const rightValue = String(right || '');
+  if (!leftValue || !rightValue) return false;
+  const leftBuffer = Buffer.from(leftValue, 'utf8');
+  const rightBuffer = Buffer.from(rightValue, 'utf8');
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+};
+
+const validatePaymentNotificationSecret = (req, payload = {}) => {
+  if (!PAYMENT_NOTIFICATION_SECRET) {
+    return { ok: false, status: 503, error: 'Не задан MACRODROID_PAYMENT_SECRET на сервере.' };
+  }
+  const incomingSecret = getPaymentNotificationSecretFromRequest(req, payload);
+  if (!timingSafeStringEqual(incomingSecret, PAYMENT_NOTIFICATION_SECRET)) {
+    return { ok: false, status: 401, error: 'Неверный секрет уведомления.' };
+  }
+  return { ok: true };
+};
+
+const sanitizeTbankNotificationText = (value) => normalizePaymentNotificationText(value)
+  .replace(/(?:доступно|остаток|баланс)[\s\S]*$/i, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const cleanPaymentSenderName = (value) => {
+  let text = sanitizeTbankNotificationText(value)
+    .replace(/(?:счет|счёт|карта)\s+[A-ZА-Я0-9* ]+\.?/gi, ' ')
+    .replace(/(?:rub|руб\.?|mir|мир)/gi, ' ')
+    .replace(/[+−-]?\s*\d[\d\s.,]*(?:₽|руб\.?|rub\b)/gi, ' ')
+    .replace(/(?:^|[\s,.;:])(?:пополнение|перевод|поступление|зачисление|доступно|на|от|со|с)(?=$|[\s,.;:])/gi, ' ')
+    .replace(/[,:;]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  text = text.replace(/^[.\s]+|[.\s]+$/g, '').trim();
+  if (!text || text.length < 2 || text.length > 120) return '';
+  if (/\d/.test(text)) return '';
+  return text;
+};
+
+const extractTbankPaymentSenderName = (title, text, rawText = '') => {
+  const searchable = sanitizeTbankNotificationText([title, text, rawText].filter(Boolean).join(' '));
+  if (!searchable) return '';
+  const patterns = [
+    /(?:^|[\s,.])от\s+([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё.\-\s]{1,80}?)(?=$|[,.])/i,
+    /(?:счет|счёт|карта)\s+[A-ZА-Я0-9* ]+\.\s*([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё.\-\s]{1,80})$/i,
+    /(?:₽|руб\.?|rub\b)[^A-Za-zА-Яа-яЁё]{0,40}([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё.\-\s]{1,80})$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = searchable.match(pattern);
+    const senderName = cleanPaymentSenderName(match?.[1] || '');
+    if (senderName) return senderName;
+  }
+  const sentences = searchable
+    .split(/\s*\.\s*/)
+    .map((item) => cleanPaymentSenderName(item))
+    .filter(Boolean);
+  return sentences[sentences.length - 1] || '';
+};
+
+const parsePaymentMoneyAmount = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  const negative = raw.includes('-');
+  let normalized = raw.replace(/\s+/g, '').replace(/[^\d,.-]/g, '');
+  if (!normalized) return 0;
+  const commaIndex = normalized.lastIndexOf(',');
+  const dotIndex = normalized.lastIndexOf('.');
+  if (commaIndex >= 0 && dotIndex >= 0) {
+    if (commaIndex > dotIndex) {
+      normalized = normalized.replace(/\./g, '').replace(',', '.');
+    } else {
+      normalized = normalized.replace(/,/g, '');
+    }
+  } else {
+    normalized = normalized.replace(',', '.');
+  }
+  const amount = Number(normalized.replace(/(?!^)-/g, ''));
+  if (!Number.isFinite(amount)) return 0;
+  return roundTeacherFinanceNumber(negative ? -Math.abs(amount) : amount, { allowNegative: true });
+};
+
+const extractPaymentRubAmounts = (value) => {
+  const text = String(value || '');
+  const amounts = [];
+  const pattern = /([+-]?\s*\d[\d\s.,]*)(?:\s*)(?:₽|руб\.?|rub\b)/gi;
+  for (const match of text.matchAll(pattern)) {
+    const amount = parsePaymentMoneyAmount(match?.[1] || '');
+    if (Number.isFinite(amount) && amount !== 0) {
+      amounts.push(amount);
+    }
+  }
+  return amounts;
+};
+
+const parseTbankPaymentNotificationPayload = (payload = {}) => {
+  const title = normalizePaymentNotificationText(
+    payload.title
+    || payload.notificationTitle
+    || payload.notTitle
+    || ''
+  );
+  const text = normalizePaymentNotificationText(
+    payload.text
+    || payload.body
+    || payload.message
+    || payload.notificationText
+    || payload.notText
+    || ''
+  );
+  const rawText = [title, text].filter(Boolean).join(' ').trim();
+  const sanitizedText = sanitizeTbankNotificationText(text || rawText);
+  const searchableText = [title, text, payload.rawText, payload.comment]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  const senderName = extractTbankPaymentSenderName(title, text, payload.rawText || payload.comment || '');
+  const rubAmounts = extractPaymentRubAmounts(searchableText);
+  const explicitAmount = parsePaymentMoneyAmount(payload.amount || payload.sum || payload.value || '');
+  const amount = explicitAmount > 0 ? explicitAmount : Math.max(0, rubAmounts[0] || 0);
+  const lowerText = searchableText.toLocaleLowerCase('ru-RU');
+  const hasIncomingSignal = (
+    /пополн|поступл|зачисл|получен/.test(lowerText)
+    || /перевод[^.]{0,80}\b(?:от|вам)\b/.test(lowerText)
+    || /\+\s*\d[\d\s.,]*(?:₽|руб\.?|rub\b)/i.test(searchableText)
+  );
+  const hasOutgoingSignal = /списан|покупк|снят|исходящ|оплат[аыу]|перевод[^.]{0,80}\b(?:кому|на карту|по номеру)\b/.test(lowerText);
+  const receivedAt = normalizePaymentNotificationTimestamp(
+    payload.receivedAt
+    || payload.timestamp
+    || payload.dateTime
+    || payload.date
+    || '',
+    new Date().toISOString()
+  );
+  const source = normalizePaymentNotificationText(
+    payload.source
+    || payload.app
+    || payload.appName
+    || payload.package
+    || 'macrodroid'
+  ).slice(0, 80);
+  const rawHash = crypto
+    .createHash('sha1')
+    .update([source, title, text, amount, receivedAt.slice(0, 16)].join('\n'))
+    .digest('hex');
+
+  return {
+    source,
+    provider: 'tbank',
+    title,
+    text: sanitizedText || sanitizeTbankNotificationText(rawText),
+    searchableText,
+    amount,
+    currency: 'RUB',
+    receivedAt,
+    rawHash,
+    senderName,
+    senderKey: normalizePaymentNameKey(senderName),
+    incoming: hasIncomingSignal && !hasOutgoingSignal,
+    ignoredReason: !amount
+      ? 'Не нашел сумму в рублях.'
+      : (!hasIncomingSignal ? 'Не похоже на входящий платеж.' : (hasOutgoingSignal ? 'Похоже на списание, а не пополнение.' : '')),
+  };
+};
+
+const buildPaymentNotificationId = (payload = {}, parsed = {}) => {
+  const explicit = String(
+    payload.id
+    || payload.notificationId
+    || payload.eventId
+    || payload.macroRunId
+    || ''
+  ).trim();
+  if (explicit) {
+    return explicit.replace(/[^a-zA-Z0-9._:-]+/g, '-').slice(0, 120);
+  }
+  return `tbank-${String(parsed.rawHash || crypto.randomUUID()).slice(0, 48)}`;
+};
+
+const resolvePaymentNotificationTeacher = (payload = {}) => {
+  const requestedTeacherId = normalizeTeacherId(
+    payload.teacherId
+    || PAYMENT_NOTIFICATION_DEFAULT_TEACHER_ID
+    || SIGNUP_DEFAULT_TEACHER_ID
+  );
+  if (requestedTeacherId) {
+    const teacher = findTeacherById(requestedTeacherId);
+    if (!teacher) return { error: 'Учитель для уведомления не найден.' };
+    return { teacher };
+  }
+  const teachers = readTeachersDb();
+  if (teachers.length === 1) return { teacher: teachers[0] };
+  return { error: 'Передайте teacherId или задайте PAYMENT_NOTIFICATION_TEACHER_ID.' };
+};
+
+const normalizePaymentLookupToken = (value) => normalizePaymentNameKey(value);
+
+const getPaymentTeacherNameTokens = (teacher) => new Set(
+  String(teacher?.name || '')
+    .split(/[^a-z0-9а-яё]+/gi)
+    .map((item) => normalizePaymentLookupToken(item))
+    .filter((item) => item.length >= 3)
+);
+
+const getStudentPaymentAliases = (student) => {
+  const aliases = [];
+  const nickname = String(student?.nickname || '').trim();
+  if (nickname) aliases.push({ value: nickname, mode: 'nickname' });
+  const paymentCode = String(student?.paymentCode || student?.payCode || '').trim();
+  if (paymentCode) aliases.push({ value: paymentCode, mode: 'paymentCode' });
+  return aliases
+    .map((alias) => ({
+      ...alias,
+      token: normalizePaymentLookupToken(alias.value),
+    }))
+    .filter((alias) => alias.token.length >= 3);
+};
+
+const findPaymentNotificationSenderLinkMatch = (teacher, parsed) => {
+  const teacherId = normalizeTeacherId(teacher?.id);
+  const senderKey = normalizePaymentNameKey(parsed?.senderKey || parsed?.senderName || '');
+  if (!teacherId || !senderKey) return null;
+  const db = readPaymentSenderLinksDb();
+  const link = db[teacherId]?.links?.[senderKey] || null;
+  if (!link) return null;
+  const student = findStudentById(link.studentId);
+  if (!student || normalizeTeacherId(student.teacherId) !== teacherId) {
+    return { error: `Отправитель "${link.senderName}" привязан к несуществующему ученику.` };
+  }
+  return {
+    student,
+    matchMode: 'senderName',
+    senderName: link.senderName,
+  };
+};
+
+const findPaymentNotificationStudentMatch = (teacher, parsed) => {
+  const teacherId = normalizeTeacherId(teacher?.id);
+  const senderLinkMatch = findPaymentNotificationSenderLinkMatch(teacher, parsed);
+  if (senderLinkMatch?.student || senderLinkMatch?.error) return senderLinkMatch;
+
+  const textToken = normalizePaymentLookupToken(parsed?.searchableText || '');
+  if (!teacherId || !textToken) return { error: 'В уведомлении нет текста для поиска кода ученика.' };
+  const teacherNameTokens = getPaymentTeacherNameTokens(teacher);
+  const students = readStudentsDb().filter((student) => (
+    normalizeTeacherId(student?.teacherId) === teacherId && !student?.deletedAt
+  ));
+  const aliasMatches = [];
+  students.forEach((student) => {
+    getStudentPaymentAliases(student).forEach((alias) => {
+      if (teacherNameTokens.has(alias.token)) return;
+      if (!textToken.includes(alias.token)) return;
+      aliasMatches.push({ student, alias });
+    });
+  });
+  const uniqueByStudent = new Map();
+  aliasMatches.forEach((match) => {
+    const studentId = String(match.student?.id || '').trim();
+    if (!studentId || uniqueByStudent.has(studentId)) return;
+    uniqueByStudent.set(studentId, match);
+  });
+  const matches = Array.from(uniqueByStudent.values());
+  if (matches.length === 0) {
+    const senderName = String(parsed?.senderName || '').trim();
+    return {
+      error: senderName
+        ? `Отправитель "${senderName}" не привязан к ученику.`
+        : 'Имя отправителя не найдено, и код ученика тоже не найден.',
+      senderName,
+    };
+  }
+  if (matches.length > 1) {
+    return { error: 'Найдено несколько учеников по коду, нужна ручная проверка.' };
+  }
+  return {
+    student: matches[0].student,
+    matchMode: matches[0].alias.mode,
+  };
+};
+
+const parseScheduleMinutes = (value) => {
+  const timeParts = getScheduleTimeParts(value);
+  if (!timeParts) return NaN;
+  return (timeParts.hours * 60) + timeParts.minutes;
+};
+
+const buildTeacherCalendarPaymentMarkKey = (teacherId, event, dayKey, action = 'paid') => {
+  const base = [
+    String(teacherId || '').trim(),
+    String(event?.id || event?.externalEventId || '').trim(),
+    String(dayKey || event?.date || '').trim(),
+    String(event?.studentId || '').trim(),
+    String(event?.time || event?.startMinutes || '').trim(),
+  ].join(':');
+  return `${base}:${String(action || '').trim()}`;
+};
+
+const getPaymentCandidateLessonOccurrences = (teacherId, studentId, receivedAt) => {
+  const receivedMs = Date.parse(receivedAt || '');
+  const anchor = Number.isFinite(receivedMs) ? new Date(receivedMs) : new Date();
+  anchor.setHours(0, 0, 0, 0);
+  const anchorDayKey = toLocalScheduleDayKey(anchor);
+  const anchorDayNumber = dayKeyToNumber(anchorDayKey);
+  const startDayNumber = anchorDayNumber - 45;
+  const endDayNumber = anchorDayNumber + 14;
+  const marks = readTeacherCalendarMarksDb();
+  const teacherMarks = normalizeTeacherCalendarMarks(marks[teacherId]);
+  const entries = getTeacherScheduleEntries(teacherId)
+    .filter((entry) => String(entry?.studentId || '').trim() === studentId);
+  const occurrences = [];
+
+  entries.forEach((entry) => {
+    const time = normalizeScheduleTime(entry?.time);
+    const startMinutes = parseScheduleMinutes(time);
+    if (!time || !Number.isFinite(startMinutes)) return;
+    const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
+    const endMinutes = startMinutes + durationMinutes;
+    const excludedDateSet = new Set(normalizeScheduleExcludedDates(entry?.excludedDates));
+    const pushOccurrence = (dayKey) => {
+      const normalizedDayKey = normalizeDayKey(dayKey);
+      if (!normalizedDayKey || excludedDateSet.has(normalizedDayKey)) return;
+      const dayNumber = dayKeyToNumber(normalizedDayKey);
+      if (!Number.isFinite(dayNumber) || dayNumber < startDayNumber || dayNumber > endDayNumber) return;
+      const event = {
+        ...entry,
+        time,
+        startMinutes,
+        endMinutes,
+        dayKey: normalizedDayKey,
+      };
+      const markKey = buildTeacherCalendarPaymentMarkKey(teacherId, event, normalizedDayKey, 'paid');
+      if (!markKey || teacherMarks[markKey]) return;
+      occurrences.push({
+        event,
+        dayKey: normalizedDayKey,
+        dayNumber,
+        startMinutes,
+        markKey,
+      });
+    };
+
+    const explicitDate = normalizeDayKey(String(entry?.date || '').trim());
+    if (explicitDate) {
+      pushOccurrence(explicitDate);
+      return;
+    }
+
+    const weekdayMeta = resolveScheduleWeekdayMeta({
+      weekdayKey: entry?.weekdayKey,
+      day: entry?.day,
+      date: entry?.date,
+    });
+    if (!weekdayMeta?.order) return;
+    for (let dayNumber = startDayNumber; dayNumber <= endDayNumber; dayNumber += 1) {
+      const dayKey = numberToDayKey(dayNumber);
+      if (!dayKey) continue;
+      const date = new Date(`${dayKey}T00:00:00`);
+      if (Number.isNaN(date.getTime())) continue;
+      const order = date.getDay() === 0 ? 7 : date.getDay();
+      if (order !== weekdayMeta.order) continue;
+      pushOccurrence(dayKey);
+    }
+  });
+
+  const past = occurrences
+    .filter((item) => item.dayNumber <= anchorDayNumber)
+    .sort((left, right) => (
+      (right.dayNumber - left.dayNumber) || (right.startMinutes - left.startMinutes)
+    ));
+  if (past.length > 0) return past;
+  return occurrences.sort((left, right) => (
+    (left.dayNumber - right.dayNumber) || (left.startMinutes - right.startMinutes)
+  ));
+};
+
+const getTeacherFinanceStudentRecordForMonth = (teacherEntry, studentId, month) => {
+  const profile = normalizeTeacherFinanceProfile(
+    teacherEntry?.studentProfiles?.[studentId] || getDefaultTeacherFinanceProfile()
+  );
+  const monthData = teacherEntry?.months?.[month] || {
+    settings: getDefaultTeacherFinanceMonthSettings(),
+    students: {},
+  };
+  const record = normalizeTeacherFinanceStudentRecord(monthData.students?.[studentId], profile);
+  return { profile, monthData, record };
+};
+
+const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence) => {
+  const month = normalizeTeacherFinanceMonthKey(String(occurrence?.dayKey || '').slice(0, 7));
+  if (!month) return { month: '', lessonPrice: 0 };
+  const { profile, record } = getTeacherFinanceStudentRecordForMonth(teacherEntry, studentId, month);
+  const lessonPrice = roundTeacherFinanceNumber(record.lessonPrice || profile.lessonPrice);
+  return { month, lessonPrice };
+};
+
+const applyPaymentNotificationToTeacherCalendar = ({ teacher, student, parsed, matchMode }) => {
+  const teacherId = normalizeTeacherId(teacher?.id);
+  const studentId = String(student?.id || '').trim();
+  if (!teacherId || !studentId) {
+    return { status: 'pending', reason: 'Не найден учитель или ученик.' };
+  }
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacherId);
+  const occurrences = getPaymentCandidateLessonOccurrences(teacherId, studentId, parsed.receivedAt);
+  if (occurrences.length === 0) {
+    return { status: 'pending', reason: 'Не нашел неоплаченный урок рядом с датой платежа.' };
+  }
+
+  const firstPrice = getLessonPriceForPaymentOccurrence(teacherEntry, studentId, occurrences[0]);
+  const lessonPrice = roundTeacherFinanceNumber(firstPrice.lessonPrice);
+  if (lessonPrice <= 0) {
+    return { status: 'pending', reason: 'У ученика не указана стоимость урока в финансах.' };
+  }
+  const rawLessonCount = parsed.amount / lessonPrice;
+  const lessonCount = Math.round(rawLessonCount);
+  if (!Number.isInteger(lessonCount) || lessonCount < 1 || Math.abs(parsed.amount - (lessonPrice * lessonCount)) > 0.01) {
+    return {
+      status: 'pending',
+      reason: `Сумма ${parsed.amount} ₽ не совпала со стоимостью урока ${lessonPrice} ₽ или ее кратным числом.`,
+    };
+  }
+  const selectedOccurrences = occurrences.slice(0, lessonCount);
+  if (selectedOccurrences.length < lessonCount) {
+    return { status: 'pending', reason: 'Не хватает неоплаченных уроков для этой суммы.' };
+  }
+  const priceMismatch = selectedOccurrences.some((occurrence) => {
+    const { lessonPrice: occurrencePrice } = getLessonPriceForPaymentOccurrence(teacherEntry, studentId, occurrence);
+    return Math.abs(roundTeacherFinanceNumber(occurrencePrice) - lessonPrice) > 0.01;
+  });
+  if (priceMismatch) {
+    return { status: 'pending', reason: 'У выбранных уроков разная стоимость, нужна ручная проверка.' };
+  }
+
+  const nowIso = new Date().toISOString();
+  selectedOccurrences.forEach((occurrence) => {
+    const month = normalizeTeacherFinanceMonthKey(String(occurrence.dayKey || '').slice(0, 7));
+    if (!month) return;
+    const { profile, monthData, record } = getTeacherFinanceStudentRecordForMonth(teacherEntry, studentId, month);
+    teacherEntry.studentProfiles[studentId] = profile;
+    teacherEntry.months[month] = {
+      settings: normalizeTeacherFinanceMonthSettings(monthData.settings),
+      students: {
+        ...(monthData.students || {}),
+        [studentId]: {
+          ...record,
+          paidAmount: roundTeacherFinanceNumber(record.paidAmount + lessonPrice),
+          updatedAt: nowIso,
+        },
+      },
+    };
+  });
+  financeDb[teacherId] = teacherEntry;
+  writeTeacherFinanceDb(financeDb);
+
+  const marksDb = readTeacherCalendarMarksDb();
+  const teacherMarks = normalizeTeacherCalendarMarks(marksDb[teacherId]);
+  selectedOccurrences.forEach((occurrence) => {
+    teacherMarks[occurrence.markKey] = normalizeTeacherCalendarMarkValue(parsed.receivedAt || nowIso);
+  });
+  marksDb[teacherId] = teacherMarks;
+  writeTeacherCalendarMarksDb(marksDb);
+  notifyScheduleSyncUpdate({
+    scope: 'teacher-calendar-marks',
+    action: 'payment-notification-applied',
+    teacherId,
+    studentId,
+  });
+
+  return {
+    status: 'applied',
+    reason: `Оплата применена: ${selectedOccurrences.length} урок(а), ${lessonPrice * selectedOccurrences.length} ₽.`,
+    teacherId,
+    studentId,
+    studentName: String(student?.nickname || student?.name || 'Ученик').trim(),
+    matchMode,
+    markKeys: selectedOccurrences.map((occurrence) => occurrence.markKey),
+  };
+};
+
+const storePaymentNotificationResult = (entry) => {
+  const db = readPaymentNotificationsDb();
+  const existingIndex = db.items.findIndex((item) => item.id === entry.id || (entry.rawHash && item.rawHash === entry.rawHash));
+  if (existingIndex >= 0) {
+    const existing = db.items[existingIndex];
+    const duplicate = normalizePaymentNotificationEntry({
+      ...entry,
+      status: 'duplicate',
+      reason: `Дубликат уведомления ${existing.id}.`,
+      teacherId: existing.teacherId || entry.teacherId,
+      studentId: existing.studentId || entry.studentId,
+      studentName: existing.studentName || entry.studentName,
+      matchMode: existing.matchMode || entry.matchMode,
+      markKeys: existing.markKeys || entry.markKeys,
+    });
+    return { duplicate: true, entry: duplicate, existing };
+  }
+  const normalizedEntry = normalizePaymentNotificationEntry(entry);
+  writePaymentNotificationsDb({
+    items: [normalizedEntry, ...db.items].filter(Boolean),
+  });
+  return { duplicate: false, entry: normalizedEntry };
+};
+
+const handleTbankPaymentNotification = (payload = {}) => {
+  const parsed = parseTbankPaymentNotificationPayload(payload);
+  const id = buildPaymentNotificationId(payload, parsed);
+  const createdAt = new Date().toISOString();
+  const baseEntry = {
+    id,
+    source: parsed.source,
+    provider: parsed.provider,
+    title: parsed.title,
+    text: parsed.text,
+    amount: parsed.amount,
+    currency: parsed.currency,
+    receivedAt: parsed.receivedAt,
+    createdAt,
+    rawHash: parsed.rawHash,
+    senderName: parsed.senderName,
+    senderKey: parsed.senderKey,
+  };
+
+  const existingDb = readPaymentNotificationsDb();
+  const existing = existingDb.items.find((item) => item.id === id || (parsed.rawHash && item.rawHash === parsed.rawHash));
+  if (existing) {
+    return {
+      ok: true,
+      statusCode: 200,
+      entry: {
+        ...existing,
+        status: 'duplicate',
+        reason: `Дубликат уведомления ${existing.id}.`,
+      },
+    };
+  }
+
+  if (!parsed.incoming) {
+    const result = storePaymentNotificationResult({
+      ...baseEntry,
+      status: 'ignored',
+      reason: parsed.ignoredReason || 'Не похоже на входящий платеж.',
+    });
+    return { ok: true, statusCode: 202, entry: result.entry };
+  }
+
+  const teacherResult = resolvePaymentNotificationTeacher(payload);
+  if (!teacherResult.teacher) {
+    const result = storePaymentNotificationResult({
+      ...baseEntry,
+      status: 'pending',
+      reason: teacherResult.error || 'Не найден учитель.',
+    });
+    return { ok: true, statusCode: 202, entry: result.entry };
+  }
+
+  const match = findPaymentNotificationStudentMatch(teacherResult.teacher, parsed);
+  if (!match.student) {
+    const result = storePaymentNotificationResult({
+      ...baseEntry,
+      status: 'pending',
+      reason: match.error || 'Не удалось сопоставить ученика.',
+      teacherId: teacherResult.teacher.id,
+    });
+    return { ok: true, statusCode: 202, entry: result.entry };
+  }
+
+  const applyResult = applyPaymentNotificationToTeacherCalendar({
+    teacher: teacherResult.teacher,
+    student: match.student,
+    parsed,
+    matchMode: match.matchMode,
+  });
+  const result = storePaymentNotificationResult({
+    ...baseEntry,
+    status: applyResult.status,
+    reason: applyResult.reason,
+    teacherId: teacherResult.teacher.id,
+    studentId: match.student.id,
+    studentName: String(match.student.nickname || match.student.name || '').trim(),
+    matchMode: match.matchMode,
+    senderName: match.senderName || parsed.senderName,
+    markKeys: applyResult.markKeys || [],
+  });
+  return {
+    ok: true,
+    statusCode: applyResult.status === 'applied' ? 200 : 202,
+    entry: result.entry,
+  };
+};
+
+const serializePaymentNotificationEntry = (entry = {}, options = {}) => {
+  const includeText = Boolean(options.includeText);
+  const payload = {
+    id: String(entry.id || '').trim(),
+    status: normalizePaymentNotificationStatus(entry.status),
+    amount: roundTeacherFinanceNumber(entry.amount),
+    currency: String(entry.currency || 'RUB').trim() || 'RUB',
+    receivedAt: normalizePaymentNotificationTimestamp(entry.receivedAt, ''),
+    createdAt: normalizePaymentNotificationTimestamp(entry.createdAt, ''),
+    reason: normalizePaymentNotificationText(entry.reason),
+    teacherId: String(entry.teacherId || '').trim(),
+    studentId: String(entry.studentId || '').trim(),
+    studentName: normalizePaymentNotificationText(entry.studentName).slice(0, 120),
+    senderName: normalizePaymentNotificationText(entry.senderName).slice(0, 120),
+    matchMode: normalizePaymentNotificationText(entry.matchMode).slice(0, 40),
+    markKeys: Array.isArray(entry.markKeys) ? entry.markKeys.map((item) => String(item || '').trim()).filter(Boolean) : [],
+  };
+  if (includeText) {
+    payload.title = normalizePaymentNotificationText(entry.title);
+    payload.text = normalizePaymentNotificationText(entry.text);
+  }
+  return payload;
+};
+
+const serializePaymentSenderLink = (teacherId, link = {}) => {
+  const studentId = String(link.studentId || '').trim();
+  const student = findStudentById(studentId, { allowDeleted: true });
+  const belongsToTeacher = student && normalizeTeacherId(student.teacherId) === normalizeTeacherId(teacherId);
+  return {
+    senderName: normalizePaymentNotificationText(link.senderName).slice(0, 120),
+    senderKey: normalizePaymentNameKey(link.senderKey || link.senderName).slice(0, 120),
+    studentId,
+    studentName: belongsToTeacher
+      ? String(student.nickname || student.name || '').trim()
+      : '',
+    missingStudent: Boolean(studentId && !belongsToTeacher),
+    createdAt: normalizePaymentNotificationTimestamp(link.createdAt, ''),
+    updatedAt: normalizePaymentNotificationTimestamp(link.updatedAt, ''),
+  };
+};
+
 const buildPushTestPayload = (auth = {}) => {
   const role = String(auth?.role || '').trim();
   const now = new Date();
@@ -13506,6 +14321,46 @@ app.get('/api/client-build-version', (_req, res) => {
   });
 });
 
+app.post('/api/payment-notifications/tbank', (req, res) => {
+  const payload = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? req.body
+    : {};
+  const secretCheck = validatePaymentNotificationSecret(req, payload);
+  if (!secretCheck.ok) {
+    return res.status(secretCheck.status || 401).json({ ok: false, error: secretCheck.error || 'Unauthorized' });
+  }
+  try {
+    const result = handleTbankPaymentNotification(payload);
+    return res.status(result.statusCode || 200).json({
+      ok: true,
+      notification: serializePaymentNotificationEntry(result.entry),
+    });
+  } catch (error) {
+    console.error('[payment-notification] failed:', error);
+    return res.status(500).json({ ok: false, error: 'Не удалось обработать уведомление оплаты.' });
+  }
+});
+
+app.post('/api/payment-notifications/macrodroid', (req, res) => {
+  const payload = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? req.body
+    : {};
+  const secretCheck = validatePaymentNotificationSecret(req, payload);
+  if (!secretCheck.ok) {
+    return res.status(secretCheck.status || 401).json({ ok: false, error: secretCheck.error || 'Unauthorized' });
+  }
+  try {
+    const result = handleTbankPaymentNotification(payload);
+    return res.status(result.statusCode || 200).json({
+      ok: true,
+      notification: serializePaymentNotificationEntry(result.entry),
+    });
+  } catch (error) {
+    console.error('[payment-notification] failed:', error);
+    return res.status(500).json({ ok: false, error: 'Не удалось обработать уведомление оплаты.' });
+  }
+});
+
 app.use('/api', (req, res, next) => {
   const token = getAuthTokenFromRequest(req);
   const session = getAuthSession(token);
@@ -13527,6 +14382,96 @@ app.get('/api/session', (req, res) => {
     ...req.auth,
     token: String(req.authToken || '').trim(),
   });
+});
+
+app.get('/api/payment-notifications', (req, res) => {
+  const { teacherId } = req.query || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const db = readPaymentNotificationsDb();
+  const notifications = db.items
+    .filter((entry) => String(entry.teacherId || '').trim() === teacher.id || !String(entry.teacherId || '').trim())
+    .map((entry) => serializePaymentNotificationEntry(entry, { includeText: true }));
+  return res.json({ notifications });
+});
+
+app.get('/api/payment-sender-links', (req, res) => {
+  const { teacherId } = req.query || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const db = readPaymentSenderLinksDb();
+  const links = Object.values(db[teacher.id]?.links || {})
+    .map((link) => serializePaymentSenderLink(teacher.id, link))
+    .sort((left, right) => String(left.senderName || '').localeCompare(String(right.senderName || ''), 'ru'));
+  return res.json({ links });
+});
+
+app.patch('/api/payment-sender-links', (req, res) => {
+  const { teacherId, senderName, studentId, studentName, unset } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+
+  const normalizedSenderName = cleanPaymentSenderName(senderName) || normalizePaymentNotificationText(senderName).slice(0, 120);
+  const senderKey = normalizePaymentNameKey(normalizedSenderName);
+  if (!senderKey) {
+    return res.status(400).json({ error: 'Укажите имя отправителя из уведомления.' });
+  }
+
+  const db = readPaymentSenderLinksDb();
+  const current = normalizePaymentSenderLinksForTeacher(db[teacher.id]);
+  if (unset === true) {
+    delete current.links[senderKey];
+  } else {
+    let student = null;
+    if (String(studentId || '').trim()) {
+      student = ensureStudentAccess(req, res, studentId, { missingError: 'studentId required' });
+      if (!student) return;
+    } else {
+      const studentNameKey = normalizePaymentNameKey(studentName);
+      if (!studentNameKey) {
+        return res.status(400).json({ error: 'Укажите studentId или studentName.' });
+      }
+      const matches = readStudentsDb().filter((entry) => (
+        normalizeTeacherId(entry?.teacherId) === teacher.id
+        && !entry?.deletedAt
+        && (
+          normalizePaymentNameKey(entry?.name) === studentNameKey
+          || normalizePaymentNameKey(entry?.nickname) === studentNameKey
+        )
+      ));
+      if (matches.length === 0) {
+        return res.status(404).json({ error: 'Ученик с таким именем не найден.' });
+      }
+      if (matches.length > 1) {
+        return res.status(400).json({ error: 'Нашлось несколько учеников с таким именем, укажите studentId.' });
+      }
+      student = matches[0];
+    }
+    if (normalizeTeacherId(student.teacherId) !== teacher.id) {
+      return res.status(403).json({ error: 'Ученик закреплён за другим преподавателем' });
+    }
+    const nowIso = new Date().toISOString();
+    const previous = current.links[senderKey] || {};
+    current.links[senderKey] = {
+      senderName: normalizedSenderName,
+      senderKey,
+      studentId: student.id,
+      createdAt: previous.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+  }
+  db[teacher.id] = current;
+  writePaymentSenderLinksDb(db);
+  const links = Object.values(current.links)
+    .map((link) => serializePaymentSenderLink(teacher.id, link))
+    .sort((left, right) => String(left.senderName || '').localeCompare(String(right.senderName || ''), 'ru'));
+  return res.json({ links });
 });
 
 app.get('/api/final-review-videos', (req, res) => {
