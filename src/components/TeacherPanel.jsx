@@ -63,6 +63,36 @@ const parseOptionalEgeScore = (value) => {
   return score;
 };
 
+const getCurrentTeacherFinanceMonthKey = () => new Date().toISOString().slice(0, 7);
+
+const toFinanceInputValue = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num === 0) return '';
+  return Number.isInteger(num) ? String(num) : String(num);
+};
+
+const normalizeFinanceNumberInput = (value) => String(value ?? '').replace(',', '.');
+
+const parseLessonPriceInput = (value) => {
+  const normalized = normalizeFinanceNumberInput(value).trim();
+  if (!normalized) return 0;
+  if (!/^\d+(?:\.\d{0,2})?$/.test(normalized)) return undefined;
+  const num = Number(normalized);
+  if (!Number.isFinite(num) || num < 0) return undefined;
+  return Math.round(num * 100) / 100;
+};
+
+const formatLessonPrice = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return '';
+  return new Intl.NumberFormat('ru-RU', {
+    style: 'currency',
+    currency: 'RUB',
+    minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+};
+
 const formatQuestionFileCount = (count) => {
   const normalized = Math.max(0, Number(count) || 0);
   const mod100 = normalized % 100;
@@ -141,8 +171,13 @@ const TeacherPanel = ({
   const [editStudentLeaderboardAlias, setEditStudentLeaderboardAlias] = useState('');
   const [editStudentLeaderboardAliasInitial, setEditStudentLeaderboardAliasInitial] = useState('');
   const [editStudentCoinsGrant, setEditStudentCoinsGrant] = useState('');
+  const [editStudentLessonPrice, setEditStudentLessonPrice] = useState('');
+  const [editStudentLessonPriceInitial, setEditStudentLessonPriceInitial] = useState('');
   const [editStudentError, setEditStudentError] = useState('');
   const [editStudentSaving, setEditStudentSaving] = useState(false);
+  const [teacherFinanceSnapshot, setTeacherFinanceSnapshot] = useState(null);
+  const [teacherFinanceLoading, setTeacherFinanceLoading] = useState(false);
+  const [teacherFinanceError, setTeacherFinanceError] = useState('');
   const [editingQuestionId, setEditingQuestionId] = useState(null);
   const [questionScreenshots, setQuestionScreenshots] = useState([]);
   const [questionFiles, setQuestionFiles] = useState([]);
@@ -184,6 +219,21 @@ const TeacherPanel = ({
   const [signupMessageUpdatingId, setSignupMessageUpdatingId] = useState('');
   const [signupMessageDeletingId, setSignupMessageDeletingId] = useState('');
   const signupMessagesRef = useRef(null);
+
+  const getStudentFinanceRow = useCallback((studentId, snapshot = teacherFinanceSnapshot) => {
+    const normalizedId = String(studentId || '').trim();
+    if (!normalizedId) return null;
+    const list = Array.isArray(snapshot?.students) ? snapshot.students : [];
+    return list.find((item) => String(item?.id || '').trim() === normalizedId) || null;
+  }, [teacherFinanceSnapshot]);
+
+  const getStudentLessonPrice = useCallback((studentId, snapshot = teacherFinanceSnapshot) => {
+    const row = getStudentFinanceRow(studentId, snapshot);
+    const recordPrice = Number(row?.record?.lessonPrice);
+    if (Number.isFinite(recordPrice) && recordPrice > 0) return recordPrice;
+    const profilePrice = Number(row?.profile?.lessonPrice);
+    return Number.isFinite(profilePrice) && profilePrice > 0 ? profilePrice : 0;
+  }, [getStudentFinanceRow, teacherFinanceSnapshot]);
 
   useEffect(() => {
     const normalized = String(initialSignupChatId || '').trim();
@@ -235,9 +285,45 @@ const TeacherPanel = ({
       })
       .finally(() => {
         if (!cancelled) setTestsLoading(false);
-      });
+    });
     return () => { cancelled = true; };
   }, [isTestsMode]);
+
+  useEffect(() => {
+    if (!isTestsMode) return undefined;
+    if (role !== 'teacher' && role !== 'admin') return undefined;
+    if (role === 'admin' && !teacherId) {
+      setTeacherFinanceSnapshot(null);
+      setTeacherFinanceError('');
+      return undefined;
+    }
+    let cancelled = false;
+    setTeacherFinanceLoading(true);
+    api.getTeacherFinance(undefined, teacherId)
+      .then((data) => {
+        if (cancelled) return;
+        setTeacherFinanceSnapshot(data && typeof data === 'object' ? data : null);
+        setTeacherFinanceError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setTeacherFinanceSnapshot(null);
+        setTeacherFinanceError(err?.message || String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setTeacherFinanceLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isTestsMode, role, teacherId]);
+
+  useEffect(() => {
+    if (!editingStudentId) return;
+    const nextLessonPrice = toFinanceInputValue(getStudentLessonPrice(editingStudentId));
+    setEditStudentLessonPrice((prev) => (
+      prev === editStudentLessonPriceInitial ? nextLessonPrice : prev
+    ));
+    setEditStudentLessonPriceInitial(nextLessonPrice);
+  }, [teacherFinanceSnapshot, editingStudentId, editStudentLessonPriceInitial, getStudentLessonPrice]);
   
   // Form state
   const [question, setQuestion] = useState("");
@@ -1705,12 +1791,49 @@ const TeacherPanel = ({
     }
   };
 
+  const saveStudentLessonPrice = async (studentId, lessonPrice) => {
+    const normalizedId = String(studentId || '').trim();
+    if (!normalizedId) return null;
+    let snapshot = teacherFinanceSnapshot;
+    if (!snapshot || !Array.isArray(snapshot.students)) {
+      snapshot = await api.getTeacherFinance(undefined, teacherId);
+    }
+    const month = snapshot?.month || getCurrentTeacherFinanceMonthKey();
+    const row = getStudentFinanceRow(normalizedId, snapshot);
+    const profile = row?.profile && typeof row.profile === 'object' ? row.profile : {};
+    const record = row?.record && typeof row.record === 'object' ? row.record : {};
+    const payload = {
+      month,
+      pricingMode: record.pricingMode || profile.pricingMode || 'perLesson',
+      lessonPrice,
+      monthlyRate: Number.isFinite(Number(record.monthlyRate)) ? Number(record.monthlyRate) : Number(profile.monthlyRate) || 0,
+      plannedLessons: Number.isFinite(Number(record.plannedLessons)) ? Number(record.plannedLessons) : Number(profile.plannedLessons) || 0,
+      completedLessons: Number(record.completedLessons) || 0,
+      cancelledLessons: Number(record.cancelledLessons) || 0,
+      paidAmount: Number(record.paidAmount) || 0,
+      extraCharge: Number(record.extraCharge) || 0,
+      discount: Number(record.discount) || 0,
+      expenses: Number(record.expenses) || 0,
+      paymentDay: record.paymentDay ?? profile.paymentDay ?? null,
+      note: typeof record.note === 'string' && record.note.trim()
+        ? record.note.trim()
+        : (typeof profile.note === 'string' ? profile.note.trim() : ''),
+    };
+    const nextSnapshot = await api.updateTeacherFinanceStudent(normalizedId, payload, teacherId);
+    setTeacherFinanceSnapshot(nextSnapshot && typeof nextSnapshot === 'object' ? nextSnapshot : snapshot);
+    setTeacherFinanceError('');
+    return nextSnapshot;
+  };
+
   const startEditStudent = (student) => {
     if (!student?.id) return;
+    const lessonPrice = toFinanceInputValue(getStudentLessonPrice(student.id));
     setIsStudentsExpanded(true);
     setEditingStudentId(student.id);
     setEditStudentName(student.name || '');
     setEditStudentNickname(student.nickname || '');
+    setEditStudentLessonPrice(lessonPrice);
+    setEditStudentLessonPriceInitial(lessonPrice);
     setEditStudentGrade(normalizeStudentGradeValue(student.grade));
     setEditStudentEgeScore(
       typeof student.informaticsEgeScore === 'number'
@@ -1728,6 +1851,8 @@ const TeacherPanel = ({
     setEditingStudentId(null);
     setEditStudentName('');
     setEditStudentNickname('');
+    setEditStudentLessonPrice('');
+    setEditStudentLessonPriceInitial('');
     setEditStudentGrade('11');
     setEditStudentEgeScore('');
     setEditStudentLeaderboardAlias('');
@@ -1745,6 +1870,8 @@ const TeacherPanel = ({
     const rawCoinsGrant = String(editStudentCoinsGrant || '').trim();
     const nextGrade = normalizeStudentGradeValue(editStudentGrade);
     const egeScore = nextGrade === 'graduate' ? parseOptionalEgeScore(editStudentEgeScore) : null;
+    const nextLessonPrice = parseLessonPriceInput(editStudentLessonPrice);
+    const initialLessonPrice = parseLessonPriceInput(editStudentLessonPriceInitial);
     setEditStudentError('');
     if (!nextName) {
       setEditStudentError('Введите имя ученика');
@@ -1776,6 +1903,10 @@ const TeacherPanel = ({
       setEditStudentError('Балл ЕГЭ: целое число от 0 до 100');
       return;
     }
+    if (typeof nextLessonPrice === 'undefined') {
+      setEditStudentError('Стоимость урока: введите число не меньше 0.');
+      return;
+    }
 
     setEditStudentSaving(true);
     try {
@@ -1789,6 +1920,9 @@ const TeacherPanel = ({
       if (rawCoinsGrant) payload.coinsGrant = Number(rawCoinsGrant);
       const res = await api.updateStudent(student.id, payload);
       onStudentUpdated?.({ ...student, ...res });
+      if (nextLessonPrice !== initialLessonPrice) {
+        await saveStudentLessonPrice(student.id, nextLessonPrice);
+      }
       cancelEditStudent();
     } catch (err) {
       setEditStudentError(err?.message || err);
@@ -2215,6 +2349,9 @@ const TeacherPanel = ({
           </Button>
         </div>
         {studentActionError && <p className="text-xs text-red-500 mb-3">{studentActionError}</p>}
+        {teacherFinanceError && (
+          <p className="text-xs text-amber-600 mb-3">Стоимость уроков: {teacherFinanceError}</p>
+        )}
         {lastIssuedCode && (
           <div className="mb-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 flex flex-wrap items-center justify-between gap-2">
             <span>
@@ -2242,6 +2379,7 @@ const TeacherPanel = ({
               const studentXpTotal = normalizeXpTotal(student?.xpTotal);
               const studentCoinsTotal = Math.max(0, Math.floor(Number(student?.coinsTotal) || 0));
               const studentNotesUsageBytes = normalizeStorageBytes(student?.notesUsageBytes);
+              const studentLessonPrice = getStudentLessonPrice(student.id);
               const rawStudentLevel = Number(student?.level);
               const studentLevel = Number.isFinite(rawStudentLevel) && rawStudentLevel > 0
                 ? Math.floor(rawStudentLevel)
@@ -2288,6 +2426,18 @@ const TeacherPanel = ({
                             if (e.key === 'Escape') cancelEditStudent();
                           }}
                           placeholder="Имя2 (только для вас)"
+                          className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
+                        />
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={editStudentLessonPrice}
+                          onChange={(e) => setEditStudentLessonPrice(normalizeFinanceNumberInput(e.target.value).replace(/[^\d.]/g, ''))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEditStudent(student);
+                            if (e.key === 'Escape') cancelEditStudent();
+                          }}
+                          placeholder={teacherFinanceLoading ? 'Загрузка стоимости...' : 'Стоимость урока, ₽'}
                           className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                         />
                         <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
@@ -2396,6 +2546,14 @@ const TeacherPanel = ({
                           >
                             {studentGradeLabel}
                           </span>
+                          {studentLessonPrice > 0 && (
+                            <span
+                              className="teacher-student-card__pill inline-flex items-center rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-700"
+                              data-tone="lesson-price"
+                            >
+                              {`Урок ${formatLessonPrice(studentLessonPrice)}`}
+                            </span>
+                          )}
                           {hasStudentEgeScore && (
                             <span
                               className="teacher-student-card__pill inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
