@@ -16,7 +16,6 @@ import {
   Pencil,
   Plus,
   Search,
-  Sparkles,
   Star,
   Trash2,
   Upload,
@@ -106,47 +105,6 @@ const getHighlightedPythonLines = (value, highlighter) => {
   const code = String(value ?? '');
   const highlighted = typeof highlighter === 'function' ? highlighter(code) : escapeHtml(code);
   return highlighted.split(/\r?\n/);
-};
-
-const stripInlineCodeComment = (line) => String(line || '').replace(/\s+#.*$/, '').trim();
-const stripInlineCodeCommentPreserveIndent = (line) => String(line || '').replace(/\s+#.*$/, '').replace(/\s+$/, '');
-
-const findCodeLine = (code, matcher) => (
-  String(code || '').split(/\r?\n/).find((line) => matcher.test(line)) || ''
-);
-
-const buildCleanCheatsheetTemplate = (value) => {
-  const code = String(value || '').trim();
-  if (!code) return '';
-
-  const hasBinaryPattern = /\bbin\s*\(/.test(code) && /\bint\s*\([^,\n]+,\s*2\s*\)/.test(code);
-  if (!hasBinaryPattern) {
-    return code
-      .split(/\r?\n/)
-      .map(stripInlineCodeCommentPreserveIndent)
-      .filter((line) => line.trim())
-      .join('\n');
-  }
-
-  const forLine = stripInlineCodeComment(findCodeLine(code, /^\s*for\s+.+:\s*$/)) || 'for N in range(1, 10000):';
-  const binLine = stripInlineCodeComment(findCodeLine(code, /\bbin\s*\(.+\)\s*\[\s*2\s*:\s*\]/)) || 's = bin(N)[2:]';
-  const resultLine = stripInlineCodeComment(findCodeLine(code, /\bint\s*\([^,\n]+,\s*2\s*\)/)) || 'R = int(s, 2)';
-  const ifLine = stripInlineCodeComment(findCodeLine(code, /^\s*if\s+.+:\s*$/)) || 'if R > 100:';
-  const printLine = stripInlineCodeComment(findCodeLine(code, /\bprint\s*\(/)) || 'print(N)';
-  const hasBreak = /^\s*break\b/m.test(code);
-
-  return [
-    forLine,
-    `    ${binLine}`,
-    '',
-    '    # алгоритм из условия',
-    '',
-    `    ${resultLine}`,
-    '',
-    `    ${ifLine}`,
-    `        ${printLine}`,
-    ...(hasBreak ? ['        break'] : []),
-  ].join('\n');
 };
 
 const buildCodeMemoryPreview = (value) => {
@@ -291,7 +249,6 @@ const NotesSection = ({
   const [pyRunOutput, setPyRunOutput] = useState('');
   const [pyRunError, setPyRunError] = useState('');
   const [pyRunLoading, setPyRunLoading] = useState(false);
-  const [cheatsheetTemplateModeIds, setCheatsheetTemplateModeIds] = useState({});
   const [copiedCheatsheetId, setCopiedCheatsheetId] = useState(null);
   const [solutionHoverPreview, setSolutionHoverPreview] = useState(null);
   const [showPyCreator, setShowPyCreator] = useState(false);
@@ -402,16 +359,6 @@ const NotesSection = ({
       console.error(err);
       alert('Не удалось скопировать код.');
     }
-  };
-  const toggleCheatsheetTemplateMode = (fileId) => {
-    const key = String(fileId || '').trim();
-    if (!key) return;
-    setCheatsheetTemplateModeIds((prev) => {
-      const next = { ...(prev || {}) };
-      if (next[key]) delete next[key];
-      else next[key] = true;
-      return next;
-    });
   };
   const triggerFavoriteMotion = (fileId, motion) => {
     const key = String(fileId || '').trim();
@@ -3191,18 +3138,14 @@ const NotesSection = ({
                       ? getCodeInlinePreviewText(inlineCodeSource, pyLoadingId === f.id)
                       : '';
                     const cheatsheetSourceCode = isCheatsheet && hasLoadedPyContent ? String(pyContent[f.id] ?? '') : '';
-                    const cheatsheetTemplateCode = isCheatsheet ? buildCleanCheatsheetTemplate(cheatsheetSourceCode) : '';
-                    const isCheatsheetTemplateMode = isCheatsheet && Boolean(cheatsheetTemplateModeIds[f.id]);
-                    const cheatsheetDisplayCode = isCheatsheetTemplateMode ? cheatsheetTemplateCode : cheatsheetSourceCode;
                     const canCopyCheatsheetCode = Boolean(
                       isCheatsheet
                         && !isEditingCurrentPy
                         && pyLoadingId !== f.id
                         && !pyError[f.id]
-                        && cheatsheetDisplayCode.trim()
+                        && cheatsheetSourceCode.trim()
                     );
                     const isCheatsheetCopied = copiedCheatsheetId === String(f.id);
-                    const cheatsheetModeLabel = isCheatsheetTemplateMode ? 'Чистый шаблон' : 'Сохраненный код';
                     const cheatsheetMetaTitle = [
                       solutionTaskLabel,
                       sourceLabel,
@@ -3863,7 +3806,7 @@ const NotesSection = ({
                                         </span>
                                         <div className="notes-cheatsheet-card__body">
                                           <div className="notes-cheatsheet-card__eyebrow-line">
-                                            <span className="notes-cheatsheet-card__mode-badge">{cheatsheetModeLabel}</span>
+                                            <span className="notes-cheatsheet-card__mode-badge">Сохраненный код</span>
                                           </div>
                                           <div className="notes-cheatsheet-card__title-line">
                                             <h4 className="notes-cheatsheet-card__title">{solutionTitle}</h4>
@@ -3906,41 +3849,11 @@ const NotesSection = ({
                                         </div>
                                       ) : (
                                         <div className="notes-cheatsheet-card__actions">
-                                          <div className="notes-cheatsheet-view-toggle" role="group" aria-label="Вид шпаргалки">
-                                            <button
-                                              type="button"
-                                              className={`notes-cheatsheet-view-toggle__button notes-cheatsheet-view-toggle__button--code ${!isCheatsheetTemplateMode ? 'is-active' : ''}`}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (isCheatsheetTemplateMode) toggleCheatsheetTemplateMode(f.id);
-                                              }}
-                                              disabled={pyLoadingId === f.id || Boolean(pyError[f.id])}
-                                              aria-pressed={!isCheatsheetTemplateMode}
-                                              title="Показать сохраненный код"
-                                              aria-label="Показать сохраненный код"
-                                            >
-                                              <Code2 size={14} strokeWidth={2.3} />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              className={`notes-cheatsheet-view-toggle__button notes-cheatsheet-view-toggle__button--template ${isCheatsheetTemplateMode ? 'is-active' : ''}`}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (!isCheatsheetTemplateMode) toggleCheatsheetTemplateMode(f.id);
-                                              }}
-                                              disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !cheatsheetSourceCode.trim()}
-                                              aria-pressed={isCheatsheetTemplateMode}
-                                              title="Показать чистый шаблон"
-                                              aria-label="Показать чистый шаблон"
-                                            >
-                                              <Sparkles size={13} strokeWidth={2.4} />
-                                            </button>
-                                          </div>
                                           <Button
                                             variant="secondary"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              handleCopyCheatsheetCode(f.id, cheatsheetDisplayCode);
+                                              handleCopyCheatsheetCode(f.id, cheatsheetSourceCode);
                                             }}
                                             disabled={!canCopyCheatsheetCode}
                                             className={`notes-cheatsheet-card__button notes-cheatsheet-card__icon-button notes-cheatsheet-card__copy ${isCheatsheetCopied ? 'is-copied' : ''}`}
@@ -4004,11 +3917,11 @@ const NotesSection = ({
                                             <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
                                           )}
                                           {pyLoadingId !== f.id && !pyError[f.id] && (
-                                            cheatsheetDisplayCode.trim()
+                                            cheatsheetSourceCode.trim()
                                               ? (
                                                 <pre className="notes-python-code notes-python-code--numbered language-python m-0 p-4 text-sm leading-6">
                                                   <code>
-                                                    {getHighlightedPythonLines(cheatsheetDisplayCode, highlightPython).map((lineHtml, index) => (
+                                                    {getHighlightedPythonLines(cheatsheetSourceCode, highlightPython).map((lineHtml, index) => (
                                                       <span className="notes-python-code__line" key={`cheatsheet-line-${index}`}>
                                                         <span className="notes-python-code__line-number">{index + 1}</span>
                                                         <span
