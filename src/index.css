@@ -52250,6 +52250,18 @@ html[data-theme='dark'] .teacher-question-editor__answer-section input {
   padding: 8px 10px;
 }
 
+.teacher-question-editor__answer-section {
+  overflow: auto;
+}
+
+.teacher-question-editor__answer-section--many {
+  max-height: min(560px, calc(100dvh - 210px));
+}
+
+.teacher-question-editor__answer-grid--twenty {
+  grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr);
+}
+
 .teacher-question-editor__save {
   min-width: 220px;
   padding-top: 8px;

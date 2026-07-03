@@ -897,6 +897,11 @@ const TeacherPanel = ({
   const hasQuestionAnswer = answerInputs
     .slice(0, answerCount)
     .some((value) => String(value ?? '').trim());
+  const answerSectionClassName = [
+    'teacher-question-editor__section',
+    'teacher-question-editor__answer-section',
+    answerCount >= 20 ? 'teacher-question-editor__answer-section--many' : '',
+  ].filter(Boolean).join(' ');
   const existingPreviewImage = existingQuestionScreenshots[0];
   const questionPreviewImageUrl = screenshotPreviews[0]?.url || (
     existingPreviewImage
@@ -1381,7 +1386,7 @@ const TeacherPanel = ({
 
       if (answerCount === 20) {
         return (
-          <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
+          <div className="teacher-question-editor__answer-grid--twenty grid grid-cols-[32px_1fr_1fr] gap-2">
             {Array.from({ length: 10 }).map((_, rowIdx) => {
               const leftIdx = rowIdx;
               const rightIdx = rowIdx + 10;
@@ -1718,7 +1723,7 @@ const TeacherPanel = ({
 
         {questionUploadError && <p className="text-xs text-red-500">{questionUploadError}</p>}
 
-        <section className="teacher-question-editor__section teacher-question-editor__answer-section">
+        <section className={answerSectionClassName}>
           <div className="teacher-question-editor__section-heading">
             <span className="teacher-question-editor__step">4</span>
             <div>
@@ -3417,7 +3422,7 @@ const TeacherPanel = ({
               </section>
               {questionUploadError && <p className="text-xs text-red-500">{questionUploadError}</p>}
 
-              <section className="teacher-question-editor__section teacher-question-editor__answer-section">
+              <section className={answerSectionClassName}>
                 <div className="teacher-question-editor__section-heading">
                   <span className="teacher-question-editor__step">4</span>
                   <div>
@@ -3425,152 +3430,7 @@ const TeacherPanel = ({
                     <p>{answerCount > 1 ? `Для этого задания нужно заполнить ${answerCount} полей.` : 'Ответ будет использован для автоматической проверки.'}</p>
                   </div>
                 </div>
-                {answerCount > 1 ? (
-                  Number(selectedTask) === GAME_THEORY_TASK ? (
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">19</label>
-                        <input
-                          type="text"
-                          value={answerInputs[0] ?? ''}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setAnswerInputs((prev) => {
-                              const next = [...prev];
-                              next[0] = value;
-                              return next;
-                            });
-                          }}
-                          className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
-                          placeholder="Ответ 19"
-                        />
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1">20.1</label>
-                          <input
-                            type="text"
-                            value={answerInputs[1] ?? ''}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setAnswerInputs((prev) => {
-                                const next = [...prev];
-                                next[1] = value;
-                                return next;
-                              });
-                            }}
-                            className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
-                            placeholder="Ответ 20.1"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1">20.2</label>
-                          <input
-                            type="text"
-                            value={answerInputs[2] ?? ''}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setAnswerInputs((prev) => {
-                                const next = [...prev];
-                                next[2] = value;
-                                return next;
-                              });
-                            }}
-                            className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
-                            placeholder="Ответ 20.2"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">21</label>
-                        <input
-                          type="text"
-                          value={answerInputs[3] ?? ''}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setAnswerInputs((prev) => {
-                              const next = [...prev];
-                              next[3] = value;
-                              return next;
-                            });
-                          }}
-                          className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
-                          placeholder="Ответ 21"
-                        />
-                      </div>
-                    </div>
-                  ) : answerCount === 20 ? (
-                    <div className="grid grid-cols-[32px_1fr_1fr] gap-2">
-                      {Array.from({ length: 10 }).map((_, rowIdx) => {
-                        const leftIdx = rowIdx;
-                        const rightIdx = rowIdx + 10;
-                        return (
-                          <React.Fragment key={rowIdx}>
-                            <div className="flex items-center justify-center text-xs font-bold text-gray-500">
-                              {rowIdx + 1}
-                            </div>
-                            <input
-                              type="text"
-                              value={answerInputs[leftIdx] ?? ''}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                setAnswerInputs((prev) => {
-                                  const next = [...prev];
-                                  next[leftIdx] = value;
-                                  return next;
-                                });
-                              }}
-                              className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
-                              placeholder="Ответ 1"
-                            />
-                            <input
-                              type="text"
-                              value={answerInputs[rightIdx] ?? ''}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                setAnswerInputs((prev) => {
-                                  const next = [...prev];
-                                  next[rightIdx] = value;
-                                  return next;
-                                });
-                              }}
-                              className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
-                              placeholder="Ответ 2"
-                            />
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {Array.from({ length: answerCount }).map((_, idx) => (
-                        <input
-                          key={idx}
-                          type="text"
-                          value={answerInputs[idx] ?? ''}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setAnswerInputs((prev) => {
-                              const next = [...prev];
-                              next[idx] = value;
-                              return next;
-                            });
-                          }}
-                          className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
-                          placeholder={`Ответ ${idx + 1}`}
-                        />
-                      ))}
-                    </div>
-                  )
-                ) : (
-                  <input
-                    type="text"
-                    value={answerInputs[0] ?? ''}
-                    onChange={(e) => setAnswerInputs([e.target.value])}
-                    className="w-full p-3 rounded-xl border outline-none focus:border-purple-500 bg-gray-50"
-                    placeholder="Введите правильный ответ"
-                  />
-                )}
+                {renderAnswerInputFields()}
               </section>
 
               <div className="teacher-question-editor__footer">
