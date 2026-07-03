@@ -11916,7 +11916,54 @@ const buildTeacherCalendarPaymentMarkKey = (teacherId, event, dayKey, action = '
   return `${base}:${String(action || '').trim()}`;
 };
 
-const getPaymentCandidateLessonOccurrences = (teacherId, studentId, receivedAt) => {
+const getPaymentStudentScheduleNameKeys = (student) => {
+  const values = [
+    student?.name,
+    student?.nickname,
+  ];
+  return new Set(values
+    .map((value) => normalizePaymentNameKey(value))
+    .filter((value) => value.length >= 2));
+};
+
+const getPaymentScheduleEntryNameKeys = (entry) => {
+  const values = [
+    entry?.studentName,
+    entry?.subject,
+    entry?.title,
+    entry?.summary,
+    entry?.name,
+  ];
+  const keys = [];
+  values.forEach((value) => {
+    const text = String(value || '').trim();
+    const fullKey = normalizePaymentNameKey(text);
+    if (fullKey) keys.push(fullKey);
+    text
+      .split(/[^a-z0-9а-яё]+/gi)
+      .map((item) => normalizePaymentNameKey(item))
+      .filter((item) => item.length >= 2)
+      .forEach((item) => keys.push(item));
+  });
+  return new Set(keys);
+};
+
+const doesPaymentScheduleEntryMatchStudent = (entry, student) => {
+  const studentId = String(student?.id || '').trim();
+  if (!studentId) return false;
+  if (String(entry?.studentId || '').trim() === studentId) return true;
+
+  const studentKeys = getPaymentStudentScheduleNameKeys(student);
+  if (studentKeys.size === 0) return false;
+  const entryKeys = getPaymentScheduleEntryNameKeys(entry);
+  for (const key of studentKeys) {
+    if (entryKeys.has(key)) return true;
+  }
+  return false;
+};
+
+const getPaymentCandidateLessonOccurrences = (teacherId, student, receivedAt) => {
+  const studentId = String(student?.id || '').trim();
   const receivedMs = Date.parse(receivedAt || '');
   const anchor = Number.isFinite(receivedMs) ? new Date(receivedMs) : new Date();
   anchor.setHours(0, 0, 0, 0);
@@ -11927,7 +11974,7 @@ const getPaymentCandidateLessonOccurrences = (teacherId, studentId, receivedAt) 
   const marks = readTeacherCalendarMarksDb();
   const teacherMarks = normalizeTeacherCalendarMarks(marks[teacherId]);
   const entries = getTeacherScheduleEntries(teacherId)
-    .filter((entry) => String(entry?.studentId || '').trim() === studentId);
+    .filter((entry) => doesPaymentScheduleEntryMatchStudent(entry, student));
   const occurrences = [];
 
   entries.forEach((entry) => {
@@ -12022,7 +12069,7 @@ const applyPaymentNotificationToTeacherCalendar = ({ teacher, student, parsed, m
   }
   const financeDb = readTeacherFinanceDb();
   const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacherId);
-  const occurrences = getPaymentCandidateLessonOccurrences(teacherId, studentId, parsed.receivedAt);
+  const occurrences = getPaymentCandidateLessonOccurrences(teacherId, student, parsed.receivedAt);
   if (occurrences.length === 0) {
     return { status: 'pending', reason: 'Не нашел неоплаченный урок рядом с датой платежа.' };
   }
