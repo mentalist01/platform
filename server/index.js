@@ -1535,6 +1535,12 @@ const writeTeacherCalendarMarksDb = (data) => {
 const PAYMENT_NOTIFICATION_STORAGE_LIMIT = 500;
 const PAYMENT_NOTIFICATION_TEXT_MAX_LENGTH = 500;
 const PAYMENT_NOTIFICATION_REASON_MAX_LENGTH = 300;
+const PAYMENT_LESSON_SEARCH_PAST_DAYS = 45;
+const PAYMENT_LESSON_SEARCH_FUTURE_DAYS = 45;
+const PAYMENT_AUTO_APPLY_MAX_LESSONS = Math.max(
+  1,
+  Math.floor(Number(process.env.PAYMENT_AUTO_APPLY_MAX_LESSONS) || 12)
+);
 const PAYMENT_NOTIFICATION_STATUSES = new Set(['applied', 'pending', 'ignored', 'duplicate']);
 
 const normalizePaymentNotificationText = (value) => (
@@ -11986,8 +11992,8 @@ const getPaymentCandidateLessonOccurrences = async (teacherId, student, received
     if (Number.isFinite(calendarMinutes)) return calendarMinutes;
     return (anchor.getHours() * 60) + anchor.getMinutes();
   })();
-  const startDayNumber = anchorDayNumber - 45;
-  const endDayNumber = anchorDayNumber + 14;
+  const startDayNumber = anchorDayNumber - PAYMENT_LESSON_SEARCH_PAST_DAYS;
+  const endDayNumber = anchorDayNumber + PAYMENT_LESSON_SEARCH_FUTURE_DAYS;
   const marks = readTeacherCalendarMarksDb();
   const teacherMarks = normalizeTeacherCalendarMarks(marks[teacherId]);
   const entries = (await getPaymentScheduleEntries(teacherId))
@@ -12056,10 +12062,12 @@ const getPaymentCandidateLessonOccurrences = async (teacherId, student, received
     .sort((left, right) => (
       (right.dayNumber - left.dayNumber) || (right.startMinutes - left.startMinutes)
     ));
-  if (past.length > 0) return past;
-  return occurrences.sort((left, right) => (
-    (left.dayNumber - right.dayNumber) || (left.startMinutes - right.startMinutes)
-  ));
+  const future = occurrences
+    .filter((item) => !isPastOrStarted(item))
+    .sort((left, right) => (
+      (left.dayNumber - right.dayNumber) || (left.startMinutes - right.startMinutes)
+    ));
+  return [...past, ...future];
 };
 
 const getTeacherFinanceStudentRecordForMonth = (teacherEntry, studentId, month) => {
@@ -12106,6 +12114,12 @@ const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, par
     return {
       status: 'pending',
       reason: `Сумма ${parsed.amount} ₽ не совпала со стоимостью урока ${lessonPrice} ₽ или ее кратным числом.`,
+    };
+  }
+  if (lessonCount > PAYMENT_AUTO_APPLY_MAX_LESSONS) {
+    return {
+      status: 'pending',
+      reason: `Сумма похожа на оплату за ${lessonCount} урок(а). Автоматически отмечаю до ${PAYMENT_AUTO_APPLY_MAX_LESSONS}, нужна ручная проверка.`,
     };
   }
   const selectedOccurrences = occurrences.slice(0, lessonCount);
