@@ -1940,14 +1940,6 @@ const StudentLeaderboardSection = ({
                     {row.profileTheme.shortName}
                   </span>
                 )}
-                {row.isGraduate && (
-                  <span
-                    className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700"
-                    title={row.informaticsEgeScore !== null ? `ЕГЭ по информатике: ${row.informaticsEgeScore}` : 'Выпускник'}
-                  >
-                    {row.informaticsEgeScore !== null ? `ЕГЭ ${row.informaticsEgeScore}` : 'Выпускник'}
-                  </span>
-                )}
               </div>
               {row.showTeacherIdentity && (
                 <div className="student-leaderboard-row-meta truncate text-[11px] text-slate-500">{`Имя: ${row.mainName || '—'} • Имя2: ${row.nickname || '—'}`}</div>
