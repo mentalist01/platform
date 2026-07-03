@@ -44,6 +44,7 @@ const HOLIDAY_DEFINITIONS = [
 const EVENT_COLORS = ['#0ea5e9', '#14b8a6', '#6366f1', '#f59e0b', '#ec4899', '#22c55e', '#8b5cf6', '#f97316'];
 const CALENDAR_PAID_EVENT_COLOR = '#10b981';
 const CALENDAR_UNPAID_PAST_EVENT_COLOR = '#f43f5e';
+const CALENDAR_TRIAL_EVENT_COLOR = '#f59e0b';
 
 const CALENDAR_START_HOUR = 0;
 const CALENDAR_END_HOUR = 24;
@@ -459,14 +460,18 @@ const isCalendarLessonFinished = (dayKey, endMinutes, now = new Date()) => {
 
 const getCalendarLessonPaymentState = (teacherId, lessonInfo, marks, now = new Date()) => {
   const paidMarkKey = buildLessonPanelMarkKey(teacherId, lessonInfo, 'paid');
+  const trialMarkKey = buildLessonPanelMarkKey(teacherId, lessonInfo, 'trial');
   const paidMarked = Boolean(paidMarkKey && marks?.[paidMarkKey]);
   const event = lessonInfo?.event || {};
+  const trialMarked = isTrialEntry(event) || Boolean(trialMarkKey && marks?.[trialMarkKey]);
   const finished = isCalendarLessonFinished(lessonInfo?.dayKey || event.date, event.endMinutes, now);
   return {
     paidMarkKey,
+    trialMarkKey,
     paidMarked,
+    trialMarked,
     finished,
-    shouldRemindPayment: finished && !paidMarked,
+    shouldRemindPayment: finished && !paidMarked && !trialMarked,
   };
 };
 
@@ -2134,8 +2139,12 @@ const TeacherCalendarSection = ({
   const lessonPanelPaidMarkKey = lessonPanelInfo
     ? buildLessonPanelMarkKey(teacherId, lessonPanelInfo, 'paid')
     : '';
+  const lessonPanelTrialMarkKey = lessonPanelInfo
+    ? buildLessonPanelMarkKey(teacherId, lessonPanelInfo, 'trial')
+    : '';
   const lessonPanelCompletedMarked = Boolean(lessonPanelMarks[lessonPanelCompletedMarkKey]);
   const lessonPanelPaidMarked = Boolean(lessonPanelMarks[lessonPanelPaidMarkKey]);
+  const lessonPanelTrialMarked = Boolean(lessonPanelMarks[lessonPanelTrialMarkKey]);
 
   const saveLessonPanelMark = useCallback(async (markKey) => {
     if (!markKey || !teacherId) return;
@@ -2236,6 +2245,34 @@ const TeacherCalendarSection = ({
     setLessonInfoError('');
     setLessonInfoTarget(null);
   }, []);
+
+  const toggleCalendarTrialMark = useCallback(async (markKey) => {
+    if (!markKey || !teacherId || lessonPanelFinanceBusy) return;
+    const undo = Boolean(lessonPanelMarks[markKey]);
+    setLessonPanelFinanceBusy(undo ? 'trial-undo' : 'trial');
+    setLessonPanelError('');
+    setLessonPanelSuccess('');
+    try {
+      if (undo) {
+        await removeLessonPanelMark(markKey);
+      } else {
+        await saveLessonPanelMark(markKey);
+      }
+      setLessonPanelSuccess(undo
+        ? 'Отметка пробного занятия отменена.'
+        : 'Занятие отмечено как пробное. Оплата для него не нужна.');
+    } catch (err) {
+      setLessonPanelError(err?.message || 'Не удалось обновить отметку пробного занятия.');
+    } finally {
+      setLessonPanelFinanceBusy('');
+    }
+  }, [
+    lessonPanelFinanceBusy,
+    lessonPanelMarks,
+    removeLessonPanelMark,
+    saveLessonPanelMark,
+    teacherId,
+  ]);
 
   const handleLessonPanelFinanceAction = useCallback(async (action) => {
     const normalizedAction = String(action || '').trim();
@@ -2361,11 +2398,15 @@ const TeacherCalendarSection = ({
   const eventDetailsPaidMarkKey = eventDetailsLessonInfo
     ? buildLessonPanelMarkKey(teacherId, eventDetailsLessonInfo, 'paid')
     : '';
+  const eventDetailsTrialMarkKey = eventDetailsLessonInfo
+    ? buildLessonPanelMarkKey(teacherId, eventDetailsLessonInfo, 'trial')
+    : '';
   const eventDetailsCompletedMarked = Boolean(lessonPanelMarks[eventDetailsCompletedMarkKey]);
   const eventDetailsPaidMarked = Boolean(lessonPanelMarks[eventDetailsPaidMarkKey]);
+  const eventDetailsTrialMarked = Boolean(lessonPanelMarks[eventDetailsTrialMarkKey]);
   const eventDetailsStatusLabel = useMemo(() => {
     if (!eventDetails) return 'Урок';
-    if (isTrialEntry(eventDetails)) return 'Пробное';
+    if (isTrialEntry(eventDetails) || eventDetailsTrialMarked) return 'Пробное';
     const start = Number(eventDetails.startMinutes);
     const end = Number(eventDetails.endMinutes);
     if (!eventDetailsDayKey || !Number.isFinite(start) || !Number.isFinite(end)) return 'Урок';
@@ -2376,7 +2417,7 @@ const TeacherCalendarSection = ({
     if (startDate.getTime() <= nowMs && endDate.getTime() > nowMs) return 'Идёт сейчас';
     if (startDate.getTime() < nowMs) return 'Прошедший урок';
     return 'Урок';
-  }, [currentTimeLineNow, eventDetails, eventDetailsDayKey]);
+  }, [currentTimeLineNow, eventDetails, eventDetailsDayKey, eventDetailsTrialMarked]);
   const eventDetailsHomeworkText = String(eventDetailsHomework?.homeWork || '').trim();
   const eventDetailsHomeworkPreview = eventDetailsHomeworkText
     ? eventDetailsHomeworkText.split(/\r?\n/).map((line) => line.trim()).find(Boolean)
@@ -4492,6 +4533,21 @@ const TeacherCalendarSection = ({
                   </button>
                   <button
                     type="button"
+                    onClick={() => toggleCalendarTrialMark(lessonPanelTrialMarkKey)}
+                    disabled={!lessonPanelInfo || Boolean(lessonPanelFinanceBusy)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                      lessonPanelTrialMarked
+                        ? 'border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-50'
+                        : 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                    }`}
+                  >
+                    <Info size={12} />
+                    {lessonPanelFinanceBusy === 'trial' || lessonPanelFinanceBusy === 'trial-undo'
+                      ? '...'
+                      : (lessonPanelTrialMarked ? 'Не пробное' : 'Пробное')}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleLessonPanelFinanceAction('paid')}
                     disabled={!lessonPanelInfo || Boolean(lessonPanelFinanceBusy)}
                     className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -4659,13 +4715,18 @@ const TeacherCalendarSection = ({
                                 );
                                 const eventFinished = paymentState.finished;
                                 const paidMarked = paymentState.paidMarked;
-                                const color = paidMarked
-                                  ? CALENDAR_PAID_EVENT_COLOR
-                                  : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor);
-                                const paymentStateLabel = paidMarked
-                                  ? ' • оплата отмечена'
-                                  : (eventFinished ? ' • оплата не отмечена' : '');
-                                const paymentColorApplied = paidMarked || eventFinished;
+                                const trialMarked = paymentState.trialMarked;
+                                const color = trialMarked
+                                  ? CALENDAR_TRIAL_EVENT_COLOR
+                                  : (paidMarked
+                                    ? CALENDAR_PAID_EVENT_COLOR
+                                    : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor));
+                                const paymentStateLabel = trialMarked
+                                  ? ' • пробное занятие'
+                                  : (paidMarked
+                                    ? ' • оплата отмечена'
+                                    : (eventFinished ? ' • оплата не отмечена' : ''));
+                                const paymentColorApplied = trialMarked || paidMarked || eventFinished;
                                 const laneWidth = 100 / Math.max(1, event.laneCount || 1);
                                 const left = (event.lane || 0) * laneWidth;
                                 const hasConflict = Number(event.laneCount || 1) > 1;
@@ -5530,6 +5591,21 @@ const TeacherCalendarSection = ({
                     {lessonPanelFinanceBusy === 'completed' || lessonPanelFinanceBusy === 'completed-undo'
                       ? '...'
                       : (eventDetailsCompletedMarked ? 'Отменить урок' : '+ урок')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleCalendarTrialMark(eventDetailsTrialMarkKey)}
+                    disabled={!eventDetails || Boolean(lessonPanelFinanceBusy)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                      eventDetailsTrialMarked
+                        ? 'border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-50'
+                        : 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                    }`}
+                  >
+                    <Info size={12} />
+                    {lessonPanelFinanceBusy === 'trial' || lessonPanelFinanceBusy === 'trial-undo'
+                      ? '...'
+                      : (eventDetailsTrialMarked ? 'Не пробное' : 'Пробное')}
                   </button>
                   <button
                     type="button"

@@ -12020,7 +12020,9 @@ const getPaymentCandidateLessonOccurrences = async (teacherId, student, received
         dayKey: normalizedDayKey,
       };
       const markKey = buildTeacherCalendarPaymentMarkKey(teacherId, event, normalizedDayKey, 'paid');
+      const trialMarkKey = buildTeacherCalendarPaymentMarkKey(teacherId, event, normalizedDayKey, 'trial');
       if (!markKey || teacherMarks[markKey]) return;
+      if (trialMarkKey && teacherMarks[trialMarkKey]) return;
       occurrences.push({
         event,
         dayKey: normalizedDayKey,
