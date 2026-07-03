@@ -11978,9 +11978,14 @@ const getPaymentCandidateLessonOccurrences = async (teacherId, student, received
   const studentId = String(student?.id || '').trim();
   const receivedMs = Date.parse(receivedAt || '');
   const anchor = Number.isFinite(receivedMs) ? new Date(receivedMs) : new Date();
-  anchor.setHours(0, 0, 0, 0);
-  const anchorDayKey = toLocalScheduleDayKey(anchor);
+  const anchorParts = getDatePartsInCalendarTimeZone(anchor);
+  const anchorDayKey = normalizeDayKey(anchorParts?.dayKey) || toLocalScheduleDayKey(anchor);
   const anchorDayNumber = dayKeyToNumber(anchorDayKey);
+  const anchorMinutes = (() => {
+    const calendarMinutes = parseScheduleMinutes(anchorParts?.time);
+    if (Number.isFinite(calendarMinutes)) return calendarMinutes;
+    return (anchor.getHours() * 60) + anchor.getMinutes();
+  })();
   const startDayNumber = anchorDayNumber - 45;
   const endDayNumber = anchorDayNumber + 14;
   const marks = readTeacherCalendarMarksDb();
@@ -12042,8 +12047,12 @@ const getPaymentCandidateLessonOccurrences = async (teacherId, student, received
     }
   });
 
+  const isPastOrStarted = (item) => (
+    item.dayNumber < anchorDayNumber
+    || (item.dayNumber === anchorDayNumber && item.startMinutes <= anchorMinutes)
+  );
   const past = occurrences
-    .filter((item) => item.dayNumber <= anchorDayNumber)
+    .filter(isPastOrStarted)
     .sort((left, right) => (
       (right.dayNumber - left.dayNumber) || (right.startMinutes - left.startMinutes)
     ));
