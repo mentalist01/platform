@@ -50569,6 +50569,38 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   transform: translateY(-1px) scale(1.002);
 }
 
+.student-test-answer-paste-hint {
+  display: grid;
+  gap: 4px;
+  margin-top: -4px;
+  border: 1px solid rgba(139, 92, 246, 0.16);
+  border-radius: 10px;
+  padding: 8px 9px;
+  background: rgba(248, 250, 252, 0.86);
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.student-test-answer-paste-hint strong,
+.teacher-question-editor__answer-paste-hint strong {
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.student-test-answer-paste-hint code,
+.teacher-question-editor__answer-paste-hint code {
+  width: fit-content;
+  border-radius: 8px;
+  padding: 5px 7px;
+  background: rgba(15, 23, 42, 0.06);
+  color: #475569;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 .student-test-answer-panel--correct {
   border-color: rgba(16, 185, 129, 0.42);
   animation: studentTestAnswerCorrect 0.68s cubic-bezier(0.16, 1, 0.3, 1) backwards;
@@ -52233,6 +52265,37 @@ html[data-theme='dark'] .teacher-question-editor__condition-section .teacher-que
 html[data-theme='dark'] .teacher-question-editor__label-section .teacher-question-editor__section-heading h4,
 html[data-theme='dark'] .teacher-question-editor__answer-section .teacher-question-editor__section-heading h4 {
   color: rgb(var(--question-editor-accent-rgb) / 0.98) !important;
+}
+
+.teacher-question-editor__answer-paste-hint {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  border: 1px solid rgb(var(--question-editor-accent-rgb) / 0.16);
+  border-radius: 10px;
+  padding: 7px 8px;
+  background: rgba(255, 255, 255, 0.56);
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+html[data-theme='dark'] .student-test-answer-paste-hint,
+html[data-theme='dark'] .teacher-question-editor__answer-paste-hint {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.44);
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .student-test-answer-paste-hint strong,
+html[data-theme='dark'] .teacher-question-editor__answer-paste-hint strong {
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .student-test-answer-paste-hint code,
+html[data-theme='dark'] .teacher-question-editor__answer-paste-hint code {
+  background: rgba(2, 6, 23, 0.34);
+  color: #cbd5e1;
 }
 
 html[data-theme='dark'] .teacher-question-editor__condition-section .teacher-question-editor__textarea,

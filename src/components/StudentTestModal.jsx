@@ -6,6 +6,7 @@ import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
+import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import { Button } from './ui';
 
 const STUDENT_TEST_ANSWER_DRAFT_PREFIX = 'student-test-answer-draft-v1';
@@ -1096,6 +1097,26 @@ const StudentTestModal = ({
     const nextQuestionSideNavState = getQuestionSideNavState(currentIndex + 1);
     const previousQuestionSideNavLabel = getQuestionSideNavLabel(currentIndex - 1);
     const nextQuestionSideNavLabel = getQuestionSideNavLabel(currentIndex + 1);
+    const canPasteAnswerTable = answerCount === 20 && !computedChecked;
+    const handleAnswerInputPaste = (event, startIndex) => {
+      if (computedChecked) return;
+      const values = splitPastedAnswerValues(event.clipboardData?.getData('text/plain') || '');
+      if (values.length <= 1) return;
+      const pasteOrder = getAnswerPasteOrder(answerCount, startIndex);
+      if (pasteOrder.length === 0) return;
+      event.preventDefault();
+      setUserAnswers((prev) => {
+        const next = { ...prev };
+        const current = Array.isArray(next[currentIndex])
+          ? [...next[currentIndex]]
+          : Array.from({ length: answerCount }, () => '');
+        values.slice(0, pasteOrder.length).forEach((value, idx) => {
+          current[pasteOrder[idx]] = value;
+        });
+        next[currentIndex] = current;
+        return next;
+      });
+    };
 
     const modal = (
       <div className="student-test-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-0 sm:p-3 md:p-5">
@@ -1377,6 +1398,17 @@ const StudentTestModal = ({
               <label className="block text-xs font-bold text-gray-400 uppercase">
                 {isSolved ? 'Правильный ответ' : 'Ответ'}
               </label>
+              {canPasteAnswerTable && (
+                <div className="student-test-answer-paste-hint">
+                  <strong>Можно вставить весь список сразу</strong>
+                  <span>Скопируйте пары чисел, нажмите первую ячейку и вставьте через Ctrl+V. Каждая строка заполнит одну строку таблицы.</span>
+                  <code>
+                    1104293251 16691
+                    <br />
+                    1104315547 1669
+                  </code>
+                </div>
+              )}
               {isSolved ? (
                 answerCount > 1 ? (
                   answerCount === 20 ? (
@@ -1434,6 +1466,7 @@ const StudentTestModal = ({
                         <input
                           type="text"
                           value={answerValues[0] ?? ''}
+                          onPaste={(e) => handleAnswerInputPaste(e, 0)}
                           onChange={(e) => {
                             if (computedChecked) return;
                             const value = e.target.value;
@@ -1458,6 +1491,7 @@ const StudentTestModal = ({
                           <input
                             type="text"
                             value={answerValues[1] ?? ''}
+                            onPaste={(e) => handleAnswerInputPaste(e, 1)}
                             onChange={(e) => {
                               if (computedChecked) return;
                               const value = e.target.value;
@@ -1481,6 +1515,7 @@ const StudentTestModal = ({
                           <input
                             type="text"
                             value={answerValues[2] ?? ''}
+                            onPaste={(e) => handleAnswerInputPaste(e, 2)}
                             onChange={(e) => {
                               if (computedChecked) return;
                               const value = e.target.value;
@@ -1505,6 +1540,7 @@ const StudentTestModal = ({
                         <input
                           type="text"
                           value={answerValues[3] ?? ''}
+                          onPaste={(e) => handleAnswerInputPaste(e, 3)}
                           onChange={(e) => {
                             if (computedChecked) return;
                             const value = e.target.value;
@@ -1537,6 +1573,7 @@ const StudentTestModal = ({
                             <input
                               type="text"
                               value={answerValues[leftIdx] ?? ''}
+                              onPaste={(e) => handleAnswerInputPaste(e, leftIdx)}
                               onChange={(e) => {
                                 if (computedChecked) return;
                                 const value = e.target.value;
@@ -1555,6 +1592,7 @@ const StudentTestModal = ({
                             <input
                               type="text"
                               value={answerValues[rightIdx] ?? ''}
+                              onPaste={(e) => handleAnswerInputPaste(e, rightIdx)}
                               onChange={(e) => {
                                 if (computedChecked) return;
                                 const value = e.target.value;
@@ -1581,6 +1619,7 @@ const StudentTestModal = ({
                           key={idx}
                           type="text"
                           value={answerValues[idx] ?? ''}
+                          onPaste={(e) => handleAnswerInputPaste(e, idx)}
                           onChange={(e) => {
                             if (computedChecked) return;
                             const value = e.target.value;

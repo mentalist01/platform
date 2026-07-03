@@ -15,6 +15,7 @@ import {
 import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
+import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 
 const STUDENT_GRADE_OPTIONS = [
   { value: '11', label: '11 класс' },
@@ -897,11 +898,23 @@ const TeacherPanel = ({
   const hasQuestionAnswer = answerInputs
     .slice(0, answerCount)
     .some((value) => String(value ?? '').trim());
+  const canPasteAnswerTable = answerCount === 20;
   const answerSectionClassName = [
     'teacher-question-editor__section',
     'teacher-question-editor__answer-section',
     answerCount >= 20 ? 'teacher-question-editor__answer-section--many' : '',
   ].filter(Boolean).join(' ');
+  const renderTeacherAnswerPasteHint = () => (
+    <div className="teacher-question-editor__answer-paste-hint">
+      <strong>Быстрая вставка всех ответов</strong>
+      <span>Скопируйте пары чисел, нажмите первую ячейку и вставьте через Ctrl+V. Каждая строка заполнит одну строку таблицы.</span>
+      <code>
+        1104293251 16691
+        <br />
+        1104315547 1669
+      </code>
+    </div>
+  );
   const existingPreviewImage = existingQuestionScreenshots[0];
   const questionPreviewImageUrl = screenshotPreviews[0]?.url || (
     existingPreviewImage
@@ -1320,6 +1333,21 @@ const TeacherPanel = ({
     addScreenshotFiles(files);
   };
 
+  const handleAnswerInputPaste = (event, startIndex) => {
+    const values = splitPastedAnswerValues(event.clipboardData?.getData('text/plain') || '');
+    if (values.length <= 1) return;
+    const pasteOrder = getAnswerPasteOrder(answerCount, startIndex);
+    if (pasteOrder.length === 0) return;
+    event.preventDefault();
+    setAnswerInputs((prev) => {
+      const next = Array.from({ length: answerCount }, (_, idx) => prev[idx] ?? '');
+      values.slice(0, pasteOrder.length).forEach((value, idx) => {
+        next[pasteOrder[idx]] = value;
+      });
+      return next;
+    });
+  };
+
   const renderAnswerInputFields = () => {
     if (answerCount > 1) {
       if (Number(selectedTask) === GAME_THEORY_TASK) {
@@ -1330,6 +1358,7 @@ const TeacherPanel = ({
               <input
                 type="text"
                 value={answerInputs[0] ?? ''}
+                onPaste={(e) => handleAnswerInputPaste(e, 0)}
                 onChange={(e) => {
                   const value = e.target.value;
                   setAnswerInputs((prev) => {
@@ -1349,6 +1378,7 @@ const TeacherPanel = ({
                   <input
                     type="text"
                     value={answerInputs[answerIdx] ?? ''}
+                    onPaste={(e) => handleAnswerInputPaste(e, answerIdx)}
                     onChange={(e) => {
                       const value = e.target.value;
                       setAnswerInputs((prev) => {
@@ -1368,6 +1398,7 @@ const TeacherPanel = ({
               <input
                 type="text"
                 value={answerInputs[3] ?? ''}
+                onPaste={(e) => handleAnswerInputPaste(e, 3)}
                 onChange={(e) => {
                   const value = e.target.value;
                   setAnswerInputs((prev) => {
@@ -1400,6 +1431,7 @@ const TeacherPanel = ({
                       key={answerIdx}
                       type="text"
                       value={answerInputs[answerIdx] ?? ''}
+                      onPaste={(e) => handleAnswerInputPaste(e, answerIdx)}
                       onChange={(e) => {
                         const value = e.target.value;
                         setAnswerInputs((prev) => {
@@ -1426,6 +1458,7 @@ const TeacherPanel = ({
               key={idx}
               type="text"
               value={answerInputs[idx] ?? ''}
+              onPaste={(e) => handleAnswerInputPaste(e, idx)}
               onChange={(e) => {
                 const value = e.target.value;
                 setAnswerInputs((prev) => {
@@ -1729,6 +1762,7 @@ const TeacherPanel = ({
             <div>
               <h4>Правильный ответ</h4>
               <p>{answerCount > 1 ? `Для этого задания нужно заполнить ${answerCount} полей.` : 'Ответ будет использован для автоматической проверки.'}</p>
+              {canPasteAnswerTable && renderTeacherAnswerPasteHint()}
             </div>
           </div>
           {renderAnswerInputFields()}
@@ -3428,6 +3462,7 @@ const TeacherPanel = ({
                   <div>
                     <h4>Правильный ответ</h4>
                     <p>{answerCount > 1 ? `Для этого задания нужно заполнить ${answerCount} полей.` : 'Ответ будет использован для автоматической проверки.'}</p>
+                    {canPasteAnswerTable && renderTeacherAnswerPasteHint()}
                   </div>
                 </div>
                 {renderAnswerInputFields()}
