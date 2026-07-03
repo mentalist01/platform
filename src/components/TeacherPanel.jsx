@@ -178,6 +178,11 @@ const TeacherPanel = ({
   const [teacherFinanceSnapshot, setTeacherFinanceSnapshot] = useState(null);
   const [teacherFinanceLoading, setTeacherFinanceLoading] = useState(false);
   const [teacherFinanceError, setTeacherFinanceError] = useState('');
+  const [paymentSenderLinks, setPaymentSenderLinks] = useState([]);
+  const [paymentSenderLinksLoading, setPaymentSenderLinksLoading] = useState(false);
+  const [paymentSenderLinksError, setPaymentSenderLinksError] = useState('');
+  const [paymentSenderDrafts, setPaymentSenderDrafts] = useState({});
+  const [paymentSenderSavingKey, setPaymentSenderSavingKey] = useState('');
   const [editingQuestionId, setEditingQuestionId] = useState(null);
   const [questionScreenshots, setQuestionScreenshots] = useState([]);
   const [questionFiles, setQuestionFiles] = useState([]);
@@ -234,6 +239,12 @@ const TeacherPanel = ({
     const profilePrice = Number(row?.profile?.lessonPrice);
     return Number.isFinite(profilePrice) && profilePrice > 0 ? profilePrice : 0;
   }, [getStudentFinanceRow, teacherFinanceSnapshot]);
+
+  const getStudentPaymentSenderLinks = useCallback((studentId) => {
+    const normalizedId = String(studentId || '').trim();
+    if (!normalizedId) return [];
+    return paymentSenderLinks.filter((link) => String(link?.studentId || '').trim() === normalizedId);
+  }, [paymentSenderLinks]);
 
   useEffect(() => {
     const normalized = String(initialSignupChatId || '').trim();
@@ -313,6 +324,53 @@ const TeacherPanel = ({
       .finally(() => {
         if (!cancelled) setTeacherFinanceLoading(false);
     });
+    return () => { cancelled = true; };
+  }, [isTestsMode, role, teacherId]);
+
+  const loadPaymentSenderLinks = useCallback(async () => {
+    if (!isTestsMode) return [];
+    if (role !== 'teacher' && role !== 'admin') return [];
+    if (role === 'admin' && !teacherId) return [];
+    setPaymentSenderLinksLoading(true);
+    try {
+      const data = await api.getPaymentSenderLinks(teacherId);
+      const links = Array.isArray(data?.links) ? data.links : [];
+      setPaymentSenderLinks(links);
+      setPaymentSenderLinksError('');
+      return links;
+    } catch (err) {
+      setPaymentSenderLinks([]);
+      setPaymentSenderLinksError(err?.message || String(err));
+      return [];
+    } finally {
+      setPaymentSenderLinksLoading(false);
+    }
+  }, [isTestsMode, role, teacherId]);
+
+  useEffect(() => {
+    if (!isTestsMode) return undefined;
+    if (role !== 'teacher' && role !== 'admin') return undefined;
+    if (role === 'admin' && !teacherId) {
+      setPaymentSenderLinks([]);
+      setPaymentSenderLinksError('');
+      return undefined;
+    }
+    let cancelled = false;
+    setPaymentSenderLinksLoading(true);
+    api.getPaymentSenderLinks(teacherId)
+      .then((data) => {
+        if (cancelled) return;
+        setPaymentSenderLinks(Array.isArray(data?.links) ? data.links : []);
+        setPaymentSenderLinksError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPaymentSenderLinks([]);
+        setPaymentSenderLinksError(err?.message || String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setPaymentSenderLinksLoading(false);
+      });
     return () => { cancelled = true; };
   }, [isTestsMode, role, teacherId]);
 
@@ -1825,6 +1883,54 @@ const TeacherPanel = ({
     return nextSnapshot;
   };
 
+  const handlePaymentSenderDraftChange = (studentId, value) => {
+    const normalizedId = String(studentId || '').trim();
+    if (!normalizedId) return;
+    setPaymentSenderDrafts((prev) => ({
+      ...prev,
+      [normalizedId]: value,
+    }));
+    setPaymentSenderLinksError('');
+  };
+
+  const handleAddPaymentSenderLink = async (student) => {
+    const studentId = String(student?.id || '').trim();
+    if (!studentId) return;
+    const senderName = String(paymentSenderDrafts[studentId] || '').trim();
+    if (!senderName) {
+      setPaymentSenderLinksError('Введите имя отправителя из уведомления Т-Банка.');
+      return;
+    }
+    setPaymentSenderSavingKey(`add:${studentId}`);
+    setPaymentSenderLinksError('');
+    try {
+      const data = await api.updatePaymentSenderLink({ senderName, studentId }, teacherId);
+      setPaymentSenderLinks(Array.isArray(data?.links) ? data.links : []);
+      setPaymentSenderDrafts((prev) => ({ ...prev, [studentId]: '' }));
+    } catch (err) {
+      setPaymentSenderLinksError(err?.message || String(err));
+      await loadPaymentSenderLinks();
+    } finally {
+      setPaymentSenderSavingKey('');
+    }
+  };
+
+  const handleRemovePaymentSenderLink = async (senderName) => {
+    const normalizedSenderName = String(senderName || '').trim();
+    if (!normalizedSenderName) return;
+    setPaymentSenderSavingKey(`remove:${normalizedSenderName}`);
+    setPaymentSenderLinksError('');
+    try {
+      const data = await api.updatePaymentSenderLink({ senderName: normalizedSenderName, unset: true }, teacherId);
+      setPaymentSenderLinks(Array.isArray(data?.links) ? data.links : []);
+    } catch (err) {
+      setPaymentSenderLinksError(err?.message || String(err));
+      await loadPaymentSenderLinks();
+    } finally {
+      setPaymentSenderSavingKey('');
+    }
+  };
+
   const startEditStudent = (student) => {
     if (!student?.id) return;
     const lessonPrice = toFinanceInputValue(getStudentLessonPrice(student.id));
@@ -2352,6 +2458,9 @@ const TeacherPanel = ({
         {teacherFinanceError && (
           <p className="text-xs text-amber-600 mb-3">Стоимость уроков: {teacherFinanceError}</p>
         )}
+        {paymentSenderLinksError && (
+          <p className="text-xs text-red-500 mb-3">Плательщики: {paymentSenderLinksError}</p>
+        )}
         {lastIssuedCode && (
           <div className="mb-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 flex flex-wrap items-center justify-between gap-2">
             <span>
@@ -2380,6 +2489,7 @@ const TeacherPanel = ({
               const studentCoinsTotal = Math.max(0, Math.floor(Number(student?.coinsTotal) || 0));
               const studentNotesUsageBytes = normalizeStorageBytes(student?.notesUsageBytes);
               const studentLessonPrice = getStudentLessonPrice(student.id);
+              const studentPaymentSenderLinks = getStudentPaymentSenderLinks(student.id);
               const rawStudentLevel = Number(student?.level);
               const studentLevel = Number.isFinite(rawStudentLevel) && rawStudentLevel > 0
                 ? Math.floor(rawStudentLevel)
@@ -2440,6 +2550,68 @@ const TeacherPanel = ({
                           placeholder={teacherFinanceLoading ? 'Загрузка стоимости...' : 'Стоимость урока, ₽'}
                           className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                         />
+                        <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2">
+                          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-semibold uppercase text-sky-700">
+                              Плательщики Т-Банка
+                            </span>
+                            {paymentSenderLinksLoading && (
+                              <span className="text-[11px] text-sky-600">загрузка...</span>
+                            )}
+                          </div>
+                          {studentPaymentSenderLinks.length > 0 && (
+                            <div className="mb-2 flex flex-wrap gap-1.5">
+                              {studentPaymentSenderLinks.map((link) => {
+                                const senderName = String(link?.senderName || '').trim();
+                                const removeKey = `remove:${senderName}`;
+                                return (
+                                  <span
+                                    key={link.senderKey || senderName}
+                                    className="inline-flex min-w-0 items-center gap-1 rounded-full border border-sky-200 bg-white px-2 py-1 text-[11px] font-semibold text-sky-700"
+                                  >
+                                    <span className="max-w-[180px] truncate">{senderName}</span>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleRemovePaymentSenderLink(senderName);
+                                      }}
+                                      disabled={paymentSenderSavingKey === removeKey}
+                                      className="rounded-full p-0.5 text-sky-500 hover:bg-sky-100 hover:text-sky-700 disabled:opacity-50"
+                                      title="Удалить привязку"
+                                    >
+                                      <X size={12} />
+                                    </button>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <input
+                              type="text"
+                              value={paymentSenderDrafts[student.id] || ''}
+                              onChange={(e) => handlePaymentSenderDraftChange(student.id, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleAddPaymentSenderLink(student);
+                              }}
+                              placeholder="Имя отправителя из банка"
+                              className="min-w-0 flex-1 rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleAddPaymentSenderLink(student);
+                              }}
+                              disabled={paymentSenderSavingKey === `add:${student.id}` || !String(paymentSenderDrafts[student.id] || '').trim()}
+                              className="inline-flex items-center justify-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:opacity-50"
+                            >
+                              <Plus size={14} />
+                              Привязать
+                            </button>
+                          </div>
+                        </div>
                         <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
                           {STUDENT_GRADE_OPTIONS.map((option) => {
                             const isActive = normalizeStudentGradeValue(editStudentGrade) === option.value;
@@ -2552,6 +2724,16 @@ const TeacherPanel = ({
                               data-tone="lesson-price"
                             >
                               {`Урок ${formatLessonPrice(studentLessonPrice)}`}
+                            </span>
+                          )}
+                          {studentPaymentSenderLinks.length > 0 && (
+                            <span
+                              className="teacher-student-card__pill inline-flex max-w-full items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
+                              data-tone="payment-senders"
+                            >
+                              <span className="truncate">
+                                {`Т-Банк: ${studentPaymentSenderLinks.map((link) => link.senderName).filter(Boolean).join(', ')}`}
+                              </span>
                             </span>
                           )}
                           {hasStudentEgeScore && (
