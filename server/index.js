@@ -11962,7 +11962,13 @@ const doesPaymentScheduleEntryMatchStudent = (entry, student) => {
   return false;
 };
 
-const getPaymentCandidateLessonOccurrences = (teacherId, student, receivedAt) => {
+const getPaymentScheduleEntries = async (teacherId) => {
+  const localEntries = getTeacherScheduleEntries(teacherId);
+  const googleEntries = await fetchTeacherGoogleCalendarEntries(teacherId);
+  return [...localEntries, ...googleEntries];
+};
+
+const getPaymentCandidateLessonOccurrences = async (teacherId, student, receivedAt) => {
   const studentId = String(student?.id || '').trim();
   const receivedMs = Date.parse(receivedAt || '');
   const anchor = Number.isFinite(receivedMs) ? new Date(receivedMs) : new Date();
@@ -11973,7 +11979,7 @@ const getPaymentCandidateLessonOccurrences = (teacherId, student, receivedAt) =>
   const endDayNumber = anchorDayNumber + 14;
   const marks = readTeacherCalendarMarksDb();
   const teacherMarks = normalizeTeacherCalendarMarks(marks[teacherId]);
-  const entries = getTeacherScheduleEntries(teacherId)
+  const entries = (await getPaymentScheduleEntries(teacherId))
     .filter((entry) => doesPaymentScheduleEntryMatchStudent(entry, student));
   const occurrences = [];
 
@@ -12061,7 +12067,7 @@ const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence)
   return { month, lessonPrice };
 };
 
-const applyPaymentNotificationToTeacherCalendar = ({ teacher, student, parsed, matchMode }) => {
+const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, parsed, matchMode }) => {
   const teacherId = normalizeTeacherId(teacher?.id);
   const studentId = String(student?.id || '').trim();
   if (!teacherId || !studentId) {
@@ -12069,7 +12075,7 @@ const applyPaymentNotificationToTeacherCalendar = ({ teacher, student, parsed, m
   }
   const financeDb = readTeacherFinanceDb();
   const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacherId);
-  const occurrences = getPaymentCandidateLessonOccurrences(teacherId, student, parsed.receivedAt);
+  const occurrences = await getPaymentCandidateLessonOccurrences(teacherId, student, parsed.receivedAt);
   if (occurrences.length === 0) {
     return { status: 'pending', reason: 'Не нашел неоплаченный урок рядом с датой платежа.' };
   }
@@ -12145,9 +12151,9 @@ const applyPaymentNotificationToTeacherCalendar = ({ teacher, student, parsed, m
   };
 };
 
-const safelyApplyPaymentNotificationToTeacherCalendar = (params) => {
+const safelyApplyPaymentNotificationToTeacherCalendar = async (params) => {
   try {
-    return applyPaymentNotificationToTeacherCalendar(params);
+    return await applyPaymentNotificationToTeacherCalendar(params);
   } catch (error) {
     console.error('[payment-notification] apply failed:', error);
     const message = error?.message || String(error || 'unknown error');
@@ -12213,7 +12219,7 @@ const storePaymentNotificationProcessingError = (payload = {}, error) => {
   }
 };
 
-const handleTbankPaymentNotification = (payload = {}) => {
+const handleTbankPaymentNotification = async (payload = {}) => {
   const parsed = parseTbankPaymentNotificationPayload(payload);
   const id = buildPaymentNotificationId(payload, parsed);
   const createdAt = new Date().toISOString();
@@ -12276,7 +12282,7 @@ const handleTbankPaymentNotification = (payload = {}) => {
     return { ok: true, statusCode: 202, entry: result.entry };
   }
 
-  const applyResult = safelyApplyPaymentNotificationToTeacherCalendar({
+  const applyResult = await safelyApplyPaymentNotificationToTeacherCalendar({
     teacher: teacherResult.teacher,
     student: match.student,
     parsed,
@@ -14448,14 +14454,14 @@ app.get('/api/client-build-version', (_req, res) => {
   });
 });
 
-app.post('/api/payment-notifications/tbank', (req, res) => {
+app.post('/api/payment-notifications/tbank', async (req, res) => {
   const payload = parseLoosePaymentNotificationBody(req.body);
   const secretCheck = validatePaymentNotificationSecret(req, payload);
   if (!secretCheck.ok) {
     return res.status(secretCheck.status || 401).json({ ok: false, error: secretCheck.error || 'Unauthorized' });
   }
   try {
-    const result = handleTbankPaymentNotification(payload);
+    const result = await handleTbankPaymentNotification(payload);
     return res.status(result.statusCode || 200).json({
       ok: true,
       notification: serializePaymentNotificationEntry(result.entry),
@@ -14474,14 +14480,14 @@ app.post('/api/payment-notifications/tbank', (req, res) => {
   }
 });
 
-app.post('/api/payment-notifications/macrodroid', (req, res) => {
+app.post('/api/payment-notifications/macrodroid', async (req, res) => {
   const payload = parseLoosePaymentNotificationBody(req.body);
   const secretCheck = validatePaymentNotificationSecret(req, payload);
   if (!secretCheck.ok) {
     return res.status(secretCheck.status || 401).json({ ok: false, error: secretCheck.error || 'Unauthorized' });
   }
   try {
-    const result = handleTbankPaymentNotification(payload);
+    const result = await handleTbankPaymentNotification(payload);
     return res.status(result.statusCode || 200).json({
       ok: true,
       notification: serializePaymentNotificationEntry(result.entry),
