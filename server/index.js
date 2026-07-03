@@ -1264,6 +1264,42 @@ app.use((req, res, next) => {
   return next();
 });
 
+const decodeLooseJsonStringPart = (value) => {
+  const raw = String(value || '').replace(/\r?\n/g, '\\n');
+  try {
+    return JSON.parse(`"${raw}"`);
+  } catch {
+    return String(value || '')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+  }
+};
+
+const parseLoosePaymentNotificationBody = (body) => {
+  if (body && typeof body === 'object' && !Array.isArray(body)) return body;
+  const raw = typeof body === 'string' || Buffer.isBuffer(body)
+    ? String(body || '').trim()
+    : '';
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {}
+
+  const payload = {};
+  const fieldPattern = /"([^"\\]*(?:\\.[^"\\]*)*)"\s*:\s*"([\s\S]*?)"\s*(?=,\s*"[^"\\]*(?:\\.[^"\\]*)*"\s*:|\s*})/g;
+  for (const match of raw.matchAll(fieldPattern)) {
+    const key = decodeLooseJsonStringPart(match[1]);
+    if (!key) continue;
+    payload[key] = decodeLooseJsonStringPart(match[2]);
+  }
+  if (Object.keys(payload).length > 0) return payload;
+  return { text: raw };
+};
+
+app.use('/api/payment-notifications', express.text({ type: '*/*', limit: JSON_BODY_LIMIT }));
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 const readFilesDb = () => {
@@ -14366,9 +14402,7 @@ app.get('/api/client-build-version', (_req, res) => {
 });
 
 app.post('/api/payment-notifications/tbank', (req, res) => {
-  const payload = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-    ? req.body
-    : {};
+  const payload = parseLoosePaymentNotificationBody(req.body);
   const secretCheck = validatePaymentNotificationSecret(req, payload);
   if (!secretCheck.ok) {
     return res.status(secretCheck.status || 401).json({ ok: false, error: secretCheck.error || 'Unauthorized' });
@@ -14394,9 +14428,7 @@ app.post('/api/payment-notifications/tbank', (req, res) => {
 });
 
 app.post('/api/payment-notifications/macrodroid', (req, res) => {
-  const payload = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-    ? req.body
-    : {};
+  const payload = parseLoosePaymentNotificationBody(req.body);
   const secretCheck = validatePaymentNotificationSecret(req, payload);
   if (!secretCheck.ok) {
     return res.status(secretCheck.status || 401).json({ ok: false, error: secretCheck.error || 'Unauthorized' });
