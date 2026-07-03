@@ -11648,7 +11648,13 @@ const cleanPaymentSenderName = (value) => {
     .replace(/(?:счет|счёт|карта)\s+[A-ZА-Я0-9* ]+\.?/gi, ' ')
     .replace(/(?:rub|руб\.?|mir|мир)/gi, ' ')
     .replace(/[+−-]?\s*\d[\d\s.,]*(?:₽|руб\.?|rub\b)/gi, ' ')
-    .replace(/(?:^|[\s,.;:])(?:пополнение|перевод|поступление|зачисление|доступно|на|от|со|с)(?=$|[\s,.;:])/gi, ' ')
+    .replace(/(?:^|[\s,.;:])(?:пополнение|перевод|поступление|зачисление|доступно|на|от|со|с)(?=$|[\s,.;:])/gi, (match, offset, source) => {
+      const token = match.replace(/^[\s,.;:]+|[\s,.;:]+$/g, '');
+      const before = String(source || '').slice(0, offset).trim();
+      const previousWord = before.match(/[A-Za-zА-Яа-яЁё-]+$/)?.[0] || '';
+      const isInitialAfterName = /^[А-ЯЁ]\.?$/.test(token) && previousWord.length >= 2;
+      return isInitialAfterName ? match : ' ';
+    })
     .replace(/[,:;]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
