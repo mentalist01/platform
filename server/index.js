@@ -12062,6 +12062,20 @@ const applyPaymentNotificationToTeacherCalendar = ({ teacher, student, parsed, m
   };
 };
 
+const safelyApplyPaymentNotificationToTeacherCalendar = (params) => {
+  try {
+    return applyPaymentNotificationToTeacherCalendar(params);
+  } catch (error) {
+    console.error('[payment-notification] apply failed:', error);
+    const message = error?.message || String(error || 'unknown error');
+    return {
+      status: 'pending',
+      reason: `Ошибка применения оплаты на сервере: ${message}`.slice(0, PAYMENT_NOTIFICATION_REASON_MAX_LENGTH),
+      markKeys: [],
+    };
+  }
+};
+
 const storePaymentNotificationResult = (entry) => {
   const db = readPaymentNotificationsDb();
   const existingIndex = db.items.findIndex((item) => item.id === entry.id || (entry.rawHash && item.rawHash === entry.rawHash));
@@ -12084,6 +12098,36 @@ const storePaymentNotificationResult = (entry) => {
     items: [normalizedEntry, ...db.items].filter(Boolean),
   });
   return { duplicate: false, entry: normalizedEntry };
+};
+
+const storePaymentNotificationProcessingError = (payload = {}, error) => {
+  try {
+    const parsed = parseTbankPaymentNotificationPayload(payload);
+    const id = buildPaymentNotificationId(payload, parsed);
+    const teacherResult = resolvePaymentNotificationTeacher(payload);
+    const message = error?.message || String(error || 'unknown error');
+    const result = storePaymentNotificationResult({
+      id,
+      source: parsed.source,
+      provider: parsed.provider,
+      title: parsed.title,
+      text: parsed.text,
+      amount: parsed.amount,
+      currency: parsed.currency,
+      receivedAt: parsed.receivedAt,
+      createdAt: new Date().toISOString(),
+      rawHash: parsed.rawHash,
+      senderName: parsed.senderName,
+      senderKey: parsed.senderKey,
+      teacherId: teacherResult.teacher?.id || '',
+      status: 'pending',
+      reason: `Ошибка обработки уведомления на сервере: ${message}`.slice(0, PAYMENT_NOTIFICATION_REASON_MAX_LENGTH),
+    });
+    return result.entry;
+  } catch (storeError) {
+    console.error('[payment-notification] failed to store processing error:', storeError);
+    return null;
+  }
 };
 
 const handleTbankPaymentNotification = (payload = {}) => {
@@ -12149,7 +12193,7 @@ const handleTbankPaymentNotification = (payload = {}) => {
     return { ok: true, statusCode: 202, entry: result.entry };
   }
 
-  const applyResult = applyPaymentNotificationToTeacherCalendar({
+  const applyResult = safelyApplyPaymentNotificationToTeacherCalendar({
     teacher: teacherResult.teacher,
     student: match.student,
     parsed,
@@ -14337,7 +14381,15 @@ app.post('/api/payment-notifications/tbank', (req, res) => {
     });
   } catch (error) {
     console.error('[payment-notification] failed:', error);
-    return res.status(500).json({ ok: false, error: 'Не удалось обработать уведомление оплаты.' });
+    const entry = storePaymentNotificationProcessingError(payload, error);
+    return res.status(202).json({
+      ok: true,
+      notification: serializePaymentNotificationEntry(entry || {
+        id: `tbank-error-${Date.now()}`,
+        status: 'pending',
+        reason: 'Не удалось обработать уведомление оплаты.',
+      }),
+    });
   }
 });
 
@@ -14357,7 +14409,15 @@ app.post('/api/payment-notifications/macrodroid', (req, res) => {
     });
   } catch (error) {
     console.error('[payment-notification] failed:', error);
-    return res.status(500).json({ ok: false, error: 'Не удалось обработать уведомление оплаты.' });
+    const entry = storePaymentNotificationProcessingError(payload, error);
+    return res.status(202).json({
+      ok: true,
+      notification: serializePaymentNotificationEntry(entry || {
+        id: `tbank-error-${Date.now()}`,
+        status: 'pending',
+        reason: 'Не удалось обработать уведомление оплаты.',
+      }),
+    });
   }
 });
 
