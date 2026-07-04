@@ -285,6 +285,47 @@ const StudentNotificationsCenter = ({
   const hasFeaturedGiftToClaim = Boolean(
     featuredNotification?.gift?.coins > 0 && !featuredNotification?.gift?.claimed
   );
+  const featuredNotificationTheme = isDarkTheme
+    ? {
+      overlay: 'fixed inset-0 z-[1250] flex items-center justify-center bg-slate-950/78 px-3 py-4 backdrop-blur-[6px]',
+      shell: 'relative w-full max-w-3xl overflow-hidden rounded-[36px] border border-fuchsia-300/25 bg-[radial-gradient(circle_at_top,_rgba(168,85,247,0.32),_rgba(15,23,42,0.96)_58%)] p-5 shadow-[0_40px_120px_rgba(15,23,42,0.65)] sm:p-7',
+      glow: 'pointer-events-none absolute inset-x-10 top-0 h-28 rounded-full bg-fuchsia-400/20 blur-3xl',
+      badge: 'inline-flex items-center gap-2 rounded-full border border-fuchsia-300/35 bg-fuchsia-500/15 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-fuchsia-100',
+      meta: 'mt-3 text-xs font-medium uppercase tracking-[0.16em] text-slate-300/80',
+      giftNotice: 'rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100',
+      closeButton: 'rounded-2xl border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white',
+      messageCard: 'rounded-[30px] border border-white/10 bg-slate-950/65 px-5 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:px-7 sm:py-7',
+      messageText: 'text-xl font-semibold leading-tight text-white sm:text-[2rem] sm:leading-[1.28]',
+      messageLink: 'text-fuchsia-200 underline decoration-fuchsia-300/70 underline-offset-4',
+      emptyCard: 'rounded-[28px] border border-dashed border-white/20 bg-white/5 px-5 py-5 text-sm text-slate-200',
+      mockExamCard: 'mt-5 rounded-[28px] border border-fuchsia-300/25 bg-white/10 px-5 py-5',
+      mockExamTitle: 'flex items-center gap-2 text-base font-semibold text-white',
+      mockExamMeta: 'mt-1 text-sm text-slate-200/80',
+      attachments: 'mt-5 space-y-4 [&_.text-slate-900]:!text-white [&_.text-slate-500]:!text-slate-400 [&_.text-purple-600]:!text-fuchsia-200',
+      footerHint: 'max-w-xl text-sm leading-6 text-slate-300/80',
+      secondaryButton: 'min-w-[180px] justify-center',
+      primaryButton: 'min-w-[180px] justify-center',
+    }
+    : {
+      overlay: 'fixed inset-0 z-[1250] flex items-center justify-center bg-slate-900/24 px-3 py-4 backdrop-blur-[4px]',
+      shell: 'relative w-full max-w-3xl overflow-hidden rounded-[36px] border border-purple-100 bg-[radial-gradient(circle_at_top,_rgba(221,214,254,0.72),_rgba(255,255,255,0.98)_56%)] p-5 text-slate-900 shadow-[0_34px_90px_rgba(88,28,135,0.18),0_0_0_1px_rgba(255,255,255,0.8)_inset] sm:p-7',
+      glow: 'pointer-events-none absolute inset-x-10 top-0 h-28 rounded-full bg-purple-200/55 blur-3xl',
+      badge: 'inline-flex items-center gap-2 rounded-full border border-purple-200 bg-white/76 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-purple-700 shadow-sm',
+      meta: 'mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500',
+      giftNotice: 'rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700',
+      closeButton: 'rounded-2xl border border-slate-200 bg-white/85 p-2 text-slate-500 shadow-sm transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700',
+      messageCard: 'rounded-[30px] border border-purple-100/80 bg-white px-5 py-6 shadow-[0_18px_45px_rgba(88,28,135,0.08),inset_0_1px_0_rgba(255,255,255,0.9)] sm:px-7 sm:py-7',
+      messageText: 'text-xl font-semibold leading-tight text-slate-950 sm:text-[2rem] sm:leading-[1.28]',
+      messageLink: 'text-purple-700 underline decoration-purple-300 underline-offset-4',
+      emptyCard: 'rounded-[28px] border border-dashed border-purple-200 bg-white/78 px-5 py-5 text-sm text-slate-600',
+      mockExamCard: 'mt-5 rounded-[28px] border border-purple-100 bg-white/82 px-5 py-5 shadow-sm',
+      mockExamTitle: 'flex items-center gap-2 text-base font-semibold text-slate-900',
+      mockExamMeta: 'mt-1 text-sm text-slate-500',
+      attachments: 'mt-5 space-y-4',
+      footerHint: 'max-w-xl text-sm leading-6 text-slate-500',
+      secondaryButton: 'min-w-[180px] justify-center border-purple-100 bg-white text-purple-700 hover:bg-purple-50',
+      primaryButton: 'min-w-[180px] justify-center shadow-[0_12px_24px_rgba(124,58,237,0.22)]',
+    };
 
   const unreadCount = useMemo(
     () => notifications.filter((item) => !item?.seen).length,
@@ -667,31 +708,31 @@ const StudentNotificationsCenter = ({
 
       {featuredNotification && (
         <div
-          className="fixed inset-0 z-[1250] flex items-center justify-center bg-slate-950/78 px-3 py-4 backdrop-blur-[6px]"
+          className={featuredNotificationTheme.overlay}
           onClick={() => {
             if (!hasFeaturedGiftToClaim) closeFeaturedNotification();
           }}
         >
           <div
-            className="relative w-full max-w-3xl overflow-hidden rounded-[36px] border border-fuchsia-300/25 bg-[radial-gradient(circle_at_top,_rgba(168,85,247,0.32),_rgba(15,23,42,0.96)_58%)] p-5 shadow-[0_40px_120px_rgba(15,23,42,0.65)] sm:p-7"
+            className={featuredNotificationTheme.shell}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="pointer-events-none absolute inset-x-10 top-0 h-28 rounded-full bg-fuchsia-400/20 blur-3xl" />
+            <div className={featuredNotificationTheme.glow} />
 
             <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="inline-flex items-center gap-2 rounded-full border border-fuchsia-300/35 bg-fuchsia-500/15 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-fuchsia-100">
+                <div className={featuredNotificationTheme.badge}>
                   <Megaphone size={14} />
                   Важное уведомление
                 </div>
-                <div className="mt-3 text-xs font-medium uppercase tracking-[0.16em] text-slate-300/80">
+                <div className={featuredNotificationTheme.meta}>
                   {formatNotificationDate(featuredNotification?.createdAt)}
                   {featuredNotification?.createdByName ? ` • ${featuredNotification.createdByName}` : ''}
                 </div>
               </div>
 
               {hasFeaturedGiftToClaim && (
-                <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100">
+                <div className={featuredNotificationTheme.giftNotice}>
                   Сначала забери подарок
                 </div>
               )}
@@ -700,7 +741,7 @@ const StudentNotificationsCenter = ({
                 onClick={() => {
                   if (!hasFeaturedGiftToClaim) closeFeaturedNotification();
                 }}
-                className={`rounded-2xl border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white ${hasFeaturedGiftToClaim ? 'pointer-events-none opacity-0' : ''}`}
+                className={`${featuredNotificationTheme.closeButton} ${hasFeaturedGiftToClaim ? 'pointer-events-none opacity-0' : ''}`}
                 aria-label="Закрыть уведомление"
               >
                 <X size={16} />
@@ -709,17 +750,17 @@ const StudentNotificationsCenter = ({
 
             <div className="relative mt-6">
               {featuredNotification?.text ? (
-                <div className="rounded-[30px] border border-white/10 bg-slate-950/65 px-5 py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:px-7 sm:py-7">
-                  <div className="text-xl font-semibold leading-tight text-white sm:text-[2rem] sm:leading-[1.28]">
+                <div className={featuredNotificationTheme.messageCard}>
+                  <div className={featuredNotificationTheme.messageText}>
                     <LinkifiedText
                       text={featuredNotification.text}
                       className="whitespace-pre-wrap break-words"
-                      linkClassName="text-fuchsia-200 underline decoration-fuchsia-300/70 underline-offset-4"
+                      linkClassName={featuredNotificationTheme.messageLink}
                     />
                   </div>
                 </div>
               ) : (
-                <div className="rounded-[28px] border border-dashed border-white/20 bg-white/5 px-5 py-5 text-sm text-slate-200">
+                <div className={featuredNotificationTheme.emptyCard}>
                   {featuredNotification?.gift?.coins > 0
                     ? 'Тут есть подарок. Монеты можно забрать ниже.'
                     : 'К уведомлению приложены материалы ниже.'}
@@ -732,21 +773,21 @@ const StudentNotificationsCenter = ({
                     gift={featuredNotification?.gift}
                     claiming={claimingGiftId === featuredNotification?.id}
                     onClaim={featuredNotification?.gift?.claimed ? undefined : (event) => handleClaimGift(featuredNotification, event?.currentTarget?.getBoundingClientRect?.() || null)}
-                    dark
+                    dark={isDarkTheme}
                   />
                 </div>
               )}
 
               {featuredNotification?.mockExam?.id && (
-                <div className="mt-5 rounded-[28px] border border-fuchsia-300/25 bg-white/10 px-5 py-5">
+                <div className={featuredNotificationTheme.mockExamCard}>
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 text-base font-semibold text-white">
+                      <div className={featuredNotificationTheme.mockExamTitle}>
                         <BookOpen size={18} />
                         {featuredNotification?.mockExam?.title || 'Прикреплённый пробник'}
                       </div>
                       <MockExamBadges badges={featuredNotification?.mockExam?.badges} size="md" className="mt-2" />
-                      <div className="mt-1 text-sm text-slate-200/80">
+                      <div className={featuredNotificationTheme.mockExamMeta}>
                         {Number(featuredNotification?.mockExam?.taskCount) > 0
                           ? `Заданий внутри: ${featuredNotification.mockExam.taskCount}`
                           : 'Пробник можно открыть сразу из этого уведомления.'}
@@ -767,15 +808,15 @@ const StudentNotificationsCenter = ({
               )}
 
               {(featuredNotification?.image || featuredNotification?.file) && (
-                <div className="mt-5 space-y-4 [&_.text-slate-900]:!text-white [&_.text-slate-500]:!text-slate-400 [&_.text-purple-600]:!text-fuchsia-200">
-                  <NotificationAttachment attachment={featuredNotification?.image} isImage dark />
-                  <NotificationAttachment attachment={featuredNotification?.file} dark />
+                <div className={featuredNotificationTheme.attachments}>
+                  <NotificationAttachment attachment={featuredNotification?.image} isImage dark={isDarkTheme} />
+                  <NotificationAttachment attachment={featuredNotification?.file} dark={isDarkTheme} />
                 </div>
               )}
             </div>
 
             <div className="relative mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="max-w-xl text-sm leading-6 text-slate-300/80">
+              <div className={featuredNotificationTheme.footerHint}>
                 Покажем это сообщение один раз крупно. Потом оно останется в колокольчике сверху.
               </div>
               <div className="flex flex-col gap-3 sm:flex-row">
@@ -783,7 +824,7 @@ const StudentNotificationsCenter = ({
                   <Button
                     type="button"
                     variant="secondary"
-                    className="min-w-[180px] justify-center"
+                    className={featuredNotificationTheme.secondaryButton}
                     onClick={() => handleOpenNotificationMockExam(featuredNotification, { closeFeatured: true })}
                     disabled={hasFeaturedGiftToClaim}
                   >
@@ -792,7 +833,7 @@ const StudentNotificationsCenter = ({
                   </Button>
                 )}
                 {!hasFeaturedGiftToClaim && (
-                <Button type="button" onClick={closeFeaturedNotification} className="min-w-[180px] justify-center">
+                <Button type="button" onClick={closeFeaturedNotification} className={featuredNotificationTheme.primaryButton}>
                   Понятно
                 </Button>
                 )}

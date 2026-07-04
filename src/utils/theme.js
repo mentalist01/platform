@@ -8,8 +8,7 @@ export const normalizeTheme = (value) => (
 );
 
 export const getPreferredTheme = () => {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return THEME_LIGHT;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? THEME_DARK : THEME_LIGHT;
+  return THEME_LIGHT;
 };
 
 export const clearStoredSession = () => {
