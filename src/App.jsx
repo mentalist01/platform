@@ -13601,21 +13601,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     more: '\u0415\u0449\u0435',
   };
   const navToneById = {
-    schedule: 'sky',
-    'teacher-calendar': 'sky',
-    finance: 'slate',
-    progress: 'blue',
-    review: 'indigo',
-    lesson: 'blue',
-    call: 'blue',
+    schedule: 'violet',
+    'teacher-calendar': 'violet',
+    finance: 'violet',
+    progress: 'violet',
+    review: 'violet',
+    lesson: 'violet',
+    call: 'violet',
     board: 'violet',
-    collab: 'blue',
+    collab: 'violet',
     python: 'violet',
-    rating: 'slate',
+    rating: 'violet',
     chat: 'violet',
     [TEACHER_COMMS_VIEW]: 'violet',
-    teacher: 'slate',
-    admin: 'slate',
+    teacher: 'violet',
+    admin: 'violet',
     notes: 'violet',
     more: 'violet',
   };
@@ -17489,16 +17489,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 }}
                 className={`desktop-nav-fab__item ${isActive ? 'is-active' : ''} ${isFeatured ? 'desktop-nav-fab__item--featured' : ''}`}
                 data-nav-tone={getNavTone(n.id)}
-                style={isFeatured ? {
-                  background: isActive
-                    ? 'linear-gradient(145deg, rgba(251, 191, 36, 0.98), rgba(245, 158, 11, 0.94))'
-                    : 'linear-gradient(145deg, rgba(254, 243, 199, 0.98), rgba(255, 251, 235, 0.96))',
-                  borderColor: isActive ? 'rgba(217, 119, 6, 0.9)' : 'rgba(245, 158, 11, 0.76)',
-                  color: isActive ? 'rgb(15, 23, 42)' : 'rgb(180, 83, 9)',
-                  boxShadow: isActive
-                    ? '0 12px 24px rgba(245, 158, 11, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
-                    : '0 10px 22px rgba(245, 158, 11, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.86)',
-                } : undefined}
                 aria-current={isActive ? 'page' : undefined}
                 data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                 aria-label={n.label}
