@@ -22,8 +22,18 @@ const getStudentDisplayLabel = (student) => {
   );
 };
 
-const normalizeStudents = (students) => (
+const isGraduateStudent = (student) => {
+  const grade = String(student?.grade || student?.studentGrade || student?.className || student?.class || '').trim().toLowerCase();
+  return Boolean(student?.isGraduate)
+    || grade === 'graduate'
+    || grade === 'graduates'
+    || grade === 'выпускник'
+    || grade === 'выпускники';
+};
+
+const normalizeStudents = (students, { includeGraduates = false } = {}) => (
   (Array.isArray(students) ? students : [])
+    .filter((student) => includeGraduates || !isGraduateStudent(student))
     .map((student) => {
       const id = String(student?.id || student?.studentId || '').trim();
       if (!id) return null;
@@ -70,6 +80,7 @@ const StudentSearchSelect = ({
   emptyText = 'Ничего не найдено',
   ariaLabel = 'Выберите ученика',
   dark = false,
+  includeGraduates = false,
 }) => {
   const rootRef = useRef(null);
   const inputRef = useRef(null);
@@ -79,7 +90,7 @@ const StudentSearchSelect = ({
   const [activeIndex, setActiveIndex] = useState(0);
   const [menuStyle, setMenuStyle] = useState(null);
 
-  const options = useMemo(() => normalizeStudents(students), [students]);
+  const options = useMemo(() => normalizeStudents(students, { includeGraduates }), [includeGraduates, students]);
   const selectedId = String(value || '').trim();
   const selectedOption = options.find((student) => student.id === selectedId) || null;
   const normalizedQuery = normalizeSearchText(query);

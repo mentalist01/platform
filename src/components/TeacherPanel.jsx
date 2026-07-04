@@ -32,6 +32,33 @@ const QUESTION_LABEL_COLOR_PRESETS = [
   '#475569',
 ];
 
+const TEACHER_TASK_ACCENTS = [
+  { rgb: '14 165 233', color: '#0284c7', dark: '#075985', bg: '#e0f2fe', bgStrong: '#bae6fd' },
+  { rgb: '124 58 237', color: '#7c3aed', dark: '#5b21b6', bg: '#ede9fe', bgStrong: '#ddd6fe' },
+  { rgb: '16 185 129', color: '#059669', dark: '#047857', bg: '#d1fae5', bgStrong: '#a7f3d0' },
+  { rgb: '245 158 11', color: '#d97706', dark: '#92400e', bg: '#fef3c7', bgStrong: '#fde68a' },
+  { rgb: '244 63 94', color: '#e11d48', dark: '#9f1239', bg: '#ffe4e6', bgStrong: '#fecdd3' },
+  { rgb: '99 102 241', color: '#4f46e5', dark: '#3730a3', bg: '#e0e7ff', bgStrong: '#c7d2fe' },
+  { rgb: '20 184 166', color: '#0f766e', dark: '#115e59', bg: '#ccfbf1', bgStrong: '#99f6e4' },
+  { rgb: '217 70 239', color: '#c026d3', dark: '#86198f', bg: '#fae8ff', bgStrong: '#f5d0fe' },
+];
+
+const getTeacherTaskAccent = (taskNumber) => {
+  const normalized = Math.max(1, Math.floor(Number(taskNumber) || 1));
+  return TEACHER_TASK_ACCENTS[(normalized - 1) % TEACHER_TASK_ACCENTS.length];
+};
+
+const getTeacherTaskAccentStyle = (taskNumber) => {
+  const accent = getTeacherTaskAccent(taskNumber);
+  return {
+    '--teacher-task-accent-rgb': accent.rgb,
+    '--teacher-task-accent-color': accent.color,
+    '--teacher-task-accent-dark': accent.dark,
+    '--teacher-task-accent-bg': accent.bg,
+    '--teacher-task-accent-bg-strong': accent.bgStrong,
+  };
+};
+
 const QUESTION_REORDER_DRAG_TYPE = 'application/x-teacher-question-id';
 
 const normalizeStudentGradeValue = (value) => {
@@ -146,6 +173,7 @@ const TeacherPanel = ({
   const isSignupChatsMode = mode === 'signup-chats';
   const isTestsMode = !isSignupChatsMode;
   const [isStudentsExpanded, setIsStudentsExpanded] = useState(false);
+  const [isTeacherCodeExpanded, setIsTeacherCodeExpanded] = useState(false);
   const [testDb, setTestDb] = useState(null);
   const [testsLoading, setTestsLoading] = useState(false);
   const [testsError, setTestsError] = useState('');
@@ -204,6 +232,7 @@ const TeacherPanel = ({
   const [dragOverQuestionPosition, setDragOverQuestionPosition] = useState('before');
   const [isReorderingQuestions, setIsReorderingQuestions] = useState(false);
   const [questionReorderMessage, setQuestionReorderMessage] = useState('');
+  const [questionMoveDraft, setQuestionMoveDraft] = useState({ questionId: null, value: '', error: '' });
   const [questionImageLightbox, setQuestionImageLightbox] = useState(null);
   const screenshotsRef = useRef(null);
   const filesRef = useRef(null);
@@ -675,6 +704,31 @@ const TeacherPanel = ({
     0
   );
   const bulkQuestionFileCount = levelQuestionFileCount + questionFiles.length;
+  const persistQuestionOrder = async (reorderedQuestions, successMessage = 'Порядок сохранён') => {
+    const orderChanged = reorderedQuestions.some((item, index) => String(item?.id) !== String(currentQuestions[index]?.id));
+    if (!orderChanged) return false;
+
+    const previousDb = testDb;
+    const updatedDb = { ...(testDb || {}) };
+    updatedDb[selectedTask] = { ...(updatedDb[selectedTask] || {}) };
+    updatedDb[selectedTask][selectedLevel] = reorderedQuestions;
+
+    setIsReorderingQuestions(true);
+    setQuestionReorderMessage('Сохраняю новый порядок…');
+    setTestDb(updatedDb);
+    try {
+      await api.saveTests(updatedDb);
+      setQuestionReorderMessage(successMessage);
+      return true;
+    } catch (err) {
+      setTestDb(previousDb);
+      setQuestionReorderMessage(`Не удалось сохранить порядок: ${err?.message || err}`);
+      return false;
+    } finally {
+      setIsReorderingQuestions(false);
+    }
+  };
+
   const getQuestionDragScrollTarget = (node) => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return null;
     let current = node instanceof Element ? node : null;
@@ -806,26 +860,61 @@ const TeacherPanel = ({
     if (sourceIndex < insertIndex) insertIndex -= 1;
     insertIndex = Math.max(0, Math.min(reorderedQuestions.length, insertIndex));
     reorderedQuestions.splice(insertIndex, 0, movedQuestion);
-    const orderChanged = reorderedQuestions.some((item, index) => String(item?.id) !== String(currentQuestions[index]?.id));
-    if (!orderChanged) return;
+    await persistQuestionOrder(reorderedQuestions);
+  };
 
-    const previousDb = testDb;
-    const updatedDb = { ...(testDb || {}) };
-    updatedDb[selectedTask] = { ...(updatedDb[selectedTask] || {}) };
-    updatedDb[selectedTask][selectedLevel] = reorderedQuestions;
+  const openQuestionMoveDraft = (questionId, position) => {
+    if (currentQuestions.length <= 1 || isReorderingQuestions || isUploadingQuestion) return;
+    setQuestionReorderMessage('');
+    setQuestionMoveDraft({
+      questionId,
+      value: String(position),
+      error: '',
+    });
+  };
 
-    setIsReorderingQuestions(true);
-    setQuestionReorderMessage('Сохраняю новый порядок…');
-    setTestDb(updatedDb);
-    try {
-      await api.saveTests(updatedDb);
-      setQuestionReorderMessage('Порядок сохранён');
-    } catch (err) {
-      setTestDb(previousDb);
-      setQuestionReorderMessage(`Не удалось сохранить порядок: ${err?.message || err}`);
-    } finally {
-      setIsReorderingQuestions(false);
+  const closeQuestionMoveDraft = () => {
+    setQuestionMoveDraft({ questionId: null, value: '', error: '' });
+  };
+
+  const handleQuestionMoveDraftChange = (value) => {
+    setQuestionMoveDraft((prev) => ({
+      ...prev,
+      value: String(value || '').replace(/[^\d]/g, '').slice(0, 3),
+      error: '',
+    }));
+  };
+
+  const submitQuestionMoveDraft = async (questionId) => {
+    const sourceIndex = currentQuestions.findIndex((item) => String(item?.id) === String(questionId));
+    if (sourceIndex === -1) {
+      closeQuestionMoveDraft();
+      return;
     }
+
+    const targetPosition = Number(questionMoveDraft.value);
+    if (!Number.isInteger(targetPosition) || targetPosition < 1 || targetPosition > currentQuestions.length) {
+      setQuestionMoveDraft((prev) => ({
+        ...prev,
+        error: `Введите место от 1 до ${currentQuestions.length}.`,
+      }));
+      return;
+    }
+
+    if (targetPosition === sourceIndex + 1) {
+      setQuestionReorderMessage(`Вопрос уже стоит на месте ${targetPosition}`);
+      closeQuestionMoveDraft();
+      return;
+    }
+
+    const movedQuestion = currentQuestions[sourceIndex];
+    const reorderedQuestions = currentQuestions.filter((_, index) => index !== sourceIndex);
+    reorderedQuestions.splice(targetPosition - 1, 0, movedQuestion);
+    const saved = await persistQuestionOrder(
+      reorderedQuestions,
+      `Вопрос №${sourceIndex + 1} перенесён на место ${targetPosition}`
+    );
+    if (saved) closeQuestionMoveDraft();
   };
 
   const handleBulkRenameQuestionFiles = async () => {
@@ -884,6 +973,13 @@ const TeacherPanel = ({
   const tasksList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const selectedTaskInfo = tasksList.find((taskItem) => Number(taskItem?.number) === Number(selectedTask)) || null;
   const selectedLevelInfo = Object.values(LEVELS).find((levelItem) => levelItem.id === selectedLevel) || null;
+  const activeStudent = studentsList.find((student) => String(student?.id || '') === String(activeStudentId || '')) || null;
+  const selectedTaskDisplay = getTaskDisplayNumber(selectedTaskInfo || { number: selectedTask });
+  const selectedTaskTitle = selectedTaskInfo?.title || 'Выберите задание';
+  const selectedLevelLabel = selectedLevelInfo?.label || selectedLevel;
+  const activeStudentLabel = activeStudent?.name || 'Не выбран';
+  const selectedTaskAccentStyle = getTeacherTaskAccentStyle(selectedTask);
+  const selectedTaskContextLabel = `Задание ${selectedTaskDisplay}`;
   const normalizedQuestionLabelPreview = normalizeQuestionLabelText(questionLabelText);
   const questionAttachmentCount = questionScreenshots.length
     + questionFiles.length
@@ -1495,7 +1591,20 @@ const TeacherPanel = ({
       onDrop={handleQuestionAttachmentDrop}
     >
       <div className="teacher-question-editor__header">
-        <div className="min-w-0">
+        <div className="teacher-question-editor__header-content min-w-0">
+          <div className="teacher-question-editor__target-banner">
+            <div className="teacher-question-editor__target-main">
+              <span>Редактируете в</span>
+              <strong>
+                <b>{selectedTaskContextLabel}</b>
+                {selectedTaskTitle}
+              </strong>
+            </div>
+            <div className="teacher-question-editor__target-meta">
+              <span>{selectedLevelLabel}</span>
+              <span>{`Вопрос №${editorQuestionNumber}`}</span>
+            </div>
+          </div>
           <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
             <span className="teacher-question-editor__title-icon"><Pencil size={18} /></span>
             Редактирование вопроса №{editorQuestionNumber}
@@ -2125,22 +2234,42 @@ const TeacherPanel = ({
 
 
   return (
-    <div className="animate-fadeIn pb-10">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          {isSignupChatsMode ? <MessageSquare className="text-purple-600" /> : <Settings className="text-purple-600" />}
-          {isSignupChatsMode ? 'Чаты с записывающимися' : 'Панель учителя'}
-        </h2>
-        <p className="text-gray-500">
-          {isSignupChatsMode
-            ? 'Сообщения от людей, которые нажали "Я хочу записаться"'
-            : 'Добавление и редактирование заданий для тестов'}
-        </p>
-        {isTestsMode && testsLoading && <p className="text-xs text-gray-400 mt-2">Загрузка базы тестов...</p>}
-        {isTestsMode && testsError && <p className="text-xs text-red-500 mt-2">{testsError}</p>}
-      </div>
+    <div className="teacher-panel-shell animate-fadeIn pb-10">
+      <div className={`teacher-panel-hero ${isTestsMode ? '' : 'teacher-panel-hero--simple'}`}>
+        <div className="teacher-panel-hero__copy">
+          <h2 className="teacher-panel-title text-2xl font-bold text-gray-900 flex items-center gap-2">
+            {isSignupChatsMode ? <MessageSquare className="text-purple-600" /> : <Settings className="text-purple-600" />}
+            {isSignupChatsMode ? 'Чаты с записывающимися' : 'Панель учителя'}
+          </h2>
+          <p className="teacher-panel-subtitle text-gray-500">
+            {isSignupChatsMode
+              ? 'Сообщения от людей, которые нажали "Я хочу записаться"'
+              : 'Тесты, ученики и служебные действия в одном рабочем месте'}
+          </p>
+          {isTestsMode && testsLoading && <p className="text-xs text-gray-400 mt-2">Загрузка базы тестов...</p>}
+          {isTestsMode && testsError && <p className="text-xs text-red-500 mt-2">{testsError}</p>}
+        </div>
 
-      {isTestsMode && <BroadcastNotificationsPanel role={role} />}
+        {isTestsMode && (
+          <div className="teacher-panel-hero__stats" aria-label="Сводка панели учителя">
+            <div className="teacher-panel-stat">
+              <span>Ученики</span>
+              <strong>{studentsList.length}</strong>
+              <small>{activeStudentLabel}</small>
+            </div>
+            <div className="teacher-panel-stat">
+              <span>Текущий уровень</span>
+              <strong>{selectedLevelLabel}</strong>
+              <small>{`Задание ${selectedTaskDisplay}`}</small>
+            </div>
+            <div className="teacher-panel-stat">
+              <span>Вопросы</span>
+              <strong>{currentQuestions.length}</strong>
+              <small>{selectedTaskTitle}</small>
+            </div>
+          </div>
+        )}
+      </div>
 
       {isSignupChatsMode && (
       <Card className="teacher-signup-card mb-6">
@@ -2417,7 +2546,12 @@ const TeacherPanel = ({
 
       {isTestsMode && (
       <>
-      <Card className="mb-6">
+      <div className="teacher-panel-admin-grid">
+      <div className="teacher-panel-broadcast-stack">
+        <BroadcastNotificationsPanel role={role} />
+      </div>
+
+      <Card className="teacher-panel-card teacher-students-card">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-gray-800">Ученики</h3>
@@ -2929,51 +3063,81 @@ const TeacherPanel = ({
         </>
         )}
       </Card>
+      </div>
 
-      <Card className="mb-6">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Смена кода учителя</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input
-            type="password"
-            value={teacherCodeForm.current}
-            onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, current: e.target.value }))}
-            placeholder="Текущий код"
-            className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-          />
-          <input
-            type="password"
-            value={teacherCodeForm.next}
-            onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, next: e.target.value }))}
-            placeholder="Новый код"
-            className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-          />
-          <input
-            type="password"
-            value={teacherCodeForm.repeat}
-            onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, repeat: e.target.value }))}
-            placeholder="Повторите код"
-            className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-          />
+      <Card className={`teacher-panel-card teacher-code-card ${isTeacherCodeExpanded ? 'is-expanded' : ''}`}>
+        <div className="teacher-code-card__header">
+          <div className="teacher-code-card__title">
+            <span className="teacher-code-card__icon">
+              <Settings size={16} />
+            </span>
+            <div>
+              <h3>Код учителя</h3>
+              <p>Смена кода входа</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsTeacherCodeExpanded((prev) => !prev)}
+            className="teacher-panel-toggle"
+            aria-expanded={isTeacherCodeExpanded}
+          >
+            {isTeacherCodeExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {isTeacherCodeExpanded ? 'Свернуть' : 'Развернуть'}
+          </button>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
-          <span className="text-xs text-gray-500">Код хранится в зашифрованном виде. Новый код вступит в силу сразу.</span>
-          <Button onClick={handleChangeTeacherCode} disabled={teacherCodeSaving}>
-            {teacherCodeSaving ? 'Сохранение...' : 'Обновить код'}
-          </Button>
-        </div>
+
+        {!isTeacherCodeExpanded ? (
+          <div className="teacher-code-card__preview">Код скрыт и меняется только при необходимости.</div>
+        ) : (
+          <>
+            <div className="teacher-code-card__form">
+              <input
+                type="password"
+                value={teacherCodeForm.current}
+                onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, current: e.target.value }))}
+                placeholder="Текущий код"
+                className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              />
+              <input
+                type="password"
+                value={teacherCodeForm.next}
+                onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, next: e.target.value }))}
+                placeholder="Новый код"
+                className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              />
+              <input
+                type="password"
+                value={teacherCodeForm.repeat}
+                onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, repeat: e.target.value }))}
+                placeholder="Повторите код"
+                className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+              />
+              <Button onClick={handleChangeTeacherCode} disabled={teacherCodeSaving} className="teacher-code-card__button">
+                {teacherCodeSaving ? 'Сохранение...' : 'Обновить код'}
+              </Button>
+            </div>
+            <span className="teacher-code-card__hint">Код хранится в зашифрованном виде. Новый код вступит в силу сразу.</span>
+          </>
+        )}
         {teacherCodeError && <p className="text-xs text-red-500 mt-2">{teacherCodeError}</p>}
         {teacherCodeSuccess && <p className="text-xs text-green-600 mt-2">{teacherCodeSuccess}</p>}
       </Card>
 
-      <div className="teacher-test-builder-layout">
+      <div className="teacher-test-builder-layout" style={selectedTaskAccentStyle}>
         {/* LEFT COLUMN: Controls */}
         <div className="teacher-test-builder-controls">
-          <Card className="teacher-test-builder-control-card teacher-test-builder-control-card--task">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Выберите номер задания</label>
+          <Card className="teacher-test-builder-control-card teacher-test-builder-control-card--task teacher-task-selector-card">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Куда добавляем вопрос</label>
+            <div className="teacher-task-selector-card__current">
+              <span>{selectedTaskContextLabel}</span>
+              <strong>{selectedTaskTitle}</strong>
+              <small>Новый вопрос сохранится именно в этот раздел.</small>
+            </div>
             <select 
               value={selectedTask} 
               onChange={(e) => setSelectedTask(Number(e.target.value))}
-              className="w-full p-3 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:border-purple-500"
+              className="teacher-task-selector-card__select w-full p-3 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:border-purple-500"
             >
               {tasksList.map(t => (
                 <option key={t.id} value={t.number}>Задание {getTaskDisplayNumber(t)}: {t.title}</option>
@@ -2988,9 +3152,9 @@ const TeacherPanel = ({
                 <button
                   key={lvl.id}
                   onClick={() => setSelectedLevel(lvl.id)}
-                  className={`p-3 rounded-xl border text-left flex justify-between items-center transition-all ${
+                  className={`teacher-test-builder-level p-3 rounded-xl border text-left flex justify-between items-center transition-all ${
                     selectedLevel === lvl.id 
-                    ? `border-purple-500 bg-purple-50 text-purple-700 ring-1 ring-purple-500` 
+                    ? `is-selected border-purple-500 bg-purple-50 text-purple-700 ring-1 ring-purple-500`
                     : 'border-gray-200 hover:border-purple-300 text-gray-600'
                   }`}
                 >
@@ -3018,7 +3182,20 @@ const TeacherPanel = ({
             onDrop={handleQuestionAttachmentDrop}
           >
             <div className="teacher-question-editor__header">
-              <div className="min-w-0">
+              <div className="teacher-question-editor__header-content min-w-0">
+                <div className="teacher-question-editor__target-banner">
+                  <div className="teacher-question-editor__target-main">
+                    <span>{editingQuestionId ? 'Редактируете в' : 'Добавляете в'}</span>
+                    <strong>
+                      <b>{selectedTaskContextLabel}</b>
+                      {selectedTaskTitle}
+                    </strong>
+                  </div>
+                  <div className="teacher-question-editor__target-meta">
+                    <span>{selectedLevelLabel}</span>
+                    <span>{editingQuestionId ? `Вопрос №${editorQuestionNumber}` : `Новый вопрос №${editorQuestionNumber}`}</span>
+                  </div>
+                </div>
                 <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                   <span className="teacher-question-editor__title-icon">
                     {editingQuestionId ? <Pencil size={18} /> : <Plus size={18} />}
@@ -3028,14 +3205,6 @@ const TeacherPanel = ({
                 <p className="mt-1 text-xs text-gray-500">
                   Добавьте условие, материалы и ответ — справа сразу виден результат для ученика.
                 </p>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className="teacher-question-editor__context-chip">
-                    Задание {getTaskDisplayNumber(selectedTaskInfo || { number: selectedTask })}
-                  </span>
-                  <span className="teacher-question-editor__context-chip">
-                    {selectedLevelInfo?.label || selectedLevel}
-                  </span>
-                </div>
               </div>
               {editingQuestionId && (
                 <button
@@ -3488,12 +3657,26 @@ const TeacherPanel = ({
           )}
 
           {/* Question List */}
-          <div className="space-y-3" onDragOver={handleQuestionListDragOver}>
+          <div className="teacher-question-list" onDragOver={handleQuestionListDragOver}>
+            <div className="teacher-question-list__context">
+              <div className="teacher-question-list__context-main">
+                <span>Сейчас открыт раздел</span>
+                <strong>
+                  <b>{selectedTaskContextLabel}</b>
+                  {selectedTaskTitle}
+                </strong>
+              </div>
+              <div className="teacher-question-list__context-meta">
+                <span>{selectedLevelLabel}</span>
+                <span>{`${currentQuestions.length} ${currentQuestions.length === 1 ? 'вопрос' : 'вопросов'}`}</span>
+                <span>{currentQuestions.length > 0 ? `Места: 1–${currentQuestions.length}` : 'Мест пока нет'}</span>
+              </div>
+            </div>
             <div className="teacher-question-list-heading">
               <div>
                 <h3 className="font-bold text-gray-700">Существующие вопросы ({currentQuestions.length})</h3>
                 {currentQuestions.length > 1 && (
-                  <p>Перетаскивайте карточки за ручку слева, чтобы менять порядок в текущем уровне.</p>
+                  <p>Перетаскивайте карточки за ручку слева или нажмите на неё, чтобы ввести место вручную.</p>
                 )}
               </div>
               {questionReorderMessage && (
@@ -3518,8 +3701,8 @@ const TeacherPanel = ({
                     <span>Вставить сюда</span>
                   </div>
                 )}
-                <div
-                  className={`teacher-question-card bg-white p-4 rounded-xl border shadow-sm flex justify-between items-start gap-4 ${editingQuestionId === q.id ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100'} ${String(draggingQuestionId) === String(q.id) ? 'is-dragging' : ''}`}
+                <article
+                  className={`teacher-question-card ${editingQuestionId === q.id ? 'is-editing' : ''} ${String(draggingQuestionId) === String(q.id) ? 'is-dragging' : ''}`}
                   onDragOver={(event) => handleQuestionDragOver(event, q.id)}
                   onDrop={(event) => handleQuestionDrop(event, q.id)}
                   onDragEnd={resetQuestionDragState}
@@ -3527,40 +3710,91 @@ const TeacherPanel = ({
                   <button
                     type="button"
                     draggable={currentQuestions.length > 1 && !isReorderingQuestions}
+                    onClick={() => openQuestionMoveDraft(q.id, idx + 1)}
                     onDragStart={(event) => handleQuestionDragStart(event, q.id)}
                     onDragEnd={resetQuestionDragState}
                     className="teacher-question-card__drag-handle"
-                    title="Перетащить вопрос"
-                    aria-label={`Перетащить вопрос №${idx + 1}`}
+                    title="Перетащить или нажать, чтобы поставить на место"
+                    aria-label={`Перетащить или поставить вопрос №${idx + 1} на место`}
                   >
                     <GripVertical size={18} />
                   </button>
-                  <div className="teacher-question-card__content min-w-0 flex-1">
-                    <span className="text-xs font-bold text-gray-400">#{idx + 1}</span>
+                  <div className="teacher-question-card__content">
+                    <div className="teacher-question-card__topline">
+                      <span className="teacher-question-card__position">#{idx + 1}</span>
                     {normalizeQuestionLabel(q.label) && (
                       <span
-                        className="ml-2 inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[10px] font-bold"
+                        className="teacher-question-card__label"
                         style={getQuestionLabelStyle(q.label)}
                       >
                         <span className="truncate">{normalizeQuestionLabel(q.label).text}</span>
                       </span>
                     )}
-                    <p className="text-gray-800 font-medium mb-1">{q.question || 'Вопрос без текста'}</p>
-                    <div className="text-xs text-gray-500 flex gap-2">
-                       <span>
-                        Ответ:{' '}
-                        <span className="text-green-600 font-bold">
-                          {(() => {
-                            const count = getAnswerCountForTask(selectedTask);
-                            const answers = getExpectedAnswers(q, count);
-                            if (count <= 1) return answers[0] || '';
-                            return answers.filter(Boolean).join('; ');
-                          })()}
-                        </span>
+                      <span className="teacher-question-card__level-pill">{selectedLevelLabel}</span>
+                    </div>
+                    <p className="teacher-question-card__text">{q.question || 'Вопрос без текста'}</p>
+                    <div className="teacher-question-card__answer-row">
+                      <span>Ответ</span>
+                      <strong>
+                        {(() => {
+                          const count = getAnswerCountForTask(selectedTask);
+                          const answers = getExpectedAnswers(q, count);
+                          const answerSummary = count <= 1 ? answers[0] : answers.filter(Boolean).join('; ');
+                          return answerSummary || 'не указан';
+                        })()}
+                      </strong>
+                    </div>
+                    {String(questionMoveDraft.questionId) === String(q.id) && (
+                      <div className="teacher-question-card__move-panel">
+                        <label>
+                          <span>Поставить на место</span>
+                          <em>{`1–${currentQuestions.length}`}</em>
+                        </label>
+                        <div>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            autoFocus
+                            value={questionMoveDraft.value}
+                            onChange={(event) => handleQuestionMoveDraftChange(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                submitQuestionMoveDraft(q.id);
+                              }
+                              if (event.key === 'Escape') {
+                                event.preventDefault();
+                                closeQuestionMoveDraft();
+                              }
+                            }}
+                            disabled={isReorderingQuestions}
+                            aria-label={`Новое место вопроса от 1 до ${currentQuestions.length}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => submitQuestionMoveDraft(q.id)}
+                            disabled={isReorderingQuestions}
+                          >
+                            OK
+                          </button>
+                        </div>
+                        <small className={questionMoveDraft.error ? 'is-error' : ''}>
+                          {questionMoveDraft.error || `Введите номер от 1 до ${currentQuestions.length} и нажмите Enter.`}
+                        </small>
+                      </div>
+                    )}
+                    <div className="teacher-question-card__materials-summary">
+                      <span>
+                        <ImagePlus size={13} />
+                        {Array.isArray(q.screenshots) ? q.screenshots.length : 0}
+                      </span>
+                      <span>
+                        <Paperclip size={13} />
+                        {Array.isArray(q.files) ? q.files.length : 0}
                       </span>
                     </div>
                     {Array.isArray(q.screenshots) && q.screenshots.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="teacher-question-card__image-grid">
                         {q.screenshots.map((img) => {
                           const imgUrl = withUploadsAuthToken(img?.url || (img?.storageName ? `/uploads/${img.storageName}` : ''));
                           return (
@@ -3568,7 +3802,7 @@ const TeacherPanel = ({
                             key={img.id || img.url || img.storageName}
                             type="button"
                             onClick={() => openQuestionImageLightbox(imgUrl, img.name || 'Скриншот')}
-                            className="rounded-lg border border-gray-200 bg-gray-50 overflow-hidden hover:border-purple-300"
+                            className="teacher-question-card__image-button"
                             title="Открыть изображение крупно"
                           >
                             <img
@@ -3582,7 +3816,7 @@ const TeacherPanel = ({
                       </div>
                     )}
                     {Array.isArray(q.files) && q.files.length > 0 && (
-                      <div className="mt-3 space-y-2">
+                      <div className="teacher-question-card__files">
                         {q.files.map((file) => {
                           const fileUrl = withUploadsAuthToken(file?.url || (file?.storageName ? `/uploads/${file.storageName}` : ''));
                           return (
@@ -3590,7 +3824,7 @@ const TeacherPanel = ({
                               key={file.id || file.url || file.storageName}
                               href={buildDownloadUrl(fileUrl)}
                               download={file?.name || undefined}
-                              className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
+                              className="teacher-question-card__file-link"
                             >
                               <span className="truncate">{file.name || 'Файл'}</span>
                               <Download size={16} className="text-purple-600" />
@@ -3600,24 +3834,25 @@ const TeacherPanel = ({
                       </div>
                     )}
                   </div>
-                  <div className="teacher-question-card__actions flex items-center gap-2">
+                  <div className="teacher-question-card__actions">
                     <button
                       type="button"
                       onClick={() => startEditQuestion(q)}
-                      className="text-gray-400 hover:text-purple-600 transition-colors p-1"
+                      className="teacher-question-card__icon-action"
                       title="Редактировать"
                     >
                       <Pencil size={18} />
                     </button>
-                    <button 
+                    <button
+                      type="button"
                       onClick={() => handleDeleteQuestion(selectedTask, selectedLevel, q.id)}
-                      className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                      className="teacher-question-card__icon-action teacher-question-card__icon-action--danger"
                       title="Удалить"
                     >
                       <Trash2 size={18} />
                     </button>
                   </div>
-                </div>
+                </article>
                 {String(dragOverQuestionId) === String(q.id) && dragOverQuestionPosition === 'after' && String(draggingQuestionId) !== String(q.id) && (
                   <div
                     className="teacher-question-drop-indicator"
