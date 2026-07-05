@@ -550,6 +550,7 @@ const ProgressSection = ({
   progress,
   onUpdateProgress,
   theme = '',
+  onThemeToggle,
   role,
   studentId,
   students,
@@ -3844,6 +3845,7 @@ const ProgressSection = ({
           {role === 'student' && activeTask && (
         <StudentTestModal 
           theme={theme}
+          onThemeToggle={onThemeToggle}
           task={activeTask} 
           onClose={() => {
             setActiveTask(null);

@@ -17959,6 +17959,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 if (user.role === 'student') setGoalRefreshTick((prev) => prev + 1);
               }}
               theme={theme}
+              onThemeToggle={onThemeToggle}
               role={user.role}
               studentId={user.id}
               students={studentsWithNicknames}

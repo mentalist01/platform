@@ -51064,6 +51064,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   justify-content: center;
   padding: clamp(10px, 1.8vw, 20px);
   color: #e5edf9;
+  transition: padding 0.62s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .student-test-code-focus.is-closing {
@@ -53660,6 +53661,228 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
   opacity: 0.42;
 }
 
+.student-test-code-focus.is-focus-fullscreen {
+  padding: 0;
+}
+
+.student-test-code-focus__workspace.is-focus-fullscreen,
+.student-test-code-focus__workspace:fullscreen {
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.student-test-code-focus__workspace,
+html:not([data-theme='dark']) .student-test-code-focus__workspace {
+  transition:
+    width 0.62s cubic-bezier(0.16, 1, 0.3, 1),
+    height 0.62s cubic-bezier(0.16, 1, 0.3, 1),
+    max-width 0.62s cubic-bezier(0.16, 1, 0.3, 1),
+    border-radius 0.62s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.24s ease,
+    box-shadow 0.42s ease,
+    transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.student-test-code-focus__workspace.is-focus-fullscreen::before,
+.student-test-code-focus__workspace:fullscreen::before {
+  border-radius: 0;
+}
+
+.student-test-code-focus__workspace.is-focus-fullscreen::after,
+.student-test-code-focus__workspace:fullscreen::after {
+  top: 66px;
+}
+
+.student-test-code-focus__workspace.is-focus-fullscreen .student-test-code-focus__body,
+.student-test-code-focus__workspace:fullscreen .student-test-code-focus__body {
+  padding: 10px 12px 12px;
+}
+
+.student-test-code-focus__header-actions {
+  flex-wrap: wrap;
+}
+
+.student-test-code-focus__focus-tools {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.student-test-code-focus__focus-button,
+html:not([data-theme='dark']) .student-test-code-focus__focus-button {
+  --code-focus-button-accent: var(--code-focus-accent);
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--code-focus-button-accent) 34%, var(--code-focus-border));
+  border-radius: 12px;
+  padding: 0 11px;
+  color: var(--code-focus-button-accent);
+  background: color-mix(in srgb, var(--code-focus-button-accent) 10%, var(--code-focus-panel));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--code-focus-button-accent) 11%, transparent);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.student-test-code-focus__focus-button:hover {
+  border-color: var(--code-focus-button-accent);
+  background: color-mix(in srgb, var(--code-focus-button-accent) 15%, var(--code-focus-panel));
+  box-shadow: 0 11px 24px color-mix(in srgb, var(--code-focus-button-accent) 16%, transparent);
+  transform: translateY(-1px);
+}
+
+.student-test-code-focus__focus-button:active {
+  transform: scale(0.97);
+}
+
+.student-test-code-focus__focus-button.is-active,
+html:not([data-theme='dark']) .student-test-code-focus__focus-button.is-active {
+  --code-focus-button-accent: #1f2937;
+  border-color: color-mix(in srgb, var(--code-focus-button-accent) 72%, var(--code-focus-border));
+  color: #ffffff;
+  background: var(--code-focus-button-accent);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.18);
+}
+
+html[data-theme='dark'] .student-test-code-focus__focus-button.is-active {
+  --code-focus-button-accent: #94a3b8;
+  border-color: color-mix(in srgb, var(--code-focus-button-accent) 72%, var(--code-focus-border));
+  color: #e2e8f0;
+  background: color-mix(in srgb, #1e293b 88%, var(--code-focus-button-accent));
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.24);
+}
+
+.student-test-code-focus__focus-button.is-theme,
+html:not([data-theme='dark']) .student-test-code-focus__focus-button.is-theme {
+  --code-focus-theme-accent: #2563eb;
+  --code-focus-button-accent: var(--code-focus-theme-accent);
+  border-color: color-mix(in srgb, var(--code-focus-theme-accent) 36%, var(--code-focus-border));
+  color: var(--code-focus-theme-accent);
+  background: color-mix(in srgb, var(--code-focus-theme-accent) 10%, var(--code-focus-panel));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--code-focus-theme-accent) 10%, transparent);
+}
+
+html[data-theme='dark'] .student-test-code-focus__focus-button.is-theme {
+  --code-focus-theme-accent: #7dd3fc;
+  color: var(--code-focus-theme-accent);
+  border-color: color-mix(in srgb, var(--code-focus-theme-accent) 34%, var(--code-focus-border));
+  background: color-mix(in srgb, var(--code-focus-theme-accent) 10%, var(--code-focus-panel));
+}
+
+.student-test-code-focus__focus-button.is-music,
+html:not([data-theme='dark']) .student-test-code-focus__focus-button.is-music {
+  --code-focus-music-accent: #f59e0b;
+  --code-focus-button-accent: var(--code-focus-music-accent);
+  border-color: color-mix(in srgb, var(--code-focus-music-accent) 36%, var(--code-focus-border));
+  color: color-mix(in srgb, var(--code-focus-music-accent) 82%, var(--code-focus-text));
+  background: color-mix(in srgb, var(--code-focus-music-accent) 11%, var(--code-focus-panel));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--code-focus-music-accent) 12%, transparent);
+}
+
+.student-test-code-focus__focus-button.is-music.is-active,
+html:not([data-theme='dark']) .student-test-code-focus__focus-button.is-music.is-active {
+  --code-focus-music-accent: #f59e0b;
+  --code-focus-button-accent: var(--code-focus-music-accent);
+  border-color: color-mix(in srgb, var(--code-focus-music-accent) 78%, #b45309);
+  color: #111827;
+  background: var(--code-focus-music-accent);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--code-focus-music-accent) 22%, transparent);
+}
+
+html[data-theme='dark'] .student-test-code-focus__focus-button.is-music {
+  --code-focus-music-accent: #fbbf24;
+  --code-focus-button-accent: var(--code-focus-music-accent);
+  border-color: color-mix(in srgb, var(--code-focus-music-accent) 38%, var(--code-focus-border));
+  color: #facc15;
+  background: color-mix(in srgb, var(--code-focus-music-accent) 9%, var(--code-focus-panel));
+  box-shadow: 0 8px 18px rgba(251, 191, 36, 0.09);
+}
+
+html[data-theme='dark'] .student-test-code-focus__focus-button.is-music.is-active {
+  --code-focus-music-accent: #fbbf24;
+  --code-focus-button-accent: var(--code-focus-music-accent);
+  border-color: color-mix(in srgb, var(--code-focus-music-accent) 66%, var(--code-focus-border));
+  color: #fef3c7;
+  background: color-mix(in srgb, var(--code-focus-music-accent) 18%, #1f2937);
+  box-shadow: 0 12px 26px rgba(251, 191, 36, 0.14);
+}
+
+.student-test-code-focus__focus-button.is-music,
+.student-test-code-focus__volume,
+.student-test-code-focus__music-error {
+  animation: studentTestCodeToolbarIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-test-code-focus__volume,
+html:not([data-theme='dark']) .student-test-code-focus__volume {
+  display: inline-flex;
+  min-height: 34px;
+  width: 156px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--code-focus-border);
+  border-radius: 12px;
+  padding: 0 10px;
+  color: var(--code-focus-muted);
+  background: var(--code-focus-panel);
+  box-shadow: 0 5px 15px rgba(15, 23, 42, 0.045);
+  transition: border-color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+.student-test-code-focus__volume.is-enabled {
+  border-color: color-mix(in srgb, #f59e0b 34%, var(--code-focus-border));
+  color: #d97706;
+}
+
+.student-test-code-focus__volume:has(input:not(:disabled)):hover {
+  border-color: #f59e0b;
+  transform: translateY(-1px);
+}
+
+.student-test-code-focus__volume input {
+  min-width: 0;
+  flex: 1 1 auto;
+  accent-color: #f59e0b;
+  cursor: pointer;
+}
+
+.student-test-code-focus__volume input:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.student-test-code-focus__music-error {
+  display: inline-flex;
+  min-height: 30px;
+  max-width: 240px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, #f97316 42%, var(--code-focus-border));
+  border-radius: 999px;
+  padding: 0 10px;
+  overflow: hidden;
+  color: #c2410c;
+  background: #ffedd5;
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme='dark'] .student-test-code-focus__music-error {
+  color: #fed7aa;
+  background: rgba(124, 45, 18, 0.42);
+}
+
 @media (max-width: 767px) {
   .student-test-side-nav {
     display: none;
@@ -53737,6 +53960,20 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
 
   .student-test-code-focus__workspace.is-side-by-side {
     width: 100%;
+  }
+
+  .student-test-code-focus__header {
+    flex-wrap: wrap;
+  }
+
+  .student-test-code-focus__header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .student-test-code-focus__focus-tools {
+    flex: 1 1 320px;
+    justify-content: flex-start;
   }
 
   .student-test-code-focus__navigator {
@@ -53843,6 +54080,36 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
 
   .student-test-code-focus__save-state {
     display: none;
+  }
+
+  .student-test-code-focus__header-actions {
+    gap: 7px;
+  }
+
+  .student-test-code-focus__focus-tools {
+    width: calc(100% - 48px);
+    flex: 1 1 calc(100% - 48px);
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .student-test-code-focus__focus-button {
+    flex: 1 1 92px;
+    min-height: 32px;
+    padding: 0 8px;
+  }
+
+  .student-test-code-focus__volume {
+    width: auto;
+    flex: 1 1 150px;
+    min-height: 32px;
+    padding: 0 8px;
+  }
+
+  .student-test-code-focus__music-error {
+    width: 100%;
+    max-width: none;
+    min-height: 28px;
   }
 
   .student-test-code-focus__navigator {
@@ -53979,6 +54246,8 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
   .student-test-code-focus__nav-arrow,
   .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__task,
   .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__ide,
+  .student-test-code-focus__focus-button,
+  .student-test-code-focus__volume,
   .student-test-code-focus__tool-button,
   .student-test-code-focus__tool-button::after {
     animation: none !important;

@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, ChevronLeft, ChevronRight, Code2, Download, History, ListChecks, Maximize2, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Terminal, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Code2, Download, History, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -19,11 +19,19 @@ const STUDENT_CODE_FONT_SIZE_DEFAULT = 14;
 const STUDENT_CODE_LAYOUT_ANIMATION_MS = 720;
 const STUDENT_CODE_CLOSE_ANIMATION_MS = 360;
 const STUDENT_TEST_CLOSE_ANIMATION_MS = 340;
+const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
+const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
 
 const clampStudentCodeFontSize = (value) => {
   const numeric = Math.round(Number(value));
   if (!Number.isFinite(numeric)) return STUDENT_CODE_FONT_SIZE_DEFAULT;
   return Math.max(STUDENT_CODE_FONT_SIZE_MIN, Math.min(STUDENT_CODE_FONT_SIZE_MAX, numeric));
+};
+
+const clampStudentCodeFocusMusicVolume = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT;
+  return Math.max(0, Math.min(1, numeric));
 };
 
 const prefersReducedStudentMotion = () => (
@@ -48,6 +56,8 @@ const readStudentCodeWorkspacePrefs = () => {
     return {
       fontSize: STUDENT_CODE_FONT_SIZE_DEFAULT,
       layout: STUDENT_CODE_LAYOUT_STACKED,
+      focusMusicEnabled: false,
+      focusMusicVolume: STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT,
     };
   }
   try {
@@ -57,11 +67,15 @@ const readStudentCodeWorkspacePrefs = () => {
       layout: parsed?.layout === STUDENT_CODE_LAYOUT_SIDE
         ? STUDENT_CODE_LAYOUT_SIDE
         : STUDENT_CODE_LAYOUT_STACKED,
+      focusMusicEnabled: parsed?.focusMusicEnabled === true,
+      focusMusicVolume: clampStudentCodeFocusMusicVolume(parsed?.focusMusicVolume),
     };
   } catch {
     return {
       fontSize: STUDENT_CODE_FONT_SIZE_DEFAULT,
       layout: STUDENT_CODE_LAYOUT_STACKED,
+      focusMusicEnabled: false,
+      focusMusicVolume: STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT,
     };
   }
 };
@@ -277,6 +291,7 @@ const StudentTestModal = ({
   onQuestionChange,
   onStreakSaved,
   onXpGain,
+  onThemeToggle,
   forceInitialLevelLaunch = false,
   LEVELS,
   LEVEL_WEIGHTS,
@@ -296,6 +311,7 @@ const StudentTestModal = ({
   withStudentId,
 }) => {
   const monacoTheme = resolveMonacoColorTheme(theme);
+  const isQuestionCodeDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -335,9 +351,13 @@ const StudentTestModal = ({
   const questionCodeLayoutAnimationTimerRef = useRef(null);
   const questionCodeLayoutAnimationFrameRef = useRef(null);
   const questionCodeLayoutAnimationsRef = useRef([]);
+  const questionCodeWorkspaceRef = useRef(null);
+  const questionCodeAudioRef = useRef(null);
   const questionCodeTaskPanelRef = useRef(null);
   const questionCodeIdePanelRef = useRef(null);
   const questionMainThreadRuntimeFilesRef = useRef([]);
+  const [questionCodeFocusFullscreen, setQuestionCodeFocusFullscreen] = useState(false);
+  const [questionCodeMusicError, setQuestionCodeMusicError] = useState('');
   const autoStartLevel = ['basic', 'advanced', 'expert'].includes(initialLevel) ? initialLevel : null;
 
   const currentMastery = progress[task.id] || 0;
@@ -352,6 +372,8 @@ const StudentTestModal = ({
     ? STUDENT_CODE_LAYOUT_SIDE
     : STUDENT_CODE_LAYOUT_STACKED;
   const isQuestionCodeSideLayout = questionCodeLayout === STUDENT_CODE_LAYOUT_SIDE;
+  const questionCodeFocusMusicEnabled = questionCodeWorkspacePrefs?.focusMusicEnabled === true;
+  const questionCodeFocusMusicVolume = clampStudentCodeFocusMusicVolume(questionCodeWorkspacePrefs?.focusMusicVolume);
   const questionCodeEditorOptions = useMemo(() => ({
     minimap: { enabled: false },
     fontSize: questionCodeFontSize,
@@ -761,6 +783,39 @@ const StudentTestModal = ({
       questionCodeLayoutAnimationFrameRef.current = null;
     }
     clearQuestionCodeLayoutFlip();
+  };
+
+  const stopQuestionCodeFocusAudio = () => {
+    const audio = questionCodeAudioRef.current;
+    if (!audio) return;
+    audio.pause();
+  };
+
+  const playQuestionCodeFocusAudio = () => {
+    const audio = questionCodeAudioRef.current;
+    if (!audio) return;
+    audio.loop = true;
+    audio.volume = questionCodeFocusMusicVolume;
+    const playPromise = audio.play();
+    if (!playPromise || typeof playPromise.then !== 'function') {
+      setQuestionCodeMusicError('');
+      return;
+    }
+    playPromise
+      .then(() => setQuestionCodeMusicError(''))
+      .catch(() => {
+        audio.pause();
+        setQuestionCodeMusicError('Не удалось включить музыку. Добавьте public/sounds/code-focus.mp3.');
+      });
+  };
+
+  const exitQuestionCodeFocusFullscreen = ({ updateState = true } = {}) => {
+    if (updateState) setQuestionCodeFocusFullscreen(false);
+    if (typeof document === 'undefined') return;
+    const workspace = questionCodeWorkspaceRef.current;
+    if (!workspace || document.fullscreenElement !== workspace) return;
+    if (typeof document.exitFullscreen !== 'function') return;
+    document.exitFullscreen().catch(() => {});
   };
 
   const startQuestionCodeLayoutAnimation = (duration = STUDENT_CODE_LAYOUT_ANIMATION_MS) => {
@@ -1206,6 +1261,10 @@ const StudentTestModal = ({
     setQuestionCodeOpen(false);
     setQuestionCodeClosing(false);
     setQuestionCodeLayoutAnimating(false);
+    setQuestionCodeFocusFullscreen(false);
+    setQuestionCodeMusicError('');
+    stopQuestionCodeFocusAudio();
+    exitQuestionCodeFocusFullscreen({ updateState: false });
     questionCodeByIdRef.current = {};
     clearQuestionCodeAutoSaveTimers();
     setQuestionCodeById({});
@@ -1226,8 +1285,10 @@ const StudentTestModal = ({
     window.localStorage.setItem(STUDENT_CODE_WORKSPACE_PREFS_KEY, JSON.stringify({
       fontSize: questionCodeFontSize,
       layout: questionCodeLayout,
+      focusMusicEnabled: questionCodeFocusMusicEnabled,
+      focusMusicVolume: questionCodeFocusMusicVolume,
     }));
-  }, [questionCodeFontSize, questionCodeLayout]);
+  }, [questionCodeFocusMusicEnabled, questionCodeFocusMusicVolume, questionCodeFontSize, questionCodeLayout]);
 
   useEffect(() => {
     if (stage !== 'testing') return;
@@ -1261,6 +1322,14 @@ const StudentTestModal = ({
       if (event.key !== 'Escape') return;
       event.preventDefault();
       clearQuestionCodeCloseTimer();
+      if (questionCodeFocusFullscreen) {
+        stopQuestionCodeFocusAudio();
+        setQuestionCodeMusicError('');
+        exitQuestionCodeFocusFullscreen();
+        return;
+      }
+      stopQuestionCodeFocusAudio();
+      exitQuestionCodeFocusFullscreen();
       if (prefersReducedStudentMotion()) {
         setQuestionCodeClosing(false);
         setQuestionCodeOpen(false);
@@ -1275,13 +1344,62 @@ const StudentTestModal = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [questionCodeOpen]);
+  }, [questionCodeFocusFullscreen, questionCodeOpen]);
+
+  useEffect(() => {
+    const audio = questionCodeAudioRef.current;
+    if (!audio) return;
+    audio.loop = true;
+    audio.volume = questionCodeFocusMusicVolume;
+  }, [questionCodeFocusMusicVolume]);
+
+  useEffect(() => {
+    const audio = questionCodeAudioRef.current;
+    if (!audio) return;
+    if (!questionCodeOpen || !questionCodeFocusFullscreen || !questionCodeFocusMusicEnabled) {
+      audio.pause();
+      if (!questionCodeOpen || !questionCodeFocusFullscreen) {
+        setQuestionCodeMusicError('');
+      }
+      return;
+    }
+    audio.loop = true;
+    audio.volume = questionCodeFocusMusicVolume;
+    const playPromise = audio.play();
+    if (!playPromise || typeof playPromise.then !== 'function') {
+      setQuestionCodeMusicError('');
+      return;
+    }
+    playPromise
+      .then(() => setQuestionCodeMusicError(''))
+      .catch(() => {
+        audio.pause();
+        setQuestionCodeMusicError('Не удалось включить музыку. Добавьте public/sounds/code-focus.mp3.');
+      });
+  }, [questionCodeFocusFullscreen, questionCodeFocusMusicEnabled, questionCodeFocusMusicVolume, questionCodeOpen]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const handleFullscreenChange = () => {
+      const workspace = questionCodeWorkspaceRef.current;
+      const isWorkspaceFullscreen = Boolean(workspace && document.fullscreenElement === workspace);
+      setQuestionCodeFocusFullscreen(isWorkspaceFullscreen);
+      if (!isWorkspaceFullscreen) {
+        stopQuestionCodeFocusAudio();
+        setQuestionCodeMusicError('');
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   useEffect(() => () => {
     clearQuestionCodeAutoSaveTimers();
     clearStudentTestCloseTimer();
     clearQuestionCodeCloseTimer();
     clearQuestionCodeLayoutAnimationTimer();
+    stopQuestionCodeFocusAudio();
+    exitQuestionCodeFocusFullscreen({ updateState: false });
     disposeQuestionRunnerWorker('Python runner stopped.');
   }, []);
 
@@ -1852,6 +1970,8 @@ const StudentTestModal = ({
 
     const handleCloseQuestionCodeFocus = () => {
       clearQuestionCodeCloseTimer();
+      stopQuestionCodeFocusAudio();
+      exitQuestionCodeFocusFullscreen();
       if (prefersReducedStudentMotion()) {
         setQuestionCodeClosing(false);
         setQuestionCodeOpen(false);
@@ -1863,6 +1983,66 @@ const StudentTestModal = ({
         setQuestionCodeClosing(false);
         questionCodeCloseTimerRef.current = null;
       }, STUDENT_CODE_CLOSE_ANIMATION_MS);
+    };
+
+    const updateQuestionCodeFocusMusicEnabled = (enabled) => {
+      setQuestionCodeWorkspacePrefs((prev) => ({
+        ...(prev || {}),
+        focusMusicEnabled: Boolean(enabled),
+      }));
+    };
+
+    const handleToggleQuestionCodeMusic = () => {
+      const nextEnabled = !questionCodeFocusMusicEnabled;
+      updateQuestionCodeFocusMusicEnabled(nextEnabled);
+      if (nextEnabled) {
+        playQuestionCodeFocusAudio();
+        return;
+      }
+      stopQuestionCodeFocusAudio();
+      setQuestionCodeMusicError('');
+    };
+
+    const handleQuestionCodeMusicVolumeChange = (event) => {
+      const nextVolume = clampStudentCodeFocusMusicVolume(Number(event.target.value) / 100);
+      setQuestionCodeWorkspacePrefs((prev) => ({
+        ...(prev || {}),
+        focusMusicVolume: nextVolume,
+      }));
+      const audio = questionCodeAudioRef.current;
+      if (audio) audio.volume = nextVolume;
+    };
+
+    const handleToggleQuestionCodeTheme = () => {
+      if (typeof onThemeToggle === 'function') {
+        onThemeToggle();
+      }
+    };
+
+    const handleToggleQuestionCodeFocusFullscreen = async () => {
+      if (questionCodeFocusFullscreen) {
+        stopQuestionCodeFocusAudio();
+        setQuestionCodeMusicError('');
+        exitQuestionCodeFocusFullscreen();
+        return;
+      }
+
+      flushSync(() => setQuestionCodeFocusFullscreen(true));
+      const workspace = questionCodeWorkspaceRef.current;
+      if (
+        !workspace
+        || typeof document === 'undefined'
+        || document.fullscreenElement
+        || typeof workspace.requestFullscreen !== 'function'
+      ) {
+        return;
+      }
+
+      try {
+        await workspace.requestFullscreen({ navigationUI: 'hide' });
+      } catch {
+        setQuestionCodeFocusFullscreen(true);
+      }
     };
 
     const handleDecreaseQuestionCodeFontSize = () => {
@@ -1948,6 +2128,7 @@ const StudentTestModal = ({
     const codeFocusWorkspaceClassName = [
       'student-test-code-focus__workspace',
       isQuestionCodeSideLayout ? 'is-side-by-side' : '',
+      questionCodeFocusFullscreen ? 'is-focus-fullscreen' : '',
       questionCodeLayoutAnimating ? 'is-layout-animating' : '',
     ].filter(Boolean).join(' ');
     const codeFocusBodyClassName = [
@@ -1957,6 +2138,7 @@ const StudentTestModal = ({
     ].filter(Boolean).join(' ');
     const codeFocusRootClassName = [
       'student-test-code-focus fixed inset-0 z-[70]',
+      questionCodeFocusFullscreen ? 'is-focus-fullscreen' : '',
       questionCodeClosing ? 'is-closing' : '',
     ].filter(Boolean).join(' ');
     const shouldRenderQuestionCodeFocus = questionCodeOpen || questionCodeClosing;
@@ -1974,7 +2156,18 @@ const StudentTestModal = ({
           onClick={handleCloseQuestionCodeFocus}
           aria-label="Закрыть режим кода"
         />
-        <div className={codeFocusWorkspaceClassName}>
+        <div ref={questionCodeWorkspaceRef} className={codeFocusWorkspaceClassName}>
+          <audio
+            ref={questionCodeAudioRef}
+            src={STUDENT_CODE_FOCUS_MUSIC_SRC}
+            loop
+            preload="none"
+            onError={() => {
+              if (questionCodeFocusMusicEnabled) {
+                setQuestionCodeMusicError('Добавьте файл public/sounds/code-focus.mp3.');
+              }
+            }}
+          />
           <header className="student-test-code-focus__header">
             <div className="student-test-code-focus__title">
               <span className="student-test-code-focus__title-icon" aria-hidden="true">
@@ -1988,6 +2181,66 @@ const StudentTestModal = ({
               </div>
             </div>
             <div className="student-test-code-focus__header-actions">
+              <div className="student-test-code-focus__focus-tools" aria-label="Режим полной фокусировки">
+                <button
+                  type="button"
+                  className={`student-test-code-focus__focus-button ${questionCodeFocusFullscreen ? 'is-active' : ''}`}
+                  onClick={handleToggleQuestionCodeFocusFullscreen}
+                  title={questionCodeFocusFullscreen ? 'Выйти из режима Фулл фокус' : 'Включить режим Фулл фокус'}
+                  aria-label={questionCodeFocusFullscreen ? 'Выйти из режима Фулл фокус' : 'Включить режим Фулл фокус'}
+                >
+                  {questionCodeFocusFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                  <span>Фулл фокус</span>
+                </button>
+                {typeof onThemeToggle === 'function' && (
+                  <button
+                    type="button"
+                    className="student-test-code-focus__focus-button is-theme"
+                    onClick={handleToggleQuestionCodeTheme}
+                    title={isQuestionCodeDarkTheme ? 'Включить светлую тему' : 'Включить тёмную тему'}
+                    aria-label={isQuestionCodeDarkTheme ? 'Включить светлую тему' : 'Включить тёмную тему'}
+                  >
+                    {isQuestionCodeDarkTheme ? <Sun size={15} /> : <Moon size={15} />}
+                    <span>{isQuestionCodeDarkTheme ? 'Светлая' : 'Тёмная'}</span>
+                  </button>
+                )}
+                {questionCodeFocusFullscreen && (
+                  <>
+                    <button
+                      type="button"
+                      className={`student-test-code-focus__focus-button is-music ${questionCodeFocusMusicEnabled ? 'is-active' : ''}`}
+                      onClick={handleToggleQuestionCodeMusic}
+                      title={questionCodeFocusMusicEnabled ? 'Выключить музыку' : 'Включить музыку фокуса'}
+                      aria-label={questionCodeFocusMusicEnabled ? 'Выключить музыку' : 'Включить музыку фокуса'}
+                    >
+                      {questionCodeFocusMusicEnabled ? <Volume2 size={15} /> : <Music size={15} />}
+                      <span>Музыка</span>
+                    </button>
+                    <label
+                      className={`student-test-code-focus__volume ${questionCodeFocusMusicEnabled ? 'is-enabled' : ''}`}
+                      title="Громкость музыки"
+                    >
+                      <VolumeX size={13} />
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={Math.round(questionCodeFocusMusicVolume * 100)}
+                        onChange={handleQuestionCodeMusicVolumeChange}
+                        disabled={!questionCodeFocusMusicEnabled}
+                        aria-label="Громкость музыки"
+                      />
+                      <Volume2 size={13} />
+                    </label>
+                  </>
+                )}
+              </div>
+              {questionCodeFocusFullscreen && questionCodeMusicError && (
+                <span className="student-test-code-focus__music-error">
+                  {questionCodeMusicError}
+                </span>
+              )}
               <span className="student-test-code-focus__save-state">{codeFocusStatusLabel}</span>
               <button
                 type="button"
