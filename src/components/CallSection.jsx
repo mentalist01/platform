@@ -371,9 +371,50 @@ const getRtcIceConfig = () => {
 const normalizeErrorMessage = (error, fallback) => {
   const fallbackText = typeof fallback === 'string' ? fallback : 'Ошибка соединения';
   if (!error) return fallbackText;
+  const name = typeof error?.name === 'string' ? error.name.trim() : '';
   const message = typeof error?.message === 'string' ? error.message.trim() : '';
-  if (message) return message;
   const text = String(error).trim();
+  const rawText = [name, message, text].filter(Boolean).join(' ').toLowerCase();
+  const fallbackLower = fallbackText.toLowerCase();
+  const isMicError = fallbackLower.includes('микрофон');
+  const isCameraError = fallbackLower.includes('камер');
+  const isScreenError = fallbackLower.includes('демонстрац') || fallbackLower.includes('экран');
+  const isMediaError = isMicError || isCameraError || isScreenError;
+
+  const isPermissionError = (
+    name === 'NotAllowedError'
+    || name === 'PermissionDeniedError'
+    || (isMediaError && name === 'SecurityError')
+    || /permission denied|permission dismissed|not allowed|access denied|denied by system/.test(rawText)
+  );
+  if (isPermissionError) {
+    if (isMicError) return 'Разрешите доступ к микрофону в браузере и обновите страницу.';
+    if (isCameraError) return 'Разрешите доступ к камере в браузере и попробуйте снова.';
+    if (isScreenError) return 'Разрешите демонстрацию экрана в браузере или выберите окно/экран заново.';
+    return 'Разрешите доступ к устройствам в браузере и попробуйте снова.';
+  }
+
+  const isMissingDeviceError = (
+    name === 'NotFoundError'
+    || name === 'DevicesNotFoundError'
+    || /device not found|requested device not found|not found/i.test(rawText)
+  );
+  if (isMissingDeviceError) {
+    if (isMicError) return 'Браузер не нашел микрофон. Подключите микрофон или выберите другое устройство.';
+    if (isCameraError) return 'Браузер не нашел камеру. Подключите камеру или выберите другое устройство.';
+  }
+
+  const isBusyDeviceError = (
+    name === 'NotReadableError'
+    || name === 'TrackStartError'
+    || /could not start|device in use|not readable/.test(rawText)
+  );
+  if (isBusyDeviceError) {
+    if (isMicError) return 'Микрофон занят другой программой. Закройте другие звонки/приложения и попробуйте снова.';
+    if (isCameraError) return 'Камера занята другой программой. Закройте другие звонки/приложения и попробуйте снова.';
+  }
+
+  if (message) return message;
   return text || fallbackText;
 };
 

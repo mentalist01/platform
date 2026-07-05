@@ -71,6 +71,40 @@ const hasStudentTestDraftValue = (value) => {
   return Boolean(String(value ?? '').trim());
 };
 
+const getStudentQuestionStateKey = (question, questionNumber, fallbackIndex) => {
+  if (question?.id !== null && typeof question?.id !== 'undefined') {
+    return String(question.id);
+  }
+  const normalizedNumber = Number(questionNumber);
+  if (Number.isFinite(normalizedNumber) && normalizedNumber > 0) {
+    return `number:${Math.trunc(normalizedNumber)}`;
+  }
+  return `index:${fallbackIndex}`;
+};
+
+const remapStudentQuestionIndexedState = ({
+  source,
+  fromQuestions = [],
+  fromQuestionNumbers = [],
+  toQuestions = [],
+  toQuestionNumbers = [],
+}) => {
+  if (!source || typeof source !== 'object') return {};
+  const byQuestionKey = new Map();
+  fromQuestions.forEach((question, index) => {
+    if (!Object.prototype.hasOwnProperty.call(source, index)) return;
+    const key = getStudentQuestionStateKey(question, fromQuestionNumbers[index], index);
+    byQuestionKey.set(key, source[index]);
+  });
+  const next = {};
+  toQuestions.forEach((question, index) => {
+    const key = getStudentQuestionStateKey(question, toQuestionNumbers[index], index);
+    if (!byQuestionKey.has(key)) return;
+    next[index] = byQuestionKey.get(key);
+  });
+  return next;
+};
+
 const readStudentTestAnswerDraft = ({ studentId, taskNumber, levelId, questions = [] }) => {
   if (!canUseStudentTestDraftStorage()) return { answersByIndex: {}, currentIndex: null };
   const key = buildStudentTestDraftKey({ studentId, taskNumber, levelId });
@@ -1653,19 +1687,54 @@ const StudentTestModal = ({
     const computedChecked = isSolved || isChecked;
     const computedCorrect = isSolved ? true : isCorrect;
     const rawTargets = Array.isArray(targetQuestions) ? targetQuestions : [];
-    const targetNumbers = rawTargets.length > 0 ? [...questionNumbers] : [];
-    const targetStatus = targetNumbers.map((num) => {
-      const localIndex = questionNumbers.indexOf(num);
-      const question = localIndex >= 0 ? questions[localIndex] : null;
-      const qId = question?.id;
-      const solved = qId ? (solvedIds.has(String(qId)) || results[localIndex] === true) : false;
-      return { num, solved };
-    });
+    const levelQuestions = Array.isArray(testDb?.[task.number]?.[level]) && testDb[task.number][level].length > 0
+      ? testDb[task.number][level]
+      : questions;
+    const levelQuestionNumbers = levelQuestions.map((_, index) => index + 1);
+    const getQuestionStatusByNumber = (questionNumber) => {
+      const number = Number(questionNumber);
+      const localIndex = questionNumbers.findIndex((value) => Number(value) === number);
+      const levelIndex = Number.isFinite(number) ? Math.trunc(number) - 1 : -1;
+      const question = levelIndex >= 0 ? levelQuestions[levelIndex] : (localIndex >= 0 ? questions[localIndex] : null);
+      if (!question && localIndex < 0) return 'pending';
+      const key = getStudentQuestionStateKey(
+        question || questions[localIndex],
+        Number.isFinite(number) ? number : questionNumbers[localIndex],
+        localIndex >= 0 ? localIndex : levelIndex
+      );
+      if (solvedIds.has(key) || (localIndex >= 0 && results[localIndex] === true)) return 'solved';
+      if (localIndex >= 0 && results[localIndex] === false) return 'wrong';
+      if (localIndex >= 0 && hasStudentTestDraftValue(userAnswers[localIndex])) return 'draft';
+      return 'pending';
+    };
+    const targetNumbers = rawTargets.length > 0
+      ? Array.from(new Set(
+          rawTargets
+            .map((num) => Math.trunc(Number(num)))
+            .filter((num) => Number.isFinite(num) && num > 0 && num <= levelQuestions.length)
+        )).sort((left, right) => left - right)
+      : [];
+    const targetNumberSet = new Set(targetNumbers);
+    const targetStatus = targetNumbers.map((num) => ({
+      num,
+      solved: getQuestionStatusByNumber(num) === 'solved',
+    }));
     const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
+    const homeworkRemainingCount = Math.max(0, targetStatus.length - targetSolvedCount);
+    const currentLevelQuestionIndex = levelQuestionNumbers.findIndex((num) => Number(num) === Number(currentQuestionNumber));
+    const previousLevelQuestionNumber = currentLevelQuestionIndex > 0
+      ? levelQuestionNumbers[currentLevelQuestionIndex - 1]
+      : null;
+    const nextLevelQuestionNumber = currentLevelQuestionIndex >= 0 && currentLevelQuestionIndex < levelQuestionNumbers.length - 1
+      ? levelQuestionNumbers[currentLevelQuestionIndex + 1]
+      : null;
     const solvedQuestionCount = questions.reduce((count, question, index) => {
       const questionId = String(question?.id ?? index);
       return solvedIds.has(questionId) || results[index] === true ? count + 1 : count;
     }, 0);
+    const levelSolvedCount = levelQuestionNumbers.reduce((count, questionNumber) => (
+      getQuestionStatusByNumber(questionNumber) === 'solved' ? count + 1 : count
+    ), 0);
     const completionPercent = questions.length > 0
       ? Math.round((solvedQuestionCount / questions.length) * 100)
       : 0;
@@ -1713,12 +1782,7 @@ const StudentTestModal = ({
     };
     const getQuestionSideNavState = (index) => {
       if (index < 0 || index >= questions.length) return 'unavailable';
-      const question = questions[index];
-      const questionId = String(question?.id ?? index);
-      if (solvedIds.has(questionId) || results[index] === true) return 'solved';
-      if (results[index] === false) return 'wrong';
-      if (hasStudentTestDraftValue(userAnswers[index])) return 'draft';
-      return 'pending';
+      return getQuestionStatusByNumber(questionNumbers[index] ?? (index + 1));
     };
     const getQuestionSideNavLabel = (index) => {
       if (index < 0) return 'Предыдущего вопроса нет';
@@ -1834,6 +1898,38 @@ const StudentTestModal = ({
       runQuestionCodeLayoutFlip(applyLayoutChange);
     };
 
+    const handleSelectQuestionNumber = (questionNumber) => {
+      const number = Math.trunc(Number(questionNumber));
+      if (!Number.isFinite(number) || number < 1) return;
+      const currentListIndex = questionNumbers.findIndex((value) => Number(value) === number);
+      if (currentListIndex >= 0) {
+        setCurrentIndex(currentListIndex);
+        return;
+      }
+
+      const levelIndex = number - 1;
+      const nextQuestion = levelQuestions[levelIndex];
+      if (!nextQuestion) return;
+
+      setUserAnswers((prev) => remapStudentQuestionIndexedState({
+        source: prev,
+        fromQuestions: questions,
+        fromQuestionNumbers: questionNumbers,
+        toQuestions: levelQuestions,
+        toQuestionNumbers: levelQuestionNumbers,
+      }));
+      setResults((prev) => remapStudentQuestionIndexedState({
+        source: prev,
+        fromQuestions: questions,
+        fromQuestionNumbers: questionNumbers,
+        toQuestions: levelQuestions,
+        toQuestionNumbers: levelQuestionNumbers,
+      }));
+      setQuestions(levelQuestions);
+      setQuestionNumbers(levelQuestionNumbers);
+      setCurrentIndex(levelIndex);
+    };
+
     const focusQuestionText = String(currentQuestion?.question || '').trim();
     const codeFocusStatusLabel = questionCodeLoading
       ? 'Загружаем код...'
@@ -1903,6 +1999,97 @@ const StudentTestModal = ({
               </button>
             </div>
           </header>
+
+          <nav className="student-test-code-focus__navigator" aria-label="Навигация по вопросам уровня">
+            <div className="student-test-code-focus__homework-row">
+              <div className="student-test-code-focus__nav-heading">
+                <span>Домашка</span>
+                <strong>
+                  {targetStatus.length > 0
+                    ? `${homeworkRemainingCount} осталось`
+                    : 'Весь уровень'}
+                </strong>
+              </div>
+              {targetStatus.length > 0 ? (
+                <div className="student-test-code-focus__homework-strip" aria-label="Вопросы из домашки">
+                  {targetStatus.map((item, index) => {
+                    const status = getQuestionStatusByNumber(item.num);
+                    const isCurrentTarget = Number(currentQuestionNumber) === Number(item.num);
+                    return (
+                      <button
+                        key={`code-homework-${item.num}`}
+                        type="button"
+                        className={`student-test-code-focus__homework-chip is-${status} ${isCurrentTarget ? 'is-current' : ''}`}
+                        style={{ '--student-test-item-index': index }}
+                        onClick={() => handleSelectQuestionNumber(item.num)}
+                        aria-current={isCurrentTarget ? 'step' : undefined}
+                        title={item.solved ? `Вопрос №${item.num} решён` : `Открыть вопрос №${item.num}`}
+                      >
+                        <span>№{item.num}</span>
+                        {item.solved && <Check size={13} strokeWidth={3} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="student-test-code-focus__homework-empty">
+                  В этом запуске доступны все вопросы выбранного уровня.
+                </div>
+              )}
+            </div>
+
+            <div className="student-test-code-focus__level-row">
+              <div className="student-test-code-focus__nav-heading">
+                <span>Уровень</span>
+                <strong>{levelSolvedCount}/{levelQuestionNumbers.length} решено</strong>
+              </div>
+              <div className="student-test-code-focus__level-controls">
+                <button
+                  type="button"
+                  className="student-test-code-focus__nav-arrow"
+                  onClick={() => handleSelectQuestionNumber(previousLevelQuestionNumber)}
+                  disabled={!previousLevelQuestionNumber}
+                  aria-label="Предыдущий вопрос"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="student-test-code-focus__level-strip" aria-label="Все вопросы уровня">
+                  {levelQuestionNumbers.map((num, index) => {
+                    const status = getQuestionStatusByNumber(num);
+                    const isCurrentLevelQuestion = Number(currentQuestionNumber) === Number(num);
+                    const isHomeworkQuestion = targetNumberSet.has(Number(num));
+                    return (
+                      <button
+                        key={`code-level-${num}`}
+                        type="button"
+                        className={[
+                          'student-test-code-focus__level-dot',
+                          `is-${status}`,
+                          isCurrentLevelQuestion ? 'is-current' : '',
+                          isHomeworkQuestion ? 'is-homework' : '',
+                        ].filter(Boolean).join(' ')}
+                        style={{ '--student-test-item-index': index }}
+                        onClick={() => handleSelectQuestionNumber(num)}
+                        aria-current={isCurrentLevelQuestion ? 'step' : undefined}
+                        title={`Вопрос №${num}${isHomeworkQuestion ? ' из домашки' : ''}`}
+                      >
+                        {status === 'solved' ? <Check size={13} strokeWidth={3} /> : num}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  className="student-test-code-focus__nav-arrow"
+                  onClick={() => handleSelectQuestionNumber(nextLevelQuestionNumber)}
+                  disabled={!nextLevelQuestionNumber}
+                  aria-label="Следующий вопрос"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          </nav>
 
           <main className={codeFocusBodyClassName}>
             <section

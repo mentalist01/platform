@@ -52532,6 +52532,16 @@ html[data-theme='dark'] .schedule-shell__composer-field > span {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@keyframes studentTestCodeNavigatorIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studentTestCodeNavItemIn {
+  from { opacity: 0; transform: translateY(-5px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes studentTestCodeLayoutGlow {
   0%, 100% {
     box-shadow: 0 8px 18px color-mix(in srgb, var(--code-focus-accent-2) 12%, transparent);
@@ -53436,6 +53446,198 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
   background: #d1fae5;
 }
 
+.student-test-code-focus__navigator {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.56fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--code-focus-border);
+  background: color-mix(in srgb, var(--code-focus-panel-muted) 72%, var(--code-focus-panel));
+  animation: studentTestCodeNavigatorIn 0.46s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+}
+
+.student-test-code-focus__homework-row,
+.student-test-code-focus__level-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.student-test-code-focus__level-row {
+  justify-content: flex-end;
+}
+
+.student-test-code-focus__nav-heading {
+  display: grid;
+  min-width: 82px;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.student-test-code-focus__nav-heading span {
+  color: var(--code-focus-muted);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.student-test-code-focus__nav-heading strong {
+  overflow: hidden;
+  color: var(--code-focus-text);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-test-code-focus__homework-strip,
+.student-test-code-focus__level-strip {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.student-test-code-focus__homework-strip {
+  padding: 2px;
+}
+
+.student-test-code-focus__homework-empty {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--code-focus-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-test-code-focus__homework-chip,
+.student-test-code-focus__level-dot,
+.student-test-code-focus__nav-arrow {
+  --code-focus-nav-accent: var(--code-focus-accent);
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--code-focus-nav-accent) 26%, var(--code-focus-border));
+  color: var(--code-focus-nav-accent);
+  background: color-mix(in srgb, var(--code-focus-nav-accent) 8%, var(--code-focus-panel));
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  animation: studentTestCodeNavItemIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(0.02s * var(--student-test-item-index, 0));
+}
+
+.student-test-code-focus__homework-chip:hover,
+.student-test-code-focus__level-dot:hover,
+.student-test-code-focus__nav-arrow:hover:not(:disabled) {
+  border-color: var(--code-focus-nav-accent);
+  background: color-mix(in srgb, var(--code-focus-nav-accent) 14%, var(--code-focus-panel));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--code-focus-nav-accent) 14%, transparent);
+  transform: translateY(-1px);
+}
+
+.student-test-code-focus__homework-chip:active,
+.student-test-code-focus__level-dot:active,
+.student-test-code-focus__nav-arrow:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.student-test-code-focus__homework-chip.is-solved,
+.student-test-code-focus__level-dot.is-solved {
+  --code-focus-nav-accent: #10b981;
+}
+
+.student-test-code-focus__homework-chip.is-draft,
+.student-test-code-focus__level-dot.is-draft {
+  --code-focus-nav-accent: var(--code-focus-accent-2);
+}
+
+.student-test-code-focus__homework-chip.is-wrong,
+.student-test-code-focus__level-dot.is-wrong {
+  --code-focus-nav-accent: #ef4444;
+}
+
+.student-test-code-focus__homework-chip.is-current,
+.student-test-code-focus__level-dot.is-current {
+  color: #ffffff;
+  background: var(--code-focus-nav-accent);
+  box-shadow:
+    0 9px 20px color-mix(in srgb, var(--code-focus-nav-accent) 22%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--code-focus-nav-accent) 12%, transparent);
+}
+
+.student-test-code-focus__homework-chip {
+  min-height: 30px;
+  border-radius: 999px;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.student-test-code-focus__homework-chip svg {
+  flex: 0 0 auto;
+}
+
+.student-test-code-focus__level-controls {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.student-test-code-focus__level-strip {
+  max-width: min(100%, 640px);
+  padding: 2px;
+}
+
+.student-test-code-focus__level-dot {
+  position: relative;
+  width: 31px;
+  height: 31px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.student-test-code-focus__level-dot.is-homework::after {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--code-focus-panel-muted);
+  border-radius: 999px;
+  background: var(--code-focus-accent);
+  content: '';
+}
+
+.student-test-code-focus__level-dot.is-current.is-homework::after {
+  border-color: var(--code-focus-nav-accent);
+  background: #ffffff;
+}
+
+.student-test-code-focus__nav-arrow {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+
+.student-test-code-focus__nav-arrow:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 @media (max-width: 767px) {
   .student-test-side-nav {
     display: none;
@@ -53513,6 +53715,30 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
 
   .student-test-code-focus__workspace.is-side-by-side {
     width: 100%;
+  }
+
+  .student-test-code-focus__navigator {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .student-test-code-focus__homework-row,
+  .student-test-code-focus__level-row {
+    align-items: flex-start;
+  }
+
+  .student-test-code-focus__level-row {
+    justify-content: stretch;
+  }
+
+  .student-test-code-focus__level-controls {
+    justify-content: stretch;
+  }
+
+  .student-test-code-focus__level-strip {
+    max-width: none;
+    flex: 1 1 auto;
   }
 
   .student-test-code-focus__body {
@@ -53595,6 +53821,40 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
 
   .student-test-code-focus__save-state {
     display: none;
+  }
+
+  .student-test-code-focus__navigator {
+    gap: 6px;
+    padding: 7px 6px;
+  }
+
+  .student-test-code-focus__homework-row,
+  .student-test-code-focus__level-row {
+    gap: 6px;
+  }
+
+  .student-test-code-focus__nav-heading {
+    min-width: 68px;
+  }
+
+  .student-test-code-focus__nav-heading strong {
+    font-size: 10px;
+  }
+
+  .student-test-code-focus__homework-empty {
+    font-size: 10px;
+  }
+
+  .student-test-code-focus__homework-chip {
+    min-height: 28px;
+    padding: 0 8px;
+  }
+
+  .student-test-code-focus__level-dot,
+  .student-test-code-focus__nav-arrow {
+    width: 29px;
+    height: 29px;
+    border-radius: 9px;
   }
 
   .student-test-code-focus__body {
@@ -53691,6 +53951,10 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
   .student-test-code-focus__control-group,
   .student-test-code-focus__activity span.is-active,
   .student-test-code-focus__terminal-output,
+  .student-test-code-focus__navigator,
+  .student-test-code-focus__homework-chip,
+  .student-test-code-focus__level-dot,
+  .student-test-code-focus__nav-arrow,
   .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__task,
   .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__ide,
   .student-test-code-focus__tool-button,
