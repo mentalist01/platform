@@ -50476,9 +50476,18 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   animation: studentTestBackdropIn 0.34s ease-out both;
 }
 
+.student-test-modal-backdrop.is-closing {
+  pointer-events: none;
+  animation: studentTestBackdropOut 0.28s ease-in both;
+}
+
 .student-test-workspace--animated {
   isolation: isolate;
   animation: studentTestWorkspaceIn 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-test-workspace--animated.is-closing {
+  animation: studentTestWorkspaceOut 0.34s cubic-bezier(0.55, 0, 1, 0.45) both;
 }
 
 .student-test-workspace--animated::before {
@@ -51035,6 +51044,10 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   color: #e5edf9;
 }
 
+.student-test-code-focus.is-closing {
+  pointer-events: none;
+}
+
 .student-test-code-focus__scrim {
   position: absolute;
   inset: 0;
@@ -51048,6 +51061,10 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
 
 .student-test-code-focus__scrim:active {
   transform: none;
+}
+
+.student-test-code-focus.is-closing .student-test-code-focus__scrim {
+  animation: studentTestCodeFocusScrimOut 0.28s ease-in both;
 }
 
 .student-test-code-focus__workspace {
@@ -51068,11 +51085,31 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
     0 14px 45px rgba(15, 23, 42, 0.34),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   animation: studentTestCodeFocusWorkspaceIn 0.54s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: border-color 0.24s ease, box-shadow 0.24s ease, transform 0.24s ease;
+}
+
+.student-test-code-focus__workspace::before {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 18px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(103, 232, 249, 0.72), rgba(196, 181, 253, 0.7), transparent);
+  content: '';
+  opacity: 0.9;
+  pointer-events: none;
+  transform: translateX(-36%);
+  animation: studentTestCodeFocusEdgeSweep 5.8s ease-in-out infinite;
+  z-index: 2;
 }
 
 .student-test-code-focus__workspace.is-side-by-side {
   width: calc(100vw - clamp(20px, 3.6vw, 40px));
   max-width: none;
+}
+
+.student-test-code-focus.is-closing .student-test-code-focus__workspace {
+  animation: studentTestCodeFocusWorkspaceOut 0.36s cubic-bezier(0.55, 0, 1, 0.45) both;
 }
 
 .student-test-code-focus__header {
@@ -51085,6 +51122,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   padding: 12px 16px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(13, 20, 34, 0.9);
+  transition: background 0.24s ease, border-color 0.24s ease;
 }
 
 .student-test-code-focus__title {
@@ -51106,6 +51144,12 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   color: #67e8f9;
   background: linear-gradient(145deg, rgba(8, 47, 73, 0.75), rgba(59, 7, 100, 0.42));
   box-shadow: 0 12px 24px rgba(8, 47, 73, 0.28);
+  transition: transform 0.24s cubic-bezier(0.2, 1.4, 0.35, 1), box-shadow 0.24s ease;
+}
+
+.student-test-code-focus__workspace:hover .student-test-code-focus__title-icon {
+  box-shadow: 0 14px 28px rgba(8, 47, 73, 0.38);
+  transform: translateY(-1px);
 }
 
 .student-test-code-focus__eyebrow {
@@ -51203,6 +51247,15 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   color: #e5edf9;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   animation: studentTestCodeFocusTaskIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+  contain: layout paint;
+  transition: border-color 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease;
+  view-transition-name: student-code-task-panel;
+}
+
+.student-test-code-focus__task:hover {
+  border-color: rgba(125, 211, 252, 0.36);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 16px 34px rgba(2, 6, 23, 0.22);
+  transform: translateY(-1px);
 }
 
 .student-test-code-focus__body.is-side-by-side .student-test-code-focus__task {
@@ -51269,6 +51322,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   border-radius: 14px;
   background: #0b1120;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease;
 }
 
 .student-test-code-focus__media.is-gallery .student-test-code-focus__image-button {
@@ -51362,6 +51416,34 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
     0 20px 48px rgba(2, 6, 23, 0.38),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   animation: studentTestCodeFocusIdeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+  contain: layout paint;
+  transition: border-color 0.24s ease, box-shadow 0.24s ease, transform 0.24s ease;
+  view-transition-name: student-code-ide-panel;
+}
+
+.student-test-code-focus__ide:hover {
+  border-color: rgba(125, 211, 252, 0.34);
+  box-shadow:
+    0 24px 58px rgba(2, 6, 23, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__task,
+.student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__ide {
+  animation: studentTestCodeLayoutPanelSettle 0.68s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__task {
+  animation-delay: 0.02s;
+}
+
+.student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__ide {
+  animation-delay: 0.08s;
+}
+
+html.student-code-layout-transitioning .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__task,
+html.student-code-layout-transitioning .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__ide {
+  animation: none;
 }
 
 .student-test-code-focus__ide-topbar {
@@ -51411,6 +51493,13 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   background: rgba(15, 23, 42, 0.96);
   font-size: 12px;
   font-weight: 800;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.student-test-code-focus__tab:hover {
+  border-color: rgba(125, 211, 252, 0.5);
+  box-shadow: 0 8px 20px rgba(8, 47, 73, 0.18);
+  transform: translateY(-1px);
 }
 
 .student-test-code-focus__tab span {
@@ -51438,6 +51527,14 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   border-radius: 10px;
   padding: 2px;
   background: rgba(15, 23, 42, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.student-test-code-focus__control-group:hover {
+  border-color: rgba(125, 211, 252, 0.42);
+  box-shadow: 0 8px 20px rgba(8, 47, 73, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transform: translateY(-1px);
 }
 
 .student-test-code-focus__font-button {
@@ -51477,6 +51574,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
 
 .student-test-code-focus__tool-button {
   display: inline-flex;
+  position: relative;
   min-height: 32px;
   align-items: center;
   justify-content: center;
@@ -51488,7 +51586,24 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   background: rgba(30, 41, 59, 0.78);
   font-size: 12px;
   font-weight: 800;
+  overflow: hidden;
   white-space: nowrap;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
+}
+
+.student-test-code-focus__tool-button::after {
+  position: absolute;
+  inset: -65% auto -65% -42%;
+  width: 34%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.34), transparent);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-40%);
+}
+
+.student-test-code-focus__tool-button:hover::after {
+  animation: studentTestCodeButtonSheen 0.82s ease;
 }
 
 .student-test-code-focus__tool-button.is-run {
@@ -51499,9 +51614,22 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
 }
 
 .student-test-code-focus__tool-button.is-layout {
-  border-color: rgba(125, 211, 252, 0.28);
-  color: #dbeafe;
-  background: rgba(15, 23, 42, 0.82);
+  border-color: rgba(125, 211, 252, 0.54);
+  color: #ecfeff;
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.82), rgba(124, 58, 237, 0.74)),
+    rgba(15, 23, 42, 0.92);
+  box-shadow:
+    0 12px 24px rgba(14, 165, 233, 0.16),
+    0 8px 20px rgba(124, 58, 237, 0.14);
+  animation: studentTestCodeLayoutBreathe 3.8s ease-in-out infinite;
+}
+
+.student-test-code-focus__tool-button.is-layout:hover:not(:disabled) {
+  border-color: rgba(224, 242, 254, 0.78);
+  box-shadow:
+    0 16px 32px rgba(14, 165, 233, 0.22),
+    0 10px 24px rgba(124, 58, 237, 0.2);
 }
 
 .student-test-code-focus__tool-button:hover:not(:disabled) {
@@ -51662,6 +51790,233 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   font-weight: 700;
 }
 
+html.student-code-layout-transitioning::view-transition-old(root),
+html.student-code-layout-transitioning::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+html.student-code-layout-transitioning::view-transition-group(student-code-task-panel),
+html.student-code-layout-transitioning::view-transition-group(student-code-ide-panel) {
+  animation-duration: 0.66s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html.student-code-layout-transitioning::view-transition-group(student-code-task-panel) {
+  z-index: 2;
+}
+
+html.student-code-layout-transitioning::view-transition-group(student-code-ide-panel) {
+  z-index: 3;
+}
+
+html.student-code-layout-transitioning::view-transition-image-pair(student-code-task-panel),
+html.student-code-layout-transitioning::view-transition-image-pair(student-code-ide-panel) {
+  isolation: isolate;
+}
+
+html.student-code-layout-transitioning::view-transition-old(student-code-task-panel),
+html.student-code-layout-transitioning::view-transition-old(student-code-ide-panel) {
+  animation: studentTestCodeLayoutOldPanel 0.66s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+html.student-code-layout-transitioning::view-transition-new(student-code-task-panel),
+html.student-code-layout-transitioning::view-transition-new(student-code-ide-panel) {
+  animation: studentTestCodeLayoutNewPanel 0.66s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus {
+  color: #172033;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__scrim {
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.82), rgba(224, 242, 254, 0.72)),
+    rgba(255, 255, 255, 0.64);
+  backdrop-filter: blur(20px) saturate(122%);
+  -webkit-backdrop-filter: blur(20px) saturate(122%);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__workspace {
+  border-color: rgba(148, 163, 184, 0.48);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.98)),
+    linear-gradient(120deg, rgba(14, 165, 233, 0.12), rgba(124, 58, 237, 0.1));
+  box-shadow:
+    0 34px 92px rgba(15, 23, 42, 0.2),
+    0 16px 42px rgba(2, 132, 199, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__workspace::before {
+  background: linear-gradient(90deg, transparent, rgba(2, 132, 199, 0.58), rgba(124, 58, 237, 0.46), transparent);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__header,
+html:not([data-theme='dark']) .student-test-code-focus__ide-topbar {
+  border-color: rgba(148, 163, 184, 0.32);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.94));
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__title h3 {
+  color: #0f172a;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__eyebrow {
+  color: #2563eb;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__title-icon {
+  border-color: rgba(14, 165, 233, 0.28);
+  color: #0284c7;
+  background: linear-gradient(145deg, rgba(224, 242, 254, 0.96), rgba(237, 233, 254, 0.88));
+  box-shadow: 0 12px 24px rgba(14, 165, 233, 0.15);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__save-state,
+html:not([data-theme='dark']) .student-test-code-focus__close {
+  border-color: rgba(148, 163, 184, 0.34);
+  color: #475569;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__task {
+  border-color: rgba(148, 163, 184, 0.4);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.92)),
+    linear-gradient(120deg, rgba(14, 165, 233, 0.08), rgba(124, 58, 237, 0.07));
+  color: #172033;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 16px 32px rgba(15, 23, 42, 0.08);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__task:hover {
+  border-color: rgba(14, 165, 233, 0.44);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 18px 38px rgba(14, 165, 233, 0.12);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__task-meta {
+  color: #64748b;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__image-button {
+  border-color: rgba(148, 163, 184, 0.42);
+  background: #f8fafc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__text-only,
+html:not([data-theme='dark']) .student-test-code-focus__question-text {
+  border-color: rgba(148, 163, 184, 0.36);
+  background: rgba(255, 255, 255, 0.76);
+  color: #1e293b;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__files a {
+  border-color: rgba(124, 58, 237, 0.22);
+  color: #5b21b6;
+  background: rgba(245, 243, 255, 0.9);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__ide {
+  border-color: rgba(148, 163, 184, 0.45);
+  background: #ffffff;
+  box-shadow:
+    0 20px 48px rgba(15, 23, 42, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__ide:hover {
+  border-color: rgba(14, 165, 233, 0.42);
+  box-shadow:
+    0 24px 54px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__tab,
+html:not([data-theme='dark']) .student-test-code-focus__control-group,
+html:not([data-theme='dark']) .student-test-code-focus__tool-button {
+  border-color: rgba(148, 163, 184, 0.42);
+  color: #334155;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__tool-button.is-layout {
+  border-color: rgba(14, 165, 233, 0.48);
+  color: #0f172a;
+  background:
+    linear-gradient(135deg, rgba(186, 230, 253, 0.98), rgba(221, 214, 254, 0.96)),
+    rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 12px 24px rgba(14, 165, 233, 0.16),
+    0 8px 20px rgba(124, 58, 237, 0.12);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__tool-button.is-run {
+  border-color: rgba(13, 148, 136, 0.4);
+  color: #ecfeff;
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.88), rgba(14, 116, 144, 0.82));
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__font-button {
+  color: #334155;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__font-button:hover:not(:disabled) {
+  color: #0f172a;
+  background: rgba(226, 232, 240, 0.86);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__font-size-label {
+  color: #64748b;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__activity,
+html:not([data-theme='dark']) .student-test-code-focus__editor-pane,
+html:not([data-theme='dark']) .student-test-code-focus__console-pane,
+html:not([data-theme='dark']) .student-test-code-focus__terminal-output {
+  background: #ffffff;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__activity {
+  border-color: rgba(148, 163, 184, 0.38);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__activity span {
+  color: #64748b;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__activity span.is-active {
+  color: #0284c7;
+  background: rgba(224, 242, 254, 0.9);
+  box-shadow: inset 3px 0 0 #0284c7;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__editor-pane,
+html:not([data-theme='dark']) .student-test-code-focus__console-head {
+  border-color: rgba(148, 163, 184, 0.38);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__console-head,
+html:not([data-theme='dark']) .student-test-code-focus__terminal-output {
+  color: #334155;
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+html:not([data-theme='dark']) .student-test-code-focus__error {
+  border-color: rgba(239, 68, 68, 0.22);
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.82);
+}
+
 .student-test-footer {
   animation: studentTestFooterIn 0.46s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
 }
@@ -51767,9 +52122,19 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   to { opacity: 1; }
 }
 
+@keyframes studentTestBackdropOut {
+  from { opacity: 1; backdrop-filter: blur(10px) saturate(112%); }
+  to { opacity: 0; backdrop-filter: blur(2px) saturate(100%); }
+}
+
 @keyframes studentTestWorkspaceIn {
   from { opacity: 0; transform: translateY(20px) scale(0.965); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestWorkspaceOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(18px) scale(0.972); }
 }
 
 @keyframes studentTestAmbientOrb {
@@ -51993,6 +52358,11 @@ html[data-theme='dark'] .schedule-shell__composer-field > span {
   to { opacity: 1; }
 }
 
+@keyframes studentTestCodeFocusScrimOut {
+  from { opacity: 1; backdrop-filter: blur(18px) saturate(116%); }
+  to { opacity: 0; backdrop-filter: blur(6px) saturate(100%); }
+}
+
 @keyframes studentTestCodeFocusWorkspaceIn {
   from {
     opacity: 0;
@@ -52006,6 +52376,19 @@ html[data-theme='dark'] .schedule-shell__composer-field > span {
   }
 }
 
+@keyframes studentTestCodeFocusWorkspaceOut {
+  from {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 24px);
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    clip-path: inset(5% 7% 42% 7% round 20px);
+    transform: translateY(18px) scale(0.955);
+  }
+}
+
 @keyframes studentTestCodeFocusTaskIn {
   from { opacity: 0; transform: translateY(-10px) scale(0.992); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -52014,6 +52397,72 @@ html[data-theme='dark'] .schedule-shell__composer-field > span {
 @keyframes studentTestCodeFocusIdeIn {
   from { opacity: 0; transform: translateY(14px) scale(0.992); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentTestCodeFocusEdgeSweep {
+  0%, 42% { opacity: 0.46; transform: translateX(-34%); }
+  62% { opacity: 1; }
+  100% { opacity: 0.46; transform: translateX(34%); }
+}
+
+@keyframes studentTestCodeButtonSheen {
+  0% { opacity: 0; transform: skewX(-18deg) translateX(-180%); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: skewX(-18deg) translateX(460%); }
+}
+
+@keyframes studentTestCodeLayoutBreathe {
+  0%, 100% { filter: saturate(1); }
+  50% { filter: saturate(1.14); }
+}
+
+@keyframes studentTestCodeLayoutOldPanel {
+  from {
+    opacity: 1;
+    filter: blur(0) saturate(1);
+    transform: scale(1);
+  }
+  to {
+    opacity: 0.72;
+    filter: blur(1px) saturate(0.96);
+    transform: scale(0.992);
+  }
+}
+
+@keyframes studentTestCodeLayoutNewPanel {
+  from {
+    opacity: 0.78;
+    filter: blur(4px) saturate(1.05);
+    transform: scale(0.988);
+  }
+  62% {
+    opacity: 1;
+    filter: blur(0) saturate(1.08);
+    transform: scale(1.004);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0) saturate(1);
+    transform: scale(1);
+  }
+}
+
+@keyframes studentTestCodeLayoutPanelSettle {
+  from {
+    opacity: 0.78;
+    filter: blur(3px);
+    transform: translateY(12px) scale(0.988);
+  }
+  64% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(-2px) scale(1.004);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
 }
 
 @keyframes studentTestFooterIn {
@@ -52341,6 +52790,278 @@ html[data-theme='dark'] .student-test-screenshot::before {
   background-size: 220% 100%, 100% 100%;
 }
 
+/* Student code focus: flat workspace skin */
+.student-test-code-focus {
+  --code-focus-accent: #2563eb;
+  --code-focus-accent-strong: #0f766e;
+  --code-focus-bg: rgba(226, 232, 240, 0.82);
+  --code-focus-surface: #f8fafc;
+  --code-focus-panel: #ffffff;
+  --code-focus-panel-muted: #f1f5f9;
+  --code-focus-editor: #ffffff;
+  --code-focus-border: #cbd5e1;
+  --code-focus-border-strong: #94a3b8;
+  --code-focus-text: #172033;
+  --code-focus-muted: #64748b;
+  --code-focus-subtle: #eff6ff;
+  color: var(--code-focus-text);
+}
+
+html[data-theme='dark'] .student-test-code-focus {
+  --code-focus-accent: #38bdf8;
+  --code-focus-accent-strong: #2dd4bf;
+  --code-focus-bg: rgba(2, 6, 23, 0.82);
+  --code-focus-surface: #0f172a;
+  --code-focus-panel: #111827;
+  --code-focus-panel-muted: #0b1220;
+  --code-focus-editor: #111827;
+  --code-focus-border: #334155;
+  --code-focus-border-strong: #475569;
+  --code-focus-text: #e5edf9;
+  --code-focus-muted: #94a3b8;
+  --code-focus-subtle: #082f49;
+}
+
+.student-test-code-focus__scrim,
+html:not([data-theme='dark']) .student-test-code-focus__scrim {
+  background: var(--code-focus-bg);
+  backdrop-filter: blur(14px) saturate(105%);
+  -webkit-backdrop-filter: blur(14px) saturate(105%);
+}
+
+.student-test-code-focus__workspace,
+html:not([data-theme='dark']) .student-test-code-focus__workspace {
+  border-color: var(--code-focus-border);
+  background: var(--code-focus-surface);
+  box-shadow:
+    0 22px 56px rgba(15, 23, 42, 0.16),
+    0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+html[data-theme='dark'] .student-test-code-focus__workspace {
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.38);
+}
+
+.student-test-code-focus__workspace::before,
+html:not([data-theme='dark']) .student-test-code-focus__workspace::before {
+  display: none;
+}
+
+.student-test-code-focus__header,
+.student-test-code-focus__ide-topbar,
+html:not([data-theme='dark']) .student-test-code-focus__header,
+html:not([data-theme='dark']) .student-test-code-focus__ide-topbar {
+  border-color: var(--code-focus-border);
+  background: var(--code-focus-panel);
+}
+
+.student-test-code-focus__title h3,
+html:not([data-theme='dark']) .student-test-code-focus__title h3 {
+  color: var(--code-focus-text);
+}
+
+.student-test-code-focus__eyebrow,
+html:not([data-theme='dark']) .student-test-code-focus__eyebrow {
+  color: var(--code-focus-accent);
+}
+
+.student-test-code-focus__title-icon,
+html:not([data-theme='dark']) .student-test-code-focus__title-icon {
+  border-color: color-mix(in srgb, var(--code-focus-accent) 35%, var(--code-focus-border));
+  color: var(--code-focus-accent);
+  background: var(--code-focus-subtle);
+  box-shadow: none;
+}
+
+.student-test-code-focus__workspace:hover .student-test-code-focus__title-icon {
+  box-shadow: none;
+}
+
+.student-test-code-focus__save-state,
+.student-test-code-focus__close,
+html:not([data-theme='dark']) .student-test-code-focus__save-state,
+html:not([data-theme='dark']) .student-test-code-focus__close {
+  border-color: var(--code-focus-border);
+  color: var(--code-focus-muted);
+  background: var(--code-focus-panel);
+}
+
+.student-test-code-focus__task,
+html:not([data-theme='dark']) .student-test-code-focus__task {
+  border-color: var(--code-focus-border);
+  background: var(--code-focus-panel-muted);
+  color: var(--code-focus-text);
+  box-shadow: none;
+}
+
+.student-test-code-focus__task:hover,
+html:not([data-theme='dark']) .student-test-code-focus__task:hover {
+  border-color: var(--code-focus-border-strong);
+  box-shadow: none;
+}
+
+.student-test-code-focus__task-meta,
+html:not([data-theme='dark']) .student-test-code-focus__task-meta {
+  color: var(--code-focus-muted);
+}
+
+.student-test-code-focus__image-button,
+html:not([data-theme='dark']) .student-test-code-focus__image-button {
+  border-color: var(--code-focus-border);
+  background: var(--code-focus-panel);
+  box-shadow: none;
+}
+
+.student-test-code-focus__image-button:hover {
+  border-color: var(--code-focus-border-strong);
+  box-shadow: none;
+}
+
+.student-test-code-focus__text-only,
+.student-test-code-focus__question-text,
+html:not([data-theme='dark']) .student-test-code-focus__text-only,
+html:not([data-theme='dark']) .student-test-code-focus__question-text {
+  border-color: var(--code-focus-border);
+  background: var(--code-focus-panel);
+  color: var(--code-focus-text);
+}
+
+.student-test-code-focus__files a,
+html:not([data-theme='dark']) .student-test-code-focus__files a {
+  border-color: color-mix(in srgb, var(--code-focus-accent) 30%, var(--code-focus-border));
+  color: var(--code-focus-accent);
+  background: var(--code-focus-panel);
+}
+
+.student-test-code-focus__ide,
+html:not([data-theme='dark']) .student-test-code-focus__ide {
+  border-color: var(--code-focus-border);
+  background: var(--code-focus-panel);
+  box-shadow: none;
+}
+
+.student-test-code-focus__ide:hover,
+html:not([data-theme='dark']) .student-test-code-focus__ide:hover {
+  border-color: var(--code-focus-border-strong);
+  box-shadow: none;
+}
+
+.student-test-code-focus__tab,
+.student-test-code-focus__control-group,
+.student-test-code-focus__tool-button,
+html:not([data-theme='dark']) .student-test-code-focus__tab,
+html:not([data-theme='dark']) .student-test-code-focus__control-group,
+html:not([data-theme='dark']) .student-test-code-focus__tool-button {
+  border-color: var(--code-focus-border);
+  color: var(--code-focus-text);
+  background: var(--code-focus-panel);
+  box-shadow: none;
+}
+
+.student-test-code-focus__tab:hover,
+.student-test-code-focus__control-group:hover {
+  border-color: var(--code-focus-border-strong);
+  box-shadow: none;
+}
+
+.student-test-code-focus__tool-button::after {
+  display: none;
+}
+
+.student-test-code-focus__tool-button.is-layout,
+html:not([data-theme='dark']) .student-test-code-focus__tool-button.is-layout {
+  border-color: color-mix(in srgb, var(--code-focus-accent) 42%, var(--code-focus-border));
+  color: var(--code-focus-accent);
+  background: var(--code-focus-subtle);
+  box-shadow: none;
+  animation: none;
+}
+
+.student-test-code-focus__tool-button.is-layout:hover:not(:disabled) {
+  border-color: var(--code-focus-accent);
+  box-shadow: none;
+}
+
+.student-test-code-focus__tool-button.is-run,
+html:not([data-theme='dark']) .student-test-code-focus__tool-button.is-run {
+  border-color: var(--code-focus-accent-strong);
+  color: #ffffff;
+  background: var(--code-focus-accent-strong);
+  box-shadow: none;
+}
+
+.student-test-code-focus__tool-button:hover:not(:disabled) {
+  border-color: var(--code-focus-border-strong);
+}
+
+.student-test-code-focus__font-button,
+html:not([data-theme='dark']) .student-test-code-focus__font-button {
+  color: var(--code-focus-text);
+}
+
+.student-test-code-focus__font-button:hover:not(:disabled),
+html:not([data-theme='dark']) .student-test-code-focus__font-button:hover:not(:disabled) {
+  color: var(--code-focus-text);
+  background: var(--code-focus-panel-muted);
+}
+
+.student-test-code-focus__font-size-label,
+html:not([data-theme='dark']) .student-test-code-focus__font-size-label {
+  color: var(--code-focus-muted);
+}
+
+.student-test-code-focus__activity,
+.student-test-code-focus__editor-pane,
+.student-test-code-focus__console-pane,
+.student-test-code-focus__terminal-output,
+html:not([data-theme='dark']) .student-test-code-focus__activity,
+html:not([data-theme='dark']) .student-test-code-focus__editor-pane,
+html:not([data-theme='dark']) .student-test-code-focus__console-pane,
+html:not([data-theme='dark']) .student-test-code-focus__terminal-output {
+  background: var(--code-focus-editor);
+}
+
+.student-test-code-focus__activity,
+.student-test-code-focus__editor-pane,
+.student-test-code-focus__console-head,
+html:not([data-theme='dark']) .student-test-code-focus__activity,
+html:not([data-theme='dark']) .student-test-code-focus__editor-pane,
+html:not([data-theme='dark']) .student-test-code-focus__console-head {
+  border-color: var(--code-focus-border);
+}
+
+.student-test-code-focus__activity span,
+html:not([data-theme='dark']) .student-test-code-focus__activity span {
+  color: var(--code-focus-muted);
+}
+
+.student-test-code-focus__activity span.is-active,
+html:not([data-theme='dark']) .student-test-code-focus__activity span.is-active {
+  color: var(--code-focus-accent);
+  background: var(--code-focus-subtle);
+  box-shadow: inset 3px 0 0 var(--code-focus-accent);
+}
+
+.student-test-code-focus__console-head,
+.student-test-code-focus__terminal-output,
+html:not([data-theme='dark']) .student-test-code-focus__console-head,
+html:not([data-theme='dark']) .student-test-code-focus__terminal-output {
+  color: var(--code-focus-text);
+}
+
+.student-test-code-focus__console-head strong,
+html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
+  color: #047857;
+  background: #dcfce7;
+}
+
+.student-test-code-focus__error,
+html:not([data-theme='dark']) .student-test-code-focus__error {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
 @media (max-width: 767px) {
   .student-test-side-nav {
     display: none;
@@ -52568,9 +53289,14 @@ html[data-theme='dark'] .student-test-screenshot::before {
 @media (prefers-reduced-motion: reduce) {
   .student-test-code-launch-card:hover::before,
   .student-test-code-focus__scrim,
+  .student-test-code-focus__workspace::before,
   .student-test-code-focus__workspace,
   .student-test-code-focus__task,
-  .student-test-code-focus__ide {
+  .student-test-code-focus__ide,
+  .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__task,
+  .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__ide,
+  .student-test-code-focus__tool-button,
+  .student-test-code-focus__tool-button::after {
     animation: none !important;
   }
 }

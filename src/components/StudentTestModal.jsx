@@ -1,10 +1,10 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import { Check, ChevronLeft, ChevronRight, Code2, Download, History, ListChecks, Maximize2, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Terminal, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
-import { MONACO_THEME_COLORFUL_DARK, ensureMonacoColorTheme } from '../utils/monacoTheme';
+import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import { Button } from './ui';
@@ -16,12 +16,21 @@ const STUDENT_CODE_LAYOUT_SIDE = 'side';
 const STUDENT_CODE_FONT_SIZE_MIN = 12;
 const STUDENT_CODE_FONT_SIZE_MAX = 24;
 const STUDENT_CODE_FONT_SIZE_DEFAULT = 14;
+const STUDENT_CODE_LAYOUT_ANIMATION_MS = 720;
+const STUDENT_CODE_CLOSE_ANIMATION_MS = 360;
+const STUDENT_TEST_CLOSE_ANIMATION_MS = 340;
 
 const clampStudentCodeFontSize = (value) => {
   const numeric = Math.round(Number(value));
   if (!Number.isFinite(numeric)) return STUDENT_CODE_FONT_SIZE_DEFAULT;
   return Math.max(STUDENT_CODE_FONT_SIZE_MIN, Math.min(STUDENT_CODE_FONT_SIZE_MAX, numeric));
 };
+
+const prefersReducedStudentMotion = () => (
+  typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+);
 
 const buildStudentTestDraftKey = ({ studentId, taskNumber, levelId }) => {
   const normalizedStudentId = String(studentId || 'anonymous').trim() || 'anonymous';
@@ -220,6 +229,7 @@ const extractQuestionRuntimeFileError = async (response, fallback) => {
 };
 
 const StudentTestModal = ({
+  theme = '',
   task,
   onClose,
   onComplete,
@@ -251,6 +261,7 @@ const StudentTestModal = ({
   normalizeXpTotal,
   withStudentId,
 }) => {
+  const monacoTheme = resolveMonacoColorTheme(theme);
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -262,6 +273,7 @@ const StudentTestModal = ({
   const [solvedAnswerById, setSolvedAnswerById] = useState({});
   const [answerHistoryById, setAnswerHistoryById] = useState({});
   const [answerHistoryLoading, setAnswerHistoryLoading] = useState(false);
+  const [studentTestClosing, setStudentTestClosing] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
   const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
   const lastQuestionImageAspectRef = useRef(3.8);
@@ -269,7 +281,9 @@ const StudentTestModal = ({
   const [questionCodeById, setQuestionCodeById] = useState({});
   const questionCodeByIdRef = useRef({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
+  const [questionCodeClosing, setQuestionCodeClosing] = useState(false);
   const [questionCodeWorkspacePrefs, setQuestionCodeWorkspacePrefs] = useState(readStudentCodeWorkspacePrefs);
+  const [questionCodeLayoutAnimating, setQuestionCodeLayoutAnimating] = useState(false);
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeSavingById, setQuestionCodeSavingById] = useState({});
   const [questionCodeAutoSavePendingById, setQuestionCodeAutoSavePendingById] = useState({});
@@ -282,6 +296,9 @@ const StudentTestModal = ({
   const questionCodeSavingRef = useRef(new Set());
   const questionCodePendingSaveRef = useRef(new Map());
   const questionCodeAutoSaveTimersRef = useRef(new Map());
+  const studentTestCloseTimerRef = useRef(null);
+  const questionCodeCloseTimerRef = useRef(null);
+  const questionCodeLayoutAnimationTimerRef = useRef(null);
   const questionMainThreadRuntimeFilesRef = useRef([]);
   const autoStartLevel = ['basic', 'advanced', 'expert'].includes(initialLevel) ? initialLevel : null;
 
@@ -625,6 +642,48 @@ const StudentTestModal = ({
     questionCodeSavingRef.current.clear();
   };
 
+  const clearStudentTestCloseTimer = () => {
+    if (!studentTestCloseTimerRef.current) return;
+    clearTimeout(studentTestCloseTimerRef.current);
+    studentTestCloseTimerRef.current = null;
+  };
+
+  const requestCloseStudentTest = () => {
+    if (studentTestClosing) return;
+    clearStudentTestCloseTimer();
+    if (prefersReducedStudentMotion()) {
+      setStudentTestClosing(false);
+      onClose?.();
+      return;
+    }
+    setStudentTestClosing(true);
+    studentTestCloseTimerRef.current = setTimeout(() => {
+      studentTestCloseTimerRef.current = null;
+      onClose?.();
+    }, STUDENT_TEST_CLOSE_ANIMATION_MS);
+  };
+
+  const clearQuestionCodeCloseTimer = () => {
+    if (!questionCodeCloseTimerRef.current) return;
+    clearTimeout(questionCodeCloseTimerRef.current);
+    questionCodeCloseTimerRef.current = null;
+  };
+
+  const clearQuestionCodeLayoutAnimationTimer = () => {
+    if (!questionCodeLayoutAnimationTimerRef.current) return;
+    clearTimeout(questionCodeLayoutAnimationTimerRef.current);
+    questionCodeLayoutAnimationTimerRef.current = null;
+  };
+
+  const startQuestionCodeLayoutAnimation = () => {
+    clearQuestionCodeLayoutAnimationTimer();
+    setQuestionCodeLayoutAnimating(true);
+    questionCodeLayoutAnimationTimerRef.current = setTimeout(() => {
+      setQuestionCodeLayoutAnimating(false);
+      questionCodeLayoutAnimationTimerRef.current = null;
+    }, STUDENT_CODE_LAYOUT_ANIMATION_MS);
+  };
+
   const normalizeAnswerHistoryPayload = (payload) => {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
     const normalized = {};
@@ -838,6 +897,8 @@ const StudentTestModal = ({
     setQuestions(qs);
     setQuestionNumbers(nextQuestionNumbers);
     setLevel(lvlId);
+    clearStudentTestCloseTimer();
+    setStudentTestClosing(false);
     const draft = readStudentTestAnswerDraft({
       studentId,
       taskNumber: task.number,
@@ -858,8 +919,12 @@ const StudentTestModal = ({
     setAnswerHistoryLoading(false);
     questionCodeByIdRef.current = {};
     clearQuestionCodeAutoSaveTimers();
+    clearQuestionCodeCloseTimer();
+    clearQuestionCodeLayoutAnimationTimer();
     setQuestionCodeById({});
     setQuestionCodeOpen(false);
+    setQuestionCodeClosing(false);
+    setQuestionCodeLayoutAnimating(false);
     setQuestionCodeLoadingById({});
     setQuestionCodeSavingById({});
     setQuestionCodeAutoSavePendingById({});
@@ -925,7 +990,13 @@ const StudentTestModal = ({
   useEffect(() => {
     autoStartRef.current = false;
     setAutoStartFailed(false);
+    clearStudentTestCloseTimer();
+    setStudentTestClosing(false);
+    clearQuestionCodeCloseTimer();
+    clearQuestionCodeLayoutAnimationTimer();
     setQuestionCodeOpen(false);
+    setQuestionCodeClosing(false);
+    setQuestionCodeLayoutAnimating(false);
     questionCodeByIdRef.current = {};
     clearQuestionCodeAutoSaveTimers();
     setQuestionCodeById({});
@@ -978,7 +1049,20 @@ const StudentTestModal = ({
   useEffect(() => {
     if (!questionCodeOpen) return undefined;
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') setQuestionCodeOpen(false);
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      clearQuestionCodeCloseTimer();
+      if (prefersReducedStudentMotion()) {
+        setQuestionCodeClosing(false);
+        setQuestionCodeOpen(false);
+        return;
+      }
+      setQuestionCodeClosing(true);
+      questionCodeCloseTimerRef.current = setTimeout(() => {
+        setQuestionCodeOpen(false);
+        setQuestionCodeClosing(false);
+        questionCodeCloseTimerRef.current = null;
+      }, STUDENT_CODE_CLOSE_ANIMATION_MS);
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -986,6 +1070,9 @@ const StudentTestModal = ({
 
   useEffect(() => () => {
     clearQuestionCodeAutoSaveTimers();
+    clearStudentTestCloseTimer();
+    clearQuestionCodeCloseTimer();
+    clearQuestionCodeLayoutAnimationTimer();
     disposeQuestionRunnerWorker('Python runner stopped.');
   }, []);
 
@@ -1170,7 +1257,7 @@ const StudentTestModal = ({
 
   const handleNext = () => {
     if (currentIndex < questions.length - 1) setCurrentIndex(currentIndex + 1);
-    else onClose();
+    else requestCloseStudentTest();
   };
 
 
@@ -1451,6 +1538,14 @@ const StudentTestModal = ({
     const nextQuestionSideNavState = getQuestionSideNavState(currentIndex + 1);
     const previousQuestionSideNavLabel = getQuestionSideNavLabel(currentIndex - 1);
     const nextQuestionSideNavLabel = getQuestionSideNavLabel(currentIndex + 1);
+    const studentTestBackdropClassName = [
+      'student-test-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-0 sm:p-3 md:p-5',
+      studentTestClosing ? 'is-closing' : '',
+    ].filter(Boolean).join(' ');
+    const studentTestWorkspaceClassName = [
+      'student-test-workspace student-test-workspace--animated modal-card w-full max-w-6xl h-[100dvh] sm:h-auto sm:max-h-[94dvh] relative flex flex-col overflow-hidden',
+      studentTestClosing ? 'is-closing' : '',
+    ].filter(Boolean).join(' ');
     const canPasteAnswerTable = answerCount === 20 && !computedChecked;
     const handleAnswerInputPaste = (event, startIndex) => {
       if (computedChecked) return;
@@ -1473,12 +1568,25 @@ const StudentTestModal = ({
     };
 
     const handleOpenQuestionCodeFocus = () => {
+      clearQuestionCodeCloseTimer();
+      setQuestionCodeClosing(false);
       setQuestionCodeOpen(true);
       if (currentId) loadQuestionCode(currentId);
     };
 
     const handleCloseQuestionCodeFocus = () => {
-      setQuestionCodeOpen(false);
+      clearQuestionCodeCloseTimer();
+      if (prefersReducedStudentMotion()) {
+        setQuestionCodeClosing(false);
+        setQuestionCodeOpen(false);
+        return;
+      }
+      setQuestionCodeClosing(true);
+      questionCodeCloseTimerRef.current = setTimeout(() => {
+        setQuestionCodeOpen(false);
+        setQuestionCodeClosing(false);
+        questionCodeCloseTimerRef.current = null;
+      }, STUDENT_CODE_CLOSE_ANIMATION_MS);
     };
 
     const handleDecreaseQuestionCodeFontSize = () => {
@@ -1496,12 +1604,39 @@ const StudentTestModal = ({
     };
 
     const handleToggleQuestionCodeLayout = () => {
-      setQuestionCodeWorkspacePrefs((prev) => ({
-        ...(prev || {}),
-        layout: prev?.layout === STUDENT_CODE_LAYOUT_SIDE
-          ? STUDENT_CODE_LAYOUT_STACKED
-          : STUDENT_CODE_LAYOUT_SIDE,
-      }));
+      const nextLayout = isQuestionCodeSideLayout
+        ? STUDENT_CODE_LAYOUT_STACKED
+        : STUDENT_CODE_LAYOUT_SIDE;
+      const applyLayoutChange = () => {
+        setQuestionCodeWorkspacePrefs((prev) => ({
+          ...(prev || {}),
+          layout: nextLayout,
+        }));
+      };
+
+      if (prefersReducedStudentMotion()) {
+        applyLayoutChange();
+        return;
+      }
+
+      if (
+        typeof document !== 'undefined'
+        && typeof document.startViewTransition === 'function'
+      ) {
+        document.documentElement.classList.add('student-code-layout-transitioning');
+        const transition = document.startViewTransition(() => {
+          flushSync(applyLayoutChange);
+        });
+        Promise.resolve(transition.finished)
+          .catch(() => {})
+          .then(() => {
+            document.documentElement.classList.remove('student-code-layout-transitioning');
+          });
+        return;
+      }
+
+      startQuestionCodeLayoutAnimation();
+      applyLayoutChange();
     };
 
     const focusQuestionText = String(currentQuestion?.question || '').trim();
@@ -1515,15 +1650,22 @@ const StudentTestModal = ({
     const codeFocusWorkspaceClassName = [
       'student-test-code-focus__workspace',
       isQuestionCodeSideLayout ? 'is-side-by-side' : '',
+      questionCodeLayoutAnimating ? 'is-layout-animating' : '',
     ].filter(Boolean).join(' ');
     const codeFocusBodyClassName = [
       'student-test-code-focus__body',
       isQuestionCodeSideLayout ? 'is-side-by-side' : '',
+      questionCodeLayoutAnimating ? 'is-layout-animating' : '',
     ].filter(Boolean).join(' ');
+    const codeFocusRootClassName = [
+      'student-test-code-focus fixed inset-0 z-[70]',
+      questionCodeClosing ? 'is-closing' : '',
+    ].filter(Boolean).join(' ');
+    const shouldRenderQuestionCodeFocus = questionCodeOpen || questionCodeClosing;
 
-    const codeFocusOverlay = questionCodeOpen ? (
+    const codeFocusOverlay = shouldRenderQuestionCodeFocus ? (
       <div
-        className="student-test-code-focus fixed inset-0 z-[70]"
+        className={codeFocusRootClassName}
         role="dialog"
         aria-modal="true"
         aria-label={`Решение в коде для вопроса №${currentQuestionNumber}`}
@@ -1661,11 +1803,11 @@ const StudentTestModal = ({
                     type="button"
                     onClick={handleToggleQuestionCodeLayout}
                     className="student-test-code-focus__tool-button is-layout"
-                    title={isQuestionCodeSideLayout ? 'Показать задание сверху' : 'Показать задание слева'}
-                    aria-label={isQuestionCodeSideLayout ? 'Показать задание сверху' : 'Показать задание слева'}
+                    title={isQuestionCodeSideLayout ? 'Расположить условие сверху' : 'Расположить условие слева'}
+                    aria-label={isQuestionCodeSideLayout ? 'Расположить условие сверху' : 'Расположить условие слева'}
                   >
                     {isQuestionCodeSideLayout ? <PanelTop size={15} /> : <PanelLeft size={15} />}
-                    <span>{isQuestionCodeSideLayout ? 'Сверху' : 'Слева'}</span>
+                    <span>{isQuestionCodeSideLayout ? 'Условие сверху' : 'Условие слева'}</span>
                   </button>
                   <button
                     type="button"
@@ -1695,7 +1837,7 @@ const StudentTestModal = ({
                     <Editor
                       height="100%"
                       language="python"
-                      theme={MONACO_THEME_COLORFUL_DARK}
+                      theme={monacoTheme}
                       beforeMount={ensureMonacoColorTheme}
                       value={questionCodeEntry.code}
                       onChange={(value) => {
@@ -1742,8 +1884,8 @@ const StudentTestModal = ({
     ) : null;
 
     const modal = (
-      <div className="student-test-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-0 sm:p-3 md:p-5">
-        <div className="student-test-workspace student-test-workspace--animated modal-card w-full max-w-6xl h-[100dvh] sm:h-auto sm:max-h-[94dvh] relative flex flex-col overflow-hidden" data-level={level}>
+      <div className={studentTestBackdropClassName}>
+        <div className={studentTestWorkspaceClassName} data-level={level}>
           <header className="student-test-header shrink-0">
             <div className="flex min-w-0 items-center gap-3">
               <div className="student-test-header-icon hidden sm:flex">
@@ -1775,7 +1917,7 @@ const StudentTestModal = ({
                   <div className="student-test-progress-fill" style={{ width: `${completionPercent}%` }} />
                 </div>
               </div>
-              <button onClick={onClose} className="student-test-close" type="button" aria-label="Закрыть">
+              <button onClick={requestCloseStudentTest} className="student-test-close" type="button" aria-label="Закрыть">
                 <X size={19}/>
               </button>
             </div>
