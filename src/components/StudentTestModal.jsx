@@ -299,6 +299,8 @@ const StudentTestModal = ({
   const studentTestCloseTimerRef = useRef(null);
   const questionCodeCloseTimerRef = useRef(null);
   const questionCodeLayoutAnimationTimerRef = useRef(null);
+  const questionCodeTaskPanelRef = useRef(null);
+  const questionCodeIdePanelRef = useRef(null);
   const questionMainThreadRuntimeFilesRef = useRef([]);
   const autoStartLevel = ['basic', 'advanced', 'expert'].includes(initialLevel) ? initialLevel : null;
 
@@ -669,16 +671,86 @@ const StudentTestModal = ({
     questionCodeCloseTimerRef.current = null;
   };
 
-  const clearQuestionCodeLayoutAnimationTimer = () => {
-    if (!questionCodeLayoutAnimationTimerRef.current) return;
-    clearTimeout(questionCodeLayoutAnimationTimerRef.current);
-    questionCodeLayoutAnimationTimerRef.current = null;
+  const getQuestionCodeLayoutPanels = () => (
+    [questionCodeTaskPanelRef.current, questionCodeIdePanelRef.current].filter(Boolean)
+  );
+
+  const clearQuestionCodeLayoutFlip = () => {
+    getQuestionCodeLayoutPanels().forEach((node) => {
+      node.style.removeProperty('--student-code-layout-flip-x');
+      node.style.removeProperty('--student-code-layout-flip-y');
+      node.style.removeProperty('transform');
+      node.style.removeProperty('transition');
+      node.style.removeProperty('will-change');
+    });
   };
 
-  const startQuestionCodeLayoutAnimation = () => {
+  const clearQuestionCodeLayoutAnimationTimer = () => {
+    if (questionCodeLayoutAnimationTimerRef.current) {
+      clearTimeout(questionCodeLayoutAnimationTimerRef.current);
+      questionCodeLayoutAnimationTimerRef.current = null;
+    }
+    clearQuestionCodeLayoutFlip();
+  };
+
+  const startQuestionCodeLayoutAnimation = (duration = STUDENT_CODE_LAYOUT_ANIMATION_MS) => {
     clearQuestionCodeLayoutAnimationTimer();
     setQuestionCodeLayoutAnimating(true);
     questionCodeLayoutAnimationTimerRef.current = setTimeout(() => {
+      clearQuestionCodeLayoutFlip();
+      setQuestionCodeLayoutAnimating(false);
+      questionCodeLayoutAnimationTimerRef.current = null;
+    }, duration);
+  };
+
+  const runQuestionCodeLayoutFlip = (applyLayoutChange) => {
+    clearQuestionCodeLayoutAnimationTimer();
+    if (questionCodeLayoutAnimating) {
+      flushSync(() => setQuestionCodeLayoutAnimating(false));
+    }
+
+    const panels = getQuestionCodeLayoutPanels();
+    if (panels.length === 0) {
+      startQuestionCodeLayoutAnimation();
+      applyLayoutChange();
+      return;
+    }
+
+    const firstRects = new Map();
+    panels.forEach((node) => {
+      firstRects.set(node, node.getBoundingClientRect());
+    });
+
+    flushSync(applyLayoutChange);
+
+    let hasMovement = false;
+    panels.forEach((node) => {
+      const first = firstRects.get(node);
+      if (!first || !node.isConnected) return;
+      const last = node.getBoundingClientRect();
+      const deltaX = first.left - last.left;
+      const deltaY = first.top - last.top;
+      if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return;
+      node.style.transition = 'none';
+      node.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+      node.style.willChange = 'transform';
+      hasMovement = true;
+    });
+
+    if (!hasMovement) {
+      startQuestionCodeLayoutAnimation();
+      return;
+    }
+
+    panels[0]?.getBoundingClientRect();
+    flushSync(() => setQuestionCodeLayoutAnimating(true));
+    panels.forEach((node) => {
+      if (!node.isConnected) return;
+      node.style.transition = `transform ${STUDENT_CODE_LAYOUT_ANIMATION_MS}ms cubic-bezier(0.16, 1, 0.3, 1)`;
+      node.style.transform = 'translate3d(0, 0, 0)';
+    });
+    questionCodeLayoutAnimationTimerRef.current = setTimeout(() => {
+      clearQuestionCodeLayoutFlip();
       setQuestionCodeLayoutAnimating(false);
       questionCodeLayoutAnimationTimerRef.current = null;
     }, STUDENT_CODE_LAYOUT_ANIMATION_MS);
@@ -1260,6 +1332,27 @@ const StudentTestModal = ({
     else requestCloseStudentTest();
   };
 
+  const clearCurrentQuestionResult = () => {
+    setResults((prev) => {
+      const next = { ...prev };
+      delete next[currentIndex];
+      return next;
+    });
+  };
+
+  const handleCheckCurrentQuestion = (eventOrElement = null) => {
+    const element = eventOrElement?.currentTarget || eventOrElement;
+    const rect = element?.getBoundingClientRect?.();
+    handleCheck(rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)
+      ? {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        }
+      : null);
+  };
+
 
   useEffect(() => {
     document.body.classList.add('overflow-hidden');
@@ -1547,6 +1640,22 @@ const StudentTestModal = ({
       studentTestClosing ? 'is-closing' : '',
     ].filter(Boolean).join(' ');
     const canPasteAnswerTable = answerCount === 20 && !computedChecked;
+    const updateCurrentAnswerValue = (value) => {
+      if (computedChecked) return;
+      setUserAnswers((prev) => ({ ...prev, [currentIndex]: value }));
+    };
+    const updateCurrentAnswerPart = (answerIndex, value) => {
+      if (computedChecked) return;
+      setUserAnswers((prev) => {
+        const next = { ...prev };
+        const current = Array.isArray(next[currentIndex])
+          ? [...next[currentIndex]]
+          : Array.from({ length: answerCount }, () => '');
+        current[answerIndex] = value;
+        next[currentIndex] = current;
+        return next;
+      });
+    };
     const handleAnswerInputPaste = (event, startIndex) => {
       if (computedChecked) return;
       const values = splitPastedAnswerValues(event.clipboardData?.getData('text/plain') || '');
@@ -1619,24 +1728,7 @@ const StudentTestModal = ({
         return;
       }
 
-      if (
-        typeof document !== 'undefined'
-        && typeof document.startViewTransition === 'function'
-      ) {
-        document.documentElement.classList.add('student-code-layout-transitioning');
-        const transition = document.startViewTransition(() => {
-          flushSync(applyLayoutChange);
-        });
-        Promise.resolve(transition.finished)
-          .catch(() => {})
-          .then(() => {
-            document.documentElement.classList.remove('student-code-layout-transitioning');
-          });
-        return;
-      }
-
-      startQuestionCodeLayoutAnimation();
-      applyLayoutChange();
+      runQuestionCodeLayoutFlip(applyLayoutChange);
     };
 
     const focusQuestionText = String(currentQuestion?.question || '').trim();
@@ -1647,6 +1739,13 @@ const StudentTestModal = ({
           : (questionCodeAutoSavePending
               ? 'Изменения скоро сохранятся...'
               : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Код еще не сохранен')));
+    const codeFocusAnswerStatusLabel = computedChecked
+      ? (computedCorrect ? 'Ответ засчитан' : 'Ответ не подошел')
+      : (isAnswerReady ? 'Можно проверять' : 'Введите ответ');
+    const codeFocusAnswerCardClassName = [
+      'student-test-code-focus__answer-card',
+      computedChecked ? (computedCorrect ? 'is-correct' : 'is-wrong') : '',
+    ].filter(Boolean).join(' ');
     const codeFocusWorkspaceClassName = [
       'student-test-code-focus__workspace',
       isQuestionCodeSideLayout ? 'is-side-by-side' : '',
@@ -1703,7 +1802,11 @@ const StudentTestModal = ({
           </header>
 
           <main className={codeFocusBodyClassName}>
-            <section className="student-test-code-focus__task" aria-label="Условие задания">
+            <section
+              ref={questionCodeTaskPanelRef}
+              className="student-test-code-focus__task"
+              aria-label="Условие задания"
+            >
               <div className="student-test-code-focus__task-head">
                 {currentQuestionLabel && (
                   <span
@@ -1762,7 +1865,11 @@ const StudentTestModal = ({
               )}
             </section>
 
-            <section className="student-test-code-focus__ide" aria-label="Редактор кода">
+            <section
+              ref={questionCodeIdePanelRef}
+              className="student-test-code-focus__ide"
+              aria-label="Редактор кода"
+            >
               <div className="student-test-code-focus__ide-topbar">
                 <div className="student-test-code-focus__window-dots" aria-hidden="true">
                   <span />
@@ -1827,55 +1934,116 @@ const StudentTestModal = ({
                   <span>Загружаем рабочее пространство...</span>
                 </div>
               ) : (
-                <div className="student-test-code-focus__ide-grid">
-                  <div className="student-test-code-focus__activity" aria-hidden="true">
-                    <span className="is-active"><Code2 size={18} /></span>
-                    <span><Terminal size={18} /></span>
-                  </div>
-
-                  <div className="student-test-code-focus__editor-pane">
-                    <Editor
-                      height="100%"
-                      language="python"
-                      theme={monacoTheme}
-                      beforeMount={ensureMonacoColorTheme}
-                      value={questionCodeEntry.code}
-                      onChange={(value) => {
-                        const nextCode = value ?? '';
-                        setQuestionCodeEntry(currentId, { code: nextCode, input: '' });
-                        clearQuestionCodeError(currentId);
-                        scheduleQuestionCodeAutoSave(currentId, { code: nextCode, input: '' });
-                      }}
-                      options={{
-                        minimap: { enabled: false },
-                        fontSize: questionCodeFontSize,
-                        fontFamily: '"JetBrains Mono", Consolas, "Courier New", monospace',
-                        fontLigatures: true,
-                        tabSize: 4,
-                        insertSpaces: true,
-                        wordWrap: 'on',
-                        scrollBeyondLastLine: false,
-                        smoothScrolling: true,
-                        cursorBlinking: 'smooth',
-                        automaticLayout: true,
-                        padding: { top: 16, bottom: 16 },
-                        lineNumbersMinChars: 3,
-                      }}
-                      loading={<div className="student-test-code-focus__editor-loading">Загрузка редактора...</div>}
-                    />
-                  </div>
-
-                  <aside className="student-test-code-focus__console-pane">
-                    <div className="student-test-code-focus__console-head">
-                      <span><Terminal size={15} /> Terminal</span>
-                      {questionRunState.loading && <strong>running</strong>}
+                <>
+                  <div className="student-test-code-focus__ide-grid">
+                    <div className="student-test-code-focus__activity" aria-hidden="true">
+                      <span className="is-active"><Code2 size={18} /></span>
+                      <span><Terminal size={18} /></span>
                     </div>
-                    <pre className="student-test-code-focus__terminal-output">
-                      {questionTerminalText}
-                    </pre>
-                    {questionCodeError && <div className="student-test-code-focus__error">{questionCodeError}</div>}
-                  </aside>
-                </div>
+
+                    <div className="student-test-code-focus__editor-pane">
+                      <Editor
+                        height="100%"
+                        language="python"
+                        theme={monacoTheme}
+                        beforeMount={ensureMonacoColorTheme}
+                        value={questionCodeEntry.code}
+                        onChange={(value) => {
+                          const nextCode = value ?? '';
+                          setQuestionCodeEntry(currentId, { code: nextCode, input: '' });
+                          clearQuestionCodeError(currentId);
+                          scheduleQuestionCodeAutoSave(currentId, { code: nextCode, input: '' });
+                        }}
+                        options={{
+                          minimap: { enabled: false },
+                          fontSize: questionCodeFontSize,
+                          fontFamily: '"JetBrains Mono", Consolas, "Courier New", monospace',
+                          fontLigatures: true,
+                          tabSize: 4,
+                          insertSpaces: true,
+                          wordWrap: 'on',
+                          scrollBeyondLastLine: false,
+                          smoothScrolling: true,
+                          cursorBlinking: 'smooth',
+                          automaticLayout: true,
+                          padding: { top: 16, bottom: 16 },
+                          lineNumbersMinChars: 3,
+                        }}
+                        loading={<div className="student-test-code-focus__editor-loading">Загрузка редактора...</div>}
+                      />
+                    </div>
+
+                    <aside className="student-test-code-focus__console-pane">
+                      <div className="student-test-code-focus__console-head">
+                        <span><Terminal size={15} /> Terminal</span>
+                        {questionRunState.loading && <strong>running</strong>}
+                      </div>
+                      <pre className="student-test-code-focus__terminal-output">
+                        {questionTerminalText}
+                      </pre>
+                      {questionCodeError && <div className="student-test-code-focus__error">{questionCodeError}</div>}
+                    </aside>
+                  </div>
+
+                  <div className={codeFocusAnswerCardClassName}>
+                    <div className="student-test-code-focus__answer-head">
+                      <span>
+                        {computedChecked && computedCorrect ? <Check size={15} /> : <ListChecks size={15} />}
+                        Ответ на задание
+                      </span>
+                      <strong>{codeFocusAnswerStatusLabel}</strong>
+                    </div>
+                    <div className="student-test-code-focus__answer-body">
+                      {answerCount > 1 ? (
+                        <div className="student-test-code-focus__answer-grid">
+                          {Array.from({ length: answerCount }).map((_, idx) => (
+                            <input
+                              key={`code-focus-answer-${idx}`}
+                              type="text"
+                              value={answerValues[idx] ?? ''}
+                              onPaste={(event) => handleAnswerInputPaste(event, idx)}
+                              onChange={(event) => updateCurrentAnswerPart(idx, event.target.value)}
+                              placeholder={answerLabels[idx] ? `Ответ ${answerLabels[idx]}` : `Ответ ${idx + 1}`}
+                              disabled={computedChecked}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          value={answerValue}
+                          onChange={(event) => updateCurrentAnswerValue(event.target.value)}
+                          placeholder="Введите ответ..."
+                          disabled={computedChecked}
+                        />
+                      )}
+                    </div>
+                    <div className="student-test-code-focus__answer-actions">
+                      {computedChecked && (
+                        <span className="student-test-code-focus__answer-result">
+                          {computedCorrect ? 'Верно, вопрос отмечен решенным.' : 'Неверно, попробуйте другой ответ.'}
+                        </span>
+                      )}
+                      {!computedChecked ? (
+                        <button
+                          type="button"
+                          onClick={handleCheckCurrentQuestion}
+                          disabled={!isAnswerReady}
+                        >
+                          Проверить задание
+                        </button>
+                      ) : computedCorrect ? (
+                        <button type="button" disabled>
+                          Засчитано
+                        </button>
+                      ) : (
+                        <button type="button" onClick={clearCurrentQuestionResult}>
+                          Попробовать еще
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
             </section>
           </main>
@@ -2495,23 +2663,11 @@ const StudentTestModal = ({
             <Button 
               onClick={(event) => {
                 if (!computedChecked) {
-                  const rect = event?.currentTarget?.getBoundingClientRect?.();
-                  handleCheck(rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)
-                    ? {
-                        left: rect.left,
-                        top: rect.top,
-                        width: rect.width,
-                        height: rect.height,
-                      }
-                    : null);
+                  handleCheckCurrentQuestion(event);
                   return;
                 }
                 if (!computedCorrect) {
-                  setResults((prev) => {
-                    const next = { ...prev };
-                    delete next[currentIndex];
-                    return next;
-                  });
+                  clearCurrentQuestionResult();
                   return;
                 }
                 handleNext();

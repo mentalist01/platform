@@ -51249,7 +51249,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   animation: studentTestCodeFocusTaskIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
   contain: layout paint;
   transition: border-color 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease;
-  view-transition-name: student-code-task-panel;
+  view-transition-name: none;
 }
 
 .student-test-code-focus__task:hover {
@@ -51418,7 +51418,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   animation: studentTestCodeFocusIdeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
   contain: layout paint;
   transition: border-color 0.24s ease, box-shadow 0.24s ease, transform 0.24s ease;
-  view-transition-name: student-code-ide-panel;
+  view-transition-name: none;
 }
 
 .student-test-code-focus__ide:hover {
@@ -51430,20 +51430,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
 
 .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__task,
 .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__ide {
-  animation: studentTestCodeLayoutPanelSettle 0.68s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__task {
-  animation-delay: 0.02s;
-}
-
-.student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__ide {
-  animation-delay: 0.08s;
-}
-
-html.student-code-layout-transitioning .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__task,
-html.student-code-layout-transitioning .student-test-code-focus__workspace.is-layout-animating .student-test-code-focus__ide {
-  animation: none;
+  will-change: transform;
 }
 
 .student-test-code-focus__ide-topbar {
@@ -51790,39 +51777,147 @@ html.student-code-layout-transitioning .student-test-code-focus__workspace.is-la
   font-weight: 700;
 }
 
-html.student-code-layout-transitioning::view-transition-old(root),
-html.student-code-layout-transitioning::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
+.student-test-code-focus__answer-card {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(168px, 0.32fr) minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--code-focus-accent, #7c3aed) 28%, var(--code-focus-border, #cbd5e1));
+  border-left: 4px solid var(--code-focus-accent, #7c3aed);
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--code-focus-accent, #7c3aed) 7%, var(--code-focus-panel, #ffffff));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  animation: studentTestCodeTerminalIn 0.46s ease-out 0.12s both;
 }
 
-html.student-code-layout-transitioning::view-transition-group(student-code-task-panel),
-html.student-code-layout-transitioning::view-transition-group(student-code-ide-panel) {
-  animation-duration: 0.66s;
-  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+.student-test-code-focus__answer-head,
+.student-test-code-focus__answer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-html.student-code-layout-transitioning::view-transition-group(student-code-task-panel) {
-  z-index: 2;
+.student-test-code-focus__answer-head span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--code-focus-text, #dbeafe);
+  font-size: 13px;
+  font-weight: 900;
 }
 
-html.student-code-layout-transitioning::view-transition-group(student-code-ide-panel) {
-  z-index: 3;
+.student-test-code-focus__answer-head svg {
+  color: var(--code-focus-accent, #7c3aed);
 }
 
-html.student-code-layout-transitioning::view-transition-image-pair(student-code-task-panel),
-html.student-code-layout-transitioning::view-transition-image-pair(student-code-ide-panel) {
-  isolation: isolate;
+.student-test-code-focus__answer-head strong {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: var(--code-focus-accent, #7c3aed);
+  background: color-mix(in srgb, var(--code-focus-accent, #7c3aed) 11%, var(--code-focus-panel, #ffffff));
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
-html.student-code-layout-transitioning::view-transition-old(student-code-task-panel),
-html.student-code-layout-transitioning::view-transition-old(student-code-ide-panel) {
-  animation: studentTestCodeLayoutOldPanel 0.66s cubic-bezier(0.16, 1, 0.3, 1) both;
+.student-test-code-focus__answer-body input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid color-mix(in srgb, var(--code-focus-accent, #7c3aed) 24%, var(--code-focus-border, #cbd5e1));
+  border-radius: 12px;
+  padding: 0 12px;
+  outline: 0;
+  color: var(--code-focus-text, #dbeafe);
+  background: var(--code-focus-panel, #ffffff);
+  font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
-html.student-code-layout-transitioning::view-transition-new(student-code-task-panel),
-html.student-code-layout-transitioning::view-transition-new(student-code-ide-panel) {
-  animation: studentTestCodeLayoutNewPanel 0.66s cubic-bezier(0.16, 1, 0.3, 1) both;
+.student-test-code-focus__answer-body input:focus {
+  border-color: var(--code-focus-accent, #7c3aed);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--code-focus-accent, #7c3aed) 15%, transparent);
+}
+
+.student-test-code-focus__answer-body input:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.student-test-code-focus__answer-grid {
+  display: grid;
+  max-height: 92px;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 7px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.student-test-code-focus__answer-result {
+  min-width: 0;
+  color: var(--code-focus-text, #172033);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.student-test-code-focus__answer-actions button {
+  display: inline-flex;
+  min-height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--code-focus-accent, #7c3aed);
+  border-radius: 12px;
+  padding: 0 14px;
+  color: #fff;
+  background: var(--code-focus-accent, #7c3aed);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease, transform 0.18s ease;
+}
+
+.student-test-code-focus__answer-actions button:hover:not(:disabled) {
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--code-focus-accent, #7c3aed) 22%, transparent);
+  filter: saturate(1.08);
+  transform: translateY(-1px);
+}
+
+.student-test-code-focus__answer-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+.student-test-code-focus__answer-card.is-correct .student-test-code-focus__answer-head strong {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.student-test-code-focus__answer-card.is-correct {
+  border-top-color: #86efac;
+  border-left-color: #10b981;
+  background: color-mix(in srgb, #10b981 8%, var(--code-focus-panel, #ffffff));
+}
+
+.student-test-code-focus__answer-card.is-wrong .student-test-code-focus__answer-head strong {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.student-test-code-focus__answer-card.is-wrong {
+  border-top-color: #fecaca;
+  border-left-color: #ef4444;
+  background: color-mix(in srgb, #ef4444 7%, var(--code-focus-panel, #ffffff));
+}
+
+.student-test-code-focus__answer-card.is-wrong .student-test-code-focus__answer-actions button {
+  border-color: var(--code-focus-accent, #7c3aed);
+  background: var(--code-focus-accent, #7c3aed);
 }
 
 html:not([data-theme='dark']) .student-test-code-focus {
@@ -52414,55 +52509,6 @@ html[data-theme='dark'] .schedule-shell__composer-field > span {
 @keyframes studentTestCodeLayoutBreathe {
   0%, 100% { filter: saturate(1); }
   50% { filter: saturate(1.14); }
-}
-
-@keyframes studentTestCodeLayoutOldPanel {
-  from {
-    opacity: 1;
-    filter: blur(0) saturate(1);
-    transform: scale(1);
-  }
-  to {
-    opacity: 0.72;
-    filter: blur(1px) saturate(0.96);
-    transform: scale(0.992);
-  }
-}
-
-@keyframes studentTestCodeLayoutNewPanel {
-  from {
-    opacity: 0.78;
-    filter: blur(4px) saturate(1.05);
-    transform: scale(0.988);
-  }
-  62% {
-    opacity: 1;
-    filter: blur(0) saturate(1.08);
-    transform: scale(1.004);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0) saturate(1);
-    transform: scale(1);
-  }
-}
-
-@keyframes studentTestCodeLayoutPanelSettle {
-  from {
-    opacity: 0.78;
-    filter: blur(3px);
-    transform: translateY(12px) scale(0.988);
-  }
-  64% {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateY(-2px) scale(1.004);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateY(0) scale(1);
-  }
 }
 
 @keyframes studentTestCodeAccentIn {
@@ -53504,6 +53550,15 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
     grid-column: auto;
     grid-row: auto;
   }
+
+  .student-test-code-focus__answer-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .student-test-code-focus__answer-actions {
+    justify-content: space-between;
+  }
 }
 
 @media (max-width: 639px) {
@@ -53611,6 +53666,16 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
 
   .student-test-code-focus__terminal-output {
     font-size: 11px;
+  }
+
+  .student-test-code-focus__answer-head,
+  .student-test-code-focus__answer-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .student-test-code-focus__answer-actions button {
+    width: 100%;
   }
 }
 
