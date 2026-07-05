@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, ChevronLeft, ChevronRight, Code2, Download, History, ListChecks, Maximize2, PlayCircle, RefreshCcw, Terminal, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Code2, Download, History, ListChecks, Maximize2, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Terminal, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { MONACO_THEME_COLORFUL_DARK, ensureMonacoColorTheme } from '../utils/monacoTheme';
@@ -10,6 +10,18 @@ import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPas
 import { Button } from './ui';
 
 const STUDENT_TEST_ANSWER_DRAFT_PREFIX = 'student-test-answer-draft-v1';
+const STUDENT_CODE_WORKSPACE_PREFS_KEY = 'student-code-workspace-prefs-v1';
+const STUDENT_CODE_LAYOUT_STACKED = 'stacked';
+const STUDENT_CODE_LAYOUT_SIDE = 'side';
+const STUDENT_CODE_FONT_SIZE_MIN = 12;
+const STUDENT_CODE_FONT_SIZE_MAX = 24;
+const STUDENT_CODE_FONT_SIZE_DEFAULT = 14;
+
+const clampStudentCodeFontSize = (value) => {
+  const numeric = Math.round(Number(value));
+  if (!Number.isFinite(numeric)) return STUDENT_CODE_FONT_SIZE_DEFAULT;
+  return Math.max(STUDENT_CODE_FONT_SIZE_MIN, Math.min(STUDENT_CODE_FONT_SIZE_MAX, numeric));
+};
 
 const buildStudentTestDraftKey = ({ studentId, taskNumber, levelId }) => {
   const normalizedStudentId = String(studentId || 'anonymous').trim() || 'anonymous';
@@ -21,6 +33,29 @@ const buildStudentTestDraftKey = ({ studentId, taskNumber, levelId }) => {
 const canUseStudentTestDraftStorage = () => (
   typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 );
+
+const readStudentCodeWorkspacePrefs = () => {
+  if (!canUseStudentTestDraftStorage()) {
+    return {
+      fontSize: STUDENT_CODE_FONT_SIZE_DEFAULT,
+      layout: STUDENT_CODE_LAYOUT_STACKED,
+    };
+  }
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(STUDENT_CODE_WORKSPACE_PREFS_KEY) || 'null');
+    return {
+      fontSize: clampStudentCodeFontSize(parsed?.fontSize),
+      layout: parsed?.layout === STUDENT_CODE_LAYOUT_SIDE
+        ? STUDENT_CODE_LAYOUT_SIDE
+        : STUDENT_CODE_LAYOUT_STACKED,
+    };
+  } catch {
+    return {
+      fontSize: STUDENT_CODE_FONT_SIZE_DEFAULT,
+      layout: STUDENT_CODE_LAYOUT_STACKED,
+    };
+  }
+};
 
 const hasStudentTestDraftValue = (value) => {
   if (Array.isArray(value)) return value.some((entry) => String(entry ?? '').trim());
@@ -234,6 +269,7 @@ const StudentTestModal = ({
   const [questionCodeById, setQuestionCodeById] = useState({});
   const questionCodeByIdRef = useRef({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
+  const [questionCodeWorkspacePrefs, setQuestionCodeWorkspacePrefs] = useState(readStudentCodeWorkspacePrefs);
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeSavingById, setQuestionCodeSavingById] = useState({});
   const [questionCodeAutoSavePendingById, setQuestionCodeAutoSavePendingById] = useState({});
@@ -256,6 +292,11 @@ const StudentTestModal = ({
     : '';
   const activeQuestion = questions[currentIndex];
   const activeQuestionId = activeQuestion ? String(activeQuestion?.id ?? currentIndex) : '';
+  const questionCodeFontSize = clampStudentCodeFontSize(questionCodeWorkspacePrefs?.fontSize);
+  const questionCodeLayout = questionCodeWorkspacePrefs?.layout === STUDENT_CODE_LAYOUT_SIDE
+    ? STUDENT_CODE_LAYOUT_SIDE
+    : STUDENT_CODE_LAYOUT_STACKED;
+  const isQuestionCodeSideLayout = questionCodeLayout === STUDENT_CODE_LAYOUT_SIDE;
 
   const getQuestionCodeEntry = (questionId, source = null) => {
     const key = String(questionId ?? '').trim();
@@ -901,6 +942,14 @@ const StudentTestModal = ({
   }, [task?.number]);
 
   useEffect(() => {
+    if (!canUseStudentTestDraftStorage()) return;
+    window.localStorage.setItem(STUDENT_CODE_WORKSPACE_PREFS_KEY, JSON.stringify({
+      fontSize: questionCodeFontSize,
+      layout: questionCodeLayout,
+    }));
+  }, [questionCodeFontSize, questionCodeLayout]);
+
+  useEffect(() => {
     if (stage !== 'testing') return;
     if (!Number.isFinite(currentIndex)) return;
     onQuestionChange?.(currentIndex);
@@ -1432,6 +1481,29 @@ const StudentTestModal = ({
       setQuestionCodeOpen(false);
     };
 
+    const handleDecreaseQuestionCodeFontSize = () => {
+      setQuestionCodeWorkspacePrefs((prev) => ({
+        ...(prev || {}),
+        fontSize: clampStudentCodeFontSize((prev?.fontSize ?? STUDENT_CODE_FONT_SIZE_DEFAULT) - 1),
+      }));
+    };
+
+    const handleIncreaseQuestionCodeFontSize = () => {
+      setQuestionCodeWorkspacePrefs((prev) => ({
+        ...(prev || {}),
+        fontSize: clampStudentCodeFontSize((prev?.fontSize ?? STUDENT_CODE_FONT_SIZE_DEFAULT) + 1),
+      }));
+    };
+
+    const handleToggleQuestionCodeLayout = () => {
+      setQuestionCodeWorkspacePrefs((prev) => ({
+        ...(prev || {}),
+        layout: prev?.layout === STUDENT_CODE_LAYOUT_SIDE
+          ? STUDENT_CODE_LAYOUT_STACKED
+          : STUDENT_CODE_LAYOUT_SIDE,
+      }));
+    };
+
     const focusQuestionText = String(currentQuestion?.question || '').trim();
     const codeFocusStatusLabel = questionCodeLoading
       ? 'Загружаем код...'
@@ -1440,6 +1512,14 @@ const StudentTestModal = ({
           : (questionCodeAutoSavePending
               ? 'Изменения скоро сохранятся...'
               : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Код еще не сохранен')));
+    const codeFocusWorkspaceClassName = [
+      'student-test-code-focus__workspace',
+      isQuestionCodeSideLayout ? 'is-side-by-side' : '',
+    ].filter(Boolean).join(' ');
+    const codeFocusBodyClassName = [
+      'student-test-code-focus__body',
+      isQuestionCodeSideLayout ? 'is-side-by-side' : '',
+    ].filter(Boolean).join(' ');
 
     const codeFocusOverlay = questionCodeOpen ? (
       <div
@@ -1454,7 +1534,7 @@ const StudentTestModal = ({
           onClick={handleCloseQuestionCodeFocus}
           aria-label="Закрыть режим кода"
         />
-        <div className="student-test-code-focus__workspace">
+        <div className={codeFocusWorkspaceClassName}>
           <header className="student-test-code-focus__header">
             <div className="student-test-code-focus__title">
               <span className="student-test-code-focus__title-icon" aria-hidden="true">
@@ -1480,7 +1560,7 @@ const StudentTestModal = ({
             </div>
           </header>
 
-          <main className="student-test-code-focus__body">
+          <main className={codeFocusBodyClassName}>
             <section className="student-test-code-focus__task" aria-label="Условие задания">
               <div className="student-test-code-focus__task-head">
                 {currentQuestionLabel && (
@@ -1552,6 +1632,41 @@ const StudentTestModal = ({
                   <span>solution.py</span>
                 </div>
                 <div className="student-test-code-focus__tools">
+                  <div className="student-test-code-focus__control-group" aria-label="Размер шрифта кода">
+                    <button
+                      type="button"
+                      onClick={handleDecreaseQuestionCodeFontSize}
+                      disabled={questionCodeFontSize <= STUDENT_CODE_FONT_SIZE_MIN}
+                      className="student-test-code-focus__font-button"
+                      title="Уменьшить шрифт кода"
+                      aria-label="Уменьшить шрифт кода"
+                    >
+                      A-
+                    </button>
+                    <span className="student-test-code-focus__font-size-label">
+                      {questionCodeFontSize}px
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleIncreaseQuestionCodeFontSize}
+                      disabled={questionCodeFontSize >= STUDENT_CODE_FONT_SIZE_MAX}
+                      className="student-test-code-focus__font-button"
+                      title="Увеличить шрифт кода"
+                      aria-label="Увеличить шрифт кода"
+                    >
+                      A+
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleToggleQuestionCodeLayout}
+                    className="student-test-code-focus__tool-button is-layout"
+                    title={isQuestionCodeSideLayout ? 'Показать задание сверху' : 'Показать задание слева'}
+                    aria-label={isQuestionCodeSideLayout ? 'Показать задание сверху' : 'Показать задание слева'}
+                  >
+                    {isQuestionCodeSideLayout ? <PanelTop size={15} /> : <PanelLeft size={15} />}
+                    <span>{isQuestionCodeSideLayout ? 'Сверху' : 'Слева'}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => runQuestionCodeForQuestion(currentId)}
@@ -1591,7 +1706,7 @@ const StudentTestModal = ({
                       }}
                       options={{
                         minimap: { enabled: false },
-                        fontSize: 14,
+                        fontSize: questionCodeFontSize,
                         fontFamily: '"JetBrains Mono", Consolas, "Courier New", monospace',
                         fontLigatures: true,
                         tabSize: 4,

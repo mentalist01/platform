@@ -51070,6 +51070,11 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   animation: studentTestCodeFocusWorkspaceIn 0.54s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+.student-test-code-focus__workspace.is-side-by-side {
+  width: calc(100vw - clamp(20px, 3.6vw, 40px));
+  max-width: none;
+}
+
 .student-test-code-focus__header {
   display: flex;
   min-height: 62px;
@@ -51178,6 +51183,11 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   padding: 10px;
 }
 
+.student-test-code-focus__body.is-side-by-side {
+  grid-template-columns: minmax(360px, 0.88fr) minmax(0, 1.36fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .student-test-code-focus__task {
   display: flex;
   min-height: 0;
@@ -51193,6 +51203,10 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   color: #e5edf9;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   animation: studentTestCodeFocusTaskIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+}
+
+.student-test-code-focus__body.is-side-by-side .student-test-code-focus__task {
+  height: 100%;
 }
 
 .student-test-code-focus__task-head {
@@ -51237,6 +51251,10 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
   gap: 8px;
   overflow: auto;
+}
+
+.student-test-code-focus__body.is-side-by-side .student-test-code-focus__media.is-gallery {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .student-test-code-focus__image-button {
@@ -51295,6 +51313,10 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   flex: 0 0 auto;
   margin: 0;
   padding: 8px 10px;
+}
+
+.student-test-code-focus__body.is-side-by-side .student-test-code-focus__question-text {
+  max-height: 18vh;
 }
 
 .student-test-code-focus__files {
@@ -51406,6 +51428,53 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   gap: 7px;
 }
 
+.student-test-code-focus__control-group {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid rgba(100, 116, 139, 0.5);
+  border-radius: 10px;
+  padding: 2px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.student-test-code-focus__font-button {
+  display: inline-flex;
+  min-width: 34px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 7px;
+  color: #dbeafe;
+  background: transparent;
+  font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.student-test-code-focus__font-button:hover:not(:disabled) {
+  color: #ecfeff;
+  background: rgba(51, 65, 85, 0.78);
+}
+
+.student-test-code-focus__font-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.student-test-code-focus__font-size-label {
+  min-width: 38px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .student-test-code-focus__tool-button {
   display: inline-flex;
   min-height: 32px;
@@ -51427,6 +51496,12 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   color: #ccfbf1;
   background: linear-gradient(135deg, rgba(20, 184, 166, 0.82), rgba(14, 116, 144, 0.74));
   box-shadow: 0 9px 22px rgba(20, 184, 166, 0.16);
+}
+
+.student-test-code-focus__tool-button.is-layout {
+  border-color: rgba(125, 211, 252, 0.28);
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.82);
 }
 
 .student-test-code-focus__tool-button:hover:not(:disabled) {
@@ -51464,6 +51539,11 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   grid-template-rows: minmax(0, 1fr);
 }
 
+.student-test-code-focus__body.is-side-by-side .student-test-code-focus__ide-grid {
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(132px, 0.28fr);
+}
+
 .student-test-code-focus__activity {
   display: flex;
   min-height: 0;
@@ -51497,6 +51577,22 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   overflow: hidden;
   border-right: 1px solid rgba(71, 85, 105, 0.58);
   background: #111827;
+}
+
+.student-test-code-focus__body.is-side-by-side .student-test-code-focus__activity {
+  grid-row: 1 / span 2;
+}
+
+.student-test-code-focus__body.is-side-by-side .student-test-code-focus__editor-pane {
+  grid-column: 2;
+  grid-row: 1;
+  border-right: 0;
+  border-bottom: 1px solid rgba(71, 85, 105, 0.58);
+}
+
+.student-test-code-focus__body.is-side-by-side .student-test-code-focus__console-pane {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .student-test-code-focus__console-pane {
@@ -52320,10 +52416,19 @@ html[data-theme='dark'] .student-test-screenshot::before {
     border-radius: 0;
   }
 
+  .student-test-code-focus__workspace.is-side-by-side {
+    width: 100%;
+  }
+
   .student-test-code-focus__body {
     grid-template-rows: minmax(170px, 34vh) minmax(0, 1fr);
     gap: 8px;
     padding: 8px;
+  }
+
+  .student-test-code-focus__body.is-side-by-side {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(170px, 34vh) minmax(0, 1fr);
   }
 
   .student-test-code-focus__ide-grid {
@@ -52338,6 +52443,17 @@ html[data-theme='dark'] .student-test-screenshot::before {
   .student-test-code-focus__editor-pane {
     border-right: 0;
     border-bottom: 1px solid rgba(71, 85, 105, 0.58);
+  }
+
+  .student-test-code-focus__body.is-side-by-side .student-test-code-focus__ide-grid {
+    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-rows: minmax(260px, 1fr) minmax(170px, 0.46fr);
+  }
+
+  .student-test-code-focus__body.is-side-by-side .student-test-code-focus__editor-pane,
+  .student-test-code-focus__body.is-side-by-side .student-test-code-focus__console-pane {
+    grid-column: auto;
+    grid-row: auto;
   }
 }
 
@@ -52414,12 +52530,21 @@ html[data-theme='dark'] .student-test-screenshot::before {
   .student-test-code-focus__tools {
     width: 100%;
     flex: 1 0 100%;
+    flex-wrap: wrap;
     justify-content: stretch;
   }
 
   .student-test-code-focus__tool-button {
     flex: 1 1 0;
     padding: 0 8px;
+  }
+
+  .student-test-code-focus__control-group {
+    flex: 1 1 132px;
+  }
+
+  .student-test-code-focus__font-button {
+    flex: 1 1 0;
   }
 
   .student-test-code-focus__ide-grid {
