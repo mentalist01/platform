@@ -299,6 +299,8 @@ const StudentTestModal = ({
   const studentTestCloseTimerRef = useRef(null);
   const questionCodeCloseTimerRef = useRef(null);
   const questionCodeLayoutAnimationTimerRef = useRef(null);
+  const questionCodeLayoutAnimationFrameRef = useRef(null);
+  const questionCodeLayoutAnimationsRef = useRef([]);
   const questionCodeTaskPanelRef = useRef(null);
   const questionCodeIdePanelRef = useRef(null);
   const questionMainThreadRuntimeFilesRef = useRef([]);
@@ -675,7 +677,13 @@ const StudentTestModal = ({
     [questionCodeTaskPanelRef.current, questionCodeIdePanelRef.current].filter(Boolean)
   );
 
-  const clearQuestionCodeLayoutFlip = () => {
+  const clearQuestionCodeLayoutFlip = ({ cancelAnimations = true } = {}) => {
+    if (cancelAnimations) {
+      questionCodeLayoutAnimationsRef.current.forEach((animation) => {
+        animation?.cancel?.();
+      });
+    }
+    questionCodeLayoutAnimationsRef.current = [];
     getQuestionCodeLayoutPanels().forEach((node) => {
       node.style.removeProperty('--student-code-layout-flip-x');
       node.style.removeProperty('--student-code-layout-flip-y');
@@ -689,6 +697,14 @@ const StudentTestModal = ({
     if (questionCodeLayoutAnimationTimerRef.current) {
       clearTimeout(questionCodeLayoutAnimationTimerRef.current);
       questionCodeLayoutAnimationTimerRef.current = null;
+    }
+    if (
+      questionCodeLayoutAnimationFrameRef.current
+      && typeof window !== 'undefined'
+      && typeof window.cancelAnimationFrame === 'function'
+    ) {
+      window.cancelAnimationFrame(questionCodeLayoutAnimationFrameRef.current);
+      questionCodeLayoutAnimationFrameRef.current = null;
     }
     clearQuestionCodeLayoutFlip();
   };
@@ -723,6 +739,56 @@ const StudentTestModal = ({
 
     flushSync(applyLayoutChange);
 
+    const canUseElementAnimations = panels.every((node) => typeof node.animate === 'function');
+    if (canUseElementAnimations) {
+      const animations = panels
+        .map((node) => {
+          if (!node.isConnected) return null;
+          const first = firstRects.get(node);
+          const last = node.getBoundingClientRect();
+          if (!first) return null;
+          const deltaX = first.left - last.left;
+          const deltaY = first.top - last.top;
+          if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return null;
+          return node.animate(
+            [
+              { transform: `translate3d(${deltaX}px, ${deltaY}px, 0)` },
+              { transform: 'translate3d(0, 0, 0)' },
+            ],
+            {
+              duration: STUDENT_CODE_LAYOUT_ANIMATION_MS,
+              easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+              fill: 'none',
+            }
+          );
+        })
+        .filter(Boolean);
+
+      if (animations.length === 0) {
+        startQuestionCodeLayoutAnimation();
+        return;
+      }
+
+      flushSync(() => setQuestionCodeLayoutAnimating(true));
+      if (animations.length > 0) {
+        questionCodeLayoutAnimationsRef.current = animations;
+        Promise.allSettled(animations.map((animation) => animation.finished))
+          .then(() => {
+            if (questionCodeLayoutAnimationsRef.current !== animations) return;
+            clearQuestionCodeLayoutFlip({ cancelAnimations: false });
+            setQuestionCodeLayoutAnimating(false);
+            questionCodeLayoutAnimationTimerRef.current = null;
+          });
+      }
+
+      questionCodeLayoutAnimationTimerRef.current = setTimeout(() => {
+        clearQuestionCodeLayoutFlip({ cancelAnimations: false });
+        setQuestionCodeLayoutAnimating(false);
+        questionCodeLayoutAnimationTimerRef.current = null;
+      }, STUDENT_CODE_LAYOUT_ANIMATION_MS);
+      return;
+    }
+
     let hasMovement = false;
     panels.forEach((node) => {
       const first = firstRects.get(node);
@@ -742,18 +808,35 @@ const StudentTestModal = ({
       return;
     }
 
-    panels[0]?.getBoundingClientRect();
     flushSync(() => setQuestionCodeLayoutAnimating(true));
+
     panels.forEach((node) => {
       if (!node.isConnected) return;
-      node.style.transition = `transform ${STUDENT_CODE_LAYOUT_ANIMATION_MS}ms cubic-bezier(0.16, 1, 0.3, 1)`;
-      node.style.transform = 'translate3d(0, 0, 0)';
+      node.getBoundingClientRect();
     });
-    questionCodeLayoutAnimationTimerRef.current = setTimeout(() => {
-      clearQuestionCodeLayoutFlip();
-      setQuestionCodeLayoutAnimating(false);
-      questionCodeLayoutAnimationTimerRef.current = null;
-    }, STUDENT_CODE_LAYOUT_ANIMATION_MS);
+
+    const playLayoutTransition = () => {
+      questionCodeLayoutAnimationFrameRef.current = null;
+      panels.forEach((node) => {
+        if (!node.isConnected) return;
+        node.style.transition = `transform ${STUDENT_CODE_LAYOUT_ANIMATION_MS}ms cubic-bezier(0.16, 1, 0.3, 1)`;
+        node.style.transform = 'translate3d(0, 0, 0)';
+      });
+      questionCodeLayoutAnimationTimerRef.current = setTimeout(() => {
+        clearQuestionCodeLayoutFlip();
+        setQuestionCodeLayoutAnimating(false);
+        questionCodeLayoutAnimationTimerRef.current = null;
+      }, STUDENT_CODE_LAYOUT_ANIMATION_MS);
+    };
+
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      questionCodeLayoutAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        questionCodeLayoutAnimationFrameRef.current = window.requestAnimationFrame(playLayoutTransition);
+      });
+      return;
+    }
+
+    playLayoutTransition();
   };
 
   const normalizeAnswerHistoryPayload = (payload) => {
