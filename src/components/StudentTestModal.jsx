@@ -1,10 +1,10 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, ChevronLeft, ChevronRight, Download, History, ListChecks, PlayCircle, RefreshCcw, X } from 'lucide-react';
-import { api } from '../services/api';
+import { Check, ChevronLeft, ChevronRight, Code2, Download, History, ListChecks, Maximize2, PlayCircle, RefreshCcw, Terminal, X } from 'lucide-react';
+import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
-import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
+import { MONACO_THEME_COLORFUL_DARK, ensureMonacoColorTheme } from '../utils/monacoTheme';
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import { Button } from './ui';
@@ -85,8 +85,106 @@ const writeStudentTestAnswerDraft = ({ studentId, taskNumber, levelId, questions
   }));
 };
 
+const normalizeQuestionRuntimePath = (value) => {
+  const text = String(value || '').replace(/\0/g, '').trim();
+  if (!text) return '';
+  const parts = text
+    .split(/[\\/]+/)
+    .map((part) => String(part || '').trim())
+    .filter((part) => part && part !== '.' && part !== '..');
+  return parts.join('/');
+};
+
+const getQuestionRuntimeFileName = (file) => {
+  const normalizedPath = normalizeQuestionRuntimePath(file?.name || file?.storageName || file?.id);
+  if (!normalizedPath) return '';
+  const parts = normalizedPath.split('/').filter(Boolean);
+  return parts[parts.length - 1] || '';
+};
+
+const getQuestionRuntimePathForFile = (file) => {
+  const safeName = getQuestionRuntimeFileName(file);
+  if (!safeName) return '';
+  const folderPath = normalizeQuestionRuntimePath(file?.folderPath || file?.folderName);
+  return folderPath ? `${folderPath}/${safeName}` : safeName;
+};
+
+const getQuestionRuntimePathVariantsForFile = (file) => {
+  const primaryPath = getQuestionRuntimePathForFile(file);
+  if (!primaryPath) return [];
+  const parts = primaryPath.split('/').filter(Boolean);
+  const variants = [];
+  const seen = new Set();
+  for (let start = 0; start < parts.length; start += 1) {
+    const candidate = normalizeQuestionRuntimePath(parts.slice(start).join('/'));
+    const key = candidate.toLowerCase();
+    if (!candidate || seen.has(key)) continue;
+    seen.add(key);
+    variants.push(candidate);
+  }
+  return variants;
+};
+
+const getQuestionFileUrl = (file) => String(file?.url || '').trim();
+
+const toQuestionRuntimeBytes = (bytesSource) => {
+  if (bytesSource instanceof Uint8Array) return bytesSource;
+  if (ArrayBuffer.isView(bytesSource)) {
+    return new Uint8Array(bytesSource.buffer, bytesSource.byteOffset, bytesSource.byteLength);
+  }
+  if (bytesSource instanceof ArrayBuffer) return new Uint8Array(bytesSource);
+  if (Array.isArray(bytesSource)) {
+    return Uint8Array.from(bytesSource.map((item) => {
+      const num = Number(item);
+      if (!Number.isFinite(num)) return 0;
+      return num & 255;
+    }));
+  }
+  if (typeof bytesSource === 'string') {
+    try {
+      return new TextEncoder().encode(bytesSource);
+    } catch {
+      return new Uint8Array(0);
+    }
+  }
+  return new Uint8Array(0);
+};
+
+const formatQuestionTerminalText = ({
+  loading = false,
+  output = '',
+  error = '',
+  attachedFiles = [],
+  status = '',
+} = {}) => {
+  const lines = ['$ python solution.py'];
+  const fileList = Array.isArray(attachedFiles)
+    ? attachedFiles.map((fileName) => String(fileName || '').trim()).filter(Boolean)
+    : [];
+  if (fileList.length > 0) lines.push(`# files: ${fileList.join(', ')}`);
+  if (status) lines.push(String(status));
+  const safeOutput = String(output || '').replace(/\s+$/g, '');
+  const safeError = String(error || '').replace(/\s+$/g, '');
+  if (safeOutput) lines.push(safeOutput);
+  if (safeError) lines.push(safeError);
+  if (loading && !safeOutput && !safeError) lines.push('Running...');
+  if (!loading && !safeOutput && !safeError && !status) {
+    lines.push('Готово. Вывод появится здесь после запуска.');
+  }
+  return lines.join('\n');
+};
+
+const extractQuestionRuntimeFileError = async (response, fallback) => {
+  try {
+    const text = await response.text();
+    if (text && text.length <= 220) return text;
+  } catch {
+    // Ignore unreadable response bodies and use the fallback.
+  }
+  return fallback;
+};
+
 const StudentTestModal = ({
-  theme = '',
   task,
   onClose,
   onComplete,
@@ -114,14 +212,10 @@ const StudentTestModal = ({
   ensurePyodideReady,
   mergeRuntimeErrorText,
   createPyodideWorker,
-  buildIdleConsoleText,
   getLocalDayKey,
   normalizeXpTotal,
-  parseIdleConsoleInput,
-  PY_IDLE_STDIN_HEADER,
   withStudentId,
 }) => {
-  const monacoTheme = resolveMonacoColorTheme(theme);
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -138,15 +232,21 @@ const StudentTestModal = ({
   const lastQuestionImageAspectRef = useRef(3.8);
   const questionImageFallbackAspectByKeyRef = useRef(new Map());
   const [questionCodeById, setQuestionCodeById] = useState({});
+  const questionCodeByIdRef = useRef({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeSavingById, setQuestionCodeSavingById] = useState({});
+  const [questionCodeAutoSavePendingById, setQuestionCodeAutoSavePendingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
   const [questionRunStateById, setQuestionRunStateById] = useState({});
   const autoStartRef = useRef(false);
   const [autoStartFailed, setAutoStartFailed] = useState(false);
   const questionRunnerWorkerRef = useRef(null);
   const questionRunnerPendingRef = useRef(new Map());
+  const questionCodeSavingRef = useRef(new Set());
+  const questionCodePendingSaveRef = useRef(new Map());
+  const questionCodeAutoSaveTimersRef = useRef(new Map());
+  const questionMainThreadRuntimeFilesRef = useRef([]);
   const autoStartLevel = ['basic', 'advanced', 'expert'].includes(initialLevel) ? initialLevel : null;
 
   const currentMastery = progress[task.id] || 0;
@@ -157,9 +257,10 @@ const StudentTestModal = ({
   const activeQuestion = questions[currentIndex];
   const activeQuestionId = activeQuestion ? String(activeQuestion?.id ?? currentIndex) : '';
 
-  const getQuestionCodeEntry = (questionId) => {
+  const getQuestionCodeEntry = (questionId, source = null) => {
     const key = String(questionId ?? '').trim();
-    const cached = questionCodeById?.[key];
+    const cacheSource = source || questionCodeByIdRef.current || questionCodeById;
+    const cached = cacheSource?.[key];
     if (!cached || typeof cached !== 'object') {
       return { code: '', input: '', updatedAt: '', loaded: false };
     }
@@ -178,7 +279,7 @@ const StudentTestModal = ({
       const current = prev?.[key] && typeof prev[key] === 'object'
         ? prev[key]
         : { code: '', input: '', updatedAt: '', loaded: false };
-      return {
+      const next = {
         ...(prev || {}),
         [key]: {
           ...current,
@@ -186,6 +287,8 @@ const StudentTestModal = ({
           loaded: true,
         },
       };
+      questionCodeByIdRef.current = next;
+      return next;
     });
   };
 
@@ -276,8 +379,59 @@ const StudentTestModal = ({
     }
   };
 
-  const runQuestionCodeMainThread = async (source, inputValue) => {
+  const clearQuestionMainThreadRuntimeFiles = (pyodide) => {
+    if (!pyodide?.FS) return;
+    const mountedFiles = Array.isArray(questionMainThreadRuntimeFilesRef.current)
+      ? questionMainThreadRuntimeFilesRef.current
+      : [];
+    mountedFiles.forEach((filePath) => {
+      try {
+        pyodide.FS.unlink(filePath);
+      } catch {
+        // Ignore files that are already gone.
+      }
+    });
+    questionMainThreadRuntimeFilesRef.current = [];
+  };
+
+  const ensureQuestionRuntimeDir = (pyodide, dirPath) => {
+    if (!pyodide?.FS || !dirPath) return;
+    const parts = String(dirPath).split('/').filter(Boolean);
+    let current = '';
+    parts.forEach((part) => {
+      current = current ? `${current}/${part}` : part;
+      try {
+        pyodide.FS.mkdir(current);
+      } catch {
+        // Existing folders are fine.
+      }
+    });
+  };
+
+  const mountQuestionRuntimeFilesInPyodide = (pyodide, runtimeFiles = []) => {
+    clearQuestionMainThreadRuntimeFiles(pyodide);
+    if (!pyodide?.FS || !Array.isArray(runtimeFiles) || runtimeFiles.length === 0) return;
+    const seen = new Set();
+    runtimeFiles.forEach((file) => {
+      const safePath = normalizeQuestionRuntimePath(file?.name);
+      if (!safePath) return;
+      const dedupeKey = safePath.toLowerCase();
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      const dirPath = safePath.includes('/') ? safePath.slice(0, safePath.lastIndexOf('/')) : '';
+      if (dirPath) ensureQuestionRuntimeDir(pyodide, dirPath);
+      try {
+        pyodide.FS.writeFile(safePath, toQuestionRuntimeBytes(file?.bytes));
+        questionMainThreadRuntimeFilesRef.current.push(safePath);
+      } catch {
+        // The terminal will surface Python-side file errors if a mount fails.
+      }
+    });
+  };
+
+  const runQuestionCodeMainThread = async (source, inputValue, runtimeFiles = []) => {
     const pyodide = await ensurePyodideReady();
+    mountQuestionRuntimeFilesInPyodide(pyodide, runtimeFiles);
     const wrapped = [
       'import sys, io, traceback',
       `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
@@ -302,7 +456,7 @@ const StudentTestModal = ({
     return { output: String(output), error: String(error) };
   };
 
-  const runQuestionCode = async (source, inputValue, onProgress = null) => {
+  const runQuestionCode = async (source, inputValue, onProgress = null, runtimeFiles = []) => {
     const worker = ensureQuestionRunnerWorker();
     if (worker) {
       const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -327,7 +481,7 @@ const StudentTestModal = ({
           error: '',
           onProgress: typeof onProgress === 'function' ? onProgress : null,
         });
-        worker.postMessage({ id, source, input: inputValue });
+        worker.postMessage({ id, source, input: inputValue, files: runtimeFiles });
       });
     }
     if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
@@ -336,7 +490,7 @@ const StudentTestModal = ({
         error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
       };
     }
-    return runQuestionCodeMainThread(source, inputValue);
+    return runQuestionCodeMainThread(source, inputValue, runtimeFiles);
   };
 
   const loadQuestionCode = async (questionId, force = false) => {
@@ -351,7 +505,7 @@ const StudentTestModal = ({
       const payload = await api.getQuestionCode(studentId, task.number, level, key);
       setQuestionCodeEntry(key, {
         code: typeof payload?.code === 'string' ? payload.code : '',
-        input: typeof payload?.input === 'string' ? payload.input : '',
+        input: '',
         updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
       });
       clearQuestionCodeError(key);
@@ -362,28 +516,72 @@ const StudentTestModal = ({
     }
   };
 
-  const saveQuestionCode = async (questionId) => {
+  const saveQuestionCode = async (questionId, snapshot = null) => {
     if (!studentId || !task?.number || !level) return;
     const key = String(questionId ?? '').trim();
-    if (!key || questionCodeSavingById?.[key]) return;
-    const entry = getQuestionCodeEntry(key);
+    if (!key) return;
+    const entry = snapshot && typeof snapshot === 'object'
+      ? {
+          code: typeof snapshot.code === 'string' ? snapshot.code : '',
+          input: '',
+        }
+      : getQuestionCodeEntry(key, questionCodeByIdRef.current);
+    if (questionCodeSavingRef.current.has(key)) {
+      questionCodePendingSaveRef.current.set(key, entry);
+      setQuestionCodeAutoSavePendingById((prev) => ({ ...(prev || {}), [key]: true }));
+      return;
+    }
+    questionCodeSavingRef.current.add(key);
     setQuestionCodeSavingById((prev) => ({ ...(prev || {}), [key]: true }));
+    setQuestionCodeAutoSavePendingById((prev) => ({ ...(prev || {}), [key]: false }));
     try {
       const payload = await api.saveQuestionCode(studentId, task.number, level, key, {
         code: entry.code,
-        input: entry.input,
+        input: '',
       });
+      const currentEntry = getQuestionCodeEntry(key, questionCodeByIdRef.current);
+      const changedDuringSave = currentEntry.code !== entry.code;
       setQuestionCodeEntry(key, {
-        code: typeof payload?.code === 'string' ? payload.code : '',
-        input: typeof payload?.input === 'string' ? payload.input : '',
-        updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+        code: changedDuringSave
+          ? currentEntry.code
+          : (typeof payload?.code === 'string' ? payload.code : entry.code),
+        input: '',
+        updatedAt: changedDuringSave
+          ? currentEntry.updatedAt
+          : (typeof payload?.updatedAt === 'string' ? payload.updatedAt : ''),
       });
       clearQuestionCodeError(key);
     } catch (err) {
       setQuestionCodeError(key, err?.message || err);
     } finally {
+      questionCodeSavingRef.current.delete(key);
       setQuestionCodeSavingById((prev) => ({ ...(prev || {}), [key]: false }));
+      const pendingSnapshot = questionCodePendingSaveRef.current.get(key);
+      if (pendingSnapshot) {
+        questionCodePendingSaveRef.current.delete(key);
+        saveQuestionCode(key, pendingSnapshot).catch(() => {});
+      }
     }
+  };
+
+  const scheduleQuestionCodeAutoSave = (questionId, snapshot) => {
+    const key = String(questionId ?? '').trim();
+    if (!key || !studentId || !task?.number || !level) return;
+    const currentTimer = questionCodeAutoSaveTimersRef.current.get(key);
+    if (currentTimer) clearTimeout(currentTimer);
+    setQuestionCodeAutoSavePendingById((prev) => ({ ...(prev || {}), [key]: true }));
+    const nextTimer = setTimeout(() => {
+      questionCodeAutoSaveTimersRef.current.delete(key);
+      saveQuestionCode(key, snapshot).catch(() => {});
+    }, 650);
+    questionCodeAutoSaveTimersRef.current.set(key, nextTimer);
+  };
+
+  const clearQuestionCodeAutoSaveTimers = () => {
+    questionCodeAutoSaveTimersRef.current.forEach((timer) => clearTimeout(timer));
+    questionCodeAutoSaveTimersRef.current.clear();
+    questionCodePendingSaveRef.current.clear();
+    questionCodeSavingRef.current.clear();
   };
 
   const normalizeAnswerHistoryPayload = (payload) => {
@@ -452,30 +650,112 @@ const StudentTestModal = ({
     });
   };
 
+  const getQuestionFilesForCode = (questionId) => {
+    const key = String(questionId ?? '').trim();
+    if (!key) return [];
+    const questionIndex = questions.findIndex((question, index) => String(question?.id ?? index) === key);
+    const question = questionIndex >= 0 ? questions[questionIndex] : null;
+    return (Array.isArray(question?.files) ? question.files : [])
+      .map((file) => {
+        const rawUrl = file?.url || (file?.storageName ? `/uploads/${file.storageName}` : '');
+        return { ...file, url: withStudentId(rawUrl, studentId) };
+      })
+      .filter((file) => getQuestionRuntimePathForFile(file) && getQuestionFileUrl(file));
+  };
+
+  const resolveQuestionRuntimeFiles = async (questionId) => {
+    const files = getQuestionFilesForCode(questionId);
+    if (files.length === 0) return [];
+    const selectedEntries = files.map((file) => ({
+      file,
+      primaryPath: getQuestionRuntimePathForFile(file),
+      variants: getQuestionRuntimePathVariantsForFile(file),
+    })).filter((entry) => entry.primaryPath);
+    const pathCounts = new Map();
+    selectedEntries.forEach((entry) => {
+      entry.variants.forEach((candidate) => {
+        const lowerCandidate = candidate.toLowerCase();
+        pathCounts.set(lowerCandidate, (pathCounts.get(lowerCandidate) || 0) + 1);
+      });
+    });
+    const mountedPaths = new Set();
+    const payload = [];
+    for (const entry of selectedEntries) {
+      const { file, primaryPath, variants } = entry;
+      const lowerPath = primaryPath.toLowerCase();
+      if (mountedPaths.has(lowerPath)) {
+        throw new Error(`В задании несколько файлов с путем ${primaryPath}. Оставьте один.`);
+      }
+      const fileUrl = getQuestionFileUrl(file);
+      const response = await authenticatedUploadsFetch(buildDownloadUrl(fileUrl));
+      if (!response.ok) {
+        const reason = await extractQuestionRuntimeFileError(
+          response,
+          `Не удалось загрузить файл ${primaryPath}.`
+        );
+        throw new Error(reason.includes(primaryPath) ? reason : `${reason} (${primaryPath}).`);
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      mountedPaths.add(lowerPath);
+      payload.push({ name: primaryPath, bytes });
+      variants.forEach((candidate) => {
+        const lowerCandidate = candidate.toLowerCase();
+        if (lowerCandidate === lowerPath) return;
+        if ((pathCounts.get(lowerCandidate) || 0) !== 1) return;
+        if (mountedPaths.has(lowerCandidate)) return;
+        mountedPaths.add(lowerCandidate);
+        payload.push({ name: candidate, bytes });
+      });
+    }
+    return payload;
+  };
+
   const runQuestionCodeForQuestion = async (questionId) => {
     const key = String(questionId ?? '').trim();
     if (!key) return;
     const entry = getQuestionCodeEntry(key);
-    setQuestionRunStateById((prev) => ({ ...(prev || {}), [key]: { loading: true, output: '', error: '' } }));
+    setQuestionRunStateById((prev) => ({
+      ...(prev || {}),
+      [key]: { loading: true, output: '', error: '', status: 'Подготовка запуска...' },
+    }));
     try {
-      const result = await runQuestionCode(entry.code || '', entry.input || '', (progress) => {
+      const runtimeFiles = await resolveQuestionRuntimeFiles(key);
+      const fileStatus = runtimeFiles.length > 0
+        ? `Подключены файлы: ${runtimeFiles.map((file) => file.name).join(', ')}`
+        : '';
+      setQuestionRunStateById((prev) => ({
+        ...(prev || {}),
+        [key]: { loading: true, output: '', error: '', status: fileStatus },
+      }));
+      const result = await runQuestionCode(entry.code || '', '', (progress) => {
         setQuestionRunStateById((prev) => ({
           ...(prev || {}),
           [key]: {
             loading: !progress?.done,
             output: progress?.output || '',
             error: progress?.error || '',
+            status: fileStatus,
           },
         }));
-      });
+      }, runtimeFiles);
       setQuestionRunStateById((prev) => ({
         ...(prev || {}),
-        [key]: { loading: false, output: result?.output || '', error: result?.error || '' },
+        [key]: {
+          loading: false,
+          output: result?.output || '',
+          error: result?.error || '',
+          status: fileStatus,
+        },
       }));
     } catch (err) {
       setQuestionRunStateById((prev) => ({
         ...(prev || {}),
-        [key]: { loading: false, output: '', error: err?.message || 'Ошибка выполнения Python' },
+        [key]: {
+          loading: false,
+          output: '',
+          error: err?.message || 'Ошибка выполнения Python',
+          status: '',
+        },
       }));
     }
   };
@@ -535,12 +815,16 @@ const StudentTestModal = ({
     setSolvedAnswerById({});
     setAnswerHistoryById({});
     setAnswerHistoryLoading(false);
+    questionCodeByIdRef.current = {};
+    clearQuestionCodeAutoSaveTimers();
     setQuestionCodeById({});
     setQuestionCodeOpen(false);
     setQuestionCodeLoadingById({});
     setQuestionCodeSavingById({});
+    setQuestionCodeAutoSavePendingById({});
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
+    questionMainThreadRuntimeFilesRef.current = [];
     disposeQuestionRunnerWorker();
     setStage('testing');
     onLevelSelect?.(lvlId);
@@ -601,14 +885,18 @@ const StudentTestModal = ({
     autoStartRef.current = false;
     setAutoStartFailed(false);
     setQuestionCodeOpen(false);
+    questionCodeByIdRef.current = {};
+    clearQuestionCodeAutoSaveTimers();
     setQuestionCodeById({});
     setQuestionCodeLoadingById({});
     setQuestionCodeSavingById({});
+    setQuestionCodeAutoSavePendingById({});
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
     setSolvedAnswerById({});
     setAnswerHistoryById({});
     setAnswerHistoryLoading(false);
+    questionMainThreadRuntimeFilesRef.current = [];
     disposeQuestionRunnerWorker();
   }, [task?.number]);
 
@@ -638,7 +926,19 @@ const StudentTestModal = ({
     loadQuestionCode(activeQuestionId);
   }, [stage, questionCodeOpen, activeQuestionId, studentId, task?.number, level]);
 
-  useEffect(() => () => disposeQuestionRunnerWorker('Python runner stopped.'), []);
+  useEffect(() => {
+    if (!questionCodeOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setQuestionCodeOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [questionCodeOpen]);
+
+  useEffect(() => () => {
+    clearQuestionCodeAutoSaveTimers();
+    disposeQuestionRunnerWorker('Python runner stopped.');
+  }, []);
 
   const normalizeAnswer = (value) => {
     return String(value ?? '')
@@ -1005,7 +1305,10 @@ const StudentTestModal = ({
     const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
       .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
     const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
-      .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
+      .map((file) => {
+        const rawUrl = file?.url || (file?.storageName ? `/uploads/${file.storageName}` : '');
+        return { ...file, url: withStudentId(rawUrl, studentId) };
+      });
     const isAnswerReady = isSolved
       ? true
       : (
@@ -1037,20 +1340,22 @@ const StudentTestModal = ({
     const questionCodeEntry = getQuestionCodeEntry(currentId);
     const questionCodeLoading = Boolean(questionCodeLoadingById?.[currentId]);
     const questionCodeSaving = Boolean(questionCodeSavingById?.[currentId]);
+    const questionCodeAutoSavePending = Boolean(questionCodeAutoSavePendingById?.[currentId]);
     const questionCodeError = questionCodeErrorById?.[currentId] || '';
-    const questionRunState = questionRunStateById?.[currentId] || { loading: false, output: '', error: '' };
-    const questionIdleConsoleText = buildIdleConsoleText(
-      questionCodeEntry.input,
-      questionRunState.output,
-      questionRunState.error
-    );
+    const questionRunState = questionRunStateById?.[currentId] || { loading: false, output: '', error: '', status: '' };
+    const attachedRuntimeFileNames = extraFiles
+      .map((file) => getQuestionRuntimePathForFile(file))
+      .filter(Boolean);
+    const questionTerminalText = formatQuestionTerminalText({
+      loading: questionRunState.loading,
+      output: questionRunState.output,
+      error: questionRunState.error,
+      status: questionRunState.status,
+      attachedFiles: attachedRuntimeFileNames,
+    });
     const questionCodeUpdatedAtLabel = questionCodeEntry.updatedAt
       ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
       : '';
-    const isMobileViewport = typeof window !== 'undefined'
-      ? window.matchMedia('(max-width: 767px)').matches
-      : false;
-    const questionCodeEditorHeight = isMobileViewport ? '180px' : '240px';
     const answerHistory = Array.isArray(answerHistoryById?.[currentId])
       ? answerHistoryById[currentId]
       : [];
@@ -1117,6 +1422,209 @@ const StudentTestModal = ({
         return next;
       });
     };
+
+    const handleOpenQuestionCodeFocus = () => {
+      setQuestionCodeOpen(true);
+      if (currentId) loadQuestionCode(currentId);
+    };
+
+    const handleCloseQuestionCodeFocus = () => {
+      setQuestionCodeOpen(false);
+    };
+
+    const focusQuestionText = String(currentQuestion?.question || '').trim();
+    const codeFocusStatusLabel = questionCodeLoading
+      ? 'Загружаем код...'
+      : (questionCodeSaving
+          ? 'Автосохранение...'
+          : (questionCodeAutoSavePending
+              ? 'Изменения скоро сохранятся...'
+              : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Код еще не сохранен')));
+
+    const codeFocusOverlay = questionCodeOpen ? (
+      <div
+        className="student-test-code-focus fixed inset-0 z-[70]"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Решение в коде для вопроса №${currentQuestionNumber}`}
+      >
+        <button
+          type="button"
+          className="student-test-code-focus__scrim"
+          onClick={handleCloseQuestionCodeFocus}
+          aria-label="Закрыть режим кода"
+        />
+        <div className="student-test-code-focus__workspace">
+          <header className="student-test-code-focus__header">
+            <div className="student-test-code-focus__title">
+              <span className="student-test-code-focus__title-icon" aria-hidden="true">
+                <Code2 size={21} />
+              </span>
+              <div className="min-w-0">
+                <div className="student-test-code-focus__eyebrow">
+                  Вопрос №{currentQuestionNumber}
+                </div>
+                <h3>Решать в коде</h3>
+              </div>
+            </div>
+            <div className="student-test-code-focus__header-actions">
+              <span className="student-test-code-focus__save-state">{codeFocusStatusLabel}</span>
+              <button
+                type="button"
+                className="student-test-code-focus__close"
+                onClick={handleCloseQuestionCodeFocus}
+                aria-label="Закрыть режим кода"
+              >
+                <X size={19} />
+              </button>
+            </div>
+          </header>
+
+          <main className="student-test-code-focus__body">
+            <section className="student-test-code-focus__task" aria-label="Условие задания">
+              <div className="student-test-code-focus__task-head">
+                {currentQuestionLabel && (
+                  <span
+                    className="student-test-code-focus__label"
+                    style={getQuestionLabelStyle(currentQuestionLabel)}
+                  >
+                    {currentQuestionLabel.text}
+                  </span>
+                )}
+                <span className="student-test-code-focus__task-meta">
+                  Задание {getTaskDisplayNumber(task)}
+                </span>
+              </div>
+
+              {screenshots.length > 0 ? (
+                <div className={`student-test-code-focus__media ${screenshots.length > 1 ? 'is-gallery' : ''}`}>
+                  {screenshots.map((img, imageIndex) => (
+                    <button
+                      key={img.id || img.storageName || img.url || imageIndex}
+                      type="button"
+                      className="student-test-code-focus__image-button"
+                      onClick={() => setExpandedImage(img)}
+                      aria-label="Открыть изображение задания"
+                    >
+                      <img
+                        src={img.url}
+                        alt={img.name || 'Скриншот задания'}
+                        loading="lazy"
+                      />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="student-test-code-focus__text-only">
+                  {focusQuestionText || 'Условие находится в материалах задания.'}
+                </div>
+              )}
+
+              {focusQuestionText && screenshots.length > 0 && (
+                <p className="student-test-code-focus__question-text">{focusQuestionText}</p>
+              )}
+
+              {extraFiles.length > 0 && (
+                <div className="student-test-code-focus__files">
+                  {extraFiles.map((file) => (
+                    <a
+                      key={file.id || file.url}
+                      href={buildDownloadUrl(file.url)}
+                      download={file?.name || undefined}
+                    >
+                      <Download size={14} />
+                      <span>{file.name}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="student-test-code-focus__ide" aria-label="Редактор кода">
+              <div className="student-test-code-focus__ide-topbar">
+                <div className="student-test-code-focus__window-dots" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <div className="student-test-code-focus__tab">
+                  <Code2 size={15} />
+                  <span>solution.py</span>
+                </div>
+                <div className="student-test-code-focus__tools">
+                  <button
+                    type="button"
+                    onClick={() => runQuestionCodeForQuestion(currentId)}
+                    disabled={questionRunState.loading || questionCodeLoading}
+                    className="student-test-code-focus__tool-button is-run"
+                  >
+                    <PlayCircle size={16} />
+                    <span>{questionRunState.loading ? 'Запуск...' : 'Запустить'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {questionCodeLoading ? (
+                <div className="student-test-code-focus__loading">
+                  <RefreshCcw size={18} />
+                  <span>Загружаем рабочее пространство...</span>
+                </div>
+              ) : (
+                <div className="student-test-code-focus__ide-grid">
+                  <div className="student-test-code-focus__activity" aria-hidden="true">
+                    <span className="is-active"><Code2 size={18} /></span>
+                    <span><Terminal size={18} /></span>
+                  </div>
+
+                  <div className="student-test-code-focus__editor-pane">
+                    <Editor
+                      height="100%"
+                      language="python"
+                      theme={MONACO_THEME_COLORFUL_DARK}
+                      beforeMount={ensureMonacoColorTheme}
+                      value={questionCodeEntry.code}
+                      onChange={(value) => {
+                        const nextCode = value ?? '';
+                        setQuestionCodeEntry(currentId, { code: nextCode, input: '' });
+                        clearQuestionCodeError(currentId);
+                        scheduleQuestionCodeAutoSave(currentId, { code: nextCode, input: '' });
+                      }}
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        fontFamily: '"JetBrains Mono", Consolas, "Courier New", monospace',
+                        fontLigatures: true,
+                        tabSize: 4,
+                        insertSpaces: true,
+                        wordWrap: 'on',
+                        scrollBeyondLastLine: false,
+                        smoothScrolling: true,
+                        cursorBlinking: 'smooth',
+                        automaticLayout: true,
+                        padding: { top: 16, bottom: 16 },
+                        lineNumbersMinChars: 3,
+                      }}
+                      loading={<div className="student-test-code-focus__editor-loading">Загрузка редактора...</div>}
+                    />
+                  </div>
+
+                  <aside className="student-test-code-focus__console-pane">
+                    <div className="student-test-code-focus__console-head">
+                      <span><Terminal size={15} /> Terminal</span>
+                      {questionRunState.loading && <strong>running</strong>}
+                    </div>
+                    <pre className="student-test-code-focus__terminal-output">
+                      {questionTerminalText}
+                    </pre>
+                    {questionCodeError && <div className="student-test-code-focus__error">{questionCodeError}</div>}
+                  </aside>
+                </div>
+              )}
+            </section>
+          </main>
+        </div>
+      </div>
+    ) : null;
 
     const modal = (
       <div className="student-test-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-0 sm:p-3 md:p-5">
@@ -1698,96 +2206,30 @@ const StudentTestModal = ({
             </details>
             </section>
 
-            <div className="student-test-code-panel student-test-panel-enter rounded-2xl p-3 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-bold text-gray-500 uppercase">
-                  Код решения для вопроса №{currentQuestionNumber}
+            <div className="student-test-code-panel student-test-panel-enter">
+              <div className="student-test-code-launch-card">
+                <div className="student-test-code-launch-card__main">
+                  <span className="student-test-code-launch-card__icon" aria-hidden="true">
+                    <Code2 size={18} />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="student-test-code-launch-card__title">
+                      Python workspace
+                    </div>
+                    <div className="student-test-code-launch-card__meta">
+                      Вопрос №{currentQuestionNumber} · редактор и консоль
+                    </div>
+                  </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    const nextOpen = !questionCodeOpen;
-                    setQuestionCodeOpen(nextOpen);
-                    if (nextOpen && currentId) {
-                      loadQuestionCode(currentId);
-                    }
-                  }}
-                  className="student-test-code-toggle text-xs text-purple-600 hover:text-purple-700 font-semibold"
+                  onClick={handleOpenQuestionCodeFocus}
+                  className="student-test-code-launch-card__button"
                 >
-                  {questionCodeOpen ? 'Скрыть код' : 'Открыть код'}
+                  <span>Решать в коде</span>
+                  <Maximize2 size={16} />
                 </button>
               </div>
-
-              {questionCodeOpen && (
-                questionCodeLoading ? (
-                  <div className="text-sm text-gray-500">Загрузка кода...</div>
-                ) : (
-                  <div className="student-test-code-reveal space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                      <div className="text-xs text-gray-500">
-                        {questionCodeUpdatedAtLabel ? `Сохранено: ${questionCodeUpdatedAtLabel}` : 'Код ещё не сохранён'}
-                      </div>
-                      <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                        <Button
-                          variant="secondary"
-                          onClick={() => runQuestionCodeForQuestion(currentId)}
-                          disabled={questionRunState.loading}
-                          className="w-full sm:w-auto"
-                        >
-                          {questionRunState.loading ? 'Запуск...' : 'Запустить'}
-                        </Button>
-                        <Button
-                          onClick={() => saveQuestionCode(currentId)}
-                          disabled={questionCodeSaving || !studentId}
-                          className="w-full sm:w-auto"
-                        >
-                          {questionCodeSaving ? 'Сохранение...' : 'Сохранить код'}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="rounded-xl overflow-hidden border border-gray-800">
-                      <Editor
-                        height={questionCodeEditorHeight}
-                        language="python"
-                        theme={monacoTheme}
-                        beforeMount={ensureMonacoColorTheme}
-                        value={questionCodeEntry.code}
-                        onChange={(value) => {
-                          setQuestionCodeEntry(currentId, { code: value ?? '' });
-                          clearQuestionCodeError(currentId);
-                        }}
-                        options={{
-                          minimap: { enabled: false },
-                          fontSize: 14,
-                          tabSize: 4,
-                          insertSpaces: true,
-                          wordWrap: 'on',
-                          automaticLayout: true,
-                        }}
-                        loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
-                      />
-                    </div>
-                    <div className="rounded-xl border p-2 bg-gray-50 space-y-2">
-                      <div className="text-xs font-semibold text-gray-600">
-                        Консоль (IDLE): редактируйте секцию `{PY_IDLE_STDIN_HEADER}`
-                      </div>
-                      <textarea
-                        value={questionIdleConsoleText}
-                        onChange={(e) => {
-                          setQuestionCodeEntry(currentId, {
-                            input: parseIdleConsoleInput(e.target.value, questionCodeEntry.input),
-                          });
-                          clearQuestionCodeError(currentId);
-                        }}
-                        readOnly={questionRunState.loading}
-                        spellCheck={false}
-                        className="w-full min-h-[220px] text-xs font-mono leading-5 px-3 py-2 rounded-lg border border-gray-200 bg-white outline-none focus:border-purple-500 resize-y"
-                      />
-                    </div>
-                    {questionCodeError && <div className="text-xs text-red-500">{questionCodeError}</div>}
-                  </div>
-                )
-              )}
             </div>
           </div>
           </div>
@@ -1833,9 +2275,10 @@ const StudentTestModal = ({
             </Button>
           </footer>
         </div>
+        {codeFocusOverlay}
         {expandedImage && (
           <div
-            className="student-test-image-lightbox fixed inset-0 z-[60] bg-black/80 modal-backdrop flex items-center justify-center p-4"
+            className="student-test-image-lightbox fixed inset-0 z-[80] bg-black/80 modal-backdrop flex items-center justify-center p-4"
             onClick={() => setExpandedImage(null)}
           >
             <div className="relative max-w-[95vw] max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
