@@ -2192,20 +2192,20 @@ const StudentTestModal = ({
                   {questionCodeFocusFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                   <span>Фулл фокус</span>
                 </button>
-                {typeof onThemeToggle === 'function' && (
-                  <button
-                    type="button"
-                    className="student-test-code-focus__focus-button is-theme"
-                    onClick={handleToggleQuestionCodeTheme}
-                    title={isQuestionCodeDarkTheme ? 'Включить светлую тему' : 'Включить тёмную тему'}
-                    aria-label={isQuestionCodeDarkTheme ? 'Включить светлую тему' : 'Включить тёмную тему'}
-                  >
-                    {isQuestionCodeDarkTheme ? <Sun size={15} /> : <Moon size={15} />}
-                    <span>{isQuestionCodeDarkTheme ? 'Светлая' : 'Тёмная'}</span>
-                  </button>
-                )}
                 {questionCodeFocusFullscreen && (
                   <>
+                    {typeof onThemeToggle === 'function' && (
+                      <button
+                        type="button"
+                        className="student-test-code-focus__focus-button is-theme"
+                        onClick={handleToggleQuestionCodeTheme}
+                        title={isQuestionCodeDarkTheme ? 'Включить светлую тему' : 'Включить тёмную тему'}
+                        aria-label={isQuestionCodeDarkTheme ? 'Включить светлую тему' : 'Включить тёмную тему'}
+                      >
+                        {isQuestionCodeDarkTheme ? <Sun size={15} /> : <Moon size={15} />}
+                        <span>{isQuestionCodeDarkTheme ? 'Светлая' : 'Тёмная'}</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={`student-test-code-focus__focus-button is-music ${questionCodeFocusMusicEnabled ? 'is-active' : ''}`}
@@ -2242,14 +2242,16 @@ const StudentTestModal = ({
                 </span>
               )}
               <span className="student-test-code-focus__save-state">{codeFocusStatusLabel}</span>
-              <button
-                type="button"
-                className="student-test-code-focus__close"
-                onClick={handleCloseQuestionCodeFocus}
-                aria-label="Закрыть режим кода"
-              >
-                <X size={19} />
-              </button>
+              {!questionCodeFocusFullscreen && (
+                <button
+                  type="button"
+                  className="student-test-code-focus__close"
+                  onClick={handleCloseQuestionCodeFocus}
+                  aria-label="Закрыть режим кода"
+                >
+                  <X size={19} />
+                </button>
+              )}
             </div>
           </header>
 
