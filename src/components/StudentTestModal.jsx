@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import { Check, ChevronLeft, ChevronRight, Code2, Download, History, ListChecks, Maximize2, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Terminal, X } from 'lucide-react';
@@ -318,6 +318,21 @@ const StudentTestModal = ({
     ? STUDENT_CODE_LAYOUT_SIDE
     : STUDENT_CODE_LAYOUT_STACKED;
   const isQuestionCodeSideLayout = questionCodeLayout === STUDENT_CODE_LAYOUT_SIDE;
+  const questionCodeEditorOptions = useMemo(() => ({
+    minimap: { enabled: false },
+    fontSize: questionCodeFontSize,
+    fontFamily: '"JetBrains Mono", Consolas, "Courier New", monospace',
+    fontLigatures: true,
+    tabSize: 4,
+    insertSpaces: true,
+    wordWrap: 'on',
+    scrollBeyondLastLine: false,
+    smoothScrolling: true,
+    cursorBlinking: 'smooth',
+    automaticLayout: true,
+    padding: { top: 16, bottom: 16 },
+    lineNumbersMinChars: 3,
+  }), [questionCodeFontSize]);
 
   const getQuestionCodeEntry = (questionId, source = null) => {
     const key = String(questionId ?? '').trim();
@@ -341,13 +356,22 @@ const StudentTestModal = ({
       const current = prev?.[key] && typeof prev[key] === 'object'
         ? prev[key]
         : { code: '', input: '', updatedAt: '', loaded: false };
+      const nextEntry = {
+        ...current,
+        ...(patch || {}),
+        loaded: true,
+      };
+      if (
+        current.code === nextEntry.code
+        && current.input === nextEntry.input
+        && current.updatedAt === nextEntry.updatedAt
+        && current.loaded === nextEntry.loaded
+      ) {
+        return prev;
+      }
       const next = {
         ...(prev || {}),
-        [key]: {
-          ...current,
-          ...(patch || {}),
-          loaded: true,
-        },
+        [key]: nextEntry,
       };
       questionCodeByIdRef.current = next;
       return next;
@@ -603,15 +627,11 @@ const StudentTestModal = ({
       });
       const currentEntry = getQuestionCodeEntry(key, questionCodeByIdRef.current);
       const changedDuringSave = currentEntry.code !== entry.code;
-      setQuestionCodeEntry(key, {
-        code: changedDuringSave
-          ? currentEntry.code
-          : (typeof payload?.code === 'string' ? payload.code : entry.code),
-        input: '',
-        updatedAt: changedDuringSave
-          ? currentEntry.updatedAt
-          : (typeof payload?.updatedAt === 'string' ? payload.updatedAt : ''),
-      });
+      if (!changedDuringSave) {
+        setQuestionCodeEntry(key, {
+          updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : currentEntry.updatedAt,
+        });
+      }
       clearQuestionCodeError(key);
     } catch (err) {
       setQuestionCodeError(key, err?.message || err);
@@ -2037,21 +2057,7 @@ const StudentTestModal = ({
                           clearQuestionCodeError(currentId);
                           scheduleQuestionCodeAutoSave(currentId, { code: nextCode, input: '' });
                         }}
-                        options={{
-                          minimap: { enabled: false },
-                          fontSize: questionCodeFontSize,
-                          fontFamily: '"JetBrains Mono", Consolas, "Courier New", monospace',
-                          fontLigatures: true,
-                          tabSize: 4,
-                          insertSpaces: true,
-                          wordWrap: 'on',
-                          scrollBeyondLastLine: false,
-                          smoothScrolling: true,
-                          cursorBlinking: 'smooth',
-                          automaticLayout: true,
-                          padding: { top: 16, bottom: 16 },
-                          lineNumbersMinChars: 3,
-                        }}
+                        options={questionCodeEditorOptions}
                         loading={<div className="student-test-code-focus__editor-loading">Загрузка редактора...</div>}
                       />
                     </div>
