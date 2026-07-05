@@ -51064,7 +51064,7 @@ html[data-theme='dark'] .collab-code-command-row--modern.collab-code-command-row
   justify-content: center;
   padding: clamp(10px, 1.8vw, 20px);
   color: #e5edf9;
-  transition: padding 0.62s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: padding 0.72s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .student-test-code-focus.is-closing {
@@ -53673,18 +53673,20 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
   border: 0;
   border-radius: 0;
   box-shadow: none;
+  transform: translate3d(0, 0, 0) scale(1);
 }
 
 .student-test-code-focus__workspace,
 html:not([data-theme='dark']) .student-test-code-focus__workspace {
   transition:
-    width 0.62s cubic-bezier(0.16, 1, 0.3, 1),
-    height 0.62s cubic-bezier(0.16, 1, 0.3, 1),
-    max-width 0.62s cubic-bezier(0.16, 1, 0.3, 1),
-    border-radius 0.62s cubic-bezier(0.16, 1, 0.3, 1),
+    width 0.72s cubic-bezier(0.16, 1, 0.3, 1),
+    height 0.72s cubic-bezier(0.16, 1, 0.3, 1),
+    max-width 0.72s cubic-bezier(0.16, 1, 0.3, 1),
+    border-radius 0.72s cubic-bezier(0.16, 1, 0.3, 1),
     border-color 0.24s ease,
-    box-shadow 0.42s ease,
-    transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow 0.62s ease,
+    transform 0.72s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: width, height, border-radius, transform;
 }
 
 .student-test-code-focus__workspace.is-focus-fullscreen::before,

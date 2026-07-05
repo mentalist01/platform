@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import { Check, ChevronLeft, ChevronRight, Code2, Download, History, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
@@ -19,6 +19,7 @@ const STUDENT_CODE_FONT_SIZE_DEFAULT = 14;
 const STUDENT_CODE_LAYOUT_ANIMATION_MS = 720;
 const STUDENT_CODE_CLOSE_ANIMATION_MS = 360;
 const STUDENT_TEST_CLOSE_ANIMATION_MS = 340;
+const STUDENT_CODE_FOCUS_FULLSCREEN_DELAY_MS = 120;
 const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
 const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
 
@@ -351,6 +352,7 @@ const StudentTestModal = ({
   const questionCodeLayoutAnimationTimerRef = useRef(null);
   const questionCodeLayoutAnimationFrameRef = useRef(null);
   const questionCodeLayoutAnimationsRef = useRef([]);
+  const questionCodeFocusFullscreenTimerRef = useRef(null);
   const questionCodeWorkspaceRef = useRef(null);
   const questionCodeAudioRef = useRef(null);
   const questionCodeTaskPanelRef = useRef(null);
@@ -791,6 +793,39 @@ const StudentTestModal = ({
     audio.pause();
   };
 
+  const clearQuestionCodeFocusFullscreenTimer = useCallback(() => {
+    if (!questionCodeFocusFullscreenTimerRef.current) return;
+    clearTimeout(questionCodeFocusFullscreenTimerRef.current);
+    questionCodeFocusFullscreenTimerRef.current = null;
+  }, []);
+
+  const requestQuestionCodeNativeFullscreen = useCallback(async () => {
+    const workspace = questionCodeWorkspaceRef.current;
+    if (
+      !workspace
+      || typeof document === 'undefined'
+      || document.fullscreenElement
+      || typeof workspace.requestFullscreen !== 'function'
+    ) {
+      return;
+    }
+
+    try {
+      await workspace.requestFullscreen({ navigationUI: 'hide' });
+    } catch {
+      setQuestionCodeFocusFullscreen(true);
+    }
+  }, []);
+
+  const cancelQuestionCodeNativeFullscreen = useCallback(() => {
+    clearQuestionCodeFocusFullscreenTimer();
+    if (typeof document === 'undefined') return;
+    const workspace = questionCodeWorkspaceRef.current;
+    if (!workspace || document.fullscreenElement !== workspace) return;
+    if (typeof document.exitFullscreen !== 'function') return;
+    document.exitFullscreen().catch(() => {});
+  }, [clearQuestionCodeFocusFullscreenTimer]);
+
   const playQuestionCodeFocusAudio = () => {
     const audio = questionCodeAudioRef.current;
     if (!audio) return;
@@ -809,14 +844,10 @@ const StudentTestModal = ({
       });
   };
 
-  const exitQuestionCodeFocusFullscreen = ({ updateState = true } = {}) => {
+  const exitQuestionCodeFocusFullscreen = useCallback(({ updateState = true } = {}) => {
     if (updateState) setQuestionCodeFocusFullscreen(false);
-    if (typeof document === 'undefined') return;
-    const workspace = questionCodeWorkspaceRef.current;
-    if (!workspace || document.fullscreenElement !== workspace) return;
-    if (typeof document.exitFullscreen !== 'function') return;
-    document.exitFullscreen().catch(() => {});
-  };
+    cancelQuestionCodeNativeFullscreen();
+  }, [cancelQuestionCodeNativeFullscreen]);
 
   const startQuestionCodeLayoutAnimation = (duration = STUDENT_CODE_LAYOUT_ANIMATION_MS) => {
     clearQuestionCodeLayoutAnimationTimer();
@@ -1278,7 +1309,7 @@ const StudentTestModal = ({
     setAnswerHistoryLoading(false);
     questionMainThreadRuntimeFilesRef.current = [];
     disposeQuestionRunnerWorker();
-  }, [task?.number]);
+  }, [exitQuestionCodeFocusFullscreen, task?.number]);
 
   useEffect(() => {
     if (!canUseStudentTestDraftStorage()) return;
@@ -1344,7 +1375,7 @@ const StudentTestModal = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [questionCodeFocusFullscreen, questionCodeOpen]);
+  }, [exitQuestionCodeFocusFullscreen, questionCodeFocusFullscreen, questionCodeOpen]);
 
   useEffect(() => {
     const audio = questionCodeAudioRef.current;
@@ -1391,7 +1422,7 @@ const StudentTestModal = ({
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
+  }, [exitQuestionCodeFocusFullscreen]);
 
   useEffect(() => () => {
     clearQuestionCodeAutoSaveTimers();
@@ -2027,22 +2058,17 @@ const StudentTestModal = ({
         return;
       }
 
+      clearQuestionCodeFocusFullscreenTimer();
       flushSync(() => setQuestionCodeFocusFullscreen(true));
-      const workspace = questionCodeWorkspaceRef.current;
-      if (
-        !workspace
-        || typeof document === 'undefined'
-        || document.fullscreenElement
-        || typeof workspace.requestFullscreen !== 'function'
-      ) {
+      if (prefersReducedStudentMotion()) {
+        await requestQuestionCodeNativeFullscreen();
         return;
       }
 
-      try {
-        await workspace.requestFullscreen({ navigationUI: 'hide' });
-      } catch {
-        setQuestionCodeFocusFullscreen(true);
-      }
+      questionCodeFocusFullscreenTimerRef.current = setTimeout(() => {
+        questionCodeFocusFullscreenTimerRef.current = null;
+        requestQuestionCodeNativeFullscreen();
+      }, STUDENT_CODE_FOCUS_FULLSCREEN_DELAY_MS);
     };
 
     const handleDecreaseQuestionCodeFontSize = () => {
