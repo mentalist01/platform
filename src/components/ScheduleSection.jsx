@@ -208,6 +208,48 @@ const getStudentLessonKey = (entry) => (
   String(entry?.id || `${entry?.currentWeekDate || ''}-${entry?.weekdayKey || ''}-${entry?.time || ''}-${entry?.createdAt || 'slot'}`)
 );
 
+const isPaymentOverdueScheduleEntry = (entry) => Boolean(entry?.isPaymentOverdueOccurrence);
+
+const getSchedulePaymentStateForDate = (entry, dateKey) => {
+  const normalizedDateKey = String(dateKey || '').trim();
+  const payment = entry?.payment && typeof entry.payment === 'object' ? entry.payment : null;
+  if (!payment) return null;
+  const statesByDate = payment.statesByDate && typeof payment.statesByDate === 'object'
+    ? payment.statesByDate
+    : {};
+  if (normalizedDateKey && statesByDate[normalizedDateKey]) return statesByDate[normalizedDateKey];
+  if (normalizedDateKey && String(payment.date || '').trim() === normalizedDateKey) return payment;
+  return payment.status ? payment : null;
+};
+
+const attachScheduleOccurrencePayment = (entry) => {
+  const dateKey = String(entry?.currentWeekDate || entry?.date || '').trim();
+  const occurrencePayment = getSchedulePaymentStateForDate(entry, dateKey);
+  return occurrencePayment ? { ...entry, occurrencePayment } : entry;
+};
+
+const isScheduleEntryOverdueUnpaid = (entry) => {
+  if (isPaymentOverdueScheduleEntry(entry)) return true;
+  const payment = entry?.occurrencePayment || getSchedulePaymentStateForDate(entry, entry?.currentWeekDate || entry?.date);
+  return Boolean(payment?.overdue || (payment?.status === 'unpaid' && payment?.finished));
+};
+
+const sortStudentVisibleScheduleEntries = (entries = []) => (
+  (Array.isArray(entries) ? entries : [])
+    .map((entry) => normalizeScheduleEntry(entry))
+    .filter(Boolean)
+    .map((entry) => attachScheduleOccurrencePayment(entry))
+    .sort((left, right) => {
+      const leftDate = String(left?.currentWeekDate || left?.date || '').trim();
+      const rightDate = String(right?.currentWeekDate || right?.date || '').trim();
+      const dateDiff = leftDate.localeCompare(rightDate, 'ru');
+      if (dateDiff !== 0) return dateDiff;
+      const timeDiff = String(left?.time || '').localeCompare(String(right?.time || ''), 'ru');
+      if (timeDiff !== 0) return timeDiff;
+      return String(left?.createdAt || '').localeCompare(String(right?.createdAt || ''), 'ru');
+    })
+);
+
 const getScheduleEntryTimingState = (entry, now = new Date()) => {
   const start = getScheduleEntryStartDate(entry);
   const end = getScheduleEntryEndDate(entry);
@@ -560,9 +602,13 @@ const ScheduleSection = ({
       } catch {
         return;
       }
+      const scope = String(payload?.scope || '').trim().toLowerCase();
+      if (role === 'student' && scope === 'teacher-calendar-marks') {
+        loadSchedule();
+        return;
+      }
       const payloadStudentId = String(payload?.studentId || '').trim();
       if (!payloadStudentId || payloadStudentId !== String(effectiveStudentId || '').trim()) return;
-      const scope = String(payload?.scope || '').trim().toLowerCase();
       if (scope === 'schedule-request') {
         loadScheduleRequests();
         return;
@@ -575,7 +621,7 @@ const ScheduleSection = ({
       source.removeEventListener('schedule-sync', handleScheduleSync);
       source.close();
     };
-  }, [effectiveStudentId, loadSchedule, loadScheduleRequests]);
+  }, [effectiveStudentId, loadSchedule, loadScheduleRequests, role]);
 
   useEffect(() => {
     setScheduleEditingId(null);
@@ -846,7 +892,7 @@ const ScheduleSection = ({
   };
 
   const getStudentWeekDateLabel = (entry) => {
-    const date = parseScheduleDayKey(entry?.currentWeekDate);
+    const date = parseScheduleDayKey(entry?.currentWeekDate || entry?.date);
     if (!date) return entry?.day || 'День занятия';
     const todayKey = formatScheduleDayKey(new Date());
     const tomorrowKey = formatScheduleDayKey(addScheduleDays(new Date(), 1));
@@ -914,12 +960,12 @@ const ScheduleSection = ({
           })}
         </div>
 
-        {scheduleLoading && currentWeekSchedule.length === 0 ? (
+        {scheduleLoading && studentVisibleSchedule.length === 0 ? (
           <div className="schedule-shell__student-board-loading">
             <RefreshCcw size={15} className="animate-spin" />
             Загружаем занятия недели...
           </div>
-        ) : currentWeekSchedule.length === 0 ? (
+        ) : studentVisibleSchedule.length === 0 ? (
           <div className="schedule-shell__student-board-empty">
             <Calendar size={18} />
             <div>
@@ -930,21 +976,22 @@ const ScheduleSection = ({
         ) : (
           <div
             className="schedule-shell__student-lessons"
-            style={{ '--student-lesson-rows': Math.max(1, Math.ceil(currentWeekSchedule.length / 2)) }}
+            style={{ '--student-lesson-rows': Math.max(1, Math.ceil(studentVisibleSchedule.length / 2)) }}
           >
-            {currentWeekSchedule.map((entry, index) => {
+            {studentVisibleSchedule.map((entry, index) => {
               const lessonKey = getStudentLessonKey(entry);
               const timingState = lessonStateByKey.get(lessonKey) || getScheduleEntryTimingState(entry, now);
               const isNextLesson = lessonKey === nextLessonKey;
+              const isOverdueUnpaid = isScheduleEntryOverdueUnpaid(entry);
               const lessonUrl = normalizeHttpUrl(entry?.lessonLink);
               const duration = Number(entry?.durationMinutes);
               const durationLabel = Number.isFinite(duration) && duration > 0 ? `${Math.round(duration)} мин` : '60 мин';
-              const lessonDate = parseScheduleDayKey(entry?.currentWeekDate);
+              const lessonDate = parseScheduleDayKey(entry?.currentWeekDate || entry?.date);
               const dayNumber = lessonDate?.getDate?.() || '';
               return (
                 <article
                   key={lessonKey}
-                  className={`schedule-shell__student-lesson schedule-shell__student-lesson--${timingState}${isNextLesson ? ' schedule-shell__student-lesson--next' : ''}`}
+                  className={`schedule-shell__student-lesson schedule-shell__student-lesson--${timingState}${isNextLesson ? ' schedule-shell__student-lesson--next' : ''}${isOverdueUnpaid ? ' schedule-shell__student-lesson--overdue-unpaid' : ''}`}
                   style={{ '--lesson-index': index }}
                 >
                   <div className="schedule-shell__student-lesson-date">
@@ -954,6 +1001,7 @@ const ScheduleSection = ({
                   <div className="schedule-shell__student-lesson-main">
                     <div className="schedule-shell__student-lesson-heading">
                       <span>{getStudentWeekDateLabel(entry)}</span>
+                      {isOverdueUnpaid && <em>Не оплачено</em>}
                     </div>
                     <div className="schedule-shell__student-lesson-time">
                       <Clock3 size={14} />
@@ -1305,11 +1353,31 @@ const ScheduleSection = ({
     const list = Array.isArray(homeworks) ? [...homeworks] : [];
     return list.sort((a, b) => new Date(b?.issuedAt || 0) - new Date(a?.issuedAt || 0));
   }, [homeworks]);
-  const sortedSchedule = useMemo(() => sortScheduleEntries(lessonSchedule), [lessonSchedule]);
+  const editableLessonSchedule = useMemo(
+    () => (Array.isArray(lessonSchedule) ? lessonSchedule : []).filter((entry) => !isPaymentOverdueScheduleEntry(entry)),
+    [lessonSchedule]
+  );
+  const overdueUnpaidSchedule = useMemo(
+    () => sortStudentVisibleScheduleEntries(
+      (Array.isArray(lessonSchedule) ? lessonSchedule : []).filter((entry) => isPaymentOverdueScheduleEntry(entry))
+    ),
+    [lessonSchedule]
+  );
+  const sortedSchedule = useMemo(() => sortScheduleEntries(editableLessonSchedule), [editableLessonSchedule]);
   const currentScheduleWeekDays = useMemo(() => getCurrentScheduleWeekDays(), [effectiveStudentId]);
   const currentWeekSchedule = useMemo(
-    () => buildCurrentWeekScheduleEntries(lessonSchedule, currentScheduleWeekDays),
-    [currentScheduleWeekDays, lessonSchedule]
+    () => sortStudentVisibleScheduleEntries(
+      buildCurrentWeekScheduleEntries(editableLessonSchedule, currentScheduleWeekDays)
+    ),
+    [currentScheduleWeekDays, editableLessonSchedule]
+  );
+  const studentVisibleSchedule = useMemo(
+    () => sortStudentVisibleScheduleEntries([...overdueUnpaidSchedule, ...currentWeekSchedule]),
+    [currentWeekSchedule, overdueUnpaidSchedule]
+  );
+  const studentOverdueUnpaidCount = useMemo(
+    () => studentVisibleSchedule.filter((entry) => isScheduleEntryOverdueUnpaid(entry)).length,
+    [studentVisibleSchedule]
   );
   const studentWeekRangeLabel = useMemo(() => {
     const first = currentScheduleWeekDays[0]?.date;
@@ -2206,7 +2274,7 @@ const ScheduleSection = ({
                 <p className="text-xs text-slate-500">
                   {role === 'teacher'
                     ? `Берём текущую неделю из Google Calendar по названию события${selectedStudent ? `: ${getStudentLabel(selectedStudent)}` : ' выбранного ученика'}.`
-                    : `${studentWeekRangeLabel} · ${currentWeekSchedule.length > 0 ? getLessonCountLabel(currentWeekSchedule.length) : 'занятий пока нет'}`}
+                    : `${studentWeekRangeLabel} · ${studentVisibleSchedule.length > 0 ? getLessonCountLabel(studentVisibleSchedule.length) : 'занятий пока нет'}${studentOverdueUnpaidCount > 0 ? ` · не оплачено: ${studentOverdueUnpaidCount}` : ''}`}
                 </p>
               </div>
             </div>
@@ -2240,7 +2308,7 @@ const ScheduleSection = ({
               )}
               <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                 {role === 'student'
-                  ? getLessonCountLabel(currentWeekSchedule.length)
+                  ? (studentOverdueUnpaidCount > 0 ? `Не оплачено: ${studentOverdueUnpaidCount}` : getLessonCountLabel(studentVisibleSchedule.length))
                   : `Слотов: ${sortedSchedule.length}`}
               </span>
             </div>

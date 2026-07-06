@@ -1537,6 +1537,8 @@ const PAYMENT_NOTIFICATION_TEXT_MAX_LENGTH = 500;
 const PAYMENT_NOTIFICATION_REASON_MAX_LENGTH = 300;
 const PAYMENT_LESSON_SEARCH_PAST_DAYS = 45;
 const PAYMENT_LESSON_SEARCH_FUTURE_DAYS = 45;
+const STUDENT_SCHEDULE_PAYMENT_LOOKBACK_DAYS = 90;
+const STUDENT_SCHEDULE_PAYMENT_OVERDUE_LIMIT = 16;
 const PAYMENT_AUTO_APPLY_MAX_LESSONS = Math.max(
   1,
   Math.floor(Number(process.env.PAYMENT_AUTO_APPLY_MAX_LESSONS) || 12)
@@ -5522,6 +5524,10 @@ const isScheduleSyncClientInterested = (client, payload) => {
     return teacherId && teacherId === String(client.teacherId || '').trim();
   }
   if (role === 'student') {
+    const scope = String(payload.scope || '').trim().toLowerCase();
+    if (scope === 'teacher-calendar-marks') {
+      return teacherId && teacherId === String(client.teacherId || '').trim();
+    }
     return studentId && studentId === String(client.studentId || '').trim();
   }
   return false;
@@ -11926,6 +11932,288 @@ const buildTeacherCalendarPaymentMarkKey = (teacherId, event, dayKey, action = '
     String(event?.time || event?.startMinutes || '').trim(),
   ].join(':');
   return `${base}:${String(action || '').trim()}`;
+};
+
+const getStudentSchedulePaymentNowInfo = (now = new Date()) => {
+  const safeNow = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  const parts = getDatePartsInCalendarTimeZone(safeNow);
+  const todayKey = normalizeDayKey(parts?.dayKey) || normalizeDayKey(safeNow.toISOString().slice(0, 10));
+  const currentMinutes = Number.isFinite(parseScheduleMinutes(parts?.time))
+    ? parseScheduleMinutes(parts.time)
+    : ((safeNow.getHours() * 60) + safeNow.getMinutes());
+  const todayNumber = dayKeyToNumber(todayKey);
+  const weekStartKey = getWeekStartKey(todayKey);
+  const weekStartNumber = dayKeyToNumber(weekStartKey);
+  return {
+    now: safeNow,
+    todayKey,
+    todayNumber,
+    currentMinutes,
+    weekStartKey,
+    weekStartNumber,
+    lookbackStartNumber: Number.isFinite(todayNumber)
+      ? todayNumber - STUDENT_SCHEDULE_PAYMENT_LOOKBACK_DAYS
+      : NaN,
+  };
+};
+
+const getStudentSchedulePaymentDateFromCreatedAt = (entry) => {
+  const raw = String(entry?.createdAt || '').trim();
+  if (!raw) return null;
+  const direct = normalizeDayKey(raw.slice(0, 10));
+  if (direct) return direct;
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) return null;
+  return normalizeDayKey(new Date(parsed).toISOString().slice(0, 10));
+};
+
+const getStudentSchedulePaymentOccurrenceKey = (entry, dayKey, studentId, time) => [
+  String(entry?.id || entry?.externalEventId || '').trim(),
+  String(dayKey || '').trim(),
+  String(studentId || entry?.studentId || '').trim(),
+  String(time || entry?.time || '').trim(),
+].join(':');
+
+const getStudentScheduleGooglePaymentMatchKey = (entry, dayKey = '') => {
+  const externalEventId = String(entry?.externalEventId || '').trim();
+  if (!externalEventId) return '';
+  const occurrenceDayKey = normalizeDayKey(String(dayKey || entry?.date || '').trim());
+  const time = normalizeScheduleTime(entry?.time);
+  if (!occurrenceDayKey || !time) return '';
+  return `${externalEventId}:${occurrenceDayKey}:${time}`;
+};
+
+const getStudentSchedulePaymentEventStudentId = (entry, sourceEntry, studentId) => {
+  if (sourceEntry && Object.prototype.hasOwnProperty.call(sourceEntry, 'studentId')) {
+    return String(sourceEntry.studentId || '').trim();
+  }
+  return String(entry?.studentId || studentId || '').trim();
+};
+
+const buildStudentSchedulePaymentState = ({
+  teacherId,
+  studentId,
+  entry,
+  sourceEntry,
+  dayKey,
+  startMinutes,
+  endMinutes,
+  teacherMarks,
+  nowInfo,
+}) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const normalizedDayKey = normalizeDayKey(dayKey);
+  const time = normalizeScheduleTime(sourceEntry?.time || entry?.time);
+  if (!normalizedTeacherId || !normalizedDayKey || !time || !Number.isFinite(endMinutes)) return null;
+  const eventStudentId = getStudentSchedulePaymentEventStudentId(entry, sourceEntry, studentId);
+  const paymentEvent = {
+    ...entry,
+    ...(sourceEntry && typeof sourceEntry === 'object' ? sourceEntry : {}),
+    id: String(sourceEntry?.id || entry?.id || '').trim(),
+    externalEventId: String(sourceEntry?.externalEventId || entry?.externalEventId || '').trim(),
+    studentId: eventStudentId,
+    time,
+    startMinutes,
+    endMinutes,
+    date: normalizedDayKey,
+    dayKey: normalizedDayKey,
+  };
+  const paidMarkKey = buildTeacherCalendarPaymentMarkKey(normalizedTeacherId, paymentEvent, normalizedDayKey, 'paid');
+  const trialMarkKey = buildTeacherCalendarPaymentMarkKey(normalizedTeacherId, paymentEvent, normalizedDayKey, 'trial');
+  const paidMarked = Boolean(paidMarkKey && teacherMarks?.[paidMarkKey]);
+  const trialMarked = Boolean(trialMarkKey && teacherMarks?.[trialMarkKey]);
+  const dayNumber = dayKeyToNumber(normalizedDayKey);
+  const finished = Number.isFinite(dayNumber)
+    && Number.isFinite(nowInfo?.todayNumber)
+    && (
+      dayNumber < nowInfo.todayNumber
+      || (dayNumber === nowInfo.todayNumber && endMinutes <= nowInfo.currentMinutes)
+    );
+  const status = trialMarked
+    ? 'trial'
+    : (paidMarked ? 'paid' : (finished ? 'unpaid' : 'pending'));
+  return {
+    date: normalizedDayKey,
+    status,
+    finished,
+    overdue: status === 'unpaid' && finished,
+    paid: paidMarked,
+    trial: trialMarked,
+    startMinutes,
+    endMinutes,
+  };
+};
+
+const getStudentScheduleOccurrenceDays = (entry, nowInfo) => {
+  if (!entry || typeof entry !== 'object') return [];
+  const time = normalizeScheduleTime(entry?.time);
+  const startMinutes = parseScheduleMinutes(time);
+  if (!time || !Number.isFinite(startMinutes)) return [];
+  const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
+  const endMinutes = startMinutes + durationMinutes;
+  const rawDate = normalizeDayKey(String(entry?.date || '').trim());
+  const excludedDates = new Set(normalizeScheduleExcludedDates(entry?.excludedDates));
+  const pushDay = (result, dayKey) => {
+    const normalizedDayKey = normalizeDayKey(dayKey);
+    if (!normalizedDayKey || excludedDates.has(normalizedDayKey)) return;
+    const dayNumber = dayKeyToNumber(normalizedDayKey);
+    if (!Number.isFinite(dayNumber)) return;
+    result.push({
+      dayKey: normalizedDayKey,
+      dayNumber,
+      startMinutes,
+      endMinutes,
+    });
+  };
+
+  if (rawDate) {
+    const result = [];
+    pushDay(result, rawDate);
+    return result;
+  }
+
+  const weekdayMeta = resolveScheduleWeekdayMeta({
+    weekdayKey: entry?.weekdayKey,
+    day: entry?.day,
+    date: entry?.date,
+  });
+  if (!weekdayMeta?.order || !Number.isFinite(nowInfo?.todayNumber)) return [];
+
+  const createdDayKey = getStudentSchedulePaymentDateFromCreatedAt(entry);
+  const createdDayNumber = dayKeyToNumber(createdDayKey);
+  const startNumber = Math.max(
+    Number.isFinite(nowInfo.lookbackStartNumber) ? nowInfo.lookbackStartNumber : nowInfo.todayNumber,
+    Number.isFinite(createdDayNumber) ? createdDayNumber : Number.NEGATIVE_INFINITY
+  );
+  const result = [];
+  for (let dayNumber = startNumber; dayNumber <= nowInfo.todayNumber; dayNumber += 1) {
+    const dayKey = numberToDayKey(dayNumber);
+    if (!dayKey) continue;
+    const date = new Date(`${dayKey}T00:00:00`);
+    if (Number.isNaN(date.getTime())) continue;
+    const order = date.getDay() === 0 ? 7 : date.getDay();
+    if (order !== weekdayMeta.order) continue;
+    pushDay(result, dayKey);
+  }
+  return result;
+};
+
+const buildStudentScheduleOverdueEntry = (entry, occurrence, paymentState) => {
+  const weekdayMeta = getScheduleWeekdayMetaFromDate(occurrence.dayKey);
+  return {
+    ...entry,
+    id: `payment-overdue:${getStudentSchedulePaymentOccurrenceKey(
+      entry,
+      occurrence.dayKey,
+      entry?.studentId,
+      entry?.time
+    )}`,
+    date: occurrence.dayKey,
+    day: weekdayMeta?.label || entry?.day || '',
+    weekdayKey: weekdayMeta?.key || entry?.weekdayKey || '',
+    weekdayOrder: weekdayMeta?.order || entry?.weekdayOrder || 99,
+    excludedDates: [],
+    isPaymentOverdueOccurrence: true,
+    isSystemScheduleOccurrence: true,
+    payment: {
+      ...paymentState,
+      statesByDate: {
+        [occurrence.dayKey]: paymentState,
+      },
+      hasOverdueUnpaid: true,
+    },
+  };
+};
+
+const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
+  const studentId = String(student?.id || '').trim();
+  const teacherId = normalizeTeacherId(student?.teacherId);
+  const baseSchedule = Array.isArray(schedule) ? schedule : [];
+  if (!studentId || !teacherId) return baseSchedule;
+
+  const marksDb = readTeacherCalendarMarksDb();
+  const teacherMarks = normalizeTeacherCalendarMarks(marksDb[teacherId]);
+  const nowInfo = getStudentSchedulePaymentNowInfo();
+  if (!Number.isFinite(nowInfo.todayNumber)) return baseSchedule;
+
+  let googleEntries = [];
+  try {
+    googleEntries = (await fetchTeacherGoogleCalendarEntries(teacherId))
+      .filter((entry) => doesPaymentScheduleEntryMatchStudent(entry, student));
+  } catch {
+    googleEntries = [];
+  }
+
+  const googleEntryByMatchKey = new Map();
+  googleEntries.forEach((entry) => {
+    const key = getStudentScheduleGooglePaymentMatchKey(entry);
+    if (key && !googleEntryByMatchKey.has(key)) googleEntryByMatchKey.set(key, entry);
+  });
+
+  const overdueByKey = new Map();
+  const annotateEntry = (entry, options = {}) => {
+    const statesByDate = {};
+    const entryWithStudent = {
+      ...entry,
+      studentId: String(entry?.studentId || studentId).trim(),
+    };
+    getStudentScheduleOccurrenceDays(entryWithStudent, nowInfo).forEach((occurrence) => {
+      const googleMatchKey = getStudentScheduleGooglePaymentMatchKey(entryWithStudent, occurrence.dayKey);
+      const sourceEntry = googleMatchKey
+        ? (googleEntryByMatchKey.get(googleMatchKey) || entryWithStudent)
+        : entryWithStudent;
+      const paymentState = buildStudentSchedulePaymentState({
+        teacherId,
+        studentId,
+        entry: entryWithStudent,
+        sourceEntry,
+        dayKey: occurrence.dayKey,
+        startMinutes: occurrence.startMinutes,
+        endMinutes: occurrence.endMinutes,
+        teacherMarks,
+        nowInfo,
+      });
+      if (!paymentState) return;
+      statesByDate[occurrence.dayKey] = paymentState;
+      if (
+        paymentState.overdue
+        && Number.isFinite(nowInfo.weekStartNumber)
+        && occurrence.dayNumber < nowInfo.weekStartNumber
+      ) {
+        const overdueEntry = buildStudentScheduleOverdueEntry(sourceEntry, occurrence, paymentState);
+        const key = getStudentSchedulePaymentOccurrenceKey(
+          overdueEntry,
+          occurrence.dayKey,
+          studentId,
+          overdueEntry.time
+        );
+        if (key && !overdueByKey.has(key)) overdueByKey.set(key, overdueEntry);
+      }
+    });
+
+    if (!options.includeBase) return null;
+    return {
+      ...entry,
+      payment: {
+        ...(entry?.payment && typeof entry.payment === 'object' ? entry.payment : {}),
+        statesByDate,
+        hasOverdueUnpaid: Object.values(statesByDate).some((state) => state?.overdue),
+      },
+    };
+  };
+
+  const annotatedSchedule = baseSchedule.map((entry) => annotateEntry(entry, { includeBase: true }));
+  googleEntries.forEach((entry) => annotateEntry(entry, { includeBase: false }));
+  const overdueEntries = Array.from(overdueByKey.values())
+    .sort((left, right) => {
+      const dateDiff = String(right?.date || '').localeCompare(String(left?.date || ''), 'ru');
+      if (dateDiff !== 0) return dateDiff;
+      return String(right?.time || '').localeCompare(String(left?.time || ''), 'ru');
+    })
+    .slice(0, STUDENT_SCHEDULE_PAYMENT_OVERDUE_LIMIT)
+    .reverse();
+
+  return [...annotatedSchedule, ...overdueEntries];
 };
 
 const getPaymentStudentScheduleNameKeys = (student) => {
@@ -20092,7 +20380,10 @@ app.get('/api/student-schedule', async (req, res) => {
   } catch {
     schedule = data.schedule || [];
   }
-  res.json(schedule);
+  const responseSchedule = isStudentRole(req.auth)
+    ? await buildStudentSchedulePaymentResponse(student, schedule)
+    : schedule;
+  res.json(responseSchedule);
 });
 
 app.post('/api/student-schedule/google-sync', async (req, res) => {

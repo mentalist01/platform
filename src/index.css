@@ -20599,6 +20599,17 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   opacity: 0.68;
 }
 
+.schedule-shell__student-lesson--overdue-unpaid {
+  border-color: rgba(244, 63, 94, 0.42);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(248, 250, 252, 0.66)),
+    radial-gradient(circle at 100% 0%, rgba(244, 63, 94, 0.16), transparent 44%);
+  box-shadow:
+    0 10px 22px rgba(136, 19, 55, 0.07),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.66);
+  opacity: 0.84;
+}
+
 .schedule-shell__student-lesson--future {
   border-color: rgba(125, 211, 252, 0.92);
   background:
@@ -20638,6 +20649,11 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   opacity: 0.72;
 }
 
+.schedule-shell__student-lesson--overdue-unpaid::before {
+  background: linear-gradient(180deg, #fb7185, #94a3b8);
+  opacity: 0.9;
+}
+
 .schedule-shell__student-lesson--future::before {
   background: linear-gradient(180deg, #38bdf8, #0ea5e9);
 }
@@ -20668,6 +20684,11 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   background: rgba(248, 250, 252, 0.84);
 }
 
+.schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-date {
+  border-color: rgba(251, 113, 133, 0.34);
+  background: rgba(255, 241, 242, 0.72);
+}
+
 .schedule-shell__student-lesson--past .schedule-shell__student-lesson-date > span,
 .schedule-shell__student-lesson--past .schedule-shell__student-lesson-time,
 .schedule-shell__student-lesson--past .schedule-shell__student-lesson-time > svg,
@@ -20675,10 +20696,29 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   color: #94a3b8;
 }
 
+.schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-date > span,
+.schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-time,
+.schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-time > svg,
+.schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-time > span {
+  color: #9f1239;
+}
+
 .schedule-shell__student-lesson--past .schedule-shell__student-lesson-date > strong,
 .schedule-shell__student-lesson--past .schedule-shell__student-lesson-heading > span,
 .schedule-shell__student-lesson--past .schedule-shell__student-lesson-time > strong {
   color: #64748b;
+}
+
+.schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-date > strong,
+.schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-heading > span,
+.schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-time > strong {
+  color: #7f1d1d;
+}
+
+.schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-heading > em {
+  border: 1px solid rgba(251, 113, 133, 0.32);
+  background: rgba(255, 228, 230, 0.86);
+  color: #be123c;
 }
 
 .schedule-shell__student-lesson--next .schedule-shell__student-lesson-date {
@@ -21519,6 +21559,17 @@ html[data-theme='dark'] .schedule-shell__student-lesson--past {
   opacity: 0.62;
 }
 
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid {
+  border-color: rgba(251, 113, 133, 0.46) !important;
+  background:
+    linear-gradient(145deg, rgba(15, 23, 42, 0.68), rgba(30, 41, 59, 0.54)),
+    radial-gradient(circle at 100% 0%, rgba(244, 63, 94, 0.2), transparent 44%) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.34),
+    inset 0 0 0 1px rgba(251, 113, 133, 0.08) !important;
+  opacity: 0.86;
+}
+
 html[data-theme='dark'] .schedule-shell__student-lesson--future {
   border-color: rgba(56, 189, 248, 0.46) !important;
   background:
@@ -21541,6 +21592,10 @@ html[data-theme='dark'] .schedule-shell__student-lesson--past::before {
   background: linear-gradient(180deg, #64748b, #475569) !important;
 }
 
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid::before {
+  background: linear-gradient(180deg, #fb7185, #64748b) !important;
+}
+
 html[data-theme='dark'] .schedule-shell__student-lesson--future::before {
   background: linear-gradient(180deg, #38bdf8, #0891b2) !important;
 }
@@ -21552,6 +21607,30 @@ html[data-theme='dark'] .schedule-shell__student-lesson--next::before {
 html[data-theme='dark'] .schedule-shell__student-lesson--past .schedule-shell__student-lesson-date {
   border-color: rgba(71, 85, 105, 0.62) !important;
   background: rgba(15, 23, 42, 0.52) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-date {
+  border-color: rgba(251, 113, 133, 0.34) !important;
+  background: rgba(76, 29, 29, 0.28) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-date > span,
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-time,
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-time > svg,
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-time > span {
+  color: rgb(253, 164, 175) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-date > strong,
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-heading > span,
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-time > strong {
+  color: rgb(255, 228, 230) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-heading > em {
+  border-color: rgba(251, 113, 133, 0.34) !important;
+  background: rgba(76, 29, 29, 0.48) !important;
+  color: rgb(253, 164, 175) !important;
 }
 
 html[data-theme='dark'] .schedule-shell__student-lesson--next .schedule-shell__student-lesson-date {
