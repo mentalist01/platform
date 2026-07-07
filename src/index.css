@@ -20467,39 +20467,65 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
 .schedule-shell__student-day-chip {
   position: relative;
   display: grid;
-  min-height: 50px;
+  min-height: 60px;
   place-items: center;
-  gap: 2px;
+  align-content: center;
+  gap: 3px;
   overflow: hidden;
+  padding: 7px 10px;
   border: 1px solid rgba(226, 232, 240, 0.98);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.68);
   color: #94a3b8;
   animation: scheduleStudentItemIn 360ms ease both;
   animation-delay: calc(var(--day-index, 0) * 34ms);
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.schedule-shell__student-day-chip > * {
+  position: relative;
+  z-index: 1;
 }
 
 .schedule-shell__student-day-chip > span {
   font-size: 10px;
   font-weight: 950;
   letter-spacing: 0.12em;
+  line-height: 1;
 }
 
 .schedule-shell__student-day-chip > strong {
   color: #334155;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 950;
   line-height: 1;
 }
 
+.schedule-shell__student-day-chip > small {
+  display: inline-flex;
+  min-height: 18px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(241, 245, 249, 0.82);
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 950;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .schedule-shell__student-day-chip > em {
   position: absolute;
-  top: 7px;
-  right: 8px;
+  top: 6px;
+  right: 7px;
   display: inline-flex;
-  min-width: 19px;
-  height: 19px;
+  min-width: 22px;
+  height: 22px;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
@@ -20512,11 +20538,37 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
 }
 
 .schedule-shell__student-day-chip--has-lessons {
-  border-color: rgba(125, 211, 252, 0.72);
+  border-color: rgba(14, 165, 233, 0.68);
   background:
-    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.18), transparent 42%),
-    rgba(240, 249, 255, 0.86);
+    linear-gradient(145deg, rgba(239, 246, 255, 0.96), rgba(236, 253, 245, 0.72)),
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.22), transparent 46%);
   color: #0284c7;
+  box-shadow:
+    0 12px 24px rgba(14, 165, 233, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.74);
+}
+
+.schedule-shell__student-day-chip--has-lessons::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: #0ea5e9;
+  opacity: 0.95;
+}
+
+.schedule-shell__student-day-chip--has-lessons > span {
+  color: #0284c7;
+}
+
+.schedule-shell__student-day-chip--has-lessons > strong {
+  color: #0f172a;
+}
+
+.schedule-shell__student-day-chip--has-lessons > small {
+  background: rgba(224, 242, 254, 0.95);
+  color: #0369a1;
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.18);
 }
 
 .schedule-shell__student-day-chip--today {
@@ -20532,8 +20584,26 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   color: #94a3b8;
 }
 
+.schedule-shell__student-day-chip--has-lessons.schedule-shell__student-day-chip--past {
+  border-color: rgba(148, 163, 184, 0.76);
+  background:
+    linear-gradient(145deg, rgba(248, 250, 252, 0.82), rgba(241, 245, 249, 0.68)),
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.09), transparent 46%);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
 .schedule-shell__student-day-chip--past > strong {
   color: #94a3b8;
+}
+
+.schedule-shell__student-day-chip--has-lessons.schedule-shell__student-day-chip--past > strong {
+  color: #64748b;
+}
+
+.schedule-shell__student-day-chip--has-lessons.schedule-shell__student-day-chip--past > small {
+  background: rgba(226, 232, 240, 0.88);
+  color: #64748b;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
 }
 
 .schedule-shell__student-day-chip--past > em {
@@ -21484,11 +21554,33 @@ html[data-theme='dark'] .schedule-shell__student-day-chip {
   background: rgba(15, 23, 42, 0.54) !important;
 }
 
+html[data-theme='dark'] .schedule-shell__student-day-chip > small {
+  background: rgba(30, 41, 59, 0.82) !important;
+  color: rgba(203, 213, 225, 0.84) !important;
+}
+
 html[data-theme='dark'] .schedule-shell__student-day-chip--has-lessons {
-  border-color: rgba(56, 189, 248, 0.42) !important;
+  border-color: rgba(56, 189, 248, 0.62) !important;
   background:
-    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.12), transparent 44%),
-    rgba(8, 47, 73, 0.3) !important;
+    linear-gradient(145deg, rgba(8, 47, 73, 0.56), rgba(15, 23, 42, 0.82)),
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.18), transparent 44%) !important;
+  box-shadow:
+    0 14px 28px rgba(2, 6, 23, 0.34),
+    inset 0 0 0 1px rgba(125, 211, 252, 0.1) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--has-lessons::before {
+  background: #22d3ee !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--has-lessons > span {
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--has-lessons > small {
+  background: rgba(8, 47, 73, 0.84) !important;
+  color: rgb(186, 230, 253) !important;
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.16) !important;
 }
 
 html[data-theme='dark'] .schedule-shell__student-day-chip--today {
@@ -21524,8 +21616,21 @@ html[data-theme='dark'] .schedule-shell__student-day-chip--past {
   color: rgba(148, 163, 184, 0.64) !important;
 }
 
+html[data-theme='dark'] .schedule-shell__student-day-chip--has-lessons.schedule-shell__student-day-chip--past {
+  border-color: rgba(100, 116, 139, 0.82) !important;
+  background:
+    linear-gradient(145deg, rgba(15, 23, 42, 0.56), rgba(30, 41, 59, 0.42)),
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.08), transparent 44%) !important;
+  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.24) !important;
+}
+
 html[data-theme='dark'] .schedule-shell__student-day-chip--past > strong {
   color: rgba(148, 163, 184, 0.72) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-day-chip--has-lessons.schedule-shell__student-day-chip--past > small {
+  background: rgba(51, 65, 85, 0.74) !important;
+  color: rgba(203, 213, 225, 0.78) !important;
 }
 
 html[data-theme='dark'] .schedule-shell__student-day-chip--past > em {

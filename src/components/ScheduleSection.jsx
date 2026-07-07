@@ -936,6 +936,16 @@ const ScheduleSection = ({
           {currentScheduleWeekDays.map((day, index) => {
             const dayLessons = lessonsByDate.get(day.dateKey) || [];
             const lessonsCount = dayLessons.length;
+            const lessonTimes = dayLessons
+              .map((entry) => String(entry?.time || '').trim())
+              .filter(Boolean)
+              .sort((left, right) => left.localeCompare(right, 'ru'));
+            const lessonTimeLabel = lessonTimes.length > 0
+              ? `${lessonTimes[0]}${lessonTimes.length > 1 ? ` +${lessonTimes.length - 1}` : ''}`
+              : (lessonsCount > 0 ? 'Занятие' : '');
+            const lessonTimesTitle = lessonTimes.length > 0
+              ? `Занятия: ${lessonTimes.join(', ')}`
+              : (lessonsCount > 0 ? getLessonCountLabel(lessonsCount) : '');
             const isToday = day.dateKey === todayKey;
             const isCalendarPastDay = Boolean(day.dateKey && day.dateKey < todayKey);
             const isCalendarFutureDay = Boolean(day.dateKey && day.dateKey > todayKey);
@@ -951,9 +961,11 @@ const ScheduleSection = ({
                 key={day.dateKey || day.key}
                 className={`schedule-shell__student-day-chip${lessonsCount > 0 ? ' schedule-shell__student-day-chip--has-lessons' : ''}${hasFutureLesson ? ' schedule-shell__student-day-chip--future' : ''}${isPastDay ? ' schedule-shell__student-day-chip--past' : ''}${hasNextLesson ? ' schedule-shell__student-day-chip--next' : ''}${isToday ? ' schedule-shell__student-day-chip--today' : ''}`}
                 style={{ '--day-index': index }}
+                title={lessonTimesTitle || undefined}
               >
                 <span>{SCHEDULE_WEEKDAY_SHORT_LABELS[day.key] || day.label.slice(0, 2).toUpperCase()}</span>
                 <strong>{day.date?.getDate?.() || ''}</strong>
+                {lessonTimeLabel && <small>{lessonTimeLabel}</small>}
                 {lessonsCount > 0 && <em>{lessonsCount}</em>}
               </div>
             );
