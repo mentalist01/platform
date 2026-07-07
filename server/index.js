@@ -1539,6 +1539,7 @@ const PAYMENT_LESSON_SEARCH_PAST_DAYS = 45;
 const PAYMENT_LESSON_SEARCH_FUTURE_DAYS = 45;
 const STUDENT_SCHEDULE_PAYMENT_LOOKBACK_DAYS = 90;
 const STUDENT_SCHEDULE_PAYMENT_OVERDUE_LIMIT = 16;
+const STUDENT_SCHEDULE_PAYMENT_TRACKING_START_DAY_KEY = '2026-05-01';
 const PAYMENT_AUTO_APPLY_MAX_LESSONS = Math.max(
   1,
   Math.floor(Number(process.env.PAYMENT_AUTO_APPLY_MAX_LESSONS) || 12)
@@ -11944,6 +11945,11 @@ const getStudentSchedulePaymentNowInfo = (now = new Date()) => {
   const todayNumber = dayKeyToNumber(todayKey);
   const weekStartKey = getWeekStartKey(todayKey);
   const weekStartNumber = dayKeyToNumber(weekStartKey);
+  const trackingStartDayKey = normalizeDayKey(
+    process.env.STUDENT_SCHEDULE_PAYMENT_TRACKING_START_DAY_KEY
+    || STUDENT_SCHEDULE_PAYMENT_TRACKING_START_DAY_KEY
+  );
+  const trackingStartNumber = dayKeyToNumber(trackingStartDayKey);
   return {
     now: safeNow,
     todayKey,
@@ -11951,6 +11957,8 @@ const getStudentSchedulePaymentNowInfo = (now = new Date()) => {
     currentMinutes,
     weekStartKey,
     weekStartNumber,
+    trackingStartDayKey,
+    trackingStartNumber,
     lookbackStartNumber: Number.isFinite(todayNumber)
       ? todayNumber - STUDENT_SCHEDULE_PAYMENT_LOOKBACK_DAYS
       : NaN,
@@ -12058,6 +12066,7 @@ const getStudentScheduleOccurrenceDays = (entry, nowInfo) => {
     if (!normalizedDayKey || excludedDates.has(normalizedDayKey)) return;
     const dayNumber = dayKeyToNumber(normalizedDayKey);
     if (!Number.isFinite(dayNumber)) return;
+    if (Number.isFinite(nowInfo?.trackingStartNumber) && dayNumber < nowInfo.trackingStartNumber) return;
     result.push({
       dayKey: normalizedDayKey,
       dayNumber,
@@ -12083,6 +12092,7 @@ const getStudentScheduleOccurrenceDays = (entry, nowInfo) => {
   const createdDayNumber = dayKeyToNumber(createdDayKey);
   const startNumber = Math.max(
     Number.isFinite(nowInfo.lookbackStartNumber) ? nowInfo.lookbackStartNumber : nowInfo.todayNumber,
+    Number.isFinite(nowInfo.trackingStartNumber) ? nowInfo.trackingStartNumber : Number.NEGATIVE_INFINITY,
     Number.isFinite(createdDayNumber) ? createdDayNumber : Number.NEGATIVE_INFINITY
   );
   const result = [];
