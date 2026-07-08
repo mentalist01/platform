@@ -59042,3 +59042,246 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-output-pane-
   height: 100%;
   background: var(--collab-code-panel) !important;
 }
+
+/* Keep the right-side toolbar dock in the same visual family as the main controls. */
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap {
+  align-self: stretch;
+  align-items: center;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-top-actions {
+  height: 100%;
+  gap: 7px !important;
+  padding-left: 12px !important;
+  border-left: 1px solid var(--collab-code-line) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-code-action-icon,
+html:not([data-theme='dark']) .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-code-action-icon,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-code-action-icon {
+  width: 38px !important;
+  height: 34px !important;
+  min-width: 38px !important;
+  min-height: 34px !important;
+  border: 1px solid var(--collab-code-line-strong) !important;
+  border-radius: 10px !important;
+  background: var(--collab-code-panel-soft) !important;
+  color: var(--collab-code-text) !important;
+  box-shadow:
+    0 5px 13px rgba(55, 91, 138, 0.08),
+    var(--collab-code-inner-shadow) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap button.collab-code-action-icon:not(:disabled):hover {
+  border-color: var(--collab-code-accent-line) !important;
+  background: var(--collab-code-accent-soft) !important;
+  color: var(--collab-code-accent) !important;
+  transform: translateY(-1px) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-code-status-icon.is-connected {
+  border-color: rgba(20, 184, 166, 0.28) !important;
+  background: var(--collab-code-panel-soft) !important;
+  color: var(--collab-code-success) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-code-status-icon.is-disconnected {
+  border-color: rgba(225, 29, 72, 0.28) !important;
+  background: var(--collab-code-panel-soft) !important;
+  color: var(--collab-code-danger) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-code-action-icon.is-primary {
+  border-color: var(--collab-code-line-strong) !important;
+  background: var(--collab-code-panel-soft) !important;
+  color: var(--collab-code-accent) !important;
+}
+
+/* Match the embedded board rail to the code workspace controls. */
+.collab-workspace-card--glass-board .board-tool-rail,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail {
+  width: 48px;
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid var(--collab-code-line-strong) !important;
+  border-radius: 16px;
+  background: var(--collab-code-panel) !important;
+  color: var(--collab-code-text) !important;
+  box-shadow:
+    0 16px 34px rgba(15, 23, 42, 0.12),
+    var(--collab-code-inner-shadow) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail {
+  box-shadow:
+    0 18px 42px rgba(2, 6, 23, 0.48),
+    var(--collab-code-inner-shadow) !important;
+}
+
+.collab-workspace-card--glass-board .board-tool-rail__button,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail__button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent !important;
+  color: var(--collab-code-text) !important;
+  box-shadow: none;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.collab-workspace-card--glass-board .board-tool-rail__button:not(:disabled):hover,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail__button:not(:disabled):hover {
+  border-color: var(--collab-code-line-strong) !important;
+  background: var(--collab-code-panel-soft) !important;
+  color: var(--collab-code-accent) !important;
+  box-shadow:
+    0 5px 13px rgba(55, 91, 138, 0.08),
+    var(--collab-code-inner-shadow) !important;
+  transform: translateY(-1px);
+}
+
+.collab-workspace-card--glass-board .board-tool-rail__button.is-active,
+.collab-workspace-card--glass-board .board-tool-rail__button.is-active:hover,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail__button.is-active,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail__button.is-active:hover {
+  border-color: var(--collab-code-accent-line) !important;
+  background: var(--collab-code-accent-soft) !important;
+  color: var(--collab-code-accent) !important;
+  box-shadow:
+    0 8px 18px rgba(124, 58, 237, 0.12),
+    var(--collab-code-inner-shadow) !important;
+}
+
+.collab-workspace-card--glass-board .board-tool-rail__divider,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail__divider {
+  width: 24px;
+  margin: 1px 0;
+  background: var(--collab-code-line) !important;
+}
+
+.collab-workspace-card--glass-board .board-tool-rail__brush-icon-dot,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail__brush-icon-dot {
+  border-color: var(--collab-code-panel) !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls {
+  gap: 8px;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__pill,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__pill {
+  height: 44px;
+  gap: 4px;
+  padding: 4px 5px;
+  border: 1px solid var(--collab-code-line-strong) !important;
+  border-radius: 14px;
+  background: var(--collab-code-panel) !important;
+  color: var(--collab-code-text) !important;
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.12),
+    var(--collab-code-inner-shadow) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__pill {
+  box-shadow:
+    0 16px 38px rgba(2, 6, 23, 0.45),
+    var(--collab-code-inner-shadow) !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__button,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent !important;
+  color: var(--collab-code-text) !important;
+  box-shadow: none;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    opacity 150ms ease;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__button:not(:disabled):hover,
+.collab-workspace-card--glass-board .board-bottom-controls__button.is-active,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__button:not(:disabled):hover,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__button.is-active {
+  border-color: var(--collab-code-accent-line) !important;
+  background: var(--collab-code-accent-soft) !important;
+  color: var(--collab-code-accent) !important;
+  box-shadow:
+    0 7px 16px rgba(124, 58, 237, 0.12),
+    var(--collab-code-inner-shadow) !important;
+  transform: translateY(-1px);
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__button:disabled,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__button:disabled {
+  border-color: transparent !important;
+  color: var(--collab-code-muted) !important;
+  opacity: 0.55;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__button.is-danger:not(:disabled),
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__button.is-danger:not(:disabled) {
+  color: var(--collab-code-danger) !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__button.is-danger:not(:disabled):hover,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__button.is-danger:not(:disabled):hover {
+  border-color: rgba(225, 29, 72, 0.28) !important;
+  background: var(--collab-code-danger-bg) !important;
+  color: var(--collab-code-danger) !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__divider,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__divider {
+  height: 27px;
+  margin: 0 2px;
+  background: var(--collab-code-line) !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__zoom,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__zoom {
+  min-width: 48px;
+  color: var(--collab-code-text) !important;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__session-status,
+.collab-workspace-card--glass-board .board-bottom-controls__online,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__session-status,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__online {
+  height: 34px;
+  border-radius: 10px;
+  background: var(--collab-code-panel-soft) !important;
+  color: var(--collab-code-muted) !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__session-status.is-connected,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__session-status.is-connected {
+  color: var(--collab-code-text) !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__online,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__online {
+  min-width: 34px;
+  padding-inline: 7px;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__help-button > span,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__help-button > span {
+  background: var(--collab-code-text) !important;
+  color: var(--collab-code-panel) !important;
+}
