@@ -58952,6 +58952,18 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-output-pane-
   }
 }
 
+/* Compact secondary toolbar controls: recognizable actions stay icon-only. */
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button.is-icon-only {
+  width: 38px !important;
+  min-width: 38px !important;
+  padding-inline: 0 !important;
+  gap: 0 !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button.is-icon-only svg {
+  flex: 0 0 auto;
+}
+
 /* Make editor and output read as one IDE surface, not two stacked cards. */
 .collab-workspace-card--glass-board .collab-code-output-stack {
   border: 0 !important;

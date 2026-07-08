@@ -2944,11 +2944,11 @@ const CollabSection = ({
   const [taskFilesPanelOpen, setTaskFilesPanelOpen] = useState(false);
   const [taskFilesSearch, setTaskFilesSearch] = useState('');
   const [taskFilesListHeight, setTaskFilesListHeight] = useState(112);
-  const [notesPdfPanelOpen, setNotesPdfPanelOpen] = useState(false);
-  const [notesPanelMode, setNotesPanelMode] = useState(COLLAB_TOP_PANE_MODE_PDF);
+  const [notesPdfPanelOpen, setNotesPdfPanelOpen] = useState(true);
+  const [notesPanelMode, setNotesPanelMode] = useState(COLLAB_TOP_PANE_MODE_BOARD);
   const [notesPdfFolderKey, setNotesPdfFolderKey] = useState('');
   const [notesPdfFileId, setNotesPdfFileId] = useState('');
-  const [notesPdfPanelHeight, setNotesPdfPanelHeight] = useState(190);
+  const [notesPdfPanelHeight, setNotesPdfPanelHeight] = useState(220);
   const [notesPdfPreviewState, setNotesPdfPreviewState] = useState({ status: 'idle', message: '' });
 
   const isMobileViewport = typeof window !== 'undefined'
@@ -5258,8 +5258,8 @@ const CollabSection = ({
       setTestFileTextareaHeight(0);
       setTaskFilesPanelOpen(false);
       setSelectedTaskFileIds([]);
-      setNotesPdfPanelOpen(false);
-      setNotesPanelMode(COLLAB_TOP_PANE_MODE_PDF);
+      setNotesPdfPanelOpen(true);
+      setNotesPanelMode(COLLAB_TOP_PANE_MODE_BOARD);
       setNotesPdfFolderKey('');
       setNotesPdfFileId('');
       if (collabSaveNoticeTimerRef.current) {
@@ -8366,43 +8366,39 @@ const CollabSection = ({
                 type="button"
                 onClick={() => handleRunCode('all', true)}
                 disabled={runLoading || !roomId}
-                className={`${collabIconButtonBase} collab-code-pill-button is-debug ${
+                className={`${collabIconButtonBase} collab-code-pill-button is-debug is-icon-only ${
                   runLoading || !roomId
                     ? collabIconButtonDisabled
                     : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
                 }`}
-                title="Дебаг"
-                aria-label="Дебаг"
+                title="Дебаг (F5)"
+                aria-label="Дебаг (F5)"
               >
                 <Bug size={15} />
-                <span>Дебаг</span>
-                <kbd>F5</kbd>
               </button>
               <button
                 type="button"
                 onClick={handleTopStop}
                 disabled={!runLoading && !debugActive}
-                className={`${collabIconButtonBase} collab-code-pill-button is-stop ${
+                className={`${collabIconButtonBase} collab-code-pill-button is-stop is-icon-only ${
                   !runLoading && !debugActive ? collabIconButtonDisabled : collabIconButtonDanger
                 }`}
                 title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
                 aria-label="Остановить"
               >
                 <Square size={13} fill="currentColor" />
-                <span>Стоп</span>
               </button>
               <button
                 type="button"
                 onClick={handleClearRun}
                 disabled={!canClearRunState}
-                className={`${collabIconButtonBase} collab-code-pill-button is-restart ${
+                className={`${collabIconButtonBase} collab-code-pill-button is-restart is-icon-only ${
                   canClearRunState ? collabIconButtonNeutral : collabIconButtonDisabled
                 }`}
                 title="Очистить вывод и состояние запуска"
                 aria-label="Очистить вывод и состояние запуска"
               >
                 <RefreshCcw size={15} />
-                <span>Сброс</span>
               </button>
               <button
                 type="button"
