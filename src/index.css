@@ -32721,6 +32721,22 @@ html:not([data-theme='dark']) .collab-editor-surface::before {
   animation: collabRemoteEditorCaretBlink 1s steps(2, start) infinite;
 }
 
+.collab-remote-editor-selection {
+  z-index: 24;
+  border-radius: 4px;
+  background: color-mix(
+    in srgb,
+    var(--collab-remote-editor-selection-color, #8b5cf6) 24%,
+    transparent
+  );
+  box-shadow:
+    inset 0 0 0 1px color-mix(
+      in srgb,
+      var(--collab-remote-editor-selection-color, #8b5cf6) 22%,
+      transparent
+    );
+}
+
 @keyframes collabRemoteEditorCaretBlink {
   0%,
   42% {
@@ -59284,4 +59300,110 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-contro
 html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__help-button > span {
   background: var(--collab-code-text) !important;
   color: var(--collab-code-panel) !important;
+}
+
+/* Calm the seam between code and board: keep the resize hit area, remove visible clutter. */
+@media (min-width: 1100px) {
+  .collab-workspace-card--glass-board .collab-code-glass-layer {
+    padding-right: var(--collab-board-pane-width) !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-editor-pane--with-output {
+    border-right: 0 !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-top-pane-wrap {
+    width: var(--collab-board-pane-width) !important;
+    border-left: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer {
+    top: 0 !important;
+    bottom: 0 !important;
+    left: calc(100% - var(--collab-board-pane-width)) !important;
+    width: 28px !important;
+    background: transparent !important;
+    cursor: col-resize;
+    transform: translateX(-50%) !important;
+    z-index: 36;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__track {
+    width: 0 !important;
+    background: transparent !important;
+    opacity: 0 !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__thumb {
+    display: flex !important;
+    width: 10px !important;
+    height: 52px !important;
+    align-items: center;
+    justify-content: center;
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    opacity: 0.34 !important;
+    transform: none !important;
+    transition:
+      opacity 150ms ease,
+      transform 150ms ease !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__thumb > div {
+    width: 3px !important;
+    height: 32px !important;
+    border-radius: 999px !important;
+    background: rgba(124, 58, 237, 0.34) !important;
+    box-shadow: none !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer:hover .collab-board-code-resizer__track,
+  .collab-workspace-card--glass-board .collab-board-code-resizer:focus-visible .collab-board-code-resizer__track {
+    background: transparent !important;
+    opacity: 0 !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer:hover .collab-board-code-resizer__thumb,
+  .collab-workspace-card--glass-board .collab-board-code-resizer:focus-visible .collab-board-code-resizer__thumb {
+    background: transparent !important;
+    opacity: 0.78 !important;
+    transform: scaleY(1.08) !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer:hover .collab-board-code-resizer__thumb > div,
+  .collab-workspace-card--glass-board .collab-board-code-resizer:focus-visible .collab-board-code-resizer__thumb > div {
+    background: rgba(124, 58, 237, 0.5) !important;
+  }
+
+  .collab-workspace-card--glass-board .board-tool-rail {
+    left: 32px !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-editor-surface .decorationsOverviewRuler,
+  .collab-workspace-card--glass-board .collab-editor-surface .scrollbar.vertical,
+  .collab-workspace-card--glass-board .collab-editor-surface .slider.vertical {
+    opacity: 0 !important;
+  }
+}
+
+/* Monaco caret must match glyph metrics exactly: avoid visual effects that desync hit-testing. */
+.collab-editor-surface .monaco-editor .view-lines,
+.collab-editor-surface .monaco-editor .view-line,
+.collab-editor-surface .monaco-editor .view-line span,
+.collab-editor-surface .monaco-editor .mtk,
+.collab-editor-surface .monaco-editor textarea.ime-text-area,
+.collab-editor-surface .monaco-editor textarea.inputarea {
+  font-family: "JetBrains Mono", Consolas, "Courier New", monospace !important;
+  font-weight: 500 !important;
+  font-variant-ligatures: none !important;
+  font-feature-settings: "liga" 0, "calt" 0, "kern" 0 !important;
+  font-kerning: none !important;
+  font-optical-sizing: none !important;
+  letter-spacing: 0 !important;
+  word-spacing: 0 !important;
+  text-shadow: none !important;
+  filter: none !important;
 }

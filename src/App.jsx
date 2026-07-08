@@ -1746,9 +1746,8 @@ const COLLAB_TEST_FILE_RUNTIME_NAME = 'test.txt';
 const COLLAB_TEST_FILE_DOC_KEY = 'collab-test-file';
 const COLLAB_EDITOR_CURSOR_ENABLED = true;
 const COLLAB_EDITOR_CURSOR_SYNC_MS = 16;
-const COLLAB_EDITOR_CURSOR_STALE_MS = 6500;
+const COLLAB_EDITOR_CURSOR_STALE_MS = 10 * 60 * 1000;
 const COLLAB_EDITOR_TYPING_STALE_MS = 2600;
-const COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS = 1200;
 const COLLAB_BOARD_CODE_SPLIT_DEFAULT = 44;
 const COLLAB_BOARD_CODE_SPLIT_MIN = 32;
 const COLLAB_BOARD_CODE_SPLIT_MAX = 72;
@@ -1768,16 +1767,18 @@ const getCollabEditorMetricOptions = (fontSize) => {
   return {
     fontFamily: COLLAB_EDITOR_FONT_FAMILY,
     fontSize: normalizedFontSize,
-    fontWeight: '600',
+    fontWeight: '500',
     fontLigatures: false,
+    fontVariations: false,
     letterSpacing: 0,
     lineHeight: Math.round(normalizedFontSize * 1.5),
   };
 };
 
-const refreshCollabEditorMetrics = (editor) => {
+const refreshCollabEditorMetrics = (editor, monaco = null) => {
   if (!editor?.getModel?.()) return;
   try {
+    monaco?.editor?.remeasureFonts?.();
     editor.layout?.();
     editor.render?.();
   } catch {
@@ -1785,21 +1786,53 @@ const refreshCollabEditorMetrics = (editor) => {
   }
 };
 
-const scheduleCollabEditorMetricRefresh = (editor) => {
-  refreshCollabEditorMetrics(editor);
+const scheduleCollabEditorMetricRefresh = (editor, monaco = null) => {
+  refreshCollabEditorMetrics(editor, monaco);
   if (typeof window !== 'undefined') {
     window.requestAnimationFrame?.(() => {
-      refreshCollabEditorMetrics(editor);
-      window.requestAnimationFrame?.(() => refreshCollabEditorMetrics(editor));
+      refreshCollabEditorMetrics(editor, monaco);
+      window.requestAnimationFrame?.(() => refreshCollabEditorMetrics(editor, monaco));
     });
-    window.setTimeout(() => refreshCollabEditorMetrics(editor), 120);
-    window.setTimeout(() => refreshCollabEditorMetrics(editor), 420);
+    window.setTimeout(() => refreshCollabEditorMetrics(editor, monaco), 120);
+    window.setTimeout(() => refreshCollabEditorMetrics(editor, monaco), 420);
   }
   if (typeof document !== 'undefined' && document.fonts?.ready?.then) {
     document.fonts.ready
-      .then(() => refreshCollabEditorMetrics(editor))
+      .then(() => refreshCollabEditorMetrics(editor, monaco))
       .catch(() => {});
   }
+};
+
+const normalizeCollabEditorSelection = (selection) => {
+  const startLineNumber = Number(selection?.startLineNumber ?? selection?.selectionStartLineNumber);
+  const startColumn = Number(selection?.startColumn ?? selection?.selectionStartColumn);
+  const endLineNumber = Number(selection?.endLineNumber ?? selection?.positionLineNumber);
+  const endColumn = Number(selection?.endColumn ?? selection?.positionColumn);
+  const hasValidRange = [startLineNumber, startColumn, endLineNumber, endColumn]
+    .every((value) => Number.isInteger(value) && value > 0);
+  if (!hasValidRange) return null;
+  const startsAfterEnd = startLineNumber > endLineNumber
+    || (startLineNumber === endLineNumber && startColumn > endColumn);
+  const normalized = startsAfterEnd
+    ? {
+      startLineNumber: endLineNumber,
+      startColumn: endColumn,
+      endLineNumber: startLineNumber,
+      endColumn: startColumn,
+    }
+    : {
+      startLineNumber,
+      startColumn,
+      endLineNumber,
+      endColumn,
+    };
+  if (
+    normalized.startLineNumber === normalized.endLineNumber
+    && normalized.startColumn === normalized.endColumn
+  ) {
+    return null;
+  }
+  return normalized;
 };
 
 const mergeRuntimeErrorText = (base, next) => {
@@ -3050,6 +3083,7 @@ const CollabSection = ({
   const collabCursorLayoutDisposableRef = useRef(null);
   const collabCursorScrollDisposableRef = useRef(null);
   const collabCursorPositionDisposableRef = useRef(null);
+  const collabCursorSelectionDisposableRef = useRef(null);
   const collabCursorContentDisposableRef = useRef(null);
   const collabCursorTypeDisposableRef = useRef(null);
   const collabCursorDragMouseDownDisposableRef = useRef(null);
@@ -3188,7 +3222,7 @@ const CollabSection = ({
     automaticLayout: true,
     scrollBeyondLastLine: false,
     smoothScrolling: true,
-    cursorSmoothCaretAnimation: 'on',
+    cursorSmoothCaretAnimation: 'off',
     scrollbar: {
       verticalScrollbarSize: isCollabFullscreen ? 8 : 10,
       horizontalScrollbarSize: isCollabFullscreen ? 6 : 8,
@@ -3617,6 +3651,7 @@ const CollabSection = ({
     const cursorX = Number(nextCursor?.x);
     const cursorY = Number(nextCursor?.y);
     const hasViewportPosition = Number.isFinite(cursorX) && Number.isFinite(cursorY);
+    const selection = normalizeCollabEditorSelection(nextCursor?.selection);
     const normalizedCursor = nextCursor
       && (hasViewportPosition || hasPosition)
       ? {
@@ -3630,6 +3665,7 @@ const CollabSection = ({
             : Date.now(),
         } : {}),
         ...(hasPosition ? { lineNumber, column } : {}),
+        ...(selection ? { selection } : {}),
       }
       : null;
     if (immediate) {
@@ -3640,6 +3676,7 @@ const CollabSection = ({
       collabCursorPendingRef.current = null;
       collabCursorLastSyncAtRef.current = Date.now();
       awareness.setLocalStateField('editorCursor', normalizedCursor);
+      awareness.setLocalStateField('selection', normalizedCursor?.selection || null);
       return;
     }
     collabCursorPendingRef.current = normalizedCursor;
@@ -3655,30 +3692,15 @@ const CollabSection = ({
       collabCursorPendingRef.current = null;
       collabCursorLastSyncAtRef.current = Date.now();
       liveAwareness.setLocalStateField('editorCursor', cursorPayload || null);
+      liveAwareness.setLocalStateField('selection', cursorPayload?.selection || null);
     }, waitMs);
   }, []);
-
-  const clearCollabCursorClearTimer = useCallback(() => {
-    if (!COLLAB_EDITOR_CURSOR_ENABLED) return;
-    if (!collabCursorClearTimerRef.current) return;
-    clearTimeout(collabCursorClearTimerRef.current);
-    collabCursorClearTimerRef.current = null;
-  }, []);
-
-  const queueCollabEditorCursorClear = useCallback((delayMs = COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS) => {
-    if (!COLLAB_EDITOR_CURSOR_ENABLED) return;
-    clearCollabCursorClearTimer();
-    collabCursorClearTimerRef.current = setTimeout(() => {
-      collabCursorClearTimerRef.current = null;
-      scheduleCollabEditorCursor(null, true);
-    }, Math.max(0, Number(delayMs) || 0));
-  }, [clearCollabCursorClearTimer, scheduleCollabEditorCursor]);
 
   const handleEditorMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
     editor.updateOptions?.(getCollabEditorMetricOptions(editorFontSize));
-    scheduleCollabEditorMetricRefresh(editor);
+    scheduleCollabEditorMetricRefresh(editor, monaco);
     applyDebugGlyphScale(editor);
     if (monaco?.languages && !collabSnippetProviderRef.current) {
       collabSnippetProviderRef.current = monaco.languages.registerCompletionItemProvider('python', {
@@ -3774,8 +3796,8 @@ const CollabSection = ({
         ts: Date.now(),
         lineNumber: Number(targetPosition?.lineNumber),
         column: Number(targetPosition?.column),
+        selection: editor.getSelection?.(),
       });
-      queueCollabEditorCursorClear();
       return true;
     };
     const publishCursorFromEditorPosition = (immediate = false, options = {}) => {
@@ -3809,8 +3831,8 @@ const CollabSection = ({
         ...(options?.typing ? { typing: true, typingTs: Date.now() } : {}),
         lineNumber,
         column,
+        selection: editor.getSelection?.(),
       }, immediate);
-      queueCollabEditorCursorClear();
       return true;
     };
     collabCursorWindowStopRef.current?.();
@@ -3846,17 +3868,19 @@ const CollabSection = ({
       window.addEventListener('blur', stopWindowCursorTracking);
     });
     collabCursorLeaveDisposableRef.current?.dispose?.();
-    collabCursorLeaveDisposableRef.current = editor.onMouseLeave(() => {
-      queueCollabEditorCursorClear();
-    });
+    collabCursorLeaveDisposableRef.current = null;
     collabCursorBlurDisposableRef.current?.dispose?.();
     collabCursorBlurDisposableRef.current = editor.onDidBlurEditorWidget(() => {
-      queueCollabEditorCursorClear(260);
       collabCursorWindowStopRef.current?.();
     });
     collabCursorPositionDisposableRef.current?.dispose?.();
     collabCursorPositionDisposableRef.current = editor.onDidChangeCursorPosition(() => {
       publishCursorFromEditorPosition(true);
+    });
+    collabCursorSelectionDisposableRef.current?.dispose?.();
+    collabCursorSelectionDisposableRef.current = editor.onDidChangeCursorSelection(() => {
+      publishCursorFromEditorPosition(true);
+      setEditorViewportVersion((prev) => prev + 1);
     });
     collabCursorTypeDisposableRef.current?.dispose?.();
     collabCursorTypeDisposableRef.current = typeof editor.onDidType === 'function'
@@ -3882,7 +3906,6 @@ const CollabSection = ({
   }, [
     applyDebugGlyphScale,
     editorFontSize,
-    queueCollabEditorCursorClear,
     scheduleCollabEditorCursor,
   ]);
 
@@ -3903,6 +3926,8 @@ const CollabSection = ({
     collabCursorBlurDisposableRef.current = null;
     collabCursorPositionDisposableRef.current?.dispose?.();
     collabCursorPositionDisposableRef.current = null;
+    collabCursorSelectionDisposableRef.current?.dispose?.();
+    collabCursorSelectionDisposableRef.current = null;
     collabCursorContentDisposableRef.current?.dispose?.();
     collabCursorContentDisposableRef.current = null;
     collabCursorTypeDisposableRef.current?.dispose?.();
@@ -4171,7 +4196,7 @@ const CollabSection = ({
 
   useEffect(() => {
     editorRef.current?.updateOptions?.(getCollabEditorMetricOptions(editorFontSize));
-    scheduleCollabEditorMetricRefresh(editorRef.current);
+    scheduleCollabEditorMetricRefresh(editorRef.current, monacoRef.current);
     applyDebugGlyphScale();
   }, [editorFontSize, applyDebugGlyphScale]);
 
@@ -6295,6 +6320,7 @@ const CollabSection = ({
           const hasCursorPosition = Number.isInteger(cursorLineNumber) && cursorLineNumber > 0
             && Number.isInteger(cursorColumn) && cursorColumn > 0;
           const hasViewportPosition = Number.isFinite(cursorX) && Number.isFinite(cursorY);
+          const cursorSelection = normalizeCollabEditorSelection(cursor?.selection || state?.selection);
           if (!cursor || (!hasViewportPosition && !hasCursorPosition)) {
             cursorSeenByClient.delete(remoteClientId);
             return;
@@ -6308,6 +6334,9 @@ const CollabSection = ({
             normalizedY.toFixed(4),
             hasCursorPosition ? cursorLineNumber : '',
             hasCursorPosition ? cursorColumn : '',
+            cursorSelection
+              ? `${cursorSelection.startLineNumber}:${cursorSelection.startColumn}-${cursorSelection.endLineNumber}:${cursorSelection.endColumn}`
+              : '',
             Number.isFinite(remoteCursorTs) ? Math.round(remoteCursorTs) : '',
             cursor?.typing === true ? '1' : '0',
             Number.isFinite(remoteTypingTs) ? Math.round(remoteTypingTs) : '',
@@ -6337,6 +6366,7 @@ const CollabSection = ({
             typing: isTyping,
             typingTs: typingSeenAt || seenAt,
             ...(hasCursorPosition ? { lineNumber: cursorLineNumber, column: cursorColumn } : {}),
+            ...(cursorSelection ? { selection: cursorSelection } : {}),
             name: remoteName,
             color: remoteColor,
           });
@@ -6471,6 +6501,68 @@ const CollabSection = ({
         };
       })
       .filter(Boolean);
+  }, [remoteEditorCursors, editorViewportVersion]);
+  const remoteEditorSelectionMarkers = useMemo(() => {
+    if (!COLLAB_EDITOR_CURSOR_ENABLED) return [];
+    const layoutVersion = editorViewportVersion;
+    if (layoutVersion < 0) return [];
+    const editor = editorRef.current;
+    const model = editor?.getModel?.();
+    if (!editor || !model || !remoteEditorCursors.length) return [];
+    const layout = editor.getLayoutInfo?.() || null;
+    const width = Number(layout?.width) || Number(editor.getDomNode?.()?.clientWidth) || 0;
+    const height = Number(layout?.height) || Number(editor.getDomNode?.()?.clientHeight) || 0;
+    const contentLeft = Number(layout?.contentLeft) || 0;
+    const contentWidth = Number(layout?.contentWidth) || Math.max(1, width - contentLeft);
+    const scrollTop = Number(editor.getScrollTop?.()) || 0;
+    const scrollLeft = Number(editor.getScrollLeft?.()) || 0;
+    const monaco = monacoRef.current;
+    const lineHeightOption = monaco?.editor?.EditorOption?.lineHeight
+      ? Number(editor.getOption(monaco.editor.EditorOption.lineHeight))
+      : 0;
+    const lineHeight = Number.isFinite(lineHeightOption) && lineHeightOption > 0
+      ? lineHeightOption
+      : 20;
+    const modelLineCount = Number(model.getLineCount?.()) || 0;
+    if (!width || !height || !modelLineCount) return [];
+    const markers = [];
+    remoteEditorCursors.forEach((cursor) => {
+      const selection = normalizeCollabEditorSelection(cursor?.selection);
+      if (!selection) return;
+      const startLine = Math.max(1, Math.min(modelLineCount, selection.startLineNumber));
+      const endLine = Math.max(1, Math.min(modelLineCount, selection.endLineNumber));
+      for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
+        const maxColumn = Number(model.getLineMaxColumn?.(lineNumber)) || 1;
+        const startColumn = lineNumber === selection.startLineNumber
+          ? Math.max(1, Math.min(maxColumn, selection.startColumn))
+          : 1;
+        const endColumn = lineNumber === selection.endLineNumber
+          ? Math.max(1, Math.min(maxColumn, selection.endColumn))
+          : maxColumn;
+        if (endColumn <= startColumn) continue;
+        const lineTop = Number(editor.getTopForLineNumber?.(lineNumber));
+        const startLeft = Number(editor.getOffsetForColumn?.(lineNumber, startColumn));
+        const endLeft = Number(editor.getOffsetForColumn?.(lineNumber, endColumn));
+        if (!Number.isFinite(lineTop) || !Number.isFinite(startLeft) || !Number.isFinite(endLeft)) continue;
+        const top = lineTop - scrollTop + Math.max(2, Math.round(lineHeight * 0.13));
+        const rawLeft = contentLeft + startLeft - scrollLeft;
+        const rawRight = contentLeft + endLeft - scrollLeft;
+        const left = Math.max(contentLeft, Math.min(width, rawLeft));
+        const right = Math.max(contentLeft, Math.min(width, rawRight));
+        if (right <= contentLeft || left >= width || right <= left) continue;
+        if (top < -lineHeight || top > height + lineHeight) continue;
+        markers.push({
+          id: `${cursor.id}-${lineNumber}-${startColumn}-${endColumn}`,
+          left,
+          top,
+          width: Math.max(2, Math.min(contentWidth, right - left)),
+          height: Math.max(16, Math.round(lineHeight * 0.74)),
+          color: cursor.color || '#8b5cf6',
+          name: cursor.name || 'Участник',
+        });
+      }
+    });
+    return markers;
   }, [remoteEditorCursors, editorViewportVersion]);
   const remoteEditorOffscreenIndicators = useMemo(() => {
     if (!COLLAB_EDITOR_CURSOR_ENABLED) return [];
@@ -7087,6 +7179,21 @@ const CollabSection = ({
           options={editorOptions}
           loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
         />
+        {remoteEditorSelectionMarkers.map((selection) => (
+          <div
+            key={selection.id}
+            className="collab-remote-editor-selection pointer-events-none absolute select-none"
+            style={{
+              left: `${selection.left}px`,
+              top: `${selection.top}px`,
+              width: `${selection.width}px`,
+              height: `${selection.height}px`,
+              '--collab-remote-editor-selection-color': selection.color,
+            }}
+            title={`${selection.name} выделяет код`}
+            aria-hidden
+          />
+        ))}
         {remoteEditorCursorMarkers.map((cursor) => (
           <div
             key={cursor.id}
