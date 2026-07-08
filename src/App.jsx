@@ -12,7 +12,7 @@ import {
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
-  ChevronsLeft, ChevronsRight, ChevronsUpDown, Search,
+  ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
   Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet,
   Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp,
   ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect
@@ -1749,9 +1749,12 @@ const COLLAB_EDITOR_CURSOR_SYNC_MS = 16;
 const COLLAB_EDITOR_CURSOR_STALE_MS = 6500;
 const COLLAB_EDITOR_TYPING_STALE_MS = 2600;
 const COLLAB_EDITOR_CURSOR_IDLE_CLEAR_MS = 1200;
-const COLLAB_BOARD_CODE_SPLIT_DEFAULT = 60;
-const COLLAB_BOARD_CODE_SPLIT_MIN = 36;
-const COLLAB_BOARD_CODE_SPLIT_MAX = 78;
+const COLLAB_BOARD_CODE_SPLIT_DEFAULT = 44;
+const COLLAB_BOARD_CODE_SPLIT_MIN = 32;
+const COLLAB_BOARD_CODE_SPLIT_MAX = 72;
+const COLLAB_OUTPUT_PANEL_HEIGHT_DEFAULT = 220;
+const COLLAB_OUTPUT_PANEL_HEIGHT_MIN = 132;
+const COLLAB_OUTPUT_PANEL_HEIGHT_MAX = 460;
 
 const clampCollabEditorFontSize = (value) => {
   const nextValue = Number(value);
@@ -1827,6 +1830,16 @@ const normalizeCollabBoardCodeSplit = (value) => {
   if (!Number.isFinite(numeric)) return COLLAB_BOARD_CODE_SPLIT_DEFAULT;
   const rounded = Math.round(numeric * 10) / 10;
   return Math.max(COLLAB_BOARD_CODE_SPLIT_MIN, Math.min(COLLAB_BOARD_CODE_SPLIT_MAX, rounded));
+};
+
+const normalizeCollabOutputPanelHeight = (value) => {
+  if (value == null || String(value).trim() === '') return COLLAB_OUTPUT_PANEL_HEIGHT_DEFAULT;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return COLLAB_OUTPUT_PANEL_HEIGHT_DEFAULT;
+  return Math.max(
+    COLLAB_OUTPUT_PANEL_HEIGHT_MIN,
+    Math.min(COLLAB_OUTPUT_PANEL_HEIGHT_MAX, Math.round(numeric))
+  );
 };
 
 const normalizeCollabTestFileHeight = (value) => {
@@ -2898,6 +2911,12 @@ const CollabSection = ({
   const [runAuthor, setRunAuthor] = useState('');
   const [runTimestamp, setRunTimestamp] = useState(null);
   const [lastRunInput, setLastRunInput] = useState('');
+  const [outputPanelOpen, setOutputPanelOpen] = useState(false);
+  const [outputPanelHeight, setOutputPanelHeight] = useState(() => {
+    if (typeof window === 'undefined') return COLLAB_OUTPUT_PANEL_HEIGHT_DEFAULT;
+    const raw = window.localStorage.getItem(`collab-output-panel-height-${userId || role || 'anon'}`);
+    return normalizeCollabOutputPanelHeight(raw);
+  });
   const [runLoading, setRunLoading] = useState(false);
   const [debugActive, setDebugActive] = useState(false);
   const [debugTrace, setDebugTrace] = useState([]);
@@ -2908,7 +2927,6 @@ const CollabSection = ({
   const [debugSourceSnapshot, setDebugSourceSnapshot] = useState('');
   const [editorFontSize, setEditorFontSize] = useState(COLLAB_EDITOR_FONT_SIZE_DEFAULT);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
-  const [splitLeftWidth, setSplitLeftWidth] = useState(80);
   const [boardCodeSplitWidth, setBoardCodeSplitWidth] = useState(() => {
     if (typeof window === 'undefined') return COLLAB_BOARD_CODE_SPLIT_DEFAULT;
     const raw = window.localStorage.getItem(`collab-board-code-split-${userId || role || 'anon'}`);
@@ -2958,13 +2976,12 @@ const CollabSection = ({
     [isTeacher, teacherId, userId]
   );
   const fontSizeStorageKey = useMemo(() => `collab-font-size-${userId || role || 'anon'}`, [userId, role]);
-  const splitWidthStorageKey = useMemo(() => `collab-split-width-${userId || role || 'anon'}`, [userId, role]);
-  const boardCodeSplitStorageKey = useMemo(() => `collab-board-code-split-${userId || role || 'anon'}`, [userId, role]);
+  const boardCodeSplitStorageKey = useMemo(() => `collab-board-code-split-v2-${userId || role || 'anon'}`, [userId, role]);
+  const outputPanelHeightStorageKey = useMemo(() => `collab-output-panel-height-${userId || role || 'anon'}`, [userId, role]);
   const taskFilesListHeightStorageKey = useMemo(() => `collab-task-files-list-height-${userId || role || 'anon'}`, [userId, role]);
   const collabRootRef = useRef(null);
-  const splitLayoutRef = useRef(null);
-  const splitDragCleanupRef = useRef(null);
   const boardCodeSplitDragCleanupRef = useRef(null);
+  const outputPanelResizeCleanupRef = useRef(null);
   const notesPdfResizeCleanupRef = useRef(null);
   const notesPdfPreviewRef = useRef(null);
   const outputViewportRef = useRef(null);
@@ -2976,6 +2993,7 @@ const CollabSection = ({
   const notesPdfPanelHeightRef = useRef(notesPdfPanelHeight);
   const notesPdfDragHeightRef = useRef(notesPdfPanelHeight);
   const boardCodeSplitWidthRef = useRef(boardCodeSplitWidth);
+  const outputPanelHeightRef = useRef(outputPanelHeight);
   const boardCodeSplitLoadedValueRef = useRef(null);
   const collabDocRef = useRef(null);
   const collabTestFileRef = useRef(null);
@@ -2995,6 +3013,8 @@ const CollabSection = ({
   const testFileSelectionRef = useRef(null);
   const runErrorRef = useRef(runError);
   const runStatusRef = useRef(runStatus);
+  const runTimestampRef = useRef(runTimestamp);
+  const outputPanelDismissedRunTokenRef = useRef(null);
   const collabAuxPanelModeRef = useRef(collabAuxPanelMode);
   const testFileTextareaHeightRef = useRef(testFileTextareaHeight);
   const taskFilesPanelOpenRef = useRef(taskFilesPanelOpen);
@@ -3253,6 +3273,8 @@ const CollabSection = ({
   const collabIconButtonPrimary = 'is-primary';
   const collabIconButtonAccent = 'is-accent';
   const collabIconButtonDanger = 'is-danger';
+  const canClearRunState = Boolean(runOutput || runError || runStatus !== 'idle' || lastRunInput || debugActive);
+  const isBoardCodeAuxOpen = Boolean(useBoardGlassCodePanel && (taskFilesPanelOpen || stdinPanelOpen));
 
   const stopDebugPlayback = useCallback(() => {
     if (debugPlaybackTimerRef.current) {
@@ -4081,20 +4103,6 @@ const CollabSection = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const raw = window.localStorage.getItem(splitWidthStorageKey);
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return;
-    const clamped = Math.max(56, Math.min(92, parsed));
-    setSplitLeftWidth(clamped);
-  }, [splitWidthStorageKey]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(splitWidthStorageKey, String(splitLeftWidth));
-  }, [splitWidthStorageKey, splitLeftWidth]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     const raw = window.localStorage.getItem(boardCodeSplitStorageKey);
     if (raw == null || String(raw).trim() === '') {
       boardCodeSplitLoadedValueRef.current = null;
@@ -4125,6 +4133,19 @@ const CollabSection = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(outputPanelHeightStorageKey);
+    setOutputPanelHeight(normalizeCollabOutputPanelHeight(raw));
+  }, [outputPanelHeightStorageKey]);
+
+  useEffect(() => {
+    const normalized = normalizeCollabOutputPanelHeight(outputPanelHeight);
+    outputPanelHeightRef.current = normalized;
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(outputPanelHeightStorageKey, String(normalized));
+  }, [outputPanelHeight, outputPanelHeightStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     const raw = window.localStorage.getItem(taskFilesListHeightStorageKey);
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return;
@@ -4137,11 +4158,11 @@ const CollabSection = ({
   }, [taskFilesListHeight, taskFilesListHeightStorageKey]);
 
   useEffect(() => () => {
-    splitDragCleanupRef.current?.();
+    boardCodeSplitDragCleanupRef.current?.();
   }, []);
 
   useEffect(() => () => {
-    boardCodeSplitDragCleanupRef.current?.();
+    outputPanelResizeCleanupRef.current?.();
   }, []);
 
   useEffect(() => () => {
@@ -4417,6 +4438,10 @@ const CollabSection = ({
   useEffect(() => {
     runStatusRef.current = runStatus;
   }, [runStatus]);
+
+  useEffect(() => {
+    runTimestampRef.current = runTimestamp;
+  }, [runTimestamp]);
 
   useEffect(() => {
     collabAuxPanelModeRef.current = collabAuxPanelMode;
@@ -5176,6 +5201,37 @@ const CollabSection = ({
     return `${text.slice(0, COLLAB_RUN_OUTPUT_LIMIT)}\n...`;
   };
 
+  const getOutputPanelRunToken = (tsValue = runTimestampRef.current) => {
+    const tsNumber = Number(tsValue);
+    if (Number.isFinite(tsNumber) && tsNumber > 0) return `ts:${tsNumber}`;
+    return `session:${runSessionRef.current}`;
+  };
+
+  const revealOutputPanelForRun = (tsValue = runTimestampRef.current) => {
+    const token = getOutputPanelRunToken(tsValue);
+    if (outputPanelDismissedRunTokenRef.current === token) return;
+    setOutputPanelOpen(true);
+  };
+
+  const handleCloseOutputPanel = () => {
+    outputPanelDismissedRunTokenRef.current = getOutputPanelRunToken();
+    setOutputPanelOpen(false);
+  };
+
+  const closeBoardAuxPopover = () => {
+    setStdinPanelOpen(false);
+    setTaskFilesPanelOpen(false);
+  };
+
+  const handleToggleBoardAuxPopover = () => {
+    if (isBoardCodeAuxOpen) {
+      closeBoardAuxPopover();
+      return;
+    }
+    setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE);
+    setTaskFilesPanelOpen(true);
+  };
+
   const updateRunStateFromMap = (runMap) => {
     if (!runMap) {
       setRunOutput('');
@@ -5183,7 +5239,10 @@ const CollabSection = ({
       setRunStatus('idle');
       setRunAuthor('');
       setRunTimestamp(null);
+      runTimestampRef.current = null;
       setLastRunInput('');
+      setOutputPanelOpen(false);
+      outputPanelDismissedRunTokenRef.current = null;
       setDebugActive(false);
       setDebugTrace([]);
       debugTraceRef.current = [];
@@ -5222,7 +5281,11 @@ const CollabSection = ({
     setRunStatus(status || 'idle');
     setRunAuthor(author);
     setRunTimestamp(ts);
+    runTimestampRef.current = ts;
     setLastRunInput(input);
+    if (status === 'running') {
+      revealOutputPanelForRun(ts);
+    }
 
     const nextTrace = normalizeDebugTrace(runMap.get('debugTrace'));
     const rawStepIndex = Number(runMap.get('debugStepIndex'));
@@ -5747,6 +5810,8 @@ const CollabSection = ({
 
   const handleRunCode = async (mode = 'all', debug = false) => {
     if (!roomId || !editorRef.current) return;
+    outputPanelDismissedRunTokenRef.current = null;
+    setOutputPanelOpen(true);
     const requestedDebug = Boolean(debug);
     const breakpointsSource = Array.isArray(debugBreakpoints) && debugBreakpoints.length > 0
       ? debugBreakpoints
@@ -5776,6 +5841,9 @@ const CollabSection = ({
     }
     const sessionId = runSessionRef.current + 1;
     runSessionRef.current = sessionId;
+    const startedAt = Date.now();
+    runTimestampRef.current = startedAt;
+    setRunTimestamp(startedAt);
     setRunLoading(true);
     setRunStatus('running');
     setRunError('');
@@ -5796,7 +5864,6 @@ const CollabSection = ({
         debugSource: code,
       });
     }
-    const startedAt = Date.now();
     const inputSnapshot = runInputRef.current || '';
     let runtimeFilesPayload = [];
     try {
@@ -6057,6 +6124,8 @@ const CollabSection = ({
   }, [debugActive, handleDebugStepForward, handleDebugContinue, handleDebugStepBack, handleStopDebug]);
 
   const handleClearRun = () => {
+    setOutputPanelOpen(false);
+    outputPanelDismissedRunTokenRef.current = null;
     clearDebugSession(false);
     publishRunState({
       status: 'idle',
@@ -6561,46 +6630,6 @@ const CollabSection = ({
   const auxTextareaRows = isTestFileMode
     ? (isSplitCollabLayout ? (isCollabFullscreen ? 5 : 4) : (isCollabFullscreen ? (isMobileViewport ? 5 : 6) : (isMobileViewport ? 6 : 8)))
     : (isSplitCollabLayout ? (isCollabFullscreen ? 3 : 2) : (isCollabFullscreen ? (isMobileViewport ? 3 : 4) : (isMobileViewport ? 4 : 6)));
-  const handleSplitResizeStart = useCallback((event) => {
-    if (!isSplitCollabLayout) return;
-    event.preventDefault();
-    const applyFromClientX = (clientX) => {
-      const container = splitLayoutRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      if (!rect.width) return;
-      const relative = ((clientX - rect.left) / rect.width) * 100;
-      const clamped = Math.max(56, Math.min(92, relative));
-      setSplitLeftWidth(clamped);
-    };
-    const handlePointerMove = (moveEvent) => {
-      applyFromClientX(moveEvent.clientX);
-    };
-    const stopDragging = () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', stopDragging);
-      window.removeEventListener('pointercancel', stopDragging);
-      if (typeof document !== 'undefined') {
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-      }
-      splitDragCleanupRef.current = null;
-    };
-    splitDragCleanupRef.current?.();
-    splitDragCleanupRef.current = stopDragging;
-    if (typeof document !== 'undefined') {
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    }
-    applyFromClientX(event.clientX);
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', stopDragging);
-    window.addEventListener('pointercancel', stopDragging);
-  }, [isSplitCollabLayout]);
-  const handleSplitResizeReset = useCallback(() => {
-    setSplitLeftWidth(80);
-  }, []);
-
   const handleBoardCodeResizeStart = useCallback((event) => {
     if (!useBoardGlassCodePanel || isMobileViewport || typeof window === 'undefined') return;
     event.preventDefault();
@@ -6612,7 +6641,7 @@ const CollabSection = ({
       const rect = cardNode.getBoundingClientRect();
       if (!rect.width) return;
       const relative = ((clientX - rect.left) / rect.width) * 100;
-      const nextWidth = normalizeCollabBoardCodeSplit(relative);
+      const nextWidth = normalizeCollabBoardCodeSplit(100 - relative);
       boardCodeSplitWidthRef.current = nextWidth;
       cardNode.style.setProperty('--collab-board-pane-width', `${nextWidth}%`);
       setBoardCodeSplitWidth(nextWidth);
@@ -6655,6 +6684,58 @@ const CollabSection = ({
 
   const handleBoardCodeResizeReset = useCallback(() => {
     setBoardCodeSplitWidth(COLLAB_BOARD_CODE_SPLIT_DEFAULT);
+  }, []);
+
+  const handleOutputPanelResizeStart = useCallback((event) => {
+    if (!useBoardGlassCodePanel || !outputPanelOpen || typeof window === 'undefined') return;
+    event.preventDefault();
+    const handleNode = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startY = event.clientY;
+    const startHeight = outputPanelHeightRef.current;
+    const applyHeight = (rawHeight) => {
+      const nextHeight = normalizeCollabOutputPanelHeight(rawHeight);
+      outputPanelHeightRef.current = nextHeight;
+      setOutputPanelHeight(nextHeight);
+    };
+    const handlePointerMove = (moveEvent) => {
+      const delta = startY - moveEvent.clientY;
+      applyHeight(startHeight + delta);
+    };
+    const stopDragging = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopDragging);
+      window.removeEventListener('pointercancel', stopDragging);
+      try {
+        handleNode?.releasePointerCapture?.(pointerId);
+      } catch {
+        // Ignore pointer capture cleanup failures on browsers that do not support it.
+      }
+      if (typeof document !== 'undefined') {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+      outputPanelResizeCleanupRef.current = null;
+      setOutputPanelHeight(outputPanelHeightRef.current);
+    };
+    outputPanelResizeCleanupRef.current?.();
+    outputPanelResizeCleanupRef.current = stopDragging;
+    try {
+      handleNode?.setPointerCapture?.(pointerId);
+    } catch {
+      // Ignore pointer capture failures on browsers that do not support it.
+    }
+    if (typeof document !== 'undefined') {
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+    }
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
+  }, [outputPanelOpen, useBoardGlassCodePanel]);
+
+  const handleOutputPanelResizeReset = useCallback(() => {
+    setOutputPanelHeight(COLLAB_OUTPUT_PANEL_HEIGHT_DEFAULT);
   }, []);
 
   const handleNotesPdfResizeStart = useCallback((event) => {
@@ -7071,7 +7152,7 @@ const CollabSection = ({
   );
 
   const inputPane = (
-    <div className={`collab-aux-panel ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
+    <div className={`collab-aux-panel ${useBoardGlassCodePanel ? 'collab-aux-panel--board-popover' : ''} ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
       isCollabFullscreen
         ? (isFullscreenDark
           ? `rounded-xl border p-1.5 shadow-[inset_0_1px_0_rgba(148,163,184,0.12)] ${
@@ -7084,7 +7165,7 @@ const CollabSection = ({
     }`}>
       <div className="flex items-center justify-between gap-2">
         <div className={`${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
-          {isTestFileMode ? 'test.txt' : 'Ввод (stdin)'}
+          {isTestFileMode ? 'Файлы задания' : 'Ввод (stdin)'}
         </div>
         <div className="flex items-center gap-1.5">
           {!isTestFileMode && (
@@ -7113,6 +7194,7 @@ const CollabSection = ({
               onClick={() => {
                 setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_INPUT);
                 setStdinPanelOpen(true);
+                setTaskFilesPanelOpen(false);
               }}
               className={`rounded-lg transition ${
                 isSplitCollabLayout ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1 text-[11px]'
@@ -7130,7 +7212,10 @@ const CollabSection = ({
             </button>
             <button
               type="button"
-              onClick={() => setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE)}
+              onClick={() => {
+                setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE);
+                setTaskFilesPanelOpen(true);
+              }}
               className={`rounded-lg transition ${
                 isSplitCollabLayout ? 'px-2.5 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'
               } ${
@@ -7143,7 +7228,7 @@ const CollabSection = ({
                     : 'text-gray-500 hover:text-gray-700')
               }`}
             >
-              test.txt
+              Файлы
             </button>
           </div>
         </div>
@@ -7299,11 +7384,12 @@ const CollabSection = ({
           </div>
         </div>
       )}
-      <div className={`collab-task-files-panel rounded-2xl border p-2 ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
-        isFullscreenDark
-          ? 'border-slate-700/80 bg-slate-900/70'
-          : 'border-gray-200 bg-white'
-      }`}>
+      {(!useBoardGlassCodePanel || isTestFileMode || taskFilesPanelOpen) && (
+        <div className={`collab-task-files-panel rounded-2xl border p-2 ${isSplitCollabLayout ? 'space-y-1' : 'space-y-2'} ${
+          isFullscreenDark
+            ? 'border-slate-700/80 bg-slate-900/70'
+            : 'border-gray-200 bg-white'
+        }`}>
         <div className="flex items-center justify-between gap-2">
           <div className={`collab-task-files-title ${isSplitCollabLayout ? 'text-[10px]' : 'text-[11px]'} font-semibold uppercase tracking-widest ${collabHintClass}`}>
             Файлы задания для open()
@@ -7563,6 +7649,7 @@ const CollabSection = ({
           </>
           )}
         </div>
+      )}
     </div>
   );
   const handleTopPaneModeChange = (nextMode) => {
@@ -8005,15 +8092,104 @@ const CollabSection = ({
   ) : null;
 
   const mergeHeaderIntoToolbar = isDesktopCollabCompact || isCollabFullscreen;
-  const collabSplitGridTemplateColumns = useBoardGlassCodePanel
-    ? (isCollabFullscreen
-      ? `minmax(0, ${splitLeftWidth}fr) 10px minmax(190px, ${100 - splitLeftWidth}fr)`
-      : `minmax(0, ${splitLeftWidth}fr) 8px minmax(170px, ${100 - splitLeftWidth}fr)`)
-    : (isCollabFullscreen
-      ? `minmax(520px, ${splitLeftWidth}fr) 12px minmax(220px, ${100 - splitLeftWidth}fr)`
-      : (isDesktopCollabCompact
-        ? `minmax(420px, ${splitLeftWidth}fr) 10px minmax(240px, ${100 - splitLeftWidth}fr)`
-        : `minmax(420px, ${splitLeftWidth}fr) 10px minmax(300px, ${100 - splitLeftWidth}fr)`));
+  const collabSplitGridTemplateColumns = 'minmax(0, 1fr)';
+  const collabStackedEditorHeight = isCollabFullscreen ? '100%' : editorHeight;
+  const collabOutputPanelStyle = {
+    '--collab-stacked-output-height': useBoardGlassCodePanel
+      ? `${normalizeCollabOutputPanelHeight(outputPanelHeight)}px`
+      : (isCollabFullscreen
+        ? 'clamp(220px, 30vh, 360px)'
+        : 'clamp(190px, 30%, 300px)'),
+  };
+  const shouldShowStackedOutput = !useBoardGlassCodePanel || outputPanelOpen;
+  const shouldShowStackedAuxContent = Boolean(debugPane || !useBoardGlassCodePanel);
+  const stackedOutputPane = (shouldShowStackedOutput || shouldShowStackedAuxContent) ? (
+    <div
+      className={`collab-output-pane collab-output-pane--below-code min-h-0 min-w-0 ${
+        shouldShowStackedOutput ? 'collab-output-pane--revealed' : 'collab-output-pane--aux-only'
+      }`}
+      style={collabOutputPanelStyle}
+    >
+      {useBoardGlassCodePanel && shouldShowStackedOutput && (
+        <div
+          role="separator"
+          aria-label="Изменить высоту вывода"
+          aria-orientation="horizontal"
+          aria-valuemin={COLLAB_OUTPUT_PANEL_HEIGHT_MIN}
+          aria-valuemax={COLLAB_OUTPUT_PANEL_HEIGHT_MAX}
+          aria-valuenow={Math.round(normalizeCollabOutputPanelHeight(outputPanelHeight))}
+          onPointerDown={handleOutputPanelResizeStart}
+          onDoubleClick={handleOutputPanelResizeReset}
+          className="collab-output-resize-handle"
+          title="Тяните вверх или вниз, чтобы изменить высоту вывода. Двойной клик - сброс."
+        >
+          <span className="collab-output-resize-handle__line" aria-hidden="true" />
+          <span className="collab-output-resize-handle__thumb" aria-hidden="true">
+            <ChevronsUpDown size={13} />
+          </span>
+        </div>
+      )}
+      <div className={`collab-output-stack flex min-h-0 flex-col ${isCollabFullscreen ? 'gap-1.5' : 'gap-1.5'}`}>
+        {shouldShowStackedOutput && (
+          <div className={`collab-result-card min-h-0 flex flex-col rounded-xl border ${isCollabFullscreen ? 'p-1' : 'p-1.5'} ${
+            isCollabFullscreen
+              ? (isFullscreenDark
+                ? 'border-slate-700/85 ring-1 ring-cyan-400/10 bg-slate-950/72 shadow-[0_16px_34px_rgba(2,6,23,0.4),inset_0_1px_0_rgba(148,163,184,0.12)]'
+                : 'border-slate-200 ring-1 ring-violet-200/80 bg-white/92 shadow-[0_14px_30px_rgba(148,163,184,0.2)]')
+              : 'border-gray-200 bg-white'
+          }`}>
+            {useBoardGlassCodePanel && (
+              <div className="collab-output-header-reference">
+                <div className="collab-output-title-reference">
+                  <ChevronRight size={15} />
+                  <span>Вывод</span>
+                </div>
+                <div className="collab-output-actions-reference">
+                  <span aria-hidden="true"><Expand size={14} /></span>
+                  <span aria-hidden="true"><Settings size={14} /></span>
+                  <span aria-hidden="true"><Lock size={14} /></span>
+                  <button
+                    type="button"
+                    className="collab-output-action-button collab-output-close-button"
+                    onClick={handleCloseOutputPanel}
+                    title="Закрыть вывод"
+                    aria-label="Закрыть вывод"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className="collab-result-body min-h-0 flex-1">
+              {resultConsole}
+            </div>
+          </div>
+        )}
+        {debugPane}
+        {!useBoardGlassCodePanel && inputPane}
+      </div>
+    </div>
+  ) : null;
+  const boardCodeAuxPopover = useBoardGlassCodePanel && isBoardCodeAuxOpen ? (
+    <div className="collab-board-aux-popover" role="dialog" aria-label="Ввод и файлы">
+      <div className="collab-board-aux-popover__header">
+        <div className="collab-board-aux-popover__title">
+          <FileText size={15} />
+          <span>Ввод и файлы</span>
+        </div>
+        <button
+          type="button"
+          className="collab-board-aux-popover__close"
+          onClick={closeBoardAuxPopover}
+          aria-label="Закрыть ввод и файлы"
+          title="Закрыть"
+        >
+          <X size={15} />
+        </button>
+      </div>
+      {inputPane}
+    </div>
+  ) : null;
   const collabTopActions = (
     <div className={`collab-top-actions flex flex-wrap items-center ${
       isCollabFullscreen
@@ -8154,7 +8330,7 @@ const CollabSection = ({
             onPointerDown={handleBoardCodeResizeStart}
             onDoubleClick={handleBoardCodeResizeReset}
             className="collab-board-code-resizer group"
-            title="Тяните влево или вправо, чтобы изменить ширину доски. Двойной клик - 60/40."
+            title="Тяните влево или вправо, чтобы изменить ширину доски. Двойной клик - код слева / доска справа."
           >
             <div className="collab-board-code-resizer__track" />
             <div className="collab-board-code-resizer__thumb">
@@ -8170,52 +8346,127 @@ const CollabSection = ({
               ? 'min-w-0 flex-1 rounded-xl px-0.5 py-px sm:px-1 sm:py-0.5'
               : (isDesktopCollabCompact ? 'mt-0 px-0.5 py-px' : 'mt-3 inline-flex px-1.5 py-1')
           } ${collabToolbarClass}`}>
-          <button
-            type="button"
-            onClick={() => handleRunCode('all')}
-            disabled={runLoading || !roomId}
-            className={`${collabIconButtonBase} ${
-              runLoading || !roomId
-                ? collabIconButtonDisabled
-                : collabIconButtonPrimary
-            }`}
-            title="Запустить код (F5)"
-            aria-label="Запустить код"
-          >
-            <Play size={19} />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleRunCode('selection')}
-            disabled={runLoading || !roomId}
-            className={`${collabIconButtonBase} ${
-              runLoading || !roomId
-                ? collabIconButtonDisabled
-                : collabIconButtonNeutral
-            }`}
-            title="Запустить выделенный фрагмент"
-            aria-label="Запустить выделение"
-          >
-            <TextSelect size={19} />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleRunCode('all', true)}
-            disabled={runLoading || !roomId}
-            className={`${collabIconButtonBase} ${
-              runLoading || !roomId
-                ? collabIconButtonDisabled
-                : (debugActive
-                  ? collabIconButtonPrimary
-                  : collabIconButtonAccent)
-            }`}
-            title="Дебаг (до первой точки остановки)"
-            aria-label="Дебаг"
-          >
-            <Bug size={19} />
-          </button>
+          {useBoardGlassCodePanel ? (
+            <>
+              <button
+                type="button"
+                onClick={() => handleRunCode('all')}
+                disabled={runLoading || !roomId}
+                className={`${collabIconButtonBase} collab-code-pill-button is-run ${
+                  runLoading || !roomId ? collabIconButtonDisabled : collabIconButtonPrimary
+                }`}
+                title="Запустить код"
+                aria-label="Запустить код"
+              >
+                <Play size={15} fill="currentColor" />
+                <span>Запуск</span>
+                <kbd>Ctrl ↵</kbd>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRunCode('all', true)}
+                disabled={runLoading || !roomId}
+                className={`${collabIconButtonBase} collab-code-pill-button is-debug ${
+                  runLoading || !roomId
+                    ? collabIconButtonDisabled
+                    : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
+                }`}
+                title="Дебаг"
+                aria-label="Дебаг"
+              >
+                <Bug size={15} />
+                <span>Дебаг</span>
+                <kbd>F5</kbd>
+              </button>
+              <button
+                type="button"
+                onClick={handleTopStop}
+                disabled={!runLoading && !debugActive}
+                className={`${collabIconButtonBase} collab-code-pill-button is-stop ${
+                  !runLoading && !debugActive ? collabIconButtonDisabled : collabIconButtonDanger
+                }`}
+                title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
+                aria-label="Остановить"
+              >
+                <Square size={13} fill="currentColor" />
+                <span>Стоп</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleClearRun}
+                disabled={!canClearRunState}
+                className={`${collabIconButtonBase} collab-code-pill-button is-restart ${
+                  canClearRunState ? collabIconButtonNeutral : collabIconButtonDisabled
+                }`}
+                title="Очистить вывод и состояние запуска"
+                aria-label="Очистить вывод и состояние запуска"
+              >
+                <RefreshCcw size={15} />
+                <span>Сброс</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleToggleBoardAuxPopover}
+                className={`${collabIconButtonBase} collab-code-pill-button is-menu ${isBoardCodeAuxOpen ? 'is-open' : ''}`}
+                title="Файлы задания и stdin"
+                aria-label="Файлы задания и stdin"
+                aria-expanded={isBoardCodeAuxOpen}
+              >
+                <FileText size={15} />
+                <span>Ввод и файлы</span>
+                <ChevronDown size={14} />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => handleRunCode('all')}
+                disabled={runLoading || !roomId}
+                className={`${collabIconButtonBase} ${
+                  runLoading || !roomId
+                    ? collabIconButtonDisabled
+                    : collabIconButtonPrimary
+                }`}
+                title="Запустить код (F5)"
+                aria-label="Запустить код"
+              >
+                <Play size={19} />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRunCode('selection')}
+                disabled={runLoading || !roomId}
+                className={`${collabIconButtonBase} ${
+                  runLoading || !roomId
+                    ? collabIconButtonDisabled
+                    : collabIconButtonNeutral
+                }`}
+                title="Запустить выделенный фрагмент"
+                aria-label="Запустить выделение"
+              >
+                <TextSelect size={19} />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRunCode('all', true)}
+                disabled={runLoading || !roomId}
+                className={`${collabIconButtonBase} ${
+                  runLoading || !roomId
+                    ? collabIconButtonDisabled
+                    : (debugActive
+                      ? collabIconButtonPrimary
+                      : collabIconButtonAccent)
+                }`}
+                title="Дебаг (до первой точки остановки)"
+                aria-label="Дебаг"
+              >
+                <Bug size={19} />
+              </button>
+            </>
+          )}
 
-          {debugActive && (
+          {!useBoardGlassCodePanel && debugActive && (
             <>
               <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
               <button
@@ -8280,35 +8531,39 @@ const CollabSection = ({
             </>
           )}
 
-          <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
-          <button
-            type="button"
-            onClick={handleTopStop}
-            disabled={!runLoading && !debugActive}
-            className={`${collabIconButtonBase} ${
-              !runLoading && !debugActive
-                ? collabIconButtonDisabled
-                : collabIconButtonDanger
-            }`}
-            title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
-            aria-label="Остановить"
-          >
-            <Square size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={handleClearRun}
-            disabled={!runOutput && !runError && runStatus === 'idle' && !lastRunInput && !debugActive}
-            className={`${collabIconButtonBase} ${
-              !runOutput && !runError && runStatus === 'idle' && !lastRunInput && !debugActive
-                ? collabIconButtonDisabled
-                : collabIconButtonNeutral
-            }`}
-            title="Очистить вывод"
-            aria-label="Очистить вывод"
-          >
-            <Trash2 size={18} />
-          </button>
+          {!useBoardGlassCodePanel && (
+            <>
+              <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
+              <button
+                type="button"
+                onClick={handleTopStop}
+                disabled={!runLoading && !debugActive}
+                className={`${collabIconButtonBase} ${
+                  !runLoading && !debugActive
+                    ? collabIconButtonDisabled
+                    : collabIconButtonDanger
+                }`}
+                title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
+                aria-label="Остановить"
+              >
+                <Square size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={handleClearRun}
+                disabled={!canClearRunState}
+                className={`${collabIconButtonBase} ${
+                  !canClearRunState
+                    ? collabIconButtonDisabled
+                    : collabIconButtonNeutral
+                }`}
+                title="Очистить вывод"
+                aria-label="Очистить вывод"
+              >
+                <Trash2 size={18} />
+              </button>
+            </>
+          )}
           {SHOW_COLLAB_AUTOFORMAT && (isCollabFullscreen || isDesktopCollabCompact) && (
             <>
               <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
@@ -8331,16 +8586,17 @@ const CollabSection = ({
           </div>
           {(isCollabFullscreen || isDesktopCollabCompact) && (
             <>
-              <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              <div className="collab-code-action-dock-wrap ml-auto flex flex-wrap items-center gap-1.5">
                 {mergeHeaderIntoToolbar && collabTopActions}
               </div>
             </>
           )}
         </div>
 
+        {boardCodeAuxPopover}
+
         {isSplitCollabLayout ? (
           <div
-            ref={splitLayoutRef}
             className={`collab-split-layout ${isDesktopCollabCompact ? 'mt-0.5 flex-1' : (isCollabFullscreen ? 'mt-0.5 flex-1' : 'mt-1')} grid min-h-0 items-stretch ${
               isCollabFullscreen ? 'gap-1' : 'gap-0'
             }`}
@@ -8349,55 +8605,12 @@ const CollabSection = ({
               height: (isCollabFullscreen || isDesktopCollabCompact) ? '100%' : undefined,
             }}
           >
-            <div className="collab-editor-pane min-h-0 min-w-0">
-              {editorPane}
-            </div>
-            <div
-              role="separator"
-              aria-label="Изменить ширину панелей"
-              aria-orientation="vertical"
-              aria-valuemin={56}
-              aria-valuemax={92}
-              aria-valuenow={Math.round(splitLeftWidth)}
-              onPointerDown={handleSplitResizeStart}
-              onDoubleClick={handleSplitResizeReset}
-              className={`collab-split-resizer group relative flex ${isCollabFullscreen ? 'w-[14px]' : 'w-[10px]'} cursor-col-resize select-none touch-none items-center justify-center`}
-              title="Перетащите, чтобы изменить ширину. Двойной клик — сброс."
-            >
-              <div className={`${isCollabFullscreen ? 'h-full w-[3px]' : 'h-full w-[2px]'} rounded-full transition ${
-                isCollabFullscreen
-                  ? (isFullscreenDark ? 'bg-slate-700/75 group-hover:bg-cyan-400/90' : 'bg-slate-300 group-hover:bg-violet-400/90')
-                  : 'bg-gray-300 group-hover:bg-purple-400'
-              }`} />
-              <div className={`pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur ${
-                isCollabFullscreen
-                  ? (isFullscreenDark
-                    ? 'h-10 w-6 border-slate-500/70 bg-slate-900/76 shadow-[0_8px_18px_rgba(2,6,23,0.45)]'
-                    : 'h-10 w-6 border-slate-300 bg-white/92 shadow-[0_8px_16px_rgba(148,163,184,0.22)]')
-                  : 'h-8 w-5 border-slate-300 bg-white/90 shadow-[0_6px_12px_rgba(148,163,184,0.2)]'
-              }`}>
-                <div className={`rounded-full ${isCollabFullscreen ? 'h-4 w-1.5' : 'h-3 w-1'} ${
-                  isCollabFullscreen
-                    ? (isFullscreenDark ? 'bg-slate-400/90' : 'bg-slate-400')
-                    : 'bg-slate-400'
-                }`} />
-              </div>
-            </div>
-            <div className="collab-output-pane min-h-0 min-w-0">
-              <div className={`collab-output-stack flex min-h-0 flex-col ${isCollabFullscreen ? 'gap-1.5' : 'gap-1.5'}`} style={{ height: isCollabFullscreen ? '100%' : editorHeight }}>
-                <div className={`collab-result-card min-h-0 flex flex-1 flex-col rounded-xl border ${isCollabFullscreen ? 'p-1' : 'p-1.5'} ${
-                  isCollabFullscreen
-                    ? (isFullscreenDark
-                      ? 'border-slate-700/85 ring-1 ring-cyan-400/10 bg-slate-950/72 shadow-[0_16px_34px_rgba(2,6,23,0.4),inset_0_1px_0_rgba(148,163,184,0.12)]'
-                      : 'border-slate-200 ring-1 ring-violet-200/80 bg-white/92 shadow-[0_14px_30px_rgba(148,163,184,0.2)]')
-                    : 'border-gray-200 bg-white'
-                }`}>
-                  <div className="collab-result-body min-h-0 flex-1">
-                    {resultConsole}
-                  </div>
+            <div className="collab-editor-pane collab-editor-pane--with-output min-h-0 min-w-0" style={{ height: collabStackedEditorHeight }}>
+              <div className="collab-code-output-stack min-h-0">
+                <div className="collab-code-output-stack__editor min-h-0">
+                  {editorPane}
                 </div>
-                {debugPane}
-                {inputPane}
+                {stackedOutputPane}
               </div>
             </div>
           </div>
