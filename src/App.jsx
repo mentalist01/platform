@@ -3901,6 +3901,15 @@ const CollabSection = ({
     collabCursorScrollDisposableRef.current = editor.onDidScrollChange(() => {
       setEditorViewportVersion((prev) => prev + 1);
     });
+    if (monaco?.KeyCode && typeof editor.addCommand === 'function') {
+      const runAllFromEditor = () => {
+        void handleRunCodeRef.current?.('all');
+      };
+      editor.addCommand(monaco.KeyCode.F5, runAllFromEditor);
+      if (monaco.KeyMod?.CtrlCmd && monaco.KeyCode.Enter) {
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runAllFromEditor);
+      }
+    }
     setEditorReady(true);
     setEditorMountVersion((prev) => prev + 1);
   }, [
@@ -6035,7 +6044,11 @@ const CollabSection = ({
         && !event.metaKey
         && !event.altKey
         && !event.shiftKey;
-      if (!isPlainF5) return;
+      const isCtrlEnter = (event.key === 'Enter' || event.code === 'Enter' || event.code === 'NumpadEnter')
+        && (event.ctrlKey || event.metaKey)
+        && !event.altKey
+        && !event.shiftKey;
+      if (!isPlainF5 && !isCtrlEnter) return;
       event.preventDefault();
       event.stopPropagation();
       if (event.repeat || runLoading || !roomId) return;
@@ -7822,6 +7835,18 @@ const CollabSection = ({
       </div>
     </div>
   );
+  const collabBoardFullscreenButton = (
+    <button
+      type="button"
+      onClick={toggleCollabFullscreen}
+      className={`collab-board-fullscreen-button ${isCollabFullscreen ? 'is-active' : ''}`}
+      title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
+      aria-label={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
+    >
+      {isCollabFullscreen ? <Minimize2 size={17} /> : <Expand size={17} />}
+      <span>{isCollabFullscreen ? 'Выйти' : 'Фулл'}</span>
+    </button>
+  );
   const notesPdfPane = (
     <div className={`collab-top-pane ${canResizeTopPane ? 'collab-top-pane--resizable' : ''} rounded-xl border ${isCollabFullscreen ? 'px-1 pt-1 pb-0' : 'px-1 pt-0.5 pb-0'} ${isSplitCollabLayout ? 'space-y-0.5' : 'space-y-1'} ${
       isFullscreenDark
@@ -8013,6 +8038,7 @@ const CollabSection = ({
                   }`}
                   style={{ height: `${notesPdfPanelHeight}px` }}
                 >
+                  {collabBoardFullscreenButton}
                   <BoardSection
                     embedded
                     hideStudentPicker
@@ -8315,7 +8341,7 @@ const CollabSection = ({
       {inputPane}
     </div>
   ) : null;
-  const collabTopActions = (
+  const collabTopActions = isTeacher ? (
     <div className={`collab-top-actions flex flex-wrap items-center ${
       isCollabFullscreen
         ? 'gap-1.5 md:justify-end'
@@ -8353,17 +8379,8 @@ const CollabSection = ({
           </span>
         </span>
       )}
-      <button
-        type="button"
-        onClick={toggleCollabFullscreen}
-        className="collab-code-action-icon is-primary"
-        title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
-        aria-label={isCollabFullscreen ? 'Свернуть' : 'На весь экран'}
-      >
-        {isCollabFullscreen ? <Minimize2 size={19} /> : <Expand size={19} />}
-      </button>
     </div>
-  );
+  ) : null;
 
   return (
     <div ref={collabRootRef} className={collabShellClass} style={collabShellStyle}>
@@ -8485,7 +8502,7 @@ const CollabSection = ({
               >
                 <Play size={15} fill="currentColor" />
                 <span>Запуск</span>
-                <kbd>Ctrl ↵</kbd>
+                <kbd>F5</kbd>
               </button>
               <button
                 type="button"
@@ -8496,8 +8513,8 @@ const CollabSection = ({
                     ? collabIconButtonDisabled
                     : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
                 }`}
-                title="Дебаг (F5)"
-                aria-label="Дебаг (F5)"
+                title="Дебаг по точкам остановки"
+                aria-label="Дебаг"
               >
                 <Bug size={15} />
               </button>
@@ -8707,9 +8724,11 @@ const CollabSection = ({
           </div>
           {(isCollabFullscreen || isDesktopCollabCompact) && (
             <>
-              <div className="collab-code-action-dock-wrap ml-auto flex flex-wrap items-center gap-1.5">
-                {mergeHeaderIntoToolbar && collabTopActions}
-              </div>
+              {mergeHeaderIntoToolbar && collabTopActions && (
+                <div className="collab-code-action-dock-wrap ml-auto flex flex-wrap items-center gap-1.5">
+                  {collabTopActions}
+                </div>
+              )}
             </>
           )}
         </div>
