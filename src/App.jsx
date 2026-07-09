@@ -7840,11 +7840,10 @@ const CollabSection = ({
       type="button"
       onClick={toggleCollabFullscreen}
       className={`collab-board-fullscreen-button ${isCollabFullscreen ? 'is-active' : ''}`}
-      title={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
-      aria-label={isCollabFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
+      title={isCollabFullscreen ? 'Выйти из фулл фокуса' : 'Фулл фокус'}
+      aria-label={isCollabFullscreen ? 'Выйти из фулл фокуса' : 'Фулл фокус'}
     >
       {isCollabFullscreen ? <Minimize2 size={17} /> : <Expand size={17} />}
-      <span>{isCollabFullscreen ? 'Выйти' : 'Фулл'}</span>
     </button>
   );
   const notesPdfPane = (

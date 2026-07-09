@@ -59872,3 +59872,594 @@ html[data-theme='dark'] .board-loading-overlay__card {
     transform: translateY(0);
   }
 }
+
+/* Premium redesign layer for the collaborative code + board workspace. */
+.collab-workspace-card--glass-board {
+  --collab-code-bg: #f6f8fc;
+  --collab-code-panel: #ffffff;
+  --collab-code-panel-soft: #f3f6fb;
+  --collab-code-line: #dbe5f2;
+  --collab-code-line-strong: #bdd0e7;
+  --collab-code-text: #152033;
+  --collab-code-muted: #64748b;
+  --collab-code-accent: #7c3aed;
+  --collab-code-accent-strong: #6d28d9;
+  --collab-code-accent-soft: #f1ebff;
+  --collab-code-accent-line: rgba(124, 58, 237, 0.32);
+  --collab-code-run: #7c3aed;
+  --collab-code-run-hover: #6d28d9;
+  --collab-code-run-soft: #f1ebff;
+  --collab-code-run-line: rgba(124, 58, 237, 0.3);
+  --collab-code-warning: #d97706;
+  --collab-code-warning-soft: #fff7ed;
+  --collab-code-danger: #e11d48;
+  --collab-code-danger-bg: #fff1f4;
+  --collab-premium-shadow: 0 22px 52px rgba(44, 72, 116, 0.16);
+  --collab-premium-soft-shadow: 0 12px 28px rgba(44, 72, 116, 0.1);
+  --collab-code-inner-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  --collab-motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--collab-code-line-strong) 88%, white) !important;
+  background: var(--collab-code-bg) !important;
+  box-shadow:
+    var(--collab-premium-shadow),
+    var(--collab-code-inner-shadow) !important;
+  isolation: isolate;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board {
+  --collab-code-bg: #0b1220;
+  --collab-code-panel: #101827;
+  --collab-code-panel-soft: #152033;
+  --collab-code-line: rgba(148, 163, 184, 0.18);
+  --collab-code-line-strong: rgba(148, 163, 184, 0.32);
+  --collab-code-text: #e8eef8;
+  --collab-code-muted: #95a3b8;
+  --collab-code-accent: #a78bfa;
+  --collab-code-accent-strong: #8b5cf6;
+  --collab-code-accent-soft: rgba(124, 58, 237, 0.16);
+  --collab-code-accent-line: rgba(167, 139, 250, 0.34);
+  --collab-code-run: #8b5cf6;
+  --collab-code-run-hover: #7c3aed;
+  --collab-code-run-soft: rgba(139, 92, 246, 0.16);
+  --collab-code-run-line: rgba(167, 139, 250, 0.34);
+  --collab-code-warning: #f59e0b;
+  --collab-code-warning-soft: rgba(245, 158, 11, 0.12);
+  --collab-code-danger: #fb7185;
+  --collab-code-danger-bg: rgba(251, 113, 133, 0.13);
+  --collab-premium-shadow: 0 26px 58px rgba(0, 0, 0, 0.36);
+  --collab-premium-soft-shadow: 0 16px 36px rgba(0, 0, 0, 0.3);
+  --collab-code-inner-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: var(--collab-code-bg) !important;
+}
+
+.collab-workspace-card--glass-board .collab-top-pane-wrap,
+.collab-workspace-card--glass-board .collab-code-glass-layer,
+.collab-workspace-card--glass-board .collab-code-command-row--modern,
+.collab-workspace-card--glass-board .collab-editor-pane--with-output,
+.collab-workspace-card--glass-board .collab-top-pane {
+  min-width: 0;
+}
+
+.collab-workspace-card--glass-board .collab-top-pane-wrap {
+  animation: collabPremiumPaneIn 260ms var(--collab-motion-ease) both;
+}
+
+.collab-workspace-card--glass-board .collab-top-pane,
+.collab-workspace-card--glass-board .collab-board-stage {
+  border-color: var(--collab-code-line) !important;
+  background: var(--collab-code-panel) !important;
+  box-shadow:
+    var(--collab-premium-soft-shadow),
+    var(--collab-code-inner-shadow) !important;
+  transition:
+    border-color 180ms var(--collab-motion-ease),
+    background-color 180ms var(--collab-motion-ease),
+    box-shadow 180ms var(--collab-motion-ease),
+    transform 180ms var(--collab-motion-ease);
+}
+
+.collab-workspace-card--glass-board .collab-board-stage:hover,
+.collab-workspace-card--glass-board .collab-editor-surface:hover,
+.collab-workspace-card--glass-board .collab-result-card:hover {
+  border-color: color-mix(in srgb, var(--collab-code-accent-line) 68%, var(--collab-code-line-strong)) !important;
+}
+
+.collab-workspace-card--glass-board .board-embedded-card,
+.collab-workspace-card--glass-board .board-canvas-shell,
+.collab-workspace-card--glass-board .board-canvas-surface,
+.collab-workspace-card--glass-board .board-canvas-outline {
+  border-color: var(--collab-code-line) !important;
+  background: var(--collab-code-panel) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-glass-layer {
+  animation: collabPremiumPaneIn 300ms var(--collab-motion-ease) 40ms both;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern {
+  position: relative;
+  z-index: 49;
+  border-color: var(--collab-code-line) !important;
+  background: color-mix(in srgb, var(--collab-code-panel) 92%, var(--collab-code-panel-soft)) !important;
+  box-shadow:
+    0 14px 30px rgba(44, 72, 116, 0.1),
+    var(--collab-code-inner-shadow) !important;
+  backdrop-filter: blur(14px);
+  animation: collabPremiumToolbarIn 260ms var(--collab-motion-ease) 80ms both;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern {
+  box-shadow:
+    0 18px 38px rgba(0, 0, 0, 0.28),
+    var(--collab-code-inner-shadow) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style {
+  gap: 9px !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button {
+  position: relative;
+  overflow: hidden;
+  height: 38px !important;
+  min-height: 38px !important;
+  border-color: var(--collab-code-line-strong) !important;
+  border-radius: 11px !important;
+  background: var(--collab-code-panel) !important;
+  color: var(--collab-code-text) !important;
+  box-shadow:
+    0 8px 18px rgba(44, 72, 116, 0.08),
+    var(--collab-code-inner-shadow) !important;
+  transition:
+    border-color 160ms var(--collab-motion-ease),
+    background-color 160ms var(--collab-motion-ease),
+    color 160ms var(--collab-motion-ease),
+    box-shadow 160ms var(--collab-motion-ease),
+    transform 160ms var(--collab-motion-ease),
+    opacity 160ms var(--collab-motion-ease) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.42) 38%, transparent 58%);
+  opacity: 0;
+  transform: translateX(-70%);
+  pointer-events: none;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button::after {
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.12) 38%, transparent 58%);
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button:not(:disabled):hover {
+  border-color: var(--collab-code-accent-line) !important;
+  background: color-mix(in srgb, var(--collab-code-accent-soft) 42%, var(--collab-code-panel)) !important;
+  color: var(--collab-code-accent) !important;
+  box-shadow:
+    0 12px 25px rgba(124, 58, 237, 0.13),
+    var(--collab-code-inner-shadow) !important;
+  transform: translateY(-1px) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button:not(:disabled):hover::after {
+  animation: collabPremiumButtonSheen 720ms var(--collab-motion-ease);
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button:not(:disabled):active {
+  transform: translateY(0) scale(0.985) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled) {
+  min-width: 138px !important;
+  border-color: var(--collab-code-run-line) !important;
+  background: var(--collab-code-run) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 10px 20px color-mix(in srgb, var(--collab-code-run) 18%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+  transition:
+    border-color 130ms ease,
+    background-color 130ms ease,
+    box-shadow 130ms ease,
+    transform 130ms ease,
+    opacity 130ms ease !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run::after,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled):hover::after {
+  content: none !important;
+  display: none !important;
+  animation: none !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled):hover {
+  border-color: var(--collab-code-run-line) !important;
+  background: var(--collab-code-run-hover) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 12px 22px color-mix(in srgb, var(--collab-code-run-hover) 22%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run kbd {
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #ffffff !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-debug:not(:disabled).is-primary,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-menu.is-open {
+  border-color: var(--collab-code-accent-line) !important;
+  background: var(--collab-code-accent-soft) !important;
+  color: var(--collab-code-accent) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-stop.is-disabled,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-stop:disabled,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button:disabled {
+  border-color: color-mix(in srgb, var(--collab-code-line) 82%, transparent) !important;
+  background: color-mix(in srgb, var(--collab-code-panel-soft) 82%, var(--collab-code-panel)) !important;
+  color: color-mix(in srgb, var(--collab-code-muted) 72%, transparent) !important;
+  opacity: 0.74 !important;
+  box-shadow: none !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-stop:not(:disabled):not(.is-disabled) {
+  border-color: rgba(225, 29, 72, 0.26) !important;
+  background: var(--collab-code-danger-bg) !important;
+  color: var(--collab-code-danger) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button kbd {
+  height: 18px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: rgba(255, 255, 255, 0.23) !important;
+  color: currentColor !important;
+  box-shadow: none !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-top-actions {
+  gap: 8px !important;
+  border-left-color: var(--collab-code-line) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-code-action-icon,
+html:not([data-theme='dark']) .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-code-action-icon,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-action-dock-wrap .collab-code-action-icon {
+  border-radius: 11px !important;
+  background: var(--collab-code-panel) !important;
+  transition:
+    border-color 160ms var(--collab-motion-ease),
+    background-color 160ms var(--collab-motion-ease),
+    color 160ms var(--collab-motion-ease),
+    box-shadow 160ms var(--collab-motion-ease),
+    transform 160ms var(--collab-motion-ease) !important;
+}
+
+.collab-workspace-card--glass-board .collab-editor-surface,
+.collab-workspace-card--glass-board .collab-editor-body,
+.collab-workspace-card--glass-board .collab-result-card {
+  border-color: var(--collab-code-line) !important;
+  background: var(--collab-code-panel) !important;
+  box-shadow: var(--collab-code-inner-shadow) !important;
+}
+
+.collab-workspace-card--glass-board .collab-editor-surface {
+  position: relative;
+  animation: collabPremiumEditorIn 320ms var(--collab-motion-ease) 110ms both;
+}
+
+.collab-workspace-card--glass-board .collab-editor-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--collab-code-panel) 72%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.collab-workspace-card--glass-board .collab-editor-surface .monaco-editor,
+.collab-workspace-card--glass-board .collab-editor-surface .monaco-editor-background,
+.collab-workspace-card--glass-board .collab-editor-surface .overflow-guard,
+.collab-workspace-card--glass-board .collab-editor-surface .margin {
+  background: var(--collab-code-panel) !important;
+}
+
+.collab-workspace-card--glass-board .collab-editor-surface .current-line {
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--collab-code-accent-soft) 48%, transparent) !important;
+}
+
+.collab-workspace-card--glass-board .collab-output-resize-handle {
+  height: 18px !important;
+  background: color-mix(in srgb, var(--collab-code-panel-soft) 68%, transparent) !important;
+  transition:
+    background-color 160ms var(--collab-motion-ease),
+    border-color 160ms var(--collab-motion-ease);
+}
+
+.collab-workspace-card--glass-board .collab-output-resize-handle:hover {
+  background: color-mix(in srgb, var(--collab-code-accent-soft) 62%, var(--collab-code-panel-soft)) !important;
+}
+
+.collab-workspace-card--glass-board .collab-output-resize-handle__thumb {
+  border-color: var(--collab-code-line-strong) !important;
+  background: var(--collab-code-panel) !important;
+  box-shadow:
+    0 6px 14px rgba(44, 72, 116, 0.1),
+    var(--collab-code-inner-shadow) !important;
+}
+
+.collab-workspace-card--glass-board .collab-output-resize-handle:hover .collab-output-resize-handle__thumb {
+  border-color: var(--collab-code-accent-line) !important;
+  color: var(--collab-code-accent) !important;
+  transform: translateY(-1px) !important;
+}
+
+.collab-workspace-card--glass-board .collab-output-pane--below-code {
+  border-color: var(--collab-code-line) !important;
+  background: var(--collab-code-panel) !important;
+}
+
+.collab-workspace-card--glass-board .collab-output-pane--below-code.collab-output-pane--revealed {
+  animation: collabPremiumOutputReveal 260ms var(--collab-motion-ease) both !important;
+}
+
+.collab-workspace-card--glass-board .collab-output-pane--below-code .collab-result-card,
+html:not([data-theme='dark']) .collab-workspace-card--glass-board .collab-output-pane--below-code .collab-result-card,
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-output-pane--below-code .collab-result-card {
+  overflow: hidden;
+  border: 1px solid var(--collab-code-line) !important;
+  border-radius: 0 0 12px 12px !important;
+  background: var(--collab-code-panel) !important;
+  box-shadow:
+    0 10px 24px rgba(44, 72, 116, 0.08),
+    var(--collab-code-inner-shadow) !important;
+}
+
+.collab-workspace-card--glass-board .collab-output-pane--below-code .collab-output-header-reference {
+  border-bottom-color: var(--collab-code-line) !important;
+  background: color-mix(in srgb, var(--collab-code-panel-soft) 78%, var(--collab-code-panel)) !important;
+}
+
+.collab-workspace-card--glass-board .collab-result-console {
+  color: var(--collab-code-text) !important;
+}
+
+.collab-workspace-card--glass-board .collab-result-empty {
+  color: var(--collab-code-muted) !important;
+}
+
+.collab-workspace-card--glass-board .collab-board-fullscreen-button {
+  width: 42px;
+  min-width: 42px;
+  height: 40px;
+  padding: 0;
+  border-color: var(--collab-code-accent-line);
+  background: var(--collab-code-accent) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 16px 32px rgba(124, 58, 237, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+  animation: collabPremiumFloatIn 300ms var(--collab-motion-ease) 160ms both;
+}
+
+.collab-workspace-card--glass-board .collab-board-fullscreen-button:hover,
+.collab-workspace-card--glass-board .collab-board-fullscreen-button:focus-visible {
+  background: var(--collab-code-accent-strong) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 20px 38px rgba(124, 58, 237, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+  transform: translateY(-2px);
+}
+
+.collab-workspace-card--glass-board .collab-board-fullscreen-button.is-active {
+  border-color: var(--collab-code-line-strong) !important;
+  background: var(--collab-code-panel) !important;
+  color: var(--collab-code-text) !important;
+  box-shadow:
+    0 14px 28px rgba(44, 72, 116, 0.12),
+    var(--collab-code-inner-shadow) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-fullscreen-button.is-active {
+  background: var(--collab-code-panel-soft) !important;
+  color: var(--collab-code-text) !important;
+}
+
+.collab-workspace-card--glass-board .board-tool-rail,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail,
+.collab-workspace-card--glass-board .board-bottom-controls__pill,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__pill {
+  border-color: var(--collab-code-line-strong) !important;
+  background: color-mix(in srgb, var(--collab-code-panel) 96%, transparent) !important;
+  box-shadow:
+    0 14px 30px rgba(44, 72, 116, 0.12),
+    var(--collab-code-inner-shadow) !important;
+  backdrop-filter: blur(14px);
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__pill {
+  box-shadow:
+    0 18px 38px rgba(0, 0, 0, 0.34),
+    var(--collab-code-inner-shadow) !important;
+}
+
+.collab-workspace-card--glass-board .board-tool-rail__button:not(:disabled):active,
+.collab-workspace-card--glass-board .board-bottom-controls__button:not(:disabled):active {
+  transform: translateY(0) scale(0.96) !important;
+}
+
+.collab-code-loading-state,
+.collab-code-loading-overlay,
+.collab-workspace-card--glass-board .board-loading-overlay {
+  animation: collabPremiumLoadingIn 260ms var(--collab-motion-ease) both;
+}
+
+.collab-code-loading-state__mark,
+.board-loading-overlay__mark {
+  border-radius: 14px;
+  box-shadow:
+    0 10px 22px color-mix(in srgb, var(--collab-code-accent) 14%, transparent),
+    var(--collab-code-inner-shadow);
+}
+
+.board-loading-overlay__card {
+  border-radius: 18px;
+  animation: collabPremiumFloatIn 280ms var(--collab-motion-ease) both;
+}
+
+@media (min-width: 1100px) {
+  .collab-workspace-card--glass-board .collab-board-code-resizer {
+    width: 34px !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer::before {
+    width: 1px;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      color-mix(in srgb, var(--collab-code-line-strong) 55%, transparent) 16%,
+      color-mix(in srgb, var(--collab-code-line-strong) 66%, transparent) 84%,
+      transparent 100%
+    ) !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__track {
+    width: 1px !important;
+    opacity: 0.42 !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__thumb {
+    width: 12px !important;
+    height: 46px !important;
+    opacity: 0.82 !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__thumb > div {
+    width: 2px !important;
+    height: 24px !important;
+    box-shadow:
+      -3px 0 0 color-mix(in srgb, var(--collab-code-accent) 10%, transparent),
+      3px 0 0 color-mix(in srgb, var(--collab-code-accent) 10%, transparent) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .collab-workspace-card--glass-board .collab-code-command-row--modern {
+    border-radius: 14px !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style {
+    gap: 7px !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled) {
+    min-width: 108px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collab-workspace-card--glass-board,
+  .collab-workspace-card--glass-board *,
+  .collab-workspace-card--glass-board *::before,
+  .collab-workspace-card--glass-board *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@keyframes collabPremiumPaneIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes collabPremiumToolbarIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes collabPremiumEditorIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes collabPremiumOutputReveal {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes collabPremiumFloatIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes collabPremiumLoadingIn {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes collabPremiumButtonSheen {
+  0% {
+    opacity: 0;
+    transform: translateX(-70%);
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(70%);
+  }
+}
