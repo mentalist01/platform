@@ -10,6 +10,7 @@ import { isNativeAndroidPushEnvironment } from '../utils/push';
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const SHOW_SCHEDULE_SKILL_TREE = false;
 const DEFAULT_SCHEDULE_SUBJECT = 'Занятие';
+const SCHEDULE_LOOKAHEAD_WEEKS = 16;
 const SCHEDULE_WEEKDAYS = [
   { key: 'monday', label: 'Понедельник', order: 1 },
   { key: 'tuesday', label: 'Вторник', order: 2 },
@@ -124,11 +125,16 @@ const addScheduleDays = (date, amount) => {
   return next;
 };
 
-const getCurrentScheduleWeekDays = (date = new Date()) => {
+const getScheduleWeekStart = (date = new Date()) => {
   const today = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
   const start = new Date(today);
   start.setHours(0, 0, 0, 0);
   start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  return start;
+};
+
+const getCurrentScheduleWeekDays = (date = new Date()) => {
+  const start = getScheduleWeekStart(date);
   return SCHEDULE_WEEKDAYS.map((weekday, index) => {
     const dayDate = addScheduleDays(start, index);
     return {
@@ -257,6 +263,32 @@ const getScheduleEntryTimingState = (entry, now = new Date()) => {
   if (start && start.getTime() <= now.getTime() && end && end.getTime() >= now.getTime()) return 'active';
   if (start && start.getTime() > now.getTime()) return 'future';
   return 'future';
+};
+
+const buildNearestScheduleWeekWindow = (entries = [], fromDate = new Date()) => {
+  const now = fromDate instanceof Date && !Number.isNaN(fromDate.getTime()) ? fromDate : new Date();
+  const currentWeekDays = getCurrentScheduleWeekDays(now);
+  let firstWeekWithAnyLessons = null;
+
+  for (let weekOffset = 0; weekOffset <= SCHEDULE_LOOKAHEAD_WEEKS; weekOffset += 1) {
+    const weekDays = getCurrentScheduleWeekDays(addScheduleDays(now, weekOffset * 7));
+    const weekSchedule = sortStudentVisibleScheduleEntries(
+      buildCurrentWeekScheduleEntries(entries, weekDays)
+    );
+
+    if (weekSchedule.length > 0 && !firstWeekWithAnyLessons) {
+      firstWeekWithAnyLessons = { weekDays, weekSchedule, weekOffset };
+    }
+
+    const hasUpcomingLesson = weekSchedule.some((entry) => (
+      getScheduleEntryTimingState(entry, now) !== 'past'
+    ));
+    if (hasUpcomingLesson) {
+      return { weekDays, weekSchedule, weekOffset };
+    }
+  }
+
+  return firstWeekWithAnyLessons || { weekDays: currentWeekDays, weekSchedule: [], weekOffset: 0 };
 };
 
 const getLessonCountLabel = (count) => {
@@ -907,7 +939,7 @@ const ScheduleSection = ({
   const renderStudentWeekSchedule = () => {
     const now = new Date();
     const todayKey = formatScheduleDayKey(new Date());
-    const lessonStates = currentWeekSchedule.map((entry) => {
+    const lessonStates = displayWeekSchedule.map((entry) => {
       const key = getStudentLessonKey(entry);
       const start = getScheduleEntryStartDate(entry);
       const state = getScheduleEntryTimingState(entry, now);
@@ -921,7 +953,7 @@ const ScheduleSection = ({
       .filter((item) => item.state !== 'past')
       .sort((left, right) => left.startTime - right.startTime)[0]?.key || '';
     const lessonStateByKey = new Map(lessonStates.map((item) => [item.key, item.state]));
-    const lessonsByDate = currentWeekSchedule.reduce((acc, entry) => {
+    const lessonsByDate = displayWeekSchedule.reduce((acc, entry) => {
       const key = String(entry?.currentWeekDate || '').trim();
       if (!key) return acc;
       const list = acc.get(key) || [];
@@ -932,8 +964,8 @@ const ScheduleSection = ({
 
     return (
       <div className="schedule-shell__student-board">
-        <div className="schedule-shell__student-week-strip" aria-label="Дни текущей недели">
-          {currentScheduleWeekDays.map((day, index) => {
+        <div className="schedule-shell__student-week-strip" aria-label={isShowingNearestScheduleWeek ? 'Дни ближайших занятий' : 'Дни текущей недели'}>
+          {displayScheduleWeekDays.map((day, index) => {
             const dayLessons = lessonsByDate.get(day.dateKey) || [];
             const lessonsCount = dayLessons.length;
             const lessonTimes = dayLessons
@@ -981,7 +1013,7 @@ const ScheduleSection = ({
           <div className="schedule-shell__student-board-empty">
             <Calendar size={18} />
             <div>
-              <strong>На этой неделе занятий нет</strong>
+              <strong>Ближайших занятий пока нет</strong>
               <span>Если расписание изменилось, преподаватель обновит его сам.</span>
             </div>
           </div>
@@ -1383,21 +1415,32 @@ const ScheduleSection = ({
     ),
     [currentScheduleWeekDays, editableLessonSchedule]
   );
+  const nearestScheduleWeekWindow = useMemo(
+    () => buildNearestScheduleWeekWindow(editableLessonSchedule),
+    [editableLessonSchedule, effectiveStudentId]
+  );
+  const displayScheduleWeekDays = nearestScheduleWeekWindow.weekDays?.length
+    ? nearestScheduleWeekWindow.weekDays
+    : currentScheduleWeekDays;
+  const displayWeekSchedule = nearestScheduleWeekWindow.weekSchedule?.length
+    ? nearestScheduleWeekWindow.weekSchedule
+    : currentWeekSchedule;
+  const isShowingNearestScheduleWeek = Boolean(nearestScheduleWeekWindow.weekOffset > 0);
   const studentVisibleSchedule = useMemo(
-    () => sortStudentVisibleScheduleEntries([...overdueUnpaidSchedule, ...currentWeekSchedule]),
-    [currentWeekSchedule, overdueUnpaidSchedule]
+    () => sortStudentVisibleScheduleEntries([...overdueUnpaidSchedule, ...displayWeekSchedule]),
+    [displayWeekSchedule, overdueUnpaidSchedule]
   );
   const studentOverdueUnpaidCount = useMemo(
     () => studentVisibleSchedule.filter((entry) => isScheduleEntryOverdueUnpaid(entry)).length,
     [studentVisibleSchedule]
   );
   const studentWeekRangeLabel = useMemo(() => {
-    const first = currentScheduleWeekDays[0]?.date;
-    const last = currentScheduleWeekDays[currentScheduleWeekDays.length - 1]?.date;
-    if (!first || !last) return 'Текущая неделя';
+    const first = displayScheduleWeekDays[0]?.date;
+    const last = displayScheduleWeekDays[displayScheduleWeekDays.length - 1]?.date;
+    if (!first || !last) return 'Ближайшие занятия';
     const formatShort = (date) => date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }).replace('.', '');
     return `${formatShort(first)} — ${formatShort(last)}`;
-  }, [currentScheduleWeekDays]);
+  }, [displayScheduleWeekDays]);
   const sortedScheduleRequests = useMemo(() => {
     const list = Array.isArray(scheduleRequests) ? [...scheduleRequests] : [];
     return list.sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0));
@@ -2286,7 +2329,7 @@ const ScheduleSection = ({
                 <p className="text-xs text-slate-500">
                   {role === 'teacher'
                     ? `Берём текущую неделю из Google Calendar по названию события${selectedStudent ? `: ${getStudentLabel(selectedStudent)}` : ' выбранного ученика'}.`
-                    : `${studentWeekRangeLabel} · ${studentVisibleSchedule.length > 0 ? getLessonCountLabel(studentVisibleSchedule.length) : 'занятий пока нет'}${studentOverdueUnpaidCount > 0 ? ` · не оплачено: ${studentOverdueUnpaidCount}` : ''}`}
+                    : `${isShowingNearestScheduleWeek ? 'Ближайшие занятия' : 'Эта неделя'}: ${studentWeekRangeLabel} · ${studentVisibleSchedule.length > 0 ? getLessonCountLabel(studentVisibleSchedule.length) : 'занятий пока нет'}${studentOverdueUnpaidCount > 0 ? ` · не оплачено: ${studentOverdueUnpaidCount}` : ''}`}
                 </p>
               </div>
             </div>
