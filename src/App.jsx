@@ -3224,8 +3224,8 @@ const CollabSection = ({
     smoothScrolling: true,
     cursorSmoothCaretAnimation: 'off',
     scrollbar: {
-      verticalScrollbarSize: isCollabFullscreen ? 8 : 10,
-      horizontalScrollbarSize: isCollabFullscreen ? 6 : 8,
+      verticalScrollbarSize: isCollabFullscreen ? 7 : 8,
+      horizontalScrollbarSize: 6,
     },
     mouseWheelZoom: false,
     quickSuggestions: { other: true, comments: false, strings: true },
@@ -7133,6 +7133,19 @@ const CollabSection = ({
     </div>
   ) : null;
 
+  const editorLoadingState = (
+    <div className="collab-code-loading-state" role="status" aria-live="polite">
+      <div className="collab-code-loading-state__mark" aria-hidden="true">
+        <RefreshCcw size={18} />
+      </div>
+      <div className="collab-code-loading-state__content">
+        <div className="collab-code-loading-state__title">Загружаем редактор</div>
+        <div className="collab-code-loading-state__subtitle">Готовим совместный код и файлы.</div>
+      </div>
+    </div>
+  );
+  const showEditorConnectionLoading = Boolean(roomId && (!editorReady || status === 'connecting'));
+
   const editorPane = (
     <div className={`collab-editor-surface ${showEditorHeader ? '' : 'collab-editor-surface--flush'} relative flex flex-col overflow-hidden rounded-xl border ${isSplitCollabLayout ? 'h-full' : ''} ${
       isCollabFullscreen
@@ -7177,8 +7190,13 @@ const CollabSection = ({
           defaultValue=""
           onMount={handleEditorMount}
           options={editorOptions}
-          loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
+          loading={editorLoadingState}
         />
+        {showEditorConnectionLoading && (
+          <div className="collab-code-loading-overlay" role="status" aria-live="polite">
+            {editorLoadingState}
+          </div>
+        )}
         {remoteEditorSelectionMarkers.map((selection) => (
           <div
             key={selection.id}
@@ -12521,6 +12539,7 @@ const BoardSection = ({
     );
   };
   const showBottomSummonButton = isTeacher && (!embedded || isFullscreen || showEmbeddedSummonButton);
+  const showBoardLoading = Boolean(roomId && status === 'connecting');
 
   const saveModal = saveModalOpen ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
@@ -12942,6 +12961,19 @@ const BoardSection = ({
         {!roomId && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
             Выберите ученика, чтобы открыть доску.
+          </div>
+        )}
+        {showBoardLoading && (
+          <div className="board-loading-overlay" role="status" aria-live="polite">
+            <div className="board-loading-overlay__card">
+              <div className="board-loading-overlay__mark" aria-hidden="true">
+                <RefreshCcw size={18} />
+              </div>
+              <div>
+                <div className="board-loading-overlay__title">Загружаем доску</div>
+                <div className="board-loading-overlay__subtitle">Подключаем общий холст и инструменты.</div>
+              </div>
+            </div>
           </div>
         )}
         {!isTeacher && summonNotice && (

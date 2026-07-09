@@ -59407,3 +59407,267 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-contro
   text-shadow: none !important;
   filter: none !important;
 }
+
+/* Compact board controls inside the code + board workspace. */
+.collab-workspace-card--glass-board .board-tool-rail,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail {
+  width: 40px !important;
+  gap: 3px !important;
+  padding: 4px !important;
+  border-radius: 14px !important;
+}
+
+.collab-workspace-card--glass-board .board-tool-rail__button,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail__button {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 10px !important;
+}
+
+.collab-workspace-card--glass-board .board-tool-rail__button svg,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail__button svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.collab-workspace-card--glass-board .board-tool-rail__divider,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail__divider {
+  width: 20px !important;
+  margin: 0 !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls {
+  gap: 6px !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__pill,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__pill {
+  height: 36px !important;
+  gap: 3px !important;
+  padding: 3px 4px !important;
+  border-radius: 12px !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__button,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__button {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 8px !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__button svg,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__button svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__divider,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__divider {
+  height: 22px !important;
+  margin: 0 1px !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__zoom,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__zoom {
+  min-width: 42px !important;
+  font-size: 11px !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__session-status,
+.collab-workspace-card--glass-board .board-bottom-controls__online,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__session-status,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__online {
+  height: 28px !important;
+  border-radius: 8px !important;
+}
+
+.collab-workspace-card--glass-board .board-bottom-controls__online,
+html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-controls__online {
+  min-width: 28px !important;
+  padding-inline: 5px !important;
+}
+
+@media (min-width: 1100px) {
+  .collab-workspace-card--glass-board .board-tool-rail {
+    left: 16px !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-editor-surface .decorationsOverviewRuler {
+    opacity: 0 !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-editor-surface .scrollbar.vertical,
+  .collab-workspace-card--glass-board .collab-editor-surface .slider.vertical {
+    opacity: 1 !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-editor-surface .scrollbar.vertical {
+    width: 8px !important;
+    background: transparent !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-editor-surface .slider.vertical {
+    left: 2px !important;
+    width: 4px !important;
+    border-radius: 999px !important;
+    background: color-mix(in srgb, var(--collab-code-accent) 26%, transparent) !important;
+    box-shadow: none !important;
+    transition:
+      background-color 150ms ease,
+      opacity 150ms ease !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-editor-surface .scrollbar.vertical:hover .slider.vertical,
+  .collab-workspace-card--glass-board .collab-editor-surface .slider.vertical:hover {
+    background: color-mix(in srgb, var(--collab-code-accent) 42%, transparent) !important;
+  }
+
+  html[data-theme='dark'] .collab-workspace-card--glass-board .collab-editor-surface .slider.vertical {
+    background: color-mix(in srgb, var(--collab-code-accent) 34%, transparent) !important;
+  }
+
+  html[data-theme='dark'] .collab-workspace-card--glass-board .collab-editor-surface .scrollbar.vertical:hover .slider.vertical,
+  html[data-theme='dark'] .collab-workspace-card--glass-board .collab-editor-surface .slider.vertical:hover {
+    background: color-mix(in srgb, var(--collab-code-accent) 52%, transparent) !important;
+  }
+}
+
+.collab-code-loading-state {
+  display: flex;
+  min-height: 180px;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: inherit;
+  background: var(--collab-code-panel, #ffffff);
+  color: var(--collab-code-text, #162033);
+  animation: collabLoadingEnter 220ms ease-out both;
+}
+
+html[data-theme='dark'] .collab-code-loading-state {
+  background: var(--collab-code-panel, #101b2e);
+  color: var(--collab-code-text, #e5edf8);
+}
+
+.collab-code-loading-state__mark,
+.board-loading-overlay__mark {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--collab-code-accent-line, rgba(124, 58, 237, 0.32));
+  border-radius: 12px;
+  background: var(--collab-code-accent-soft, #f2ecff);
+  color: var(--collab-code-accent, #7c3aed);
+}
+
+.collab-code-loading-state__mark svg,
+.board-loading-overlay__mark svg {
+  animation: collabLoadingSpin 1.15s linear infinite;
+}
+
+.collab-code-loading-state__content {
+  min-width: 0;
+}
+
+.collab-code-loading-state__title,
+.board-loading-overlay__title {
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.collab-code-loading-state__subtitle,
+.board-loading-overlay__subtitle {
+  margin-top: 3px;
+  color: var(--collab-code-muted, #64748b);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+html[data-theme='dark'] .collab-code-loading-state__subtitle,
+html[data-theme='dark'] .board-loading-overlay__subtitle {
+  color: var(--collab-code-muted, #98a7bc);
+}
+
+.collab-code-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--collab-code-panel, #ffffff) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+html[data-theme='dark'] .collab-code-loading-overlay {
+  background: color-mix(in srgb, var(--collab-code-panel, #101b2e) 88%, transparent);
+}
+
+.board-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 42;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, #ffffff 86%, transparent);
+  backdrop-filter: blur(8px);
+  animation: collabLoadingEnter 220ms ease-out both;
+}
+
+html[data-theme='dark'] .board-loading-overlay {
+  background: color-mix(in srgb, #0f172a 84%, transparent);
+}
+
+.collab-workspace-card--glass-board .board-loading-overlay {
+  background: color-mix(in srgb, var(--collab-code-panel, #ffffff) 88%, transparent);
+}
+
+.board-loading-overlay__card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(340px, 100%);
+  padding: 12px 14px;
+  border: 1px solid var(--collab-code-line-strong, rgba(125, 158, 205, 0.5));
+  border-radius: 16px;
+  background: var(--collab-code-panel, #ffffff);
+  color: var(--collab-code-text, #162033);
+  box-shadow:
+    0 18px 42px rgba(15, 23, 42, 0.12),
+    var(--collab-code-inner-shadow, inset 0 1px 0 rgba(255, 255, 255, 0.9));
+}
+
+html[data-theme='dark'] .board-loading-overlay__card {
+  border-color: var(--collab-code-line-strong, rgba(125, 211, 252, 0.26));
+  background: var(--collab-code-panel, #101b2e);
+  color: var(--collab-code-text, #e5edf8);
+  box-shadow:
+    0 18px 42px rgba(2, 6, 23, 0.42),
+    var(--collab-code-inner-shadow, inset 0 1px 0 rgba(255, 255, 255, 0.055));
+}
+
+@keyframes collabLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes collabLoadingEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
