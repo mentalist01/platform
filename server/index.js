@@ -6828,6 +6828,8 @@ const buildTeacherScheduleEntry = (payload = {}, options = {}) => {
 const GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS = 60 * 1000;
 const GOOGLE_CALENDAR_SYNC_FETCH_TIMEOUT_MS = 12000;
 const GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS = 120;
+const GOOGLE_CALENDAR_SYNC_RANGE_CURRENT_WEEK = 'current-week';
+const GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING = 'upcoming';
 const GOOGLE_CALENDAR_SYNC_TIME_ZONE = String(
   process.env.PLATFORM_CALENDAR_TIME_ZONE || process.env.TZ || 'Europe/Moscow'
 ).trim() || 'Europe/Moscow';
@@ -7039,15 +7041,18 @@ const getCalendarCurrentWeekRange = (date = new Date()) => {
   };
 };
 
-const getStudentGoogleScheduleSyncRange = (date = new Date()) => {
+const getStudentGoogleScheduleSyncRange = (date = new Date(), mode = GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING) => {
   const weekRange = getCalendarCurrentWeekRange(date);
   const startDayNumber = dayKeyToNumber(weekRange.startDayKey);
   if (!weekRange.startDayKey || !Number.isFinite(startDayNumber)) {
     return { startDayKey: null, endDayKey: null };
   }
+  const daySpan = mode === GOOGLE_CALENDAR_SYNC_RANGE_CURRENT_WEEK
+    ? 6
+    : GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS;
   return {
     startDayKey: weekRange.startDayKey,
-    endDayKey: numberToDayKey(startDayNumber + GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS),
+    endDayKey: numberToDayKey(startDayNumber + daySpan),
   };
 };
 
@@ -7147,7 +7152,10 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
     };
   }
 
-  const syncRange = getStudentGoogleScheduleSyncRange();
+  const rangeMode = options.rangeMode === GOOGLE_CALENDAR_SYNC_RANGE_CURRENT_WEEK
+    ? GOOGLE_CALENDAR_SYNC_RANGE_CURRENT_WEEK
+    : GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING;
+  const syncRange = getStudentGoogleScheduleSyncRange(new Date(), rangeMode);
   if (!syncRange.startDayKey || !syncRange.endDayKey) {
     throw new Error('Не удалось определить период календаря.');
   }
@@ -7179,10 +7187,11 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
         createdByName: existing.createdByName || entry.createdByName,
         updatedAt: existing.updatedAt || entry.updatedAt,
       };
-    });
+  });
   const manualSchedule = currentSchedule.filter((entry) => !isGoogleStudentScheduleEntry(entry));
   const schedule = [...importedEntries, ...manualSchedule];
-  const changed = JSON.stringify(schedule) !== JSON.stringify(currentSchedule);
+  const shouldPersist = options.persist !== false;
+  const changed = shouldPersist && JSON.stringify(schedule) !== JSON.stringify(currentSchedule);
   if (changed) {
     setStudentData(studentId, { ...data, schedule });
     if (options.notify !== false) {
@@ -20418,7 +20427,13 @@ app.get('/api/student-schedule', async (req, res) => {
     const syncResult = await syncStudentScheduleFromGoogleCalendar(
       student,
       { role: 'system', id: 'google-calendar', name: 'Google Calendar' },
-      { force: false }
+      {
+        force: false,
+        persist: !isStudentRole(req.auth),
+        rangeMode: isStudentRole(req.auth)
+          ? GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING
+          : GOOGLE_CALENDAR_SYNC_RANGE_CURRENT_WEEK,
+      }
     );
     schedule = Array.isArray(syncResult?.schedule) ? syncResult.schedule : schedule;
   } catch {
@@ -20447,6 +20462,7 @@ app.post('/api/student-schedule/google-sync', async (req, res) => {
   try {
     const syncResult = await syncStudentScheduleFromGoogleCalendar(student, req.auth, {
       force: true,
+      rangeMode: GOOGLE_CALENDAR_SYNC_RANGE_CURRENT_WEEK,
     });
     if (syncResult.skippedReason === 'calendar-disabled') {
       return res.status(409).json({
