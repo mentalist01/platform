@@ -6425,8 +6425,20 @@ const getBroadcastNotificationAudienceLabel = (entry, auth = null) => {
     : 'Ученикам преподавателя';
 };
 
+const wasStudentPresentForBroadcastNotification = (student, entry) => {
+  const notificationCreatedAtMs = Date.parse(String(entry?.createdAt || ''));
+  if (!Number.isFinite(notificationCreatedAtMs)) return true;
+
+  const joinedAtMs = Date.parse(String(student?.createdAt || ''));
+  if (!Number.isFinite(joinedAtMs)) return true;
+
+  return joinedAtMs <= notificationCreatedAtMs;
+};
+
 const getBroadcastNotificationRecipientStudents = (entry) => {
-  const students = readStudentsDb().filter(isActiveStudent);
+  const students = readStudentsDb()
+    .filter(isActiveStudent)
+    .filter((student) => wasStudentPresentForBroadcastNotification(student, entry));
   if (!entry || typeof entry !== 'object') return [];
   if (entry.audienceKind === 'all-students') return students;
   const teacherId = normalizeTeacherId(entry.audienceTeacherId);
@@ -6434,8 +6446,18 @@ const getBroadcastNotificationRecipientStudents = (entry) => {
   return students.filter((student) => normalizeTeacherId(student?.teacherId) === teacherId);
 };
 
+const wasBroadcastNotificationCreatedAfterStudentJoined = (auth, entry) => {
+  const studentId = String(auth?.id || '').trim();
+  if (!studentId) return false;
+
+  const student = readStudentsDb().find((item) => String(item?.id || '').trim() === studentId && isActiveStudent(item));
+  if (!student) return false;
+  return wasStudentPresentForBroadcastNotification(student, entry);
+};
+
 const canStudentViewBroadcastNotification = (auth, entry) => {
   if (!isStudentRole(auth) || !entry) return false;
+  if (!wasBroadcastNotificationCreatedAfterStudentJoined(auth, entry)) return false;
   if (entry.audienceKind === 'all-students') return true;
   const teacherId = normalizeTeacherId(entry.audienceTeacherId);
   return Boolean(teacherId) && normalizeTeacherId(auth?.teacherId) === teacherId;
