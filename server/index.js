@@ -7039,6 +7039,18 @@ const getCalendarCurrentWeekRange = (date = new Date()) => {
   };
 };
 
+const getStudentGoogleScheduleSyncRange = (date = new Date()) => {
+  const weekRange = getCalendarCurrentWeekRange(date);
+  const startDayNumber = dayKeyToNumber(weekRange.startDayKey);
+  if (!weekRange.startDayKey || !Number.isFinite(startDayNumber)) {
+    return { startDayKey: null, endDayKey: null };
+  }
+  return {
+    startDayKey: weekRange.startDayKey,
+    endDayKey: numberToDayKey(startDayNumber + GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS),
+  };
+};
+
 const isDayKeyWithinRange = (dayKey, startDayKey, endDayKey) => {
   const dayNumber = dayKeyToNumber(dayKey);
   const startNumber = dayKeyToNumber(startDayKey);
@@ -7135,9 +7147,9 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
     };
   }
 
-  const weekRange = getCalendarCurrentWeekRange();
-  if (!weekRange.startDayKey || !weekRange.endDayKey) {
-    throw new Error('Не удалось определить текущую неделю календаря.');
+  const syncRange = getStudentGoogleScheduleSyncRange();
+  if (!syncRange.startDayKey || !syncRange.endDayKey) {
+    throw new Error('Не удалось определить период календаря.');
   }
 
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacherId, {
@@ -7145,7 +7157,7 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
     throwOnError: true,
   });
   const matchedEntries = googleEntries.filter((entry) => (
-    isDayKeyWithinRange(entry?.date, weekRange.startDayKey, weekRange.endDayKey)
+    isDayKeyWithinRange(entry?.date, syncRange.startDayKey, syncRange.endDayKey)
     && googleCalendarTitleMatchesStudent(entry?.subject, student)
   ));
   const existingGoogleEntriesById = new Map(
@@ -7187,8 +7199,8 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
     ok: true,
     importedCount: importedEntries.length,
     matchedCount: matchedEntries.length,
-    weekStart: weekRange.startDayKey,
-    weekEnd: weekRange.endDayKey,
+    weekStart: syncRange.startDayKey,
+    weekEnd: syncRange.endDayKey,
     settings: buildTeacherCalendarSyncSettingsResponse(getTeacherCalendarSyncSettings(teacherId)),
     schedule,
     changed,

@@ -556,8 +556,8 @@ const ScheduleSection = ({
         const importedCount = Number(data?.importedCount) || 0;
         setGoogleScheduleSyncMessage(
           importedCount > 0
-            ? `Из Google Calendar добавлено: ${importedCount}. Неделя: ${formatDate(data?.weekStart)} — ${formatDate(data?.weekEnd)}.`
-            : 'На текущей неделе не нашёл событий с названием как у этого ученика.'
+            ? `Из Google Calendar добавлено: ${importedCount}. Период: ${formatDate(data?.weekStart)} — ${formatDate(data?.weekEnd)}.`
+            : 'В ближайшем периоде не нашёл событий с названием как у этого ученика.'
         );
       }
     } catch (err) {
