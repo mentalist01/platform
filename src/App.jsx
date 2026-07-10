@@ -18040,7 +18040,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           )}
           {(user.role === 'student' || user.role === 'teacher') && lessonQuickNav.length > 1 && lessonQuickNavIds.includes(view) && (
-            <div className="lesson-quick-nav__shell mb-2 rounded-2xl border border-purple-200/70 bg-white/90 p-1.5 shadow-sm">
+            <div className={`lesson-quick-nav__shell ${view === 'call' ? 'lesson-quick-nav__shell--call' : ''} mb-2 rounded-2xl border border-purple-200/70 bg-white/90 p-1.5 shadow-sm`}>
               <div
                 className="grid gap-1"
                 style={{ gridTemplateColumns: `repeat(${Math.max(1, lessonQuickNav.length)}, minmax(0, 1fr))` }}
@@ -18490,6 +18490,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <CallSection
               role={user.role}
               userId={user.id}
+              userName={user.name}
+              userAvatarDataUrl={user.avatarDataUrl}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}

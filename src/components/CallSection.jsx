@@ -721,6 +721,8 @@ const MediaTile = ({
   stream,
   title,
   subtitle,
+  placeholderText = 'Видео не передается',
+  placeholderImageUrl = '',
   videoKind = null,
   className = '',
   compact = false,
@@ -989,9 +991,13 @@ const MediaTile = ({
       {!hasVideo && (
         <div className={`${placeholderWrapClass} ${isCompact ? 'gap-2' : 'gap-3'}`}>
           <div className={`${placeholderAvatarClass} ${isCompact ? 'h-10 w-10 text-lg' : 'h-16 w-16 text-2xl'}`}>
-            {String(title || 'U').trim().charAt(0).toUpperCase() || 'U'}
+            {placeholderImageUrl ? (
+              <img src={placeholderImageUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              String(title || 'U').trim().charAt(0).toUpperCase() || 'U'
+            )}
           </div>
-          <p className={`${isCompact ? 'text-xs font-medium' : 'text-sm font-medium'} ${placeholderTextClass}`}>Видео не передается</p>
+          <p className={`${isCompact ? 'text-xs font-medium' : 'text-sm font-medium'} ${placeholderTextClass}`}>{placeholderText}</p>
         </div>
       )}
       <div className={`${videoOverlayClass} ${isCompact ? 'px-2.5 pb-2 pt-6' : 'px-3 pb-3 pt-8'}`}>
@@ -1237,6 +1243,8 @@ const RemoteAudioPlayer = ({
 const CallSection = ({
   role,
   userId,
+  userName,
+  userAvatarDataUrl,
   teacherId,
   students,
   activeStudentId,
@@ -3812,7 +3820,20 @@ const CallSection = ({
     clearJoinAckTimer();
 
     try {
+      const shouldPreserveMutedMic = Boolean(
+        localAudioTrackRef.current?.readyState === 'live'
+        && !localAudioTrackRef.current.enabled
+      );
       await ensureMicTrack();
+      if (shouldPreserveMutedMic) {
+        if (localAudioTrackRef.current?.readyState === 'live') {
+          localAudioTrackRef.current.enabled = false;
+        }
+        if (localRawAudioTrackRef.current?.readyState === 'live') {
+          localRawAudioTrackRef.current.enabled = false;
+        }
+        setMicEnabled(false);
+      }
     } catch (micError) {
       roomResyncCooldownUntilRef.current = 0;
       applyStatus('idle');
@@ -4033,8 +4054,7 @@ const CallSection = ({
       renegotiatePeers();
       return;
     }
-    if (status !== 'connected') {
-      setError('Сначала подключись к созвону, затем включи веб-камеру.');
+    if (status !== 'idle' && status !== 'connected') {
       return;
     }
 
@@ -4938,7 +4958,11 @@ const CallSection = ({
     : (isConnecting ? 'connecting' : 'idle');
   const roomHint = roomId || 'Комната не выбрана';
   const resolvedError = error || (status === 'idle' ? presenceError : '');
-  const canStart = !isConnecting && !isConnected;
+  const canStart = !isConnecting
+    && !isConnected
+    && prejoinCheck.status !== 'checking'
+    && !micBusy
+    && !cameraBusy;
   const canStop = isConnecting || isConnected;
   const canToggleMic = isConnected && !micBusy;
   const canToggleCamera = isConnected && !cameraBusy;
@@ -5047,8 +5071,14 @@ const CallSection = ({
               ? 'Микрофон, камера и связь готовы.'
               : hasRemoteParticipant
                 ? 'Второй участник уже ждёт в комнате.'
-                : 'Сейчас микрофон и камера выключены.';
-  const joinButtonLabel = isConnected ? 'Вы в звонке' : (isConnecting ? 'Подключаем...' : 'Войти в звонок');
+                : 'Настройте звук и видео, затем присоединяйтесь к уроку.';
+  const joinButtonLabel = isConnected
+    ? 'Вы в звонке'
+    : isConnecting
+      ? 'Подключаем...'
+      : isTeacher
+        ? (hasRemoteParticipant ? 'Начать урок' : 'Войти в комнату')
+        : 'Войти в урок';
   const chatBadgeText = lessonChatMessages.length > 0 ? String(lessonChatMessages.length) : '';
   const headerStatusPills = isConnected
     ? [
@@ -5065,51 +5095,24 @@ const CallSection = ({
         : []),
     ];
   const prejoinCheckBusy = prejoinCheck.status === 'checking';
-  const prejoinMicSummary = micEnabled
-    ? 'готов'
-    : prejoinCheck.mic === 'checking'
-      ? 'проверяем...'
-      : prejoinCheck.mic === 'ok'
-        ? 'доступен'
-        : prejoinCheck.mic === 'problem'
-          ? 'нет доступа'
-          : 'не проверено';
-  const prejoinCameraSummary = cameraEnabled
-    ? 'включена'
-    : prejoinCheck.camera === 'checking'
-      ? 'проверяем...'
-      : prejoinCheck.camera === 'ok'
-        ? 'доступна'
-        : prejoinCheck.camera === 'problem'
-          ? 'нет доступа'
-          : 'не проверено';
   const prejoinConnectionSummary = prejoinCheck.connection === 'checking'
     ? 'проверяем...'
     : prejoinCheck.connection === 'ok'
       ? 'сервер доступен'
       : prejoinCheck.connection === 'problem'
         ? 'нет соединения'
-        : 'не проверено';
-  const prejoinMicHasAccess = micEnabled || prejoinCheck.mic === 'ok';
-  const prejoinCameraHasAccess = cameraEnabled || prejoinCheck.camera === 'ok';
-  const prejoinDeviceSummary = prejoinCheckBusy
-    ? 'Проверяем доступ...'
-    : prejoinHasProblem
-      ? 'Требуется внимание'
-      : prejoinAllReady
-        ? 'Всё работает'
-        : 'Ещё не проверены';
-  const prejoinDeviceSummaryTone = prejoinCheckBusy
+        : 'не проверена';
+  const prejoinConnectionTone = prejoinCheck.connection === 'checking'
     ? 'checking'
-    : prejoinHasProblem
+    : prejoinCheck.connection === 'problem'
       ? 'problem'
-      : prejoinAllReady
+      : prejoinCheck.connection === 'ok'
         ? 'good'
         : 'idle';
-  const prejoinCheckButtonLabel = prejoinCheck.status === 'idle' ? 'Проверить устройства' : 'Проверить снова';
+  const prejoinCheckButtonLabel = prejoinCheck.status === 'idle' ? 'Проверить подключение' : 'Проверить снова';
   const prejoinWaitingCopy = hasRemoteParticipant
-    ? 'Участник уже в комнате.'
-    : 'Можно войти и подождать в звонке.';
+    ? (isTeacher ? 'Ученик уже ждёт начала урока.' : 'Преподаватель уже ждёт в комнате.')
+    : (isTeacher ? 'Можно войти и подготовить комнату.' : 'Преподаватель ещё не подключился. Можно войти в урок сейчас.');
   const lessonChatMetaSummary = chatBadgeText
     ? `${chatBadgeText} ${Number(chatBadgeText) === 1 ? 'новое сообщение' : 'новых сообщения'}`
     : (isConnected ? 'Сообщения по уроку' : 'Можно написать до начала урока');
@@ -5120,49 +5123,25 @@ const CallSection = ({
     isConnected ? remoteParticipantStatusShort.toLowerCase() : 'до урока',
     chatBadgeText ? `${chatBadgeText} нов.` : '',
   ].filter(Boolean).join(' • ');
-  const prejoinDeviceChecks = [
-    {
-      key: 'mic',
-      icon: prejoinCheck.mic === 'problem' ? MicOff : Mic,
-      label: 'Микрофон',
-      value: prejoinMicSummary,
-      tone: prejoinCheck.mic === 'checking'
-        ? 'checking'
-        : prejoinCheck.mic === 'problem'
-          ? 'problem'
-          : prejoinMicHasAccess
-            ? 'good'
-            : 'idle',
-    },
-    {
-      key: 'camera',
-      icon: prejoinCheck.camera === 'problem' ? CameraOff : Camera,
-      label: 'Камера',
-      value: prejoinCameraSummary,
-      tone: prejoinCheck.camera === 'checking'
-        ? 'checking'
-        : prejoinCheck.camera === 'problem'
-          ? 'problem'
-          : prejoinCameraHasAccess
-            ? 'good'
-            : 'idle',
-    },
-    {
-      key: 'connection',
-      icon: Signal,
-      label: 'Связь',
-      value: prejoinConnectionSummary,
-      tone: prejoinCheck.connection === 'checking'
-        ? 'checking'
-        : prejoinCheck.connection === 'problem'
-          ? 'problem'
-          : prejoinCheck.connection === 'ok'
-            ? 'good'
-            : 'idle',
-    },
-  ];
-
   const normalizedMicInputLevelPercent = clampToRange(Math.round(Number(micInputLevelPercent) || 0), 0, 100);
+  const prejoinCameraTrack = cameraEnabled && localCameraTrackRef.current?.readyState === 'live'
+    ? localCameraTrackRef.current
+    : null;
+  const prejoinCameraStream = prejoinCameraTrack ? getStreamForVideoTrack(prejoinCameraTrack) : null;
+  const prejoinSelfName = String(userName || 'Вы').trim() || 'Вы';
+  const prejoinSelfAvatar = String(userAvatarDataUrl || '').trim();
+  const prejoinMicControlLabel = micEnabled
+    ? 'Микрофон включён'
+    : prejoinCheck.mic === 'problem'
+      ? 'Нет доступа к микрофону'
+      : 'Микрофон выключен';
+  const prejoinCameraControlLabel = cameraEnabled
+    ? 'Камера включена'
+    : prejoinCheck.camera === 'problem'
+      ? 'Нет доступа к камере'
+      : 'Камера выключена';
+  const prejoinMediaBusy = prejoinCheckBusy || micBusy || cameraBusy || isConnecting;
+  const showCallMainHeader = isConnected || isTeacher || isFloatingUi;
   const micTriggerThresholdMeterPercent = rmsToMicLevelPercent(
     micTriggerThresholdPercentToRmsThreshold(micTriggerThresholdPercent)
   );
@@ -5233,8 +5212,8 @@ const CallSection = ({
     : 'call-experience-grid mt-4 grid min-h-0 gap-3';
   const callMainColumnClass = 'call-main-column min-w-0 space-y-3 md:space-y-4';
   const heroPanelClass = isDarkTheme
-    ? 'call-hero-panel grid gap-4 rounded-[20px] border border-slate-700/70 bg-slate-950/72 p-5 shadow-[0_18px_44px_rgba(2,6,23,0.26)] md:p-7 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-stretch'
-    : 'call-hero-panel grid gap-5 rounded-[20px] border border-slate-200/90 bg-white p-5 shadow-[0_18px_48px_rgba(15,23,42,0.08)] md:p-7 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-stretch';
+    ? 'call-hero-panel grid gap-4 rounded-[20px] border border-slate-700/70 bg-slate-950/72 p-5 shadow-[0_18px_44px_rgba(2,6,23,0.26)] md:p-7'
+    : 'call-hero-panel grid gap-5 rounded-[20px] border border-slate-200/90 bg-white p-5 shadow-[0_18px_48px_rgba(15,23,42,0.08)] md:p-7';
   const heroEyebrowClass = isDarkTheme
     ? 'call-prejoin-eyebrow text-[12px] font-semibold text-violet-200/78'
     : 'call-prejoin-eyebrow text-[12px] font-semibold text-violet-700/80';
@@ -5499,9 +5478,11 @@ const CallSection = ({
       ref={isFloatingUi ? floatingPanelRef : inlinePanelRef}
       className={isFloatingUi
         ? 'call-panel-root call-panel-root--floating fixed inset-x-2 top-2 z-50 max-h-[calc(100vh-1rem)] overflow-y-auto md:inset-x-auto md:right-4 md:top-4 md:w-[min(980px,calc(100vw-2rem))]'
-        : `call-panel-root animate-fadeIn ${showInlineLessonChat ? 'flex min-h-0 flex-col overflow-hidden pb-2' : 'pb-10'}`}
+        : `call-panel-root call-panel-root--inline ${!isConnected ? 'call-panel-root--prejoin' : ''} animate-fadeIn ${showInlineLessonChat ? 'flex min-h-0 flex-col overflow-hidden pb-2' : 'pb-10'}`}
       style={isFloatingUi ? floatingPanelStyle : inlinePanelStyle}
       data-tour="call"
+      data-call-role={isTeacher ? 'teacher' : 'student'}
+      data-call-phase={isConnected ? 'connected' : 'prejoin'}
     >
       <section className={sectionShellClass}>
         <div className={sectionGlowPrimaryClass} />
@@ -5546,22 +5527,24 @@ const CallSection = ({
               </button>
             </div>
           )}
-          <header className="call-main-header">
-            <div className="min-w-0">
-              {callHeaderEyebrow && <p className={headerEyebrowClass}>{callHeaderEyebrow}</p>}
-              <h2 className={headerTitleClass}>{callHeaderTitle}</h2>
-              {callHeaderSubtitle && <p className={headerSubtitleClass}>{callHeaderSubtitle}</p>}
-              {headerStatusPills.length > 0 && (
-                <div className={headerStatusListClass}>
-                  {headerStatusPills.map((pill) => (
-                    <span key={pill.key} className={headerStatusPillClass} data-tone={pill.tone}>
-                      {pill.text}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </header>
+          {showCallMainHeader && (
+            <header className="call-main-header">
+              <div className="min-w-0">
+                {callHeaderEyebrow && <p className={headerEyebrowClass}>{callHeaderEyebrow}</p>}
+                <h2 className={headerTitleClass}>{callHeaderTitle}</h2>
+                {callHeaderSubtitle && <p className={headerSubtitleClass}>{callHeaderSubtitle}</p>}
+                {headerStatusPills.length > 0 && (
+                  <div className={headerStatusListClass}>
+                    {headerStatusPills.map((pill) => (
+                      <span key={pill.key} className={headerStatusPillClass} data-tone={pill.tone}>
+                        {pill.text}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </header>
+          )}
 
           {isTeacher && (
             <div className={teacherCardClass}>
@@ -5604,14 +5587,136 @@ const CallSection = ({
               ))}
 
               {!isConnected ? (
-                <section className={`${heroPanelClass} call-prejoin-stage`} data-state={statusTone}>
+                <section
+                  className={`${heroPanelClass} call-prejoin-stage`}
+                  data-state={statusTone}
+                  data-role={isTeacher ? 'teacher' : 'student'}
+                >
                   <div className="call-prejoin-main min-w-0">
                     <div className="call-prejoin-intro">
                       {callHeroEyebrow && <p className={heroEyebrowClass}>{callHeroEyebrow}</p>}
-                      <h3 className={heroTitleClass}>{callHeroTitle}</h3>
+                      {showCallMainHeader ? (
+                        <h3 className={heroTitleClass}>{callHeroTitle}</h3>
+                      ) : (
+                        <h2 className={heroTitleClass}>{callHeroTitle}</h2>
+                      )}
                       {callHeroDescription && <p className={heroDescriptionClass}>{callHeroDescription}</p>}
                     </div>
-                    <div className="call-prejoin-actions flex flex-wrap items-center gap-3">
+
+                    <div className="call-prejoin-preview" data-camera-enabled={cameraEnabled ? 'true' : 'false'}>
+                      <MediaTile
+                        stream={prejoinCameraStream}
+                        title={prejoinSelfName}
+                        subtitle={cameraEnabled ? 'Камера включена' : 'Камера выключена'}
+                        placeholderText="Камера выключена"
+                        placeholderImageUrl={prejoinSelfAvatar}
+                        className="call-prejoin-preview-media"
+                        muted
+                        allowFullscreen={false}
+                        isSpeaking={selfSpeaking}
+                        isDarkTheme={isDarkTheme}
+                      />
+                      <span className="call-prejoin-preview-chip">
+                        <Camera size={14} />
+                        Ваше превью
+                      </span>
+                      {micEnabled && (
+                        <span
+                          className="call-prejoin-mic-meter"
+                          aria-label={`Уровень микрофона: ${normalizedMicInputLevelPercent}%`}
+                        >
+                          <span style={{ width: `${normalizedMicInputLevelPercent}%` }} />
+                        </span>
+                      )}
+                      <div className="call-prejoin-preview-controls" aria-label="Настройки перед входом">
+                        <button
+                          type="button"
+                          onClick={toggleMic}
+                          disabled={prejoinMediaBusy}
+                          className="call-prejoin-preview-control"
+                          data-live={micEnabled ? 'true' : 'false'}
+                          data-tone={prejoinCheck.mic === 'problem' ? 'problem' : 'idle'}
+                          aria-pressed={micEnabled}
+                          aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+                        >
+                          {micBusy ? <Loader2 size={18} className="animate-spin" /> : (micEnabled ? <Mic size={18} /> : <MicOff size={18} />)}
+                          <span>{prejoinMicControlLabel}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={toggleCamera}
+                          disabled={prejoinMediaBusy}
+                          className="call-prejoin-preview-control"
+                          data-live={cameraEnabled ? 'true' : 'false'}
+                          data-tone={prejoinCheck.camera === 'problem' ? 'problem' : 'idle'}
+                          aria-pressed={cameraEnabled}
+                          aria-label={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
+                        >
+                          {cameraBusy ? <Loader2 size={18} className="animate-spin" /> : (cameraEnabled ? <Camera size={18} /> : <CameraOff size={18} />)}
+                          <span>{prejoinCameraControlLabel}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <div className="call-device-panel">
+                    <div
+                      className="call-prejoin-connection-card"
+                      data-tone={prejoinConnectionTone}
+                      aria-label={`Связь: ${prejoinConnectionSummary}`}
+                    >
+                      <span className="call-prejoin-connection-icon" aria-hidden="true">
+                        <Signal size={17} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="call-prejoin-connection-label">Связь</p>
+                        <p className="call-prejoin-connection-value" aria-live="polite">{prejoinConnectionSummary}</p>
+                      </div>
+                      {prejoinConnectionTone !== 'idle' && (
+                        <span className="call-prejoin-connection-state" data-tone={prejoinConnectionTone} aria-hidden="true">
+                          {prejoinConnectionTone === 'checking'
+                            ? <Loader2 size={16} className="animate-spin" />
+                            : prejoinConnectionTone === 'good'
+                              ? <CheckCircle2 size={16} />
+                              : <AlertCircle size={16} />}
+                        </span>
+                      )}
+                      {!isConnecting && (
+                        <button
+                          type="button"
+                          onClick={runPrejoinCheck}
+                          disabled={prejoinMediaBusy}
+                          className={`${prejoinSecondaryActionClass} call-device-check-action`}
+                          aria-label="Проверить доступ к микрофону, камере и связь"
+                        >
+                          {prejoinCheckBusy ? <Loader2 size={16} className="animate-spin" /> : <Settings size={16} />}
+                          <span className="call-control-label">{prejoinCheckButtonLabel}</span>
+                        </button>
+                      )}
+                    </div>
+                    {prejoinCheck.error && (
+                      <p className="call-prejoin-check-note" data-tone="problem" role="alert">{prejoinCheck.error}</p>
+                    )}
+                  </div>
+
+                  <aside className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
+                    <div className="call-prejoin-side-head">
+                      <div className="call-waiting-identity">
+                        <div className={waitingAvatarClass}>{remoteParticipantInitial}</div>
+                        <div className="min-w-0">
+                          <p className={waitingRoleClass}>{remoteParticipantTitle}</p>
+                          <p className={waitingNameClass}>{remoteParticipantName}</p>
+                        </div>
+                      </div>
+                      <div className={waitingPresenceRowClass}>
+                        <span className="call-waiting-presence-dot" data-live={hasRemoteParticipant ? 'true' : 'false'} aria-hidden="true" />
+                        <p className={waitingMetaClass}>{remoteParticipantStatusShort}</p>
+                      </div>
+                      <p className="call-waiting-state-copy">{prejoinWaitingCopy}</p>
+                    </div>
+
+                    <div className="call-prejoin-side-actions">
                       <button
                         type="button"
                         onClick={startCall}
@@ -5619,24 +5724,12 @@ const CallSection = ({
                         data-live={isConnecting ? 'true' : 'false'}
                         data-attention={!isConnecting ? 'true' : 'false'}
                         className={heroPrimaryButtonClass}
-                        aria-label={isConnecting ? 'Подключаем к звонку...' : 'Войти в звонок'}
-                        title={isConnecting ? 'Подключаем к звонку...' : 'Войти в звонок'}
+                        aria-label={joinButtonLabel}
+                        title={joinButtonLabel}
                       >
                         {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
                         <span className="call-control-label">{joinButtonLabel}</span>
                       </button>
-                      {!isConnecting && (
-                        <button
-                          type="button"
-                          onClick={runPrejoinCheck}
-                          disabled={prejoinCheckBusy}
-                          className={`${prejoinSecondaryActionClass} call-device-check-action`}
-                          aria-label="Проверить микрофон, камеру и связь"
-                        >
-                          {prejoinCheckBusy ? <Loader2 size={16} className="animate-spin" /> : <Settings size={16} />}
-                          <span className="call-control-label">{prejoinCheckButtonLabel}</span>
-                        </button>
-                      )}
                       {isConnecting && (
                         <button
                           type="button"
@@ -5647,57 +5740,7 @@ const CallSection = ({
                         </button>
                       )}
                     </div>
-                    <div className="call-device-panel" data-tone={prejoinDeviceSummaryTone}>
-                      <div className="call-device-panel-head">
-                        <div className="min-w-0">
-                          <p className="call-device-panel-label">Устройства и связь</p>
-                          <p className="call-device-panel-summary" data-tone={prejoinDeviceSummaryTone} aria-live="polite">
-                            {prejoinDeviceSummary}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="call-prejoin-glance">
-                        {prejoinDeviceChecks.map(({ key, icon, label, value, tone }) => (
-                          <div key={key} className="call-prejoin-glance-card" data-tone={tone} aria-label={`${label}: ${value}`}>
-                            <span className="call-prejoin-glance-icon" aria-hidden="true">
-                              {React.createElement(icon, { size: 16 })}
-                            </span>
-                            <div className="min-w-0 space-y-1">
-                              <p className="call-prejoin-glance-label">{label}</p>
-                              {tone !== 'idle' && (
-                                <p className="call-prejoin-glance-value" aria-label={`${label}: ${value}`}>{value}</p>
-                              )}
-                            </div>
-                            {tone !== 'idle' && (
-                              <span className="call-prejoin-glance-state" data-tone={tone} aria-hidden="true">
-                                {tone === 'checking'
-                                  ? <Loader2 size={16} className="animate-spin" />
-                                  : tone === 'good'
-                                    ? <CheckCircle2 size={16} />
-                                    : <AlertCircle size={16} />}
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      {prejoinCheck.error && (
-                        <p className="call-prejoin-check-note" data-tone="problem" role="alert">{prejoinCheck.error}</p>
-                      )}
-                    </div>
-                  </div>
-                  <aside className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
-                    <div className="call-waiting-identity">
-                      <div className={waitingAvatarClass}>{remoteParticipantInitial}</div>
-                      <div className="min-w-0">
-                        <p className={waitingRoleClass}>{remoteParticipantTitle}</p>
-                        <p className={waitingNameClass}>{remoteParticipantName}</p>
-                      </div>
-                    </div>
-                    <div className={waitingPresenceRowClass}>
-                      <span className="call-waiting-presence-dot" data-live={hasRemoteParticipant ? 'true' : 'false'} aria-hidden="true" />
-                      <p className={waitingMetaClass}>{remoteParticipantStatusShort}</p>
-                    </div>
-                    <p className="call-waiting-state-copy">{prejoinWaitingCopy}</p>
+
                     {showInlineLessonChat && (
                       <button
                         type="button"
