@@ -101,6 +101,55 @@ const CALL_CHAT_POLL_INTERVAL_MS = 4500;
 const INLINE_PANEL_BOTTOM_GAP_PX = 2;
 const LESSON_CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const LESSON_CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+const PREJOIN_SIGNAL_PROBE_TIMEOUT_MS = 3500;
+
+const stopMediaStreamTracks = (stream) => {
+  const tracks = Array.isArray(stream?.getTracks?.()) ? stream.getTracks() : [];
+  tracks.forEach((track) => {
+    try {
+      track?.stop?.();
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  });
+};
+
+const probeWebSocketOpen = (url, timeoutMs = PREJOIN_SIGNAL_PROBE_TIMEOUT_MS) => new Promise((resolve) => {
+  const normalizedUrl = typeof url === 'string' ? url.trim() : '';
+  if (!normalizedUrl || typeof WebSocket === 'undefined') {
+    resolve(false);
+    return;
+  }
+
+  let settled = false;
+  let ws = null;
+  let timeoutId = null;
+  const finish = (ok) => {
+    if (settled) return;
+    settled = true;
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    try {
+      ws?.close?.();
+    } catch {
+      resolve(Boolean(ok));
+      return;
+    }
+    resolve(Boolean(ok));
+  };
+
+  timeoutId = setTimeout(() => finish(false), timeoutMs);
+  try {
+    ws = new WebSocket(normalizedUrl);
+    ws.onopen = () => finish(true);
+    ws.onerror = () => finish(false);
+    ws.onclose = () => finish(false);
+  } catch {
+    finish(false);
+  }
+});
 
 const formatChatDateTime = (iso) => {
   const parsed = Date.parse(String(iso || '').trim());
@@ -1241,6 +1290,13 @@ const CallSection = ({
   const [micInputLevelPercent, setMicInputLevelPercent] = useState(0);
   const [micSettingsOpen, setMicSettingsOpen] = useState(false);
   const [micSettingsPosition, setMicSettingsPosition] = useState(null);
+  const [prejoinCheck, setPrejoinCheck] = useState({
+    status: 'idle',
+    mic: 'idle',
+    camera: 'idle',
+    connection: 'idle',
+    error: '',
+  });
   const [volumePopup, setVolumePopup] = useState(null);
   const [collapsedPanelPosition, setCollapsedPanelPosition] = useState(null);
   const [floatingPanelPosition, setFloatingPanelPosition] = useState(null);
@@ -3994,6 +4050,121 @@ const CallSection = ({
     }
   }, [cameraBusy, cameraEnabled, ensureCameraTrack, renegotiatePeers, status, stopCameraTrack]);
 
+  const runPrejoinCheck = useCallback(async () => {
+    if (prejoinCheck.status === 'checking') return;
+
+    const hasLiveMicTrack = Boolean(
+      localRawAudioTrackRef.current?.readyState === 'live'
+      || localAudioTrackRef.current?.readyState === 'live'
+    );
+    const hasLiveCameraTrack = Boolean(localCameraTrackRef.current?.readyState === 'live');
+
+    setPrejoinCheck({
+      status: 'checking',
+      mic: hasLiveMicTrack || micEnabled ? 'ok' : 'checking',
+      camera: hasLiveCameraTrack || cameraEnabled ? 'ok' : 'checking',
+      connection: 'checking',
+      error: '',
+    });
+
+    let micResult = hasLiveMicTrack || micEnabled ? 'ok' : 'problem';
+    let cameraResult = hasLiveCameraTrack || cameraEnabled ? 'ok' : 'problem';
+    let mediaUnsupported = false;
+
+    const canRequestMedia = typeof navigator !== 'undefined'
+      && Boolean(navigator.mediaDevices?.getUserMedia);
+
+    if (!canRequestMedia) {
+      mediaUnsupported = true;
+    } else if (micResult !== 'ok' || cameraResult !== 'ok') {
+      let combinedStream = null;
+      try {
+        combinedStream = await navigator.mediaDevices.getUserMedia({
+          audio: micResult === 'ok' ? false : {
+            echoCancellation: true,
+            noiseSuppression: false,
+            autoGainControl: false,
+            channelCount: 1,
+          },
+          video: cameraResult === 'ok' ? false : {
+            frameRate: { ideal: CAMERA_MAX_FRAMERATE, max: CAMERA_MAX_FRAMERATE },
+            width: { ideal: CAMERA_MAX_WIDTH, max: CAMERA_MAX_WIDTH },
+            height: { ideal: CAMERA_MAX_HEIGHT, max: CAMERA_MAX_HEIGHT },
+          },
+        });
+        const audioTracks = Array.isArray(combinedStream.getAudioTracks?.()) ? combinedStream.getAudioTracks() : [];
+        const videoTracks = Array.isArray(combinedStream.getVideoTracks?.()) ? combinedStream.getVideoTracks() : [];
+        if (micResult !== 'ok') {
+          micResult = audioTracks.some((track) => track?.readyState === 'live') ? 'ok' : 'problem';
+        }
+        if (cameraResult !== 'ok') {
+          cameraResult = videoTracks.some((track) => track?.readyState === 'live') ? 'ok' : 'problem';
+        }
+      } catch {
+        if (micResult !== 'ok') {
+          let audioStream = null;
+          try {
+            audioStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: false,
+                autoGainControl: false,
+                channelCount: 1,
+              },
+              video: false,
+            });
+            const audioTracks = Array.isArray(audioStream.getAudioTracks?.()) ? audioStream.getAudioTracks() : [];
+            micResult = audioTracks.some((track) => track?.readyState === 'live') ? 'ok' : 'problem';
+          } catch {
+            micResult = 'problem';
+          } finally {
+            stopMediaStreamTracks(audioStream);
+          }
+        }
+        if (cameraResult !== 'ok') {
+          let cameraStream = null;
+          try {
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: {
+                frameRate: { ideal: CAMERA_MAX_FRAMERATE, max: CAMERA_MAX_FRAMERATE },
+                width: { ideal: CAMERA_MAX_WIDTH, max: CAMERA_MAX_WIDTH },
+                height: { ideal: CAMERA_MAX_HEIGHT, max: CAMERA_MAX_HEIGHT },
+              },
+            });
+            const videoTracks = Array.isArray(cameraStream.getVideoTracks?.()) ? cameraStream.getVideoTracks() : [];
+            cameraResult = videoTracks.some((track) => track?.readyState === 'live') ? 'ok' : 'problem';
+          } catch {
+            cameraResult = 'problem';
+          } finally {
+            stopMediaStreamTracks(cameraStream);
+          }
+        }
+      } finally {
+        stopMediaStreamTracks(combinedStream);
+      }
+    }
+
+    const connectionOk = await probeWebSocketOpen(rtcWsUrl);
+    const checkIssues = [];
+    if (mediaUnsupported) {
+      checkIssues.push('Браузер не поддерживает проверку микрофона и камеры.');
+    } else if (micResult !== 'ok' || cameraResult !== 'ok') {
+      checkIssues.push('Проверьте разрешения браузера для микрофона и камеры.');
+    }
+    if (!connectionOk) {
+      checkIssues.push('Сигнальный сервер сейчас недоступен.');
+    }
+
+    setPrejoinCheck({
+      status: 'done',
+      mic: micResult,
+      camera: cameraResult,
+      connection: connectionOk ? 'ok' : 'problem',
+      error: checkIssues.join(' '),
+    });
+  }, [cameraEnabled, micEnabled, prejoinCheck.status, rtcWsUrl]);
+
   const toggleScreenShare = useCallback(async () => {
     if (screenBusy) return;
     if (screenSharing) {
@@ -4767,7 +4938,6 @@ const CallSection = ({
     : (isConnecting ? 'connecting' : 'idle');
   const roomHint = roomId || 'Комната не выбрана';
   const resolvedError = error || (status === 'idle' ? presenceError : '');
-  const selectedStudentName = selectedStudent?.nickname || selectedStudent?.name || 'Ученик не выбран';
   const canStart = !isConnecting && !isConnected;
   const canStop = isConnecting || isConnected;
   const canToggleMic = isConnected && !micBusy;
@@ -4842,7 +5012,7 @@ const CallSection = ({
         ? hasRemoteParticipant
           ? 'Звонок активен'
           : `Ждём ${remoteParticipantName}`
-        : 'Войти в звонок';
+        : 'Вы готовы к уроку?';
   const callHeroEyebrow = hasMediaConnectionIssue
     ? 'Проблема со связью'
     : isConnecting
@@ -4862,11 +5032,11 @@ const CallSection = ({
           ? hasRemoteParticipant
             ? ''
             : `${remoteParticipantName} пока не в звонке.`
-          : '';
+          : 'Проверьте статус комнаты и подключайтесь, когда будете готовы.';
   const remoteParticipantStatus = hasRemoteParticipant
     ? (isConnected ? `${remoteParticipantTitle} уже в звонке` : `${remoteParticipantTitle} в комнате`)
     : (isConnected ? `${remoteParticipantTitle} ещё не подключился` : `${remoteParticipantTitle} пока не в комнате`);
-  const joinButtonLabel = isConnected ? 'Вы в звонке' : (isConnecting ? 'Подключаем...' : 'Войти в звонок');
+  const joinButtonLabel = isConnected ? 'Вы в звонке' : (isConnecting ? 'Подключаем...' : 'Подключиться');
   const chatBadgeText = lessonChatMessages.length > 0 ? String(lessonChatMessages.length) : '';
   const headerStatusPills = isConnected
     ? [
@@ -4888,13 +5058,34 @@ const CallSection = ({
   const prejoinParticipantSummary = !activeStudentId && isTeacher
     ? 'Выберите ученика'
     : remoteParticipantStatusShort;
-  const prejoinConnectionSummary = connectionStats.quality === 'good'
-    ? 'Связь ок'
-    : connectionStats.quality === 'ok'
-      ? 'Связь средняя'
-      : connectionStats.quality === 'poor'
-        ? 'Связь нестабильна'
-        : 'Проверка связи';
+  const prejoinCheckBusy = prejoinCheck.status === 'checking';
+  const prejoinMicSummary = micEnabled
+    ? 'готов'
+    : prejoinCheck.mic === 'checking'
+      ? 'проверяем...'
+      : prejoinCheck.mic === 'ok'
+        ? 'доступен'
+        : prejoinCheck.mic === 'problem'
+          ? 'нет доступа'
+          : 'не проверено';
+  const prejoinCameraSummary = cameraEnabled
+    ? 'включена'
+    : prejoinCheck.camera === 'checking'
+      ? 'проверяем...'
+      : prejoinCheck.camera === 'ok'
+        ? 'доступна'
+        : prejoinCheck.camera === 'problem'
+          ? 'нет доступа'
+          : 'не проверено';
+  const prejoinConnectionSummary = prejoinCheck.connection === 'checking'
+    ? 'проверяем...'
+    : prejoinCheck.connection === 'ok'
+      ? 'сервер доступен'
+      : prejoinCheck.connection === 'problem'
+        ? 'нет соединения'
+        : 'не проверено';
+  const prejoinMicHasAccess = micEnabled || prejoinCheck.mic === 'ok';
+  const prejoinCameraHasAccess = cameraEnabled || prejoinCheck.camera === 'ok';
   const prejoinChatSummary = chatBadgeText
     ? `${chatBadgeText} новых`
     : '';
@@ -4909,22 +5100,41 @@ const CallSection = ({
     chatBadgeText ? `${chatBadgeText} нов.` : '',
   ].filter(Boolean).join(' • ');
   const prejoinSummaryCards = [
-    ...((!hasRemoteParticipant || !roomId || isTeacher)
+    {
+      key: 'participant',
+      icon: Users,
+      label: remoteParticipantTitle,
+      value: prejoinParticipantSummary,
+      tone: hasRemoteParticipant ? 'active' : 'idle',
+    },
+    {
+      key: 'mic',
+      icon: prejoinCheck.mic === 'problem' ? MicOff : Mic,
+      label: 'Микрофон',
+      value: prejoinMicSummary,
+      tone: prejoinCheck.mic === 'problem' ? 'problem' : (prejoinMicHasAccess ? 'active' : 'idle'),
+    },
+    {
+      key: 'camera',
+      icon: prejoinCheck.camera === 'problem' ? CameraOff : Camera,
+      label: 'Камера',
+      value: prejoinCameraSummary,
+      tone: prejoinCheck.camera === 'problem' ? 'problem' : (prejoinCameraHasAccess ? 'active' : 'idle'),
+    },
+    {
+      key: 'connection',
+      icon: Signal,
+      label: 'Связь',
+      value: prejoinConnectionSummary,
+      tone: prejoinCheck.connection === 'problem' ? 'problem' : (prejoinCheck.connection === 'ok' ? 'good' : 'idle'),
+    },
+    ...(prejoinChatSummary
       ? [{
-        key: 'participant',
-        icon: Users,
-        label: remoteParticipantTitle,
-        value: prejoinParticipantSummary,
-        tone: hasRemoteParticipant ? 'active' : 'idle',
-      }]
-      : []),
-    ...(connectionStats.quality === 'poor'
-      ? [{
-        key: 'connection',
-        icon: Signal,
-        label: 'Связь',
-        value: prejoinConnectionSummary,
-        tone: 'problem',
+        key: 'chat',
+        icon: MessageSquare,
+        label: 'Чат',
+        value: prejoinChatSummary,
+        tone: 'accent',
       }]
       : []),
   ];
@@ -4979,7 +5189,6 @@ const CallSection = ({
   const teacherSelectClass = isDarkTheme
     ? 'call-student-select h-9 w-full rounded-xl border border-violet-500/12 bg-slate-950/72 px-3 text-sm text-slate-100 outline-none transition focus:border-violet-400/50'
     : 'call-student-select h-9 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400';
-  const mutedTextClass = isDarkTheme ? 'text-xs text-slate-400 md:text-right' : 'text-xs text-slate-500 md:text-right';
   const errorBoxClass = isDarkTheme
     ? 'mt-4 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100'
     : 'mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
@@ -5336,7 +5545,7 @@ const CallSection = ({
 
           {isTeacher && (
             <div className={teacherCardClass}>
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-[auto_minmax(240px,1fr)_minmax(0,1fr)] md:items-center">
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-[auto_minmax(240px,1fr)] md:items-center">
                 <label className={teacherLabelClass} htmlFor="call-student-select">
                   Ученик
                 </label>
@@ -5351,7 +5560,6 @@ const CallSection = ({
                   dark={isDarkTheme}
                   menuClassName={isDarkTheme ? 'border-violet-500/20' : ''}
                 />
-                <p className={`${mutedTextClass} min-w-0 truncate`}>Текущий: {selectedStudentName}</p>
               </div>
             </div>
           )}
@@ -5389,8 +5597,8 @@ const CallSection = ({
                         data-live={isConnecting ? 'true' : 'false'}
                         data-attention={!isConnecting ? 'true' : 'false'}
                         className={heroPrimaryButtonClass}
-                        aria-label={isConnecting ? 'Подключаем к звонку...' : 'Войти в звонок'}
-                        title={isConnecting ? 'Подключаем к звонку...' : 'Войти в звонок'}
+                        aria-label={isConnecting ? 'Подключаем к звонку...' : 'Подключиться к уроку'}
+                        title={isConnecting ? 'Подключаем к звонку...' : 'Подключиться к уроку'}
                       >
                         {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
                         <span className="call-control-label">{joinButtonLabel}</span>
@@ -5402,6 +5610,17 @@ const CallSection = ({
                           className={prejoinSecondaryActionClass}
                         >
                           <span className="call-control-label">Отменить</span>
+                        </button>
+                      )}
+                      {!isConnecting && (
+                        <button
+                          type="button"
+                          onClick={runPrejoinCheck}
+                          disabled={prejoinCheckBusy}
+                          className={prejoinSecondaryActionClass}
+                        >
+                          {prejoinCheckBusy ? <Loader2 size={16} className="animate-spin" /> : <Settings size={16} />}
+                          <span className="call-control-label">Проверить устройства</span>
                         </button>
                       )}
                       {!isConnecting && Boolean(prejoinChatSummary) && showInlineLessonChat && (
@@ -5419,10 +5638,10 @@ const CallSection = ({
                     </div>
                     {prejoinSummaryCards.length > 0 && (
                       <div className="call-prejoin-glance mt-6">
-                        {prejoinSummaryCards.map(({ key, icon: Icon, label, value, tone }) => (
+                        {prejoinSummaryCards.map(({ key, icon, label, value, tone }) => (
                           <div key={key} className="call-prejoin-glance-card" data-tone={tone}>
                             <span className="call-prejoin-glance-icon" aria-hidden="true">
-                              <Icon size={16} />
+                              {React.createElement(icon, { size: 16 })}
                             </span>
                             <div className="min-w-0 space-y-1">
                               <p className="call-prejoin-glance-label">{label}</p>
@@ -5431,6 +5650,9 @@ const CallSection = ({
                           </div>
                         ))}
                       </div>
+                    )}
+                    {prejoinCheck.error && (
+                      <p className="call-prejoin-check-note" data-tone="problem">{prejoinCheck.error}</p>
                     )}
                   </div>
                   <div className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
@@ -5442,6 +5664,17 @@ const CallSection = ({
                         <span className="call-waiting-presence-dot" data-live={hasRemoteParticipant ? 'true' : 'false'} aria-hidden="true" />
                         <p className={waitingMetaClass}>{remoteParticipantStatusShort}</p>
                       </div>
+                      <p className="call-waiting-state-copy">{remoteParticipantStatus}</p>
+                      {!hasRemoteParticipant && showInlineLessonChat && (
+                        <button
+                          type="button"
+                          className="call-waiting-chat-link"
+                          onClick={() => setLessonChatExpanded(true)}
+                        >
+                          <MessageSquare size={14} />
+                          Написать в чат
+                        </button>
+                      )}
                     </div>
                   </div>
                 </section>

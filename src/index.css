@@ -9009,8 +9009,9 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
   animation: callHeroRise 0.42s cubic-bezier(0.2, 1, 0.36, 1) both;
 }
 .call-prejoin-stage {
-  min-height: clamp(220px, 30vw, 280px);
+  min-height: clamp(300px, 28vw, 360px);
   gap: 1.25rem;
+  align-items: stretch;
   border-color: rgba(196, 181, 253, 0.46);
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(248, 245, 255, 0.92) 56%, rgba(237, 233, 254, 0.86));
@@ -9022,20 +9023,22 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
 .call-prejoin-stage::after {
   content: "";
   position: absolute;
-  inset: 18% 24% 14% 8%;
+  inset: auto 22% -14% 8%;
+  height: 210px;
   pointer-events: none;
   border-radius: 999px;
   background:
     radial-gradient(circle at 30% 44%, rgba(168, 85, 247, 0.14), transparent 36%),
     radial-gradient(circle at 74% 38%, rgba(217, 70, 239, 0.12), transparent 28%);
   filter: blur(22px);
-  opacity: 0.78;
+  opacity: 0.5;
 }
 .call-prejoin-main {
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 1.25rem;
 }
 .call-header-status-list {
   align-items: center;
@@ -9059,12 +9062,13 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
 .call-prejoin-actions {
   position: relative;
   z-index: 1;
+  margin-top: 1.25rem !important;
 }
 .call-prejoin-glance {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
   gap: 0.7rem;
-  max-width: 720px;
+  max-width: 880px;
 }
 .call-prejoin-glance-card {
   position: relative;
@@ -9072,8 +9076,8 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
   align-items: flex-start;
   gap: 0.7rem;
   min-height: 0;
-  min-width: 176px;
-  padding: 0.9rem 1rem;
+  min-width: 0;
+  padding: 0.85rem 0.9rem;
   border-radius: 1rem;
   border: 1px solid rgba(196, 181, 253, 0.34);
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.84), rgba(245, 243, 255, 0.78));
@@ -9112,6 +9116,13 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
   border-color: rgba(244, 63, 94, 0.28);
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.84), rgba(255, 241, 242, 0.8));
 }
+.call-prejoin-glance-card[data-tone='idle'] .call-prejoin-glance-icon {
+  color: rgba(71, 85, 105, 0.72);
+}
+.call-prejoin-glance-card[data-tone='problem'] .call-prejoin-glance-icon {
+  border-color: rgba(251, 113, 133, 0.28);
+  color: rgba(190, 18, 60, 0.88);
+}
 .call-prejoin-glance-icon {
   position: relative;
   z-index: 1;
@@ -9141,7 +9152,7 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
 .call-prejoin-glance-value {
   position: relative;
   z-index: 1;
-  max-width: 18ch;
+  max-width: none;
   font-size: 0.9rem;
   line-height: 1.35;
   font-weight: 600;
@@ -9150,6 +9161,20 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
 }
 .call-prejoin-note {
   max-width: 42ch;
+}
+.call-prejoin-check-note {
+  position: relative;
+  z-index: 1;
+  margin-top: 0.9rem;
+  max-width: 64ch;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(244, 63, 94, 0.22);
+  background: rgba(255, 241, 242, 0.72);
+  padding: 0.65rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: rgba(159, 18, 57, 0.92);
 }
 .call-student-select {
   appearance: none;
@@ -9172,7 +9197,7 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
   align-self: stretch;
   justify-content: space-between;
   width: 100%;
-  max-width: 320px;
+  max-width: 340px;
   justify-self: end;
   border-color: rgba(196, 181, 253, 0.42);
   background:
@@ -9196,6 +9221,43 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
 }
 .call-prejoin-stage .call-waiting-card[data-presence='live'] {
   border-color: rgba(147, 51, 234, 0.28);
+}
+.call-waiting-card > * {
+  position: relative;
+  z-index: 1;
+}
+.call-waiting-state-copy {
+  position: relative;
+  z-index: 1;
+  margin-top: 0.85rem;
+  max-width: 24ch;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: rgba(71, 85, 105, 0.86);
+}
+.call-waiting-chat-link {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin-top: 1rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(196, 181, 253, 0.58);
+  background: rgba(255, 255, 255, 0.68);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: rgba(109, 40, 217, 0.92);
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.call-waiting-chat-link:hover {
+  border-color: rgba(168, 85, 247, 0.48);
+  background: rgba(245, 243, 255, 0.92);
+  transform: translateY(-1px);
 }
 .call-prejoin-stage[data-state='idle'] {
   box-shadow:
@@ -9500,6 +9562,11 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
   .call-controls-layout--compact .call-controls-group--media {
     position: static;
     transform: none;
+  }
+}
+@media (min-width: 1024px) {
+  .call-prejoin-stage {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
   }
 }
 @media (max-width: 768px) {
@@ -22215,7 +22282,7 @@ html[data-theme='dark'] .call-prejoin-stage::after {
     radial-gradient(circle at 30% 44%, rgba(168, 85, 247, 0.12), transparent 34%),
     radial-gradient(circle at 74% 38%, rgba(217, 70, 239, 0.1), transparent 28%);
   filter: blur(22px);
-  opacity: 0.52;
+  opacity: 0.36;
 }
 
 html[data-theme='dark'] .call-hero-panel::before {
@@ -22281,6 +22348,14 @@ html[data-theme='dark'] .call-prejoin-glance-card[data-tone='problem'] {
   background: rgba(45, 20, 28, 0.34);
 }
 
+html[data-theme='dark'] .call-prejoin-glance-card[data-tone='idle'] .call-prejoin-glance-icon {
+  color: rgba(203, 213, 225, 0.62);
+}
+
+html[data-theme='dark'] .call-prejoin-glance-card[data-tone='problem'] .call-prejoin-glance-icon {
+  color: rgba(253, 164, 175, 0.86);
+}
+
 html[data-theme='dark'] .call-prejoin-glance-icon {
   width: 1.75rem;
   height: 1.75rem;
@@ -22295,6 +22370,12 @@ html[data-theme='dark'] .call-prejoin-glance-label {
 
 html[data-theme='dark'] .call-prejoin-glance-value {
   color: rgba(248, 250, 252, 0.92);
+}
+
+html[data-theme='dark'] .call-prejoin-check-note {
+  border-color: rgba(251, 113, 133, 0.18);
+  background: rgba(76, 29, 42, 0.34);
+  color: rgba(254, 205, 211, 0.92);
 }
 
 html[data-theme='dark'] .call-prejoin-stage .call-waiting-card {
@@ -22318,6 +22399,21 @@ html[data-theme='dark'] .call-prejoin-stage .call-waiting-card::after {
 
 html[data-theme='dark'] .call-prejoin-stage .call-waiting-card[data-presence='live'] {
   border-color: rgba(167, 139, 250, 0.14);
+}
+
+html[data-theme='dark'] .call-waiting-state-copy {
+  color: rgba(226, 232, 240, 0.64);
+}
+
+html[data-theme='dark'] .call-waiting-chat-link {
+  border-color: rgba(196, 181, 253, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(237, 233, 254, 0.94);
+}
+
+html[data-theme='dark'] .call-waiting-chat-link:hover {
+  border-color: rgba(216, 180, 254, 0.24);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='dark'] .call-prejoin-stage[data-state='idle'] {
