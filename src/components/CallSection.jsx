@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, Camera, CameraOff, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, SendHorizontal, Settings, Signal, Users, X } from 'lucide-react';
+import { AlertCircle, Camera, CameraOff, CheckCircle2, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, SendHorizontal, Settings, Signal, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import LinkifiedText from './LinkifiedText';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -4964,7 +4964,6 @@ const CallSection = ({
     : (lessonChatMeta?.teacherName || 'Преподаватель');
   const lessonChatPlaceholder = 'Сообщение...';
   const lessonChatDisabled = Boolean(isTeacher && !effectiveStudentId);
-  const remoteParticipantLabel = isTeacher ? 'ученик' : 'преподаватель';
   const remoteParticipantTitle = isTeacher ? 'Ученик' : 'Преподаватель';
   const remoteParticipantName = lessonChatPeerName || remoteParticipantTitle;
   const remoteParticipantInitial = String(remoteParticipantName || remoteParticipantTitle).trim().charAt(0).toUpperCase() || 'У';
@@ -4981,6 +4980,12 @@ const CallSection = ({
       : connectionStats.quality === 'poor'
         ? 'Связь нестабильна'
         : 'Проверка связи';
+  const prejoinHasProblem = prejoinCheck.mic === 'problem'
+    || prejoinCheck.camera === 'problem'
+    || prejoinCheck.connection === 'problem';
+  const prejoinAllReady = (micEnabled || prejoinCheck.mic === 'ok')
+    && (cameraEnabled || prejoinCheck.camera === 'ok')
+    && prejoinCheck.connection === 'ok';
   const callHeaderEyebrow = hasMediaConnectionIssue
     ? 'Проблема связи'
     : isConnecting
@@ -4994,7 +4999,7 @@ const CallSection = ({
         ? 'Комната урока'
         : isConnecting
           ? 'Подключаем к уроку'
-          : 'Готовность к уроку';
+          : 'Подготовка к звонку';
   const callHeaderSubtitle = !activeStudentId && isTeacher
     ? 'Выберите ученика'
     : hasMediaConnectionIssue
@@ -5012,14 +5017,20 @@ const CallSection = ({
         ? hasRemoteParticipant
           ? 'Звонок активен'
           : `Ждём ${remoteParticipantName}`
-        : 'Вы готовы к уроку?';
+        : prejoinHasProblem
+          ? 'Проверьте настройки'
+          : prejoinAllReady
+            ? 'Всё готово к уроку'
+            : hasRemoteParticipant
+              ? `${remoteParticipantName} уже в комнате`
+              : 'Готовы к уроку?';
   const callHeroEyebrow = hasMediaConnectionIssue
     ? 'Проблема со связью'
     : isConnecting
       ? 'Подключаем...'
       : hasRemoteParticipant
-        ? `${remoteParticipantTitle} в комнате`
-        : '';
+        ? `${remoteParticipantTitle} уже в комнате`
+        : 'Перед входом';
   const callHeroDescription = !activeStudentId && isTeacher
     ? 'Сначала выберите ученика.'
     : !roomId
@@ -5032,11 +5043,14 @@ const CallSection = ({
           ? hasRemoteParticipant
             ? ''
             : `${remoteParticipantName} пока не в звонке.`
-          : 'Проверьте статус комнаты и подключайтесь, когда будете готовы.';
-  const remoteParticipantStatus = hasRemoteParticipant
-    ? (isConnected ? `${remoteParticipantTitle} уже в звонке` : `${remoteParticipantTitle} в комнате`)
-    : (isConnected ? `${remoteParticipantTitle} ещё не подключился` : `${remoteParticipantTitle} пока не в комнате`);
-  const joinButtonLabel = isConnected ? 'Вы в звонке' : (isConnecting ? 'Подключаем...' : 'Подключиться');
+          : prejoinHasProblem
+            ? 'Некоторые параметры требуют внимания перед входом.'
+            : prejoinAllReady
+              ? 'Микрофон, камера и связь готовы.'
+              : hasRemoteParticipant
+                ? 'Второй участник уже ждёт в комнате.'
+                : 'Сейчас микрофон и камера выключены.';
+  const joinButtonLabel = isConnected ? 'Вы в звонке' : (isConnecting ? 'Подключаем...' : 'Войти в звонок');
   const chatBadgeText = lessonChatMessages.length > 0 ? String(lessonChatMessages.length) : '';
   const headerStatusPills = isConnected
     ? [
@@ -5048,16 +5062,10 @@ const CallSection = ({
       ...((!roomId && isTeacher)
         ? [{ key: 'setup', text: 'Выберите ученика', tone: 'idle' }]
         : []),
-      ...(hasRemoteParticipant
-        ? [{ key: 'participant', text: remoteParticipantStatusShort, tone: 'active' }]
-        : []),
       ...(connectionStats.quality === 'poor'
         ? [{ key: 'connection', text: connectionStatusShort, tone: 'problem' }]
         : []),
     ];
-  const prejoinParticipantSummary = !activeStudentId && isTeacher
-    ? 'Выберите ученика'
-    : remoteParticipantStatusShort;
   const prejoinCheckBusy = prejoinCheck.status === 'checking';
   const prejoinMicSummary = micEnabled
     ? 'готов'
@@ -5086,9 +5094,24 @@ const CallSection = ({
         : 'не проверено';
   const prejoinMicHasAccess = micEnabled || prejoinCheck.mic === 'ok';
   const prejoinCameraHasAccess = cameraEnabled || prejoinCheck.camera === 'ok';
-  const prejoinChatSummary = chatBadgeText
-    ? `${chatBadgeText} новых`
-    : '';
+  const prejoinDeviceSummary = prejoinCheckBusy
+    ? 'Проверяем доступ...'
+    : prejoinHasProblem
+      ? 'Требуется внимание'
+      : prejoinAllReady
+        ? 'Всё работает'
+        : 'Ещё не проверены';
+  const prejoinDeviceSummaryTone = prejoinCheckBusy
+    ? 'checking'
+    : prejoinHasProblem
+      ? 'problem'
+      : prejoinAllReady
+        ? 'good'
+        : 'idle';
+  const prejoinCheckButtonLabel = prejoinCheck.status === 'idle' ? 'Проверить устройства' : 'Проверить снова';
+  const prejoinWaitingCopy = hasRemoteParticipant
+    ? 'Можно начинать урок.'
+    : 'Можно войти и подождать в звонке.';
   const lessonChatMetaSummary = chatBadgeText
     ? `${chatBadgeText} ${Number(chatBadgeText) === 1 ? 'новое сообщение' : 'новых сообщения'}`
     : (isConnected ? 'Сообщения по уроку' : 'Можно написать до начала урока');
@@ -5099,44 +5122,46 @@ const CallSection = ({
     isConnected ? remoteParticipantStatusShort.toLowerCase() : 'до урока',
     chatBadgeText ? `${chatBadgeText} нов.` : '',
   ].filter(Boolean).join(' • ');
-  const prejoinSummaryCards = [
-    {
-      key: 'participant',
-      icon: Users,
-      label: remoteParticipantTitle,
-      value: prejoinParticipantSummary,
-      tone: hasRemoteParticipant ? 'active' : 'idle',
-    },
+  const prejoinDeviceChecks = [
     {
       key: 'mic',
       icon: prejoinCheck.mic === 'problem' ? MicOff : Mic,
       label: 'Микрофон',
       value: prejoinMicSummary,
-      tone: prejoinCheck.mic === 'problem' ? 'problem' : (prejoinMicHasAccess ? 'active' : 'idle'),
+      tone: prejoinCheck.mic === 'checking'
+        ? 'checking'
+        : prejoinCheck.mic === 'problem'
+          ? 'problem'
+          : prejoinMicHasAccess
+            ? 'good'
+            : 'idle',
     },
     {
       key: 'camera',
       icon: prejoinCheck.camera === 'problem' ? CameraOff : Camera,
       label: 'Камера',
       value: prejoinCameraSummary,
-      tone: prejoinCheck.camera === 'problem' ? 'problem' : (prejoinCameraHasAccess ? 'active' : 'idle'),
+      tone: prejoinCheck.camera === 'checking'
+        ? 'checking'
+        : prejoinCheck.camera === 'problem'
+          ? 'problem'
+          : prejoinCameraHasAccess
+            ? 'good'
+            : 'idle',
     },
     {
       key: 'connection',
       icon: Signal,
       label: 'Связь',
       value: prejoinConnectionSummary,
-      tone: prejoinCheck.connection === 'problem' ? 'problem' : (prejoinCheck.connection === 'ok' ? 'good' : 'idle'),
+      tone: prejoinCheck.connection === 'checking'
+        ? 'checking'
+        : prejoinCheck.connection === 'problem'
+          ? 'problem'
+          : prejoinCheck.connection === 'ok'
+            ? 'good'
+            : 'idle',
     },
-    ...(prejoinChatSummary
-      ? [{
-        key: 'chat',
-        icon: MessageSquare,
-        label: 'Чат',
-        value: prejoinChatSummary,
-        tone: 'accent',
-      }]
-      : []),
   ];
 
   const normalizedMicInputLevelPercent = clampToRange(Math.round(Number(micInputLevelPercent) || 0), 0, 100);
@@ -5170,14 +5195,11 @@ const CallSection = ({
     ? 'text-[12px] font-semibold tracking-[0.08em] text-violet-200/84'
     : 'text-[12px] font-semibold tracking-[0.08em] text-violet-700/84';
   const headerTitleClass = isDarkTheme
-    ? 'call-main-title mt-1 text-2xl font-semibold tracking-tight text-white'
-    : 'call-main-title mt-1 text-2xl font-semibold tracking-tight text-slate-900';
+    ? 'call-main-title mt-1 text-2xl font-semibold text-white'
+    : 'call-main-title mt-1 text-2xl font-semibold text-slate-900';
   const headerSubtitleClass = isDarkTheme
     ? 'call-main-subtitle mt-2 max-w-3xl text-[15px] leading-7 text-slate-200/76'
     : 'call-main-subtitle mt-2 max-w-3xl text-[15px] leading-7 text-slate-700';
-  const headerStatusLineClass = isDarkTheme
-    ? 'call-header-status-line mt-3 max-w-4xl text-sm font-medium leading-6 text-slate-100/84'
-    : 'call-header-status-line mt-3 max-w-4xl text-sm font-medium leading-6 text-slate-600';
   const headerStatusListClass = 'call-header-status-list mt-3 flex flex-wrap gap-1.5';
   const headerStatusPillClass = isDarkTheme
     ? 'call-header-status-pill inline-flex items-center rounded-full border border-violet-300/14 bg-violet-950/32 px-2.5 py-1 text-[11px] font-semibold text-slate-100/82'
@@ -5213,39 +5235,35 @@ const CallSection = ({
     : 'call-experience-grid mt-4 grid min-h-0 gap-3';
   const callMainColumnClass = 'call-main-column min-w-0 space-y-3 md:space-y-4';
   const heroPanelClass = isDarkTheme
-    ? 'call-hero-panel grid gap-4 rounded-[28px] border border-violet-500/10 bg-[#0f1028]/44 p-5 shadow-[0_18px_42px_rgba(46,16,101,0.24)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch'
-    : 'call-hero-panel grid gap-5 rounded-[28px] border border-violet-200/80 bg-white/90 p-5 shadow-[0_18px_42px_rgba(88,28,135,0.1)] md:p-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch';
+    ? 'call-hero-panel grid gap-4 rounded-[20px] border border-slate-700/70 bg-slate-950/72 p-5 shadow-[0_18px_44px_rgba(2,6,23,0.26)] md:p-7 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-stretch'
+    : 'call-hero-panel grid gap-5 rounded-[20px] border border-slate-200/90 bg-white p-5 shadow-[0_18px_48px_rgba(15,23,42,0.08)] md:p-7 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-stretch';
   const heroEyebrowClass = isDarkTheme
-    ? 'text-[12px] font-semibold tracking-[0.12em] text-fuchsia-200/78'
-    : 'text-[12px] font-semibold tracking-[0.12em] text-violet-700/80';
+    ? 'call-prejoin-eyebrow text-[12px] font-semibold text-violet-200/78'
+    : 'call-prejoin-eyebrow text-[12px] font-semibold text-violet-700/80';
   const heroTitleClass = isDarkTheme
-    ? 'mt-2 text-[clamp(1.75rem,2.45vw,2.45rem)] font-semibold leading-[0.98] tracking-tight text-white'
-    : 'mt-2 text-[clamp(1.9rem,2.8vw,2.8rem)] font-semibold leading-[0.96] tracking-tight text-slate-900';
+    ? 'call-prejoin-title mt-2 text-[2rem] font-semibold leading-[1.12] text-white md:text-[2.25rem]'
+    : 'call-prejoin-title mt-2 text-[2rem] font-semibold leading-[1.12] text-slate-950 md:text-[2.25rem]';
   const heroDescriptionClass = isDarkTheme
-    ? 'mt-3 max-w-[50ch] text-[15px] leading-7 text-slate-200/76'
-    : 'mt-3 max-w-[52ch] text-[15px] leading-7 text-slate-700';
-  const heroHintClass = isDarkTheme ? 'call-prejoin-note mt-4 text-sm text-slate-300/74' : 'call-prejoin-note mt-4 text-sm text-slate-500';
+    ? 'mt-3 max-w-[54ch] text-[15px] leading-6 text-slate-300/80'
+    : 'mt-3 max-w-[54ch] text-[15px] leading-6 text-slate-600';
   const prejoinSecondaryActionClass = isDarkTheme
-    ? `${labeledControlButtonClass} h-12 rounded-2xl border border-violet-500/10 bg-violet-950/22 px-4 text-slate-100/92 hover:border-violet-400/18 hover:bg-violet-900/34`
-    : `${labeledControlButtonClass} h-12 rounded-2xl border border-violet-200 bg-white px-4 text-violet-700 hover:bg-violet-50`;
-  const prejoinUtilityActionClass = isDarkTheme
-    ? `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-violet-500/10 bg-violet-950/22 text-slate-100/88 hover:border-violet-400/18 hover:bg-violet-900/34`
-    : `${baseControlButtonClass} h-12 w-12 rounded-2xl border border-violet-200 bg-white text-violet-700 hover:bg-violet-50`;
+    ? `${labeledControlButtonClass} h-12 rounded-xl border border-slate-600/80 bg-slate-800/72 px-4 text-slate-100 hover:border-slate-500 hover:bg-slate-700/88`
+    : `${labeledControlButtonClass} h-12 rounded-xl border border-violet-200 bg-white px-4 text-violet-700 hover:border-violet-300 hover:bg-violet-50`;
   const heroPrimaryButtonClass = isDarkTheme
-    ? `${labeledControlButtonClass} call-primary-cta h-12 min-w-[188px] rounded-2xl border border-violet-300/18 bg-violet-500/92 px-5 text-[15px] text-white disabled:opacity-100 hover:bg-violet-400`
-    : `${labeledControlButtonClass} call-primary-cta h-12 min-w-[196px] rounded-2xl border border-violet-300/70 bg-violet-500 px-5 text-[15px] text-white hover:bg-violet-400`;
+    ? `${labeledControlButtonClass} call-primary-cta h-12 min-w-[184px] rounded-xl border border-violet-400/50 bg-violet-500 px-5 text-[15px] text-white disabled:opacity-100 hover:bg-violet-400`
+    : `${labeledControlButtonClass} call-primary-cta h-12 min-w-[184px] rounded-xl border border-violet-600 bg-violet-600 px-5 text-[15px] text-white hover:bg-violet-500`;
   const waitingCardClass = isDarkTheme
-    ? 'call-waiting-card flex flex-col justify-between gap-4 rounded-[28px] border border-violet-500/10 bg-violet-950/26 p-5 shadow-[0_16px_36px_rgba(46,16,101,0.18)]'
-    : 'call-waiting-card flex flex-col justify-between gap-5 rounded-[28px] border border-violet-200/80 bg-violet-50/92 p-5 shadow-[0_18px_42px_rgba(88,28,135,0.08)]';
+    ? 'call-waiting-card flex flex-col rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-[0_18px_40px_rgba(2,6,23,0.28)]'
+    : 'call-waiting-card flex flex-col rounded-2xl border border-slate-800 bg-slate-950 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.16)]';
   const waitingAvatarClass = isDarkTheme
-    ? 'call-waiting-avatar relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] border border-violet-500/10 bg-violet-950/68 text-lg font-semibold text-white'
-    : 'call-waiting-avatar relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-violet-200 bg-white text-xl font-semibold text-violet-700';
+    ? 'call-waiting-avatar relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-violet-400/24 bg-violet-500/16 text-lg font-semibold text-violet-100'
+    : 'call-waiting-avatar relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-violet-400/24 bg-violet-500/16 text-lg font-semibold text-violet-100';
   const waitingRoleClass = isDarkTheme
-    ? 'inline-flex w-fit items-center rounded-full bg-violet-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-100/84'
-    : 'inline-flex w-fit items-center rounded-full border border-violet-200/80 bg-violet-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-violet-700';
-  const waitingNameClass = isDarkTheme ? 'mt-4 text-xl font-semibold text-white' : 'mt-4 text-xl font-semibold text-slate-900';
-  const waitingMetaClass = isDarkTheme ? 'text-sm font-medium leading-6 text-slate-300/82' : 'text-sm font-medium leading-6 text-slate-500';
-  const waitingPresenceRowClass = isDarkTheme ? 'mt-3 flex items-center gap-2 text-slate-300/82' : 'mt-3 flex items-center gap-2 text-slate-500';
+    ? 'call-waiting-role text-[11px] font-semibold uppercase text-slate-400'
+    : 'call-waiting-role text-[11px] font-semibold uppercase text-slate-400';
+  const waitingNameClass = 'call-waiting-name mt-1 text-[17px] font-semibold text-white';
+  const waitingMetaClass = 'text-sm font-medium leading-6 text-slate-200';
+  const waitingPresenceRowClass = 'call-waiting-presence mt-6 flex items-center gap-3 text-slate-300';
   const micSensitivityLabelClass = isDarkTheme ? 'text-xs font-semibold text-slate-200' : 'text-xs font-semibold text-slate-700';
   const neutralControlClass = isDarkTheme
     ? 'border-slate-700/80 bg-slate-900/80 text-slate-200 hover:bg-slate-800'
@@ -5586,10 +5604,12 @@ const CallSection = ({
               {!isConnected ? (
                 <section className={`${heroPanelClass} call-prejoin-stage`} data-state={statusTone}>
                   <div className="call-prejoin-main min-w-0">
-                    {callHeroEyebrow && <p className={heroEyebrowClass}>{callHeroEyebrow}</p>}
-                    <h3 className={heroTitleClass}>{callHeroTitle}</h3>
-                    {callHeroDescription && <p className={heroDescriptionClass}>{callHeroDescription}</p>}
-                    <div className="call-prejoin-actions mt-6 flex flex-wrap items-center gap-3">
+                    <div className="call-prejoin-intro">
+                      {callHeroEyebrow && <p className={heroEyebrowClass}>{callHeroEyebrow}</p>}
+                      <h3 className={heroTitleClass}>{callHeroTitle}</h3>
+                      {callHeroDescription && <p className={heroDescriptionClass}>{callHeroDescription}</p>}
+                    </div>
+                    <div className="call-prejoin-actions flex flex-wrap items-center gap-3">
                       <button
                         type="button"
                         onClick={startCall}
@@ -5597,12 +5617,24 @@ const CallSection = ({
                         data-live={isConnecting ? 'true' : 'false'}
                         data-attention={!isConnecting ? 'true' : 'false'}
                         className={heroPrimaryButtonClass}
-                        aria-label={isConnecting ? 'Подключаем к звонку...' : 'Подключиться к уроку'}
-                        title={isConnecting ? 'Подключаем к звонку...' : 'Подключиться к уроку'}
+                        aria-label={isConnecting ? 'Подключаем к звонку...' : 'Войти в звонок'}
+                        title={isConnecting ? 'Подключаем к звонку...' : 'Войти в звонок'}
                       >
                         {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
                         <span className="call-control-label">{joinButtonLabel}</span>
                       </button>
+                      {!isConnecting && (
+                        <button
+                          type="button"
+                          onClick={runPrejoinCheck}
+                          disabled={prejoinCheckBusy}
+                          className={`${prejoinSecondaryActionClass} call-device-check-action`}
+                          aria-label="Проверить микрофон, камеру и связь"
+                        >
+                          {prejoinCheckBusy ? <Loader2 size={16} className="animate-spin" /> : <Settings size={16} />}
+                          <span className="call-control-label">{prejoinCheckButtonLabel}</span>
+                        </button>
+                      )}
                       {isConnecting && (
                         <button
                           type="button"
@@ -5612,33 +5644,18 @@ const CallSection = ({
                           <span className="call-control-label">Отменить</span>
                         </button>
                       )}
-                      {!isConnecting && (
-                        <button
-                          type="button"
-                          onClick={runPrejoinCheck}
-                          disabled={prejoinCheckBusy}
-                          className={prejoinSecondaryActionClass}
-                        >
-                          {prejoinCheckBusy ? <Loader2 size={16} className="animate-spin" /> : <Settings size={16} />}
-                          <span className="call-control-label">Проверить устройства</span>
-                        </button>
-                      )}
-                      {!isConnecting && Boolean(prejoinChatSummary) && showInlineLessonChat && (
-                        <button
-                          type="button"
-                          className={prejoinUtilityActionClass}
-                          onClick={() => setLessonChatExpanded(true)}
-                          aria-label={lessonChatExpanded ? 'Чат открыт' : 'Открыть чат'}
-                          title={lessonChatExpanded ? 'Чат открыт' : 'Открыть чат'}
-                        >
-                          <MessageSquare size={16} />
-                          <span className="call-chat-badge is-live absolute -right-1 -top-1">{chatBadgeText}</span>
-                        </button>
-                      )}
                     </div>
-                    {prejoinSummaryCards.length > 0 && (
-                      <div className="call-prejoin-glance mt-6">
-                        {prejoinSummaryCards.map(({ key, icon, label, value, tone }) => (
+                    <div className="call-device-panel" data-tone={prejoinDeviceSummaryTone}>
+                      <div className="call-device-panel-head">
+                        <div className="min-w-0">
+                          <p className="call-device-panel-label">Устройства и связь</p>
+                          <p className="call-device-panel-summary" data-tone={prejoinDeviceSummaryTone} aria-live="polite">
+                            {prejoinDeviceSummary}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="call-prejoin-glance">
+                        {prejoinDeviceChecks.map(({ key, icon, label, value, tone }) => (
                           <div key={key} className="call-prejoin-glance-card" data-tone={tone}>
                             <span className="call-prejoin-glance-icon" aria-hidden="true">
                               {React.createElement(icon, { size: 16 })}
@@ -5647,36 +5664,52 @@ const CallSection = ({
                               <p className="call-prejoin-glance-label">{label}</p>
                               <p className="call-prejoin-glance-value" aria-label={`${label}: ${value}`}>{value}</p>
                             </div>
+                            <span className="call-prejoin-glance-state" data-tone={tone} aria-hidden="true">
+                              {tone === 'checking'
+                                ? <Loader2 size={16} className="animate-spin" />
+                                : tone === 'good'
+                                  ? <CheckCircle2 size={16} />
+                                  : tone === 'problem'
+                                    ? <AlertCircle size={16} />
+                                    : <span className="call-prejoin-glance-state-dot" />}
+                            </span>
                           </div>
                         ))}
                       </div>
-                    )}
-                    {prejoinCheck.error && (
-                      <p className="call-prejoin-check-note" data-tone="problem">{prejoinCheck.error}</p>
-                    )}
-                  </div>
-                  <div className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
-                    <div className={waitingAvatarClass}>{remoteParticipantInitial}</div>
-                    <div className="min-w-0">
-                      <p className={waitingRoleClass}>{remoteParticipantTitle}</p>
-                      <p className={waitingNameClass}>{remoteParticipantName}</p>
-                      <div className={waitingPresenceRowClass}>
-                        <span className="call-waiting-presence-dot" data-live={hasRemoteParticipant ? 'true' : 'false'} aria-hidden="true" />
-                        <p className={waitingMetaClass}>{remoteParticipantStatusShort}</p>
-                      </div>
-                      <p className="call-waiting-state-copy">{remoteParticipantStatus}</p>
-                      {!hasRemoteParticipant && showInlineLessonChat && (
-                        <button
-                          type="button"
-                          className="call-waiting-chat-link"
-                          onClick={() => setLessonChatExpanded(true)}
-                        >
-                          <MessageSquare size={14} />
-                          Написать в чат
-                        </button>
+                      {prejoinCheck.error && (
+                        <p className="call-prejoin-check-note" data-tone="problem" role="alert">{prejoinCheck.error}</p>
                       )}
                     </div>
                   </div>
+                  <aside className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
+                    <p className="call-waiting-card-kicker">Участник урока</p>
+                    <div className="call-waiting-identity">
+                      <div className={waitingAvatarClass}>{remoteParticipantInitial}</div>
+                      <div className="min-w-0">
+                        <p className={waitingRoleClass}>{remoteParticipantTitle}</p>
+                        <p className={waitingNameClass}>{remoteParticipantName}</p>
+                      </div>
+                    </div>
+                    <div className={waitingPresenceRowClass}>
+                      <span className="call-waiting-presence-dot" data-live={hasRemoteParticipant ? 'true' : 'false'} aria-hidden="true" />
+                      <div className="min-w-0">
+                        <p className="call-waiting-status-label">Статус</p>
+                        <p className={waitingMetaClass}>{remoteParticipantStatusShort}</p>
+                      </div>
+                    </div>
+                    <p className="call-waiting-state-copy">{prejoinWaitingCopy}</p>
+                    {showInlineLessonChat && (
+                      <button
+                        type="button"
+                        className="call-waiting-chat-link"
+                        onClick={() => setLessonChatExpanded(true)}
+                      >
+                        <MessageSquare size={15} />
+                        <span>Открыть чат</span>
+                        {chatBadgeText && <span className="call-waiting-chat-count">{chatBadgeText}</span>}
+                      </button>
+                    )}
+                  </aside>
                 </section>
               ) : (
                 <section className={mediaSectionClass}>
