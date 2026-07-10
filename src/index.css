@@ -62578,3 +62578,370 @@ html[data-theme='dark'] .collab-workspace-card--glass-board.collab-workspace-car
     min-width: 0 !important;
   }
 }
+
+/* Saved cheatsheet: calm list row, one cohesive code card, explicit actions. */
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet {
+  background: linear-gradient(90deg, #faf8ff 0%, #ffffff 48%, #f5fbff 100%);
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet td {
+  border-top-color: rgba(196, 181, 253, 0.38) !important;
+  background: transparent !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet:hover,
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-preview-open {
+  background: linear-gradient(90deg, #f4efff 0%, #fcfbff 48%, #edf8ff 100%);
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet:hover td,
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-preview-open td {
+  background: transparent !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned {
+  background: linear-gradient(90deg, #fff8e8 0%, #fffdf8 16%, #faf7ff 62%, #f2f9ff 100%);
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned td {
+  border-top-color: rgba(245, 158, 11, 0.24) !important;
+  background: transparent !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned:hover,
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned.is-preview-open {
+  background: linear-gradient(90deg, #ffefc7 0%, #fffaf0 17%, #f6f1ff 64%, #eaf7ff 100%);
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned:hover td,
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned.is-preview-open td {
+  background: transparent !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet td:first-child {
+  box-shadow: inset 4px 0 0 rgba(124, 58, 237, 0.68) !important;
+}
+
+.notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned td:first-child {
+  box-shadow:
+    inset 4px 0 0 rgba(245, 158, 11, 0.8),
+    inset 10px 0 22px rgba(245, 158, 11, 0.07) !important;
+}
+
+.notes-explorer-shell .notes-cheatsheet-open-btn {
+  border: 1px solid rgba(196, 181, 253, 0.54) !important;
+  background: rgba(245, 243, 255, 0.8) !important;
+  color: #7c3aed !important;
+}
+
+.notes-explorer-shell .notes-cheatsheet-preview-panel {
+  padding: 0.75rem;
+  border: 0 !important;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(139, 92, 246, 0.1), transparent 34%),
+    radial-gradient(circle at 92% 0%, rgba(14, 165, 233, 0.08), transparent 30%),
+    linear-gradient(145deg, #f8f7ff, #f7fbff) !important;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid rgba(167, 139, 250, 0.34);
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow:
+    0 18px 42px rgba(76, 29, 149, 0.1),
+    0 4px 14px rgba(14, 165, 233, 0.05);
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__header {
+  min-height: 4.75rem;
+  padding: 0.9rem 1rem;
+  border: 0;
+  border-bottom: 1px solid rgba(196, 181, 253, 0.36);
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(139, 92, 246, 0.1), transparent 32%),
+    linear-gradient(115deg, #ffffff 0%, #f8f5ff 58%, #f2faff 100%) !important;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__identity {
+  gap: 0.8rem;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__icon {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-color: rgba(99, 102, 241, 0.26);
+  border-radius: 0.8rem;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 212, 59, 0.28), transparent 36%),
+    radial-gradient(circle at 82% 82%, rgba(59, 130, 246, 0.16), transparent 38%),
+    linear-gradient(145deg, #ffffff, #f1efff) !important;
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.1);
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__body {
+  gap: 0.32rem;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__title {
+  max-width: min(680px, 54vw);
+  color: #0f172a;
+  font-size: 1.04rem;
+  font-weight: 850;
+  letter-spacing: -0.012em;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__meta-line {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.34rem 0.5rem;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__mode-badge {
+  min-height: 1.25rem;
+  padding: 0.16rem 0.48rem;
+  border-color: rgba(129, 140, 248, 0.34);
+  background: linear-gradient(135deg, rgba(237, 233, 254, 0.92), rgba(239, 246, 255, 0.92));
+  color: #6d28d9;
+  font-size: 0.64rem;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__meta-item {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__meta-item::before {
+  content: "•";
+  margin-right: 0.5rem;
+  color: #cbd5e1;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__actions {
+  gap: 0.45rem;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__button.notes-cheatsheet-card__action-button {
+  display: inline-flex;
+  min-height: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  padding: 0.48rem 0.72rem !important;
+  border-radius: 0.68rem !important;
+  font-size: 0.73rem !important;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__copy {
+  border-color: rgba(129, 140, 248, 0.42) !important;
+  background: linear-gradient(135deg, rgba(237, 233, 254, 0.96), rgba(239, 246, 255, 0.96)) !important;
+  color: #6d28d9 !important;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__copy:hover:not(:disabled) {
+  border-color: rgba(139, 92, 246, 0.52) !important;
+  background: linear-gradient(135deg, rgba(221, 214, 254, 0.98), rgba(224, 242, 254, 0.98)) !important;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__edit {
+  border-color: rgba(203, 213, 225, 0.9) !important;
+  background: #fff !important;
+  color: #334155 !important;
+}
+
+.notes-explorer-shell .notes-cheatsheet-card__save {
+  border-color: rgba(124, 58, 237, 0.7) !important;
+  background: linear-gradient(135deg, #7c3aed, #8b5cf6) !important;
+  color: #fff !important;
+}
+
+.notes-explorer-shell .notes-cheatsheet-code {
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.notes-explorer-shell .notes-cheatsheet-code.is-viewing {
+  max-height: min(66vh, 720px);
+}
+
+.notes-explorer-shell .notes-cheatsheet-code__toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  min-height: 2.55rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.8rem;
+  border-bottom: 1px solid rgba(196, 181, 253, 0.3);
+  background: linear-gradient(90deg, rgba(245, 243, 255, 0.97), rgba(240, 249, 255, 0.94));
+  box-shadow: 0 5px 14px rgba(79, 70, 229, 0.045);
+  backdrop-filter: blur(10px);
+}
+
+.notes-explorer-shell .notes-cheatsheet-code__language {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.notes-explorer-shell .notes-cheatsheet-code__status {
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.notes-explorer-shell .notes-cheatsheet-code pre.notes-python-code {
+  background: #ffffff !important;
+  padding: 0.75rem 0 0.9rem !important;
+  font-size: 0.9rem !important;
+  line-height: 1.62 !important;
+}
+
+.notes-explorer-shell .notes-cheatsheet-code .notes-python-code__line {
+  min-height: 1.5rem;
+  grid-template-columns: 2.8rem minmax(0, 1fr);
+}
+
+.notes-explorer-shell .notes-cheatsheet-code .notes-python-code__line-number {
+  border-right-color: rgba(226, 232, 240, 0.96);
+  background: #f8fafc;
+  color: #94a3b8;
+  padding: 0 0.62rem 0 0.45rem;
+}
+
+.notes-explorer-shell .notes-cheatsheet-code .notes-python-code__line-content {
+  padding: 0 1rem 0 0.85rem;
+}
+
+.notes-explorer-shell .notes-cheatsheet-code .notes-python-code__line:hover .notes-python-code__line-number,
+.notes-explorer-shell .notes-cheatsheet-code .notes-python-code__line:hover .notes-python-code__line-content {
+  background: rgba(245, 243, 255, 0.46);
+}
+
+.notes-explorer-shell .notes-cheatsheet-editor {
+  border-radius: 0;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-cheatsheet {
+  background: linear-gradient(90deg, #18152b, #101827 54%, #0d2130);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-cheatsheet td {
+  border-top-color: rgba(71, 85, 105, 0.68) !important;
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-cheatsheet:hover,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-preview-open {
+  background: linear-gradient(90deg, #21183c, #172033 52%, #102b3c);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-cheatsheet:hover td,
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-preview-open td {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned {
+  background: linear-gradient(90deg, #332510, #1d1a25 18%, #18162c 60%, #102735);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-explorer-file-row.is-cheatsheet.is-pinned td {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-preview-panel {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(124, 58, 237, 0.14), transparent 34%),
+    radial-gradient(circle at 92% 0%, rgba(14, 165, 233, 0.09), transparent 30%),
+    #0b1220 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-card {
+  border-color: rgba(71, 85, 105, 0.72);
+  background: #0f172a;
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.28);
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-card__header {
+  border-bottom-color: rgba(71, 85, 105, 0.68);
+  background: linear-gradient(135deg, #111b2d, #17162b) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-card__meta-item {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-card__edit {
+  border-color: rgba(71, 85, 105, 0.8) !important;
+  background: rgba(15, 23, 42, 0.86) !important;
+  color: #cbd5e1 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-code,
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-code pre.notes-python-code {
+  background: #0b1220 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-code__toolbar {
+  border-bottom-color: rgba(71, 85, 105, 0.68);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-code__language {
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-code .notes-python-code__line-number {
+  border-right-color: rgba(71, 85, 105, 0.7);
+  background: #0f172a;
+  color: #64748b;
+}
+
+@media (max-width: 760px) {
+  .notes-explorer-shell .notes-cheatsheet-preview-panel {
+    padding: 0.5rem;
+  }
+
+  .notes-explorer-shell .notes-cheatsheet-card__header {
+    padding: 0.75rem;
+  }
+
+  .notes-explorer-shell .notes-cheatsheet-card__title {
+    max-width: 100%;
+  }
+
+  .notes-explorer-shell .notes-cheatsheet-card__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .notes-explorer-shell .notes-cheatsheet-card__button.notes-cheatsheet-card__action-button {
+    width: 100%;
+  }
+
+  .notes-explorer-shell .notes-cheatsheet-card__meta-item {
+    white-space: normal;
+  }
+}

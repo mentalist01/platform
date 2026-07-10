@@ -3138,6 +3138,9 @@ const NotesSection = ({
                       ? getCodeInlinePreviewText(inlineCodeSource, pyLoadingId === f.id)
                       : '';
                     const cheatsheetSourceCode = isCheatsheet && hasLoadedPyContent ? String(pyContent[f.id] ?? '') : '';
+                    const cheatsheetLineCount = cheatsheetSourceCode
+                      ? cheatsheetSourceCode.split(/\r?\n/).length
+                      : 0;
                     const canCopyCheatsheetCode = Boolean(
                       isCheatsheet
                         && !isEditingCurrentPy
@@ -3393,11 +3396,13 @@ const NotesSection = ({
                           <td className="px-3 py-2.5 text-slate-600">
                             <div className="flex flex-col gap-0.5">
                               <span className={isSolutionBundle || isCheatsheet ? 'font-bold text-slate-700' : ''}>
-                                {isSolutionBundle ? 'Задание + решение' : (isCheatsheet ? 'Шпаргалка' : f.size)}
+                                {isSolutionBundle ? 'Задание + решение' : (isCheatsheet ? 'Python' : f.size)}
                               </span>
                               {!isSearchMode && (
                                 <span className="text-xs text-slate-400">
-                                  {isSolutionBundle || isCheatsheet ? f.size : getFileTypeLabel(f)}
+                                  {isCheatsheet && cheatsheetLineCount > 0
+                                    ? `${cheatsheetLineCount} строк · ${f.size}`
+                                    : (isSolutionBundle || isCheatsheet ? f.size : getFileTypeLabel(f))}
                                 </span>
                               )}
                             </div>
@@ -3438,13 +3443,13 @@ const NotesSection = ({
                                   <Users size={16} />
                                 </button>
                               )}
-                              {isPreviewable && !isMemoryCodeCard && (
+                              {isPreviewable && (!isMemoryCodeCard || isCheatsheet) && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     toggleFilePreview(f);
                                   }}
-                                  className="notes-explorer-file-action-btn notes-explorer-folder-open-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  className={`notes-explorer-file-action-btn notes-explorer-folder-open-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 ${isCheatsheet ? 'notes-cheatsheet-open-btn' : ''}`}
                                   title={isSolutionBundle || isCheatsheet ? solutionActionTitle : (isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
                                   type="button"
                                 >
@@ -3805,9 +3810,6 @@ const NotesSection = ({
                                           <PythonLogoIcon size={22} colored />
                                         </span>
                                         <div className="notes-cheatsheet-card__body">
-                                          <div className="notes-cheatsheet-card__eyebrow-line">
-                                            <span className="notes-cheatsheet-card__mode-badge">Сохраненный код</span>
-                                          </div>
                                           <div className="notes-cheatsheet-card__title-line">
                                             <h4 className="notes-cheatsheet-card__title">{solutionTitle}</h4>
                                             {solutionTaskDisplay && (
@@ -3815,6 +3817,18 @@ const NotesSection = ({
                                                 <BookOpen size={12} strokeWidth={2.4} />
                                                 №{solutionTaskDisplay}
                                               </span>
+                                            )}
+                                          </div>
+                                          <div className="notes-cheatsheet-card__meta-line">
+                                            <span className="notes-cheatsheet-card__mode-badge">Шпаргалка</span>
+                                            {sourceLabel && sourceLabel !== 'Шпаргалка' && (
+                                              <span className="notes-cheatsheet-card__meta-item">{sourceLabel}</span>
+                                            )}
+                                            {addedAtLabel && (
+                                              <span className="notes-cheatsheet-card__meta-item">Сохранено {addedAtLabel}</span>
+                                            )}
+                                            {cheatsheetLineCount > 0 && (
+                                              <span className="notes-cheatsheet-card__meta-item">Строк: {cheatsheetLineCount}</span>
                                             )}
                                           </div>
                                         </div>
@@ -3828,11 +3842,12 @@ const NotesSection = ({
                                               cancelEditingPyFile();
                                             }}
                                             disabled={pyEditSaving}
-                                            className="notes-cheatsheet-card__button notes-cheatsheet-card__icon-button"
+                                            className="notes-cheatsheet-card__button notes-cheatsheet-card__action-button"
                                             title="Отмена"
                                             aria-label="Отмена"
                                           >
                                             <X size={15} strokeWidth={2.4} />
+                                            <span>Отмена</span>
                                           </Button>
                                           <Button
                                             onClick={(e) => {
@@ -3840,11 +3855,12 @@ const NotesSection = ({
                                               saveEditingPyFile(f);
                                             }}
                                             disabled={pyEditSaving}
-                                            className="notes-cheatsheet-card__button notes-cheatsheet-card__icon-button"
+                                            className="notes-cheatsheet-card__button notes-cheatsheet-card__action-button notes-cheatsheet-card__save"
                                             title={pyEditSaving ? 'Сохранение...' : 'Сохранить'}
                                             aria-label={pyEditSaving ? 'Сохранение...' : 'Сохранить'}
                                           >
                                             <Check size={15} strokeWidth={2.5} />
+                                            <span>{pyEditSaving ? 'Сохраняем...' : 'Сохранить'}</span>
                                           </Button>
                                         </div>
                                       ) : (
@@ -3856,7 +3872,7 @@ const NotesSection = ({
                                               handleCopyCheatsheetCode(f.id, cheatsheetSourceCode);
                                             }}
                                             disabled={!canCopyCheatsheetCode}
-                                            className={`notes-cheatsheet-card__button notes-cheatsheet-card__icon-button notes-cheatsheet-card__copy ${isCheatsheetCopied ? 'is-copied' : ''}`}
+                                            className={`notes-cheatsheet-card__button notes-cheatsheet-card__action-button notes-cheatsheet-card__copy ${isCheatsheetCopied ? 'is-copied' : ''}`}
                                             title={isCheatsheetCopied ? 'Скопировано' : 'Скопировать код'}
                                             aria-label={isCheatsheetCopied ? 'Скопировано' : 'Скопировать код'}
                                           >
@@ -3865,6 +3881,7 @@ const NotesSection = ({
                                             ) : (
                                               <Copy size={14} strokeWidth={2.3} />
                                             )}
+                                            <span>{isCheatsheetCopied ? 'Скопировано' : 'Копировать'}</span>
                                           </Button>
                                           <Button
                                             variant="secondary"
@@ -3873,16 +3890,28 @@ const NotesSection = ({
                                               startEditingPyFile(f);
                                             }}
                                             disabled={pyLoadingId === f.id || Boolean(pyError[f.id]) || !manageable}
-                                            className="notes-cheatsheet-card__button notes-cheatsheet-card__icon-button notes-cheatsheet-card__edit"
+                                            className="notes-cheatsheet-card__button notes-cheatsheet-card__action-button notes-cheatsheet-card__edit"
                                             title="Редактировать код"
                                             aria-label="Редактировать код"
                                           >
                                             <Pencil size={14} strokeWidth={2.3} />
+                                            <span>Редактировать</span>
                                           </Button>
                                         </div>
                                       )}
                                     </div>
                                     <div className={`notes-cheatsheet-code ${isEditingCurrentPy ? 'is-editing' : 'is-viewing'}`}>
+                                      <div className="notes-cheatsheet-code__toolbar">
+                                        <span className="notes-cheatsheet-code__language">
+                                          <PythonLogoIcon size={16} colored />
+                                          Python
+                                        </span>
+                                        <span className="notes-cheatsheet-code__status">
+                                          {isEditingCurrentPy
+                                            ? 'Режим редактирования'
+                                            : (cheatsheetLineCount > 0 ? `${cheatsheetLineCount} строк` : 'Пустая шпаргалка')}
+                                        </span>
+                                      </div>
                                       {isEditingCurrentPy ? (
                                         <div className="notes-cheatsheet-editor" onClick={(e) => e.stopPropagation()}>
                                           <Editor
