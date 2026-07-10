@@ -5028,9 +5028,7 @@ const CallSection = ({
     ? 'Проблема со связью'
     : isConnecting
       ? 'Подключаем...'
-      : hasRemoteParticipant
-        ? `${remoteParticipantTitle} уже в комнате`
-        : 'Перед входом';
+      : '';
   const callHeroDescription = !activeStudentId && isTeacher
     ? 'Сначала выберите ученика.'
     : !roomId
@@ -5110,7 +5108,7 @@ const CallSection = ({
         : 'idle';
   const prejoinCheckButtonLabel = prejoinCheck.status === 'idle' ? 'Проверить устройства' : 'Проверить снова';
   const prejoinWaitingCopy = hasRemoteParticipant
-    ? 'Можно начинать урок.'
+    ? 'Участник уже в комнате.'
     : 'Можно войти и подождать в звонке.';
   const lessonChatMetaSummary = chatBadgeText
     ? `${chatBadgeText} ${Number(chatBadgeText) === 1 ? 'новое сообщение' : 'новых сообщения'}`
@@ -5254,16 +5252,20 @@ const CallSection = ({
     : `${labeledControlButtonClass} call-primary-cta h-12 min-w-[184px] rounded-xl border border-violet-600 bg-violet-600 px-5 text-[15px] text-white hover:bg-violet-500`;
   const waitingCardClass = isDarkTheme
     ? 'call-waiting-card flex flex-col rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-[0_18px_40px_rgba(2,6,23,0.28)]'
-    : 'call-waiting-card flex flex-col rounded-2xl border border-slate-800 bg-slate-950 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.16)]';
+    : 'call-waiting-card flex flex-col rounded-2xl border border-violet-200 bg-white p-5 shadow-[0_18px_40px_rgba(76,29,149,0.1)]';
   const waitingAvatarClass = isDarkTheme
     ? 'call-waiting-avatar relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-violet-400/24 bg-violet-500/16 text-lg font-semibold text-violet-100'
-    : 'call-waiting-avatar relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-violet-400/24 bg-violet-500/16 text-lg font-semibold text-violet-100';
+    : 'call-waiting-avatar relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-violet-200 bg-violet-50 text-lg font-semibold text-violet-700';
   const waitingRoleClass = isDarkTheme
     ? 'call-waiting-role text-[11px] font-semibold uppercase text-slate-400'
-    : 'call-waiting-role text-[11px] font-semibold uppercase text-slate-400';
-  const waitingNameClass = 'call-waiting-name mt-1 text-[17px] font-semibold text-white';
-  const waitingMetaClass = 'text-sm font-medium leading-6 text-slate-200';
-  const waitingPresenceRowClass = 'call-waiting-presence mt-6 flex items-center gap-3 text-slate-300';
+    : 'call-waiting-role text-[11px] font-semibold uppercase text-violet-600/80';
+  const waitingNameClass = isDarkTheme
+    ? 'call-waiting-name mt-1 text-[17px] font-semibold text-white'
+    : 'call-waiting-name mt-1 text-[17px] font-semibold text-slate-900';
+  const waitingMetaClass = isDarkTheme ? 'text-sm font-medium leading-6 text-slate-200' : 'text-sm font-medium leading-6 text-slate-700';
+  const waitingPresenceRowClass = isDarkTheme
+    ? 'call-waiting-presence mt-6 flex items-center gap-3 text-slate-300'
+    : 'call-waiting-presence mt-6 flex items-center gap-3 text-slate-600';
   const micSensitivityLabelClass = isDarkTheme ? 'text-xs font-semibold text-slate-200' : 'text-xs font-semibold text-slate-700';
   const neutralControlClass = isDarkTheme
     ? 'border-slate-700/80 bg-slate-900/80 text-slate-200 hover:bg-slate-800'
@@ -5546,7 +5548,7 @@ const CallSection = ({
           )}
           <header className="call-main-header">
             <div className="min-w-0">
-              <p className={headerEyebrowClass}>{callHeaderEyebrow}</p>
+              {callHeaderEyebrow && <p className={headerEyebrowClass}>{callHeaderEyebrow}</p>}
               <h2 className={headerTitleClass}>{callHeaderTitle}</h2>
               {callHeaderSubtitle && <p className={headerSubtitleClass}>{callHeaderSubtitle}</p>}
               {headerStatusPills.length > 0 && (
@@ -5656,23 +5658,25 @@ const CallSection = ({
                       </div>
                       <div className="call-prejoin-glance">
                         {prejoinDeviceChecks.map(({ key, icon, label, value, tone }) => (
-                          <div key={key} className="call-prejoin-glance-card" data-tone={tone}>
+                          <div key={key} className="call-prejoin-glance-card" data-tone={tone} aria-label={`${label}: ${value}`}>
                             <span className="call-prejoin-glance-icon" aria-hidden="true">
                               {React.createElement(icon, { size: 16 })}
                             </span>
                             <div className="min-w-0 space-y-1">
                               <p className="call-prejoin-glance-label">{label}</p>
-                              <p className="call-prejoin-glance-value" aria-label={`${label}: ${value}`}>{value}</p>
+                              {tone !== 'idle' && (
+                                <p className="call-prejoin-glance-value" aria-label={`${label}: ${value}`}>{value}</p>
+                              )}
                             </div>
-                            <span className="call-prejoin-glance-state" data-tone={tone} aria-hidden="true">
-                              {tone === 'checking'
-                                ? <Loader2 size={16} className="animate-spin" />
-                                : tone === 'good'
-                                  ? <CheckCircle2 size={16} />
-                                  : tone === 'problem'
-                                    ? <AlertCircle size={16} />
-                                    : <span className="call-prejoin-glance-state-dot" />}
-                            </span>
+                            {tone !== 'idle' && (
+                              <span className="call-prejoin-glance-state" data-tone={tone} aria-hidden="true">
+                                {tone === 'checking'
+                                  ? <Loader2 size={16} className="animate-spin" />
+                                  : tone === 'good'
+                                    ? <CheckCircle2 size={16} />
+                                    : <AlertCircle size={16} />}
+                              </span>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -5682,7 +5686,6 @@ const CallSection = ({
                     </div>
                   </div>
                   <aside className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
-                    <p className="call-waiting-card-kicker">Участник урока</p>
                     <div className="call-waiting-identity">
                       <div className={waitingAvatarClass}>{remoteParticipantInitial}</div>
                       <div className="min-w-0">
@@ -5692,10 +5695,7 @@ const CallSection = ({
                     </div>
                     <div className={waitingPresenceRowClass}>
                       <span className="call-waiting-presence-dot" data-live={hasRemoteParticipant ? 'true' : 'false'} aria-hidden="true" />
-                      <div className="min-w-0">
-                        <p className="call-waiting-status-label">Статус</p>
-                        <p className={waitingMetaClass}>{remoteParticipantStatusShort}</p>
-                      </div>
+                      <p className={waitingMetaClass}>{remoteParticipantStatusShort}</p>
                     </div>
                     <p className="call-waiting-state-copy">{prejoinWaitingCopy}</p>
                     {showInlineLessonChat && (
