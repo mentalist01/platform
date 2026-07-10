@@ -9773,6 +9773,128 @@ html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .col
     min-width: 132px !important;
   }
 }
+
+/* IDE chrome: console has its own header, global status bar stays at the bottom. */
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-editor-statusbar {
+  min-height: 28px;
+  flex-basis: 28px;
+  padding-inline: 10px;
+  border-top: 1px solid var(--collab-code-line) !important;
+  border-bottom: 0 !important;
+  background: color-mix(in srgb, var(--collab-code-panel-soft) 88%, var(--collab-code-panel)) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 48%, transparent),
+    0 -6px 18px -18px color-mix(in srgb, var(--collab-code-text) 30%, transparent) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-editor-statusbar {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    inset 0 7px 16px -16px rgba(0, 0, 0, 0.72) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-resize-handle {
+  height: 8px !important;
+  flex-basis: 8px !important;
+  border: 0 !important;
+  background: var(--collab-code-bg) !important;
+  box-shadow: inset 0 1px 0 var(--collab-code-line) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-resize-handle__line {
+  display: none !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-resize-handle__thumb {
+  width: 32px !important;
+  height: 2px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: var(--collab-code-line-strong) !important;
+  color: transparent !important;
+  box-shadow: none !important;
+  opacity: 0.62;
+  transform: none !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-resize-handle__thumb svg {
+  display: none;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-resize-handle:hover {
+  background: color-mix(in srgb, var(--collab-code-accent-soft) 28%, var(--collab-code-bg)) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-resize-handle:hover .collab-output-resize-handle__thumb {
+  background: var(--collab-code-accent) !important;
+  opacity: 0.92;
+  transform: none !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-pane--below-code .collab-output-header-reference {
+  position: relative;
+  min-height: 40px;
+  flex-basis: 40px;
+  padding-inline: 12px 10px;
+  border-top: 1px solid var(--collab-code-line-strong) !important;
+  border-bottom: 1px solid var(--collab-code-line) !important;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--collab-code-accent-soft) 68%, var(--collab-code-panel)) 0%,
+      color-mix(in srgb, var(--collab-code-panel-soft) 88%, var(--collab-code-panel)) 24%,
+      color-mix(in srgb, var(--collab-code-panel-soft) 88%, var(--collab-code-panel)) 100%
+    ) !important;
+  box-shadow:
+    inset 3px 0 0 var(--collab-code-accent),
+    inset 0 1px 0 color-mix(in srgb, white 56%, transparent) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-title-reference {
+  gap: 8px;
+  color: var(--collab-code-text) !important;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-title-reference svg {
+  box-sizing: content-box;
+  width: 13px;
+  height: 13px;
+  padding: 4px;
+  border: 1px solid var(--collab-code-accent-line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--collab-code-accent-soft) 78%, var(--collab-code-panel));
+  color: var(--collab-code-accent) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-actions-reference {
+  gap: 6px;
+  color: var(--collab-code-muted) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-actions-reference > span,
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-actions-reference > button {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-actions-reference > span:hover,
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-actions-reference > button:hover {
+  background: color-mix(in srgb, var(--collab-code-accent-soft) 62%, transparent);
+  color: var(--collab-code-accent) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-pane--below-code .collab-output-header-reference {
+  box-shadow:
+    inset 3px 0 0 var(--collab-code-accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+}
 @media (max-width: 768px) {
   .call-prejoin-stage {
     min-height: auto;
@@ -61514,6 +61636,344 @@ html[data-theme='dark'] .call-panel-root--prejoin[data-call-role='student'] .cal
   }
 }
 
+/* Pre-join workspace: keep the preview and all lesson actions in two cohesive columns. */
+.call-panel-root--prejoin[data-call-role] {
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-experience-grid {
+  margin-top: 0.75rem;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-stage {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'intro'
+    'preview'
+    'side';
+  min-height: 0;
+  align-items: start;
+  gap: clamp(1rem, 1.6vw, 1.5rem);
+  padding: clamp(1.1rem, 1.7vw, 1.5rem);
+  border-radius: 1.5rem;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-main {
+  display: contents;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-intro {
+  grid-area: intro;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-preview {
+  grid-area: preview;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-title {
+  max-width: none;
+  margin-top: 0;
+  font-size: clamp(2rem, 2.7vw, 2.6rem);
+  line-height: 1.06;
+  letter-spacing: -0.035em;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-intro > p:last-child {
+  margin-top: 0.55rem;
+  line-height: 1.45;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-preview {
+  height: auto;
+  min-height: 340px;
+  max-height: 440px;
+  aspect-ratio: 16 / 8.5;
+  border-radius: 1.15rem;
+  box-shadow:
+    inset 0 0 0 1px rgba(71, 85, 105, 0.42),
+    0 14px 30px rgba(15, 23, 42, 0.14);
+}
+
+.call-prejoin-side-stack {
+  grid-area: side;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-self: stretch;
+  padding: 1rem;
+  border: 1px solid rgba(221, 214, 254, 0.72);
+  border-radius: 1.3rem;
+  background: linear-gradient(180deg, rgb(250, 250, 255), rgb(247, 248, 252));
+  box-shadow:
+    0 10px 24px rgba(76, 29, 149, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-side-stack .call-waiting-card {
+  order: 1;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  align-self: auto;
+  justify-self: auto;
+  padding: 0.25rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-waiting-avatar {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.9rem;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-waiting-presence {
+  width: fit-content;
+  margin-top: 0.8rem;
+  gap: 0.55rem;
+  padding: 0.34rem 0.58rem;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 999px;
+  background: white;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-waiting-state-copy {
+  max-width: none;
+  margin-top: 0.65rem;
+  color: rgb(71, 85, 105);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-side-actions {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-side-actions .call-primary-cta,
+.call-panel-root--prejoin[data-call-role] .call-prejoin-side-actions > button {
+  min-height: 2.85rem;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-side-actions .call-primary-cta {
+  border-radius: 0.85rem;
+  box-shadow:
+    0 7px 16px rgba(124, 58, 237, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.call-panel-root--prejoin[data-call-role] .call-waiting-chat-link {
+  margin-top: 0.55rem;
+  border-color: rgba(196, 181, 253, 0.72);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: none;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-side-stack .call-device-panel {
+  grid-area: auto;
+  order: 2;
+  width: 100%;
+  max-width: none;
+  margin-top: auto;
+  padding: 0;
+  border: 0;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 0;
+  padding: 0.9rem 0.25rem 0.1rem;
+  border: 0;
+  border-top: 1px solid rgba(203, 213, 225, 0.72);
+  border-radius: 0;
+  background: transparent;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card[data-tone='checking'] {
+  border-top-color: rgba(245, 158, 11, 0.38);
+  background: transparent;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card[data-tone='good'] {
+  border-top-color: rgba(16, 185, 129, 0.34);
+  background: transparent;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card[data-tone='problem'] {
+  border-top-color: rgba(244, 63, 94, 0.38);
+  background: transparent;
+}
+
+.call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card .call-device-check-action {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  height: 2.625rem !important;
+  min-height: 2.625rem;
+  justify-content: center;
+  margin: 0.05rem 0 0;
+  padding-inline: 0.75rem;
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: none !important;
+}
+
+.call-panel-root--prejoin[data-call-role='teacher'] {
+  padding-bottom: 0.75rem !important;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.call-panel-root--prejoin[data-call-role='teacher']::-webkit-scrollbar {
+  display: none;
+}
+
+.call-panel-root--prejoin[data-call-role='teacher'] > .call-section-shell {
+  padding: 1rem 1.25rem 1.25rem !important;
+}
+
+.call-panel-root--prejoin[data-call-role='teacher'] .call-main-header {
+  min-height: 0;
+}
+
+.call-panel-root--prejoin[data-call-role='teacher'] .call-main-title {
+  margin-top: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.call-panel-root--prejoin[data-call-role='teacher'] .call-teacher-picker {
+  margin-top: 0.65rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 1rem;
+}
+
+.call-panel-root--prejoin[data-call-role='teacher'] .call-prejoin-side-stack .call-teacher-picker {
+  order: 0;
+  width: 100%;
+  margin-top: 0;
+  padding: 0.1rem 0.25rem 0.25rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.call-panel-root--prejoin[data-call-role='teacher'] .call-prejoin-side-stack .call-teacher-picker > div {
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: center;
+}
+
+.call-panel-root--prejoin[data-call-role='teacher'] .call-experience-grid {
+  margin-top: 0.75rem;
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-prejoin-side-stack .call-waiting-card {
+  border: 0;
+  background: transparent;
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-prejoin-side-stack {
+  border-color: rgba(71, 85, 105, 0.58);
+  background: linear-gradient(180deg, rgb(24, 23, 43), rgb(19, 20, 35));
+  box-shadow:
+    0 12px 26px rgba(2, 6, 23, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-waiting-presence {
+  border-color: rgba(71, 85, 105, 0.68);
+  background: rgba(15, 23, 42, 0.74);
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-waiting-state-copy {
+  color: rgb(148, 163, 184);
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card {
+  border-top-color: rgba(71, 85, 105, 0.62);
+  background: transparent;
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card[data-tone='checking'] {
+  border-top-color: rgba(245, 158, 11, 0.42);
+  background: transparent;
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card[data-tone='good'] {
+  border-top-color: rgba(52, 211, 153, 0.38);
+  background: transparent;
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card[data-tone='problem'] {
+  border-top-color: rgba(251, 113, 133, 0.42);
+  background: transparent;
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-prejoin-connection-card .call-device-check-action {
+  border-color: rgba(124, 58, 237, 0.44);
+  background: rgba(30, 41, 59, 0.78);
+}
+
+html[data-theme='dark'] .call-panel-root--prejoin[data-call-role] .call-waiting-chat-link {
+  border-color: rgba(124, 58, 237, 0.4);
+  background: rgba(30, 27, 75, 0.5);
+}
+
+@media (min-width: 960px) {
+  .call-panel-root--prejoin[data-call-role] .call-prejoin-stage {
+    grid-template-columns: minmax(0, 1fr) clamp(330px, 21vw, 380px);
+    grid-template-areas:
+      'intro intro'
+      'preview side';
+  }
+
+  .call-panel-root--prejoin[data-call-role='teacher'] .call-prejoin-preview {
+    height: auto;
+    min-height: 320px;
+    max-height: 410px;
+    aspect-ratio: 16 / 8.5;
+  }
+}
+
+@media (max-width: 959px) {
+  .call-panel-root--prejoin[data-call-role] .call-prejoin-preview {
+    height: auto;
+    min-height: 280px;
+    max-height: 420px;
+    aspect-ratio: 16 / 9;
+  }
+}
+
+@media (max-width: 640px) {
+  .call-panel-root--prejoin[data-call-role] .call-prejoin-stage {
+    padding: 1rem;
+    border-radius: 1.25rem;
+  }
+
+  .call-panel-root--prejoin[data-call-role] .call-prejoin-title {
+    font-size: 1.85rem;
+  }
+
+  .call-panel-root--prejoin[data-call-role] .call-prejoin-preview {
+    height: 250px;
+    min-height: 230px;
+    max-height: none;
+    aspect-ratio: auto;
+  }
+
+  .call-panel-root--prejoin[data-call-role='teacher'] > .call-section-shell {
+    padding: 0.75rem !important;
+  }
+}
+
 /* Collaborative code: a clearer IDE surface and a deliberate bridge to the board. */
 .collab-editor-file-icon {
   display: inline-flex;
@@ -61929,5 +62389,192 @@ html[data-theme='dark'] .collab-code-toolbar-cluster {
 
   .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled) {
     min-width: 132px !important;
+  }
+}
+
+/* Final cleanup for the shared code workspace: slimmer seam, calmer controls, solid footer. */
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row.collab-code-command-row--modern {
+  box-shadow: inset 0 -1px 0 var(--collab-code-line) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button::after {
+  display: none !important;
+  content: none !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled) {
+  box-shadow:
+    0 2px 5px color-mix(in srgb, var(--collab-code-run) 19%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled):hover {
+  box-shadow:
+    0 3px 7px color-mix(in srgb, var(--collab-code-run-hover) 22%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-toolbar-cluster,
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button.is-files {
+  box-shadow: none !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern button:focus-visible {
+  outline: 1px solid var(--collab-code-accent) !important;
+  outline-offset: 1px !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-pane--below-code .collab-result-card,
+html:not([data-theme='dark']) .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-pane--below-code .collab-result-card,
+html[data-theme='dark'] .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-pane--below-code .collab-result-card {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-pane--below-code .collab-result-body,
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-pane--below-code .collab-result-console {
+  border-radius: 0 !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-editor-statusbar {
+  box-sizing: border-box;
+  min-height: 30px;
+  flex-basis: 30px;
+  border: 1px solid var(--collab-code-line) !important;
+  border-top-color: var(--collab-code-line-strong) !important;
+  border-radius: 0 !important;
+  background: color-mix(in srgb, var(--collab-code-panel-soft) 96%, var(--collab-code-panel)) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 48%, transparent) !important;
+}
+
+html[data-theme='dark'] .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-editor-statusbar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+}
+
+@media (min-width: 1100px) {
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer {
+    --collab-board-seam-visual-offset: 0px;
+    width: 34px !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer__label {
+    display: flex !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer__track {
+    left: 50% !important;
+    width: 2px !important;
+    background:
+      linear-gradient(
+        180deg,
+        transparent 0%,
+        color-mix(in srgb, var(--collab-code-line-strong) 72%, transparent) 11%,
+        color-mix(in srgb, var(--collab-code-line-strong) 72%, transparent) 43%,
+        color-mix(in srgb, var(--collab-code-accent) 44%, transparent) 50%,
+        color-mix(in srgb, var(--collab-code-line-strong) 72%, transparent) 57%,
+        color-mix(in srgb, var(--collab-code-line-strong) 72%, transparent) 89%,
+        transparent 100%
+      ) !important;
+    opacity: 0.72 !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer__thumb {
+    left: 50% !important;
+    top: 50% !important;
+    display: grid !important;
+    width: 32px !important;
+    height: 62px !important;
+    grid-template-columns: 9px 2px 9px;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 1px solid color-mix(in srgb, var(--collab-code-accent-line) 70%, var(--collab-code-line-strong)) !important;
+    border-radius: 14px !important;
+    background: color-mix(in srgb, var(--collab-code-panel) 94%, transparent) !important;
+    color: var(--collab-code-accent) !important;
+    box-shadow:
+      0 8px 20px rgba(44, 72, 116, 0.14),
+      var(--collab-code-inner-shadow) !important;
+    backdrop-filter: blur(10px);
+    transform: translate(-50%, -50%) !important;
+    transition:
+      border-color 150ms ease,
+      background-color 150ms ease,
+      box-shadow 150ms ease !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer__thumb svg {
+    display: block !important;
+    width: 9px;
+    height: 12px;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer__grip {
+    width: 2px !important;
+    height: 26px !important;
+    border-radius: 999px !important;
+    background: color-mix(in srgb, var(--collab-code-accent) 62%, var(--collab-code-line-strong)) !important;
+    box-shadow: none !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer:hover .collab-board-code-resizer__thumb,
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer:focus-visible .collab-board-code-resizer__thumb {
+    border-color: var(--collab-code-accent-line) !important;
+    background: color-mix(in srgb, var(--collab-code-accent-soft) 40%, var(--collab-code-panel)) !important;
+    transform: translate(-50%, -50%) !important;
+    box-shadow:
+      0 5px 13px color-mix(in srgb, var(--collab-code-accent) 14%, transparent),
+      var(--collab-code-inner-shadow) !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--teacher {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto auto;
+    align-items: stretch !important;
+    gap: 7px !important;
+    min-height: 0 !important;
+    padding: 8px 10px !important;
+    overflow: visible !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--teacher .collab-code-toolbar {
+    grid-row: 1;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--teacher .collab-code-action-dock-wrap {
+    grid-row: 2;
+    width: 100%;
+    min-width: 0;
+    padding-top: 7px;
+    border-top: 1px solid var(--collab-code-line);
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--teacher .collab-top-actions {
+    width: 100%;
+    height: auto;
+    min-width: 0;
+    flex-wrap: nowrap !important;
+    justify-content: flex-end;
+    gap: 7px !important;
+    padding-left: 0 !important;
+    border-left: 0 !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--teacher .collab-student-picker {
+    min-width: 0;
+    max-width: 300px;
+    flex: 1 1 220px;
+    border-radius: 11px;
+    box-shadow: none !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--teacher .collab-student-picker > div {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--teacher .collab-student-picker input {
+    width: 100%;
+    min-width: 0 !important;
   }
 }

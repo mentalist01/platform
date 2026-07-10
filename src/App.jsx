@@ -6931,7 +6931,7 @@ const CollabSection = ({
   const renderStudentPicker = () => {
     if (!isTeacher) return null;
     return (
-      <div className={`inline-flex w-full sm:w-auto items-center rounded-2xl border ${
+      <div className={`collab-student-picker inline-flex w-full sm:w-auto items-center rounded-2xl border ${
         isCollabFullscreen
           ? (isFullscreenDark
             ? 'border-slate-600/80 bg-slate-900/78 shadow-[inset_0_1px_0_rgba(148,163,184,0.14)]'
@@ -7321,26 +7321,6 @@ const CollabSection = ({
           </button>
         ))}
       </div>
-      {useBoardGlassCodePanel && (
-        <div className="collab-editor-statusbar" aria-label="Состояние редактора">
-          <div className="collab-editor-statusbar__group">
-            <span className={`collab-editor-statusbar__connection is-${status || 'idle'}`}>
-              <span aria-hidden="true" />
-              {statusLabel}
-            </span>
-            <span className="collab-editor-statusbar__peers" title={`Участников онлайн: ${peerCount}`}>
-              <Users size={12} aria-hidden="true" />
-              {Math.max(0, Number(peerCount) || 0)}
-            </span>
-          </div>
-          <div className="collab-editor-statusbar__group collab-editor-statusbar__meta">
-            <span>{`Стр ${editorCursorPosition.lineNumber}, стлб ${editorCursorPosition.column}`}</span>
-            <span>Пробелы: 4</span>
-            <span>UTF-8</span>
-            <span>Python 3</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 
@@ -8545,7 +8525,7 @@ const CollabSection = ({
         )}
 
         <div className="collab-code-glass-layer">
-        <div className={`collab-code-command-row collab-code-command-row--modern ${isCollabDarkUi ? 'collab-code-command-row--dark' : 'collab-code-command-row--light'} ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
+        <div className={`collab-code-command-row collab-code-command-row--modern ${isTeacher && !useBoardGlassCodePanel ? 'collab-code-command-row--teacher' : 'collab-code-command-row--student'} ${isCollabDarkUi ? 'collab-code-command-row--dark' : 'collab-code-command-row--light'} ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
           <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center rounded-xl border ${
             isCollabFullscreen
               ? 'min-w-0 flex-1 rounded-xl px-0.5 py-px sm:px-1 sm:py-0.5'
@@ -8790,7 +8770,7 @@ const CollabSection = ({
           </div>
           {(isCollabFullscreen || isDesktopCollabCompact) && (
             <>
-              {mergeHeaderIntoToolbar && collabTopActions && (
+              {mergeHeaderIntoToolbar && collabTopActions && !useBoardGlassCodePanel && (
                 <div className="collab-code-action-dock-wrap ml-auto flex flex-wrap items-center gap-1.5">
                   {collabTopActions}
                 </div>
@@ -8817,6 +8797,26 @@ const CollabSection = ({
                   {editorPane}
                 </div>
                 {stackedOutputPane}
+                {useBoardGlassCodePanel && (
+                  <div className="collab-editor-statusbar" aria-label="Состояние редактора">
+                    <div className="collab-editor-statusbar__group">
+                      <span className={`collab-editor-statusbar__connection is-${status || 'idle'}`}>
+                        <span aria-hidden="true" />
+                        {statusLabel}
+                      </span>
+                      <span className="collab-editor-statusbar__peers" title={`Участников онлайн: ${peerCount}`}>
+                        <Users size={12} aria-hidden="true" />
+                        {Math.max(0, Number(peerCount) || 0)}
+                      </span>
+                    </div>
+                    <div className="collab-editor-statusbar__group collab-editor-statusbar__meta">
+                      <span>{`Стр ${editorCursorPosition.lineNumber}, стлб ${editorCursorPosition.column}`}</span>
+                      <span>Пробелы: 4</span>
+                      <span>UTF-8</span>
+                      <span>Python 3</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

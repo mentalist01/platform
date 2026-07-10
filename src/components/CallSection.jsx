@@ -5141,7 +5141,7 @@ const CallSection = ({
       ? 'Нет доступа к камере'
       : 'Камера выключена';
   const prejoinMediaBusy = prejoinCheckBusy || micBusy || cameraBusy || isConnecting;
-  const showCallMainHeader = isConnected || isTeacher || isFloatingUi;
+  const showCallMainHeader = isConnected || isFloatingUi;
   const micTriggerThresholdMeterPercent = rmsToMicLevelPercent(
     micTriggerThresholdPercentToRmsThreshold(micTriggerThresholdPercent)
   );
@@ -5182,12 +5182,32 @@ const CallSection = ({
     ? 'call-header-status-pill inline-flex items-center rounded-full border border-violet-300/14 bg-violet-950/32 px-2.5 py-1 text-[11px] font-semibold text-slate-100/82'
     : 'call-header-status-pill inline-flex items-center rounded-full border border-violet-200/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600';
   const teacherCardClass = isDarkTheme
-    ? 'mt-3 rounded-2xl border border-violet-500/10 bg-violet-950/26 px-3 py-2.5 backdrop-blur'
-    : 'mt-3 rounded-2xl border border-violet-200/80 bg-violet-50/70 px-3 py-2.5 backdrop-blur';
+    ? 'call-teacher-picker mt-3 rounded-2xl border border-violet-500/10 bg-violet-950/26 px-3 py-2.5 backdrop-blur'
+    : 'call-teacher-picker mt-3 rounded-2xl border border-violet-200/80 bg-violet-50/70 px-3 py-2.5 backdrop-blur';
   const teacherLabelClass = isDarkTheme ? 'text-[11px] font-semibold uppercase tracking-wide text-violet-200/84' : 'text-[11px] font-semibold uppercase tracking-wide text-violet-700';
   const teacherSelectClass = isDarkTheme
     ? 'call-student-select h-9 w-full rounded-xl border border-violet-500/12 bg-slate-950/72 px-3 text-sm text-slate-100 outline-none transition focus:border-violet-400/50'
     : 'call-student-select h-9 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400';
+  const teacherPickerNode = !isTeacher ? null : (
+    <div className={teacherCardClass}>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-[auto_minmax(240px,1fr)] md:items-center">
+        <label className={teacherLabelClass} htmlFor="call-student-select">
+          Ученик
+        </label>
+        <StudentSearchSelect
+          id="call-student-select"
+          students={students}
+          className={teacherSelectClass}
+          value={activeStudentId || ''}
+          onChange={(nextStudentId) => onSelectStudent?.(nextStudentId || null)}
+          disabled={studentsLoading}
+          placeholder="Выбери ученика"
+          dark={isDarkTheme}
+          menuClassName={isDarkTheme ? 'border-violet-500/20' : ''}
+        />
+      </div>
+    </div>
+  );
   const errorBoxClass = isDarkTheme
     ? 'mt-4 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100'
     : 'mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
@@ -5546,26 +5566,7 @@ const CallSection = ({
             </header>
           )}
 
-          {isTeacher && (
-            <div className={teacherCardClass}>
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-[auto_minmax(240px,1fr)] md:items-center">
-                <label className={teacherLabelClass} htmlFor="call-student-select">
-                  Ученик
-                </label>
-                <StudentSearchSelect
-                  id="call-student-select"
-                  students={students}
-                  className={teacherSelectClass}
-                  value={activeStudentId || ''}
-                  onChange={(nextStudentId) => onSelectStudent?.(nextStudentId || null)}
-                  disabled={studentsLoading}
-                  placeholder="Выбери ученика"
-                  dark={isDarkTheme}
-                  menuClassName={isDarkTheme ? 'border-violet-500/20' : ''}
-                />
-              </div>
-            </div>
-          )}
+          {isTeacher && isConnected && teacherPickerNode}
 
           {resolvedError && (
             <div className={errorBoxClass}>
@@ -5660,7 +5661,9 @@ const CallSection = ({
 
                   </div>
 
-                  <div className="call-device-panel">
+                  <div className="call-prejoin-side-stack">
+                    {isTeacher && teacherPickerNode}
+                    <div className="call-device-panel">
                     <div
                       className="call-prejoin-connection-card"
                       data-tone={prejoinConnectionTone}
@@ -5698,9 +5701,9 @@ const CallSection = ({
                     {prejoinCheck.error && (
                       <p className="call-prejoin-check-note" data-tone="problem" role="alert">{prejoinCheck.error}</p>
                     )}
-                  </div>
+                    </div>
 
-                  <aside className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
+                    <aside className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
                     <div className="call-prejoin-side-head">
                       <div className="call-waiting-identity">
                         <div className={waitingAvatarClass}>{remoteParticipantInitial}</div>
@@ -5752,7 +5755,8 @@ const CallSection = ({
                         {chatBadgeText && <span className="call-waiting-chat-count">{chatBadgeText}</span>}
                       </button>
                     )}
-                  </aside>
+                    </aside>
+                  </div>
                 </section>
               ) : (
                 <section className={mediaSectionClass}>
