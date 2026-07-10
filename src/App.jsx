@@ -6465,7 +6465,16 @@ const CollabSection = ({
       : 'border-amber-200 bg-amber-50 text-amber-700');
   const SHOW_COLLAB_AUTOFORMAT = false;
   const isSplitCollabLayout = (isCollabFullscreen || isDesktopCollabCompact) && !isMobileViewport;
-  const showEditorHeader = !isSplitCollabLayout;
+  const showEditorHeader = !isSplitCollabLayout && !useBoardGlassCodePanel;
+  const editorModelValue = editorRef.current?.getModel?.()?.getValue?.() || '';
+  const editorCursorPosition = editorRef.current?.getPosition?.() || { lineNumber: 1, column: 1 };
+  const showEditorEmptyState = Boolean(
+    useBoardGlassCodePanel
+    && editorReady
+    && roomId
+    && status === 'connected'
+    && !String(editorModelValue).trim()
+  );
   const remoteEditorCursorMarkers = useMemo(() => {
     if (!COLLAB_EDITOR_CURSOR_ENABLED) return [];
     const layoutVersion = editorViewportVersion;
@@ -6790,6 +6799,20 @@ const CollabSection = ({
   const handleBoardCodeResizeReset = useCallback(() => {
     setBoardCodeSplitWidth(COLLAB_BOARD_CODE_SPLIT_DEFAULT);
   }, []);
+
+  const handleBoardCodeResizeKeyDown = useCallback((event) => {
+    if (!useBoardGlassCodePanel || isMobileViewport) return;
+    const direction = event.key === 'ArrowLeft'
+      ? 1
+      : (event.key === 'ArrowRight' ? -1 : 0);
+    if (!direction) return;
+    event.preventDefault();
+    setBoardCodeSplitWidth((current) => {
+      const nextWidth = normalizeCollabBoardCodeSplit(current + (direction * 2));
+      boardCodeSplitWidthRef.current = nextWidth;
+      return nextWidth;
+    });
+  }, [isMobileViewport, useBoardGlassCodePanel]);
 
   const handleOutputPanelResizeStart = useCallback((event) => {
     if (!useBoardGlassCodePanel || !outputPanelOpen || typeof window === 'undefined') return;
@@ -7170,7 +7193,9 @@ const CollabSection = ({
       {showEditorHeader && (
         <div className="collab-editor-header">
           <div className="collab-editor-file">
-            <span className="collab-editor-file-dot" />
+            <span className="collab-editor-file-icon" aria-hidden="true">
+              <PythonLogoIcon size={16} colored />
+            </span>
             <span>main.py</span>
             <span className="collab-editor-pill">Python</span>
           </div>
@@ -7205,6 +7230,16 @@ const CollabSection = ({
           options={editorOptions}
           loading={editorLoadingState}
         />
+        {showEditorEmptyState && (
+          <div className="collab-editor-empty-state" aria-hidden="true">
+            <span className="collab-editor-empty-state__icon">
+              <Code2 size={21} />
+            </span>
+            <strong>Начните с первой строки</strong>
+            <span>Код синхронизируется со всеми участниками урока</span>
+            <kbd>F5&nbsp;&nbsp;Запустить</kbd>
+          </div>
+        )}
         {showEditorConnectionLoading && (
           <div className="collab-code-loading-overlay" role="status" aria-live="polite">
             {editorLoadingState}
@@ -7286,6 +7321,26 @@ const CollabSection = ({
           </button>
         ))}
       </div>
+      {useBoardGlassCodePanel && (
+        <div className="collab-editor-statusbar" aria-label="Состояние редактора">
+          <div className="collab-editor-statusbar__group">
+            <span className={`collab-editor-statusbar__connection is-${status || 'idle'}`}>
+              <span aria-hidden="true" />
+              {statusLabel}
+            </span>
+            <span className="collab-editor-statusbar__peers" title={`Участников онлайн: ${peerCount}`}>
+              <Users size={12} aria-hidden="true" />
+              {Math.max(0, Number(peerCount) || 0)}
+            </span>
+          </div>
+          <div className="collab-editor-statusbar__group collab-editor-statusbar__meta">
+            <span>{`Стр ${editorCursorPosition.lineNumber}, стлб ${editorCursorPosition.column}`}</span>
+            <span>Пробелы: 4</span>
+            <span>UTF-8</span>
+            <span>Python 3</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -8469,13 +8524,22 @@ const CollabSection = ({
             aria-valuemax={COLLAB_BOARD_CODE_SPLIT_MAX}
             aria-valuenow={Math.round(normalizedBoardCodeSplitWidth)}
             onPointerDown={handleBoardCodeResizeStart}
+            onKeyDown={handleBoardCodeResizeKeyDown}
             onDoubleClick={handleBoardCodeResizeReset}
             className="collab-board-code-resizer group"
+            tabIndex={0}
             title="Тяните влево или вправо, чтобы изменить ширину доски. Двойной клик - код слева / доска справа."
           >
+            <div className="collab-board-code-resizer__label" aria-hidden="true">
+              <span><Code2 size={11} />Код</span>
+              <i />
+              <span>Доска<Brush size={11} /></span>
+            </div>
             <div className="collab-board-code-resizer__track" />
             <div className="collab-board-code-resizer__thumb">
-              <div />
+              <ChevronsLeft size={11} aria-hidden="true" />
+              <div className="collab-board-code-resizer__grip" />
+              <ChevronsRight size={11} aria-hidden="true" />
             </div>
           </div>
         )}
@@ -8500,51 +8564,54 @@ const CollabSection = ({
                 aria-label="Запустить код"
               >
                 <Play size={15} fill="currentColor" />
-                <span>Запуск</span>
+                <span>Запустить</span>
                 <kbd>F5</kbd>
               </button>
-              <button
-                type="button"
-                onClick={() => handleRunCode('all', true)}
-                disabled={runLoading || !roomId}
-                className={`${collabIconButtonBase} collab-code-pill-button is-debug is-icon-only ${
-                  runLoading || !roomId
-                    ? collabIconButtonDisabled
-                    : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
-                }`}
-                title="Дебаг по точкам остановки"
-                aria-label="Дебаг"
-              >
-                <Bug size={15} />
-              </button>
-              <button
-                type="button"
-                onClick={handleTopStop}
-                disabled={!runLoading && !debugActive}
-                className={`${collabIconButtonBase} collab-code-pill-button is-stop is-icon-only ${
-                  !runLoading && !debugActive ? collabIconButtonDisabled : collabIconButtonDanger
-                }`}
-                title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
-                aria-label="Остановить"
-              >
-                <Square size={13} fill="currentColor" />
-              </button>
-              <button
-                type="button"
-                onClick={handleClearRun}
-                disabled={!canClearRunState}
-                className={`${collabIconButtonBase} collab-code-pill-button is-restart is-icon-only ${
-                  canClearRunState ? collabIconButtonNeutral : collabIconButtonDisabled
-                }`}
-                title="Очистить вывод и состояние запуска"
-                aria-label="Очистить вывод и состояние запуска"
-              >
-                <RefreshCcw size={15} />
-              </button>
+              <div className="collab-code-toolbar-cluster" aria-label="Инструменты выполнения">
+                <button
+                  type="button"
+                  onClick={() => handleRunCode('all', true)}
+                  disabled={runLoading || !roomId}
+                  className={`${collabIconButtonBase} collab-code-pill-button is-debug ${
+                    runLoading || !roomId
+                      ? collabIconButtonDisabled
+                      : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
+                  }`}
+                  title="Дебаг по точкам остановки"
+                  aria-label="Дебаг"
+                >
+                  <Bug size={15} />
+                  <span className="collab-code-pill-label">Дебаг</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTopStop}
+                  disabled={!runLoading && !debugActive}
+                  className={`${collabIconButtonBase} collab-code-pill-button is-stop is-icon-only ${
+                    !runLoading && !debugActive ? collabIconButtonDisabled : collabIconButtonDanger
+                  }`}
+                  title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
+                  aria-label="Остановить"
+                >
+                  <Square size={13} fill="currentColor" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearRun}
+                  disabled={!canClearRunState}
+                  className={`${collabIconButtonBase} collab-code-pill-button is-restart is-icon-only ${
+                    canClearRunState ? collabIconButtonNeutral : collabIconButtonDisabled
+                  }`}
+                  title="Очистить вывод и состояние запуска"
+                  aria-label="Очистить вывод и состояние запуска"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={handleToggleBoardAuxPopover}
-                className={`${collabIconButtonBase} collab-code-pill-button is-menu ${isBoardCodeAuxOpen ? 'is-open' : ''}`}
+                className={`${collabIconButtonBase} collab-code-pill-button is-menu is-files ${isBoardCodeAuxOpen ? 'is-open' : ''}`}
                 title="Файлы задания и stdin"
                 aria-label="Файлы задания и stdin"
                 aria-expanded={isBoardCodeAuxOpen}

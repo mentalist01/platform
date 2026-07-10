@@ -9701,6 +9701,78 @@ html[data-theme='dark'] .notes-save-mode-option__badge {
     grid-template-columns: minmax(0, 1fr) minmax(280px, 300px);
   }
 }
+
+/* Specificity guard for legacy light/dark toolbar rules kept earlier in this stylesheet. */
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled) {
+  height: 40px !important;
+  min-height: 40px !important;
+  min-width: 148px !important;
+  gap: 8px !important;
+  padding: 0 13px !important;
+  border-color: color-mix(in srgb, var(--collab-code-accent) 74%, #ffffff 12%) !important;
+  border-radius: 12px !important;
+  background: linear-gradient(135deg, #8b5cf6 0%, var(--collab-code-run) 54%, var(--collab-code-accent-strong) 100%) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 11px 24px color-mix(in srgb, var(--collab-code-run) 24%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled):hover {
+  background: linear-gradient(135deg, #7c3aed 0%, var(--collab-code-run-hover) 58%, #5b21b6 100%) !important;
+  color: #ffffff !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-icon-button.collab-code-pill-button {
+  height: 32px !important;
+  min-height: 32px !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: var(--collab-code-muted) !important;
+  box-shadow: none !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button:not(:disabled):hover,
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button.is-debug.is-primary {
+  background: var(--collab-code-panel) !important;
+  color: var(--collab-code-accent) !important;
+  box-shadow:
+    0 5px 12px rgba(44, 72, 116, 0.08),
+    var(--collab-code-inner-shadow) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button.is-stop:not(:disabled) {
+  background: var(--collab-code-danger-bg) !important;
+  color: var(--collab-code-danger) !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button:disabled,
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button.is-disabled {
+  border: 0 !important;
+  background: transparent !important;
+  color: color-mix(in srgb, var(--collab-code-muted) 58%, transparent) !important;
+  opacity: 0.66 !important;
+  box-shadow: none !important;
+}
+
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-icon-button.collab-code-pill-button.is-files {
+  height: 40px !important;
+  min-height: 40px !important;
+  border-color: var(--collab-code-line-strong) !important;
+  border-radius: 12px !important;
+  background: var(--collab-code-panel) !important;
+  color: var(--collab-code-text) !important;
+  box-shadow:
+    0 7px 16px rgba(44, 72, 116, 0.07),
+    var(--collab-code-inner-shadow) !important;
+}
+
+@media (max-width: 1280px) {
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled) {
+    min-width: 132px !important;
+  }
+}
 @media (max-width: 768px) {
   .call-prejoin-stage {
     min-height: auto;
@@ -61439,5 +61511,423 @@ html[data-theme='dark'] .call-panel-root--prejoin[data-call-role='student'] .cal
 @media (max-width: 420px) {
   .call-prejoin-preview {
     height: 230px;
+  }
+}
+
+/* Collaborative code: a clearer IDE surface and a deliberate bridge to the board. */
+.collab-editor-file-icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--collab-code-accent-line, rgba(124, 58, 237, 0.24));
+  border-radius: 7px;
+  background: var(--collab-code-accent-soft, #f1ebff);
+  box-shadow: var(--collab-code-inner-shadow, inset 0 1px 0 rgba(255, 255, 255, 0.9));
+}
+
+.collab-workspace-card--glass-board .collab-editor-body {
+  isolation: isolate;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--collab-code-panel-soft) 48%, transparent) 0 47px, transparent 47px),
+    var(--collab-code-panel) !important;
+}
+
+.collab-editor-empty-state {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  z-index: 9;
+  display: flex;
+  width: min(310px, calc(100% - 72px));
+  align-items: center;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--collab-code-muted);
+  text-align: center;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.collab-editor-empty-state__icon {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 3px;
+  border: 1px solid var(--collab-code-accent-line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--collab-code-accent-soft) 72%, var(--collab-code-panel));
+  color: var(--collab-code-accent);
+  box-shadow:
+    0 12px 28px color-mix(in srgb, var(--collab-code-accent) 12%, transparent),
+    var(--collab-code-inner-shadow);
+}
+
+.collab-editor-empty-state strong {
+  color: var(--collab-code-text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.collab-editor-empty-state > span:not(.collab-editor-empty-state__icon) {
+  max-width: 270px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.collab-editor-empty-state kbd {
+  margin-top: 7px;
+  padding: 5px 9px;
+  border: 1px solid var(--collab-code-line);
+  border-radius: 8px;
+  background: var(--collab-code-panel-soft);
+  color: var(--collab-code-muted);
+  font-family: Inter, Manrope, system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 850;
+  box-shadow: var(--collab-code-inner-shadow);
+}
+
+.collab-editor-statusbar {
+  position: relative;
+  z-index: 14;
+  display: flex;
+  min-height: 29px;
+  flex: 0 0 29px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  border-top: 1px solid var(--collab-code-line);
+  background: color-mix(in srgb, var(--collab-code-panel-soft) 78%, var(--collab-code-panel));
+  color: var(--collab-code-muted);
+  font-size: 9px;
+  font-weight: 750;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 42%, transparent);
+}
+
+html[data-theme='dark'] .collab-editor-statusbar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.collab-editor-statusbar__group {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.collab-editor-statusbar__connection,
+.collab-editor-statusbar__peers {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.collab-editor-statusbar__connection > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.collab-editor-statusbar__connection.is-connected > span {
+  background: #10b981;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 13%, transparent);
+}
+
+.collab-editor-statusbar__connection.is-connecting > span {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #f59e0b 13%, transparent);
+}
+
+.collab-editor-statusbar__meta span {
+  white-space: nowrap;
+}
+
+.collab-code-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  flex: 0 0 1px;
+  margin: 0 1px;
+  border-radius: 999px;
+  background: var(--collab-code-line);
+}
+
+@media (min-width: 1100px) {
+  .collab-workspace-card--glass-board .collab-board-code-resizer {
+    z-index: 52 !important;
+    width: 38px !important;
+    outline: none;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__label {
+    position: absolute;
+    top: 13px;
+    left: calc(50% + var(--collab-board-seam-visual-offset, 0px));
+    display: flex;
+    width: 128px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid var(--collab-code-line-strong);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--collab-code-panel) 94%, transparent);
+    color: var(--collab-code-muted);
+    box-shadow:
+      0 9px 22px rgba(44, 72, 116, 0.12),
+      var(--collab-code-inner-shadow);
+    font-size: 9px;
+    font-style: normal;
+    font-weight: 850;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    pointer-events: none;
+    backdrop-filter: blur(12px);
+    transform: translateX(-50%);
+    transition:
+      border-color 160ms ease,
+      color 160ms ease,
+      box-shadow 160ms ease,
+      transform 160ms ease;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__label span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__label span:first-child svg {
+    color: var(--collab-code-accent);
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__label span:last-child svg {
+    color: #0ea5e9;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__label i {
+    width: 1px;
+    height: 13px;
+    border-radius: 999px;
+    background: var(--collab-code-line);
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__track {
+    left: calc(50% + var(--collab-board-seam-visual-offset, 0px)) !important;
+    width: 2px !important;
+    background:
+      linear-gradient(
+        180deg,
+        transparent 0%,
+        color-mix(in srgb, var(--collab-code-accent) 22%, transparent) 14%,
+        color-mix(in srgb, var(--collab-code-accent) 30%, transparent) 86%,
+        transparent 100%
+      ) !important;
+    opacity: 0.72 !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__thumb {
+    left: calc(50% + var(--collab-board-seam-visual-offset, 0px)) !important;
+    display: grid !important;
+    width: 34px !important;
+    height: 64px !important;
+    grid-template-columns: 10px 3px 10px;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    border: 1px solid var(--collab-code-line-strong) !important;
+    border-radius: 14px !important;
+    background: color-mix(in srgb, var(--collab-code-panel) 92%, transparent) !important;
+    color: var(--collab-code-muted);
+    box-shadow:
+      0 12px 28px rgba(44, 72, 116, 0.15),
+      0 0 0 4px color-mix(in srgb, var(--collab-code-panel) 68%, transparent),
+      var(--collab-code-inner-shadow) !important;
+    opacity: 1 !important;
+    backdrop-filter: blur(12px);
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer__grip {
+    width: 3px !important;
+    height: 30px !important;
+    border-radius: 999px !important;
+    background: color-mix(in srgb, var(--collab-code-accent) 58%, var(--collab-code-line)) !important;
+    box-shadow: none !important;
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer:hover .collab-board-code-resizer__label,
+  .collab-workspace-card--glass-board .collab-board-code-resizer:focus-visible .collab-board-code-resizer__label {
+    border-color: var(--collab-code-accent-line);
+    color: var(--collab-code-text);
+    box-shadow:
+      0 12px 28px color-mix(in srgb, var(--collab-code-accent) 14%, transparent),
+      var(--collab-code-inner-shadow);
+    transform: translateX(-50%) translateY(-1px);
+  }
+
+  .collab-workspace-card--glass-board .collab-board-code-resizer:hover .collab-board-code-resizer__thumb,
+  .collab-workspace-card--glass-board .collab-board-code-resizer:focus-visible .collab-board-code-resizer__thumb {
+    border-color: var(--collab-code-accent-line) !important;
+    background: color-mix(in srgb, var(--collab-code-accent-soft) 48%, var(--collab-code-panel)) !important;
+    color: var(--collab-code-accent);
+    transform: translate(-50%, -50%) scale(1.04) !important;
+    box-shadow:
+      0 14px 32px color-mix(in srgb, var(--collab-code-accent) 18%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--collab-code-accent-soft) 42%, transparent),
+      var(--collab-code-inner-shadow) !important;
+  }
+}
+
+@media (max-width: 1220px) {
+  .collab-editor-statusbar__meta span:nth-child(2),
+  .collab-editor-statusbar__meta span:nth-child(3),
+  .collab-workspace-card--glass-board .collab-editor-meta > span:first-child {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .collab-editor-empty-state {
+    width: min(270px, calc(100% - 40px));
+  }
+
+  .collab-editor-statusbar__meta span:not(:first-child) {
+    display: none;
+  }
+
+  .collab-code-toolbar-divider {
+    display: none;
+  }
+}
+
+/* Collaborative code command hierarchy: primary run, grouped execution tools, files. */
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style {
+  gap: 10px !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled) {
+  height: 40px !important;
+  min-height: 40px !important;
+  min-width: 148px !important;
+  gap: 8px !important;
+  padding: 0 13px !important;
+  border-color: color-mix(in srgb, var(--collab-code-accent) 74%, #ffffff 12%) !important;
+  border-radius: 12px !important;
+  background: linear-gradient(135deg, #8b5cf6 0%, var(--collab-code-run) 54%, var(--collab-code-accent-strong) 100%) !important;
+  box-shadow:
+    0 11px 24px color-mix(in srgb, var(--collab-code-run) 24%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled):hover {
+  background: linear-gradient(135deg, #7c3aed 0%, var(--collab-code-run-hover) 58%, #5b21b6 100%) !important;
+  box-shadow:
+    0 14px 28px color-mix(in srgb, var(--collab-code-run-hover) 30%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.26) !important;
+}
+
+.collab-code-toolbar-cluster {
+  display: inline-flex;
+  height: 40px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--collab-code-line-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--collab-code-panel-soft) 82%, var(--collab-code-panel));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 68%, transparent),
+    0 6px 14px rgba(44, 72, 116, 0.06);
+}
+
+html[data-theme='dark'] .collab-code-toolbar-cluster {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 8px 18px rgba(0, 0, 0, 0.16);
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-icon-button.collab-code-pill-button {
+  height: 32px !important;
+  min-height: 32px !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: var(--collab-code-muted) !important;
+  box-shadow: none !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button.is-debug {
+  min-width: 80px !important;
+  gap: 6px !important;
+  padding: 0 9px !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button.is-icon-only {
+  width: 32px !important;
+  min-width: 32px !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button:not(:disabled):hover,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button.is-debug.is-primary {
+  background: var(--collab-code-panel) !important;
+  color: var(--collab-code-accent) !important;
+  box-shadow:
+    0 5px 12px rgba(44, 72, 116, 0.08),
+    var(--collab-code-inner-shadow) !important;
+  transform: none !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button.is-stop:not(:disabled) {
+  background: var(--collab-code-danger-bg) !important;
+  color: var(--collab-code-danger) !important;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button:disabled,
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button.is-disabled {
+  border: 0 !important;
+  background: transparent !important;
+  color: color-mix(in srgb, var(--collab-code-muted) 58%, transparent) !important;
+  opacity: 0.66 !important;
+}
+
+.collab-code-pill-label {
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-files {
+  height: 40px !important;
+  min-height: 40px !important;
+  border-color: var(--collab-code-line-strong) !important;
+  border-radius: 12px !important;
+  background: var(--collab-code-panel) !important;
+  box-shadow:
+    0 7px 16px rgba(44, 72, 116, 0.07),
+    var(--collab-code-inner-shadow) !important;
+}
+
+@media (max-width: 1280px) {
+  .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar-cluster .collab-code-pill-button.is-debug {
+    width: 32px !important;
+    min-width: 32px !important;
+    padding: 0 !important;
+  }
+
+  .collab-code-toolbar-cluster .collab-code-pill-label {
+    display: none;
+  }
+
+  .collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run:not(:disabled) {
+    min-width: 132px !important;
   }
 }
