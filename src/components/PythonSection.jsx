@@ -2058,7 +2058,7 @@ const PythonSection = ({
                     : (isStable ? 'rgba(192,38,211,0.34)' : (isWarmingUp ? 'rgba(124,58,237,0.32)' : 'rgba(148,163,184,0.26)'));
                   const progressAngle = Math.max(0, Math.min(360, Number(node.val || 0) * 3.6));
                   const statusLabel = isMastered
-                    ? 'Сильная'
+                    ? 'Выполнено 85%+'
                     : (isStable ? 'В темпе' : (isWarmingUp ? 'Практика' : 'Фокус'));
                   const statusTone = isMastered
                     ? 'border-purple-200 bg-purple-50 text-purple-700'
@@ -2091,7 +2091,7 @@ const PythonSection = ({
                         '--ring-stroke': `${mobilePythonPathLayout.strokeWidth}px`,
                         '--node-delay': `${Math.max(0, node.idx % 8) * 60}ms`
                       }}
-                      aria-label={`Открыть тему ${node.task.title}`}
+                      aria-label={`Открыть тему ${node.task.title}. Выполнено ${node.val}%`}
                     >
                       <div
                         className={`mobile-topic-ring-shell relative mx-auto ${

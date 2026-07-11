@@ -1188,6 +1188,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  updateStudentHomeworkChecklistItem: async (homeworkId, itemId, completed) => {
+    const res = await apiFetch(`/api/student-next-lesson/${encodeURIComponent(homeworkId)}/checklist`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId, completed: Boolean(completed) }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   deleteStudentHomework: async (studentId, homeworkId) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);

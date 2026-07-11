@@ -14,7 +14,7 @@ import {
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
   Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet,
-  Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp,
+  Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp, Target,
   ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
@@ -42,6 +42,7 @@ import MobileStrategyGame from './components/MobileStrategyGame';
 import ProgressSection from './components/ProgressSection';
 import PythonSection from './components/PythonSection';
 import ScheduleSection from './components/ScheduleSection';
+import StudentTodayOverview from './components/StudentTodayOverview';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
 import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
 import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
@@ -13943,7 +13944,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
-        { id: 'schedule', label: 'Моё расписание', icon: Calendar },
+        { id: 'schedule', label: 'Сегодня', icon: Calendar },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -13961,12 +13962,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
   const teacherLessonNavIds = ['call', 'board', 'collab'];
-  const studentCoreNavIds = ['schedule', 'progress', ...(studentCanSeeReview ? ['review'] : []), ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes'];
+  const studentCoreNavIds = ['schedule', 'progress', 'python', ...(studentCanSeeReview ? ['review'] : []), ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes'];
   const studentLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const studentPrimaryNav = user.role === 'student'
     ? [
-      ...['review', 'schedule', 'progress']
+      ...['review', 'schedule', 'progress', 'python']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
@@ -13985,12 +13986,40 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     .map((id) => visibleNav.find((item) => item.id === id))
     .filter(Boolean);
   const studentDefaultLessonView = lessonQuickNav[0]?.id || 'progress';
+  const studentMobilePrimaryNavIds = ['schedule', 'progress', 'python'];
+  const studentMobilePrimaryNav = user.role === 'student'
+    ? [
+      ...studentMobilePrimaryNavIds
+        .map((id) => visibleNav.find((item) => item.id === id))
+        .filter(Boolean),
+      studentLessonNavItem,
+    ]
+    : [];
+  const studentMobileMorePreferredIds = [
+    ...(studentCanSeeReview ? ['review'] : []),
+    ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []),
+    'notes',
+    'rating',
+  ];
+  const studentMobileOverflowNav = user.role === 'student'
+    ? visibleNav.filter((item) => (
+      !studentMobilePrimaryNavIds.includes(item.id)
+      && !studentLessonNavIds.includes(item.id)
+    ))
+    : [];
+  const studentMobileMoreNav = user.role === 'student'
+    ? [
+      ...studentMobileMorePreferredIds
+        .map((id) => studentMobileOverflowNav.find((item) => item.id === id))
+        .filter(Boolean),
+      ...studentMobileOverflowNav.filter((item) => !studentMobileMorePreferredIds.includes(item.id)),
+    ]
+    : [];
   const shouldShowMobileMoreButton = user.role === 'student'
-    && studentExtraNav.length > 0
-    && studentPrimaryNav.length <= 3;
+    && studentMobileMoreNav.length > 0;
   const mobileNav = user.role === 'student'
     ? [
-      ...studentPrimaryNav,
+      ...studentMobilePrimaryNav,
       ...(shouldShowMobileMoreButton ? [{ id: 'more', label: '\u0415\u0449\u0435', icon: MoreHorizontal }] : [])
     ]
     : visibleNav;
@@ -14032,6 +14061,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     notes: 'Консп.',
     admin: 'Админка',
     more: '\u0415\u0449\u0435',
+  };
+  const studentMobileNavLabels = {
+    ...mobileNavLabels,
+    schedule: 'Сегодня',
+    progress: 'Практика',
   };
   const navToneById = {
     schedule: 'violet',
@@ -14130,8 +14164,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       if (PLATFORM_CHATS_ENABLED) {
         counts.chat = Math.max(0, Math.floor(Number(studentChatNavUnreadTotal) || 0));
       }
-      counts.more = studentExtraNav.reduce((sum, item) => (
-        sum + Math.max(0, Math.floor(Number(counts[item.id]) || 0))
+      counts.more = ['review', 'chat', 'notes', 'rating'].reduce((sum, id) => (
+        sum + Math.max(0, Math.floor(Number(counts[id]) || 0))
       ), 0);
     }
     if (PLATFORM_CHATS_ENABLED && user.role === 'teacher') {
@@ -14143,7 +14177,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     studentChatNavUnreadTotal,
     studentProgressNavNewTotal,
     studentScheduleNavNewTotal,
-    studentExtraNav,
     teacherCommsNavNewCount,
     user.role,
   ]);
@@ -16950,7 +16983,28 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
   const goalCompletedCount = goalGoals.filter((goal) => goal.completed).length;
-  const firstGoal = goalGoals[0] || null;
+  const firstGoal = goalGoals.find((goal) => !goal?.completed) || goalGoals[0] || null;
+  const goalSummaryProgressPercent = goalGoals.length > 0
+    ? Math.round((goalCompletedCount / goalGoals.length) * 100)
+    : 0;
+  const goalDeadlineLabel = (() => {
+    const entry = goalState?.entry;
+    if (!entry) return '';
+    let dueAt = new Date(entry.dueAt || '');
+    if (Number.isNaN(dueAt.getTime())) {
+      const issuedAt = new Date(entry.issuedAt || '');
+      const days = Math.max(1, Number(entry.daysToComplete) || 7);
+      if (!Number.isNaN(issuedAt.getTime())) {
+        dueAt = new Date(issuedAt.getTime() + (days * 24 * 60 * 60 * 1000));
+      }
+    }
+    if (Number.isNaN(dueAt.getTime())) {
+      return `Срок: ${formatDaysText(entry.daysToComplete || 7)}`;
+    }
+    const dateLabel = dueAt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }).replace(' г.', '');
+    const timeLabel = dueAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return `До ${dateLabel}, ${timeLabel}`;
+  })();
   const shouldShowGoalBlock = user.role === 'student'
     && view !== 'schedule'
     && view !== 'review'
@@ -17972,7 +18026,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 <button
                   type="button"
                   onClick={openLevelProfile}
-                  className="level-progress-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
+                  className="level-progress-card student-level-summary-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
                   aria-label={`Открыть профиль. Уровень ${currentLevel}. Опыт: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
                   title={`Открыть профиль. Всего опыта: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
                 >
@@ -17984,13 +18038,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     <div className="min-w-0 flex-1">
                       <div className="level-progress-head">
                         <div className="level-progress-identity">
-                          <span className="level-progress-eyebrow">Прогресс</span>
+                          <span className="level-progress-eyebrow">Ваш прогресс</span>
                           <span className="level-progress-title">{`Уровень ${currentLevel}`}</span>
                         </div>
                         <div className="level-progress-head-meta">
                           <span className="level-progress-total">
-                            <span className="level-progress-total-label">Всего</span>
-                            {`${totalXpLabel} XP`}
+                            <strong>{totalXpLabel}</strong>
+                            <span className="level-progress-total-label">XP всего</span>
                           </span>
                           <span
                             ref={coinInlineBadgeRef}
@@ -18001,17 +18055,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                             <CoinGuideIcon />
                             <span>{totalCoinsLabel}</span>
                           </span>
+                          <span className="level-progress-open" aria-hidden="true">
+                            <ChevronRight size={14} />
+                          </span>
                         </div>
                       </div>
                       <div
                         ref={xpInlineBarRef}
                         className={`level-progress-track ${xpAnimationActive ? 'xp-inline-bar--active' : ''}`}
+                        role="progressbar"
+                        aria-label={`Прогресс уровня ${currentLevel}`}
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        aria-valuenow={levelProgressPercent}
                       >
                         <div
                           className="level-progress-fill transition-all duration-300"
                           style={{ width: `${levelProgressPercent}%` }}
                         >
-                          <span className="level-progress-fill-tip" />
+                          {levelProgressPercent > 0 && <span className="level-progress-fill-tip" />}
                         </div>
                         <div className="level-progress-track-grid" />
                         <div className="level-progress-glass" />
@@ -18024,8 +18086,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         <span className="level-progress-foot-next">
                           <span className="level-progress-percent">{`${levelProgressPercent}%`}</span>
                           <span className="level-progress-remaining">
-                            {`До ${currentLevel + 1}: `}
                             <strong>{`${xpRemainingLabel} XP`}</strong>
+                            {` до уровня ${currentLevel + 1}`}
                           </span>
                         </span>
                       </div>
@@ -18137,15 +18199,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           {shouldShowGoalBlock && !studentTourActive && (
             <div ref={goalSummaryFlyRef} className={`goal-summary-strip ${goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}`}>
               {goalCollapsed ? (
-                <div className={`surface-panel rounded-2xl border border-purple-200/80 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-3 py-2 text-sm text-gray-700 shadow-soft flex items-center justify-between gap-1.5 sm:gap-2 sm:px-4 sm:py-2.5 ${goalPanelAnimClass === 'goal-collapse' ? 'goal-collapse' : ''}`}>
-                  <div className="min-w-0 flex-1 flex items-center gap-1.5 sm:gap-2">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-purple-600 shrink-0">домашка</div>
-                    <div className="min-w-0 truncate text-[13px] font-semibold text-gray-900 sm:text-sm">
-                      <span className="sm:hidden">{`${formatDaysText(goalState.entry?.daysToComplete || 7)} В· ${goalCompletedCount}/${goalGoals.length}`}</span>
-                      <span className="hidden sm:inline">{`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить ${goalCompletedCount}/${goalGoals.length} целей`}</span>
+                <div className={`student-goal-summary student-goal-summary--collapsed ${goalPanelAnimClass === 'goal-collapse' ? 'goal-collapse' : ''}`}>
+                  <div className="student-goal-summary__collapsed-main">
+                    <span className="student-goal-summary__icon" aria-hidden="true"><Target size={18} /></span>
+                    <div className="min-w-0">
+                      <div className="student-goal-summary__eyebrow">Домашка</div>
+                      <strong className="student-goal-summary__collapsed-title">Цели к следующему уроку</strong>
+                      <span className="student-goal-summary__collapsed-meta">
+                        {`${goalDeadlineLabel} · ${goalCompletedCount} из ${goalGoals.length}`}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  <div className="student-goal-summary__collapsed-progress" aria-hidden="true">
+                    <div><span style={{ width: `${goalSummaryProgressPercent}%` }} /></div>
+                    <strong>{`${goalSummaryProgressPercent}%`}</strong>
+                  </div>
+                  <div className="student-goal-summary__collapsed-actions">
                     {firstGoal && (
                       <button
                         type="button"
@@ -18156,67 +18225,98 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                             handleOpenTask(firstGoal.taskNumber, firstGoal.levelId, firstGoal.targetNumbers);
                           }
                         }}
-                        className="px-2.5 py-1 rounded-lg bg-purple-600 text-white text-[11px] font-semibold hover:bg-purple-700 shadow-sm sm:px-3 sm:py-1.5 sm:text-xs"
+                        className="student-goal-summary__primary"
                       >
-                        К цели
+                        Продолжить <ChevronRight size={14} />
                       </button>
                     )}
                     <button
                       type="button"
                       onClick={handleExpandGoalBlock}
-                      className="px-2.5 py-1 rounded-lg border border-purple-200 text-[11px] font-semibold text-purple-700 hover:bg-purple-50 sm:px-3 sm:py-1.5 sm:text-xs"
+                      className="student-goal-summary__expand"
+                      aria-expanded="false"
+                      aria-controls="student-goal-summary-content"
+                      aria-label="Развернуть домашнюю работу"
                     >
-                      Развернуть
+                      <span>Подробнее</span>
+                      <ChevronDown size={15} />
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className={`rounded-[24px] border border-purple-200/90 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50/80 px-4 py-3.5 text-sm text-gray-700 shadow-soft sm:px-5 ${goalPanelAnimClass === 'goal-expand' ? 'goal-expand' : ''}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-purple-600">домашка</div>
-                      <div className="mt-1 text-base font-semibold text-gray-900">
-                        {`За ${formatDaysText(goalState.entry?.daysToComplete || 7)} выполнить эти цели`}
-                      </div>
-                      <div className="mt-1 text-xs text-purple-700/90">
-                        {`Выполнено ${goalCompletedCount}/${goalGoals.length}`}
+                <section id="student-goal-summary-content" className={`student-goal-summary student-goal-summary--expanded ${goalPanelAnimClass === 'goal-expand' ? 'goal-expand' : ''}`}>
+                  <header className="student-goal-summary__header">
+                    <div className="student-goal-summary__heading">
+                      <span className="student-goal-summary__icon" aria-hidden="true"><Target size={20} /></span>
+                      <div className="min-w-0">
+                        <div className="student-goal-summary__eyebrow">Домашка</div>
+                        <h3>Цели к следующему уроку</h3>
+                        <div className="student-goal-summary__deadline">{goalDeadlineLabel}</div>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setGoalCollapsed(true)}
-                      className="px-3 py-1.5 rounded-lg border border-purple-200 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+                    <div className="student-goal-summary__header-actions">
+                      <span className="student-goal-summary__count"><strong>{goalCompletedCount}</strong>{` из ${goalGoals.length}`}</span>
+                      <button
+                        type="button"
+                        onClick={() => setGoalCollapsed(true)}
+                        className="student-goal-summary__collapse"
+                        aria-expanded="true"
+                        aria-controls="student-goal-summary-content"
+                        aria-label="Свернуть домашнюю работу"
+                      >
+                        <span>Свернуть</span>
+                        <ChevronDown size={15} className="rotate-180" />
+                      </button>
+                    </div>
+                  </header>
+
+                  <div className="student-goal-summary__overall-progress">
+                    <div className="student-goal-summary__overall-copy">
+                      <span>Общий прогресс</span>
+                      <strong>{`${goalSummaryProgressPercent}%`}</strong>
+                    </div>
+                    <div
+                      className="student-goal-summary__overall-track"
+                      role="progressbar"
+                      aria-label="Общий прогресс домашней работы"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      aria-valuenow={goalSummaryProgressPercent}
                     >
-                      Свернуть
-                    </button>
+                      <span style={{ width: `${goalSummaryProgressPercent}%` }} />
+                    </div>
                   </div>
 
-                  <div className="mt-3 space-y-2.5">
+                  <div className="student-goal-summary__list">
                     {goalGoals.map((goal, index) => {
                       if (goal.type === GOAL_TYPE_MOCK) {
                         const totalCount = Number(goal.totalCount) || 0;
                         const solvedCount = Number(goal.solvedCount) || 0;
+                        const mockProgressPercent = totalCount > 0 ? Math.round((solvedCount / totalCount) * 100) : 0;
                         return (
-                          <div key={`mock-${goal.mockExamId}-${index}`} className="rounded-2xl border border-purple-200/80 bg-white/95 px-3.5 py-3 shadow-sm">
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-purple-600">
-                                  Пробник
-                                </div>
-                                <div className="mt-1 text-sm font-semibold text-gray-900 truncate">{goal.mockExamTitle || 'Пробник'}</div>
-                                <div className="mt-1 text-[11px] text-gray-600">
-                                  {totalCount > 0 ? `Выполнено ${solvedCount}/${totalCount}` : 'В пробнике пока нет заданий'}
+                          <article key={`mock-${goal.mockExamId}-${index}`} className="student-goal-summary__item">
+                            <div className="student-goal-summary__item-header">
+                              <div className="student-goal-summary__item-copy">
+                                <div className="student-goal-summary__item-label">Пробник</div>
+                                <strong>{goal.mockExamTitle || 'Пробник'}</strong>
+                                <div className="student-goal-summary__item-meta">
+                                  {totalCount > 0 ? `${solvedCount} из ${totalCount} заданий выполнено` : 'В пробнике пока нет заданий'}
                                 </div>
                               </div>
                               <button
                                 type="button"
                                 onClick={() => handleOpenMockGoal(goal.mockExamId)}
-                                className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
+                                className="student-goal-summary__item-action"
                               >
-                                Перейти
+                                Продолжить <ChevronRight size={14} />
                               </button>
                             </div>
-                          </div>
+                            {totalCount > 0 && (
+                              <div className="student-goal-summary__item-progress" aria-hidden="true">
+                                <span style={{ width: `${mockProgressPercent}%` }} />
+                              </div>
+                            )}
+                          </article>
                         );
                       }
 
@@ -18228,85 +18328,120 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       const taskDisplay = pythonTask?.displayNumber || formatTaskNumber(goal.taskNumber) || goal.taskNumber;
                       const goalHeading = isPythonGoal
                         ? `Python ${goal.taskTitle || pythonTask?.title || (goal.taskNumber ? `тема ${goal.taskNumber}` : 'тема')}`
-                        : `Задание ${taskDisplay} В· ${goal.levelLabel}`;
+                        : `Задание ${taskDisplay} · ${goal.levelLabel}`;
                       const targetTotal = Array.isArray(goal.targetStatus) ? goal.targetStatus.length : 0;
                       const targetSolved = Array.isArray(goal.targetStatus)
                         ? goal.targetStatus.filter((item) => item.solved).length
                         : 0;
+                      const targetProgressPercent = targetTotal > 0 ? Math.round((targetSolved / targetTotal) * 100) : 0;
 
                       return (
-                        <div key={`${goal.taskNumber}-${goal.levelId}-${index}`} className="rounded-2xl border border-purple-200/80 bg-white/95 px-3.5 py-3 shadow-sm">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div className="min-w-0 space-y-0.5">
+                        <article key={`${goal.taskNumber}-${goal.levelId}-${index}`} className="student-goal-summary__item">
+                          <div className="student-goal-summary__item-header">
+                            <div className="student-goal-summary__item-copy">
                               {isPythonGoal ? (
-                                <div className="text-sm font-semibold text-gray-900">{goalHeading}</div>
+                                <>
+                                  <div className="student-goal-summary__item-label">Python</div>
+                                  <strong>{goalHeading.replace(/^Python\s*/, '')}</strong>
+                                </>
                               ) : (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="text-sm font-semibold text-gray-900">{`Задание ${taskDisplay}`}</span>
+                                <div className="student-goal-summary__item-title-row">
+                                  <strong>{`Задание ${taskDisplay}`}</strong>
                                   {goal.levelLabel && (
-                                    <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
+                                    <span className="student-goal-summary__level-pill">
                                       {goal.levelLabel}
                                     </span>
                                   )}
                                 </div>
                               )}
                               {!isPythonGoal && (
-                                <div className="text-xs text-gray-500 truncate">
-                                  {`Тема: ${goal.taskTitle || '—'}`}
+                                <div className="student-goal-summary__item-meta">
+                                  {goal.taskTitle || 'Тема не указана'}
                                 </div>
                               )}
                             </div>
                             <button
                               type="button"
                               onClick={() => handleOpenTask(goal.taskNumber, goal.levelId, goal.targetNumbers)}
-                              className="shrink-0 px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 shadow-sm"
+                              className="student-goal-summary__item-action"
                             >
-                              Перейти
+                              Продолжить <ChevronRight size={14} />
                             </button>
                           </div>
 
                           {hasTargets && (
-                            <div className="mt-2 rounded-xl border border-purple-100/90 bg-purple-50/60 px-2.5 py-2">
-                              <div className="text-[10px] font-semibold uppercase tracking-wide text-purple-700">Цель</div>
+                            <div className="student-goal-summary__targets">
+                              <div className="student-goal-summary__targets-header">
+                                <span>Нужно решить</span>
+                                {targetTotal > 0 && <strong>{`${targetSolved}/${targetTotal}`}</strong>}
+                              </div>
                               {goal.targetNumbers?.length > 0 ? (
                                 <>
-                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                  <div className="student-goal-summary__target-list">
                                     {goal.targetStatus.map((item) => (
                                       <span
                                         key={item.num}
-                                        className={`px-2.5 py-0.5 rounded-full border text-[11px] font-semibold ${
+                                        className={`student-goal-summary__target ${
                                           item.solved
-                                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                                            : 'border-slate-200 bg-white text-slate-700'
+                                            ? 'student-goal-summary__target--solved'
+                                            : ''
                                         }`}
                                       >
                                         №{item.num}{item.solved ? ' ✓' : ''}
                                       </span>
                                     ))}
                                   </div>
-                                  <div className="mt-2 flex items-center justify-between text-[11px] text-gray-600">
-                                    <span>Выполнено</span>
-                                    <span className="font-semibold text-gray-800">{`${targetSolved}/${targetTotal}`}</span>
+                                  <div className="student-goal-summary__target-progress" aria-hidden="true">
+                                    <span style={{ width: `${targetProgressPercent}%` }} />
+                                  </div>
+                                  <div className="student-goal-summary__target-progress-copy">
+                                    <span>{`${targetSolved} выполнено`}</span>
+                                    <strong>{`${targetProgressPercent}%`}</strong>
                                   </div>
                                 </>
                               ) : (
-                                <div className="mt-1 text-[11px] text-purple-700">
+                                <div className="student-goal-summary__all-targets">
                                   Все задания этого уровня
                                 </div>
                               )}
                             </div>
                           )}
-                        </div>
+                        </article>
                       );
                     })}
                   </div>
-                </div>
+                </section>
               )}
             </div>
+          )}
+          {view === 'schedule' && user.role === 'student' && (
+            <StudentTodayOverview
+              studentName={user.name}
+              homeworkEntry={goalState?.entry || null}
+              goals={goalGoals}
+              completedGoalCount={goalCompletedCount}
+              chatUnreadCount={studentChatNavUnreadTotal}
+              onContinueHomework={() => {
+                if (!firstGoal) {
+                  navigateToView('progress');
+                  return;
+                }
+                if (firstGoal.type === GOAL_TYPE_MOCK) {
+                  handleOpenMockGoal(firstGoal.mockExamId);
+                } else {
+                  handleOpenTask(firstGoal.taskNumber, firstGoal.levelId, firstGoal.targetNumbers);
+                }
+              }}
+              onOpenPractice={() => navigateToView('progress')}
+              onOpenPython={() => navigateToView('python')}
+              onOpenLesson={() => navigateToView(studentDefaultLessonView)}
+              onOpenChat={PLATFORM_CHATS_ENABLED ? () => navigateToView('chat') : null}
+            />
           )}
           {view === 'schedule' && (
             <ScheduleSection
               role={user.role}
+              showHeader={user.role !== 'student'}
               studentId={user.id}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
@@ -18996,13 +19131,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 )}
               </div>
               {renderPushControl({ mobile: true })}
-              {user.role === 'student' && studentExtraNav.length > 0 && (
+              {user.role === 'student' && studentMobileMoreNav.length > 0 && (
                 <div className="mt-4 rounded-2xl border border-purple-100/75 bg-white/90 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-purple-700/80">
                     {'\u0415\u0449\u0435 \u0440\u0430\u0437\u0434\u0435\u043b\u044b'}
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
-                    {studentExtraNav.map((item) => {
+                    {studentMobileMoreNav.map((item) => {
                       const Icon = item.icon;
                       const isActive = view === item.id;
                       return (
@@ -19045,7 +19180,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 const isMoreButton = n.id === 'more';
                 const isLessonButton = n.id === 'lesson';
                 const isActive = isMoreButton
-                  ? (menuOpen || studentExtraNav.some((item) => item.id === view))
+                  ? (menuOpen || studentMobileMoreNav.some((item) => item.id === view))
                   : (isLessonButton ? studentLessonNavIds.includes(view) : view === n.id);
                 const isFeatured = Boolean(n.featured);
                 const Icon = n.icon;
@@ -19074,7 +19209,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     }`}
                   >
                     <Icon size={16} />
-                    <span className="truncate leading-none">{mobileNavLabels[n.id] || n.label}</span>
+                    <span className="truncate leading-none">
+                      {(user.role === 'student' ? studentMobileNavLabels[n.id] : mobileNavLabels[n.id]) || n.label}
+                    </span>
                     {renderNavBadge(n.id, 'mobile')}
                   </button>
                 );

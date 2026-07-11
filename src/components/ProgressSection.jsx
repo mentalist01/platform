@@ -1914,7 +1914,7 @@ const ProgressSection = ({
       { min: 40, label: 'Середина пути' },
       { min: 45, label: 'Хорошая динамика' },
       { min: 50, label: 'Экватор' },
-      { min: 55, label: 'Сильная половина' },
+      { min: 55, label: 'Больше половины выполнено' },
       { min: 60, label: 'Уровень растёт' },
       { min: 65, label: 'Уже близко' },
       { min: 70, label: 'Уверенный результат' },
@@ -3608,7 +3608,7 @@ const ProgressSection = ({
                         : (isStable ? 'rgba(139,92,246,0.34)' : (isWarmingUp ? 'rgba(245,158,11,0.34)' : 'rgba(148,163,184,0.26)'));
                       const progressAngle = Math.max(0, Math.min(360, Number(node.val || 0) * 3.6));
                       const statusLabel = isMastered
-                        ? 'Сильная'
+                        ? 'Выполнено 85%+'
                         : (isStable ? 'В темпе' : (isWarmingUp ? 'Практика' : 'Фокус'));
                       const statusTone = isMastered
                         ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -3642,7 +3642,7 @@ const ProgressSection = ({
                             '--ring-stroke': `${mobilePathLayout.strokeWidth}px`,
                             '--node-delay': `${Math.max(0, node.idx % 8) * 60}ms`
                           }}
-                          aria-label={`Открыть тему ${node.task.title}`}
+                          aria-label={`Открыть тему ${node.task.title}. Выполнено ${node.val}%`}
                           aria-expanded={isSelected}
                         >
                           <div
@@ -3724,7 +3724,7 @@ const ProgressSection = ({
               });
               const hasXpBonus = xpStats.multiplier > 1.0001;
               const statusKey = val >= 85 ? 'strong' : (val >= 60 ? 'active' : (val >= 40 ? 'practice' : 'focus'));
-              const statusLabel = val >= 85 ? 'Сильная тема' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
+              const statusLabel = val >= 85 ? 'Выполнено 85%+' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
               const openTopic = () => {
                 if (role === 'teacher') setReviewTask(task);
                 else {
@@ -3748,7 +3748,7 @@ const ProgressSection = ({
                     } : undefined}
                     role={role === 'student' && clickable ? 'button' : undefined}
                     tabIndex={role === 'student' && clickable ? 0 : undefined}
-                    aria-label={role === 'student' && clickable ? `${task.title}. ${statusLabel}. Прогресс ${val}%` : undefined}
+                    aria-label={role === 'student' && clickable ? `${task.title}. ${statusLabel}. Выполнено ${val}%` : undefined}
                   >
                     <span className="progress-topic-card__glint" aria-hidden="true" />
                     <div className="progress-topic-card__header flex items-start justify-between gap-2.5">
@@ -3819,7 +3819,7 @@ const ProgressSection = ({
                       <div
                         className="progress-topic-progress__track overflow-hidden rounded-full"
                         role="progressbar"
-                        aria-label={`Прогресс темы «${task.title}»`}
+                        aria-label={`Выполнение темы «${task.title}»`}
                         aria-valuemin="0"
                         aria-valuemax="100"
                         aria-valuenow={val}

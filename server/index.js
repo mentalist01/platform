@@ -21154,6 +21154,85 @@ app.delete('/api/student-schedule/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+const HOMEWORK_DAY_MS = 24 * 60 * 60 * 1000;
+
+const normalizeHomeworkDueAt = (value) => {
+  const timestamp = Date.parse(typeof value === 'string' ? value.trim() : '');
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : '';
+};
+
+const calculateHomeworkDueAt = (issuedAt, daysToComplete) => {
+  const issuedAtMs = Date.parse(typeof issuedAt === 'string' ? issuedAt.trim() : '');
+  if (!Number.isFinite(issuedAtMs)) return '';
+  const days = Number(daysToComplete);
+  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.round(days) : 7;
+  return new Date(issuedAtMs + (normalizedDays * HOMEWORK_DAY_MS)).toISOString();
+};
+
+const resolveHomeworkDueAt = (entry) => (
+  normalizeHomeworkDueAt(entry?.dueAt)
+  || calculateHomeworkDueAt(entry?.issuedAt, entry?.daysToComplete)
+);
+
+const calculateHomeworkDaysToComplete = (issuedAt, dueAt, fallback = 7) => {
+  const issuedAtMs = Date.parse(typeof issuedAt === 'string' ? issuedAt.trim() : '');
+  const dueAtMs = Date.parse(typeof dueAt === 'string' ? dueAt.trim() : '');
+  if (Number.isFinite(issuedAtMs) && Number.isFinite(dueAtMs) && dueAtMs > issuedAtMs) {
+    return Math.max(1, Math.ceil((dueAtMs - issuedAtMs) / HOMEWORK_DAY_MS));
+  }
+  const fallbackValue = Number(fallback);
+  return Number.isFinite(fallbackValue) && fallbackValue > 0 ? Math.round(fallbackValue) : 7;
+};
+
+const getHomeworkChecklistLines = (homeWork) => (
+  String(homeWork || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+);
+
+const buildHomeworkChecklistItemId = (homeworkId, line, index) => {
+  const source = `${String(homeworkId || 'legacy')}\n${index}\n${line}`;
+  return `homework-item-${crypto.createHash('sha256').update(source).digest('hex').slice(0, 20)}`;
+};
+
+const normalizeHomeworkChecklistItems = (homeworkId, homeWork, existingItems = []) => {
+  const existingByText = new Map();
+  (Array.isArray(existingItems) ? existingItems : []).forEach((item) => {
+    const text = typeof item?.text === 'string' ? item.text.trim() : '';
+    const id = typeof item?.id === 'string' ? item.id.trim() : '';
+    if (!text || !id) return;
+    const bucket = existingByText.get(text) || [];
+    bucket.push({
+      id,
+      text,
+      completedAt: normalizeHomeworkDueAt(item?.completedAt) || null,
+    });
+    existingByText.set(text, bucket);
+  });
+
+  return getHomeworkChecklistLines(homeWork).map((text, index) => {
+    const bucket = existingByText.get(text) || [];
+    const existing = bucket.shift();
+    if (existing) return existing;
+    return {
+      id: buildHomeworkChecklistItemId(homeworkId, text, index),
+      text,
+      completedAt: null,
+    };
+  });
+};
+
+const decorateHomeworkEntry = (entry) => {
+  if (!entry || typeof entry !== 'object') return entry;
+  const id = String(entry.id || entry.issuedAt || 'legacy').trim() || 'legacy';
+  return {
+    ...entry,
+    dueAt: resolveHomeworkDueAt(entry),
+    checklistItems: normalizeHomeworkChecklistItems(id, entry.homeWork, entry.checklistItems),
+  };
+};
+
 app.get('/api/student-next-lesson', (req, res) => {
   const { studentId } = req.query;
   const student = ensureStudentAccess(req, res, studentId);
@@ -21179,10 +21258,12 @@ app.get('/api/student-next-lesson', (req, res) => {
     ? [{
       id: 'legacy',
       issuedAt: legacyNextLesson?.issuedAt || new Date().toISOString(),
+      dueAt: legacyNextLesson?.dueAt || '',
       daysToComplete: Number(legacyNextLesson?.daysToComplete) || 7,
       homeWork: legacyNextLesson?.homeWork || '',
       lessonLink: legacyNextLesson?.lessonLink || '',
       boardLink: legacyNextLesson?.boardLink || '',
+      checklistItems: Array.isArray(legacyNextLesson?.checklistItems) ? legacyNextLesson.checklistItems : [],
       taskNumber: null,
       levelId: null,
       targetQuestions: legacyTargets,
@@ -21191,25 +21272,33 @@ app.get('/api/student-next-lesson', (req, res) => {
     : homeworks;
   const withGoals = normalizedHomeworks.map((entry) => {
     const goals = normalizeGoals(entry?.goals, testsDb);
-    if (goals.length) return { ...entry, goals };
+    if (goals.length) return decorateHomeworkEntry({ ...entry, goals });
     const legacyGoalsEntry = normalizeGoalsFromLegacy(entry, testsDb);
-    return { ...entry, goals: legacyGoalsEntry };
+    return decorateHomeworkEntry({ ...entry, goals: legacyGoalsEntry });
   });
-  const latest = withGoals[0] || legacyNextLesson;
+  const latest = withGoals[0] || decorateHomeworkEntry(legacyNextLesson);
   res.json({ homeworks: withGoals, latest });
 });
 
 app.patch('/api/student-next-lesson', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
-  const { studentId, homeWork, lessonLink, boardLink, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
   const payloadHomeWork = typeof homeWork === 'string' ? homeWork.trim() : '';
   const payloadLessonLink = typeof lessonLink === 'string' ? lessonLink.trim() : '';
   const payloadBoardLink = typeof boardLink === 'string' ? boardLink.trim() : '';
+  const issuedAt = new Date().toISOString();
+  const hasDueAt = typeof dueAt !== 'undefined' && String(dueAt || '').trim() !== '';
+  const payloadDueAt = normalizeHomeworkDueAt(dueAt);
+  if (hasDueAt && !payloadDueAt) {
+    return res.status(400).json({ error: 'Некорректный срок домашки' });
+  }
   const daysValue = Number(daysToComplete);
-  const normalizedDays = Number.isFinite(daysValue) && daysValue > 0 ? Math.round(daysValue) : 7;
+  const fallbackDays = Number.isFinite(daysValue) && daysValue > 0 ? Math.round(daysValue) : 7;
+  const normalizedDueAt = payloadDueAt || calculateHomeworkDueAt(issuedAt, fallbackDays);
+  const normalizedDays = calculateHomeworkDaysToComplete(issuedAt, normalizedDueAt, fallbackDays);
 
   const existingHomeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
   const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
@@ -21229,10 +21318,12 @@ app.patch('/api/student-next-lesson', (req, res) => {
     existingHomeworks.push({
       id: 'legacy',
       issuedAt: legacyNextLesson?.issuedAt || new Date().toISOString(),
+      dueAt: resolveHomeworkDueAt(legacyNextLesson),
       daysToComplete: Number(legacyNextLesson?.daysToComplete) || 7,
       homeWork: legacyNextLesson?.homeWork || '',
       lessonLink: legacyNextLesson?.lessonLink || '',
       boardLink: legacyNextLesson?.boardLink || '',
+      checklistItems: normalizeHomeworkChecklistItems('legacy', legacyNextLesson?.homeWork, legacyNextLesson?.checklistItems),
       targetQuestions: legacyTargets,
     });
   }
@@ -21274,10 +21365,12 @@ app.patch('/api/student-next-lesson', (req, res) => {
     }];
   }
 
+  const newEntryId = crypto.randomUUID();
   const newEntry = {
-    id: crypto.randomUUID(),
-    issuedAt: new Date().toISOString(),
+    id: newEntryId,
+    issuedAt,
     updatedAt: new Date().toISOString(),
+    dueAt: normalizedDueAt,
     daysToComplete: normalizedDays,
     homeWork: payloadHomeWork,
     lessonLink: payloadLessonLink,
@@ -21286,6 +21379,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
     levelId: normalizedLevelId,
     targetQuestions: normalizedTargets,
     goals: normalizedGoals,
+    checklistItems: normalizeHomeworkChecklistItems(newEntryId, payloadHomeWork),
   };
   const updatedHomeworks = [newEntry, ...existingHomeworks];
   const nextLesson = {
@@ -21294,11 +21388,13 @@ app.patch('/api/student-next-lesson', (req, res) => {
     boardLink: newEntry.boardLink,
     issuedAt: newEntry.issuedAt,
     updatedAt: newEntry.updatedAt,
+    dueAt: newEntry.dueAt,
     daysToComplete: newEntry.daysToComplete,
     taskNumber: newEntry.taskNumber,
     levelId: newEntry.levelId,
     targetQuestions: newEntry.targetQuestions,
     goals: newEntry.goals,
+    checklistItems: newEntry.checklistItems,
   };
   const updated = setStudentData(student.id, { ...data, nextLesson, homeworks: updatedHomeworks });
   notifyStudentAboutNewHomework(student, newEntry).catch((error) => {
@@ -21310,7 +21406,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
 app.patch('/api/student-next-lesson/:id', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
-  const { studentId, homeWork, lessonLink, boardLink, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
@@ -21324,8 +21420,21 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   const payloadHomeWork = typeof homeWork === 'string' ? homeWork.trim() : (existing.homeWork || '');
   const payloadLessonLink = typeof lessonLink === 'string' ? lessonLink.trim() : (existing.lessonLink || '');
   const payloadBoardLink = typeof boardLink === 'string' ? boardLink.trim() : (existing.boardLink || '');
+  const hasDaysField = typeof daysToComplete !== 'undefined';
   const daysValue = Number(daysToComplete);
-  const normalizedDays = Number.isFinite(daysValue) && daysValue > 0 ? Math.round(daysValue) : (existing.daysToComplete || 7);
+  const fallbackDays = Number.isFinite(daysValue) && daysValue > 0 ? Math.round(daysValue) : (existing.daysToComplete || 7);
+  const hasDueAtField = typeof dueAt !== 'undefined';
+  const hasDueAtValue = hasDueAtField && String(dueAt || '').trim() !== '';
+  const payloadDueAt = normalizeHomeworkDueAt(dueAt);
+  if (hasDueAtValue && !payloadDueAt) {
+    return res.status(400).json({ error: 'Некорректный срок домашки' });
+  }
+  const normalizedDueAt = hasDueAtField
+    ? (payloadDueAt || calculateHomeworkDueAt(existing.issuedAt, fallbackDays))
+    : (hasDaysField
+        ? calculateHomeworkDueAt(existing.issuedAt, fallbackDays)
+        : (resolveHomeworkDueAt(existing) || calculateHomeworkDueAt(existing.issuedAt, fallbackDays)));
+  const normalizedDays = calculateHomeworkDaysToComplete(existing.issuedAt, normalizedDueAt, fallbackDays);
 
   const hasGoalsField = Array.isArray(goals);
   const hasTaskField = typeof taskNumber !== 'undefined';
@@ -21393,11 +21502,13 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     lessonLink: payloadLessonLink,
     boardLink: payloadBoardLink,
     updatedAt: new Date().toISOString(),
+    dueAt: normalizedDueAt,
     daysToComplete: normalizedDays,
     taskNumber: normalizedTaskNumber,
     levelId: normalizedLevelId,
     targetQuestions: normalizedTargets,
     goals: normalizedGoals,
+    checklistItems: normalizeHomeworkChecklistItems(id, payloadHomeWork, existing.checklistItems),
   };
   homeworks[index] = updatedEntry;
 
@@ -21409,16 +21520,88 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
         boardLink: latestEntry.boardLink,
         issuedAt: latestEntry.issuedAt,
         updatedAt: latestEntry.updatedAt,
+        dueAt: resolveHomeworkDueAt(latestEntry),
         daysToComplete: latestEntry.daysToComplete,
         taskNumber: latestEntry.taskNumber ?? null,
         levelId: latestEntry.levelId ?? null,
         targetQuestions: Array.isArray(latestEntry.targetQuestions) ? latestEntry.targetQuestions : [],
         goals: Array.isArray(latestEntry.goals) ? latestEntry.goals : normalizeGoalsFromLegacy(latestEntry),
+        checklistItems: normalizeHomeworkChecklistItems(latestEntry.id, latestEntry.homeWork, latestEntry.checklistItems),
       }
     : (data.nextLesson || { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] });
 
   const updated = setStudentData(student.id, { ...data, nextLesson, homeworks });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
+});
+
+app.patch('/api/student-next-lesson/:id/checklist', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const { id } = req.params;
+  const { itemId, completed } = req.body || {};
+  const normalizedItemId = typeof itemId === 'string' ? itemId.trim() : '';
+  if (!normalizedItemId || typeof completed !== 'boolean') {
+    return res.status(400).json({ error: 'Некорректный пункт домашки' });
+  }
+
+  const student = ensureStudentAccess(req, res, req.auth?.id);
+  if (!student) return;
+  const data = getStudentData(student.id);
+  let homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
+
+  if (id === 'legacy' && homeworks.length === 0) {
+    const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
+      ? data.nextLesson
+      : null;
+    const hasLegacyContent = Boolean(
+      legacyNextLesson?.homeWork
+      || legacyNextLesson?.lessonLink
+      || legacyNextLesson?.boardLink
+    );
+    if (hasLegacyContent) {
+      const issuedAt = legacyNextLesson?.issuedAt || new Date().toISOString();
+      homeworks = [{
+        ...legacyNextLesson,
+        id: 'legacy',
+        issuedAt,
+        dueAt: resolveHomeworkDueAt({ ...legacyNextLesson, issuedAt }),
+        daysToComplete: Number(legacyNextLesson?.daysToComplete) || 7,
+        checklistItems: normalizeHomeworkChecklistItems('legacy', legacyNextLesson?.homeWork, legacyNextLesson?.checklistItems),
+      }];
+    }
+  }
+
+  const homeworkIndex = homeworks.findIndex((entry) => String(entry?.id || '') === String(id || ''));
+  if (homeworkIndex < 0) {
+    return res.status(404).json({ error: 'Домашка не найдена' });
+  }
+
+  const existing = homeworks[homeworkIndex] || {};
+  const checklistItems = normalizeHomeworkChecklistItems(id, existing.homeWork, existing.checklistItems);
+  const itemIndex = checklistItems.findIndex((item) => item.id === normalizedItemId);
+  if (itemIndex < 0) {
+    return res.status(404).json({ error: 'Пункт домашки не найден' });
+  }
+  checklistItems[itemIndex] = {
+    ...checklistItems[itemIndex],
+    completedAt: completed ? new Date().toISOString() : null,
+  };
+
+  const updatedEntry = {
+    ...existing,
+    dueAt: resolveHomeworkDueAt(existing),
+    checklistItems,
+    checklistUpdatedAt: new Date().toISOString(),
+  };
+  homeworks[homeworkIndex] = updatedEntry;
+  const nextLesson = homeworkIndex === 0
+    ? {
+        ...(data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : {}),
+        dueAt: updatedEntry.dueAt,
+        checklistItems,
+      }
+    : data.nextLesson;
+  setStudentData(student.id, { ...data, nextLesson, homeworks });
+  res.json({ homework: decorateHomeworkEntry(updatedEntry) });
 });
 
 app.delete('/api/student-next-lesson/:id', (req, res) => {
@@ -21448,13 +21631,15 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
         lessonLink: latestEntry.lessonLink,
         boardLink: latestEntry.boardLink,
         issuedAt: latestEntry.issuedAt,
+        dueAt: resolveHomeworkDueAt(latestEntry),
         daysToComplete: latestEntry.daysToComplete,
         taskNumber: latestEntry.taskNumber ?? null,
         levelId: latestEntry.levelId ?? null,
         targetQuestions: Array.isArray(latestEntry.targetQuestions) ? latestEntry.targetQuestions : [],
         goals: Array.isArray(latestEntry.goals) ? latestEntry.goals : normalizeGoalsFromLegacy(latestEntry),
+        checklistItems: normalizeHomeworkChecklistItems(latestEntry.id, latestEntry.homeWork, latestEntry.checklistItems),
       }
-    : { homeWork: '', lessonLink: '', boardLink: '', issuedAt: '', daysToComplete: 7, taskNumber: null, levelId: null, targetQuestions: [], goals: [] };
+    : { homeWork: '', lessonLink: '', boardLink: '', issuedAt: '', dueAt: '', daysToComplete: 7, taskNumber: null, levelId: null, targetQuestions: [], goals: [], checklistItems: [] };
 
   const updated = setStudentData(student.id, { ...data, nextLesson, homeworks: updatedHomeworks });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });

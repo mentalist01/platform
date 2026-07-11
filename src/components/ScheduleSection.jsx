@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, Pencil, RefreshCcw, Save, Trash2 } from 'lucide-react';
+import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2 } from 'lucide-react';
 import { api, resolveAuthenticatedApiUrl } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -47,6 +47,104 @@ const SCHEDULE_REQUEST_TYPE_DELETE = 'delete';
 const SCHEDULE_REQUEST_STATUS_PENDING = 'pending';
 const SCHEDULE_REQUEST_STATUS_APPROVED = 'approved';
 const SCHEDULE_REQUEST_STATUS_REJECTED = 'rejected';
+const HOMEWORK_DAY_MS = 24 * 60 * 60 * 1000;
+
+const resolveHomeworkDueAt = (entry) => {
+  const explicitDueAt = new Date(entry?.dueAt || '');
+  if (!Number.isNaN(explicitDueAt.getTime())) return explicitDueAt;
+  const issuedAt = new Date(entry?.issuedAt || '');
+  if (Number.isNaN(issuedAt.getTime())) return null;
+  const days = Number(entry?.daysToComplete);
+  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.round(days) : 7;
+  return new Date(issuedAt.getTime() + (normalizedDays * HOMEWORK_DAY_MS));
+};
+
+const buildDefaultHomeworkDueAt = (days = 7) => {
+  const normalizedDays = Number.isFinite(Number(days)) && Number(days) > 0 ? Number(days) : 7;
+  return new Date(Date.now() + (normalizedDays * HOMEWORK_DAY_MS));
+};
+
+const toDateTimeLocalValue = (value) => {
+  const date = value instanceof Date ? value : new Date(value || '');
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const toHomeworkDueAtIso = (value) => {
+  const date = new Date(value || '');
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+};
+
+const formatHomeworkRelativeAmount = (amount, unit) => {
+  const value = Math.max(1, Math.round(Number(amount) || 1));
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  const forms = unit === 'minute'
+    ? ['минуту', 'минуты', 'минут']
+    : unit === 'hour'
+      ? ['час', 'часа', 'часов']
+      : ['день', 'дня', 'дней'];
+  if (mod10 === 1 && mod100 !== 11) return `${value} ${forms[0]}`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} ${forms[1]}`;
+  return `${value} ${forms[2]}`;
+};
+
+const getHomeworkDeadlineMeta = (entry, nowMs = Date.now()) => {
+  const dueAt = resolveHomeworkDueAt(entry);
+  if (!dueAt) {
+    return {
+      label: 'Срок не указан',
+      relativeLabel: '',
+      tone: 'border-slate-200 bg-white/90 text-slate-600',
+    };
+  }
+  const currentYear = new Date(nowMs).getFullYear();
+  const dateLabel = dueAt.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    ...(dueAt.getFullYear() === currentYear ? {} : { year: 'numeric' }),
+  }).replace(' г.', '');
+  const timeLabel = dueAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const remainingMs = dueAt.getTime() - nowMs;
+  const absoluteMs = Math.abs(remainingMs);
+  let relativeAmount = '';
+  if (absoluteMs < 60 * 60 * 1000) {
+    relativeAmount = formatHomeworkRelativeAmount(Math.ceil(absoluteMs / (60 * 1000)), 'minute');
+  } else if (absoluteMs < HOMEWORK_DAY_MS) {
+    relativeAmount = formatHomeworkRelativeAmount(Math.ceil(absoluteMs / (60 * 60 * 1000)), 'hour');
+  } else {
+    relativeAmount = formatHomeworkRelativeAmount(Math.ceil(absoluteMs / HOMEWORK_DAY_MS), 'day');
+  }
+  const overdue = remainingMs < 0;
+  return {
+    label: `До ${dateLabel}, ${timeLabel}`,
+    relativeLabel: overdue ? `Просрочено на ${relativeAmount}` : `Осталось ${relativeAmount}`,
+    tone: overdue
+      ? 'border-red-200 bg-red-50 text-red-700'
+      : remainingMs <= HOMEWORK_DAY_MS
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : 'border-slate-200 bg-white/90 text-slate-600',
+  };
+};
+
+const getHomeworkChecklistItems = (entry) => {
+  const storedItems = Array.isArray(entry?.checklistItems)
+    ? entry.checklistItems
+        .map((item) => ({
+          id: typeof item?.id === 'string' ? item.id.trim() : '',
+          text: typeof item?.text === 'string' ? item.text.trim() : '',
+          completedAt: item?.completedAt || null,
+        }))
+        .filter((item) => item.text)
+    : [];
+  if (storedItems.length > 0) return storedItems;
+  return String(entry?.homeWork || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((text) => ({ id: '', text, completedAt: null }));
+};
 
 const getScheduleWeekdayMetaFromDate = (value) => {
   const normalized = String(value || '').trim();
@@ -302,6 +400,17 @@ const getLessonCountLabel = (count) => {
   return `${value} занятий`;
 };
 
+const getHomeworkCountLabel = (count) => {
+  const value = Number(count) || 0;
+  const abs = Math.abs(value);
+  const lastTwo = abs % 100;
+  const last = abs % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${value} заданий`;
+  if (last === 1) return `${value} задание`;
+  if (last >= 2 && last <= 4) return `${value} задания`;
+  return `${value} заданий`;
+};
+
 const sortScheduleEntries = (entries = []) => (
   entries
     .map((entry) => normalizeScheduleEntry(entry))
@@ -359,6 +468,7 @@ const formatScheduleRequestStatusLabel = (status) => {
 };
 const ScheduleSection = ({
   role,
+  showHeader = true,
   studentId,
   students,
   activeStudentId,
@@ -398,8 +508,8 @@ const ScheduleSection = ({
   const DEFAULT_HOMEWORK = '';
   const DEFAULT_GOAL = { type: GOAL_TYPE_TASK, taskNumber: '', levelId: 'basic', targetInput: '', includeAll: false, mockExamId: '' };
   const [homeworks, setHomeworks] = useState([]);
-  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '', taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
-  const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
+  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
+  const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt()), daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
   const [studentProgress, setStudentProgress] = useState({});
   const [loading, setLoading] = useState(false);
   const [refreshingData, setRefreshingData] = useState(false);
@@ -435,6 +545,8 @@ const ScheduleSection = ({
   const [lessonReminderLoading, setLessonReminderLoading] = useState(false);
   const [lessonReminderSaving, setLessonReminderSaving] = useState(false);
   const [lessonReminderError, setLessonReminderError] = useState('');
+  const [homeworkChecklistBusy, setHomeworkChecklistBusy] = useState({});
+  const [homeworkClock, setHomeworkClock] = useState(() => Date.now());
   const googleScheduleAutoSyncKeyRef = React.useRef('');
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
@@ -460,8 +572,10 @@ const ScheduleSection = ({
     homeWork: latest?.homeWork || '',
     lessonLink: latest?.lessonLink || '',
     boardLink: latest?.boardLink || '',
+    dueAt: latest?.dueAt || fallback.dueAt || '',
     daysToComplete: Number(latest?.daysToComplete) || fallback.daysToComplete || 7,
     issuedAt: latest?.issuedAt || '',
+    checklistItems: Array.isArray(latest?.checklistItems) ? latest.checklistItems : [],
     taskNumber: latest?.taskNumber ?? null,
     levelId: latest?.levelId ?? null,
     targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : [],
@@ -471,8 +585,8 @@ const ScheduleSection = ({
   const loadNextLesson = async () => {
     if (!effectiveStudentId) {
       setHomeworks([]);
-      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '', daysToComplete: 7, issuedAt: '', taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
-      setForm({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
+      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
+      setForm({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt()), daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
       setEditingId(null);
       return;
     }
@@ -490,6 +604,7 @@ const ScheduleSection = ({
           homeWork: DEFAULT_HOMEWORK,
           lessonLink: safeData.lessonLink || '',
           boardLink: safeData.boardLink || '',
+          dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(safeData.daysToComplete || 7)),
           daysToComplete: safeData.daysToComplete || 7,
           goals: [{ ...DEFAULT_GOAL }]
         });
@@ -598,6 +713,16 @@ const ScheduleSection = ({
   useEffect(() => {
     loadNextLesson();
   }, [effectiveStudentId]);
+
+  useEffect(() => {
+    setHomeworkClock(Date.now());
+    setHomeworkChecklistBusy({});
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => setHomeworkClock(Date.now()), 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     loadSchedule();
@@ -998,7 +1123,7 @@ const ScheduleSection = ({
                 <span>{SCHEDULE_WEEKDAY_SHORT_LABELS[day.key] || day.label.slice(0, 2).toUpperCase()}</span>
                 <strong>{day.date?.getDate?.() || ''}</strong>
                 {lessonTimeLabel && <small>{lessonTimeLabel}</small>}
-                {lessonsCount > 0 && <em>{lessonsCount}</em>}
+                {lessonsCount > 1 && <em>{lessonsCount}</em>}
               </div>
             );
           })}
@@ -1018,10 +1143,7 @@ const ScheduleSection = ({
             </div>
           </div>
         ) : (
-          <div
-            className="schedule-shell__student-lessons"
-            style={{ '--student-lesson-rows': Math.max(1, Math.ceil(studentVisibleSchedule.length / 2)) }}
-          >
+          <div className="schedule-shell__student-lessons">
             {studentVisibleSchedule.map((entry, index) => {
               const lessonKey = getStudentLessonKey(entry);
               const timingState = lessonStateByKey.get(lessonKey) || getScheduleEntryTimingState(entry, now);
@@ -1358,16 +1480,6 @@ const ScheduleSection = ({
     return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).replace(' г.', '');
   };
 
-  const formatDaysText = (days) => {
-    const value = Number(days) || 0;
-    if (value === 7) return 'неделя';
-    const mod10 = value % 10;
-    const mod100 = value % 100;
-    if (mod10 === 1 && mod100 !== 11) return `${value} день`;
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} дня`;
-    return `${value} дней`;
-  };
-
   const renderLinkedText = (text, keyPrefix = 'homework') => {
     const parts = splitTextWithUrls(text);
     if (parts.length === 0) return String(text || '');
@@ -1636,11 +1748,44 @@ const ScheduleSection = ({
     setShowHistory(false);
   }, [effectiveStudentId, totalHomeworkCount]);
 
+  const handleToggleHomeworkChecklistItem = async (entry, item) => {
+    if (role !== 'student' || !entry?.id || !item?.id) return;
+    const busyKey = `${entry.id}:${item.id}`;
+    if (homeworkChecklistBusy[busyKey]) return;
+    const nextCompleted = !item.completedAt;
+    setHomeworkChecklistBusy((prev) => ({ ...prev, [busyKey]: true }));
+    try {
+      const result = await api.updateStudentHomeworkChecklistItem(entry.id, item.id, nextCompleted);
+      const updatedEntry = result?.homework && typeof result.homework === 'object'
+        ? result.homework
+        : null;
+      if (updatedEntry) {
+        setHomeworks((prev) => prev.map((homework) => (
+          String(homework?.id || '') === String(updatedEntry.id || '')
+            ? { ...homework, ...updatedEntry }
+            : homework
+        )));
+        if (String(homeworks?.[0]?.id || '') === String(updatedEntry.id || '')) {
+          setNextLesson(buildNextLessonData(updatedEntry));
+        }
+      }
+      setError('');
+    } catch (err) {
+      setError(err?.message || err);
+    } finally {
+      setHomeworkChecklistBusy((prev) => {
+        const next = { ...prev };
+        delete next[busyKey];
+        return next;
+      });
+    }
+  };
+
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
     if (!entry) return null;
     const isNextSection = section === 'next';
     const dateText = formatDate(entry?.issuedAt);
-    const daysText = formatDaysText(entry?.daysToComplete || 7);
+    const deadlineMeta = getHomeworkDeadlineMeta(entry, homeworkClock);
     const isEditing = editingId && entry?.id === editingId;
     const entryGoals = normalizeEntryGoals(entry);
     const goalViews = entryGoals
@@ -1669,12 +1814,10 @@ const ScheduleSection = ({
         : goalsSummary.solvedCount > 0
           ? { label: 'В процессе', tone: 'border-amber-200 bg-amber-50 text-amber-700' }
           : { label: 'Нужно начать', tone: 'border-purple-200 bg-purple-50 text-purple-700' };
-    const checklistLines = String(entry?.homeWork || '')
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const visibleChecklistLines = scheduleCompactMode ? checklistLines.slice(0, 4) : checklistLines;
-    const hiddenChecklistCount = Math.max(checklistLines.length - visibleChecklistLines.length, 0);
+    const checklistItems = getHomeworkChecklistItems(entry);
+    const visibleChecklistItems = scheduleCompactMode ? checklistItems.slice(0, 4) : checklistItems;
+    const hiddenChecklistCount = Math.max(checklistItems.length - visibleChecklistItems.length, 0);
+    const completedChecklistCount = checklistItems.filter((item) => Boolean(item.completedAt)).length;
     const lessonUrl = normalizeHttpUrl(entry?.lessonLink);
     const boardUrl = normalizeHttpUrl(entry?.boardLink);
 
@@ -1686,6 +1829,233 @@ const ScheduleSection = ({
       }
       onOpenTask?.(goalView.taskNumber, goalView.levelId, goalView.targetNumbers);
     };
+
+    if (role === 'student' && isNextSection) {
+      const primaryGoal = firstPendingGoal || goalViews[0] || null;
+      const primaryProgress = Math.max(0, Math.min(100, Number(primaryGoal?.progressPercent) || 0));
+      const primaryRemaining = primaryGoal?.totalCount > 0
+        ? Math.max(primaryGoal.totalCount - primaryGoal.solvedCount, 0)
+        : 0;
+      const primaryTargets = Array.isArray(primaryGoal?.targetStatus)
+        ? primaryGoal.targetStatus.slice(0, 10)
+        : [];
+      const hiddenPrimaryTargets = Math.max((primaryGoal?.targetStatus?.length || 0) - primaryTargets.length, 0);
+      const additionalPendingGoals = goalsSummary.pendingGoals.filter((goalView) => goalView !== primaryGoal);
+      const additionalCompletedCount = goalsSummary.completedGoals.filter((goalView) => goalView !== primaryGoal).length;
+
+      return (
+        <article key={key} className="student-today-homework-card relative overflow-hidden rounded-[26px] border border-purple-200/85 bg-white/94 p-4 shadow-[0_18px_42px_rgba(99,102,241,0.13)] md:p-5">
+          <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-44 w-44 rounded-full bg-purple-100/70 blur-3xl" />
+          <header className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-[0_10px_22px_rgba(124,58,237,0.24)]">
+                <ListChecks size={20} />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-purple-500">К следующему уроку</div>
+                <h4 className="student-today-homework__headline mt-1 text-xl font-black leading-tight text-slate-950 md:text-2xl">
+                  Домашняя работа
+                </h4>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold ${deadlineMeta.tone}`}>
+                    <Clock3 size={11} />
+                    {deadlineMeta.label}
+                    {deadlineMeta.relativeLabel ? <span className="opacity-75">· {deadlineMeta.relativeLabel}</span> : null}
+                  </span>
+                  <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold ${summaryStatus.tone}`}>
+                    {summaryStatus.label}
+                  </span>
+                  {dateText ? <span className="text-[10px] font-medium text-slate-400">Выдано {dateText}</span> : null}
+                </div>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end">
+              <div
+                className="student-today-homework__progress grid h-[62px] w-[62px] place-items-center rounded-full p-[5px] shadow-[0_8px_20px_rgba(124,58,237,0.12)]"
+                style={{ '--student-homework-progress': `${goalsSummary.progressPercent}%` }}
+                role="progressbar"
+                aria-label={`Выполнено ${goalsSummary.progressPercent}%`}
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={goalsSummary.progressPercent}
+              >
+                <span className="student-today-homework__progress-core grid h-full w-full place-items-center rounded-full bg-white text-sm font-black text-purple-700">
+                  {goalsSummary.totalCount > 0 ? `${goalsSummary.progressPercent}%` : '—'}
+                </span>
+              </div>
+            </div>
+          </header>
+
+          <div className="relative mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)]">
+            <section className="student-today-homework__goal-panel rounded-[20px] border border-purple-200/80 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/60 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-purple-600">
+                  <Target size={13} /> Текущая цель
+                </span>
+                {primaryGoal?.totalCount > 0 ? (
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-purple-700 shadow-sm">
+                    {`${primaryGoal.solvedCount}/${primaryGoal.totalCount}`}
+                  </span>
+                ) : null}
+              </div>
+
+              {primaryGoal ? (
+                <>
+                  <strong className="mt-2 block text-base font-black text-slate-900">{primaryGoal.heading}</strong>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {primaryGoal.totalCount > 0 ? `Осталось выполнить: ${primaryRemaining}` : 'Откройте цель, чтобы начать.'}
+                  </div>
+                  {primaryGoal.totalCount > 0 ? (
+                    <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-purple-100">
+                      <div
+                        className={`h-full rounded-full ${primaryRemaining === 0 ? 'bg-gradient-to-r from-emerald-500 to-teal-400' : 'bg-gradient-to-r from-violet-600 to-fuchsia-500'}`}
+                        style={{ width: `${primaryProgress}%` }}
+                      />
+                    </div>
+                  ) : null}
+                  {primaryTargets.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {primaryTargets.map((item) => (
+                        <span
+                          key={`student-primary-${primaryGoal.viewKey}-${item.num}`}
+                          className={`inline-flex h-7 min-w-7 items-center justify-center rounded-lg border px-2 text-[10px] font-black ${
+                            item.solved
+                              ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                              : 'border-purple-200 bg-white text-purple-700'
+                          }`}
+                        >
+                          №{item.num}{item.solved ? ' ✓' : ''}
+                        </span>
+                      ))}
+                      {hiddenPrimaryTargets > 0 ? (
+                        <span className="inline-flex h-7 items-center rounded-lg border border-slate-200 bg-slate-100 px-2 text-[10px] font-black text-slate-500">
+                          +{hiddenPrimaryTargets}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {firstPendingGoal && canOpenFirstPending ? (
+                    <button
+                      type="button"
+                      onClick={() => openGoal(firstPendingGoal)}
+                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2.5 text-sm font-black text-white shadow-[0_10px_22px_rgba(124,58,237,0.2)] transition hover:-translate-y-0.5 hover:from-violet-700 hover:to-fuchsia-700 sm:w-auto"
+                    >
+                      {firstPendingGoal.type === GOAL_TYPE_MOCK ? 'Продолжить пробник' : 'Продолжить цель'}
+                      <ArrowRight size={15} />
+                    </button>
+                  ) : firstPendingGoal ? (
+                    <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white/80 px-3 py-2 text-xs font-bold text-purple-700">
+                      Цель доступна в разделе «Практика»
+                    </div>
+                  ) : (
+                    <div className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-700">
+                      <CheckCircle size={15} /> Все цели выполнены
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-slate-500">Учитель пока не добавил учебные цели.</p>
+              )}
+
+              {(additionalPendingGoals.length > 0 || additionalCompletedCount > 0) ? (
+                <div className="mt-4 border-t border-purple-100 pt-3">
+                  <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Дальше</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {additionalPendingGoals.slice(0, 3).map((goalView) => (
+                      <button
+                        key={`student-next-${goalView.viewKey}`}
+                        type="button"
+                        onClick={() => openGoal(goalView)}
+                        className="rounded-lg border border-purple-100 bg-white px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-600 transition hover:border-purple-300 hover:text-purple-700"
+                      >
+                        {goalView.heading}
+                      </button>
+                    ))}
+                    {additionalPendingGoals.length > 3 ? (
+                      <span className="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-500">
+                        +{additionalPendingGoals.length - 3} в плане
+                      </span>
+                    ) : null}
+                    {additionalCompletedCount > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-700">
+                        <CheckCircle size={12} /> {additionalCompletedCount} выполнено
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="student-today-homework__checklist-panel rounded-[20px] border border-slate-200/90 bg-slate-50/75 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Чек-лист</div>
+                  <div className="mt-0.5 text-sm font-bold text-slate-900">Что ещё сделать</div>
+                </div>
+                {checklistItems.length > 0 ? (
+                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-black text-slate-500">
+                    {completedChecklistCount}/{checklistItems.length}
+                  </span>
+                ) : null}
+              </div>
+              {visibleChecklistItems.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {visibleChecklistItems.map((item, index) => {
+                    const isCompleted = Boolean(item.completedAt);
+                    const busyKey = `${entry?.id || ''}:${item.id || ''}`;
+                    const isBusy = Boolean(homeworkChecklistBusy[busyKey]);
+                    const canToggle = Boolean(entry?.id) && Boolean(item.id);
+                    return (
+                      <div key={item.id || `${item.text}-${index}`} className={`student-today-homework__check-row flex items-start gap-2.5 rounded-xl border px-2.5 py-2 ${isCompleted ? 'student-today-homework__check-row--complete border-emerald-100 bg-emerald-50/80' : 'border-slate-200/80 bg-white'}`}>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleHomeworkChecklistItem(entry, item)}
+                          disabled={!canToggle || isBusy}
+                          aria-label={isCompleted ? `Отметить как невыполненное: ${item.text}` : `Отметить как выполненное: ${item.text}`}
+                          aria-pressed={isCompleted}
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-sm font-black transition ${
+                            isCompleted
+                              ? 'border-emerald-500 bg-emerald-500 text-white'
+                              : 'border-purple-300 bg-white text-transparent hover:border-purple-500'
+                          } ${isBusy ? 'opacity-50' : ''}`}
+                        >
+                          ✓
+                        </button>
+                        <span className={`min-w-0 break-words text-xs leading-relaxed ${isCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                          {renderLinkedText(item.text, `student-next-${entry?.id || key || 'entry'}-${index}`)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {hiddenChecklistCount > 0 ? (
+                    <div className="text-[10px] font-semibold text-slate-400">Ещё {hiddenChecklistCount} пунктов</div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 py-4 text-xs text-slate-400">
+                  Дополнительных пунктов нет.
+                </div>
+              )}
+            </section>
+          </div>
+
+          {(lessonUrl || boardUrl) ? (
+            <div className="relative mt-3 flex flex-wrap gap-2">
+              {lessonUrl ? (
+                <a href={lessonUrl} target="_blank" rel="noopener noreferrer" className="student-today-homework__resource-link inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 hover:bg-white">
+                  <Calendar size={14} /> Материалы занятия <ChevronRight size={14} />
+                </a>
+              ) : null}
+              {boardUrl ? (
+                <a href={boardUrl} target="_blank" rel="noopener noreferrer" className="student-today-homework__resource-link inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 hover:bg-white">
+                  <BookOpen size={14} /> Доска урока <ChevronRight size={14} />
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+        </article>
+      );
+    }
 
     return (
       <div key={key} className={`rounded-2xl border p-3.5 md:p-5 space-y-3 md:space-y-4 ${cardTone}`}>
@@ -1703,9 +2073,12 @@ const ScheduleSection = ({
                 <Calendar size={13} />
                 {dateText || 'сегодня'}
               </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                <RefreshCcw size={12} />
-                {`Срок: ${daysText}`}
+              <span className={`inline-flex flex-wrap items-center gap-x-1 gap-y-0.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${deadlineMeta.tone}`}>
+                <Clock3 size={12} />
+                <span>{deadlineMeta.label}</span>
+                {deadlineMeta.relativeLabel && (
+                  <span className="opacity-75">· {deadlineMeta.relativeLabel}</span>
+                )}
               </span>
               <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${summaryStatus.tone}`}>
                 {summaryStatus.label}
@@ -2004,22 +2377,49 @@ const ScheduleSection = ({
         <div className="rounded-xl border border-purple-100/70 bg-white/90 p-3.5 md:p-4">
           <div className="mb-1.5 md:mb-2 flex items-center justify-between gap-2">
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-purple-500">Домашка</p>
-            {checklistLines.length > 0 && (
+            {checklistItems.length > 0 && (
               <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
-                {`Пунктов: ${checklistLines.length}`}
+                {role === 'student' || completedChecklistCount > 0
+                  ? `Выполнено ${completedChecklistCount}/${checklistItems.length}`
+                  : `Пунктов: ${checklistItems.length}`}
               </span>
             )}
           </div>
-          {checklistLines.length > 0 ? (
+          {checklistItems.length > 0 ? (
             <div className="space-y-1.5">
-              {visibleChecklistLines.map((line, index) => (
-                <div key={`${line}-${index}`} className="flex items-start gap-2 text-[13px] md:text-sm text-gray-700 leading-relaxed">
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-purple-400" />
-                  <span className="whitespace-pre-wrap break-words">
-                    {renderLinkedText(line, `${section}-${entry?.id || key || 'entry'}-${index}`)}
-                  </span>
-                </div>
-              ))}
+              {visibleChecklistItems.map((item, index) => {
+                const isCompleted = Boolean(item.completedAt);
+                const busyKey = `${entry?.id || ''}:${item.id || ''}`;
+                const isBusy = Boolean(homeworkChecklistBusy[busyKey]);
+                const canToggle = role === 'student' && Boolean(entry?.id) && Boolean(item.id);
+                return (
+                  <div
+                    key={item.id || `${item.text}-${index}`}
+                    className={`flex items-start gap-2 rounded-lg px-1.5 py-1 text-[13px] leading-relaxed transition md:text-sm ${
+                      isCompleted ? 'bg-emerald-50/70 text-slate-500' : 'text-gray-700'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleToggleHomeworkChecklistItem(entry, item)}
+                      disabled={!canToggle || isBusy}
+                      aria-label={isCompleted ? `Отметить как невыполненное: ${item.text}` : `Отметить как выполненное: ${item.text}`}
+                      aria-pressed={isCompleted}
+                      title={canToggle ? (isCompleted ? 'Вернуть в работу' : 'Отметить выполненным') : 'Отмечает ученик'}
+                      className={`mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border transition ${
+                        isCompleted
+                          ? 'border-emerald-500 bg-emerald-500 text-white'
+                          : 'border-purple-300 bg-white text-transparent'
+                      } ${canToggle ? 'cursor-pointer hover:border-purple-500' : 'cursor-default'} ${isBusy ? 'opacity-50' : ''}`}
+                    >
+                      <span className="text-[12px] font-black leading-none">✓</span>
+                    </button>
+                    <span className={`whitespace-pre-wrap break-words ${isCompleted ? 'line-through decoration-slate-300' : ''}`}>
+                      {renderLinkedText(item.text, `${section}-${entry?.id || key || 'entry'}-${index}`)}
+                    </span>
+                  </div>
+                );
+              })}
               {hiddenChecklistCount > 0 && (
                 <div className="text-[11px] text-slate-500">
                   {`Ещё ${hiddenChecklistCount} пунктов — переключите режим на «Подробно», чтобы увидеть всё.`}
@@ -2088,6 +2488,7 @@ const ScheduleSection = ({
       homeWork: DEFAULT_HOMEWORK,
       lessonLink: source?.lessonLink || '',
       boardLink: source?.boardLink || '',
+      dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(source?.daysToComplete || 7)),
       daysToComplete: source?.daysToComplete || 7,
       goals: [{ ...DEFAULT_GOAL }]
     });
@@ -2102,6 +2503,7 @@ const ScheduleSection = ({
       homeWork: entry.homeWork || '',
       lessonLink: entry.lessonLink || '',
       boardLink: entry.boardLink || '',
+      dueAt: toDateTimeLocalValue(resolveHomeworkDueAt(entry)),
       daysToComplete: Number(entry.daysToComplete) || 7,
       goals: goals.length
         ? goals.map((goal) => {
@@ -2150,6 +2552,11 @@ const ScheduleSection = ({
 
   const handleSave = async () => {
     if (!effectiveStudentId || role !== 'teacher') return;
+    const dueAtIso = toHomeworkDueAtIso(form.dueAt);
+    if (!dueAtIso) {
+      setError('Укажите дату и время сдачи домашки.');
+      return;
+    }
     setSaving(true);
     try {
       const goalsPayload = (Array.isArray(form.goals) ? form.goals : [])
@@ -2186,6 +2593,7 @@ const ScheduleSection = ({
         homeWork: form.homeWork,
         lessonLink: form.lessonLink,
         boardLink: form.boardLink,
+        dueAt: dueAtIso,
         daysToComplete: form.daysToComplete,
         goals: goalsPayload
       };
@@ -2254,6 +2662,7 @@ const ScheduleSection = ({
 
   return (
     <div className="space-y-4 md:space-y-6 animate-fadeIn" data-tour="schedule">
+      {showHeader && (
       <div className="schedule-shell__hero relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/75 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
         <div aria-hidden className="schedule-shell__hero-glow--a pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="schedule-shell__hero-glow--b pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
@@ -2296,6 +2705,7 @@ const ScheduleSection = ({
           {renderStudentPicker()}
         </div>
       </div>
+      )}
 
       {topErrorBanners.length > 0 && (
         <div className="space-y-2">
@@ -2316,24 +2726,27 @@ const ScheduleSection = ({
       )}
 
       {(role === 'teacher' || role === 'student') && (
-        <Card className={`schedule-shell__lessons-card ${role === 'student' ? 'space-y-3' : 'space-y-4'} border-sky-200/70 bg-gradient-to-br from-white via-sky-50/50 to-indigo-50/40`}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <Card className={`schedule-shell__lessons-card ${role === 'student' ? 'student-today-schedule-card space-y-3' : 'space-y-4 border-sky-200/70 bg-gradient-to-br from-white via-sky-50/50 to-indigo-50/40'}`}>
+          <div className={`flex flex-wrap items-start justify-between gap-3 ${role === 'student' ? 'student-today-schedule-card__header' : ''}`}>
             <div className="flex min-w-0 items-center gap-3">
-              <span className="schedule-shell__lessons-icon inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-sky-200 bg-white text-sky-600 shadow-sm">
+              <span className={`schedule-shell__lessons-icon inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${role === 'student' ? 'student-today-schedule-card__icon' : 'border border-sky-200 bg-white text-sky-600 shadow-sm'}`}>
                 <Calendar size={19} />
               </span>
               <div className="min-w-0 space-y-0.5">
+                {role === 'student' && (
+                  <div className="student-today-schedule-card__eyebrow">Ближайшие занятия</div>
+                )}
                 <div className="text-lg font-bold text-slate-900">
-                  {role === 'teacher' ? 'График занятий ученика' : 'График занятий'}
+                  {role === 'teacher' ? 'График занятий ученика' : 'Расписание недели'}
                 </div>
                 <p className="text-xs text-slate-500">
                   {role === 'teacher'
                     ? `Берём текущую неделю из Google Calendar по названию события${selectedStudent ? `: ${getStudentLabel(selectedStudent)}` : ' выбранного ученика'}.`
-                    : `${isShowingNearestScheduleWeek ? 'Ближайшие занятия' : 'Эта неделя'}: ${studentWeekRangeLabel} · ${studentVisibleSchedule.length > 0 ? getLessonCountLabel(studentVisibleSchedule.length) : 'занятий пока нет'}${studentOverdueUnpaidCount > 0 ? ` · не оплачено: ${studentOverdueUnpaidCount}` : ''}`}
+                    : `${studentWeekRangeLabel}${studentOverdueUnpaidCount > 0 ? ` · не оплачено: ${studentOverdueUnpaidCount}` : ''}`}
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className={`flex flex-wrap items-center gap-2 ${role === 'student' ? 'student-today-schedule-card__actions' : ''}`}>
               {role === 'teacher' && effectiveStudentId && (
                 <button
                   type="button"
@@ -2352,13 +2765,12 @@ const ScheduleSection = ({
                   disabled={lessonReminderLoading || lessonReminderSaving || pushSyncing || pushBusy || !pushReady}
                   className="schedule-shell__student-reminder-compact"
                   title={lessonReminderError || pushError || lessonReminderStatusText || 'Напоминания о занятиях'}
+                  aria-pressed={Boolean(pushEnabled && lessonReminderEnabled)}
                 >
                   {(pushEnabled && lessonReminderEnabled) ? <BellOff size={13} /> : <Bell size={13} />}
                   {lessonReminderSaving
-                    ? '...'
-                    : (!pushEnabled
-                        ? 'Push'
-                        : (lessonReminderEnabled ? 'Напом.' : 'Напом.'))}
+                    ? 'Сохраняем...'
+                    : 'Напоминания'}
                 </button>
               )}
               <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
@@ -2888,28 +3300,35 @@ const ScheduleSection = ({
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input
-              type="number"
-              min="1"
-              value={form.daysToComplete}
-              onChange={(e) => setForm((prev) => ({ ...prev, daysToComplete: e.target.value }))}
-              placeholder="Дней на выполнение"
-              className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-            />
-            <input
-              type="url"
-              value={form.lessonLink}
-              onChange={(e) => setForm((prev) => ({ ...prev, lessonLink: e.target.value }))}
-              placeholder="Ссылка на следующее занятие"
-              className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-            />
-            <input
-              type="url"
-              value={form.boardLink}
-              onChange={(e) => setForm((prev) => ({ ...prev, boardLink: e.target.value }))}
-              placeholder="Ссылка на онлайн-доску"
-              className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-            />
+            <label className="space-y-1">
+              <span className="block text-[11px] font-semibold text-slate-500">Сдать до</span>
+              <input
+                type="datetime-local"
+                value={form.dueAt || ''}
+                onChange={(e) => setForm((prev) => ({ ...prev, dueAt: e.target.value }))}
+                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="block text-[11px] font-semibold text-slate-500">Занятие</span>
+              <input
+                type="url"
+                value={form.lessonLink}
+                onChange={(e) => setForm((prev) => ({ ...prev, lessonLink: e.target.value }))}
+                placeholder="Ссылка на следующее занятие"
+                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="block text-[11px] font-semibold text-slate-500">Онлайн-доска</span>
+              <input
+                type="url"
+                value={form.boardLink}
+                onChange={(e) => setForm((prev) => ({ ...prev, boardLink: e.target.value }))}
+                placeholder="Ссылка на онлайн-доску"
+                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+              />
+            </label>
           </div>
           <Button onClick={handleSave} disabled={saving} className="md:self-start md:px-5">
             <Save size={16} /> {saving ? 'Сохранение...' : (editingId ? 'Сохранить изменения' : 'Добавить домашку')}
@@ -2917,76 +3336,125 @@ const ScheduleSection = ({
         </Card>
       )}
 
-      <div className="space-y-4 md:space-y-5">
-        <div>
-          <h3 className="text-lg font-bold text-gray-800">Домашние задания</h3>
-        </div>
+      <div className={role === 'student' ? 'student-today-homework-section space-y-3 md:space-y-4' : 'space-y-4 md:space-y-5'}>
+        {role !== 'student' && (
+          <div>
+            <h3 className="text-lg font-bold text-gray-800">Домашние задания</h3>
+          </div>
+        )}
 
         {loading ? (
-          <Card className="border-slate-200 bg-white/85">
-            <div className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">
-              <RefreshCcw size={14} className="animate-spin" />
-              Загрузка...
+          role === 'student' ? (
+            <div className="student-today-homework-state">
+              <RefreshCcw size={16} className="animate-spin" />
+              Загружаем домашнюю работу...
             </div>
-          </Card>
+          ) : (
+            <Card className="border-slate-200 bg-white/85">
+              <div className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600">
+                <RefreshCcw size={14} className="animate-spin" />
+                Загрузка...
+              </div>
+            </Card>
+          )
         ) : sortedHomeworks.length === 0 ? (
-          <Card className="border-slate-200 bg-white/85">
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-500">
-              Комментариев учителя нет.
-            </div>
-          </Card>
+          role === 'student' ? (
+            <article className="student-today-homework-empty">
+              <span><BookOpen size={19} /></span>
+              <div>
+                <strong>Домашка пока не назначена</strong>
+                <p>Когда преподаватель добавит задания, они появятся здесь.</p>
+              </div>
+            </article>
+          ) : (
+            <Card className="border-slate-200 bg-white/85">
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-500">
+                Комментариев учителя нет.
+              </div>
+            </Card>
+          )
         ) : (
           <div className="space-y-4 md:space-y-6">
             <div ref={nextHomeworkFlyRef}>
-              <Card className="space-y-2.5 md:space-y-3 border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 shadow-[0_14px_30px_rgba(147,51,234,0.14)]">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-purple-700">
-                    <Calendar size={15} />
-                    На следующий урок
-                  </h4>
-                  {nextHomeworkEntry?.issuedAt && (
-                    <span className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[11px] font-semibold text-purple-600">
-                      {formatDate(nextHomeworkEntry.issuedAt)}
-                    </span>
-                  )}
-                </div>
-                {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
-              </Card>
+              {role === 'student' ? (
+                renderHomeworkEntryCard(nextHomeworkEntry, 'next')
+              ) : (
+                <Card className="space-y-2.5 md:space-y-3 border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 shadow-[0_14px_30px_rgba(147,51,234,0.14)]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-purple-700">
+                      <Calendar size={15} />
+                      На следующий урок
+                    </h4>
+                    {nextHomeworkEntry?.issuedAt && (
+                      <span className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[11px] font-semibold text-purple-600">
+                        {formatDate(nextHomeworkEntry.issuedAt)}
+                      </span>
+                    )}
+                  </div>
+                  {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
+                </Card>
+              )}
             </div>
 
-            <Card className="space-y-2.5 md:space-y-3 border-slate-200 bg-white/90">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-                  <RefreshCcw size={14} />
-                  Предыдущие домашки
-                </h4>
-                <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-0.5 text-[11px] font-semibold text-gray-500">
-                  {previousHomeworkEntries.length}
-                </span>
-              </div>
-              {previousHomeworkEntries.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-500">
-                  Пока нет предыдущих домашних.
-                </div>
-              ) : (
-                <div className="space-y-3">
+            {role === 'student' ? (
+              previousHomeworkEntries.length > 0 ? (
+                <section className="student-today-homework-history">
                   <button
                     type="button"
                     onClick={() => setShowHistory((prev) => !prev)}
-                    className="w-full md:w-auto rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[12px] md:text-sm font-semibold text-slate-600"
+                    className="student-today-homework-history__toggle"
+                    aria-expanded={showHistory}
+                    aria-controls="student-homework-history-list"
                   >
-                    {showHistory
-                      ? 'Скрыть предыдущие домашки'
-                      : `Показать предыдущие (${previousHomeworkEntries.length})`}
+                    <span className="student-today-homework-history__icon"><BookOpen size={16} /></span>
+                    <span className="min-w-0 flex-1 text-left">
+                      <strong>История домашних работ</strong>
+                      <small>{getHomeworkCountLabel(previousHomeworkEntries.length)}</small>
+                    </span>
+                    <ChevronRight size={17} className={showHistory ? 'rotate-90' : ''} />
                   </button>
-                  <div className={`${showHistory ? 'space-y-3 md:space-y-4 block' : 'hidden'}`}>
+                  <div id="student-homework-history-list" className={`${showHistory ? 'student-today-homework-history__list space-y-3 md:space-y-4 block' : 'hidden'}`}>
                     {previousHomeworkEntries.map((entry, idx) =>
                       renderHomeworkEntryCard(entry, 'history', entry.id || `${entry?.issuedAt || 'entry'}-${idx}`)
                     )}
                   </div>
+                </section>
+              ) : null
+            ) : (
+              <Card className="space-y-2.5 md:space-y-3 border-slate-200 bg-white/90">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    <RefreshCcw size={14} />
+                    Предыдущие домашки
+                  </h4>
+                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-0.5 text-[11px] font-semibold text-gray-500">
+                    {previousHomeworkEntries.length}
+                  </span>
                 </div>
-              )}
-            </Card>
+                {previousHomeworkEntries.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-500">
+                    Пока нет предыдущих домашних.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowHistory((prev) => !prev)}
+                      className="w-full md:w-auto rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[12px] md:text-sm font-semibold text-slate-600"
+                    >
+                      {showHistory
+                        ? 'Скрыть предыдущие домашки'
+                        : `Показать предыдущие (${previousHomeworkEntries.length})`}
+                    </button>
+                    <div className={`${showHistory ? 'space-y-3 md:space-y-4 block' : 'hidden'}`}>
+                      {previousHomeworkEntries.map((entry, idx) =>
+                        renderHomeworkEntryCard(entry, 'history', entry.id || `${entry?.issuedAt || 'entry'}-${idx}`)
+                      )}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            )}
           </div>
         )}
       </div>

@@ -21046,8 +21046,7 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
 .schedule-shell__student-lessons {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(var(--student-lesson-rows, 1), auto);
-  grid-auto-flow: column;
+  grid-auto-flow: row;
   gap: 10px;
 }
 
@@ -62460,9 +62459,18 @@ html[data-theme='dark'] .collab-workspace-card--glass-board.collab-workspace-car
   }
 
   html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer__label {
-    display: flex !important;
+    display: grid !important;
     left: calc(50% + var(--collab-board-seam-visual-offset)) !important;
+    grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
     transform: translateX(-50%) !important;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer__label span:first-child {
+    justify-self: end;
+  }
+
+  html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer__label span:last-child {
+    justify-self: start;
   }
 
   html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-board-code-resizer__track {
@@ -63011,4 +63019,1290 @@ html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-code .notes-pyth
   .notes-explorer-shell .notes-cheatsheet-card__meta-item {
     white-space: normal;
   }
+}
+
+html[data-theme='dark'] .student-today-overview {
+  border-color: rgba(139, 92, 246, 0.28) !important;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(124, 58, 237, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.97) 55%, rgba(12, 28, 46, 0.96)) !important;
+  box-shadow: 0 20px 44px rgba(2, 6, 23, 0.34) !important;
+}
+
+/* Student Today: the schedule and homework use one calm visual language. */
+.student-today-schedule-card.surface-card {
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid rgba(221, 214, 254, 0.86);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(224, 231, 255, 0.44), transparent 32%),
+    rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 42px rgba(99, 102, 241, 0.11);
+}
+
+.student-today-schedule-card__header {
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.88);
+}
+
+.student-today-schedule-card__icon {
+  border: 0;
+  background: linear-gradient(145deg, #7c3aed, #6366f1 58%, #38bdf8);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(99, 102, 241, 0.22);
+}
+
+.student-today-schedule-card__eyebrow {
+  color: #8b5cf6;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.15em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.student-today-schedule-card .schedule-shell__student-reminder-compact,
+.student-today-schedule-card .schedule-shell__lessons-count {
+  min-height: 32px;
+  border-color: rgba(196, 181, 253, 0.76);
+  background: rgba(250, 245, 255, 0.82);
+  color: #7c3aed;
+  box-shadow: none;
+}
+
+.student-today-schedule-card .schedule-shell__student-week-strip {
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid rgba(226, 232, 240, 0.86);
+  border-radius: 19px;
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.student-today-schedule-card .schedule-shell__student-day-chip {
+  min-height: 62px;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.student-today-schedule-card .schedule-shell__student-day-chip:hover {
+  transform: none;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.student-today-schedule-card .schedule-shell__student-day-chip--today {
+  background: rgba(245, 243, 255, 0.96);
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.22);
+}
+
+.student-today-schedule-card .schedule-shell__student-day-chip--has-lessons,
+.student-today-schedule-card .schedule-shell__student-day-chip--future {
+  border: 0;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 7px 18px rgba(99, 102, 241, 0.08);
+}
+
+.student-today-schedule-card .schedule-shell__student-day-chip--next {
+  background: linear-gradient(145deg, #f5f3ff, #eef2ff);
+  box-shadow:
+    inset 0 0 0 1px rgba(139, 92, 246, 0.26),
+    0 8px 18px rgba(124, 58, 237, 0.11);
+}
+
+.student-today-schedule-card .schedule-shell__student-day-chip--has-lessons::before {
+  inset: auto 13px 5px;
+  width: auto;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8b5cf6, #6366f1);
+}
+
+.student-today-schedule-card .schedule-shell__student-day-chip--has-lessons > span,
+.student-today-schedule-card .schedule-shell__student-day-chip--has-lessons > small {
+  color: #7c3aed;
+}
+
+.student-today-schedule-card .schedule-shell__student-day-chip--has-lessons > small {
+  background: #f5f3ff;
+  box-shadow: none;
+}
+
+.student-today-schedule-card .schedule-shell__student-lessons {
+  grid-auto-flow: row;
+  gap: 9px;
+}
+
+.student-today-schedule-card .schedule-shell__student-lesson {
+  border-color: rgba(221, 214, 254, 0.8);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 9px 22px rgba(71, 85, 105, 0.065);
+}
+
+.student-today-schedule-card .schedule-shell__student-lesson::before {
+  width: 4px;
+  background: linear-gradient(180deg, #8b5cf6, #6366f1);
+}
+
+.student-today-schedule-card .schedule-shell__student-lesson--next,
+.student-today-schedule-card .schedule-shell__student-lesson--active {
+  border-color: rgba(167, 139, 250, 0.72);
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.99), rgba(245, 243, 255, 0.92));
+  box-shadow: 0 14px 30px rgba(124, 58, 237, 0.12);
+  animation: scheduleStudentItemIn 420ms ease both;
+}
+
+.student-today-schedule-card .schedule-shell__student-lesson--next .schedule-shell__student-lesson-date {
+  border-color: rgba(196, 181, 253, 0.68);
+  background: rgba(245, 243, 255, 0.9);
+}
+
+.student-today-schedule-card .schedule-shell__student-lesson:hover {
+  border-color: rgba(167, 139, 250, 0.72);
+  box-shadow: 0 13px 28px rgba(124, 58, 237, 0.1);
+}
+
+.student-today-schedule-card .schedule-shell__student-board-empty,
+.student-today-schedule-card .schedule-shell__student-board-loading {
+  border-style: solid;
+  border-color: rgba(221, 214, 254, 0.8);
+  background: rgba(250, 245, 255, 0.58);
+}
+
+.student-today-homework-card {
+  isolation: isolate;
+}
+
+.student-today-homework__progress {
+  background: conic-gradient(#8b5cf6 var(--student-homework-progress, 0%), #ede9fe 0);
+}
+
+.student-today-homework__check-row > span {
+  padding-top: 0.45rem;
+}
+
+.student-today-homework-state,
+.student-today-homework-empty {
+  display: flex;
+  min-height: 82px;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(221, 214, 254, 0.78);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.84);
+  color: #64748b;
+  box-shadow: 0 12px 28px rgba(99, 102, 241, 0.07);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.student-today-homework-empty > span,
+.student-today-homework-history__icon {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.student-today-homework-empty strong {
+  display: block;
+  color: #1e293b;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.student-today-homework-empty p {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.student-today-homework-history {
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.student-today-homework-history__toggle {
+  display: flex;
+  width: 100%;
+  min-height: 62px;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 14px;
+  color: #475569;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.student-today-homework-history__toggle:hover {
+  background: rgba(250, 245, 255, 0.72);
+  color: #7c3aed;
+}
+
+.student-today-homework-history__toggle strong,
+.student-today-homework-history__toggle small {
+  display: block;
+}
+
+.student-today-homework-history__toggle strong {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.student-today-homework-history__toggle small {
+  margin-top: 1px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.student-today-homework-history__toggle > svg {
+  transition: transform 170ms ease;
+}
+
+.student-today-homework-history__list {
+  padding: 0 12px 12px;
+  border-top: 1px solid rgba(226, 232, 240, 0.82);
+}
+
+@media (max-width: 640px) {
+  .student-today-schedule-card.surface-card {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .student-today-schedule-card__header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .student-today-schedule-card__actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .student-today-schedule-card .schedule-shell__student-reminder-compact {
+    width: 100%;
+  }
+
+  .student-today-schedule-card .schedule-shell__student-week-strip {
+    grid-template-columns: repeat(7, minmax(58px, 1fr));
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .student-today-schedule-card .schedule-shell__student-week-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .student-today-schedule-card .schedule-shell__student-day-chip {
+    scroll-snap-align: start;
+  }
+
+  .student-today-homework-card > header {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .student-today-homework-card > header > :last-child {
+    margin-left: auto;
+  }
+
+  .student-today-homework__progress {
+    width: 54px !important;
+    height: 54px !important;
+  }
+}
+
+html[data-theme='dark'] .student-today-overview__headline {
+  color: #f8fafc !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-action {
+  border-color: rgba(71, 85, 105, 0.7) !important;
+  background: rgba(15, 23, 42, 0.84) !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-action:hover {
+  border-color: rgba(167, 139, 250, 0.54) !important;
+  background: rgba(30, 41, 59, 0.96) !important;
+}
+
+html[data-theme='dark'] .student-today-overview__primary-action,
+html[data-theme='dark'] .student-today-overview__primary-action:hover {
+  background: #fff !important;
+  color: #6d28d9 !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card.surface-card {
+  border-color: rgba(139, 92, 246, 0.3) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(79, 70, 229, 0.14), transparent 34%),
+    rgba(15, 23, 42, 0.94) !important;
+  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card__header {
+  border-bottom-color: rgba(71, 85, 105, 0.58);
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-week-strip {
+  border-color: rgba(71, 85, 105, 0.66);
+  background: rgba(2, 6, 23, 0.3);
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--has-lessons,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--future {
+  background: rgba(15, 23, 42, 0.72) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--today,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--next {
+  background: rgba(76, 29, 149, 0.28) !important;
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.26) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--next,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--active {
+  border-color: rgba(100, 116, 139, 0.58) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.28) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson-date > span,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson-time,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson-time > svg,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson-time > span,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-board-empty span {
+  color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .student-today-homework-card {
+  border-color: rgba(139, 92, 246, 0.32) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(124, 58, 237, 0.13), transparent 30%),
+    rgba(15, 23, 42, 0.94) !important;
+  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__headline,
+html[data-theme='dark'] .student-today-homework-card .text-slate-900,
+html[data-theme='dark'] .student-today-homework-card .text-slate-950 {
+  color: #f8fafc !important;
+}
+
+html[data-theme='dark'] .student-today-homework-card .text-slate-700,
+html[data-theme='dark'] .student-today-homework-card .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html[data-theme='dark'] .student-today-homework__goal-panel,
+html[data-theme='dark'] .student-today-homework__checklist-panel {
+  border-color: rgba(100, 116, 139, 0.56) !important;
+  background: rgba(2, 6, 23, 0.38) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__progress {
+  background: conic-gradient(#a78bfa var(--student-homework-progress, 0%), #312e81 0);
+}
+
+html[data-theme='dark'] .student-today-homework__progress-core,
+html[data-theme='dark'] .student-today-homework__check-row,
+html[data-theme='dark'] .student-today-homework__goal-panel .bg-white {
+  border-color: rgba(71, 85, 105, 0.62) !important;
+  background: rgba(15, 23, 42, 0.9) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__check-row--complete {
+  border-color: rgba(16, 185, 129, 0.28) !important;
+  background: rgba(6, 78, 59, 0.26) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__resource-link,
+html[data-theme='dark'] .student-today-homework__resource-link:hover {
+  border-color: rgba(139, 92, 246, 0.42) !important;
+  background: rgba(76, 29, 149, 0.25) !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .student-today-homework-state,
+html[data-theme='dark'] .student-today-homework-empty,
+html[data-theme='dark'] .student-today-homework-history {
+  border-color: rgba(71, 85, 105, 0.64);
+  background: rgba(15, 23, 42, 0.78);
+  color: #94a3b8;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.26);
+}
+
+html[data-theme='dark'] .student-today-homework-empty strong,
+html[data-theme='dark'] .student-today-homework-history__toggle strong {
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .student-today-homework-history__toggle:hover {
+  background: rgba(76, 29, 149, 0.2);
+}
+
+html[data-theme='dark'] .student-today-homework-history__list {
+  border-top-color: rgba(71, 85, 105, 0.58);
+}
+
+/* Compact homework summary used above student sections. */
+.student-goal-summary {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid rgba(221, 214, 254, 0.9);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(224, 231, 255, 0.52), transparent 34%),
+    rgba(255, 255, 255, 0.96);
+  color: #334155;
+  box-shadow: 0 16px 36px rgba(99, 102, 241, 0.1);
+}
+
+.student-goal-summary::before {
+  position: absolute;
+  top: -72px;
+  right: -64px;
+  width: 170px;
+  height: 170px;
+  border-radius: 999px;
+  background: rgba(216, 180, 254, 0.22);
+  filter: blur(28px);
+  content: '';
+  pointer-events: none;
+}
+
+.student-goal-summary > * {
+  position: relative;
+  z-index: 1;
+}
+
+.student-goal-summary--expanded {
+  padding: 18px;
+}
+
+.student-goal-summary__header,
+.student-goal-summary__heading,
+.student-goal-summary__header-actions,
+.student-goal-summary__collapsed-main,
+.student-goal-summary__collapsed-actions,
+.student-goal-summary__item-header,
+.student-goal-summary__item-title-row,
+.student-goal-summary__targets-header,
+.student-goal-summary__target-progress-copy,
+.student-goal-summary__overall-copy {
+  display: flex;
+  align-items: center;
+}
+
+.student-goal-summary__header,
+.student-goal-summary__item-header,
+.student-goal-summary__targets-header,
+.student-goal-summary__target-progress-copy,
+.student-goal-summary__overall-copy {
+  justify-content: space-between;
+}
+
+.student-goal-summary__header {
+  gap: 14px;
+}
+
+.student-goal-summary__heading,
+.student-goal-summary__collapsed-main {
+  min-width: 0;
+  gap: 11px;
+}
+
+.student-goal-summary__icon {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #7c3aed, #8b5cf6 56%, #d946ef);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(124, 58, 237, 0.22);
+}
+
+.student-goal-summary__eyebrow {
+  color: #8b5cf6;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.student-goal-summary__heading h3 {
+  margin-top: 3px;
+  color: #0f172a;
+  font-size: 20px;
+  font-weight: 950;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.student-goal-summary__deadline {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.student-goal-summary__header-actions {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.student-goal-summary__count {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0 11px;
+  border: 1px solid rgba(221, 214, 254, 0.9);
+  border-radius: 999px;
+  background: rgba(250, 245, 255, 0.86);
+  color: #7c3aed;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.student-goal-summary__count strong {
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.student-goal-summary__collapse,
+.student-goal-summary__expand {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid rgba(196, 181, 253, 0.8);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #7c3aed;
+  font-size: 11px;
+  font-weight: 850;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.student-goal-summary__collapse:hover,
+.student-goal-summary__expand:hover {
+  border-color: rgba(139, 92, 246, 0.62);
+  background: #faf5ff;
+  transform: translateY(-1px);
+}
+
+.student-goal-summary__overall-progress {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(237, 233, 254, 0.94);
+  border-radius: 15px;
+  background: rgba(250, 245, 255, 0.58);
+}
+
+.student-goal-summary__overall-copy {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.student-goal-summary__overall-copy strong {
+  color: #7c3aed;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.student-goal-summary__overall-track,
+.student-goal-summary__item-progress,
+.student-goal-summary__target-progress,
+.student-goal-summary__collapsed-progress > div {
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.1);
+}
+
+.student-goal-summary__overall-track {
+  height: 7px;
+  margin-top: 7px;
+}
+
+.student-goal-summary__overall-track > span,
+.student-goal-summary__item-progress > span,
+.student-goal-summary__target-progress > span,
+.student-goal-summary__collapsed-progress > div > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7c3aed, #8b5cf6 58%, #d946ef);
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.2);
+  transition: width 320ms ease;
+}
+
+.student-goal-summary__list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.student-goal-summary__item {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 19px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 8px 22px rgba(71, 85, 105, 0.055);
+}
+
+.student-goal-summary__item-header {
+  gap: 12px;
+}
+
+.student-goal-summary__item-copy {
+  min-width: 0;
+}
+
+.student-goal-summary__item-copy > strong,
+.student-goal-summary__item-title-row > strong {
+  display: block;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-goal-summary__item-label {
+  margin-bottom: 3px;
+  color: #8b5cf6;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.student-goal-summary__item-title-row {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.student-goal-summary__level-pill {
+  display: inline-flex;
+  min-height: 23px;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid rgba(196, 181, 253, 0.7);
+  border-radius: 999px;
+  background: #faf5ff;
+  color: #7c3aed;
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.student-goal-summary__item-meta {
+  overflow: hidden;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-goal-summary__primary,
+.student-goal-summary__item-action {
+  display: inline-flex;
+  min-height: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 13px;
+  border-radius: 11px;
+  background: linear-gradient(90deg, #7c3aed, #c026d3);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.18);
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+
+.student-goal-summary__primary:hover,
+.student-goal-summary__item-action:hover {
+  box-shadow: 0 11px 22px rgba(124, 58, 237, 0.24);
+  transform: translateY(-1px);
+}
+
+.student-goal-summary__targets {
+  min-width: 0;
+  overflow: hidden;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(237, 233, 254, 0.9);
+  border-radius: 15px;
+  background: rgba(248, 250, 252, 0.76);
+}
+
+.student-goal-summary__targets-header {
+  color: #7c3aed;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.student-goal-summary__targets-header strong {
+  letter-spacing: 0;
+}
+
+.student-goal-summary__target-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.student-goal-summary__target {
+  display: inline-flex;
+  min-width: 34px;
+  height: 29px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  border: 1px solid rgba(226, 232, 240, 0.98);
+  border-radius: 10px;
+  background: #fff;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.student-goal-summary__target--solved {
+  border-color: rgba(110, 231, 183, 0.72);
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.student-goal-summary__target-progress,
+.student-goal-summary__item-progress {
+  height: 6px;
+  margin-top: 10px;
+}
+
+.student-goal-summary__target-progress-copy {
+  margin-top: 5px;
+  color: #94a3b8;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.student-goal-summary__target-progress-copy strong {
+  color: #7c3aed;
+  font-weight: 950;
+}
+
+.student-goal-summary__all-targets {
+  margin-top: 7px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.student-goal-summary--collapsed {
+  display: grid;
+  min-height: 74px;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.45fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+}
+
+.student-goal-summary--collapsed .student-goal-summary__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+}
+
+.student-goal-summary__collapsed-title,
+.student-goal-summary__collapsed-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-goal-summary__collapsed-title {
+  margin-top: 2px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.student-goal-summary__collapsed-meta {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.student-goal-summary__collapsed-progress {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.student-goal-summary__collapsed-progress > div {
+  width: 100%;
+  height: 7px;
+}
+
+.student-goal-summary__collapsed-progress > strong {
+  min-width: 30px;
+  color: #7c3aed;
+  font-size: 10px;
+  font-weight: 950;
+  text-align: right;
+}
+
+.student-goal-summary__collapsed-actions {
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+/* Level summary in the student status strip. */
+.top-stats-strip .student-level-summary-card {
+  overflow: hidden;
+  padding: 9px 11px !important;
+  border: 1px solid rgba(221, 214, 254, 0.9);
+  border-radius: 19px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(224, 231, 255, 0.6), transparent 36%),
+    rgba(255, 255, 255, 0.9);
+  box-shadow: 0 9px 22px rgba(99, 102, 241, 0.085);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.top-stats-strip .student-level-summary-card:hover {
+  border-color: rgba(167, 139, 250, 0.7);
+  box-shadow: 0 12px 26px rgba(124, 58, 237, 0.12);
+  filter: none;
+}
+
+.top-stats-strip .student-level-summary-card:focus-visible {
+  border-radius: 19px;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-main {
+  gap: 11px;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-badge {
+  width: 48px;
+  height: 50px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #7c3aed, #6366f1);
+  box-shadow: 0 9px 20px rgba(99, 102, 241, 0.22);
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-badge::before {
+  display: none;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-badge-label {
+  font-size: 7px;
+  letter-spacing: 0.13em;
+  opacity: 0.72;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-badge-number {
+  font-size: 20px;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-head {
+  min-height: 26px;
+  align-items: center;
+  gap: 9px;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-identity {
+  min-width: 86px;
+  gap: 2px;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-eyebrow {
+  color: #8b5cf6;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-title {
+  color: #1e293b;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-head-meta {
+  flex-wrap: nowrap;
+  gap: 5px;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-total,
+.top-stats-strip .student-level-summary-card .level-progress-coin {
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 9px;
+  font-size: 10px;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-total {
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(248, 250, 252, 0.78);
+  color: #334155;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-total strong {
+  font-weight: 950;
+  line-height: 1;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-total-label {
+  color: #94a3b8;
+  font-size: 8px;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-coin {
+  border-color: rgba(245, 158, 11, 0.24);
+  box-shadow: none;
+}
+
+.level-progress-open {
+  display: inline-flex;
+  width: 27px;
+  height: 27px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: #f5f3ff;
+  color: #8b5cf6;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-track {
+  height: 7px;
+  margin-top: 7px;
+  overflow: hidden;
+  background: rgba(139, 92, 246, 0.11);
+  box-shadow: inset 0 1px 2px rgba(76, 29, 149, 0.08);
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-fill {
+  min-width: 0;
+  background: linear-gradient(90deg, #7c3aed, #8b5cf6 58%, #d946ef);
+  background-size: auto;
+  box-shadow: none;
+  animation: none;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-fill::before {
+  display: none;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-fill-tip {
+  animation: none;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-foot {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-foot-current strong,
+.top-stats-strip .student-level-summary-card .level-progress-foot-next strong {
+  color: #475569;
+  font-weight: 900;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-foot-next {
+  gap: 6px;
+  color: #64748b;
+}
+
+.top-stats-strip .student-level-summary-card .level-progress-percent {
+  padding: 2px 6px;
+  font-size: 9px;
+}
+
+@media (max-width: 700px) {
+  .student-goal-summary--collapsed {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 9px;
+  }
+
+  .student-goal-summary__collapsed-progress {
+    display: none;
+  }
+
+  .student-goal-summary__expand {
+    width: 38px;
+    padding: 0;
+  }
+
+  .student-goal-summary__expand > span {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .student-goal-summary--expanded {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .student-goal-summary__header {
+    align-items: flex-start;
+  }
+
+  .student-goal-summary__heading h3 {
+    font-size: 17px;
+  }
+
+  .student-goal-summary__header-actions {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .student-goal-summary__collapse {
+    width: 36px;
+    padding: 0;
+  }
+
+  .student-goal-summary__collapse > span {
+    display: none;
+  }
+
+  .student-goal-summary__item-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .student-goal-summary__item-action {
+    width: 100%;
+  }
+
+  .student-goal-summary__target-list {
+    width: 100%;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .student-goal-summary__target-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .student-goal-summary__target {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  .student-goal-summary--collapsed {
+    min-height: 68px;
+    padding: 9px 10px;
+  }
+
+  .student-goal-summary--collapsed .student-goal-summary__icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .student-goal-summary__collapsed-title {
+    font-size: 12px;
+  }
+
+  .student-goal-summary__collapsed-meta {
+    max-width: 155px;
+  }
+
+  .student-goal-summary__primary {
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 10px;
+  }
+
+  .top-stats-strip .student-level-summary-card {
+    padding: 7px 8px !important;
+  }
+
+  .top-stats-strip .student-level-summary-card .level-progress-main {
+    gap: 8px;
+  }
+
+  .top-stats-strip .student-level-summary-card .level-progress-badge {
+    width: 41px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .top-stats-strip .student-level-summary-card .level-progress-badge-number {
+    font-size: 17px;
+  }
+
+  .top-stats-strip .student-level-summary-card .level-progress-identity {
+    min-width: 72px;
+  }
+
+  .top-stats-strip .student-level-summary-card .level-progress-title {
+    font-size: 12px;
+  }
+
+  .top-stats-strip .student-level-summary-card .level-progress-total,
+  .top-stats-strip .student-level-summary-card .level-progress-open {
+    display: none;
+  }
+
+  .top-stats-strip .student-level-summary-card .level-progress-remaining {
+    display: inline !important;
+  }
+
+  .top-stats-strip .student-level-summary-card .level-progress-percent {
+    display: none;
+  }
+
+  .top-stats-strip .student-level-summary-card .level-progress-foot {
+    font-size: 8.5px;
+  }
+}
+
+html[data-theme='dark'] .student-goal-summary {
+  border-color: rgba(139, 92, 246, 0.34);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(79, 70, 229, 0.16), transparent 36%),
+    rgba(15, 23, 42, 0.94);
+  color: #cbd5e1;
+  box-shadow: 0 16px 36px rgba(2, 6, 23, 0.32);
+}
+
+html[data-theme='dark'] .student-goal-summary__heading h3,
+html[data-theme='dark'] .student-goal-summary__collapsed-title,
+html[data-theme='dark'] .student-goal-summary__item-copy > strong,
+html[data-theme='dark'] .student-goal-summary__item-title-row > strong {
+  color: #f8fafc;
+}
+
+html[data-theme='dark'] .student-goal-summary__deadline,
+html[data-theme='dark'] .student-goal-summary__collapsed-meta,
+html[data-theme='dark'] .student-goal-summary__item-meta,
+html[data-theme='dark'] .student-goal-summary__all-targets {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .student-goal-summary__count,
+html[data-theme='dark'] .student-goal-summary__collapse,
+html[data-theme='dark'] .student-goal-summary__expand {
+  border-color: rgba(139, 92, 246, 0.38);
+  background: rgba(76, 29, 149, 0.2);
+  color: #c4b5fd;
+}
+
+html[data-theme='dark'] .student-goal-summary__overall-progress,
+html[data-theme='dark'] .student-goal-summary__targets,
+html[data-theme='dark'] .student-goal-summary__item {
+  border-color: rgba(71, 85, 105, 0.6);
+  background: rgba(2, 6, 23, 0.32);
+}
+
+html[data-theme='dark'] .student-goal-summary__level-pill {
+  border-color: rgba(139, 92, 246, 0.36);
+  background: rgba(76, 29, 149, 0.24);
+  color: #c4b5fd;
+}
+
+html[data-theme='dark'] .student-goal-summary__target {
+  border-color: rgba(71, 85, 105, 0.7);
+  background: rgba(15, 23, 42, 0.84);
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .student-goal-summary__target--solved {
+  border-color: rgba(52, 211, 153, 0.34);
+  background: rgba(6, 78, 59, 0.3);
+  color: #6ee7b7;
+}
+
+html[data-theme='dark'] .top-stats-strip .student-level-summary-card {
+  border-color: rgba(139, 92, 246, 0.32);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(79, 70, 229, 0.16), transparent 38%),
+    rgba(15, 23, 42, 0.82);
+  box-shadow: 0 9px 22px rgba(2, 6, 23, 0.28);
+}
+
+html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-progress-title {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-progress-eyebrow {
+  color: #a78bfa;
+}
+
+html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-progress-total {
+  border-color: rgba(71, 85, 105, 0.62);
+  background: rgba(2, 6, 23, 0.34);
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-progress-foot,
+html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-progress-foot-next,
+html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-progress-foot-current strong,
+html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-progress-foot-next strong {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .level-progress-open {
+  background: rgba(76, 29, 149, 0.3);
+  color: #c4b5fd;
 }
