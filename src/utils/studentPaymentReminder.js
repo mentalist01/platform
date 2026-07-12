@@ -1,5 +1,10 @@
 export const STUDENT_PAYMENT_REMINDER_MIN_AGE_MS = 2 * 24 * 60 * 60 * 1000;
 
+export const getStudentPaymentTrackingStartDateKey = (nowMs = Date.now()) => {
+  const now = new Date(Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now());
+  return `${now.getFullYear()}-05-01`;
+};
+
 const parseDayKey = (value) => {
   const match = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -60,13 +65,9 @@ const getEntryPaymentStates = (entry) => {
   return [{ dateKey: payment.date || entry?.date || '', state: payment }];
 };
 
-export const getStudentPaymentReminderItems = (
-  schedule,
-  nowMs = Date.now(),
-  minAgeMs = STUDENT_PAYMENT_REMINDER_MIN_AGE_MS
-) => {
+export const getStudentUnpaidLessonOccurrences = (schedule, nowMs = Date.now()) => {
   const safeNowMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
-  const safeMinAgeMs = Math.max(0, Number(minAgeMs) || 0);
+  const trackingStartDateKey = getStudentPaymentTrackingStartDateKey(safeNowMs);
   const itemsByOccurrence = new Map();
 
   (Array.isArray(schedule) ? schedule : []).forEach((entry) => {
@@ -74,8 +75,9 @@ export const getStudentPaymentReminderItems = (
       const status = String(state?.status || '').trim().toLowerCase();
       if (status !== 'unpaid' || (!state?.finished && !state?.overdue)) return;
       const dateKey = String(state?.date || rawDateKey || entry?.date || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || dateKey < trackingStartDateKey) return;
       const endMs = resolveOccurrenceEndMs(entry, state, dateKey);
-      if (!Number.isFinite(endMs) || safeNowMs - endMs < safeMinAgeMs) return;
+      if (!Number.isFinite(endMs)) return;
       const startMinutes = Number.isFinite(Number(state?.startMinutes))
         ? Number(state.startMinutes)
         : parseTimeMinutes(entry?.time);
@@ -88,6 +90,8 @@ export const getStudentPaymentReminderItems = (
         time: String(entry?.time || '').trim(),
         durationMinutes: Number(entry?.durationMinutes) || 60,
         subject: String(entry?.subject || entry?.title || 'Урок').trim() || 'Урок',
+        sourceEntry: entry,
+        paymentState: state,
       };
       const previous = itemsByOccurrence.get(occurrenceKey);
       if (!previous || item.endMs > previous.endMs) itemsByOccurrence.set(occurrenceKey, item);
@@ -96,4 +100,24 @@ export const getStudentPaymentReminderItems = (
 
   return Array.from(itemsByOccurrence.values())
     .sort((left, right) => right.endMs - left.endMs);
+};
+
+export const getStudentPaymentReminderItems = (
+  schedule,
+  nowMs = Date.now(),
+  minAgeMs = STUDENT_PAYMENT_REMINDER_MIN_AGE_MS
+) => {
+  const safeNowMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  const safeMinAgeMs = Math.max(0, Number(minAgeMs) || 0);
+  return getStudentUnpaidLessonOccurrences(schedule, safeNowMs)
+    .filter((item) => safeNowMs - item.endMs >= safeMinAgeMs)
+    .map((item) => ({
+      id: item.id,
+      dateKey: item.dateKey,
+      endMs: item.endMs,
+      startMinutes: item.startMinutes,
+      time: item.time,
+      durationMinutes: item.durationMinutes,
+      subject: item.subject,
+    }));
 };

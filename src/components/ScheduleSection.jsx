@@ -6,6 +6,7 @@ import StudentSearchSelect from './StudentSearchSelect';
 import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
+import { getStudentUnpaidLessonOccurrences } from '../utils/studentPaymentReminder';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const SHOW_SCHEDULE_SKILL_TREE = false;
@@ -336,6 +337,44 @@ const isScheduleEntryOverdueUnpaid = (entry) => {
   if (isPaymentOverdueScheduleEntry(entry)) return true;
   const payment = entry?.occurrencePayment || getSchedulePaymentStateForDate(entry, entry?.currentWeekDate || entry?.date);
   return Boolean(payment?.overdue || (payment?.status === 'unpaid' && payment?.finished));
+};
+
+const getStudentScheduleOccurrenceKey = (entry) => [
+  String(entry?.currentWeekDate || entry?.date || '').trim(),
+  String(entry?.time || '').trim(),
+  String(entry?.durationMinutes || 60),
+  String(entry?.subject || DEFAULT_SCHEDULE_SUBJECT).trim().toLowerCase(),
+].join('|');
+
+const buildOverdueUnpaidScheduleOccurrences = (entries = []) => {
+  const occurrences = getStudentUnpaidLessonOccurrences(entries)
+    .map(({ sourceEntry, paymentState: state, dateKey }) => {
+      const entry = normalizeScheduleEntry(sourceEntry);
+      const date = parseScheduleDayKey(dateKey);
+      const weekday = getScheduleWeekdayMetaFromDate(dateKey);
+      if (!entry || !date || !weekday) return null;
+      return {
+        ...entry,
+        id: `payment-overdue-visible:${getStudentScheduleOccurrenceKey({ ...entry, date: dateKey, currentWeekDate: dateKey })}`,
+        date: dateKey,
+        currentWeekDate: dateKey,
+        currentWeekDateObject: date,
+        day: weekday.label,
+        weekdayKey: weekday.key,
+        weekdayOrder: weekday.order,
+        excludedDates: [],
+        occurrencePayment: state,
+        isPaymentOverdueOccurrence: true,
+        isSystemScheduleOccurrence: true,
+        payment: {
+          ...state,
+          statesByDate: { [dateKey]: state },
+          hasOverdueUnpaid: true,
+        },
+      };
+    })
+    .filter(Boolean);
+  return sortStudentVisibleScheduleEntries(occurrences);
 };
 
 const sortStudentVisibleScheduleEntries = (entries = []) => (
@@ -1514,9 +1553,7 @@ const ScheduleSection = ({
     [lessonSchedule]
   );
   const overdueUnpaidSchedule = useMemo(
-    () => sortStudentVisibleScheduleEntries(
-      (Array.isArray(lessonSchedule) ? lessonSchedule : []).filter((entry) => isPaymentOverdueScheduleEntry(entry))
-    ),
+    () => buildOverdueUnpaidScheduleOccurrences(lessonSchedule),
     [lessonSchedule]
   );
   const sortedSchedule = useMemo(() => sortScheduleEntries(editableLessonSchedule), [editableLessonSchedule]);
@@ -1539,7 +1576,13 @@ const ScheduleSection = ({
     : currentWeekSchedule;
   const isShowingNearestScheduleWeek = Boolean(nearestScheduleWeekWindow.weekOffset > 0);
   const studentVisibleSchedule = useMemo(
-    () => sortStudentVisibleScheduleEntries([...overdueUnpaidSchedule, ...displayWeekSchedule]),
+    () => {
+      const displayOccurrenceKeys = new Set(displayWeekSchedule.map((entry) => getStudentScheduleOccurrenceKey(entry)));
+      const overdueOutsideDisplayedWeek = overdueUnpaidSchedule.filter(
+        (entry) => !displayOccurrenceKeys.has(getStudentScheduleOccurrenceKey(entry))
+      );
+      return sortStudentVisibleScheduleEntries([...overdueOutsideDisplayedWeek, ...displayWeekSchedule]);
+    },
     [displayWeekSchedule, overdueUnpaidSchedule]
   );
   const studentOverdueUnpaidCount = useMemo(
