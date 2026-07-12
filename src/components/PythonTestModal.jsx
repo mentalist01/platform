@@ -29,6 +29,7 @@ import { buildDownloadUrl } from '../utils/downloadUrl';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { Button } from './ui';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
+import { THEME_DARK, normalizeTheme } from '../utils/theme';
 import {
   buildPythonSubsectionModel,
   getPythonTaskEntry,
@@ -121,15 +122,6 @@ const getRuntimeViewportHeight = () => {
   const innerHeight = Number(window.innerHeight || document?.documentElement?.clientHeight || 0);
   if (Number.isFinite(innerHeight) && innerHeight > 0) return innerHeight;
   return 900;
-};
-
-const supportsCssZoom = () => {
-  if (typeof window === 'undefined' || typeof window.CSS?.supports !== 'function') return false;
-  try {
-    return window.CSS.supports('zoom', '0.9');
-  } catch {
-    return false;
-  }
 };
 
 const THEORY_VARIANT_ORDER = [THEORY_RECORDING_TYPE, 'text', 'gdoc'];
@@ -254,6 +246,10 @@ const PythonTestModal = ({
   codeSyncRoomId = '',
 }) => {
   const monacoTheme = resolveMonacoColorTheme(theme);
+  const documentTheme = typeof document !== 'undefined'
+    ? document.documentElement?.getAttribute('data-theme')
+    : '';
+  const isDarkTheme = normalizeTheme(theme || documentTheme) === THEME_DARK;
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
@@ -276,7 +272,6 @@ const PythonTestModal = ({
   const [showTheory, setShowTheory] = useState(false);
   const [questionScrollState, setQuestionScrollState] = useState({ hasOverflow: false, atEnd: true });
   const [activeTheoryType, setActiveTheoryType] = useState('');
-  const [expandedTestIndex, setExpandedTestIndex] = useState(null);
   const [editorReady, setEditorReady] = useState(false);
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const [realtimeStatus, setRealtimeStatus] = useState('disconnected');
@@ -925,7 +920,6 @@ const PythonTestModal = ({
     }
     setTestResults([]);
     setRunnerError('');
-    setExpandedTestIndex(null);
   }, [questions, currentIndex, studentId, task?.number, solvedCodeById]);
 
   useEffect(() => {
@@ -1540,13 +1534,13 @@ const PythonTestModal = ({
   if (testsLoading) {
     const loadingModal = (
       <div className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-center justify-center p-4">
-        <div className="python-runtime-modal-shell surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
-          <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
-          <div className="mx-auto inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">
-            <RefreshCcw size={14} className="animate-spin" />
-            Загрузка заданий...
-          </div>
-          <p className="text-gray-500 mt-3 text-sm">Подождите немного, загружаем задания и тесты.</p>
+        <div data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className="python-runtime-modal-shell python-runtime-modal-shell--solve python-runtime-state-card surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
+          <button onClick={onClose} className="python-runtime-state-close absolute top-4 right-4 inline-flex h-10 w-10 items-center justify-center rounded-2xl border" aria-label="Закрыть"><X size={18}/></button>
+          <span className="python-runtime-state-icon mx-auto inline-flex h-14 w-14 items-center justify-center rounded-[20px] border">
+            <RefreshCcw size={22} className="animate-spin" />
+          </span>
+          <h2 className="mt-4 text-xl font-bold">Загружаем рабочую зону</h2>
+          <p className="mt-2 text-sm">Подготавливаем задания, тесты и ваш сохранённый код.</p>
         </div>
       </div>
     );
@@ -1556,10 +1550,13 @@ const PythonTestModal = ({
   if (!Array.isArray(questions) || questions.length === 0) {
     const emptyModal = (
       <div className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-center justify-center p-4">
-        <div className="python-runtime-modal-shell surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
-          <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
-          <h2 className="text-2xl font-bold text-gray-900">Заданий пока нет</h2>
-          <p className="text-gray-500 mt-2">Учитель еще не добавил задания для этой темы.</p>
+        <div data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className="python-runtime-modal-shell python-runtime-modal-shell--solve python-runtime-state-card surface-card modal-card rounded-3xl w-full max-w-xl p-6 md:p-8 shadow-2xl relative text-center">
+          <button onClick={onClose} className="python-runtime-state-close absolute top-4 right-4 inline-flex h-10 w-10 items-center justify-center rounded-2xl border" aria-label="Закрыть"><X size={18}/></button>
+          <span className="python-runtime-state-icon mx-auto inline-flex h-14 w-14 items-center justify-center rounded-[20px] border">
+            <FileText size={22} />
+          </span>
+          <h2 className="mt-4 text-2xl font-bold">Заданий пока нет</h2>
+          <p className="mt-2">Учитель ещё не добавил задания для этой темы.</p>
           <div className="mt-6">
             <Button onClick={onClose}>Закрыть</Button>
           </div>
@@ -1613,7 +1610,6 @@ const PythonTestModal = ({
     input: String(test?.input ?? ''),
     output: String(test?.output ?? '')
   }));
-  const isDarkTheme = theme === 'dark';
   const currentQuestionDisplayIndex = Math.max(1, currentQuestionPosition + 1);
   const totalVisibleQuestions = Math.max(visibleQuestionItems.length, 1);
   const solvedVisibleCount = visibleQuestionItems.reduce((count, item) => (
@@ -1752,32 +1748,32 @@ const PythonTestModal = ({
   const mutedTextClass = isDarkTheme ? 'text-slate-400' : 'text-slate-500';
   const overlineTextClass = isDarkTheme ? 'text-violet-200' : 'text-purple-600';
   const modalShellThemeClass = isDarkTheme
-    ? '!bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.10),transparent_30%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.10),transparent_34%),linear-gradient(180deg,rgba(18,27,44,0.98),rgba(11,18,32,0.98))]'
-    : '!bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.98),rgba(248,250,252,0.95)_42%,rgba(237,233,254,0.62)_100%)]';
+    ? '!bg-[linear-gradient(145deg,#08101f_0%,#0d1428_48%,#10132b_100%)]'
+    : '!bg-[linear-gradient(145deg,#f8f8ff_0%,#f2f7ff_48%,#f7f5ff_100%)]';
   const elevatedCardClass = isDarkTheme
-    ? 'border-slate-700/70 bg-[linear-gradient(180deg,rgba(25,34,52,0.92),rgba(18,27,44,0.92))] shadow-[0_18px_42px_rgba(2,6,23,0.30),inset_0_1px_0_rgba(255,255,255,0.06)]'
-    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(244,247,255,0.97))] shadow-[0_18px_42px_rgba(148,163,184,0.14),inset_0_1px_0_rgba(255,255,255,0.88)]';
+    ? 'border-slate-700/80 bg-[linear-gradient(145deg,#121d33,#11162b)] shadow-[0_16px_36px_rgba(2,6,23,0.42)]'
+    : 'border-slate-200/90 bg-white shadow-[0_14px_34px_rgba(71,85,105,0.11)]';
   const softCardClass = isDarkTheme
-    ? 'border-slate-700/65 bg-slate-800/55 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]'
-    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(244,247,255,0.90))] shadow-[0_10px_24px_rgba(148,163,184,0.08),inset_0_1px_0_rgba(255,255,255,0.82)]';
+    ? 'border-slate-700/80 bg-[#111c31] shadow-[0_8px_20px_rgba(2,6,23,0.26)]'
+    : 'border-slate-200/90 bg-white shadow-[0_8px_20px_rgba(71,85,105,0.08)]';
   const mutedStripClass = isDarkTheme
-    ? 'border-slate-700/55 bg-slate-800/45'
-    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(246,248,255,0.94),rgba(238,242,255,0.90))]';
+    ? 'border-indigo-400/20 bg-[#111b31]'
+    : 'border-indigo-100 bg-[#f4f5ff]';
   const subtleButtonClass = isDarkTheme
-    ? 'border-slate-700/70 bg-slate-800/55 text-slate-200 hover:border-violet-300/40 hover:bg-slate-700/70 hover:text-slate-50'
-    : 'border-slate-200/90 bg-white/92 text-slate-700 shadow-[0_8px_18px_rgba(148,163,184,0.10)] hover:border-violet-200 hover:bg-violet-50/90 hover:text-slate-900';
+    ? 'border-slate-600/80 bg-[#172238] text-slate-200 shadow-[0_8px_18px_rgba(2,6,23,0.30)] hover:border-violet-400/60 hover:bg-[#202b46] hover:text-white'
+    : 'border-slate-200/90 bg-white text-slate-700 shadow-[0_8px_18px_rgba(71,85,105,0.10)] hover:border-violet-300 hover:bg-violet-50 hover:text-slate-900';
   const footerClass = isDarkTheme
-    ? 'border-slate-700/70 bg-[linear-gradient(90deg,rgba(20,29,48,0.96),rgba(38,34,72,0.92),rgba(18,28,45,0.96))] shadow-[0_-12px_28px_rgba(2,6,23,0.22),inset_0_1px_0_rgba(255,255,255,0.05)]'
-    : 'border-violet-200/90 bg-[linear-gradient(90deg,rgba(245,243,255,0.96),rgba(250,245,255,0.96),rgba(240,249,255,0.96))] shadow-[0_-12px_28px_rgba(148,163,184,0.14),inset_0_1px_0_rgba(255,255,255,0.88)]';
+    ? 'border-violet-400/25 bg-[linear-gradient(100deg,#111c31,#21153b,#10243a)] shadow-[0_-12px_30px_rgba(2,6,23,0.38)]'
+    : 'border-violet-200 bg-[linear-gradient(100deg,#f5f3ff,#fff7fe,#eff9ff)] shadow-[0_-10px_26px_rgba(91,75,138,0.12)]';
   const questionCardClass = isDarkTheme
-    ? 'border-slate-700/70 bg-[radial-gradient(circle_at_top_left,rgba(139,92,246,0.12),transparent_28%),linear-gradient(180deg,rgba(24,33,52,0.94),rgba(15,25,42,0.94))] shadow-[0_18px_42px_rgba(2,6,23,0.30),inset_0_1px_0_rgba(255,255,255,0.06)]'
-    : 'border-violet-200/90 bg-[radial-gradient(circle_at_top_left,rgba(196,181,253,0.42),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.99),rgba(245,247,255,0.97))] shadow-[0_18px_42px_rgba(139,92,246,0.12)]';
+    ? 'border-violet-400/30 bg-[linear-gradient(150deg,#1c1634,#111d33)] shadow-[0_16px_38px_rgba(49,24,92,0.38)]'
+    : 'border-violet-200 bg-[linear-gradient(145deg,#ffffff,#faf8ff)] shadow-[0_14px_34px_rgba(124,58,237,0.12)]';
   const editorFrameClass = isDarkTheme
-    ? 'border-slate-700/70 bg-slate-900/55'
-    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(244,247,255,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]';
+    ? 'border-sky-400/20 bg-[#0b1426] shadow-[0_10px_24px_rgba(2,6,23,0.34)]'
+    : 'border-sky-100 bg-white shadow-[0_10px_24px_rgba(14,116,144,0.08)]';
   const editorHeaderClass = isDarkTheme
-    ? 'border-slate-700/70 bg-slate-800/55 text-slate-300'
-    : 'border-slate-200/90 bg-[linear-gradient(180deg,rgba(247,248,252,0.96),rgba(241,245,249,0.92))] text-slate-500';
+    ? 'border-sky-400/15 bg-[#0f1b30] text-sky-200'
+    : 'border-sky-100 bg-[#f2f8ff] text-slate-500';
   const hasSupportSidebarContent = Boolean(screenshots.length || extraFiles.length);
   const showPresenceChip = realtimePeerCount > 0;
   const workspaceTitle = showPresenceChip ? 'Совместный редактор Python' : 'Редактор Python';
@@ -1814,26 +1810,6 @@ const PythonTestModal = ({
         gridTemplateColumns: `clamp(220px, ${(workspaceSplitRatio * 100).toFixed(2)}%, 760px) 14px minmax(0, 1fr)`,
       }
     : undefined;
-  const responsiveLayoutScale = viewportWidth >= 1340
-    ? 1
-    : Math.max(700 / 1340, viewportWidth / 1340);
-  const canUseCssZoom = supportsCssZoom();
-  const responsiveLayoutStyle = responsiveLayoutScale < 0.999
-    ? (
-        canUseCssZoom
-          ? {
-              width: `${100 / responsiveLayoutScale}%`,
-              height: `${100 / responsiveLayoutScale}%`,
-              zoom: responsiveLayoutScale,
-            }
-          : {
-              width: `${100 / responsiveLayoutScale}%`,
-              height: `${100 / responsiveLayoutScale}%`,
-              transform: `scale(${responsiveLayoutScale})`,
-              transformOrigin: 'top left',
-            }
-      )
-    : undefined;
   const handleSelectSubsection = (subsectionId) => {
     const nextSubsection = visibleSubsections.find((section) => section.id === subsectionId);
     if (!nextSubsection) return;
@@ -1852,7 +1828,7 @@ const PythonTestModal = ({
 
   const modal = (
     <div className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
-      <div className={`python-runtime-modal-shell surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
+      <div data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className={`python-runtime-modal-shell python-runtime-modal-shell--solve surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
         <div className="h-full w-full overflow-hidden">
           <div
             className={`flex h-full flex-col overflow-hidden ${
@@ -1860,10 +1836,9 @@ const PythonTestModal = ({
                 ? 'p-1 sm:p-1.5 md:p-2'
                 : 'p-1.5 sm:p-2 md:p-2.5 lg:p-3'
             }`}
-            style={responsiveLayoutStyle}
           >
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
-          <div className={`rounded-[22px] border ${
+          <div className={`python-runtime-header-card rounded-[22px] border ${
             isCompactRuntimeViewport ? 'px-2.5 py-1.5 md:px-3 md:py-2' : 'px-3 py-2 md:px-3.5 md:py-2.5'
           } ${elevatedCardClass}`}>
             <div className="flex items-start justify-between gap-2.5">
@@ -1904,7 +1879,7 @@ const PythonTestModal = ({
               </button>
             </div>
             <div className="mt-1 grid gap-1 min-[700px]:grid-cols-[minmax(0,1fr)_minmax(170px,210px)]">
-              <div className={`rounded-[18px] border px-2.5 ${isCompactRuntimeViewport ? 'py-1' : 'py-1.5'} ${mutedStripClass}`}>
+              <div className={`python-runtime-progress-card rounded-[18px] border px-2.5 ${isCompactRuntimeViewport ? 'py-1' : 'py-1.5'} ${mutedStripClass}`}>
                 <div className="flex items-center justify-between gap-2.5">
                   <div>
                     <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Прогресс темы</div>
@@ -1919,7 +1894,7 @@ const PythonTestModal = ({
                   />
                 </div>
               </div>
-              <div className={`grid grid-cols-2 gap-1.5 rounded-[18px] border px-2.5 ${isCompactRuntimeViewport ? 'py-1' : 'py-1.5'} ${mutedStripClass}`}>
+              <div className={`python-runtime-overview-card grid grid-cols-2 gap-1.5 rounded-[18px] border px-2.5 ${isCompactRuntimeViewport ? 'py-1' : 'py-1.5'} ${mutedStripClass}`}>
                 <div>
                   <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>В разделе</div>
                   <div className={`mt-1 text-base font-semibold ${primaryTextClass}`}>{visibleCompletion}%</div>
@@ -1936,10 +1911,10 @@ const PythonTestModal = ({
 
           <div className="grid gap-1">
             {showSubsectionNav && (
-              <div className={`rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
+              <div className={`python-runtime-subsection-strip rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
                 <div className="flex min-w-0 items-center gap-2">
                   <div className={`shrink-0 text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Подраздел</div>
-                  <div className={`flex min-w-0 flex-1 flex-nowrap ${isCompactRuntimeViewport ? 'gap-1.5 pb-0.5' : 'gap-2 pb-1'} overflow-x-auto pr-1 [scrollbar-width:thin]`} onWheel={handleHorizontalWheelScroll}>
+                  <div className={`python-runtime-scrollbar flex min-w-0 flex-1 flex-nowrap ${isCompactRuntimeViewport ? 'gap-1.5 pb-0.5' : 'gap-2 pb-1'} overflow-x-auto pr-1 [scrollbar-width:thin]`} onWheel={handleHorizontalWheelScroll}>
                   {visibleSubsections.map((section) => (
                     <button
                       key={`py-subsection-${section.id}`}
@@ -1962,14 +1937,14 @@ const PythonTestModal = ({
               </div>
             )}
 
-              <div className={`rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
+              <div className={`python-runtime-task-strip rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
               <div className="hidden">
                 <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>
                   {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
                 </div>
               </div>
               <div
-                className={questionNavLayoutClass}
+                className={`python-runtime-scrollbar ${questionNavLayoutClass}`}
                 onWheel={handleHorizontalWheelScroll}
               >
                 {visibleQuestionItems.map((item) => {
@@ -2028,14 +2003,14 @@ const PythonTestModal = ({
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-hidden pr-0 md:pr-1">
+        <div className="python-runtime-workspace flex-1 min-h-0 overflow-hidden pr-0 md:pr-1">
           <div
             ref={workspaceGridRef}
-            className={`grid h-full min-h-0 ${isCompactRuntimeViewport ? 'gap-2' : 'gap-3'} ${workspaceGridClass}`}
+            className={`python-runtime-workspace-grid grid h-full min-h-0 ${isCompactRuntimeViewport ? 'gap-2' : 'gap-3'} ${workspaceGridClass}`}
             style={workspaceGridStyle}
           >
             <div className={`min-h-0 flex flex-col ${isCompactRuntimeViewport ? 'gap-2' : 'gap-2.5'} overflow-hidden min-[700px]:col-start-1 min-[700px]:row-start-1`}>
-          <div className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border ${isCompactRuntimeViewport ? 'p-2.5 md:p-3' : 'p-3 md:p-3.5'} ${questionCardClass}`}>
+          <div className={`python-runtime-question-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border ${isCompactRuntimeViewport ? 'p-2.5 md:p-3' : 'p-3 md:p-3.5'} ${questionCardClass}`}>
             <div className="flex items-start justify-between gap-3">
               <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${overlineTextClass}`}>Условие задачи</div>
               {canOpenTheory && (
@@ -2120,7 +2095,7 @@ const PythonTestModal = ({
                 <div
                   ref={questionScrollBodyRef}
                   onScroll={refreshQuestionScrollState}
-                  className={`h-full min-h-0 overflow-y-auto whitespace-pre-wrap pb-10 pr-1 text-[14px] font-medium leading-6 md:text-[16px] md:leading-6 ${primaryTextClass}`}
+                  className={`python-runtime-scrollbar h-full min-h-0 overflow-y-auto whitespace-pre-wrap pb-10 pr-1 text-[14px] font-medium leading-6 md:text-[16px] md:leading-6 ${primaryTextClass}`}
                 >
                   {currentQuestion.question}
                 </div>
@@ -2326,7 +2301,7 @@ const PythonTestModal = ({
           </div>
 
             {isWideWorkspace && (
-              <div className="relative hidden min-[700px]:block min-[700px]:col-start-2 min-[700px]:row-span-2">
+              <div className="python-runtime-resizer relative hidden min-[700px]:block min-[700px]:col-start-2 min-[700px]:row-span-2">
                 <button
                   type="button"
                   onPointerDown={(event) => {
@@ -2353,7 +2328,7 @@ const PythonTestModal = ({
             )}
 
             <div className="min-h-0 min-[700px]:col-start-3 min-[700px]:row-span-2">
-          <div className={`h-full rounded-[30px] border p-3.5 md:p-4 ${elevatedCardClass} min-h-0 flex flex-col`}>
+          <div className={`python-runtime-editor-panel h-full rounded-[30px] border p-3.5 md:p-4 ${elevatedCardClass} min-h-0 flex flex-col`}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Рабочая зона</div>
@@ -2407,7 +2382,7 @@ const PythonTestModal = ({
                 {sharedRunTimeLabel ? ` • ${sharedRunTimeLabel}` : ''}
               </div>
             )}
-            <div className={`mt-3 min-h-0 flex-1 overflow-hidden rounded-[24px] border ${editorFrameClass}`}>
+            <div className={`python-runtime-editor-frame mt-3 min-h-0 flex-1 overflow-hidden rounded-[24px] border ${editorFrameClass}`}>
               <div className={`flex items-center justify-between gap-3 border-b px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] ${editorHeaderClass}`}>
                 <span>main.py</span>
                 <span>{questionCodeDirty ? 'Изменения ждут сохранения' : 'Автосохранение'}</span>
@@ -2433,7 +2408,7 @@ const PythonTestModal = ({
             </div>
 
             <div className="min-h-0 min-[700px]:col-start-1 min-[700px]:row-start-2">
-          <div className={`h-full rounded-[30px] border p-3.5 md:p-4 ${elevatedCardClass} min-h-0 flex flex-col`}>
+          <div className={`python-runtime-tests-panel h-full rounded-[30px] border p-3.5 md:p-4 ${elevatedCardClass} min-h-0 flex flex-col`}>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Проверка</div>
@@ -2461,7 +2436,7 @@ const PythonTestModal = ({
             {testsToShow.length === 0 ? (
               <div className={`mt-4 rounded-2xl border px-3 py-3 text-sm ${softCardClass} ${secondaryTextClass}`}>Учитель еще не добавил тесты.</div>
             ) : (
-              <div className="mt-2.5 min-h-0 space-y-2 overflow-y-auto pr-1">
+              <div className="python-runtime-scrollbar mt-2.5 min-h-0 space-y-2 overflow-y-auto pr-1">
                 {testsToShow.map((item, idx) => {
                   const result = testResults[idx];
                   const passed = result?.passed ?? (solvedAllTests ? true : undefined);
@@ -2521,22 +2496,22 @@ const PythonTestModal = ({
           isCompactRuntimeViewport ? 'py-2 md:px-3' : 'py-2.5 md:px-3.5 md:py-3'
         } pb-[calc(env(safe-area-inset-bottom)+0.25rem)] ${footerClass}`}>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+            <div className="python-runtime-footer-status flex flex-wrap items-center gap-2 text-xs sm:text-sm">
               <span className={isDarkTheme ? 'text-slate-300' : 'text-slate-600'}>
                 Прогресс темы: <span className={`font-semibold ${isDarkTheme ? 'text-violet-200' : 'text-purple-700'}`}>{currentMastery}%</span>
               </span>
               <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
                 {`${currentQuestionDisplayIndex}/${totalVisibleQuestions}`}
               </span>
-              <span className={isDarkTheme ? 'text-slate-400' : 'text-slate-500'}>
+              <span className={`python-runtime-footer-note ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                 {isSolved ? 'Задача решена, можно идти дальше.' : 'Сначала запусти тесты и проверь решение.'}
               </span>
             </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <div className="python-runtime-footer-actions flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
               <Button
                 variant="secondary"
                 onClick={onClose}
-                className={`w-full sm:w-auto ${isDarkTheme ? '!border-slate-700 !bg-slate-800/70 !text-slate-200 hover:!bg-slate-700' : ''}`}
+                className={`python-runtime-action python-runtime-action--secondary w-full sm:w-auto ${isDarkTheme ? '!border-slate-700 !bg-slate-800/70 !text-slate-200 hover:!bg-slate-700' : ''}`}
               >
                 Закрыть
               </Button>
@@ -2553,7 +2528,7 @@ const PythonTestModal = ({
                   : null);
               }}
               disabled={runnerLoading || questionCodeLoading || !resolvedCode.trim()}
-              className={`w-full sm:w-auto ${isDarkTheme ? '!shadow-none' : ''}`}
+              className="python-runtime-action python-runtime-action--primary w-full sm:w-auto"
             >
               <PlayCircle size={16} />
               {runnerLoading ? '\u0417\u0430\u043f\u0443\u0441\u043a...' : '\u0417\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0442\u0435\u0441\u0442\u044b'}
@@ -2561,7 +2536,7 @@ const PythonTestModal = ({
             <Button
               variant={isSolved ? 'success' : 'secondary'}
               onClick={handleNext}
-              className={`w-full sm:w-auto ${isDarkTheme && !isSolved ? '!border-slate-700 !bg-slate-800/70 !text-slate-200 hover:!bg-slate-700' : ''} ${isDarkTheme && isSolved ? '!shadow-none' : ''}`}
+              className={`python-runtime-action python-runtime-action--next w-full sm:w-auto ${isDarkTheme && !isSolved ? '!border-slate-700 !bg-slate-800/70 !text-slate-200 hover:!bg-slate-700' : ''}`}
             >
               <ChevronRight size={16} />
               {Number.isFinite(nextQuestionIndex) ? 'Дальше' : 'Готово'}
