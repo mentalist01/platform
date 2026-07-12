@@ -12521,15 +12521,8 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
   const excludedOccurrenceKeys = new Set();
   scheduleEntries.forEach((entry) => {
     const directStudentId = String(entry?.studentId || '').trim();
-    const matchedStudentIds = directStudentId && studentsById.has(directStudentId)
-      ? [directStudentId]
-      : students
-        .filter((student) => doesPaymentScheduleEntryMatchStudent(entry, student))
-        .map((student) => String(student?.id || '').trim())
-        .filter(Boolean);
-    const uniqueStudentIds = Array.from(new Set(matchedStudentIds));
-    if (uniqueStudentIds.length !== 1) return;
-    const studentId = uniqueStudentIds[0];
+    if (!directStudentId || !studentsById.has(directStudentId)) return;
+    const studentId = directStudentId;
     const studentStartNumber = studentStartNumberById.get(studentId);
     const entryTime = normalizeScheduleTime(entry?.time);
     const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
@@ -12646,21 +12639,6 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
     ledgerDeletes.delete(occurrenceKey);
   });
 
-  const monthRecordsByStudent = new Map();
-  const receivedRevenueByMonth = new Map();
-  Object.entries(currentEntry.months || {}).forEach(([monthKey, monthData]) => {
-    let monthReceivedRevenue = 0;
-    Object.entries(monthData?.students || {}).forEach(([studentId, rawRecord]) => {
-      const current = monthRecordsByStudent.get(studentId) || { paidAmount: 0 };
-      const profile = currentEntry.studentProfiles?.[studentId] || getDefaultTeacherFinanceProfile();
-      const record = normalizeTeacherFinanceStudentRecord(rawRecord, profile);
-      current.paidAmount = roundTeacherFinanceNumber(current.paidAmount + record.paidAmount);
-      monthRecordsByStudent.set(studentId, current);
-      monthReceivedRevenue = roundTeacherFinanceNumber(monthReceivedRevenue + record.paidAmount);
-    });
-    receivedRevenueByMonth.set(monthKey, monthReceivedRevenue);
-  });
-
   const ledgerByStudentId = new Map();
   Object.values(nextLedger).forEach((entry) => {
     const list = ledgerByStudentId.get(entry.studentId) || [];
@@ -12683,7 +12661,7 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
         month: normalizedMonth,
         lessonCount: 0,
         grossRevenue: 0,
-        receivedRevenue: roundTeacherFinanceNumber(receivedRevenueByMonth.get(normalizedMonth)),
+        receivedRevenue: 0,
       });
     }
     return incomeByMonthMap.get(normalizedMonth);
@@ -12695,6 +12673,9 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
     if (!month) return;
     month.lessonCount += 1;
     month.grossRevenue = roundTeacherFinanceNumber(month.grossRevenue + entry.lessonPrice);
+    if (entry.paid) {
+      month.receivedRevenue = roundTeacherFinanceNumber(month.receivedRevenue + entry.lessonPrice);
+    }
   });
   const incomeByMonth = Array.from(incomeByMonthMap.values())
     .sort((left, right) => right.month.localeCompare(left.month, 'ru'));
@@ -12708,7 +12689,11 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
       (total, occurrence) => roundTeacherFinanceNumber(total + roundTeacherFinanceNumber(occurrence.lessonPrice)),
       0
     );
-    const receivedRevenue = roundTeacherFinanceNumber(monthRecordsByStudent.get(studentId)?.paidAmount);
+    const receivedRevenue = studentOccurrences.reduce((total, occurrence) => (
+      occurrence.paid
+        ? roundTeacherFinanceNumber(total + roundTeacherFinanceNumber(occurrence.lessonPrice))
+        : total
+    ), 0);
     const remainingToPayback = commissionAmount > 0
       ? roundTeacherFinanceNumber(Math.max(0, commissionAmount - grossRevenue))
       : 0;
