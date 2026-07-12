@@ -46,6 +46,7 @@ import StudentTodayOverview from './components/StudentTodayOverview';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
 import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
 import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
+import StudentPaymentReminder from './components/StudentPaymentReminder';
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
@@ -17336,6 +17337,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           }}
         />
       )}
+      <StudentPaymentReminder
+        key={`payment-reminder-${user.id}`}
+        enabled={user.role === 'student' && !studentTourActive}
+        studentId={user.id}
+        onOpenSchedule={() => {
+          navigateToView('schedule');
+          setMenuOpen(false);
+        }}
+      />
       {user.role === 'student' && xpDockVisible && (
         <div className="xp-flight-dock-shell">
           <div className={`xp-flight-dock ${xpAnimationActive ? 'xp-flight-dock--active' : ''}`}>

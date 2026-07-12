@@ -65566,3 +65566,545 @@ html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-le
     0 16px 34px rgba(76, 29, 149, 0.28),
     inset 0 1px 0 rgba(196, 181, 253, 0.08) !important;
 }
+
+/* Dark Student Today: clean saturated surfaces without milky glass highlights. */
+html[data-theme='dark'] .student-today-overview {
+  border-color: #44317b !important;
+  background: linear-gradient(135deg, #17142f 0%, #10162c 56%, #082332 100%) !important;
+  box-shadow:
+    0 28px 60px rgba(2, 6, 23, 0.58),
+    0 8px 24px rgba(76, 29, 149, 0.2) !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-action {
+  border-color: rgb(var(--today-action-rgb) / 0.46) !important;
+  background: linear-gradient(
+    145deg,
+    rgb(var(--today-action-rgb) / 0.25),
+    #12182d 58%,
+    #0b1222 100%
+  ) !important;
+  box-shadow:
+    0 15px 32px rgba(2, 6, 23, 0.5),
+    0 6px 18px rgb(var(--today-action-rgb) / 0.14) !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-action:hover {
+  border-color: rgb(var(--today-action-rgb) / 0.78) !important;
+  background: linear-gradient(
+    145deg,
+    rgb(var(--today-action-rgb) / 0.36),
+    #18213a 60%,
+    #0d1628 100%
+  ) !important;
+  box-shadow:
+    0 20px 38px rgba(2, 6, 23, 0.58),
+    0 8px 24px rgb(var(--today-action-rgb) / 0.22) !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-icon,
+html[data-theme='dark'] .student-today-overview__quick-arrow {
+  border-color: rgb(var(--today-action-rgb) / 0.58) !important;
+  background: rgb(var(--today-action-rgb) / 0.22) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .student-today-homework-card {
+  border-color: #563b92 !important;
+  background: linear-gradient(135deg, #1a1536 0%, #11172d 58%, #082330 100%) !important;
+  box-shadow:
+    0 28px 62px rgba(2, 6, 23, 0.6),
+    0 8px 24px rgba(124, 58, 237, 0.18) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__goal-panel {
+  border-color: #6046a1 !important;
+  background: linear-gradient(145deg, #2c1b54 0%, #1b1a3b 54%, #14182d 100%) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.38),
+    0 5px 16px rgba(124, 58, 237, 0.14) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__checklist-panel {
+  border-color: #176486 !important;
+  background: linear-gradient(145deg, #0b354c 0%, #10243a 58%, #11172b 100%) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.38),
+    0 5px 16px rgba(14, 165, 233, 0.12) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__check-row {
+  border-color: #334b6d !important;
+  background: linear-gradient(145deg, #182844, #141b30) !important;
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.34) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__progress-core {
+  background: linear-gradient(145deg, #20204a, #121a31) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card.surface-card {
+  border-color: #285b82 !important;
+  background: linear-gradient(135deg, #101a31 0%, #121533 52%, #072535 100%) !important;
+  box-shadow:
+    0 28px 60px rgba(2, 6, 23, 0.6),
+    0 8px 24px rgba(14, 116, 144, 0.16) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-week-strip {
+  border-color: #263c60 !important;
+  background: #091225 !important;
+  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.36) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--future {
+  border-color: #343967 !important;
+  background: linear-gradient(145deg, #191a39, #11172d) !important;
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.4) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--past {
+  border-color: #342e5d !important;
+  background: linear-gradient(145deg, #18162f, #11172b) !important;
+  color: #858daa !important;
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.36) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--has-lessons,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--has-lessons.schedule-shell__student-day-chip--past {
+  border-color: #157197 !important;
+  background: linear-gradient(145deg, #0a344c, #111d35) !important;
+  box-shadow:
+    0 10px 22px rgba(2, 6, 23, 0.42),
+    0 4px 14px rgba(14, 165, 233, 0.13) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--has-lessons > small,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--has-lessons.schedule-shell__student-day-chip--past > small {
+  background: #0b4160 !important;
+  color: #b9edff !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--today,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--next {
+  border-color: #22b7dc !important;
+  background: linear-gradient(145deg, #0b4a68, #182653 64%, #211b4b) !important;
+  box-shadow:
+    0 12px 26px rgba(2, 6, 23, 0.46),
+    0 5px 18px rgba(34, 211, 238, 0.18) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--today > strong,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--next > strong {
+  color: #f4f7ff !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson {
+  border-color: #29557b !important;
+  background: linear-gradient(145deg, #132945, #111a31 64%, #10152b) !important;
+  box-shadow:
+    0 13px 28px rgba(2, 6, 23, 0.46),
+    0 4px 14px rgba(14, 116, 144, 0.1) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--past {
+  border-color: #37456f !important;
+  background: linear-gradient(145deg, #19213d, #14182f) !important;
+  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.42) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--overdue-unpaid {
+  border-color: #a83d62 !important;
+  background: linear-gradient(145deg, #3b1830, #22172d 62%, #151629) !important;
+  box-shadow:
+    0 13px 28px rgba(2, 6, 23, 0.46),
+    0 4px 14px rgba(244, 63, 94, 0.13) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--future {
+  border-color: #17779b !important;
+  background: linear-gradient(145deg, #0b354d, #12233c) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--next,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--active {
+  border-color: #6550ad !important;
+  background: linear-gradient(145deg, #2a215b, #142c4b 62%, #10172e) !important;
+  box-shadow:
+    0 16px 34px rgba(2, 6, 23, 0.5),
+    0 6px 18px rgba(124, 58, 237, 0.18) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson-date {
+  border-color: #2f5f83 !important;
+  background: #0d2b43 !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--past .schedule-shell__student-lesson-date {
+  border-color: #40456d !important;
+  background: #1a1d38 !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--overdue-unpaid .schedule-shell__student-lesson-date {
+  border-color: #9e3d5d !important;
+  background: #32172a !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--next .schedule-shell__student-lesson-date {
+  border-color: #3189aa !important;
+  background: #103a54 !important;
+}
+
+/* Student payment reminder shown once when the platform opens. */
+.student-payment-reminder {
+  position: fixed;
+  z-index: 1700;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  background: rgba(15, 23, 42, 0.58);
+  backdrop-filter: blur(5px);
+}
+
+.student-payment-reminder__dialog {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: min(760px, calc(100dvh - 32px));
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid rgba(251, 113, 133, 0.54);
+  border-radius: 28px;
+  background: linear-gradient(145deg, #ffffff 0%, #fff8fb 52%, #f5f3ff 100%);
+  box-shadow:
+    0 34px 90px rgba(15, 23, 42, 0.3),
+    0 10px 30px rgba(225, 29, 72, 0.13);
+  animation: studentPaymentReminderIn 220ms ease both;
+}
+
+@keyframes studentPaymentReminderIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.student-payment-reminder__accent {
+  position: absolute;
+  top: 0;
+  right: 24px;
+  left: 24px;
+  height: 4px;
+  border-radius: 0 0 999px 999px;
+  background: linear-gradient(90deg, #fb7185, #e11d48 48%, #8b5cf6);
+}
+
+.student-payment-reminder__close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 12px;
+  background: #fff;
+  color: #64748b;
+  transition: border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.student-payment-reminder__close:hover {
+  border-color: rgba(251, 113, 133, 0.65);
+  color: #e11d48;
+  transform: rotate(3deg);
+}
+
+.student-payment-reminder__close:focus-visible,
+.student-payment-reminder__later:focus-visible,
+.student-payment-reminder__schedule:focus-visible {
+  outline: 3px solid rgba(244, 63, 94, 0.3);
+  outline-offset: 3px;
+}
+
+.student-payment-reminder__header {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  padding-right: 36px;
+}
+
+.student-payment-reminder__icon {
+  display: inline-flex;
+  width: 52px;
+  height: 52px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 17px;
+  background: linear-gradient(145deg, #f43f5e, #e11d48 55%, #8b5cf6);
+  color: #fff;
+  box-shadow: 0 12px 26px rgba(225, 29, 72, 0.24);
+}
+
+.student-payment-reminder__eyebrow {
+  display: block;
+  color: #e11d48;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.student-payment-reminder__header h2 {
+  margin-top: 3px;
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 950;
+  letter-spacing: -0.025em;
+  line-height: 1.18;
+}
+
+.student-payment-reminder__header p {
+  margin-top: 7px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.student-payment-reminder__list {
+  display: grid;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.student-payment-reminder__item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(253, 164, 175, 0.58);
+  border-radius: 16px;
+  background: linear-gradient(145deg, #fff1f2, #ffffff 70%);
+  box-shadow: 0 8px 20px rgba(225, 29, 72, 0.07);
+}
+
+.student-payment-reminder__item-date {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #ffe4e6;
+  color: #e11d48;
+}
+
+.student-payment-reminder__item-copy {
+  min-width: 0;
+}
+
+.student-payment-reminder__item-copy strong,
+.student-payment-reminder__item-copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-payment-reminder__item-copy strong {
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.student-payment-reminder__item-copy span {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.student-payment-reminder__elapsed {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 9px;
+  border: 1px solid rgba(251, 113, 133, 0.46);
+  border-radius: 999px;
+  background: #fff;
+  color: #be123c;
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.student-payment-reminder__more {
+  padding: 4px 8px 0;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.student-payment-reminder__actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(253, 164, 175, 0.42);
+}
+
+.student-payment-reminder__later,
+.student-payment-reminder__schedule {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 13px;
+  font-size: 12px;
+  font-weight: 900;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.student-payment-reminder__later {
+  border: 1px solid rgba(203, 213, 225, 0.92);
+  background: #fff;
+  color: #475569;
+}
+
+.student-payment-reminder__schedule {
+  border: 1px solid rgba(225, 29, 72, 0.55);
+  background: linear-gradient(135deg, #f43f5e, #e11d48 58%, #8b5cf6);
+  color: #fff;
+  box-shadow: 0 12px 24px rgba(225, 29, 72, 0.22);
+}
+
+.student-payment-reminder__later:hover,
+.student-payment-reminder__schedule:hover {
+  transform: translateY(-1px);
+}
+
+.student-payment-reminder__later:hover {
+  border-color: rgba(251, 113, 133, 0.58);
+  color: #be123c;
+}
+
+.student-payment-reminder__schedule:hover {
+  box-shadow: 0 16px 30px rgba(225, 29, 72, 0.28);
+}
+
+@media (max-width: 520px) {
+  .student-payment-reminder {
+    align-items: flex-end;
+    padding: 10px 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .student-payment-reminder__dialog {
+    max-height: calc(100dvh - 20px);
+    padding: 18px 14px 14px;
+    border-radius: 24px;
+  }
+
+  .student-payment-reminder__header {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 11px;
+    padding-right: 32px;
+  }
+
+  .student-payment-reminder__icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .student-payment-reminder__header h2 {
+    font-size: 19px;
+  }
+
+  .student-payment-reminder__item {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .student-payment-reminder__item-date {
+    width: 36px;
+    height: 36px;
+  }
+
+  .student-payment-reminder__elapsed {
+    width: fit-content;
+    grid-column: 2;
+  }
+
+  .student-payment-reminder__actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+html[data-theme='dark'] .student-payment-reminder {
+  background: rgba(2, 6, 23, 0.78);
+}
+
+html[data-theme='dark'] .student-payment-reminder__dialog {
+  border-color: #8f3157;
+  background: linear-gradient(145deg, #29152a 0%, #17172e 54%, #0d2030 100%);
+  box-shadow:
+    0 34px 90px rgba(2, 6, 23, 0.7),
+    0 10px 30px rgba(225, 29, 72, 0.16);
+}
+
+html[data-theme='dark'] .student-payment-reminder__close,
+html[data-theme='dark'] .student-payment-reminder__later {
+  border-color: #4b3a61;
+  background: #17192e;
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .student-payment-reminder__header h2 {
+  color: #f8fafc;
+}
+
+html[data-theme='dark'] .student-payment-reminder__header p,
+html[data-theme='dark'] .student-payment-reminder__item-copy span {
+  color: #a5b4c7;
+}
+
+html[data-theme='dark'] .student-payment-reminder__item {
+  border-color: #783451;
+  background: linear-gradient(145deg, #35182e, #1c192f 62%, #14192c);
+  box-shadow: 0 9px 22px rgba(2, 6, 23, 0.44);
+}
+
+html[data-theme='dark'] .student-payment-reminder__item-date {
+  background: #4a1830;
+  color: #fb7185;
+}
+
+html[data-theme='dark'] .student-payment-reminder__item-copy strong {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .student-payment-reminder__elapsed {
+  border-color: #8f3157;
+  background: #2d1628;
+  color: #fda4af;
+}
+
+html[data-theme='dark'] .student-payment-reminder__actions {
+  border-top-color: #5d2946;
+}
