@@ -27,6 +27,133 @@
   --shadow-lift: 0 22px 56px rgba(79, 70, 229, 0.18), 0 10px 30px rgba(15, 23, 42, 0.10);
 }
 
+/* Compact teacher finance dashboard */
+html[data-theme='dark'] .teacher-finance-simple__hero.surface-card {
+  border-color: rgba(139, 92, 246, 0.48) !important;
+  background:
+    radial-gradient(circle at 8% -24%, rgba(124, 58, 237, 0.2), transparent 42%),
+    radial-gradient(circle at 96% 0%, rgba(14, 165, 233, 0.14), transparent 38%),
+    linear-gradient(145deg, rgba(19, 24, 45, 0.97), rgba(12, 19, 36, 0.98)) !important;
+  box-shadow:
+    0 22px 50px rgba(2, 6, 23, 0.48),
+    inset 0 1px 0 rgba(196, 181, 253, 0.1) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__student.surface-card {
+  border-color: rgba(71, 85, 105, 0.76) !important;
+  background:
+    linear-gradient(145deg, rgba(18, 27, 48, 0.98), rgba(12, 20, 38, 0.98)) !important;
+  box-shadow:
+    0 18px 40px rgba(2, 6, 23, 0.42),
+    inset 0 1px 0 rgba(148, 163, 184, 0.09) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__months.surface-card {
+  border-color: rgba(71, 85, 105, 0.72) !important;
+  background: linear-gradient(145deg, rgba(17, 25, 45, 0.97), rgba(11, 19, 35, 0.98)) !important;
+  box-shadow:
+    0 18px 40px rgba(2, 6, 23, 0.38),
+    inset 0 1px 0 rgba(148, 163, 184, 0.08) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__month {
+  border-color: rgba(100, 116, 139, 0.5) !important;
+  background: linear-gradient(145deg, rgba(51, 65, 85, 0.3), rgba(15, 23, 42, 0.58)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme='dark'] .teacher-finance-simple h2,
+html[data-theme='dark'] .teacher-finance-simple h3,
+html[data-theme='dark'] .teacher-finance-simple .text-slate-950,
+html[data-theme='dark'] .teacher-finance-simple .text-slate-900 {
+  color: #f8fafc !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple .text-slate-600,
+html[data-theme='dark'] .teacher-finance-simple .text-slate-500,
+html[data-theme='dark'] .teacher-finance-simple .text-slate-400 {
+  color: #a8b5ca !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__summary,
+html[data-theme='dark'] .teacher-finance-simple__metric {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 26px rgba(2, 6, 23, 0.22);
+}
+
+html[data-theme='dark'] .teacher-finance-simple__summary[data-tone='violet'],
+html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='violet'] {
+  border-color: rgba(139, 92, 246, 0.48) !important;
+  background: linear-gradient(145deg, rgba(91, 33, 182, 0.26), rgba(30, 27, 75, 0.42)) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__summary[data-tone='sky'],
+html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='sky'] {
+  border-color: rgba(14, 165, 233, 0.44) !important;
+  background: linear-gradient(145deg, rgba(3, 105, 161, 0.25), rgba(8, 47, 73, 0.42)) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__summary[data-tone='emerald'],
+html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='emerald'] {
+  border-color: rgba(16, 185, 129, 0.42) !important;
+  background: linear-gradient(145deg, rgba(5, 150, 105, 0.2), rgba(6, 78, 59, 0.34)) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='amber'] {
+  border-color: rgba(245, 158, 11, 0.42) !important;
+  background: linear-gradient(145deg, rgba(180, 83, 9, 0.2), rgba(69, 26, 3, 0.36)) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='slate'] {
+  border-color: rgba(100, 116, 139, 0.55) !important;
+  background: linear-gradient(145deg, rgba(51, 65, 85, 0.36), rgba(15, 23, 42, 0.56)) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__summary-icon {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  background: rgba(15, 23, 42, 0.72) !important;
+  color: #c4b5fd !important;
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.26) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__input {
+  border-color: rgba(100, 116, 139, 0.58) !important;
+  background: rgba(10, 17, 32, 0.86) !important;
+  color: #f8fafc !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
+html[data-theme='dark'] .teacher-finance-simple__input::placeholder {
+  color: #718096 !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__input:focus {
+  border-color: rgba(167, 139, 250, 0.78) !important;
+  background: rgba(15, 23, 42, 0.96) !important;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.14) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple [data-tone='violet'] .text-violet-700,
+html[data-theme='dark'] .teacher-finance-simple [data-tone='violet'] .text-violet-600 {
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple [data-tone='sky'] .text-sky-700,
+html[data-theme='dark'] .teacher-finance-simple [data-tone='sky'] .text-sky-600 {
+  color: #7dd3fc !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple [data-tone='emerald'] .text-emerald-700,
+html[data-theme='dark'] .teacher-finance-simple [data-tone='emerald'] .text-emerald-600 {
+  color: #6ee7b7 !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple [data-tone='amber'] .text-amber-700,
+html[data-theme='dark'] .teacher-finance-simple [data-tone='amber'] .text-amber-600 {
+  color: #fcd34d !important;
+}
+
 @layer base {
   html {
     font-family: "Manrope", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -66578,5 +66705,607 @@ html[data-theme='dark'] .student-payment-reminder__actions {
 
   .python-runtime-modal-shell--solve .python-runtime-overview-card > div + div {
     padding-left: 0.55rem;
+  }
+}
+
+/* Python task workspace v2: compact hierarchy and opaque contrast */
+.python-runtime-modal-shell--solve[data-runtime-theme='light'] {
+  --rt-canvas: #eef1f5;
+  --rt-workspace: #e5eaf0;
+  --rt-card: #ffffff;
+  --rt-soft: #f6f8fa;
+  --rt-border: #cdd5df;
+  --rt-text: #111827;
+  --rt-secondary: #475569;
+  --rt-muted: #718096;
+  --rt-question: #faf9fc;
+  --rt-question-border: #d0c8df;
+  --rt-question-inner: #ffffff;
+  --rt-editor: #f5f8fa;
+  --rt-editor-border: #b8cad6;
+  --rt-editor-inner: #ffffff;
+  --rt-tests: #f6faf8;
+  --rt-tests-border: #b9d1ca;
+  --rt-tests-inner: #ffffff;
+  --rt-shadow: rgba(15, 23, 42, 0.07);
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] {
+  --rt-canvas: #090d15;
+  --rt-workspace: #070b12;
+  --rt-card: #101728;
+  --rt-soft: #141d30;
+  --rt-border: #2d3a55;
+  --rt-text: #f3f4f6;
+  --rt-secondary: #cbd5e1;
+  --rt-muted: #94a3b8;
+  --rt-question: #151526;
+  --rt-question-border: #443b60;
+  --rt-question-inner: #0f1323;
+  --rt-editor: #101a25;
+  --rt-editor-border: #365365;
+  --rt-editor-inner: #070f1c;
+  --rt-tests: #10201f;
+  --rt-tests-border: #3a5b56;
+  --rt-tests-inner: #101d25;
+  --rt-shadow: rgba(0, 0, 0, 0.24);
+}
+
+.python-runtime-modal-shell--solve.modal-card--fullscreen {
+  background: var(--rt-canvas) !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-modal-header {
+  margin-bottom: 0.35rem !important;
+  gap: 0.35rem;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-header-card {
+  overflow: hidden;
+  padding: 0.62rem 0.78rem !important;
+  border: 1px solid var(--rt-border);
+  border-radius: 18px !important;
+  background: var(--rt-card);
+  box-shadow: 0 1px 2px var(--rt-shadow), 0 6px 16px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-header-card::before {
+  height: 2px;
+  background: linear-gradient(90deg, #8b5cf6, #a855f7 52%, #3b82a3);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-header-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.8fr) minmax(250px, 0.9fr) 228px 40px;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-topic-summary {
+  min-width: 0;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-progress-card,
+.python-runtime-modal-shell--solve .python-runtime-overview-card {
+  min-width: 0;
+  border-radius: 14px !important;
+  box-shadow: none;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='light'] .python-runtime-progress-card {
+  border-color: #ddd5e9;
+  background: #f8f5fb;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='light'] .python-runtime-overview-card {
+  border-color: #cbd9e1;
+  background: #f2f7f9;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-progress-card {
+  border-color: #493c66;
+  background: #1d192c;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-overview-card {
+  border-color: #365466;
+  background: #13212d;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-overview-card > div + div {
+  border-left-color: color-mix(in srgb, var(--rt-border) 78%, transparent);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-close-button {
+  border-color: var(--rt-border);
+  color: var(--rt-secondary);
+  background: var(--rt-soft);
+  box-shadow: 0 4px 10px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-close-button:hover {
+  border-color: #a78bfa;
+  color: #7c3aed;
+  background: color-mix(in srgb, var(--rt-soft) 80%, #ede9fe);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-navigation {
+  min-width: 0;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-strip {
+  border-color: var(--rt-border);
+  background: var(--rt-card);
+  box-shadow: 0 4px 12px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-strip {
+  width: fit-content;
+  max-width: 100%;
+  padding: 0 !important;
+  border: 0;
+  border-left: 0;
+  background: transparent !important;
+  box-shadow: none;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-strip > div:last-child {
+  max-width: calc(100vw - 1.5rem);
+  padding: 0.15rem 0.2rem 0.25rem 0;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-chip {
+  width: clamp(156px, 11vw, 188px);
+  min-width: 156px !important;
+  height: 46px;
+  flex: 0 0 clamp(156px, 11vw, 188px);
+  padding: 0.38rem 0.55rem !important;
+  border: 1px solid var(--rt-border) !important;
+  border-radius: 13px !important;
+  color: var(--rt-text) !important;
+  background: var(--rt-card) !important;
+  box-shadow: 0 1px 2px var(--rt-shadow), 0 3px 8px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-strip[data-dense='true'] .python-runtime-task-chip {
+  width: 100%;
+  min-width: 0 !important;
+  height: 42px;
+  flex: auto;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-chip:hover {
+  transform: translateY(-1px);
+  border-color: #a78bfa !important;
+  box-shadow: 0 6px 14px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-chip[data-current='true'] {
+  border-color: #a593d0 !important;
+  color: #6d28d9 !important;
+  background: #f0ebfa !important;
+  box-shadow: 0 3px 8px rgba(76, 29, 149, 0.11);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-chip[data-current='true'] * {
+  color: #6d28d9 !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-chip[data-current='true'] > div > div:first-child {
+  border-color: #8b5cf6 !important;
+  color: #ffffff !important;
+  background: #7c3aed !important;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-task-chip[data-current='true'] {
+  border-color: #5d4b7e !important;
+  color: #ddd6fe !important;
+  background: #242035 !important;
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.24);
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-task-chip[data-current='true'] * {
+  color: #ddd6fe !important;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-task-chip[data-current='true'] > div > div:first-child {
+  color: #ffffff !important;
+  background: #6d4cb3 !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-chip[data-solved='true'][data-current='false'] {
+  border-color: #7cc9aa !important;
+  color: #047857 !important;
+  background: #ecfdf5 !important;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-task-chip[data-solved='true'][data-current='false'] {
+  border-color: #276b58 !important;
+  color: #a7f3d0 !important;
+  background: #102c27 !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-workspace {
+  margin-top: 0.15rem;
+  padding: 0.5rem !important;
+  border: 1px solid var(--rt-border);
+  border-radius: 21px;
+  background: var(--rt-workspace);
+  box-shadow: 0 1px 2px var(--rt-shadow), 0 5px 14px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-workspace-grid {
+  gap: 0.62rem !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-briefing-column {
+  gap: 0.62rem !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-panel,
+.python-runtime-modal-shell--solve .python-runtime-editor-panel,
+.python-runtime-modal-shell--solve .python-runtime-tests-panel {
+  padding: 0.78rem !important;
+  border-radius: 18px !important;
+  box-shadow: 0 1px 2px var(--rt-shadow), 0 5px 14px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-panel {
+  border-color: var(--rt-question-border);
+  background: var(--rt-question);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-editor-panel {
+  border-color: var(--rt-editor-border);
+  background: var(--rt-editor);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-tests-panel {
+  border-color: var(--rt-tests-border);
+  background: var(--rt-tests);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-panel::before,
+.python-runtime-modal-shell--solve .python-runtime-editor-panel::before,
+.python-runtime-modal-shell--solve .python-runtime-tests-panel::before {
+  inset-inline: 1rem;
+  height: 3px;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-panel::before {
+  background: #8b5cf6;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-editor-panel::before {
+  background: #3b82a3;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-tests-panel::before {
+  background: #2f8a7e;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-panel-heading,
+.python-runtime-modal-shell--solve .python-runtime-editor-toolbar {
+  min-height: 40px;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-panel-icon {
+  box-shadow: 0 4px 10px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-panel-icon--question {
+  border-color: #d1c7e4;
+  color: #7c3aed;
+  background: #f7f4fb;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-panel-icon--editor {
+  border-color: #bfd2dd;
+  color: #0369a1;
+  background: #f2f7f9;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-panel-icon--tests {
+  border-color: #c2d8d2;
+  color: #0f766e;
+  background: #f2f8f6;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-panel-icon--question {
+  border-color: #67479a;
+  color: #d8b4fe;
+  background: #261b41;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-panel-icon--editor {
+  border-color: #286682;
+  color: #7dd3fc;
+  background: #102a3c;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-panel-icon--tests {
+  border-color: #2d7168;
+  color: #5eead4;
+  background: #12332f;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-copy {
+  border-color: color-mix(in srgb, var(--rt-question-border) 55%, var(--rt-border));
+  background: var(--rt-question-inner);
+  box-shadow: 0 4px 12px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-copy > div:first-child {
+  max-width: 78ch;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-fade {
+  background: linear-gradient(to top, var(--rt-question-inner) 0%, color-mix(in srgb, var(--rt-question-inner) 82%, transparent) 48%, transparent 100%) !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-more {
+  border-color: var(--rt-question-border) !important;
+  color: #7c3aed !important;
+  background: var(--rt-question-inner) !important;
+  box-shadow: 0 3px 8px var(--rt-shadow) !important;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-question-more {
+  color: #d8b4fe !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-more:hover {
+  transform: translateY(-1px);
+  border-color: #a593d0 !important;
+  background: #f7f4fb !important;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-question-more:hover {
+  border-color: #5d4b7e !important;
+  background: #242035 !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-theory-launcher {
+  border-color: #b9d2dc !important;
+  color: #0e7490 !important;
+  background: #f2f8fa !important;
+  box-shadow: none !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-theory-launcher:hover {
+  border-color: #83b8c8 !important;
+  background: #eaf4f7 !important;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-theory-launcher {
+  border-color: #375566 !important;
+  color: #a5d8e5 !important;
+  background: #14242f !important;
+  box-shadow: none !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-editor-frame {
+  border-color: var(--rt-editor-border);
+  border-radius: 14px !important;
+  background: var(--rt-editor-inner);
+  box-shadow: 0 5px 14px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-editor-filebar {
+  border-color: color-mix(in srgb, var(--rt-editor-border) 58%, var(--rt-border));
+  background: color-mix(in srgb, var(--rt-editor) 74%, var(--rt-card));
+}
+
+.python-runtime-modal-shell--solve .python-runtime-editor-controls {
+  justify-content: flex-end;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-status,
+.python-runtime-modal-shell--solve .python-runtime-reset-button {
+  box-shadow: none;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-status--save[data-state='saved'] {
+  border-color: var(--rt-border) !important;
+  color: var(--rt-muted) !important;
+  background: var(--rt-soft) !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-card {
+  border-color: color-mix(in srgb, var(--rt-tests-border) 54%, var(--rt-border)) !important;
+  background: var(--rt-tests-inner) !important;
+  box-shadow: 0 3px 9px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-card[class*='border-emerald'] {
+  border-color: #78c9a8 !important;
+  background: #effcf7 !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-card[class*='border-red'] {
+  border-color: #f2a4ad !important;
+  background: #fff1f2 !important;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-test-card[class*='border-emerald'] {
+  border-color: #276b58 !important;
+  background: #102c27 !important;
+}
+
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-test-card[class*='border-red'] {
+  border-color: #7f3441 !important;
+  background: #351724 !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-value {
+  border-color: color-mix(in srgb, var(--rt-tests-border) 34%, var(--rt-border));
+  background: color-mix(in srgb, var(--rt-tests-inner) 78%, var(--rt-soft));
+}
+
+.python-runtime-modal-shell--solve .python-runtime-resizer > button > span:first-child {
+  width: 2px;
+  background: linear-gradient(180deg, transparent, #9284ad 22%, #6f91a3 78%, transparent);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-resizer > button > span:last-child {
+  width: 13px;
+  border-color: var(--rt-border);
+  color: #7b6c9a;
+  background: var(--rt-card);
+  box-shadow: 0 5px 12px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-footer {
+  margin-top: 0.38rem !important;
+  padding-block: 0.48rem !important;
+  border-color: var(--rt-border);
+  border-radius: 16px !important;
+  background: var(--rt-card);
+  box-shadow: 0 -3px 12px var(--rt-shadow);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-scrollbar {
+  scrollbar-color: #9789b5 transparent;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-scrollbar::-webkit-scrollbar-thumb {
+  background: #9789b5 padding-box;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #7f719d padding-box;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-action {
+  border-radius: 11px;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-action--primary {
+  box-shadow: 0 6px 12px rgba(124, 58, 237, 0.22) !important;
+}
+
+body:has(.python-runtime-modal-shell--solve) .theme-toggle--desktop {
+  bottom: 4.75rem;
+}
+
+@media (max-width: 1099px) {
+  .python-runtime-modal-shell--solve .python-runtime-header-layout {
+    grid-template-columns: minmax(230px, 1fr) minmax(220px, 0.8fr) 40px;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-overview-card {
+    grid-column: 1 / -1;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-close-button {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-workspace {
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #8b5cf6 transparent;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-workspace-grid {
+    display: flex;
+    min-width: 0;
+    min-height: 100%;
+    height: auto;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-workspace-grid > * {
+    width: 100%;
+    min-width: 0;
+    flex: none;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-question-panel {
+    height: 300px !important;
+    min-height: 270px;
+    flex: none;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-question-panel--expanded {
+    height: min(68vh, 620px) !important;
+    min-height: min(68vh, 620px);
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-editor-panel {
+    height: 500px !important;
+    min-height: 500px;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-tests-panel {
+    height: 360px !important;
+    min-height: 360px;
+  }
+}
+
+@media (max-width: 699px) {
+  .python-runtime-modal-shell--solve .python-runtime-header-layout {
+    grid-template-columns: minmax(112px, 0.72fr) minmax(128px, 1fr) 40px;
+    gap: 0.45rem;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-topic-summary {
+    grid-column: 1 / 3;
+    grid-row: 1;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-close-button {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-progress-card {
+    grid-column: 1;
+    grid-row: 2;
+    height: 100%;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-overview-card {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-task-chip {
+    width: 154px;
+    min-width: 154px !important;
+    flex-basis: 154px;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-task-strip[data-dense='true'] .python-runtime-task-chip {
+    width: 100%;
+    min-width: 0 !important;
+    flex-basis: auto;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-question-panel {
+    height: 320px !important;
+    min-height: 320px;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-question-panel--expanded {
+    height: min(62vh, 520px) !important;
+    min-height: min(62vh, 520px);
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-editor-panel {
+    height: 430px !important;
+    min-height: 430px;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-tests-panel {
+    height: 380px !important;
+    min-height: 380px;
+  }
+
+  body:has(.python-runtime-modal-shell--solve) .theme-toggle--desktop {
+    display: none;
   }
 }

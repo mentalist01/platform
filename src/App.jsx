@@ -13567,6 +13567,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ? [
         'schedule',
         'teacher-calendar',
+        'finance',
         'progress',
         'review',
         'python',

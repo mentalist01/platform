@@ -1866,6 +1866,7 @@ const normalizeTeacherFinancePaymentDay = (value) => {
 const getDefaultTeacherFinanceProfile = () => ({
   pricingMode: 'perLesson',
   lessonPrice: 0,
+  commissionAmount: 0,
   monthlyRate: 0,
   plannedLessons: 0,
   paymentDay: null,
@@ -1878,6 +1879,7 @@ const normalizeTeacherFinanceProfile = (value) => {
   return {
     pricingMode: normalizeTeacherFinancePricingMode(source.pricingMode, fallback.pricingMode),
     lessonPrice: roundTeacherFinanceNumber(source.lessonPrice),
+    commissionAmount: roundTeacherFinanceNumber(source.commissionAmount),
     monthlyRate: roundTeacherFinanceNumber(source.monthlyRate),
     plannedLessons: roundTeacherFinanceNumber(source.plannedLessons),
     paymentDay: normalizeTeacherFinancePaymentDay(source.paymentDay),
@@ -1941,9 +1943,37 @@ const normalizeTeacherFinanceMonthSettings = (value) => {
   };
 };
 
+const normalizeTeacherFinanceLessonLedger = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([occurrenceKey, rawEntry]) => {
+    const key = String(occurrenceKey || '').trim();
+    const entry = rawEntry && typeof rawEntry === 'object' && !Array.isArray(rawEntry) ? rawEntry : {};
+    const studentId = String(entry.studentId || '').trim();
+    const dayKey = normalizeDayKey(entry.dayKey);
+    const time = normalizeScheduleTime(entry.time);
+    if (!key || !studentId || !dayKey || !time) return;
+    normalized[key] = {
+      studentId,
+      dayKey,
+      time,
+      durationMinutes: normalizeScheduleDurationMinutes(entry.durationMinutes),
+      lessonPrice: roundTeacherFinanceNumber(entry.lessonPrice),
+      paid: Boolean(entry.paid),
+      sourceEntryId: String(entry.sourceEntryId || '').trim(),
+      sourceSignature: String(entry.sourceSignature || '').trim(),
+      recordedAt: typeof entry.recordedAt === 'string' && entry.recordedAt.trim()
+        ? entry.recordedAt.trim()
+        : '',
+    };
+  });
+  return normalized;
+};
+
 const getDefaultTeacherFinanceTeacherEntry = () => ({
   studentProfiles: {},
   months: {},
+  lessonLedger: {},
 });
 
 const normalizeTeacherFinanceTeacherEntry = (value) => {
@@ -1987,6 +2017,7 @@ const normalizeTeacherFinanceTeacherEntry = (value) => {
   return {
     studentProfiles,
     months,
+    lessonLedger: normalizeTeacherFinanceLessonLedger(source.lessonLedger),
   };
 };
 
@@ -12315,8 +12346,8 @@ const doesPaymentScheduleEntryMatchStudent = (entry, student) => {
   return false;
 };
 
-const getPaymentScheduleEntries = async (teacherId) => {
-  const localEntries = getTeacherScheduleEntries(teacherId);
+const getPaymentScheduleEntries = async (teacherId, options = {}) => {
+  const localEntries = getTeacherScheduleEntries(teacherId, options);
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacherId);
   return [...localEntries, ...googleEntries];
 };
@@ -12431,6 +12462,324 @@ const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence)
   const { profile, record } = getTeacherFinanceStudentRecordForMonth(teacherEntry, studentId, month);
   const lessonPrice = roundTeacherFinanceNumber(record.lessonPrice || profile.lessonPrice);
   return { month, lessonPrice };
+};
+
+const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacherStudents = []) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const students = Array.isArray(teacherStudents) ? teacherStudents : [];
+  const studentsById = new Map(
+    students
+      .map((student) => [String(student?.id || '').trim(), student])
+      .filter(([studentId]) => Boolean(studentId))
+  );
+  const currentEntry = normalizeTeacherFinanceTeacherEntry(teacherEntry);
+  const marksDb = readTeacherCalendarMarksDb();
+  const teacherMarks = normalizeTeacherCalendarMarks(marksDb[normalizedTeacherId]);
+  const nowInfo = getStudentSchedulePaymentNowInfo();
+  const fallbackStartNumber = Number.isFinite(nowInfo.trackingStartNumber)
+    ? nowInfo.trackingStartNumber
+    : nowInfo.todayNumber;
+  const studentStartNumberById = new Map();
+  studentsById.forEach((student, studentId) => {
+    const createdDayKey = getStudentSchedulePaymentDateFromCreatedAt(student);
+    const createdDayNumber = dayKeyToNumber(createdDayKey);
+    studentStartNumberById.set(
+      studentId,
+      Number.isFinite(createdDayNumber) ? createdDayNumber : fallbackStartNumber
+    );
+  });
+  const lifetimeStartNumber = Math.min(
+    ...Array.from(studentStartNumberById.values()).filter(Number.isFinite),
+    fallbackStartNumber
+  );
+  const lifetimeNowInfo = {
+    ...nowInfo,
+    trackingStartNumber: NaN,
+    trackingStartDayKey: numberToDayKey(lifetimeStartNumber),
+    lookbackStartNumber: lifetimeStartNumber,
+  };
+  let scheduleEntries = [];
+  try {
+    scheduleEntries = await getPaymentScheduleEntries(normalizedTeacherId, { includeDeletedStudents: true });
+  } catch {
+    scheduleEntries = getTeacherScheduleEntries(normalizedTeacherId, { includeDeletedStudents: true });
+  }
+
+  const currentLedger = normalizeTeacherFinanceLessonLedger(currentEntry.lessonLedger);
+  const nextLedger = { ...currentLedger };
+  const ledgerUpdates = {};
+  const ledgerDeletes = new Set();
+  const ledgerEntriesBySourceId = new Map();
+  Object.values(currentLedger).forEach((entry) => {
+    const sourceEntryId = String(entry?.sourceEntryId || '').trim();
+    if (!sourceEntryId) return;
+    const list = ledgerEntriesBySourceId.get(sourceEntryId) || [];
+    list.push(entry);
+    ledgerEntriesBySourceId.set(sourceEntryId, list);
+  });
+  const occurrencesByKey = new Map();
+  const excludedOccurrenceKeys = new Set();
+  scheduleEntries.forEach((entry) => {
+    const directStudentId = String(entry?.studentId || '').trim();
+    const matchedStudentIds = directStudentId && studentsById.has(directStudentId)
+      ? [directStudentId]
+      : students
+        .filter((student) => doesPaymentScheduleEntryMatchStudent(entry, student))
+        .map((student) => String(student?.id || '').trim())
+        .filter(Boolean);
+    const uniqueStudentIds = Array.from(new Set(matchedStudentIds));
+    if (uniqueStudentIds.length !== 1) return;
+    const studentId = uniqueStudentIds[0];
+    const studentStartNumber = studentStartNumberById.get(studentId);
+    const entryTime = normalizeScheduleTime(entry?.time);
+    const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
+    const sourceEntryId = String(entry?.id || entry?.externalEventId || '').trim();
+    const explicitDate = normalizeDayKey(entry?.date);
+    const weekdayMeta = resolveScheduleWeekdayMeta({
+      weekdayKey: entry?.weekdayKey,
+      day: entry?.day,
+      date: entry?.date,
+    });
+    const sourceScheduleKey = explicitDate || weekdayMeta?.key || '';
+    const sourceSignature = `${studentId}:${sourceScheduleKey}:${entryTime}:${durationMinutes}`;
+    const existingSourceEntries = sourceEntryId ? (ledgerEntriesBySourceId.get(sourceEntryId) || []) : [];
+    const sourceChanged = existingSourceEntries.some((ledgerEntry) => (
+      ledgerEntry.sourceSignature && ledgerEntry.sourceSignature !== sourceSignature
+    ));
+    if (sourceChanged && explicitDate) {
+      Object.entries(nextLedger).forEach(([occurrenceKey, ledgerEntry]) => {
+        if (ledgerEntry.sourceEntryId !== sourceEntryId) return;
+        delete nextLedger[occurrenceKey];
+        ledgerDeletes.add(occurrenceKey);
+      });
+    }
+    const changedSeriesStart = sourceChanged && !explicitDate
+      ? getStudentSchedulePaymentDateFromCreatedAt({ createdAt: entry?.updatedAt })
+      : '';
+    const entryWithStudent = {
+      ...entry,
+      studentId,
+      ...(changedSeriesStart ? { createdAt: entry.updatedAt } : {}),
+    };
+    normalizeScheduleExcludedDates(entryWithStudent.excludedDates).forEach((dayKey) => {
+      excludedOccurrenceKeys.add([
+        studentId,
+        dayKey,
+        entryTime,
+        durationMinutes,
+      ].join(':'));
+    });
+    getStudentScheduleOccurrenceDays(entryWithStudent, lifetimeNowInfo).forEach((occurrence) => {
+      if (Number.isFinite(studentStartNumber) && occurrence.dayNumber < studentStartNumber) return;
+      const paymentState = buildStudentSchedulePaymentState({
+        teacherId: normalizedTeacherId,
+        studentId,
+        entry: entryWithStudent,
+        sourceEntry: entryWithStudent,
+        dayKey: occurrence.dayKey,
+        startMinutes: occurrence.startMinutes,
+        endMinutes: occurrence.endMinutes,
+        teacherMarks,
+        nowInfo: lifetimeNowInfo,
+      });
+      if (!paymentState?.finished) return;
+      const occurrenceKey = [
+        studentId,
+        occurrence.dayKey,
+        entryTime,
+        durationMinutes,
+      ].join(':');
+      const current = occurrencesByKey.get(occurrenceKey) || {
+        occurrenceKey,
+        studentId,
+        dayKey: occurrence.dayKey,
+        time: entryTime,
+        durationMinutes,
+        sourceEntryId,
+        sourceSignature,
+        trial: false,
+        paid: false,
+      };
+      current.trial = current.trial || Boolean(paymentState.trial);
+      current.paid = current.paid || Boolean(paymentState.paid);
+      occurrencesByKey.set(occurrenceKey, current);
+    });
+  });
+
+  excludedOccurrenceKeys.forEach((occurrenceKey) => {
+    if (occurrencesByKey.has(occurrenceKey) || !nextLedger[occurrenceKey]) return;
+    delete nextLedger[occurrenceKey];
+    ledgerDeletes.add(occurrenceKey);
+  });
+  const recordedAt = new Date().toISOString();
+  occurrencesByKey.forEach((occurrence, occurrenceKey) => {
+    if (occurrence.trial) {
+      if (nextLedger[occurrenceKey]) {
+        delete nextLedger[occurrenceKey];
+        ledgerDeletes.add(occurrenceKey);
+      }
+      return;
+    }
+    const existing = nextLedger[occurrenceKey];
+    const { lessonPrice: resolvedLessonPrice } = getLessonPriceForPaymentOccurrence(
+      currentEntry,
+      occurrence.studentId,
+      occurrence
+    );
+    const lessonPrice = existing?.lessonPrice > 0
+      ? existing.lessonPrice
+      : roundTeacherFinanceNumber(resolvedLessonPrice);
+    const nextEntry = {
+      studentId: occurrence.studentId,
+      dayKey: occurrence.dayKey,
+      time: occurrence.time,
+      durationMinutes: occurrence.durationMinutes,
+      lessonPrice,
+      paid: Boolean(existing?.paid || occurrence.paid),
+      sourceEntryId: existing?.sourceEntryId || occurrence.sourceEntryId,
+      sourceSignature: existing?.sourceSignature || occurrence.sourceSignature,
+      recordedAt: existing?.recordedAt || recordedAt,
+    };
+    if (JSON.stringify(existing || null) === JSON.stringify(nextEntry)) return;
+    nextLedger[occurrenceKey] = nextEntry;
+    ledgerUpdates[occurrenceKey] = nextEntry;
+    ledgerDeletes.delete(occurrenceKey);
+  });
+
+  const monthRecordsByStudent = new Map();
+  const receivedRevenueByMonth = new Map();
+  Object.entries(currentEntry.months || {}).forEach(([monthKey, monthData]) => {
+    let monthReceivedRevenue = 0;
+    Object.entries(monthData?.students || {}).forEach(([studentId, rawRecord]) => {
+      const current = monthRecordsByStudent.get(studentId) || { paidAmount: 0 };
+      const profile = currentEntry.studentProfiles?.[studentId] || getDefaultTeacherFinanceProfile();
+      const record = normalizeTeacherFinanceStudentRecord(rawRecord, profile);
+      current.paidAmount = roundTeacherFinanceNumber(current.paidAmount + record.paidAmount);
+      monthRecordsByStudent.set(studentId, current);
+      monthReceivedRevenue = roundTeacherFinanceNumber(monthReceivedRevenue + record.paidAmount);
+    });
+    receivedRevenueByMonth.set(monthKey, monthReceivedRevenue);
+  });
+
+  const ledgerByStudentId = new Map();
+  Object.values(nextLedger).forEach((entry) => {
+    const list = ledgerByStudentId.get(entry.studentId) || [];
+    list.push(entry);
+    ledgerByStudentId.set(entry.studentId, list);
+  });
+  ledgerByStudentId.forEach((entries) => {
+    entries.sort((left, right) => {
+      const dateDiff = String(left.dayKey).localeCompare(String(right.dayKey), 'ru');
+      return dateDiff || String(left.time).localeCompare(String(right.time), 'ru');
+    });
+  });
+
+  const incomeByMonthMap = new Map();
+  const ensureIncomeMonth = (monthKey) => {
+    const normalizedMonth = normalizeTeacherFinanceMonthKey(monthKey);
+    if (!normalizedMonth) return null;
+    if (!incomeByMonthMap.has(normalizedMonth)) {
+      incomeByMonthMap.set(normalizedMonth, {
+        month: normalizedMonth,
+        lessonCount: 0,
+        grossRevenue: 0,
+        receivedRevenue: roundTeacherFinanceNumber(receivedRevenueByMonth.get(normalizedMonth)),
+      });
+    }
+    return incomeByMonthMap.get(normalizedMonth);
+  };
+  ensureIncomeMonth(getCurrentTeacherFinanceMonthKey());
+  Object.keys(currentEntry.months || {}).forEach((monthKey) => ensureIncomeMonth(monthKey));
+  Object.values(nextLedger).forEach((entry) => {
+    const month = ensureIncomeMonth(String(entry.dayKey || '').slice(0, 7));
+    if (!month) return;
+    month.lessonCount += 1;
+    month.grossRevenue = roundTeacherFinanceNumber(month.grossRevenue + entry.lessonPrice);
+  });
+  const incomeByMonth = Array.from(incomeByMonthMap.values())
+    .sort((left, right) => right.month.localeCompare(left.month, 'ru'));
+
+  const profitabilityByStudent = new Map();
+  studentsById.forEach((student, studentId) => {
+    const profile = normalizeTeacherFinanceProfile(currentEntry.studentProfiles?.[studentId]);
+    const commissionAmount = roundTeacherFinanceNumber(profile.commissionAmount);
+    const studentOccurrences = ledgerByStudentId.get(studentId) || [];
+    const grossRevenue = studentOccurrences.reduce(
+      (total, occurrence) => roundTeacherFinanceNumber(total + roundTeacherFinanceNumber(occurrence.lessonPrice)),
+      0
+    );
+    const receivedRevenue = roundTeacherFinanceNumber(monthRecordsByStudent.get(studentId)?.paidAmount);
+    const remainingToPayback = commissionAmount > 0
+      ? roundTeacherFinanceNumber(Math.max(0, commissionAmount - grossRevenue))
+      : 0;
+    const netAfterCommission = roundTeacherFinanceNumber(grossRevenue - commissionAmount, { allowNegative: true });
+    const paybackPercent = commissionAmount > 0
+      ? Math.max(0, Math.min(100, Math.round((grossRevenue / commissionAmount) * 100)))
+      : 0;
+    const currentLessonPrice = roundTeacherFinanceNumber(profile.lessonPrice);
+    profitabilityByStudent.set(studentId, {
+      commissionAmount,
+      lessonCount: studentOccurrences.length,
+      grossRevenue,
+      receivedRevenue,
+      netAfterCommission,
+      remainingToPayback,
+      paybackPercent,
+      isPaidBack: commissionAmount > 0 && grossRevenue >= commissionAmount,
+      lessonsRemaining: commissionAmount > 0 && currentLessonPrice > 0
+        ? Math.ceil(remainingToPayback / currentLessonPrice)
+        : null,
+      firstLessonAt: studentOccurrences[0]?.dayKey || '',
+      lastLessonAt: studentOccurrences.at(-1)?.dayKey || '',
+      calculatedFrom: numberToDayKey(studentStartNumberById.get(studentId)) || '',
+      needsLessonPrice: studentOccurrences.length > 0 && grossRevenue <= 0,
+    });
+  });
+  return {
+    profitabilityByStudent,
+    incomeByMonth,
+    lessonLedger: nextLedger,
+    ledgerUpdates,
+    ledgerDeletes: Array.from(ledgerDeletes),
+  };
+};
+
+const buildTeacherFinanceResponseWithProfitability = async (teacherId, monthKey) => {
+  const response = buildTeacherFinanceResponse(teacherId, monthKey);
+  const teacherStudents = readStudentsDb().filter(
+    (student) => normalizeTeacherId(student?.teacherId) === normalizeTeacherId(teacherId)
+  );
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacherId);
+  const profitabilityResult = await buildTeacherFinanceProfitability(
+    teacherId,
+    teacherEntry,
+    teacherStudents
+  );
+  if (
+    Object.keys(profitabilityResult.ledgerUpdates || {}).length > 0
+    || (profitabilityResult.ledgerDeletes || []).length > 0
+  ) {
+    const latestFinanceDb = readTeacherFinanceDb();
+    const latestTeacherEntry = getTeacherFinanceTeacherEntry(latestFinanceDb, teacherId);
+    latestTeacherEntry.lessonLedger = {
+      ...normalizeTeacherFinanceLessonLedger(latestTeacherEntry.lessonLedger),
+      ...(profitabilityResult.ledgerUpdates || {}),
+    };
+    (profitabilityResult.ledgerDeletes || []).forEach((occurrenceKey) => {
+      delete latestTeacherEntry.lessonLedger[occurrenceKey];
+    });
+    latestFinanceDb[normalizeTeacherId(teacherId)] = latestTeacherEntry;
+    writeTeacherFinanceDb(latestFinanceDb);
+  }
+  return {
+    ...response,
+    incomeByMonth: profitabilityResult.incomeByMonth,
+    students: (Array.isArray(response.students) ? response.students : []).map((student) => ({
+      ...student,
+      profitability: profitabilityResult.profitabilityByStudent.get(student.id) || null,
+    })),
+  };
 };
 
 const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, parsed, matchMode }) => {
@@ -20721,17 +21070,17 @@ app.delete('/api/teacher-schedule/:id', (req, res) => {
   return res.json({ ok: true });
 });
 
-app.get('/api/teacher-finance', (req, res) => {
+app.get('/api/teacher-finance', async (req, res) => {
   const { teacherId, month } = req.query || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
   const resolvedMonth = normalizeTeacherFinanceMonthKey(month) || getCurrentTeacherFinanceMonthKey();
-  return res.json(buildTeacherFinanceResponse(teacher.id, resolvedMonth));
+  return res.json(await buildTeacherFinanceResponseWithProfitability(teacher.id, resolvedMonth));
 });
 
-app.patch('/api/teacher-finance/month', (req, res) => {
+app.patch('/api/teacher-finance/month', async (req, res) => {
   const { teacherId, month, otherIncome, otherExpenses, incomeGoal, note } = req.body || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
@@ -20762,10 +21111,10 @@ app.patch('/api/teacher-finance/month', (req, res) => {
   };
   financeDb[teacher.id] = teacherEntry;
   writeTeacherFinanceDb(financeDb);
-  return res.json(buildTeacherFinanceResponse(teacher.id, resolvedMonth));
+  return res.json(await buildTeacherFinanceResponseWithProfitability(teacher.id, resolvedMonth));
 });
 
-app.patch('/api/teacher-finance/students/:studentId', (req, res) => {
+app.patch('/api/teacher-finance/students/:studentId', async (req, res) => {
   const { studentId } = req.params || {};
   const { teacherId, month } = req.body || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
@@ -20782,17 +21131,19 @@ app.patch('/api/teacher-finance/students/:studentId', (req, res) => {
     return res.status(400).json({ error: 'Некорректный месяц' });
   }
 
-  const profile = normalizeTeacherFinanceProfile(req.body || {});
-  const nowIso = new Date().toISOString();
-  const record = {
-    ...normalizeTeacherFinanceStudentRecord(req.body || {}, profile),
-    updatedAt: nowIso,
-  };
   const financeDb = readTeacherFinanceDb();
   const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacher.id);
   const currentMonth = teacherEntry.months[resolvedMonth] || {
     settings: getDefaultTeacherFinanceMonthSettings(),
     students: {},
+  };
+  const currentProfile = normalizeTeacherFinanceProfile(teacherEntry.studentProfiles[student.id]);
+  const currentRecord = normalizeTeacherFinanceStudentRecord(currentMonth.students?.[student.id], currentProfile);
+  const profile = normalizeTeacherFinanceProfile({ ...currentProfile, ...(req.body || {}) });
+  const nowIso = new Date().toISOString();
+  const record = {
+    ...normalizeTeacherFinanceStudentRecord({ ...currentRecord, ...(req.body || {}) }, profile),
+    updatedAt: nowIso,
   };
 
   teacherEntry.studentProfiles[student.id] = profile;
@@ -20806,7 +21157,7 @@ app.patch('/api/teacher-finance/students/:studentId', (req, res) => {
 
   financeDb[teacher.id] = teacherEntry;
   writeTeacherFinanceDb(financeDb);
-  return res.json(buildTeacherFinanceResponse(teacher.id, resolvedMonth));
+  return res.json(await buildTeacherFinanceResponseWithProfitability(teacher.id, resolvedMonth));
 });
 
 app.get('/api/student-schedule-requests', (req, res) => {

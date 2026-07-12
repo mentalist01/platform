@@ -546,6 +546,7 @@ const buildTeacherFinanceLessonPayload = (record = {}, profile = {}, overrides =
   extraCharge: normalizeFinanceAmount(record.extraCharge),
   discount: normalizeFinanceAmount(record.discount),
   expenses: normalizeFinanceAmount(record.expenses),
+  commissionAmount: normalizeFinanceAmount(record.commissionAmount ?? profile.commissionAmount),
   paymentDay: record.paymentDay ?? profile.paymentDay ?? null,
   note: typeof record.note === 'string' ? record.note : '',
 });

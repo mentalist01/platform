@@ -121,6 +121,27 @@ const formatLessonPrice = (value) => {
   }).format(amount);
 };
 
+const formatFinanceMoney = (value) => {
+  const amount = Number(value);
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  return new Intl.NumberFormat('ru-RU', {
+    style: 'currency',
+    currency: 'RUB',
+    minimumFractionDigits: safeAmount % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(safeAmount);
+};
+
+const formatLessonCount = (value) => {
+  const count = Math.max(0, Math.floor(Number(value) || 0));
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  const label = mod100 >= 11 && mod100 <= 14
+    ? 'занятий'
+    : (mod10 === 1 ? 'занятие' : (mod10 >= 2 && mod10 <= 4 ? 'занятия' : 'занятий'));
+  return `${count} ${label}`;
+};
+
 const formatQuestionFileCount = (count) => {
   const normalized = Math.max(0, Number(count) || 0);
   const mod100 = normalized % 100;
@@ -202,6 +223,8 @@ const TeacherPanel = ({
   const [editStudentCoinsGrant, setEditStudentCoinsGrant] = useState('');
   const [editStudentLessonPrice, setEditStudentLessonPrice] = useState('');
   const [editStudentLessonPriceInitial, setEditStudentLessonPriceInitial] = useState('');
+  const [editStudentCommissionAmount, setEditStudentCommissionAmount] = useState('');
+  const [editStudentCommissionAmountInitial, setEditStudentCommissionAmountInitial] = useState('');
   const [editStudentError, setEditStudentError] = useState('');
   const [editStudentSaving, setEditStudentSaving] = useState(false);
   const [teacherFinanceSnapshot, setTeacherFinanceSnapshot] = useState(null);
@@ -268,6 +291,14 @@ const TeacherPanel = ({
     if (Number.isFinite(recordPrice) && recordPrice > 0) return recordPrice;
     const profilePrice = Number(row?.profile?.lessonPrice);
     return Number.isFinite(profilePrice) && profilePrice > 0 ? profilePrice : 0;
+  }, [getStudentFinanceRow, teacherFinanceSnapshot]);
+
+  const getStudentCommissionAmount = useCallback((studentId, snapshot = teacherFinanceSnapshot) => {
+    const row = getStudentFinanceRow(studentId, snapshot);
+    const profileAmount = Number(row?.profile?.commissionAmount);
+    if (Number.isFinite(profileAmount) && profileAmount >= 0) return profileAmount;
+    const profitabilityAmount = Number(row?.profitability?.commissionAmount);
+    return Number.isFinite(profitabilityAmount) && profitabilityAmount >= 0 ? profitabilityAmount : 0;
   }, [getStudentFinanceRow, teacherFinanceSnapshot]);
 
   const getStudentPaymentSenderLinks = useCallback((studentId) => {
@@ -407,11 +438,23 @@ const TeacherPanel = ({
   useEffect(() => {
     if (!editingStudentId) return;
     const nextLessonPrice = toFinanceInputValue(getStudentLessonPrice(editingStudentId));
+    const nextCommissionAmount = toFinanceInputValue(getStudentCommissionAmount(editingStudentId));
     setEditStudentLessonPrice((prev) => (
       prev === editStudentLessonPriceInitial ? nextLessonPrice : prev
     ));
+    setEditStudentCommissionAmount((prev) => (
+      prev === editStudentCommissionAmountInitial ? nextCommissionAmount : prev
+    ));
     setEditStudentLessonPriceInitial(nextLessonPrice);
-  }, [teacherFinanceSnapshot, editingStudentId, editStudentLessonPriceInitial, getStudentLessonPrice]);
+    setEditStudentCommissionAmountInitial(nextCommissionAmount);
+  }, [
+    teacherFinanceSnapshot,
+    editingStudentId,
+    editStudentLessonPriceInitial,
+    editStudentCommissionAmountInitial,
+    getStudentLessonPrice,
+    getStudentCommissionAmount,
+  ]);
   
   // Form state
   const [question, setQuestion] = useState("");
@@ -1997,7 +2040,7 @@ const TeacherPanel = ({
     }
   };
 
-  const saveStudentLessonPrice = async (studentId, lessonPrice) => {
+  const saveStudentFinanceProfile = async (studentId, lessonPrice, commissionAmount) => {
     const normalizedId = String(studentId || '').trim();
     if (!normalizedId) return null;
     let snapshot = teacherFinanceSnapshot;
@@ -2012,6 +2055,7 @@ const TeacherPanel = ({
       month,
       pricingMode: record.pricingMode || profile.pricingMode || 'perLesson',
       lessonPrice,
+      commissionAmount,
       monthlyRate: Number.isFinite(Number(record.monthlyRate)) ? Number(record.monthlyRate) : Number(profile.monthlyRate) || 0,
       plannedLessons: Number.isFinite(Number(record.plannedLessons)) ? Number(record.plannedLessons) : Number(profile.plannedLessons) || 0,
       completedLessons: Number(record.completedLessons) || 0,
@@ -2082,12 +2126,15 @@ const TeacherPanel = ({
   const startEditStudent = (student) => {
     if (!student?.id) return;
     const lessonPrice = toFinanceInputValue(getStudentLessonPrice(student.id));
+    const commissionAmount = toFinanceInputValue(getStudentCommissionAmount(student.id));
     setIsStudentsExpanded(true);
     setEditingStudentId(student.id);
     setEditStudentName(student.name || '');
     setEditStudentNickname(student.nickname || '');
     setEditStudentLessonPrice(lessonPrice);
     setEditStudentLessonPriceInitial(lessonPrice);
+    setEditStudentCommissionAmount(commissionAmount);
+    setEditStudentCommissionAmountInitial(commissionAmount);
     setEditStudentGrade(normalizeStudentGradeValue(student.grade));
     setEditStudentEgeScore(
       typeof student.informaticsEgeScore === 'number'
@@ -2107,6 +2154,8 @@ const TeacherPanel = ({
     setEditStudentNickname('');
     setEditStudentLessonPrice('');
     setEditStudentLessonPriceInitial('');
+    setEditStudentCommissionAmount('');
+    setEditStudentCommissionAmountInitial('');
     setEditStudentGrade('11');
     setEditStudentEgeScore('');
     setEditStudentLeaderboardAlias('');
@@ -2126,6 +2175,8 @@ const TeacherPanel = ({
     const egeScore = nextGrade === 'graduate' ? parseOptionalEgeScore(editStudentEgeScore) : null;
     const nextLessonPrice = parseLessonPriceInput(editStudentLessonPrice);
     const initialLessonPrice = parseLessonPriceInput(editStudentLessonPriceInitial);
+    const nextCommissionAmount = parseLessonPriceInput(editStudentCommissionAmount);
+    const initialCommissionAmount = parseLessonPriceInput(editStudentCommissionAmountInitial);
     setEditStudentError('');
     if (!nextName) {
       setEditStudentError('Введите имя ученика');
@@ -2161,6 +2212,10 @@ const TeacherPanel = ({
       setEditStudentError('Стоимость урока: введите число не меньше 0.');
       return;
     }
+    if (typeof nextCommissionAmount === 'undefined') {
+      setEditStudentError('Комиссия: введите число не меньше 0.');
+      return;
+    }
 
     setEditStudentSaving(true);
     try {
@@ -2174,8 +2229,8 @@ const TeacherPanel = ({
       if (rawCoinsGrant) payload.coinsGrant = Number(rawCoinsGrant);
       const res = await api.updateStudent(student.id, payload);
       onStudentUpdated?.({ ...student, ...res });
-      if (nextLessonPrice !== initialLessonPrice) {
-        await saveStudentLessonPrice(student.id, nextLessonPrice);
+      if (nextLessonPrice !== initialLessonPrice || nextCommissionAmount !== initialCommissionAmount) {
+        await saveStudentFinanceProfile(student.id, nextLessonPrice, nextCommissionAmount);
       }
       cancelEditStudent();
     } catch (err) {
@@ -2662,6 +2717,33 @@ const TeacherPanel = ({
               const studentCoinsTotal = Math.max(0, Math.floor(Number(student?.coinsTotal) || 0));
               const studentNotesUsageBytes = normalizeStorageBytes(student?.notesUsageBytes);
               const studentLessonPrice = getStudentLessonPrice(student.id);
+              const studentFinanceRow = getStudentFinanceRow(student.id);
+              const studentProfitability = studentFinanceRow?.profitability && typeof studentFinanceRow.profitability === 'object'
+                ? studentFinanceRow.profitability
+                : {};
+              const studentCommissionAmount = getStudentCommissionAmount(student.id);
+              const studentProfitabilityLessonCount = Math.max(0, Math.floor(Number(studentProfitability.lessonCount) || 0));
+              const studentGrossRevenue = Math.max(0, Number(studentProfitability.grossRevenue) || 0);
+              const studentNetAfterCommission = Number.isFinite(Number(studentProfitability.netAfterCommission))
+                ? Number(studentProfitability.netAfterCommission)
+                : studentGrossRevenue - studentCommissionAmount;
+              const studentRemainingToPayback = Math.max(
+                0,
+                Number.isFinite(Number(studentProfitability.remainingToPayback))
+                  ? Number(studentProfitability.remainingToPayback)
+                  : studentCommissionAmount - studentGrossRevenue
+              );
+              const studentCommissionPaidBack = studentCommissionAmount > 0
+                && (studentProfitability.isPaidBack === true || studentGrossRevenue >= studentCommissionAmount);
+              const studentPaybackPercent = Math.max(
+                0,
+                Math.min(
+                  100,
+                  Number.isFinite(Number(studentProfitability.paybackPercent))
+                    ? Number(studentProfitability.paybackPercent)
+                    : (studentCommissionAmount > 0 ? (studentGrossRevenue / studentCommissionAmount) * 100 : 0)
+                )
+              );
               const studentPaymentSenderLinks = getStudentPaymentSenderLinks(student.id);
               const rawStudentLevel = Number(student?.level);
               const studentLevel = Number.isFinite(rawStudentLevel) && rawStudentLevel > 0
@@ -2711,18 +2793,48 @@ const TeacherPanel = ({
                           placeholder="Имя2 (только для вас)"
                           className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                         />
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={editStudentLessonPrice}
-                          onChange={(e) => setEditStudentLessonPrice(normalizeFinanceNumberInput(e.target.value).replace(/[^\d.]/g, ''))}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') saveEditStudent(student);
-                            if (e.key === 'Escape') cancelEditStudent();
-                          }}
-                          placeholder={teacherFinanceLoading ? 'Загрузка стоимости...' : 'Стоимость урока, ₽'}
-                          className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
-                        />
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <label className="block min-w-0">
+                            <span className="mb-1 block text-[11px] font-semibold text-gray-500">Стоимость занятия</span>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={editStudentLessonPrice}
+                                onChange={(e) => setEditStudentLessonPrice(normalizeFinanceNumberInput(e.target.value).replace(/[^\d.]/g, ''))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveEditStudent(student);
+                                  if (e.key === 'Escape') cancelEditStudent();
+                                }}
+                                placeholder={teacherFinanceLoading ? 'Загрузка...' : '0'}
+                                className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-3 pr-8 text-sm outline-none focus:border-purple-500"
+                              />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400">₽</span>
+                            </div>
+                          </label>
+                          <label className="block min-w-0">
+                            <span className="mb-1 block text-[11px] font-semibold text-gray-500">Комиссия за ученика</span>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={editStudentCommissionAmount}
+                                onChange={(e) => setEditStudentCommissionAmount(normalizeFinanceNumberInput(e.target.value).replace(/[^\d.]/g, ''))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveEditStudent(student);
+                                  if (e.key === 'Escape') cancelEditStudent();
+                                }}
+                                placeholder={teacherFinanceLoading ? 'Загрузка...' : '0'}
+                                className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-3 pr-8 text-sm outline-none focus:border-purple-500"
+                                aria-describedby={`student-commission-hint-${student.id}`}
+                              />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400">₽</span>
+                            </div>
+                            <span id={`student-commission-hint-${student.id}`} className="mt-1 block text-[10px] text-gray-400">
+                              Разовый расход за привлечение
+                            </span>
+                          </label>
+                        </div>
                         <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2">
                           <div className="mb-2 flex flex-wrap items-center gap-1.5">
                             <span className="text-[11px] font-semibold uppercase text-sky-700">
@@ -2924,6 +3036,48 @@ const TeacherPanel = ({
                             {`Конспекты: ${formatStorageBytes(studentNotesUsageBytes)}`}
                           </span>
                         </div>
+                        {studentCommissionAmount > 0 && (
+                          <div
+                            className={`teacher-student-card__profitability mt-2 rounded-xl border px-3 py-2 ${
+                              studentCommissionPaidBack
+                                ? 'border-emerald-200 bg-emerald-50/80'
+                                : 'border-amber-200 bg-amber-50/80'
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                              <div className="min-w-0">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-500">
+                                  Окупаемость комиссии
+                                </div>
+                                <div className="mt-0.5 text-xs font-semibold text-gray-700">
+                                  {`${formatLessonCount(studentProfitabilityLessonCount)} · ${formatFinanceMoney(studentGrossRevenue)} доход`}
+                                </div>
+                              </div>
+                              <span
+                                className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                                  studentCommissionPaidBack
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : 'bg-amber-100 text-amber-700'
+                                }`}
+                              >
+                                {studentCommissionPaidBack
+                                  ? `Окуплена · +${formatFinanceMoney(Math.max(0, studentNetAfterCommission))}`
+                                  : `Осталось ${formatFinanceMoney(studentRemainingToPayback)}`}
+                              </span>
+                            </div>
+                            <div className="mt-2 flex items-center gap-2">
+                              <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/90 ring-1 ring-black/5">
+                                <div
+                                  className={`h-full rounded-full ${studentCommissionPaidBack ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                                  style={{ width: `${studentPaybackPercent}%` }}
+                                />
+                              </div>
+                              <span className={`text-[10px] font-bold ${studentCommissionPaidBack ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                {`${Math.round(studentPaybackPercent)}%`}
+                              </span>
+                            </div>
+                          </div>
+                        )}
                         <p className="teacher-student-card__meta text-xs text-gray-500 truncate">
                           Рейтинг:{' '}
                           <span className="teacher-student-card__meta-value font-medium text-gray-700">
