@@ -1534,8 +1534,39 @@ const PythonSection = ({
   const totalMasteryLabel = Number.isFinite(totalMastery) && totalMastery % 1 !== 0
     ? totalMastery.toFixed(1)
     : totalMasteryRounded.toString();
-  const masteredTopicsCount = taskList.filter((task) => Number(progressMap[task.id] || 0) >= 70).length;
-  const needsPracticeTopicsCount = taskList.filter((task) => Number(progressMap[task.id] || 0) < 40).length;
+  const masteredTopicsCount = taskList.filter((task) => Number(progressMap[task.id] || 0) >= 85).length;
+  const inProgressTopicsCount = taskList.filter((task) => {
+    const value = Number(progressMap[task.id] || 0);
+    return value > 0 && value < 85;
+  }).length;
+  const notStartedTopicsCount = taskList.filter((task) => Number(progressMap[task.id] || 0) <= 0).length;
+  const focusSectionTasks = Array.isArray(activeTaskSection?.tasks) && activeTaskSection.tasks.length > 0
+    ? activeTaskSection.tasks
+    : taskList;
+  const focusTask = (
+    activeTask && focusSectionTasks.some((task) => String(task.id) === String(activeTask.id))
+      ? activeTask
+      : null
+  ) || focusSectionTasks.find((task) => {
+    const value = Number(progressMap[task.id] || 0);
+    return value > 0 && value < 85;
+  }) || focusSectionTasks.find((task) => Number(progressMap[task.id] || 0) < 85) || focusSectionTasks[0] || null;
+  const focusTaskProgress = focusTask
+    ? Math.max(0, Math.min(100, Number(progressMap[focusTask.id] || 0)))
+    : 0;
+  const focusTaskSection = focusTask
+    ? taskSections.find((section) => section.id === String(focusTask.sectionId || 'topics'))
+    : null;
+  const openFocusTask = () => {
+    if (!focusTask) return;
+    setActiveTaskSectionId(String(focusTask.sectionId || 'topics'));
+    if (role === 'teacher') {
+      setReviewTask(focusTask);
+      return;
+    }
+    setActiveQuestionIndex(null);
+    setActiveTask(focusTask);
+  };
   const mobilePythonPathLayout = useMemo(() => {
     const ringSize = 124;
     const strokeWidth = 10;
@@ -1714,7 +1745,7 @@ const PythonSection = ({
 
   const renderTaskCard = (task, idx, section) => {
     const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
-    const clickable = role === 'student' || role === 'teacher';
+    const clickable = role === 'student';
     const isSelected = String(activeTask?.id || '') === String(task.id || '');
     const progressState = val >= 85 ? 'mastered' : (val >= 55 ? 'steady' : (val > 0 ? 'warming' : 'start'));
     const progressLabel = val >= 85 ? 'Уверенно' : (val >= 55 ? 'В темпе' : (val > 0 ? 'Закрепить' : 'Старт'));
@@ -1731,6 +1762,11 @@ const PythonSection = ({
       hoverClass: 'hover:border-purple-300/80 hover:shadow-[0_16px_28px_rgba(147,51,234,0.16)]',
       numberClass: 'border-purple-200 bg-purple-50/80 text-purple-700',
     };
+    const openTaskCard = () => {
+      if (!clickable) return;
+      setActiveQuestionIndex(null);
+      setActiveTask(task);
+    };
     return (
       <Card
         key={task.id}
@@ -1739,16 +1775,28 @@ const PythonSection = ({
         data-state={progressState}
         data-selected={isSelected ? 'true' : 'false'}
         className={`python-learning-task-card group relative min-h-[132px] overflow-hidden border p-0 transition-all duration-300 ${sectionUi.cardClass} ${sectionUi.hoverClass}`}
-        onClick={clickable ? () => {
-          if (role === 'teacher') setReviewTask(task);
-          else {
-            setActiveQuestionIndex(null);
-            setActiveTask(task);
-          }
+        onClick={clickable ? openTaskCard : undefined}
+        role={clickable ? 'button' : undefined}
+        tabIndex={clickable ? 0 : undefined}
+        aria-label={clickable ? `Открыть тему ${task.title}. Выполнено ${val}%` : undefined}
+        onKeyDown={clickable ? (event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          openTaskCard();
         } : undefined}
       >
         {role === 'teacher' && (
           <div className="absolute right-3 top-3 z-20 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setReviewTask(task)}
+              className="python-learning-task-card__toolbar-btn inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white/90 text-purple-600 transition hover:border-purple-200 hover:text-purple-800"
+              title="Открыть прогресс по теме"
+              aria-label={`Открыть прогресс по теме ${task.title}`}
+            >
+              <BookOpen size={14} />
+            </button>
             <button
               type="button"
               onClick={(event) => {
@@ -1776,7 +1824,7 @@ const PythonSection = ({
         )}
         <div className="python-learning-task-card__accent" aria-hidden="true" />
         <div className="relative z-10 p-3.5 md:p-4">
-          <div className={`mb-2.5 flex items-start justify-between gap-2 ${role === 'teacher' ? 'pr-20' : ''}`}>
+          <div className={`mb-2.5 flex items-start justify-between gap-2 ${role === 'teacher' ? 'pr-32' : ''}`}>
             <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-[11px] md:text-xs font-extrabold ${sectionUi.numberClass}`}>
               №{getTaskDisplayNumber(task)}
             </span>
@@ -1803,7 +1851,14 @@ const PythonSection = ({
             <span>{section?.id === 'exam-prep' ? 'Прогресс подготовки' : 'Прогресс темы'}</span>
             <span className="python-learning-task-card__percent text-sm md:text-base font-extrabold text-slate-800">{val}%</span>
           </div>
-          <div className="python-learning-task-card__progress mt-1.5 h-2 w-full overflow-hidden rounded-full border border-purple-100/80 bg-white/75 shadow-[inset_0_1px_1px_rgba(255,255,255,0.72)]">
+          <div
+            className="python-learning-task-card__progress mt-1.5 h-2 w-full overflow-hidden rounded-full border border-purple-100/80 bg-white/75 shadow-[inset_0_1px_1px_rgba(255,255,255,0.72)]"
+            role="progressbar"
+            aria-label={`Прогресс темы ${task.title}`}
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={val}
+          >
             <div
               className="h-full rounded-full bg-gradient-to-r from-purple-500 via-violet-500 to-fuchsia-500 transition-[width] duration-700 ease-out shadow-[0_0_18px_rgba(168,85,247,0.26)]"
               style={{ width: `${val}%` }}
@@ -1831,116 +1886,154 @@ const PythonSection = ({
     );
   };
 
+  const renderPythonTeacherEmptyState = ({ title, message, loading = false }) => (
+    <div className="python-learning-shell python-learning-shell--refined python-learning-shell--teacher animate-fadeIn">
+      <section className="python-learning-overview-panel python-learning-overview-panel--refined">
+        <div className="python-learning-overview-panel__glow" aria-hidden="true" />
+        <div className="python-learning-overview-panel__content">
+          <header className="python-learning-overview-header">
+            <div className="python-learning-overview-heading">
+              <span className="python-learning-overview-heading__icon" aria-hidden="true"><Sparkles size={19} /></span>
+              <div className="min-w-0">
+                <div className="python-learning-eyebrow">Прогресс ученика</div>
+                <h2 className="python-learning-title">Изучение Python</h2>
+                <p className="python-learning-subtitle">Темы курса и подготовка к заданиям ЕГЭ — в одном понятном маршруте.</p>
+              </div>
+            </div>
+          </header>
+          <div className="python-learning-teacher-empty">
+            <span className="python-learning-teacher-empty__icon" aria-hidden="true">
+              {loading ? <RefreshCcw className="animate-spin" size={21} /> : <Target size={21} />}
+            </span>
+            <div className="python-learning-teacher-empty__copy">
+              <h3>{title}</h3>
+              <p>{message}</p>
+            </div>
+            <div className="python-learning-teacher-empty__picker">{renderStudentPicker()}</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+
   if (role === 'teacher' && studentsList.length === 0) {
-    return (
-      <div className="animate-fadeIn space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-2xl font-bold">Изучение Python</h2>
-          {renderStudentPicker()}
-        </div>
-        <div className="text-gray-500">
-          {studentsLoading ? 'Загрузка списка учеников...' : 'Сначала создайте ученика в панели учителя.'}
-        </div>
-      </div>
-    );
+    return renderPythonTeacherEmptyState({
+      loading: studentsLoading,
+      title: studentsLoading ? 'Загружаем учеников' : 'Пока нет учеников',
+      message: studentsLoading ? 'Список появится через несколько секунд.' : 'Создайте ученика в панели учителя, чтобы открыть его маршрут Python.',
+    });
   }
 
   if (role === 'teacher' && !effectiveStudentId) {
-    return (
-      <div className="animate-fadeIn space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-2xl font-bold">Изучение Python</h2>
-          {renderStudentPicker()}
-        </div>
-        <div className="text-gray-500">Выберите ученика, чтобы посмотреть его прогресс.</div>
-      </div>
-    );
+    return renderPythonTeacherEmptyState({
+      title: 'Выберите ученика',
+      message: 'После выбора здесь появятся его текущая тема, прогресс и карточки для разбора.',
+    });
   }
 
   return (
-    <div className="python-learning-shell space-y-4 md:space-y-5 animate-fadeIn">
-      <div className="python-learning-toolbar python-learning-overview-panel relative overflow-hidden rounded-[28px] border border-purple-200/80 bg-white/80 p-4 shadow-[0_10px_22px_rgba(88,28,135,0.09)] md:p-5">
-        <div className="python-learning-toolbar__grid pointer-events-none absolute inset-0" aria-hidden="true" />
-        <div className="relative z-10 space-y-4">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] xl:items-stretch">
-            <div className="min-w-0 space-y-3">
-              <div className="python-learning-eyebrow inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.13em] text-purple-700">
-                <Sparkles size={13} />
-                Персональный трек Python
-              </div>
-              <div>
-                <h2 className="python-learning-title text-xl md:text-2xl font-black tracking-normal text-slate-900">Изучение Python</h2>
-                <p className="python-learning-subtitle text-xs md:text-sm text-slate-600">
-                  Два отдельных раздела: фундаментальные темы и подготовка к заданиям.
-                </p>
-              </div>
-              <div className="python-learning-metrics grid gap-2 text-[11px] font-semibold sm:grid-cols-3 md:text-xs">
-                <div className="python-learning-metric-card python-learning-metric-card--progress">
-                  <span className="python-learning-metric-card__icon"><BarChart2 size={14} /></span>
-                  <span className="python-learning-metric-card__body">
-                    <span className="python-learning-metric-card__label">Прогресс</span>
-                    <span className="python-learning-metric-card__value">{`${totalMasteryLabel}%`}</span>
-                  </span>
-                </div>
-                <div className="python-learning-metric-card python-learning-metric-card--mastered">
-                  <span className="python-learning-metric-card__icon"><CheckCircle size={14} /></span>
-                  <span className="python-learning-metric-card__body">
-                    <span className="python-learning-metric-card__label">Уверенно</span>
-                    <span className="python-learning-metric-card__value">{`${masteredTopicsCount}/${taskList.length}`}</span>
-                  </span>
-                </div>
-                <div className="python-learning-metric-card python-learning-metric-card--practice">
-                  <span className="python-learning-metric-card__icon"><RefreshCcw size={13} /></span>
-                  <span className="python-learning-metric-card__body">
-                    <span className="python-learning-metric-card__label">Подтянуть</span>
-                    <span className="python-learning-metric-card__value">{needsPracticeTopicsCount}</span>
-                  </span>
-                </div>
+    <div className={`python-learning-shell python-learning-shell--refined ${role === 'student' ? 'python-learning-shell--student' : 'python-learning-shell--teacher'} space-y-4 md:space-y-5 animate-fadeIn`}>
+      <div className="python-learning-overview-panel python-learning-overview-panel--refined">
+        <div className="python-learning-overview-panel__glow" aria-hidden="true" />
+        <div className="python-learning-overview-panel__content">
+          <header className="python-learning-overview-header">
+            <div className="python-learning-overview-heading">
+              <span className="python-learning-overview-heading__icon" aria-hidden="true"><Sparkles size={19} /></span>
+              <div className="min-w-0">
+                <div className="python-learning-eyebrow">{role === 'teacher' ? 'Прогресс ученика' : 'Персональный трек Python'}</div>
+                <h2 className="python-learning-title">Изучение Python</h2>
+                <p className="python-learning-subtitle">Темы курса и подготовка к заданиям ЕГЭ — в одном понятном маршруте.</p>
               </div>
             </div>
-            <div className="python-learning-score-card">
+            <div className="python-learning-score-summary">
               <div
                 className="python-learning-score-ring"
                 style={{ '--python-score': `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
-                aria-hidden="true"
+                role="progressbar"
+                aria-label={role === 'teacher' ? 'Общий прогресс ученика по Python' : 'Общий прогресс изучения Python'}
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={Math.round(Number(totalMastery) || 0)}
               >
                 <div className="python-learning-score-ring__inner">
-                  <span>{totalMasteryLabel}</span>
-                  <small>%</small>
+                  <span>{totalMasteryLabel}</span><small>%</small>
                 </div>
               </div>
-              <div className="min-w-0">
-                <div className="python-learning-score-card__label">Общий прогресс</div>
-                <div className="python-learning-score-card__title">{`${masteredTopicsCount} из ${taskList.length}`}</div>
-                <div className="python-learning-score-card__hint">тем уже уверенно закрыты</div>
+              <div>
+                <span>Общий прогресс</span>
+                <strong>{`${masteredTopicsCount} из ${taskList.length}`}</strong>
+                <small>тем выполнено на 85%+</small>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3 xl:col-span-2">
-              {renderStudentPicker()}
-            </div>
+          </header>
+
+          <div className="python-learning-dashboard">
+            <button
+              type="button"
+              onClick={openFocusTask}
+              disabled={!focusTask}
+              className="python-learning-focus-next"
+              aria-label={focusTask
+                ? (role === 'teacher'
+                    ? `Открыть прогресс ученика по теме ${focusTask.title}`
+                    : `${focusTaskProgress > 0 ? 'Продолжить' : 'Начать'} тему ${focusTask.title}`)
+                : 'Темы Python пока недоступны'}
+            >
+              <span className="python-learning-focus-next__orb" aria-hidden="true" />
+              <div className="python-learning-focus-next__top">
+                <span><Target size={13} /> {role === 'teacher' ? 'Тема для разбора' : 'Следующий шаг'}</span>
+                {focusTask ? <strong>{`${focusTaskProgress}%`}</strong> : null}
+              </div>
+              <div className="python-learning-focus-next__body">
+                <small>{focusTaskSection?.title || 'Python'}</small>
+                <h3>{focusTask?.title || 'Новые темы скоро появятся'}</h3>
+                {focusTask ? (
+                  <p>{`Тема №${getTaskDisplayNumber(focusTask)} · ${role === 'teacher'
+                    ? 'откройте карточку прогресса'
+                    : (focusTaskProgress > 0 ? 'продолжим с текущего места' : 'начните с первой карточки')}`}</p>
+                ) : null}
+              </div>
+              {focusTask ? (
+                <div className="python-learning-focus-next__footer">
+                  <div className="python-learning-focus-next__rail" aria-hidden="true">
+                    <span style={{ width: `${focusTaskProgress}%` }} />
+                  </div>
+                  <span className="python-learning-focus-next__action">
+                    {role === 'teacher' ? 'Открыть разбор' : (focusTaskProgress > 0 ? 'Продолжить тему' : 'Начать тему')} <ArrowUpRight size={15} />
+                  </span>
+                </div>
+              ) : null}
+            </button>
+
+            <aside className="python-learning-progress-snapshot" aria-label={role === 'teacher' ? 'Сводка по прогрессу ученика' : 'Сводка по курсу Python'}>
+              <div className="python-learning-progress-snapshot__header">
+                <div>
+                  <span>Статус тем</span>
+                  <strong>{`${taskList.length} тем`}</strong>
+                </div>
+                <BarChart2 size={18} />
+              </div>
+              <div className="python-learning-progress-snapshot__stats">
+                <div>
+                  <span className="python-learning-progress-snapshot__icon python-learning-progress-snapshot__icon--done"><CheckCircle size={15} /></span>
+                  <span><small>Выполнено 85%+</small><strong>{masteredTopicsCount}</strong></span>
+                </div>
+                <div>
+                  <span className="python-learning-progress-snapshot__icon python-learning-progress-snapshot__icon--active"><RefreshCcw size={14} /></span>
+                  <span><small>В процессе</small><strong>{inProgressTopicsCount}</strong></span>
+                </div>
+                <div>
+                  <span className="python-learning-progress-snapshot__icon python-learning-progress-snapshot__icon--next"><Target size={14} /></span>
+                  <span><small>Не начато</small><strong>{notStartedTopicsCount}</strong></span>
+                </div>
+              </div>
+            </aside>
           </div>
 
-          <div className="python-learning-progress-strip python-learning-progress-strip--hero rounded-2xl border border-purple-200/70 bg-white/70 px-3 py-2.5 md:px-4">
-            <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
-              <span className="font-bold uppercase text-slate-500">Общий прогресс</span>
-              <span className="font-black text-slate-900">{totalMasteryLabel}%</span>
-            </div>
-            <div className="python-learning-progress-rail h-3 w-full overflow-hidden rounded-full border border-purple-100/80 bg-purple-50/80">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-purple-500 via-violet-500 to-fuchsia-500 transition-[width] duration-700 ease-out"
-                style={{ width: `${Math.max(0, Math.min(100, Number(totalMastery) || 0))}%` }}
-              />
-            </div>
-          </div>
+          <div className="python-learning-student-picker">{renderStudentPicker()}</div>
 
-          <div
-            className="python-learning-section-picker grid grid-cols-1 gap-2 rounded-2xl border border-white/75 bg-white/55 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.82),inset_0_-1px_0_rgba(88,28,135,0.06)] md:grid-cols-2"
-            role="tablist"
-            aria-label="Разделы Python"
-          >
-            {taskSections
-              .filter((section) => section.id === 'topics' || section.id === 'exam-prep')
-              .map((section, sectionIdx) => {
+          <div className="python-learning-section-picker" role="tablist" aria-label="Разделы Python">
+            {sectionTabs.map((section, sectionIdx) => {
                 const sectionUi = PYTHON_TASK_SECTION_UI[section.id] || PYTHON_TASK_SECTION_UI.topics;
                 const SectionIcon = sectionUi.icon || Sparkles;
                 const tasksInSection = Array.isArray(section.tasks) ? section.tasks : [];
@@ -1955,41 +2048,38 @@ const PythonSection = ({
                     type="button"
                     role="tab"
                     onClick={() => setActiveTaskSectionId(section.id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+                      event.preventDefault();
+                      const direction = event.key === 'ArrowRight' ? 1 : -1;
+                      const nextIndex = (sectionIdx + direction + sectionTabs.length) % sectionTabs.length;
+                      const nextSection = sectionTabs[nextIndex];
+                      if (!nextSection) return;
+                      setActiveTaskSectionId(nextSection.id);
+                      if (typeof requestAnimationFrame === 'function') {
+                        requestAnimationFrame(() => document.getElementById(`python-section-tab-${nextSection.id}`)?.focus());
+                      }
+                    }}
                     aria-selected={isActive}
-                    aria-controls={`python-section-panel-${section.id}`}
+                    aria-controls={isActive ? `python-section-panel-${section.id}` : undefined}
+                    tabIndex={isActive ? 0 : -1}
                     data-active={isActive ? 'true' : 'false'}
                     data-section={section.id}
                     style={{ '--python-overview-i': `${sectionIdx}` }}
-                    className={`python-learning-overview-card min-h-0 w-full rounded-xl border p-2.5 text-left shadow-[0_12px_26px_rgba(15,23,42,0.08)] transition-all duration-300 md:p-3 ${sectionUi.shellClass} ${
-                      isActive
-                        ? 'python-learning-overview-card--active ring-2 ring-violet-300/55 shadow-[0_16px_34px_rgba(15,23,42,0.14)]'
-                        : 'hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.12)]'
-                    }`}
-                    >
-                      <div className="python-learning-overview-card__body flex items-center justify-between gap-3">
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <span className={`python-learning-overview-card__icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${sectionUi.chipClass}`}>
-                              <SectionIcon size={16} />
-                            </span>
-                            <div className="min-w-0">
-                              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">{sectionUi.badge}</div>
-                              <div className="truncate text-sm md:text-[15px] font-black text-slate-900">{section.title}</div>
-                              <div className="truncate text-[11px] font-semibold text-slate-500">
-                                {`${tasksInSection.length} карточек • ${sectionAvg}%`}
-                              </div>
-                            </div>
-                          </div>
-                          <span className="python-learning-overview-card__state">
-                            {isActive ? <CheckCircle size={14} /> : <ArrowUpRight size={14} />}
-                            <span>{isActive ? 'Выбрано' : 'Выбрать'}</span>
-                          </span>
-                      </div>
-                      <div className="python-learning-overview-card__progress mt-3 h-1.5 overflow-hidden rounded-full border border-white/65 bg-white/50">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-violet-500 via-purple-500 to-cyan-400 transition-[width] duration-700"
-                          style={{ width: `${Math.max(0, Math.min(100, Number(sectionAvg) || 0))}%` }}
-                        />
-                      </div>
+                    className="python-learning-overview-card"
+                  >
+                    <span className="python-learning-overview-card__icon"><SectionIcon size={17} /></span>
+                    <span className="python-learning-overview-card__copy">
+                      <small>{sectionUi.badge}</small>
+                      <strong>{section.title}</strong>
+                      <span>{`${tasksInSection.length} тем · ${sectionAvg}%`}</span>
+                    </span>
+                    <span className="python-learning-overview-card__state" aria-hidden="true">
+                      {isActive ? <CheckCircle size={15} /> : <ArrowUpRight size={15} />}
+                    </span>
+                    <span className="python-learning-overview-card__progress" aria-hidden="true">
+                      <span style={{ width: `${Math.max(0, Math.min(100, Number(sectionAvg) || 0))}%` }} />
+                    </span>
                   </button>
                 );
               })}

@@ -70,25 +70,35 @@ const getGoalLabel = (goal) => {
   return 'Продолжить домашку';
 };
 
-const QuickAction = ({ icon, eyebrow, title, hint, badge, onClick, className = '' }) => (
+const QuickAction = ({ icon, eyebrow, title, hint, badge, onClick, tone = 'python', actionLabel = 'Открыть', className = '' }) => (
   <button
     type="button"
     onClick={onClick}
+    data-tone={tone}
+    aria-label={`${actionLabel}: ${title}`}
     className={`student-today-overview__quick-action group flex min-h-[104px] min-w-0 flex-col rounded-2xl border border-slate-200/85 bg-white/88 p-3.5 text-left shadow-[0_8px_22px_rgba(71,85,105,0.08)] transition hover:-translate-y-0.5 hover:border-purple-200 hover:bg-white hover:shadow-[0_12px_26px_rgba(124,58,237,0.12)] ${className}`}
   >
     <div className="flex w-full items-start justify-between gap-2">
-      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-purple-100 bg-purple-50 text-purple-600">
+      <span className="student-today-overview__quick-icon inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-purple-100 bg-purple-50 text-purple-600">
         {React.createElement(icon, { size: 17 })}
       </span>
-      {badge ? (
-        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-purple-600 px-1.5 py-0.5 text-[10px] font-black text-white">
-          {badge}
+      <span className="flex items-center gap-1.5">
+        {badge ? (
+          <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-purple-600 px-1.5 py-0.5 text-[10px] font-black text-white">
+            {badge}
+          </span>
+        ) : null}
+        <span className="student-today-overview__quick-arrow" aria-hidden="true">
+          <ArrowRight size={14} />
         </span>
-      ) : null}
+      </span>
     </div>
-    <span className="mt-2 text-[10px] font-black uppercase tracking-[0.12em] text-purple-500">{eyebrow}</span>
-    <strong className="mt-0.5 text-sm text-slate-900">{title}</strong>
-    <span className="mt-1 text-[11px] leading-relaxed text-slate-500">{hint}</span>
+    <span className="student-today-overview__quick-eyebrow mt-2 text-[10px] font-black uppercase tracking-[0.12em] text-purple-500">{eyebrow}</span>
+    <strong className="student-today-overview__quick-title mt-0.5 text-sm text-slate-900">{title}</strong>
+    <span className="student-today-overview__quick-hint mt-1 text-[11px] leading-relaxed text-slate-500">{hint}</span>
+    <span className="student-today-overview__quick-cta">
+      {actionLabel}<ArrowRight size={13} />
+    </span>
   </button>
 );
 
@@ -178,6 +188,8 @@ const StudentTodayOverview = ({
             title="Продолжить курс"
             hint="Темы и практика ЕГЭ"
             onClick={onOpenPython}
+            tone="python"
+            actionLabel="Продолжить"
           />
           <QuickAction
             icon={PlayCircle}
@@ -185,6 +197,7 @@ const StudentTodayOverview = ({
             title="Открыть комнату"
             hint="Звонок, доска и код"
             onClick={onOpenLesson}
+            tone="lesson"
           />
           {onOpenChat ? (
             <QuickAction
@@ -194,6 +207,7 @@ const StudentTodayOverview = ({
               hint={chatUnreadCount > 0 ? 'Ответьте, не теряя контекст' : 'Задать вопрос преподавателю'}
               badge={chatUnreadCount > 0 ? chatUnreadCount : null}
               onClick={onOpenChat}
+              tone="chat"
               className="col-span-2 sm:col-span-1 lg:col-span-2"
             />
           ) : (
@@ -203,6 +217,7 @@ const StudentTodayOverview = ({
               title="Выбрать тему"
               hint="Задания по текущим целям"
               onClick={onOpenPractice}
+              tone="practice"
               className="col-span-2 sm:col-span-1 lg:col-span-2"
             />
           )}

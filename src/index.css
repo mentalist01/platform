@@ -64306,3 +64306,1263 @@ html[data-theme='dark'] .level-progress-open {
   background: rgba(76, 29, 149, 0.3);
   color: #c4b5fd;
 }
+
+/* Refined Python learning experience: next step first, progress second. */
+.python-learning-shell--refined .python-learning-overview-panel--refined {
+  position: relative;
+  isolation: isolate;
+  min-height: 0 !important;
+  overflow: hidden;
+  padding: 20px;
+  border: 1px solid rgba(221, 214, 254, 0.9);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(224, 231, 255, 0.5), transparent 31%),
+    rgba(255, 255, 255, 0.96) !important;
+  box-shadow: 0 18px 40px rgba(99, 102, 241, 0.11) !important;
+}
+
+.python-learning-overview-panel__glow {
+  position: absolute;
+  top: -100px;
+  right: -74px;
+  width: 240px;
+  height: 240px;
+  border-radius: 999px;
+  background: rgba(216, 180, 254, 0.22);
+  filter: blur(42px);
+  pointer-events: none;
+}
+
+.python-learning-overview-panel__content {
+  position: relative;
+  z-index: 1;
+}
+
+.python-learning-overview-header,
+.python-learning-overview-heading,
+.python-learning-score-summary,
+.python-learning-progress-snapshot__header,
+.python-learning-progress-snapshot__stats > div,
+.python-learning-focus-next__top,
+.python-learning-focus-next__footer {
+  display: flex;
+  align-items: center;
+}
+
+.python-learning-overview-header,
+.python-learning-progress-snapshot__header,
+.python-learning-focus-next__top,
+.python-learning-focus-next__footer {
+  justify-content: space-between;
+}
+
+.python-learning-overview-header {
+  gap: 20px;
+}
+
+.python-learning-overview-heading {
+  min-width: 0;
+  gap: 12px;
+}
+
+.python-learning-overview-heading__icon {
+  display: inline-flex;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #7c3aed, #6366f1 62%, #38bdf8);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(99, 102, 241, 0.22);
+}
+
+.python-learning-shell--refined .python-learning-eyebrow {
+  color: #8b5cf6;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.15em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.python-learning-shell--refined .python-learning-title {
+  margin-top: 3px;
+  color: #0f172a;
+  font-size: 27px;
+  font-weight: 950;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.python-learning-shell--refined .python-learning-subtitle {
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.python-learning-score-summary {
+  flex: 0 0 auto;
+  gap: 11px;
+  padding: 9px 12px 9px 9px;
+  border: 1px solid rgba(221, 214, 254, 0.84);
+  border-radius: 18px;
+  background: rgba(250, 245, 255, 0.68);
+}
+
+.python-learning-shell--refined .python-learning-score-ring {
+  display: grid;
+  width: 62px !important;
+  height: 62px !important;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 5px;
+  border: 0 !important;
+  border-radius: 999px;
+  background: conic-gradient(#8b5cf6 var(--python-score, 0%), #ede9fe 0) !important;
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.12) !important;
+}
+
+.python-learning-shell--refined .python-learning-score-ring__inner {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  background: #fff;
+  color: #6d28d9;
+}
+
+.python-learning-shell--refined .python-learning-score-ring__inner span {
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1 !important;
+}
+
+.python-learning-shell--refined .python-learning-score-ring__inner small {
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.python-learning-score-summary > div:last-child > span,
+.python-learning-score-summary > div:last-child > strong,
+.python-learning-score-summary > div:last-child > small {
+  display: block;
+}
+
+.python-learning-score-summary > div:last-child > span {
+  color: #8b5cf6;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.python-learning-score-summary > div:last-child > strong {
+  margin-top: 2px;
+  color: #1e293b;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.python-learning-score-summary > div:last-child > small {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.python-learning-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.python-learning-focus-next {
+  position: relative;
+  display: flex;
+  min-height: 190px;
+  overflow: hidden;
+  flex-direction: column;
+  padding: 17px;
+  border: 1px solid rgba(167, 139, 250, 0.72);
+  border-radius: 21px;
+  background: linear-gradient(135deg, #6d28d9, #7c3aed 48%, #c026d3);
+  color: #fff;
+  text-align: left;
+  box-shadow: 0 15px 30px rgba(124, 58, 237, 0.22);
+  transition: box-shadow 170ms ease, transform 170ms ease;
+}
+
+.python-learning-focus-next:hover:not(:disabled) {
+  box-shadow: 0 18px 34px rgba(124, 58, 237, 0.28);
+  transform: translateY(-1px);
+}
+
+.python-learning-focus-next:focus-visible {
+  outline: 3px solid rgba(196, 181, 253, 0.72);
+  outline-offset: 3px;
+}
+
+.python-learning-focus-next:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.python-learning-focus-next__orb {
+  position: absolute;
+  top: -70px;
+  right: -54px;
+  width: 180px;
+  height: 180px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  filter: blur(24px);
+  pointer-events: none;
+}
+
+.python-learning-focus-next__top,
+.python-learning-focus-next__body,
+.python-learning-focus-next__footer {
+  position: relative;
+  z-index: 1;
+}
+
+.python-learning-focus-next__top > span {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.python-learning-focus-next__top > strong {
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.python-learning-focus-next__body {
+  margin-top: 17px;
+}
+
+.python-learning-focus-next__body small {
+  display: block;
+  color: rgba(237, 233, 254, 0.86);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.python-learning-focus-next__body h3 {
+  margin-top: 4px;
+  max-width: 760px;
+  font-size: 22px;
+  font-weight: 950;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.python-learning-focus-next__body p {
+  margin-top: 5px;
+  color: rgba(237, 233, 254, 0.88);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.python-learning-focus-next__footer {
+  gap: 14px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.python-learning-focus-next__rail {
+  height: 7px;
+  overflow: hidden;
+  flex: 1 1 auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.python-learning-focus-next__rail > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #fff;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.34);
+}
+
+.python-learning-focus-next__action {
+  display: inline-flex;
+  min-height: 37px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 13px;
+  border-radius: 11px;
+  background: #fff;
+  color: #6d28d9;
+  font-size: 11px;
+  font-weight: 950;
+  box-shadow: 0 8px 18px rgba(49, 46, 129, 0.2);
+}
+
+.python-learning-progress-snapshot {
+  padding: 15px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 21px;
+  background: rgba(248, 250, 252, 0.76);
+}
+
+.python-learning-progress-snapshot__header {
+  padding-bottom: 11px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+}
+
+.python-learning-progress-snapshot__header > div > span,
+.python-learning-progress-snapshot__header > div > strong {
+  display: block;
+}
+
+.python-learning-progress-snapshot__header > div > span {
+  color: #8b5cf6;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.python-learning-progress-snapshot__header > div > strong {
+  margin-top: 2px;
+  color: #1e293b;
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.python-learning-progress-snapshot__header > svg {
+  color: #8b5cf6;
+}
+
+.python-learning-progress-snapshot__stats {
+  display: grid;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.python-learning-progress-snapshot__stats > div {
+  min-height: 39px;
+  gap: 9px;
+  padding: 6px 8px;
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.python-learning-progress-snapshot__stats > div > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.python-learning-progress-snapshot__stats small {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.python-learning-progress-snapshot__stats strong {
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.python-learning-progress-snapshot__icon {
+  display: inline-flex;
+  width: 29px;
+  height: 29px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+}
+
+.python-learning-progress-snapshot__icon--done {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.python-learning-progress-snapshot__icon--active {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.python-learning-progress-snapshot__icon--next {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.python-learning-student-picker:not(:has(*)) {
+  display: none;
+}
+
+.python-learning-student-picker {
+  margin-top: 12px;
+}
+
+.python-learning-teacher-empty {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) minmax(280px, 420px);
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(221, 214, 254, 0.88);
+  border-radius: 20px;
+  background: rgba(248, 250, 252, 0.8);
+}
+
+.python-learning-teacher-empty__icon {
+  display: inline-flex;
+  width: 48px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #7c3aed, #6366f1);
+  color: #fff;
+  box-shadow: 0 9px 20px rgba(99, 102, 241, 0.2);
+}
+
+.python-learning-teacher-empty__copy h3 {
+  color: #1e293b;
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.python-learning-teacher-empty__copy p {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.python-learning-teacher-empty__picker .flex {
+  flex-wrap: nowrap;
+}
+
+.python-learning-teacher-empty__picker .text-sm {
+  flex: 0 0 auto;
+}
+
+.python-learning-shell--refined .python-learning-section-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+  padding: 4px;
+  border: 1px solid rgba(226, 232, 240, 0.86) !important;
+  border-radius: 19px;
+  background: rgba(248, 250, 252, 0.78) !important;
+  box-shadow: none !important;
+}
+
+.python-learning-shell--refined .python-learning-overview-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 76px;
+  grid-template-columns: 38px minmax(0, 1fr) 30px;
+  grid-template-rows: auto 6px;
+  align-items: center;
+  gap: 8px 10px;
+  overflow: hidden;
+  padding: 10px 11px;
+  border: 1px solid transparent !important;
+  border-radius: 15px;
+  background: transparent !important;
+  text-align: left;
+  box-shadow: none !important;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.python-learning-shell--refined .python-learning-overview-card::before,
+.python-learning-shell--refined .python-learning-overview-card::after {
+  display: none !important;
+}
+
+.python-learning-shell--refined .python-learning-overview-card:hover {
+  border-color: rgba(196, 181, 253, 0.66) !important;
+  background: rgba(255, 255, 255, 0.84) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.python-learning-shell--refined .python-learning-overview-card[data-active='true'] {
+  border-color: rgba(167, 139, 250, 0.54) !important;
+  background: linear-gradient(145deg, rgba(245, 243, 255, 0.96), rgba(255, 255, 255, 0.94)) !important;
+  box-shadow: 0 7px 17px rgba(124, 58, 237, 0.08) !important;
+}
+
+.python-learning-shell--refined .python-learning-overview-card:focus-visible {
+  outline: 3px solid rgba(139, 92, 246, 0.38);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px rgba(167, 139, 250, 0.14) !important;
+}
+
+.python-learning-shell--refined .python-learning-overview-card__icon {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(221, 214, 254, 0.88) !important;
+  border-radius: 12px;
+  background: #fff !important;
+  color: #8b5cf6 !important;
+}
+
+.python-learning-overview-card__copy {
+  min-width: 0;
+}
+
+.python-learning-overview-card__copy > small,
+.python-learning-overview-card__copy > strong,
+.python-learning-overview-card__copy > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.python-learning-overview-card__copy > small {
+  color: #8b5cf6;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.python-learning-overview-card__copy > strong {
+  margin-top: 2px;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.python-learning-overview-card__copy > span {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.python-learning-shell--refined .python-learning-overview-card__state {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(221, 214, 254, 0.8) !important;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.84) !important;
+  color: #8b5cf6 !important;
+  box-shadow: none !important;
+}
+
+.python-learning-shell--refined .python-learning-overview-card[data-active='true'] .python-learning-overview-card__state {
+  box-shadow: none !important;
+}
+
+.python-learning-shell--refined .python-learning-overview-card__progress {
+  display: block;
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.1) !important;
+}
+
+.python-learning-shell--refined .python-learning-overview-card__progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7c3aed, #8b5cf6 62%, #d946ef);
+}
+
+.python-learning-shell--refined .python-learning-section-shell {
+  padding: 18px !important;
+  border: 1px solid rgba(221, 214, 254, 0.88) !important;
+  border-radius: 24px !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  box-shadow: 0 16px 36px rgba(99, 102, 241, 0.09) !important;
+}
+
+.python-learning-shell--refined .python-learning-section-shell__wash {
+  display: none !important;
+}
+
+.python-learning-shell--refined .python-learning-section-header {
+  padding: 0 0 13px !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.84) !important;
+  background: transparent !important;
+}
+
+.python-learning-shell--refined .python-learning-section-icon {
+  border: 0 !important;
+  background: linear-gradient(145deg, #7c3aed, #6366f1) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 18px rgba(99, 102, 241, 0.18);
+}
+
+.python-learning-shell--refined .python-learning-section-counter {
+  border-color: rgba(226, 232, 240, 0.88) !important;
+  background: rgba(248, 250, 252, 0.82) !important;
+  color: #64748b !important;
+}
+
+.python-learning-shell--refined .python-learning-task-grid {
+  gap: 10px !important;
+}
+
+.python-learning-shell--refined .python-learning-task-card {
+  min-height: 136px !important;
+  border: 1px solid rgba(226, 232, 240, 0.92) !important;
+  border-radius: 18px !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: 0 8px 20px rgba(71, 85, 105, 0.06) !important;
+  transform: none !important;
+}
+
+.python-learning-shell--refined .python-learning-task-card::before,
+.python-learning-shell--refined .python-learning-task-card::after,
+.python-learning-shell--refined .python-learning-task-card__glow {
+  display: none !important;
+}
+
+.python-learning-shell--refined .python-learning-task-card[data-selected='true'] {
+  border-color: rgba(139, 92, 246, 0.7) !important;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.1), 0 10px 24px rgba(124, 58, 237, 0.1) !important;
+}
+
+.python-learning-shell--refined .python-learning-task-card:focus-visible {
+  outline: 3px solid rgba(139, 92, 246, 0.36);
+  outline-offset: 2px;
+}
+
+.python-learning-shell--refined .python-learning-task-card__accent {
+  width: 4px !important;
+  background: linear-gradient(180deg, #7c3aed, #8b5cf6, #d946ef) !important;
+  opacity: 0.72 !important;
+}
+
+.python-learning-shell--refined .python-learning-task-card__title {
+  color: #1e293b !important;
+  font-size: 14px !important;
+  font-weight: 900 !important;
+}
+
+.python-learning-shell--refined .python-learning-task-status {
+  border-color: rgba(221, 214, 254, 0.82) !important;
+  background: #faf5ff !important;
+  color: #7c3aed !important;
+  box-shadow: none !important;
+}
+
+.python-learning-shell--refined .python-learning-task-status--mastered {
+  border-color: rgba(110, 231, 183, 0.7) !important;
+  background: #ecfdf5 !important;
+  color: #047857 !important;
+}
+
+.python-learning-shell--refined .python-learning-task-card__progress {
+  border: 0 !important;
+  background: rgba(139, 92, 246, 0.1) !important;
+  box-shadow: none !important;
+}
+
+.python-learning-shell--refined .python-learning-task-card__progress > div {
+  background: linear-gradient(90deg, #7c3aed, #8b5cf6 62%, #d946ef) !important;
+  box-shadow: none !important;
+}
+
+.python-learning-shell--refined .python-learning-task-card__toolbar-btn {
+  width: 38px !important;
+  height: 38px !important;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .python-learning-shell--refined .python-learning-task-card:hover {
+    border-color: rgba(167, 139, 250, 0.66) !important;
+    box-shadow: 0 11px 25px rgba(124, 58, 237, 0.1) !important;
+    transform: translateY(-1px) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .python-learning-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .python-learning-progress-snapshot__stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .python-learning-progress-snapshot__stats > div {
+    min-width: 0;
+  }
+
+  .python-learning-teacher-empty {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .python-learning-teacher-empty__picker {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 767px) {
+  .python-learning-shell--student .mobile-topic-path-card {
+    display: none !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .python-learning-shell--refined .python-learning-overview-panel--refined {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .python-learning-overview-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .python-learning-shell--refined .python-learning-title {
+    font-size: 23px;
+  }
+
+  .python-learning-score-summary {
+    width: 100%;
+  }
+
+  .python-learning-dashboard {
+    margin-top: 12px;
+  }
+
+  .python-learning-focus-next {
+    min-height: 184px;
+    padding: 15px;
+  }
+
+  .python-learning-focus-next__body h3 {
+    font-size: 19px;
+  }
+
+  .python-learning-focus-next__footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .python-learning-focus-next__action {
+    width: 100%;
+  }
+
+  .python-learning-progress-snapshot__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .python-learning-shell--refined .python-learning-section-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .python-learning-shell--refined .python-learning-overview-card {
+    min-height: 76px;
+    grid-template-columns: 34px minmax(0, 1fr) 28px;
+    padding: 9px;
+  }
+
+  .python-learning-shell--refined .python-learning-overview-card__icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .python-learning-overview-card__copy > strong {
+    font-size: 12px;
+  }
+
+  .python-learning-shell--refined .python-learning-section-shell {
+    padding: 14px !important;
+    border-radius: 22px !important;
+  }
+
+  .python-learning-teacher-empty {
+    grid-template-columns: 40px minmax(0, 1fr);
+    padding: 12px;
+  }
+
+  .python-learning-teacher-empty__icon {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-overview-panel--refined,
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-section-shell {
+  border-color: rgba(139, 92, 246, 0.3) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(79, 70, 229, 0.15), transparent 33%),
+    rgba(15, 23, 42, 0.94) !important;
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.34) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-title,
+html[data-theme='dark'] .python-learning-score-summary > div:last-child > strong,
+html[data-theme='dark'] .python-learning-progress-snapshot__header > div > strong,
+html[data-theme='dark'] .python-learning-progress-snapshot__stats strong,
+html[data-theme='dark'] .python-learning-overview-card__copy > strong,
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-task-card__title {
+  color: #f8fafc !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-subtitle,
+html[data-theme='dark'] .python-learning-score-summary > div:last-child > small,
+html[data-theme='dark'] .python-learning-overview-card__copy > span,
+html[data-theme='dark'] .python-learning-progress-snapshot__stats small {
+  color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .python-learning-score-summary,
+html[data-theme='dark'] .python-learning-progress-snapshot,
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-section-picker {
+  border-color: rgba(71, 85, 105, 0.62) !important;
+  background: rgba(2, 6, 23, 0.3) !important;
+}
+
+html[data-theme='dark'] .python-learning-teacher-empty {
+  border-color: rgba(100, 116, 139, 0.52);
+  background: rgba(2, 6, 23, 0.3);
+}
+
+html[data-theme='dark'] .python-learning-teacher-empty__copy h3 {
+  color: #f8fafc;
+}
+
+html[data-theme='dark'] .python-learning-teacher-empty__copy p {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-score-ring {
+  background: conic-gradient(#a78bfa var(--python-score, 0%), #312e81 0) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-score-ring__inner {
+  background: #0f172a !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .python-learning-progress-snapshot__header {
+  border-bottom-color: rgba(71, 85, 105, 0.56);
+}
+
+html[data-theme='dark'] .python-learning-progress-snapshot__stats > div,
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-task-card {
+  border-color: rgba(71, 85, 105, 0.62) !important;
+  background: rgba(15, 23, 42, 0.84) !important;
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.24) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-overview-card:hover,
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-overview-card[data-active='true'] {
+  border-color: rgba(139, 92, 246, 0.42) !important;
+  background: rgba(76, 29, 149, 0.22) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-overview-card {
+  border-color: rgba(71, 85, 105, 0.46) !important;
+  background: rgba(15, 23, 42, 0.58) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-overview-card__icon,
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-overview-card__state {
+  border-color: rgba(100, 116, 139, 0.56) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-section-header {
+  border-bottom-color: rgba(71, 85, 105, 0.58) !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-section-counter {
+  border-color: rgba(71, 85, 105, 0.58) !important;
+  background: rgba(2, 6, 23, 0.3) !important;
+  color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-task-status {
+  border-color: rgba(139, 92, 246, 0.34) !important;
+  background: rgba(76, 29, 149, 0.22) !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .python-learning-shell--refined .python-learning-task-status--mastered {
+  border-color: rgba(52, 211, 153, 0.34) !important;
+  background: rgba(6, 78, 59, 0.3) !important;
+  color: #6ee7b7 !important;
+}
+
+/* Student Today polish: clear actions, elevated homework, richer dark surfaces. */
+.student-today-overview {
+  position: relative;
+  isolation: isolate;
+}
+
+html:not([data-theme='dark']) .student-today-overview {
+  border-color: rgba(196, 181, 253, 0.92) !important;
+  background:
+    radial-gradient(circle at 6% 0%, rgba(224, 231, 255, 0.42), transparent 34%),
+    radial-gradient(circle at 96% 100%, rgba(186, 230, 253, 0.3), transparent 32%),
+    linear-gradient(145deg, #ffffff 0%, #fcfbff 55%, #f6f8ff 100%) !important;
+  box-shadow:
+    0 26px 58px rgba(79, 70, 229, 0.15),
+    0 5px 15px rgba(15, 23, 42, 0.055),
+    inset 0 1px 0 #fff !important;
+}
+
+.student-today-overview::before {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 28px;
+  left: 28px;
+  height: 3px;
+  border-radius: 0 0 999px 999px;
+  background: linear-gradient(90deg, transparent, #8b5cf6 22%, #6366f1 58%, #38bdf8 78%, transparent);
+  content: '';
+  pointer-events: none;
+}
+
+.student-today-overview__quick-action {
+  --today-action-rgb: 124 58 237;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 126px !important;
+  cursor: pointer;
+  border-color: rgb(var(--today-action-rgb) / 0.26) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgb(var(--today-action-rgb) / 0.13), transparent 48%),
+    linear-gradient(145deg, #ffffff, rgb(var(--today-action-rgb) / 0.045)) !important;
+  box-shadow:
+    0 12px 27px rgb(var(--today-action-rgb) / 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+  transition: border-color 170ms ease, box-shadow 170ms ease, transform 170ms ease !important;
+}
+
+.student-today-overview__quick-action[data-tone='lesson'] {
+  --today-action-rgb: 14 165 233;
+}
+
+.student-today-overview__quick-action[data-tone='chat'] {
+  --today-action-rgb: 217 70 239;
+}
+
+.student-today-overview__quick-action[data-tone='practice'] {
+  --today-action-rgb: 16 185 129;
+}
+
+.student-today-overview__quick-action:hover {
+  z-index: 2;
+  border-color: rgb(var(--today-action-rgb) / 0.5) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgb(var(--today-action-rgb) / 0.18), transparent 50%),
+    linear-gradient(145deg, #ffffff, rgb(var(--today-action-rgb) / 0.075)) !important;
+  box-shadow:
+    0 17px 34px rgb(var(--today-action-rgb) / 0.17),
+    inset 0 1px 0 #fff !important;
+  transform: translateY(-2px) !important;
+}
+
+.student-today-overview__quick-action:active {
+  box-shadow: 0 8px 18px rgb(var(--today-action-rgb) / 0.12) !important;
+  transform: translateY(0) scale(0.99) !important;
+}
+
+.student-today-overview__quick-action:focus-visible {
+  outline: 3px solid rgb(var(--today-action-rgb) / 0.34);
+  outline-offset: 3px;
+}
+
+.student-today-overview__quick-icon,
+.student-today-overview__quick-arrow {
+  border-color: rgb(var(--today-action-rgb) / 0.18) !important;
+  background: rgb(var(--today-action-rgb) / 0.09) !important;
+  color: rgb(var(--today-action-rgb)) !important;
+}
+
+.student-today-overview__quick-arrow {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid;
+  border-radius: 10px;
+  transition: transform 170ms ease, background 170ms ease;
+}
+
+.student-today-overview__quick-action:hover .student-today-overview__quick-arrow {
+  background: rgb(var(--today-action-rgb) / 0.15) !important;
+  transform: translateX(2px);
+}
+
+.student-today-overview__quick-eyebrow,
+.student-today-overview__quick-cta {
+  color: rgb(var(--today-action-rgb)) !important;
+}
+
+.student-today-overview__quick-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto !important;
+  padding-top: 10px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.student-today-overview__quick-cta svg {
+  transition: transform 170ms ease;
+}
+
+.student-today-overview__quick-action:hover .student-today-overview__quick-cta svg {
+  transform: translateX(2px);
+}
+
+html:not([data-theme='dark']) .student-today-homework-card {
+  border-color: rgba(196, 181, 253, 0.94) !important;
+  background:
+    radial-gradient(circle at 94% 0%, rgba(216, 180, 254, 0.22), transparent 32%),
+    radial-gradient(circle at 0% 100%, rgba(186, 230, 253, 0.2), transparent 30%),
+    linear-gradient(145deg, #ffffff 0%, #fcfaff 58%, #f5f7ff 100%) !important;
+  box-shadow:
+    0 25px 54px rgba(79, 70, 229, 0.15),
+    0 4px 13px rgba(15, 23, 42, 0.055),
+    inset 0 1px 0 #fff !important;
+}
+
+.student-today-homework-card::before {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 26px;
+  left: 26px;
+  height: 3px;
+  border-radius: 0 0 999px 999px;
+  background: linear-gradient(90deg, transparent, #8b5cf6 24%, #d946ef 64%, transparent);
+  content: '';
+  pointer-events: none;
+}
+
+.student-today-homework__header {
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(221, 214, 254, 0.78);
+}
+
+html:not([data-theme='dark']) .student-today-homework__goal-panel {
+  border-color: rgba(196, 181, 253, 0.82) !important;
+  background: linear-gradient(145deg, #faf5ff, #ffffff 62%, #fdf4ff) !important;
+  box-shadow: 0 10px 24px rgba(124, 58, 237, 0.075);
+}
+
+html:not([data-theme='dark']) .student-today-homework__checklist-panel {
+  border-color: rgba(186, 230, 253, 0.92) !important;
+  background: linear-gradient(145deg, #fbfdff, #f0f9ff) !important;
+  box-shadow: 0 10px 24px rgba(14, 165, 233, 0.065);
+}
+
+html:not([data-theme='dark']) .student-today-homework__check-row {
+  box-shadow: 0 6px 15px rgba(71, 85, 105, 0.055);
+}
+
+html[data-theme='dark'] .student-today-overview {
+  border-color: rgba(167, 139, 250, 0.38) !important;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(124, 58, 237, 0.24), transparent 36%),
+    radial-gradient(circle at 96% 100%, rgba(14, 165, 233, 0.14), transparent 32%),
+    linear-gradient(145deg, #15192f, #0b1323 58%, #0b1c2a) !important;
+  box-shadow:
+    0 28px 60px rgba(2, 6, 23, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.075) !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-action {
+  border-color: rgb(var(--today-action-rgb) / 0.35) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgb(var(--today-action-rgb) / 0.24), transparent 50%),
+    linear-gradient(145deg, rgba(28, 35, 58, 0.98), rgba(12, 19, 34, 0.97)) !important;
+  box-shadow:
+    0 16px 34px rgba(2, 6, 23, 0.42),
+    0 5px 14px rgb(var(--today-action-rgb) / 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-action:hover {
+  border-color: rgb(var(--today-action-rgb) / 0.64) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgb(var(--today-action-rgb) / 0.34), transparent 52%),
+    linear-gradient(145deg, rgba(35, 43, 70, 0.99), rgba(15, 23, 42, 0.98)) !important;
+  box-shadow:
+    0 21px 40px rgba(2, 6, 23, 0.5),
+    0 7px 20px rgb(var(--today-action-rgb) / 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.11) !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-action strong {
+  color: #f8fafc !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-hint {
+  color: #a9b8cd !important;
+}
+
+html[data-theme='dark'] .student-today-overview__quick-icon,
+html[data-theme='dark'] .student-today-overview__quick-arrow {
+  border-color: rgb(var(--today-action-rgb) / 0.38) !important;
+  background: rgb(var(--today-action-rgb) / 0.18) !important;
+  color: rgb(var(--today-action-rgb) / 1) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .student-today-homework-card {
+  border-color: rgba(167, 139, 250, 0.44) !important;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(124, 58, 237, 0.25), transparent 36%),
+    radial-gradient(circle at 100% 100%, rgba(14, 165, 233, 0.14), transparent 34%),
+    linear-gradient(145deg, #161a31, #0b1221 64%, #0b1a27) !important;
+  box-shadow:
+    0 28px 62px rgba(2, 6, 23, 0.55),
+    0 7px 20px rgba(76, 29, 149, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.085) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__header {
+  border-bottom-color: rgba(139, 92, 246, 0.28);
+}
+
+html[data-theme='dark'] .student-today-homework__goal-panel {
+  border-color: rgba(167, 139, 250, 0.4) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(139, 92, 246, 0.18), transparent 44%),
+    linear-gradient(145deg, rgba(61, 34, 112, 0.5), rgba(22, 27, 47, 0.96)) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(196, 181, 253, 0.09) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__checklist-panel {
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.14), transparent 46%),
+    linear-gradient(145deg, rgba(8, 47, 73, 0.44), rgba(16, 24, 42, 0.96)) !important;
+  box-shadow:
+    0 14px 30px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(125, 211, 252, 0.08) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__check-row {
+  border-color: rgba(100, 116, 139, 0.52) !important;
+  background: linear-gradient(145deg, rgba(31, 42, 65, 0.96), rgba(20, 29, 48, 0.96)) !important;
+  box-shadow:
+    0 8px 20px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+html[data-theme='dark'] .student-today-homework__check-row--complete {
+  border-color: rgba(52, 211, 153, 0.34) !important;
+  background: linear-gradient(145deg, rgba(6, 95, 70, 0.34), rgba(12, 39, 43, 0.92)) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__progress-core {
+  background: linear-gradient(145deg, #1e293b, #111827) !important;
+  color: #c4b5fd !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .student-today-schedule-card.surface-card {
+  border-color: rgba(96, 165, 250, 0.34) !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(59, 130, 246, 0.2), transparent 34%),
+    radial-gradient(circle at 0% 100%, rgba(139, 92, 246, 0.13), transparent 30%),
+    linear-gradient(145deg, #131c31, #0b1423) !important;
+  box-shadow:
+    0 24px 54px rgba(2, 6, 23, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--has-lessons,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--future {
+  border: 1px solid rgba(71, 85, 105, 0.52) !important;
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.94)) !important;
+  box-shadow:
+    0 8px 18px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--today {
+  border-color: rgba(167, 139, 250, 0.46) !important;
+  background: linear-gradient(145deg, rgba(91, 33, 182, 0.5), rgba(30, 27, 75, 0.92)) !important;
+  box-shadow:
+    0 10px 22px rgba(76, 29, 149, 0.3),
+    inset 0 1px 0 rgba(216, 180, 254, 0.1) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-day-chip--next {
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  background: linear-gradient(145deg, rgba(7, 89, 133, 0.44), rgba(30, 41, 59, 0.94)) !important;
+  box-shadow:
+    0 10px 22px rgba(2, 132, 199, 0.2),
+    inset 0 1px 0 rgba(125, 211, 252, 0.08) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson {
+  border-color: rgba(96, 165, 250, 0.3) !important;
+  background: linear-gradient(145deg, rgba(25, 41, 68, 0.96), rgba(15, 23, 42, 0.96)) !important;
+  box-shadow:
+    0 13px 28px rgba(2, 6, 23, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055) !important;
+}
+
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--next,
+html[data-theme='dark'] .student-today-schedule-card .schedule-shell__student-lesson--active {
+  border-color: rgba(167, 139, 250, 0.45) !important;
+  background: linear-gradient(145deg, rgba(55, 48, 107, 0.78), rgba(19, 31, 55, 0.98)) !important;
+  box-shadow:
+    0 16px 34px rgba(76, 29, 149, 0.28),
+    inset 0 1px 0 rgba(196, 181, 253, 0.08) !important;
+}
