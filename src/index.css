@@ -27,6 +27,807 @@
   --shadow-lift: 0 22px 56px rgba(79, 70, 229, 0.18), 0 10px 30px rgba(15, 23, 42, 0.10);
 }
 
+/* Task notes workspace v2: clear hierarchy, calmer cards and mobile-first actions */
+.notes-explorer-shell--workspace-v2 {
+  --notes-v2-page: #f4f6fb;
+  --notes-v2-surface: #ffffff;
+  --notes-v2-raised: #f8faff;
+  --notes-v2-border: #dce4f0;
+  --notes-v2-border-strong: #c7d2e3;
+  --notes-v2-text: #111827;
+  --notes-v2-muted: #667085;
+  --notes-v2-soft: #94a3b8;
+  --notes-v2-accent: #7c3aed;
+  --notes-v2-accent-strong: #6d28d9;
+  --notes-v2-info: #2563eb;
+  --notes-v2-favorite: #d97706;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-workspace {
+  overflow: hidden;
+  border: 1px solid var(--notes-v2-border);
+  border-radius: 28px;
+  background: var(--notes-v2-surface);
+  box-shadow: 0 22px 54px rgba(30, 41, 59, 0.1);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero {
+  position: relative;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--notes-v2-border);
+  background:
+    linear-gradient(110deg, rgba(124, 58, 237, 0.055), transparent 34%),
+    var(--notes-v2-surface);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 92px;
+  height: 3px;
+  border-radius: 0 0 99px 0;
+  background: linear-gradient(90deg, #7c3aed, #3b82f6);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-back {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid var(--notes-v2-border);
+  border-radius: 12px;
+  background: var(--notes-v2-surface);
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.035);
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-back:hover {
+  border-color: #c4b5fd;
+  background: #faf8ff;
+  color: var(--notes-v2-accent-strong);
+  transform: translateX(-1px);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__icon {
+  display: inline-flex;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ddd6fe;
+  border-radius: 15px;
+  background: #f5f3ff;
+  color: var(--notes-v2-accent);
+  box-shadow: 0 7px 16px rgba(109, 40, 217, 0.09);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__eyebrow,
+.notes-explorer-shell--workspace-v2 .notes-library__eyebrow {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--notes-v2-accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__title {
+  margin: 0;
+  color: var(--notes-v2-text) !important;
+  font-size: clamp(22px, 2.2vw, 28px);
+  font-weight: 850;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__summary {
+  margin-top: 3px;
+  color: var(--notes-v2-muted) !important;
+  font-size: 13px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__side:empty {
+  display: none;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-stat-remaining {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  padding: 0 11px;
+  border: 1px solid #bbf7d0 !important;
+  border-radius: 999px;
+  background: #f0fdf4 !important;
+  color: #15803d !important;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: none !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-stat-remaining.is-low {
+  border-color: #fecdd3 !important;
+  background: #fff1f2 !important;
+  color: #be123c !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__lower {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid #edf0f5;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-breadcrumb {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--notes-v2-muted) !important;
+  font-size: 12px;
+  font-weight: 650;
+  box-shadow: none !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-breadcrumb .notes-explorer-address-current {
+  color: var(--notes-v2-text) !important;
+  font-weight: 750;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-toolbar-note {
+  margin: 0;
+  color: var(--notes-v2-muted) !important;
+  font-size: 12px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__error {
+  margin-top: 8px;
+  color: #e11d48;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library.notes-explorer-files {
+  padding: 18px 20px 22px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--notes-v2-raised) !important;
+  box-shadow: none !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library.notes-explorer-files.is-dragging {
+  background: #f4f0ff !important;
+  box-shadow: inset 0 0 0 2px #8b5cf6 !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-command-stack {
+  gap: 12px;
+  margin: 0 0 18px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__search {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid var(--notes-v2-border-strong) !important;
+  border-radius: 13px !important;
+  background: var(--notes-v2-surface) !important;
+  color: var(--notes-v2-muted);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.035);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__search:focus-within {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.11);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__clear {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--notes-v2-muted);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__clear:hover {
+  background: #f1f5f9;
+  color: var(--notes-v2-text);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__result-count {
+  color: var(--notes-v2-muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__secondary,
+.notes-explorer-shell--workspace-v2 .notes-commandbar__primary {
+  min-height: 42px !important;
+  width: auto !important;
+  border-radius: 12px !important;
+  white-space: nowrap;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__secondary {
+  border-color: var(--notes-v2-border-strong) !important;
+  background: var(--notes-v2-surface) !important;
+  color: #334155 !important;
+  box-shadow: none !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__secondary:hover:not(:disabled) {
+  border-color: #c4b5fd !important;
+  background: #faf8ff !important;
+  color: var(--notes-v2-accent-strong) !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__primary {
+  min-width: 136px;
+  border-color: transparent !important;
+  background: linear-gradient(135deg, #7c3aed, #4f46e5) !important;
+  color: #ffffff !important;
+  box-shadow: 0 9px 18px rgba(109, 40, 217, 0.22) !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(109, 40, 217, 0.28) !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-create-folder,
+.notes-explorer-shell--workspace-v2 .notes-explorer-python-card {
+  border-color: var(--notes-v2-border) !important;
+  background: var(--notes-v2-surface) !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06) !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 2px 10px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library__title {
+  margin: 0;
+  color: var(--notes-v2-text);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library__count {
+  color: var(--notes-v2-muted);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-table {
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-table-scroll {
+  overflow: visible !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-table {
+  border-collapse: separate;
+  border-spacing: 0 7px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-table__head {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library-group-row td {
+  padding: 8px 2px 1px;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library-group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library-group-label > span {
+  display: inline-flex;
+  min-width: 19px;
+  height: 19px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #e9eef6;
+  color: #526175;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library-group-label.is-favorite {
+  color: var(--notes-v2-favorite);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card > td {
+  border-top: 1px solid var(--notes-v2-border) !important;
+  border-bottom: 1px solid var(--notes-v2-border) !important;
+  background: var(--notes-v2-surface) !important;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card > td:first-child {
+  border-left: 1px solid var(--notes-v2-border) !important;
+  border-radius: 14px 0 0 14px;
+  box-shadow: -1px 5px 14px rgba(15, 23, 42, 0.035);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card > td:last-child {
+  border-right: 1px solid var(--notes-v2-border) !important;
+  border-radius: 0 14px 14px 0;
+  box-shadow: 5px 5px 14px rgba(15, 23, 42, 0.035);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card:hover > td,
+.notes-explorer-shell--workspace-v2 .notes-resource-card:focus-visible > td,
+.notes-explorer-shell--workspace-v2 .notes-resource-card:focus-within > td {
+  border-color: #c4b5fd !important;
+  background: #fdfcff !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card:focus-visible {
+  outline: none;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card:focus-visible > td:first-child {
+  box-shadow: inset 3px 0 0 #8b5cf6, -1px 5px 14px rgba(15, 23, 42, 0.04);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card--folder > td {
+  background: #f7faff !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card--favorite > td:first-child {
+  border-left: 3px solid #f59e0b !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card.is-preview-open > td:first-child {
+  border-radius: 14px 0 0 0;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card.is-preview-open > td:last-child {
+  border-radius: 0 14px 0 0;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card__identity {
+  padding: 13px 14px !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card__meta {
+  width: 175px;
+  color: var(--notes-v2-muted) !important;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card__actions {
+  min-width: max-content;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-file-name,
+.notes-explorer-shell--workspace-v2 .notes-explorer-folder-name {
+  color: var(--notes-v2-text) !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-file-added-at,
+.notes-explorer-shell--workspace-v2 .notes-explorer-file-path {
+  margin-top: 4px;
+  color: var(--notes-v2-soft) !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-code-inline-preview {
+  max-width: min(680px, 62vw);
+  border-color: #e4e7ec !important;
+  background: #f8fafc !important;
+  color: #526175 !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-inline-folder-icon {
+  width: 42px;
+  height: 42px;
+  border-color: #bfdbfe !important;
+  border-radius: 13px !important;
+  background: #eff6ff !important;
+  color: #2563eb !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-file-action-btn {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 10px !important;
+  color: #64748b !important;
+  opacity: 0.72;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card:hover .notes-explorer-file-action-btn,
+.notes-explorer-shell--workspace-v2 .notes-resource-card:focus-within .notes-explorer-file-action-btn {
+  opacity: 1;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-file-action-btn:hover:not(:disabled) {
+  border-color: #d8dee9;
+  background: #f1f5f9 !important;
+  color: var(--notes-v2-text) !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-file-action-btn-danger:hover:not(:disabled) {
+  border-color: #fecdd3 !important;
+  background: #fff1f2 !important;
+  color: #e11d48 !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-empty-state {
+  border-color: var(--notes-v2-border) !important;
+  background: var(--notes-v2-surface) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 {
+  --notes-v2-page: #07101f;
+  --notes-v2-surface: #0d1728;
+  --notes-v2-raised: #101b2e;
+  --notes-v2-border: #293a56;
+  --notes-v2-border-strong: #354866;
+  --notes-v2-text: #f2f6ff;
+  --notes-v2-muted: #9baac2;
+  --notes-v2-soft: #71829d;
+  --notes-v2-accent: #a78bfa;
+  --notes-v2-accent-strong: #c4b5fd;
+  --notes-v2-info: #38bdf8;
+  --notes-v2-favorite: #fbbf24;
+  color-scheme: dark;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-task-workspace {
+  border-color: var(--notes-v2-border) !important;
+  background: var(--notes-v2-surface) !important;
+  box-shadow: 0 24px 56px rgba(1, 6, 18, 0.42) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-task-hero {
+  border-color: var(--notes-v2-border) !important;
+  background: linear-gradient(145deg, #0d1728, #101a2e) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-task-back,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-commandbar__secondary {
+  border-color: var(--notes-v2-border-strong) !important;
+  background: #111d31 !important;
+  color: var(--notes-v2-muted) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-task-back:hover,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-commandbar__secondary:hover:not(:disabled) {
+  border-color: #65548f !important;
+  background: #17233a !important;
+  color: #d8ccff !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-task-hero__icon {
+  border-color: #4d3d77 !important;
+  background: #1b1534 !important;
+  color: #b9a4ff !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-task-hero__lower {
+  border-color: #24334c !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-stat-remaining {
+  border-color: #245841 !important;
+  background: #0d2c22 !important;
+  color: #6ee7b7 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-stat-remaining.is-low {
+  border-color: #703444 !important;
+  background: #31151f !important;
+  color: #fda4af !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-library.notes-explorer-files {
+  background: var(--notes-v2-raised) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-commandbar__search,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-create-folder,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-python-card,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-empty-state {
+  border-color: var(--notes-v2-border-strong) !important;
+  background: #0b1525 !important;
+  color: var(--notes-v2-text) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-commandbar__search:focus-within {
+  border-color: #8b73d6 !important;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-commandbar__clear:hover {
+  background: #18243a !important;
+  color: var(--notes-v2-text) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card > td {
+  border-color: var(--notes-v2-border) !important;
+  background: #0d1728 !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card--folder > td {
+  background: #101d31 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card:hover > td,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card:focus-visible > td,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card:focus-within > td {
+  border-color: #52698d !important;
+  background: #13213a !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-library-group-label > span {
+  background: #1c2a40 !important;
+  color: #a9b6ca !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-inline-folder-icon {
+  border-color: #265178 !important;
+  background: #102a42 !important;
+  color: #7dd3fc !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-code-inline-preview {
+  border-color: #2b3a52 !important;
+  background: #091321 !important;
+  color: #a9b6ca !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-file-action-btn {
+  color: #91a2bb !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-file-action-btn:hover:not(:disabled) {
+  border-color: #425572 !important;
+  background: #1b2a42 !important;
+  color: #f2f6ff !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 button:focus-visible {
+  --tw-ring-offset-color: #07101f;
+}
+
+@media (max-width: 980px) {
+  .notes-explorer-shell--workspace-v2 .notes-task-hero__main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-task-hero__side {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    padding-left: 56px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-commandbar {
+    grid-template-columns: 1fr;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-commandbar__actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  .notes-explorer-shell--workspace-v2 .notes-task-workspace {
+    border-radius: 20px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-task-hero {
+    padding: 16px 14px 14px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-task-hero__main {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-task-back {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-task-back span,
+  .notes-explorer-shell--workspace-v2 .notes-task-hero__icon {
+    display: none;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-task-hero__side {
+    padding-left: 50px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-task-hero__lower {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-library.notes-explorer-files {
+    padding: 14px 12px 16px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-commandbar__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-commandbar__result-count {
+    grid-column: 1 / -1;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-commandbar__primary {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: 100% !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-commandbar__secondary {
+    width: 100% !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-library__heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-table,
+  .notes-explorer-shell--workspace-v2 .notes-resource-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    margin: 8px 0;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card > td {
+    display: block !important;
+    width: 100% !important;
+    border-right: 1px solid var(--notes-v2-border) !important;
+    border-left: 1px solid var(--notes-v2-border) !important;
+    border-radius: 0 !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card > td:first-child {
+    border-radius: 14px 14px 0 0 !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card > td:last-child {
+    border-radius: 0 0 14px 14px !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card__meta {
+    padding: 0 14px 10px !important;
+    border-top: 0 !important;
+    border-bottom: 0 !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card__actions {
+    justify-content: flex-start !important;
+    padding: 5px 10px 9px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card > td:last-child {
+    border-top: 1px solid color-mix(in srgb, var(--notes-v2-border) 64%, transparent) !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-library-group-row {
+    display: table;
+    width: 100%;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-library-group-row td {
+    display: table-cell;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-code-inline-preview {
+    max-width: calc(100vw - 92px);
+  }
+}
+
 /* Compact teacher finance dashboard */
 html[data-theme='dark'] .teacher-finance-simple__hero.surface-card {
   border-color: rgba(139, 92, 246, 0.48) !important;
@@ -67307,5 +68108,276 @@ body:has(.python-runtime-modal-shell--solve) .theme-toggle--desktop {
 
   body:has(.python-runtime-modal-shell--solve) .theme-toggle--desktop {
     display: none;
+  }
+}
+
+/* Final priority guard for the task-notes workspace. Kept last intentionally. */
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card.is-cheatsheet > td,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card.is-solution-bundle > td,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card.is-pinned > td {
+  border-color: var(--notes-v2-border) !important;
+  background: #0d1728 !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card.is-cheatsheet:hover > td,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card.is-solution-bundle:hover > td,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card.is-pinned:hover > td,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card.is-cheatsheet:focus-within > td,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card.is-solution-bundle:focus-within > td,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card.is-pinned:focus-within > td {
+  border-color: #52698d !important;
+  background: #13213a !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card--favorite > td:first-child {
+  border-left-color: #f59e0b !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-file-action-btn,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-cheatsheet-open-btn,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-folder-open-btn {
+  border-color: #354866 !important;
+  background: #111d31 !important;
+  color: #9baac2 !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-file-action-btn svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-file-action-btn:hover:not(:disabled),
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-cheatsheet-open-btn:hover:not(:disabled),
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-folder-open-btn:hover:not(:disabled) {
+  border-color: #5b7092 !important;
+  background: #1b2a42 !important;
+  color: #f2f6ff !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-file-action-btn-danger:hover:not(:disabled) {
+  border-color: #703444 !important;
+  background: #31151f !important;
+  color: #fda4af !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card--folder .notes-explorer-inline-folder-icon {
+  border-color: #265178 !important;
+  background: #102a42 !important;
+  color: #7dd3fc !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 760px) {
+  .notes-explorer-shell--workspace-v2 .notes-resource-table {
+    border-spacing: 0;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card + tr:not(.hidden) {
+    display: block;
+    width: 100%;
+    margin: -8px 0 8px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card + tr:not(.hidden) > .notes-explorer-preview-cell {
+    display: block !important;
+    width: 100% !important;
+    padding: 10px !important;
+    border: 1px solid var(--notes-v2-border) !important;
+    border-top: 0 !important;
+    border-radius: 0 0 14px 14px;
+    background: var(--notes-v2-surface) !important;
+  }
+}
+
+/* Compact task-notes pass: denser rhythm and explicit open affordances. */
+.notes-explorer-shell--workspace-v2 .notes-task-hero {
+  padding: 14px 18px 12px !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__main {
+  gap: 12px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-back {
+  min-height: 36px;
+  padding: 0 11px;
+  border-radius: 11px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__icon {
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
+  border-radius: 13px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__title {
+  font-size: clamp(21px, 2vw, 26px);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__summary {
+  margin-top: 1px;
+  font-size: 12px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-hero__lower {
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-task-breadcrumb {
+  min-height: 24px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library.notes-explorer-files {
+  padding: 14px 18px 16px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-command-stack {
+  gap: 9px;
+  margin-bottom: 11px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar {
+  gap: 9px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__search {
+  min-height: 40px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-commandbar__secondary,
+.notes-explorer-shell--workspace-v2 .notes-commandbar__primary {
+  min-height: 40px !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library__heading {
+  align-items: center;
+  margin: 0 2px 3px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library__title {
+  font-size: 15px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-table {
+  border-spacing: 0 3px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library-group-row td {
+  padding: 2px 2px 0;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library-group-label {
+  font-size: 9px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library-group-label > span {
+  min-width: 17px;
+  height: 17px;
+  font-size: 9px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card {
+  cursor: pointer;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card__identity {
+  padding: 9px 12px !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-inline-folder-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card__meta {
+  width: 155px;
+  font-size: 11px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-file-added-at,
+.notes-explorer-shell--workspace-v2 .notes-explorer-file-path {
+  margin-top: 2px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-file-action-btn {
+  width: 34px;
+  height: 34px;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-open-action {
+  width: auto !important;
+  min-width: 88px;
+  gap: 4px;
+  padding: 0 9px !important;
+  border-color: #ddd6fe !important;
+  background: #faf8ff !important;
+  color: #6d28d9 !important;
+  font-size: 11px;
+  font-weight: 800;
+  opacity: 1 !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-open-action:hover:not(:disabled) {
+  border-color: #c4b5fd !important;
+  background: #f3efff !important;
+  color: #5b21b6 !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-open-action__label {
+  line-height: 1;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-open-action,
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-open-action {
+  border-color: #514477 !important;
+  background: #1b1734 !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-explorer-open-action:hover:not(:disabled),
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-open-action:hover:not(:disabled) {
+  border-color: #7462a7 !important;
+  background: #282044 !important;
+  color: #ede9fe !important;
+}
+
+@media (min-width: 761px) and (max-width: 1100px) {
+  .notes-explorer-shell--workspace-v2 .notes-explorer-open-action {
+    width: 34px !important;
+    min-width: 34px;
+    padding: 0 !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-explorer-open-action__label {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .notes-explorer-shell--workspace-v2 .notes-task-hero {
+    padding: 13px 12px 11px !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-library.notes-explorer-files {
+    padding: 12px 10px 14px;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-resource-card__identity {
+    padding: 9px 11px !important;
+  }
+
+  .notes-explorer-shell--workspace-v2 .notes-explorer-open-action {
+    min-width: 82px;
   }
 }

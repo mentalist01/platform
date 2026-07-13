@@ -2724,69 +2724,79 @@ const NotesSection = ({
     : '';
 
   return (
-    <div className="notes-explorer-shell animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
-      <div className="notes-explorer-window overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_14px_28px_rgba(15,23,42,0.08)]">
-        <div className="notes-explorer-toolbar border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white px-3 py-3 md:px-4 md:py-4">
-          <div className="notes-explorer-toolbar-main flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="notes-explorer-toolbar-copy flex min-w-0 items-start gap-2.5 md:gap-3">
-              <div className="notes-explorer-toolbar-heading min-w-0 space-y-1">
-                <h3 className="notes-explorer-title text-xl font-bold text-slate-900 md:text-2xl">
+    <div className="notes-explorer-shell notes-explorer-shell--workspace-v2 animate-fadeIn" data-tour="notes">
+      <section className="notes-task-workspace">
+        <header className="notes-task-hero">
+          <div className="notes-task-hero__main">
+            <button
+              type="button"
+              onClick={handleExplorerBack}
+              className="notes-task-back"
+              title={currentFolderId ? 'Вернуться на уровень выше' : 'Вернуться к заданиям'}
+              aria-label={currentFolderId ? 'Вернуться на уровень выше' : 'Вернуться к заданиям'}
+            >
+              <ArrowLeft size={18} />
+              <span>Назад</span>
+            </button>
+            <div className="notes-task-hero__identity">
+              <span className="notes-task-hero__icon" aria-hidden="true">
+                <BookOpen size={23} strokeWidth={2.1} />
+              </span>
+              <div className="min-w-0">
+                <span className="notes-task-hero__eyebrow">Материалы задания</span>
+                <h3 className="notes-explorer-title notes-task-hero__title">
                   {`Задание ${currentTaskLabel}`}
                 </h3>
-                <p className="notes-explorer-toolbar-subtitle text-sm text-slate-600">
+                <p className="notes-explorer-toolbar-subtitle notes-task-hero__summary">
                   {explorerOverviewLabel}
                 </p>
               </div>
             </div>
-            <div className="notes-explorer-toolbar-side flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:w-auto">
+            <div className="notes-task-hero__side">
               {renderStudentPicker()}
               {role !== 'student' && (
-                <span className={`notes-explorer-stat notes-explorer-stat-remaining inline-flex items-center rounded-full border px-2.5 py-1.5 text-xs font-semibold ${
-                  remainingBytes <= 10 * 1024 * 1024
-                    ? 'border-rose-200 bg-rose-50 text-rose-600'
-                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                <span className={`notes-explorer-stat notes-explorer-stat-remaining ${
+                  remainingBytes <= 10 * 1024 * 1024 ? 'is-low' : ''
                 }`}>
                   {remainingSpaceLabel}
                 </span>
               )}
             </div>
           </div>
-          <div className="notes-explorer-toolbar-path mt-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-            <div className="notes-explorer-address flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm whitespace-nowrap text-slate-600">
-              <span className="shrink-0 text-slate-700">{`Задание ${currentTaskLabel}`}</span>
-              {currentFolderPath.length > 0 ? (
-                currentFolderPath.map((segment, index) => (
-                  <React.Fragment key={`address-path-segment-${index}`}>
-                    <ChevronRight size={13} className="shrink-0 text-slate-300" />
-                    <span className={`shrink-0 ${index === currentFolderPath.length - 1 ? 'notes-explorer-address-current text-slate-900' : 'text-slate-600'}`}>
-                      {segment}
-                    </span>
-                  </React.Fragment>
-                ))
-              ) : (
-                <>
-                  <ChevronRight size={13} className="shrink-0 text-slate-300" />
-                  <span className="notes-explorer-address-empty shrink-0 text-slate-500">Все материалы</span>
-                </>
+
+          {(currentFolderPath.length > 0 || uploadBlockedByRole) && (
+            <div className="notes-task-hero__lower">
+              {currentFolderPath.length > 0 && (
+                <nav className="notes-explorer-address notes-task-breadcrumb" aria-label="Текущая папка">
+                  <Folder size={15} className="shrink-0" aria-hidden="true" />
+                  <span className="shrink-0">Все материалы</span>
+                  {currentFolderPath.map((segment, index) => (
+                    <React.Fragment key={`address-path-segment-${index}`}>
+                      <ChevronRight size={13} className="shrink-0" aria-hidden="true" />
+                      <span className={index === currentFolderPath.length - 1 ? 'notes-explorer-address-current shrink-0' : 'shrink-0'}>
+                        {segment}
+                      </span>
+                    </React.Fragment>
+                  ))}
+                </nav>
+              )}
+              {uploadBlockedByRole && (
+                <p className="notes-explorer-toolbar-note">
+                  Добавлять материалы в эту папку может только учитель
+                </p>
               )}
             </div>
-            {uploadBlockedByRole && (
-              <p className="notes-explorer-toolbar-note text-sm text-slate-500">
-                В эту папку материалы добавляет только учитель.
-              </p>
-            )}
-          </div>
-          {foldersError && <p className="mt-2 text-xs text-red-500">{foldersError}</p>}
-        </div>
-      </div>
+          )}
+          {foldersError && <p className="notes-task-hero__error">{foldersError}</p>}
+        </header>
 
-      <div
+        <div
         onDrop={uploadBlockedByRole ? undefined : handleDrop}
         onDragEnter={uploadBlockedByRole ? undefined : handleDragEnter}
         onDragOver={uploadBlockedByRole ? undefined : handleDragOver}
         onDragLeave={uploadBlockedByRole ? undefined : handleDragLeave}
         data-tour="files"
-        className={`notes-explorer-files rounded-3xl border p-3.5 md:p-5 transition-all ${
+        className={`notes-explorer-files notes-library transition-all ${
           isDragging ? 'is-dragging' : ''
         } ${
           uploadBlockedByRole
@@ -2797,59 +2807,53 @@ const NotesSection = ({
         }`}
       >
         <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple disabled={uploadBlockedByRole} />
-        <div className="notes-explorer-command-stack mb-3 md:mb-4">
-          <div className="notes-explorer-files-toolbar flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="notes-explorer-search-row flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-              <Button
-                variant="secondary"
-                onClick={handleExplorerBack}
-                className="notes-explorer-back-btn notes-explorer-back-btn--files shrink-0"
-                title="Назад"
-              >
-                <ArrowLeft size={16} />
-                Назад
-              </Button>
-              <label className="notes-explorer-search-input-wrap flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+        <div className="notes-explorer-command-stack">
+          <div className="notes-commandbar">
+            <label className="notes-explorer-search-input-wrap notes-commandbar__search">
                 <Search size={16} className="notes-explorer-search-icon shrink-0" />
                 <input
                   type="text"
                   value={fileSearch}
                   onChange={(e) => setFileSearch(e.target.value)}
-                  placeholder="Поиск по папке"
+                  placeholder="Найти папку или материал"
                   className="notes-explorer-search-input min-w-0 flex-1 bg-transparent text-sm outline-none"
                 />
-              </label>
+                {fileSearch.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setFileSearch('')}
+                    className="notes-commandbar__clear"
+                    aria-label="Очистить поиск"
+                    title="Очистить поиск"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+            </label>
+            <div className="notes-explorer-quick-actions notes-commandbar__actions">
               {fileSearch.trim() && (
-                <button
-                  type="button"
-                  onClick={() => setFileSearch('')}
-                  className="notes-explorer-folder-tree-action self-start sm:self-auto"
-                >
-                  Очистить
-                </button>
+                <span className="notes-commandbar__result-count">{searchResultsLabel}</span>
               )}
-            </div>
-            <div className="notes-explorer-quick-actions flex flex-wrap items-center gap-2">
               <Button
                 variant="secondary"
                 onClick={() => setIsCreatingFolder((v) => !v)}
                 disabled={uploadBlockedByRole}
-                className="notes-explorer-folder-add-btn w-full sm:w-auto"
+                className="notes-explorer-folder-add-btn notes-commandbar__secondary"
               >
-                <FolderPlus size={16} /> {isCreatingFolder ? 'Скрыть папку' : 'Новая папка'}
+                <FolderPlus size={16} /> {isCreatingFolder ? 'Скрыть' : 'Новая папка'}
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => setShowPyCreator((v) => !v)}
                 disabled={uploadBlockedByRole}
-                className="notes-explorer-python-toggle notes-explorer-python-quick-btn w-full sm:w-auto"
+                className="notes-explorer-python-toggle notes-explorer-python-quick-btn notes-commandbar__secondary"
               >
-                <Plus size={16} /> {showPyCreator ? 'Скрыть Python' : 'Python-файл'}
+                <Code2 size={16} /> {showPyCreator ? 'Скрыть' : 'Python-файл'}
               </Button>
               <Button
                 onClick={() => fileRef.current?.click()}
                 disabled={isUploading || uploadBlockedByRole}
-                className="notes-explorer-upload-btn w-full sm:w-auto min-w-[148px]"
+                className="notes-explorer-upload-btn notes-commandbar__primary"
               >
                 <Upload size={18} /> {uploadButtonLabel}
               </Button>
@@ -2931,6 +2935,13 @@ const NotesSection = ({
           )}
         </div>
 
+        {isSearchMode && (
+          <div className="notes-library__heading">
+            <h4 className="notes-library__title">{`Результаты по запросу «${fileSearch.trim()}»`}</h4>
+            <span className="notes-library__count">{searchResultsLabel}</span>
+          </div>
+        )}
+
         {visibleExplorerItems.length === 0 ? (
           <div className="notes-explorer-empty-state rounded-2xl border border-dashed border-slate-200 bg-white/80 p-6 text-center md:p-10">
             <h4 className="notes-explorer-empty-title text-sm font-semibold">{emptyStateTitle}</h4>
@@ -2939,8 +2950,8 @@ const NotesSection = ({
         ) : (
           <div className="notes-explorer-table overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="notes-explorer-table-scroll overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-100 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <table className="notes-resource-table min-w-full text-sm">
+                <thead className="notes-resource-table__head bg-slate-100 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-3 py-2 text-left">Имя</th>
                     <th className="px-3 py-2 text-left">Сведения</th>
@@ -2948,7 +2959,7 @@ const NotesSection = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleExplorerItems.map((item) => {
+                  {visibleExplorerItems.map((item, itemIndex) => {
                     if (item.kind === 'folder') {
                       const folder = item.folder;
                       const sharedFolder = isLessonSharedFolder(folder);
@@ -2966,9 +2977,21 @@ const NotesSection = ({
                         'папок'
                       )}, ${folderFileCount} ${formatRussianCountLabel(folderFileCount, 'файл', 'файла', 'файлов')}`;
                       return (
-                        <tr
+                        <React.Fragment key={item.id}>
+                          {itemIndex === 0 && (
+                            <tr className="notes-library-group-row">
+                              <td colSpan={3}>
+                                <span className="notes-library-group-label">
+                                  <Folder size={14} aria-hidden="true" />
+                                  Папки
+                                  <span>{sortedVisibleFolders.length}</span>
+                                </span>
+                              </td>
+                            </tr>
+                          )}
+                          <tr
                           key={item.id}
-                          className={`notes-explorer-folder-file-row border-t border-slate-100 hover:bg-slate-50 ${
+                          className={`notes-explorer-folder-file-row notes-resource-card notes-resource-card--folder border-t border-slate-100 hover:bg-slate-50 ${
                             isDropTarget ? 'is-drop-target' : ''
                           } ${isSelectedFolder ? 'is-selected' : ''} ${
                             isPressingFolder ? 'is-pressing' : ''
@@ -3005,7 +3028,7 @@ const NotesSection = ({
                           tabIndex={renamingFolderId === folder.id ? -1 : 0}
                           title="Один клик — открыть папку"
                         >
-                          <td className="notes-explorer-folder-name-cell px-3 py-2.5">
+                          <td className="notes-explorer-folder-name-cell notes-resource-card__identity px-3 py-2.5">
                             <div className="flex min-w-[220px] items-center gap-3">
                               <span className="notes-explorer-inline-folder-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border">
                                 <FolderOpen size={18} />
@@ -3047,9 +3070,9 @@ const NotesSection = ({
                               </div>
                             </div>
                           </td>
-                          <td className="px-3 py-2.5 text-slate-600">{folderItemsLabel}</td>
+                          <td className="notes-resource-card__meta px-3 py-2.5 text-slate-600">{folderItemsLabel}</td>
                           <td className="px-3 py-2.5">
-                            <div className="notes-explorer-row-actions flex items-center justify-end gap-1.5">
+                            <div className="notes-explorer-row-actions notes-resource-card__actions flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
                                 onMouseDown={(e) => e.stopPropagation()}
@@ -3057,9 +3080,10 @@ const NotesSection = ({
                                   e.stopPropagation();
                                   openFolderWithAnimation(folder.id);
                                 }}
-                                className="notes-explorer-file-action-btn notes-explorer-folder-open-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                className="notes-explorer-file-action-btn notes-explorer-folder-open-btn notes-explorer-open-action rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                                 title="Открыть папку"
                               >
+                                <span className="notes-explorer-open-action__label">Открыть</span>
                                 <ChevronRight className="notes-explorer-folder-open-chevron" size={16} />
                               </button>
                               {!sharedFolder && (
@@ -3093,7 +3117,8 @@ const NotesSection = ({
                               )}
                             </div>
                           </td>
-                        </tr>
+                          </tr>
+                        </React.Fragment>
                       );
                     }
                     const f = item.file;
@@ -3149,6 +3174,16 @@ const NotesSection = ({
                         && cheatsheetSourceCode.trim()
                     );
                     const isCheatsheetCopied = copiedCheatsheetId === String(f.id);
+                    const firstFileInList = itemIndex === sortedVisibleFolders.length;
+                    const previousFile = itemIndex > sortedVisibleFolders.length
+                      ? visibleExplorerItems[itemIndex - 1]?.file
+                      : null;
+                    const previousFilePinned = Boolean(
+                      previousFile && (isFileMemoryPinned(previousFile?.memory) || isLessonSharedFile(previousFile))
+                    );
+                    const fileGroupLabel = firstFileInList
+                      ? (isPinned ? 'Важное' : 'Материалы')
+                      : (!isPinned && previousFilePinned ? 'Материалы' : '');
                     const cheatsheetMetaTitle = [
                       solutionTaskLabel,
                       sourceLabel,
@@ -3157,9 +3192,24 @@ const NotesSection = ({
                     ].filter(Boolean).join(' · ');
                     return (
                       <React.Fragment key={f.id}>
+                        {fileGroupLabel && (
+                          <tr className="notes-library-group-row">
+                            <td colSpan={3}>
+                              <span className={`notes-library-group-label ${isPinned ? 'is-favorite' : ''}`}>
+                                {isPinned ? <Star size={14} fill="currentColor" aria-hidden="true" /> : <FileText size={14} aria-hidden="true" />}
+                                {fileGroupLabel}
+                                <span>
+                                  {isPinned
+                                    ? sortedVisibleFiles.filter((file) => isFileMemoryPinned(file?.memory) || isLessonSharedFile(file)).length
+                                    : sortedVisibleFiles.filter((file) => !(isFileMemoryPinned(file?.memory) || isLessonSharedFile(file))).length}
+                                </span>
+                              </span>
+                            </td>
+                          </tr>
+                        )}
                         <tr
                           ref={(node) => setFileRowRef(f.id, node)}
-                          className={`notes-explorer-file-row border-t border-slate-100 ${
+                          className={`notes-explorer-file-row notes-resource-card ${isPinned ? 'notes-resource-card--favorite' : ''} ${isSolutionBundle ? 'notes-resource-card--solution' : ''} ${isCheatsheet ? 'notes-resource-card--cheatsheet' : ''} border-t border-slate-100 ${
                             isSelected ? 'is-selected' : ''
                           } ${
                             isPreviewVisuallyOpen ? 'is-preview-open' : ''
@@ -3241,7 +3291,7 @@ const NotesSection = ({
                           tabIndex={renamingId === f.id ? -1 : 0}
                           title={isMemoryCodeCard ? solutionActionTitle : (isPreviewable ? 'Один клик — открыть файл' : 'Выделить файл')}
                         >
-                          <td className="px-3 py-2.5">
+                          <td className="notes-resource-card__identity px-3 py-2.5">
                             <div className="flex min-w-[260px] items-center gap-3">
                               {isCheatsheet ? (
                                 <span className={`notes-cheatsheet-icon ${isPreviewVisuallyOpen ? 'is-open' : ''}`}>
@@ -3393,7 +3443,7 @@ const NotesSection = ({
                               </div>
                             </div>
                           </td>
-                          <td className="px-3 py-2.5 text-slate-600">
+                          <td className="notes-resource-card__meta px-3 py-2.5 text-slate-600">
                             <div className="flex flex-col gap-0.5">
                               <span className={isSolutionBundle || isCheatsheet ? 'font-bold text-slate-700' : ''}>
                                 {isSolutionBundle ? 'Задание + решение' : (isCheatsheet ? 'Python' : f.size)}
@@ -3408,7 +3458,7 @@ const NotesSection = ({
                             </div>
                           </td>
                           <td className="px-3 py-2.5">
-                            <div className="notes-explorer-row-actions flex items-center justify-end gap-1.5">
+                            <div className="notes-explorer-row-actions notes-resource-card__actions flex items-center justify-end gap-1.5">
                               {showFavoriteButton && (
                                 <button
                                   onClick={(e) => {
@@ -3443,16 +3493,19 @@ const NotesSection = ({
                                   <Users size={16} />
                                 </button>
                               )}
-                              {isPreviewable && (!isMemoryCodeCard || isCheatsheet) && (
+                              {isPreviewable && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     toggleFilePreview(f);
                                   }}
-                                  className={`notes-explorer-file-action-btn notes-explorer-folder-open-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 ${isCheatsheet ? 'notes-cheatsheet-open-btn' : ''}`}
+                                  className={`notes-explorer-file-action-btn notes-explorer-folder-open-btn notes-explorer-open-action rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 ${isCheatsheet ? 'notes-cheatsheet-open-btn' : ''}`}
                                   title={isSolutionBundle || isCheatsheet ? solutionActionTitle : (isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
                                   type="button"
                                 >
+                                  <span className="notes-explorer-open-action__label">
+                                    {isPreviewVisuallyOpen ? 'Скрыть' : 'Открыть'}
+                                  </span>
                                   <ChevronRight
                                     className="notes-explorer-folder-open-chevron"
                                     size={16}
@@ -4046,6 +4099,7 @@ const NotesSection = ({
           </div>
         )}
       </div>
+      </section>
       {solutionHoverPreview && !expandedPyIds[solutionHoverPreview.fileId] && !collapsingSolutionIds[solutionHoverPreview.fileId] && typeof document !== 'undefined' && createPortal(
         <div
           className="notes-solution-hover-preview"
