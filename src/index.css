@@ -69874,10 +69874,85 @@ html[data-theme='dark'] .progress-overview-milestones .is-reached {
   border-top-color: rgba(221, 214, 254, 0.82) !important;
 }
 
+.student-today-homework__goal-step {
+  border: 1px solid rgba(196, 181, 253, 0.9);
+  background: linear-gradient(145deg, #f5f3ff, #ede9fe);
+  color: #7c3aed;
+  box-shadow:
+    0 7px 16px rgba(124, 58, 237, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.student-today-homework__goal-step--complete {
+  border-color: rgba(110, 231, 183, 0.86);
+  background: linear-gradient(145deg, #d1fae5, #ccfbf1);
+  color: #047857;
+  box-shadow: 0 7px 16px rgba(16, 185, 129, 0.1);
+}
+
+.student-today-homework__goal-state,
+.student-today-homework__goal-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.student-today-homework__goal-action {
+  min-width: 142px;
+}
+
 html[data-theme='dark'] .student-today-homework__next-goal {
   border-top-color: rgba(167, 139, 250, 0.25) !important;
 }
 
 html[data-theme='dark'] .student-today-homework__free-order-note {
   color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .student-today-homework__goal-step {
+  border-color: rgba(167, 139, 250, 0.42);
+  background: linear-gradient(145deg, #382665, #241d4a);
+  color: #d8b4fe;
+  box-shadow:
+    0 8px 18px rgba(2, 6, 23, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+html[data-theme='dark'] .student-today-homework__goal-step--complete {
+  border-color: rgba(52, 211, 153, 0.38);
+  background: linear-gradient(145deg, #145348, #163b3b);
+  color: #6ee7b7;
+}
+
+html[data-theme='dark'] .student-today-homework__goal-count {
+  border-color: rgba(167, 139, 250, 0.3) !important;
+  background: #211a3f !important;
+  color: #c4b5fd !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .student-today-homework__goal-state.bg-purple-100 {
+  background: rgba(124, 58, 237, 0.2) !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .student-today-homework__goal-state.bg-amber-100 {
+  background: rgba(245, 158, 11, 0.16) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme='dark'] .student-today-homework__goal-state.bg-emerald-100 {
+  background: rgba(16, 185, 129, 0.16) !important;
+  color: #6ee7b7 !important;
+}
+
+@media (max-width: 639px) {
+  .student-today-homework__goal-step {
+    width: 36px;
+    height: 36px;
+    border-radius: 13px;
+  }
+
+  .student-today-homework__goal-controls,
+  .student-today-homework__goal-action {
+    width: 100%;
+  }
 }

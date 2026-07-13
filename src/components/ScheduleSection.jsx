@@ -1899,84 +1899,106 @@ const ScheduleSection = ({
           : goalView.solvedCount > 0
             ? (goalView.type === GOAL_TYPE_MOCK ? 'Продолжить пробник' : 'Продолжить цель')
             : (goalView.type === GOAL_TYPE_MOCK ? 'Начать пробник' : 'Начать цель');
+        const statusLabel = isCompleted
+          ? 'Готово'
+          : goalView.solvedCount > 0
+            ? 'В процессе'
+            : 'Можно начать';
 
         return (
           <div
             key={`student-homework-goal-${goalView.viewKey}`}
-            className={goalIndex > 0 ? 'student-today-homework__next-goal mt-5 border-t border-purple-100 pt-4' : ''}
+            className={`student-today-homework__goal-segment ${goalIndex > 0 ? 'student-today-homework__next-goal mt-5 border-t border-purple-100 pt-5' : ''}`}
           >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-purple-600">
-                  <Target size={13} /> {goalIndex === 0 ? 'Текущая цель' : `Ещё одна часть · ${goalIndex + 1}`}
-                </span>
-                {goalIndex > 0 ? (
-                  <span className="student-today-homework__free-order-note text-[10px] font-semibold text-slate-400">Можно выполнить первой</span>
+            <div className="flex items-start gap-3">
+              <span className={`student-today-homework__goal-step inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-black ${isCompleted ? 'student-today-homework__goal-step--complete' : ''}`}>
+                {isCompleted ? <CheckCircle size={17} /> : goalIndex + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-[0.14em] text-purple-600">
+                        Часть {goalIndex + 1} из {orderedGoalViews.length}
+                      </span>
+                      <span className={`student-today-homework__goal-state inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ${
+                        isCompleted
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : goalView.solvedCount > 0
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-purple-100 text-purple-700'
+                      }`}>
+                        {statusLabel}
+                      </span>
+                      {goalIndex > 0 ? (
+                        <span className="student-today-homework__free-order-note text-[10px] font-semibold text-slate-400">можно выполнить первой</span>
+                      ) : null}
+                    </div>
+                    <strong className="mt-1.5 block text-base font-black leading-tight text-slate-900">{goalView.heading}</strong>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {goalView.totalCount > 0
+                        ? isCompleted ? 'Все задания выполнены.' : `Осталось выполнить: ${remaining}`
+                        : 'Откройте цель, чтобы начать.'}
+                    </div>
+                  </div>
+                  {goalView.totalCount > 0 ? (
+                    <span className="student-today-homework__goal-count rounded-full border border-purple-100 bg-white px-2.5 py-1 text-[10px] font-black text-purple-700 shadow-sm">
+                      {`${goalView.solvedCount}/${goalView.totalCount}`}
+                    </span>
+                  ) : null}
+                </div>
+
+                {goalView.totalCount > 0 ? (
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-purple-100">
+                    <div
+                      className={`h-full rounded-full transition-[width] duration-500 ${isCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-400' : 'bg-gradient-to-r from-violet-600 to-fuchsia-500'}`}
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
                 ) : null}
+
+                <div className="student-today-homework__goal-controls mt-3 flex flex-wrap items-end justify-between gap-3">
+                  <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                    {visibleTargets.map((item) => (
+                      <span
+                        key={`student-goal-${goalView.viewKey}-${item.num}`}
+                        className={`inline-flex h-7 min-w-7 items-center justify-center rounded-lg border px-2 text-[10px] font-black ${
+                          item.solved
+                            ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                            : 'border-purple-200 bg-white text-purple-700'
+                        }`}
+                      >
+                        №{item.num}{item.solved ? ' ✓' : ''}
+                      </span>
+                    ))}
+                    {hiddenTargets > 0 ? (
+                      <span className="inline-flex h-7 items-center rounded-lg border border-slate-200 bg-slate-100 px-2 text-[10px] font-black text-slate-500">
+                        +{hiddenTargets}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {isOpenable ? (
+                    <button
+                      type="button"
+                      onClick={() => openGoal(goalView)}
+                      className={`student-today-homework__goal-action inline-flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition hover:-translate-y-0.5 ${
+                        isCompleted
+                          ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100'
+                          : 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-[0_10px_22px_rgba(124,58,237,0.2)] hover:from-violet-700 hover:to-fuchsia-700'
+                      }`}
+                    >
+                      {actionLabel}
+                      <ArrowRight size={15} />
+                    </button>
+                  ) : (
+                    <div className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-purple-200 bg-white/80 px-3 py-2 text-xs font-bold text-purple-700">
+                      Цель доступна в разделе «Практика»
+                    </div>
+                  )}
+                </div>
               </div>
-              {goalView.totalCount > 0 ? (
-                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-purple-700 shadow-sm">
-                  {`${goalView.solvedCount}/${goalView.totalCount}`}
-                </span>
-              ) : null}
             </div>
-
-            <strong className="mt-2 block text-base font-black text-slate-900">{goalView.heading}</strong>
-            <div className="mt-1 text-xs text-slate-500">
-              {goalView.totalCount > 0
-                ? isCompleted ? 'Все задания выполнены.' : `Осталось выполнить: ${remaining}`
-                : 'Откройте цель, чтобы начать.'}
-            </div>
-
-            {goalView.totalCount > 0 ? (
-              <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-purple-100">
-                <div
-                  className={`h-full rounded-full transition-[width] duration-500 ${isCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-400' : 'bg-gradient-to-r from-violet-600 to-fuchsia-500'}`}
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-            ) : null}
-
-            {visibleTargets.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {visibleTargets.map((item) => (
-                  <span
-                    key={`student-goal-${goalView.viewKey}-${item.num}`}
-                    className={`inline-flex h-7 min-w-7 items-center justify-center rounded-lg border px-2 text-[10px] font-black ${
-                      item.solved
-                        ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
-                        : 'border-purple-200 bg-white text-purple-700'
-                    }`}
-                  >
-                    №{item.num}{item.solved ? ' ✓' : ''}
-                  </span>
-                ))}
-                {hiddenTargets > 0 ? (
-                  <span className="inline-flex h-7 items-center rounded-lg border border-slate-200 bg-slate-100 px-2 text-[10px] font-black text-slate-500">
-                    +{hiddenTargets}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-
-            {isOpenable ? (
-              <button
-                type="button"
-                onClick={() => openGoal(goalView)}
-                className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition hover:-translate-y-0.5 sm:w-auto ${
-                  isCompleted
-                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100'
-                    : 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-[0_10px_22px_rgba(124,58,237,0.2)] hover:from-violet-700 hover:to-fuchsia-700'
-                }`}
-              >
-                {actionLabel}
-                <ArrowRight size={15} />
-              </button>
-            ) : (
-              <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white/80 px-3 py-2 text-xs font-bold text-purple-700">
-                Цель доступна в разделе «Практика»
-              </div>
-            )}
           </div>
         );
       };
