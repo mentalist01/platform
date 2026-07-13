@@ -3321,7 +3321,7 @@ const ProgressSection = ({
     : Math.max(0, Math.min(100, Number(totalMastery) || 0));
   const overviewHeadline = isStudentMocksSection
     ? 'Готовность'
-    : getProgressHeadline(totalMasteryRounded);
+    : (overviewProgressValue <= 0 ? 'Начало пути' : getProgressHeadline(totalMasteryRounded));
   const overviewValue = isStudentMocksSection
     ? `${mockReadinessPercent}%`
     : `${totalMasteryLabel} ${getBallLabel(totalMasteryRounded)}`;
@@ -3332,6 +3332,14 @@ const ProgressSection = ({
         : 'Заданий пока нет'
     )
     : '';
+  const masteryMilestones = [0, 25, 50, 75, 100];
+  const nextMasteryMilestone = masteryMilestones.find((milestone) => milestone > overviewProgressValue) ?? 100;
+  const masteryPointsToNext = Math.max(0, Math.ceil(nextMasteryMilestone - overviewProgressValue));
+  const masterySummary = overviewProgressValue <= 0
+    ? 'Решите первое задание — прогресс появится здесь'
+    : overviewProgressValue >= 100
+      ? 'Максимальный результат достигнут'
+      : `${masteryPointsToNext} ${getBallLabel(masteryPointsToNext)} до отметки ${nextMasteryMilestone}`;
   const mockCommandStats = [
     {
       id: 'available',
@@ -3366,16 +3374,27 @@ const ProgressSection = ({
   ];
   return (
     <div className={`progress-section progress-section--${section} ${isStudentProgressSection ? 'progress-section--student' : ''} ${isStudentProgressSection ? 'space-y-3 md:space-y-4' : 'space-y-4 md:space-y-6'} animate-fadeIn`} data-tour="progress">
-      <div className={`progress-overview-card relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 shadow-[0_16px_34px_rgba(99,102,241,0.14)] ${isStudentProgressSection ? 'progress-overview-card--compact' : 'p-4 md:p-6'}`}>
+      <div className={`progress-overview-card relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 shadow-[0_16px_34px_rgba(99,102,241,0.14)] ${isStudentProgressSection ? 'progress-overview-card--compact' : 'p-4 md:p-6'} ${!isStudentMocksSection ? 'progress-overview-card--mastery' : ''}`}>
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
         <div className={`relative z-10 flex flex-col ${isStudentProgressSection ? 'gap-2.5 md:gap-3' : 'gap-3 md:gap-5'}`}>
           <div className={`flex flex-col ${isStudentProgressSection ? 'gap-2.5 md:gap-3' : 'gap-3 md:gap-4'} lg:flex-row lg:items-start lg:justify-between`}>
             <div className={isStudentProgressSection ? 'space-y-1.5' : 'space-y-2.5 md:space-y-3'}>
-              <div>
-                <h2 className={`${isStudentProgressSection ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-bold text-gray-900`}>
-                  {isStudentMocksSection ? 'Готовность к пробникам' : 'Успеваемость'}
-                </h2>
+              <div className={!isStudentMocksSection ? 'progress-overview-heading' : ''}>
+                {!isStudentMocksSection && (
+                  <span className="progress-overview-heading-icon" aria-hidden="true">
+                    <BarChart2 size={18} />
+                  </span>
+                )}
+                <div>
+                  {!isStudentMocksSection && <div className="progress-overview-kicker">Общий результат</div>}
+                  <h2 className={`${isStudentProgressSection ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-bold text-gray-900`}>
+                    {isStudentMocksSection ? 'Готовность к пробникам' : 'Успеваемость'}
+                  </h2>
+                  {!isStudentMocksSection && (
+                    <p className="progress-overview-subtitle">По всем изучаемым темам курса</p>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -3383,16 +3402,27 @@ const ProgressSection = ({
             </div>
           </div>
 
-          <div className={`progress-overview-meter relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 shadow-[0_10px_24px_rgba(99,102,241,0.12)] ${isStudentProgressSection ? 'progress-overview-meter--compact' : 'p-3 md:p-4'} ${isStudentMocksSection ? 'progress-overview-meter--mocks' : ''}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
+          <div
+            className={`progress-overview-meter relative overflow-hidden rounded-2xl border border-purple-200/80 bg-white/80 shadow-[0_10px_24px_rgba(99,102,241,0.12)] ${isStudentProgressSection ? 'progress-overview-meter--compact' : 'p-3 md:p-4'} ${isStudentMocksSection ? 'progress-overview-meter--mocks' : 'progress-overview-meter--mastery'}`}
+            data-empty={!isStudentMocksSection && overviewProgressValue <= 0 ? 'true' : 'false'}
+          >
+            <div className="progress-overview-meter-head flex flex-wrap items-center justify-between gap-3">
+              <div className="progress-overview-status flex min-w-0 items-center gap-3">
                 <div className="progress-overview-badge rounded-full bg-purple-600 px-2.5 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.14em] md:tracking-widest text-white">
                   {overviewHeadline}
                 </div>
+                {!isStudentMocksSection && (
+                  <span className="progress-overview-summary">{masterySummary}</span>
+                )}
               </div>
               <div className="flex flex-wrap items-end justify-end gap-x-3 gap-y-1">
                 <div className={`${isStudentProgressSection ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} progress-overview-value font-extrabold text-purple-700 drop-shadow-sm`}>
-                  {overviewValue}
+                  {!isStudentMocksSection ? (
+                    <>
+                      <strong>{totalMasteryLabel}</strong>
+                      <span>{getBallLabel(totalMasteryRounded)}</span>
+                    </>
+                  ) : overviewValue}
                 </div>
                 {overviewDetail && (
                 <div className="progress-overview-detail pb-0.5 text-xs font-semibold text-slate-400 md:text-sm">
@@ -3402,7 +3432,7 @@ const ProgressSection = ({
               </div>
             </div>
             <div
-              className={`progress-overview-track ${!isStudentMocksSection ? 'progress-overview-track--wave' : ''} relative ${isStudentProgressSection ? 'mt-2 h-4 md:h-5' : 'mt-2.5 md:mt-3 h-6 md:h-8'} w-full overflow-hidden rounded-full border border-purple-100 bg-white/90`}
+              className={`progress-overview-track ${!isStudentMocksSection ? 'progress-overview-track--wave progress-overview-track--mastery' : ''} relative ${isStudentProgressSection ? 'mt-2 h-4 md:h-5' : 'mt-2.5 md:mt-3 h-6 md:h-8'} w-full overflow-hidden rounded-full border border-purple-100 bg-white/90`}
               role="progressbar"
               aria-label={isStudentMocksSection ? 'Готовность к пробникам' : 'Общий прогресс'}
               aria-valuemin={0}
@@ -3422,6 +3452,18 @@ const ProgressSection = ({
                 className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.6),transparent)] animate-sheen"
               />
             </div>
+            {!isStudentMocksSection && (
+              <div className="progress-overview-milestones" aria-hidden="true">
+                {masteryMilestones.map((milestone) => (
+                  <span
+                    key={`mastery-milestone-${milestone}`}
+                    className={overviewProgressValue >= milestone ? 'is-reached' : ''}
+                  >
+                    {milestone === 0 ? 'Старт' : milestone}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

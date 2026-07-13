@@ -64972,7 +64972,8 @@ html[data-theme='dark'] .top-stats-strip {
 .top-stats-strip .student-level-summary-card .level-progress-track {
   height: 7px;
   margin-top: 7px;
-  overflow: hidden;
+  overflow: visible;
+  isolation: isolate;
   background: rgba(139, 92, 246, 0.11);
   box-shadow: inset 0 1px 2px rgba(76, 29, 149, 0.08);
 }
@@ -64990,6 +64991,7 @@ html[data-theme='dark'] .top-stats-strip {
 }
 
 .top-stats-strip .student-level-summary-card .level-progress-fill-tip {
+  z-index: 3;
   animation: none;
 }
 
@@ -69585,5 +69587,284 @@ html[data-theme='dark'] .python-theory-modal-shell.python-theory-modal-shell--mi
   .theory-recording-player--study .animate-spin {
     transition: none !important;
     animation: none !important;
+  }
+}
+
+/* Student mastery overview: useful at zero, clear at every milestone. */
+.progress-overview-card--mastery {
+  min-height: 0 !important;
+  padding: 20px 22px !important;
+  border-color: rgba(167, 139, 250, 0.72) !important;
+  background:
+    radial-gradient(circle at 94% 8%, rgba(216, 180, 254, 0.22), transparent 30%),
+    linear-gradient(140deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 255, 0.96)) !important;
+  box-shadow:
+    0 20px 46px rgba(76, 29, 149, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84) !important;
+}
+
+.progress-overview-card--mastery > [aria-hidden] {
+  opacity: 0.42;
+}
+
+.progress-overview-card--mastery .progress-overview-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.progress-overview-heading-icon {
+  display: inline-flex;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #7c3aed, #4f46e5);
+  color: #fff;
+  box-shadow: 0 9px 20px rgba(99, 102, 241, 0.22);
+}
+
+.progress-overview-kicker {
+  margin-bottom: 1px;
+  color: #8b5cf6;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.progress-overview-card--mastery h2 {
+  font-size: clamp(24px, 2vw, 30px) !important;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+}
+
+.progress-overview-subtitle {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.progress-overview-meter--mastery {
+  min-height: 0 !important;
+  padding: 16px 18px 13px !important;
+  border-color: rgba(221, 214, 254, 0.76) !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+  box-shadow:
+    0 12px 28px rgba(76, 29, 149, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.progress-overview-meter--mastery .progress-overview-status {
+  flex: 1 1 360px;
+}
+
+.progress-overview-meter--mastery .progress-overview-badge {
+  flex: 0 0 auto;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  background: rgba(124, 58, 237, 0.1) !important;
+  color: #7c3aed !important;
+  box-shadow: none;
+  padding: 6px 12px !important;
+  font-size: 11px !important;
+  letter-spacing: 0.09em !important;
+}
+
+.progress-overview-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-overview-meter--mastery .progress-overview-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: #6d28d9 !important;
+  filter: none;
+  text-shadow: none;
+}
+
+.progress-overview-meter--mastery .progress-overview-value strong {
+  font-size: 38px;
+  font-weight: 950;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.progress-overview-meter--mastery .progress-overview-value span {
+  color: #8b5cf6;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.progress-overview-track--mastery {
+  height: 30px !important;
+  margin-top: 14px !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  background: #ede9fe !important;
+  box-shadow:
+    inset 0 2px 5px rgba(76, 29, 149, 0.11),
+    0 8px 20px rgba(139, 92, 246, 0.1) !important;
+}
+
+.progress-overview-track--mastery .progress-overview-fill--wave {
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(90deg, #7c3aed, #8b5cf6 60%, #d946ef) !important;
+  box-shadow:
+    0 0 20px rgba(139, 92, 246, 0.44),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32) !important;
+}
+
+.progress-overview-meter--mastery[data-empty='true'] .progress-overview-track--mastery::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  z-index: 2;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #8b5cf6;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.12);
+  transform: translateY(-50%);
+}
+
+.progress-overview-milestones {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 9px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-overview-milestones span {
+  min-width: 26px;
+  text-align: center;
+}
+
+.progress-overview-milestones span:first-child {
+  text-align: left;
+}
+
+.progress-overview-milestones span:last-child {
+  text-align: right;
+}
+
+.progress-overview-milestones .is-reached {
+  color: #7c3aed;
+}
+
+html[data-theme='dark'] .progress-overview-card--mastery {
+  border-color: rgba(99, 102, 241, 0.34) !important;
+  background:
+    radial-gradient(circle at 94% 8%, rgba(91, 33, 182, 0.2), transparent 32%),
+    linear-gradient(140deg, #0e1729, #111827) !important;
+  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34) !important;
+}
+
+html[data-theme='dark'] .progress-overview-card--mastery h2 {
+  color: #f8fafc !important;
+}
+
+html[data-theme='dark'] .progress-overview-subtitle,
+html[data-theme='dark'] .progress-overview-summary {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .progress-overview-meter--mastery {
+  border-color: rgba(71, 85, 105, 0.62) !important;
+  background: rgba(8, 15, 28, 0.82) !important;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.06) !important;
+}
+
+html[data-theme='dark'] .progress-overview-meter--mastery .progress-overview-badge {
+  border-color: rgba(167, 139, 250, 0.28);
+  background: rgba(124, 58, 237, 0.18) !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .progress-overview-meter--mastery .progress-overview-value {
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .progress-overview-meter--mastery .progress-overview-value span {
+  color: #a78bfa;
+}
+
+html[data-theme='dark'] .progress-overview-track--mastery {
+  background: #241b3d !important;
+  box-shadow: inset 0 1px 3px rgba(2, 6, 23, 0.5) !important;
+}
+
+html[data-theme='dark'] .progress-overview-milestones {
+  color: #64748b;
+}
+
+html[data-theme='dark'] .progress-overview-milestones .is-reached {
+  color: #c4b5fd;
+}
+
+@media (max-width: 640px) {
+  .progress-overview-card--mastery {
+    padding: 14px !important;
+  }
+
+  .progress-overview-heading-icon {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+    border-radius: 11px;
+  }
+
+  .progress-overview-card--mastery h2 {
+    font-size: 21px !important;
+  }
+
+  .progress-overview-subtitle {
+    display: none;
+  }
+
+  .progress-overview-meter--mastery {
+    padding: 12px 13px 10px !important;
+  }
+
+  .progress-overview-meter--mastery .progress-overview-status {
+    flex-basis: 100%;
+    gap: 8px;
+  }
+
+  .progress-overview-summary {
+    white-space: normal;
+  }
+
+  .progress-overview-meter--mastery .progress-overview-value strong {
+    font-size: 30px;
+  }
+
+  .progress-overview-track--mastery {
+    height: 22px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-overview-card--mastery *,
+  .progress-overview-card--mastery *::before,
+  .progress-overview-card--mastery *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
   }
 }
