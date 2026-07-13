@@ -64828,26 +64828,41 @@ html[data-theme='dark'] .student-today-homework-history__list {
 }
 
 /* Level summary in the student status strip. */
+.top-stats-strip {
+  padding-inline: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.top-stats-strip::before {
+  display: none !important;
+}
+
+html[data-theme='dark'] .top-stats-strip {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .top-stats-strip .student-level-summary-card {
-  overflow: hidden;
+  overflow: visible;
   padding: 9px 11px !important;
-  border: 1px solid rgba(221, 214, 254, 0.9);
-  border-radius: 19px;
-  background:
-    radial-gradient(circle at 100% 0%, rgba(224, 231, 255, 0.6), transparent 36%),
-    rgba(255, 255, 255, 0.9);
-  box-shadow: 0 9px 22px rgba(99, 102, 241, 0.085);
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: transform 180ms ease;
 }
 
 .top-stats-strip .student-level-summary-card:hover {
-  border-color: rgba(167, 139, 250, 0.7);
-  box-shadow: 0 12px 26px rgba(124, 58, 237, 0.12);
+  box-shadow: none;
   filter: none;
 }
 
 .top-stats-strip .student-level-summary-card:focus-visible {
-  border-radius: 19px;
+  border-radius: 12px;
 }
 
 .top-stats-strip .student-level-summary-card .level-progress-main {
@@ -64939,7 +64954,7 @@ html[data-theme='dark'] .student-today-homework-history__list {
 }
 
 .top-stats-strip .student-level-summary-card .level-progress-coin {
-  border-color: rgba(245, 158, 11, 0.24);
+  border: 1px solid rgba(245, 158, 11, 0.24);
   box-shadow: none;
 }
 
@@ -65202,11 +65217,9 @@ html[data-theme='dark'] .student-goal-summary__target--solved {
 }
 
 html[data-theme='dark'] .top-stats-strip .student-level-summary-card {
-  border-color: rgba(139, 92, 246, 0.32);
-  background:
-    radial-gradient(circle at 100% 0%, rgba(79, 70, 229, 0.16), transparent 38%),
-    rgba(15, 23, 42, 0.82);
-  box-shadow: 0 9px 22px rgba(2, 6, 23, 0.28);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-progress-title {
@@ -65218,7 +65231,7 @@ html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-prog
 }
 
 html[data-theme='dark'] .top-stats-strip .student-level-summary-card .level-progress-total {
-  border-color: rgba(71, 85, 105, 0.62);
+  border: 1px solid rgba(71, 85, 105, 0.62);
   background: rgba(2, 6, 23, 0.34);
   color: #cbd5e1;
 }
