@@ -5420,7 +5420,7 @@ const CallSection = ({
     const collapsedPanelNode = (
       <div
         ref={collapsedPanelRef}
-        className="call-collapsed-shell call-game-overlay-shell fixed left-4 top-[18vh] z-50 md:left-6 md:top-[16vh]"
+        className="call-collapsed-shell call-game-overlay-shell fixed bottom-20 right-4 z-50 md:bottom-20 md:right-6"
         style={collapsedPanelStyle}
         onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
         onDoubleClick={collapsedOpenHandler}
