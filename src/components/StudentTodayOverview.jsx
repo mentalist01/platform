@@ -65,8 +65,16 @@ const getDeadlineSummary = (entry) => {
 const getGoalLabel = (goal) => {
   if (!goal) return '';
   if (goal.type === 'mock') return goal.mockExamTitle || 'Продолжить пробник';
-  if (goal.taskTitle) return goal.taskTitle;
-  if (goal.taskNumber) return `Задание ${goal.taskNumber}`;
+  const taskTitle = String(goal.taskTitle || '').trim();
+  const taskNumber = String(goal.taskNumber || '').trim();
+  const isPythonGoal = String(goal.levelLabel || goal.levelId || '').trim().toLowerCase() === 'python';
+  if (taskTitle) {
+    if (!taskNumber || isPythonGoal || new RegExp(`^(?:№|задание\\s*)${taskNumber}(?:\\s|[.·:—-])`, 'i').test(taskTitle)) {
+      return taskTitle;
+    }
+    return `№${taskNumber} ${taskTitle}`;
+  }
+  if (taskNumber) return `Задание №${taskNumber}`;
   return 'Продолжить домашку';
 };
 
