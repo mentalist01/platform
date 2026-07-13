@@ -1,6 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import { Maximize2, Minimize2, Pause, Play, Volume2, VolumeX } from 'lucide-react';
+import {
+  AlertTriangle,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  Pause,
+  Play,
+  RotateCcw,
+  RotateCw,
+  Settings,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import {
   formatRecordingDuration,
   getTheoryRecordingAudioSegments,
@@ -275,6 +287,8 @@ const areTheoryPlayerPropsEqual = (prevProps, nextProps) => {
   if (String(prevProps?.progressStorageKey || '') !== String(nextProps?.progressStorageKey || '')) return false;
   if (String(prevProps?.theme || '') !== String(nextProps?.theme || '')) return false;
   if (Boolean(prevProps?.compact) !== Boolean(nextProps?.compact)) return false;
+  if (String(prevProps?.experience || '') !== String(nextProps?.experience || '')) return false;
+  if (String(prevProps?.title || '') !== String(nextProps?.title || '')) return false;
   const prevMeta = getRecordingMemoMeta(prevProps?.recording);
   const nextMeta = getRecordingMemoMeta(nextProps?.recording);
   return (
@@ -295,8 +309,17 @@ const areTheoryPlayerPropsEqual = (prevProps, nextProps) => {
   );
 };
 
-const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey = '', theme = '', compact = false }) => {
+const TheoryRecordingPlayer = ({
+  recording,
+  className = '',
+  progressStorageKey = '',
+  theme = '',
+  compact = false,
+  experience = 'default',
+  title = '',
+}) => {
   const normalized = useMemo(() => normalizeTheoryRecording(recording), [recording]);
+  const isStudyExperience = experience === 'study';
   const monacoTheme = resolveMonacoColorTheme(theme);
   const normalizedProgressStorageKey = useMemo(
     () => String(progressStorageKey || '').trim(),
@@ -349,12 +372,20 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isPlayerHovered, setIsPlayerHovered] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [hasPlayerFocus, setHasPlayerFocus] = useState(false);
+  const [isKeyboardMode, setIsKeyboardMode] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [mediaStatus, setMediaStatus] = useState('loading');
+  const [mediaError, setMediaError] = useState('');
+  const [bufferedPercent, setBufferedPercent] = useState(0);
+  const [seekPreview, setSeekPreview] = useState(null);
+  const [touchSeekFeedback, setTouchSeekFeedback] = useState(null);
   const [runOutputFrame, setRunOutputFrame] = useState(null);
   const [boardStrokes, setBoardStrokes] = useState([]);
   const [boardImages, setBoardImages] = useState([]);
@@ -383,6 +414,10 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const pendingSeekPlaybackMsRef = useRef(null);
   const autoplayAfterSegmentLoadRef = useRef(false);
   const suppressPausePersistRef = useRef(false);
+  const controlsHideTimerRef = useRef(null);
+  const lastFrameSyncAtRef = useRef(0);
+  const lastTouchTapRef = useRef({ at: 0, side: '' });
+  const touchSeekFeedbackTimerRef = useRef(null);
 
   const mapPlaybackMsToTimelineMs = useCallback((playbackMs, sourceDurationOverride = 0) => {
     const sourceDurationMs = Math.max(0, Math.round(Number(sourceDurationOverride) || 0))
@@ -710,7 +745,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const seekAudioToPlaybackMs = useCallback(async (valueMs, options = {}) => {
     const audio = audioRef.current;
     const targetSegment = resolveSegmentAtPlaybackMs(valueMs);
-    if (!audio || !targetSegment) return;
+    if (!audio || !targetSegment) return false;
     const shouldAutoplay = options.autoplay === true;
     pendingSeekPlaybackMsRef.current = targetSegment.globalMs;
     autoplayAfterSegmentLoadRef.current = shouldAutoplay;
@@ -723,7 +758,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
         // Ignore pause errors while switching segments.
       }
       setActiveAudioSegmentIndex(targetSegment.index);
-      return;
+      return true;
     }
     try {
       audio.currentTime = targetSegment.localMs / 1000;
@@ -737,9 +772,12 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       try {
         await audio.play();
       } catch {
-        // Ignore autoplay policy failures.
+        setMediaStatus('error');
+        setMediaError('Не удалось запустить воспроизведение. Нажмите «Повторить» или проверьте настройки браузера.');
+        return false;
       }
     }
+    return true;
   }, [
     mapPlaybackMsToTimelineMs,
     persistProgressMs,
@@ -757,7 +795,11 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     }
     const activeSegment = audioSegmentRanges[activeAudioSegmentIndexRef.current] || null;
     const nextPlaybackMs = (activeSegment?.startMs || 0) + ((Number(audio.currentTime) || 0) * 1000);
-    syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, totalAudioDurationMs));
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if ((now - lastFrameSyncAtRef.current) >= 80) {
+      lastFrameSyncAtRef.current = now;
+      syncTo(mapPlaybackMsToTimelineMs(nextPlaybackMs, totalAudioDurationMs));
+    }
     rafRef.current = requestAnimationFrame(frameLoop);
   }, [audioSegmentRanges, mapPlaybackMsToTimelineMs, stopFrameLoop, syncTo, totalAudioDurationMs]);
 
@@ -781,7 +823,42 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const hasNormalizedRecording = Boolean(normalized);
   const normalizedInitialCode = String(normalized?.initialCode || '');
 
+  const clearControlsHideTimer = useCallback(() => {
+    if (!controlsHideTimerRef.current) return;
+    clearTimeout(controlsHideTimerRef.current);
+    controlsHideTimerRef.current = null;
+  }, []);
+
+  const revealControls = useCallback((options = {}) => {
+    clearControlsHideTimer();
+    setControlsVisible(true);
+    const shouldAutoHide = options.forceAutoHide === true || isPlaying;
+    if (options.keepVisible || !shouldAutoHide) return;
+    controlsHideTimerRef.current = setTimeout(() => {
+      setControlsVisible(false);
+      controlsHideTimerRef.current = null;
+    }, supportsHover ? 2100 : 3000);
+  }, [clearControlsHideTimer, isPlaying, supportsHover]);
+
   useEffect(() => () => stopFrameLoop(), [stopFrameLoop]);
+
+  useEffect(() => () => clearControlsHideTimer(), [clearControlsHideTimer]);
+
+  useEffect(() => () => {
+    if (touchSeekFeedbackTimerRef.current) {
+      clearTimeout(touchSeekFeedbackTimerRef.current);
+      touchSeekFeedbackTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isPlaying || (hasPlayerFocus && isKeyboardMode) || isSettingsOpen) {
+      clearControlsHideTimer();
+      setControlsVisible(true);
+      return;
+    }
+    revealControls();
+  }, [clearControlsHideTimer, hasPlayerFocus, isKeyboardMode, isPlaying, isSettingsOpen, revealControls]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
@@ -825,6 +902,11 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
       setIsPlaying(false);
       setPlaybackRate(1);
       setHasPlaybackStarted(false);
+      setControlsVisible(true);
+      setIsSettingsOpen(false);
+      setMediaStatus('loading');
+      setMediaError('');
+      setBufferedPercent(0);
       setBoardImages([]);
       setActiveAudioSegmentIndex(0);
       return;
@@ -844,6 +926,11 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     setIsPlaying(false);
     setPlaybackRate(1);
     setHasPlaybackStarted(false);
+    setControlsVisible(true);
+    setIsSettingsOpen(false);
+    setMediaStatus('loading');
+    setMediaError('');
+    setBufferedPercent(0);
     setIsFullscreen(false);
     setRunOutputFrame(null);
     setBoardStrokes([]);
@@ -1086,6 +1173,27 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const isBoardFocused = boardDisplayMode === THEORY_RECORDING_BOARD_DISPLAY_MODE_FOCUS;
   const shouldShowBoard = isBoardFocused || hasBoardTimeline || boardStrokes.length > 0 || boardImages.length > 0;
   const showBoardSidebar = shouldShowBoard && !isBoardFocused;
+  const timelineMarkers = useMemo(() => {
+    const events = Array.isArray(normalized?.events) ? normalized.events : [];
+    if (timelineDurationMs <= 0) return [];
+    const markers = [];
+    events.forEach((event) => {
+      const isRun = event?.type === THEORY_RECORDING_EVENT_RUN_OUTPUT;
+      const isBoard = event?.type === THEORY_RECORDING_EVENT_BOARD
+        && String(event?.action || '').trim() !== 'display_mode';
+      if (!isRun && !isBoard) return;
+      const percent = Math.max(0, Math.min(100, ((Number(event?.t) || 0) / timelineDurationMs) * 100));
+      const previous = markers[markers.length - 1];
+      if (previous && Math.abs(previous.percent - percent) < 1.2) return;
+      markers.push({
+        id: `${String(event?.type || 'event')}-${Math.round(Number(event?.t) || 0)}-${markers.length}`,
+        percent,
+        label: isRun ? 'Запуск кода' : 'Доска',
+        kind: isRun ? 'run' : 'board',
+      });
+    });
+    return markers.slice(0, 48);
+  }, [normalized?.events, timelineDurationMs]);
 
   useEffect(() => {
     renderBoardCanvas();
@@ -1126,43 +1234,28 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   );
   const normalizedVolume = isMuted ? 0 : volume;
   const volumeProgressPercent = Math.max(0, Math.min(100, normalizedVolume * 100));
+  const visibleBufferedPercent = Math.max(playbackProgressPercent, Math.min(100, bufferedPercent));
   const seekTrackStyle = useMemo(() => ({
-    background: `linear-gradient(90deg, rgba(37,99,235,0.96) 0%, rgba(34,211,238,0.92) ${playbackProgressPercent}%, rgba(71,85,105,0.55) ${playbackProgressPercent}%, rgba(71,85,105,0.55) 100%)`,
-  }), [playbackProgressPercent]);
+    background: `linear-gradient(90deg, #ef4444 0%, #ef4444 ${playbackProgressPercent}%, rgba(203,213,225,0.58) ${playbackProgressPercent}%, rgba(203,213,225,0.58) ${visibleBufferedPercent}%, rgba(71,85,105,0.62) ${visibleBufferedPercent}%, rgba(71,85,105,0.62) 100%)`,
+  }), [playbackProgressPercent, visibleBufferedPercent]);
   const volumeTrackStyle = useMemo(() => ({
     background: `linear-gradient(90deg, rgba(226,232,240,0.94) 0%, rgba(226,232,240,0.94) ${volumeProgressPercent}%, rgba(148,163,184,0.3) ${volumeProgressPercent}%, rgba(148,163,184,0.3) 100%)`,
   }), [volumeProgressPercent]);
   const centerButtonVisibilityClass = !hasPlaybackStarted
     ? 'opacity-100 scale-100 pointer-events-auto'
-    : (
-      isPlaying
-        ? (
-          supportsHover
-            ? (isPlayerHovered ? 'opacity-95 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none')
-            : 'opacity-0 scale-90 pointer-events-none'
-        )
-        : (
-          supportsHover
-            ? (isPlayerHovered ? 'opacity-90 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none')
-            : 'opacity-0 scale-90 pointer-events-none'
-        )
-    );
-  const timelineControlsVisibilityClass = isPlaying && supportsHover
-    ? (isPlayerHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3 pointer-events-none')
-    : 'opacity-100 translate-y-0';
-  const topLabelVisibilityClass = supportsHover && isPlayerHovered
+    : (isPlaying
+        ? 'opacity-0 scale-90 pointer-events-none'
+        : (controlsVisible ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none'));
+  const shouldShowControls = controlsVisible || !isPlaying || (hasPlayerFocus && isKeyboardMode) || isSettingsOpen;
+  const timelineControlsVisibilityClass = shouldShowControls
+    ? 'opacity-100 translate-y-0'
+    : 'opacity-0 translate-y-3 pointer-events-none';
+  const topLabelVisibilityClass = shouldShowControls
     ? 'opacity-100 translate-y-0'
     : 'opacity-0 -translate-y-1';
   const centerPlaybackToneClass = isPlaying
     ? 'bg-slate-900/78 text-white shadow-[0_14px_32px_rgba(2,6,23,0.62)]'
     : 'bg-gradient-to-br from-sky-500/40 via-indigo-500/34 to-violet-500/28 text-white shadow-[0_14px_30px_rgba(37,99,235,0.32)]';
-  const transportPlaybackToneClass = isPlaying
-    ? 'bg-gradient-to-br from-violet-500/44 via-indigo-500/38 to-sky-500/34 text-white shadow-[0_10px_22px_rgba(79,70,229,0.48),inset_0_1px_0_rgba(255,255,255,0.24)] hover:from-violet-400/52 hover:via-indigo-400/46 hover:to-sky-400/42'
-    : 'bg-gradient-to-br from-sky-500/30 via-blue-500/28 to-indigo-500/26 text-sky-100 shadow-[0_8px_18px_rgba(14,116,144,0.34),inset_0_1px_0_rgba(255,255,255,0.2)] hover:from-sky-400/40 hover:via-blue-400/36 hover:to-indigo-400/34';
-  const fullscreenButtonToneClass = isFullscreen
-    ? 'bg-gradient-to-br from-fuchsia-500/86 via-violet-500/84 to-indigo-500/84 text-white shadow-[0_0_0_1px_rgba(196,181,253,0.42),0_12px_24px_rgba(124,58,237,0.52)] hover:from-fuchsia-400/92 hover:via-violet-400/90 hover:to-indigo-400/90'
-    : 'bg-gradient-to-br from-sky-500/28 via-indigo-500/34 to-violet-500/30 text-sky-100 shadow-[0_10px_20px_rgba(79,70,229,0.3),inset_0_1px_0_rgba(255,255,255,0.18)] hover:from-sky-400/42 hover:via-indigo-400/46 hover:to-violet-400/42';
-  const fullscreenIndicatorClass = isFullscreen ? 'opacity-100 scale-100' : 'opacity-0 scale-75';
   const runOutputShellClass = isFullscreen
     ? 'absolute inset-x-5 bottom-28 z-20 md:left-6 md:right-auto md:w-[min(1040px,calc(100%-3rem))]'
     : 'absolute inset-x-3 bottom-24 z-20 md:left-4 md:right-auto md:w-[min(680px,calc(100%-2rem))]';
@@ -1214,8 +1307,8 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const standardLayoutClass = !isFullscreen
     ? [
         compact
-          ? 'relative z-0 grid h-[min(460px,calc(100vh-18rem))] min-h-0 gap-2.5 overflow-hidden p-2.5 pb-22'
-          : 'relative z-0 grid h-[min(580px,calc(100vh-14rem))] min-h-0 gap-3 overflow-hidden p-3 pb-24',
+          ? `relative z-0 grid h-[min(460px,calc(100vh-18rem))] min-h-0 gap-2.5 overflow-hidden p-2.5 ${hasRunOutputFrame ? 'pb-20' : 'pb-14'}`
+          : `relative z-0 grid h-[min(580px,calc(100vh-14rem))] min-h-0 gap-3 overflow-hidden p-3 ${hasRunOutputFrame ? 'pb-24' : 'pb-14'}`,
         hasRunOutputFrame ? 'grid-rows-[minmax(0,1fr)_auto]' : 'grid-rows-[minmax(0,1fr)]',
         showBoardSidebar ? (compact ? 'md:grid-cols-[minmax(0,1fr)_280px] md:items-stretch' : 'md:grid-cols-[minmax(0,1fr)_320px] md:items-stretch') : '',
       ].filter(Boolean).join(' ')
@@ -1227,42 +1320,101 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   const togglePlayback = useCallback(async () => {
     const audio = audioRef.current;
     if (!audio) return;
+    revealControls();
     try {
       if (audio.paused || audio.ended) {
-        await seekAudioToPlaybackMs(clampedCurrentPlaybackMs, { autoplay: true });
+        const shouldReplayFromStart = audio.ended
+          || clampedCurrentPlaybackMs >= Math.max(0, safePlaybackDurationMs - 250);
+        setMediaError('');
+        setMediaStatus('loading');
+        await seekAudioToPlaybackMs(shouldReplayFromStart ? 0 : clampedCurrentPlaybackMs, { autoplay: true });
         return;
       }
       audio.pause();
     } catch {
-      // Ignore autoplay and playback policy errors.
+      setMediaStatus('error');
+      setMediaError('Не удалось запустить воспроизведение. Попробуйте ещё раз.');
     }
-  }, [clampedCurrentPlaybackMs, seekAudioToPlaybackMs]);
+  }, [clampedCurrentPlaybackMs, revealControls, safePlaybackDurationMs, seekAudioToPlaybackMs]);
 
   const handleSeek = useCallback((event) => {
     const nextPlaybackMs = Math.max(0, Math.round(Number(event.target?.value) || 0));
+    revealControls();
     seekAudioToPlaybackMs(nextPlaybackMs, { autoplay: isPlaying });
-  }, [isPlaying, seekAudioToPlaybackMs]);
+  }, [isPlaying, revealControls, seekAudioToPlaybackMs]);
+
+  const seekBySeconds = useCallback((seconds) => {
+    const deltaMs = Math.round((Number(seconds) || 0) * 1000);
+    const nextPlaybackMs = Math.max(0, Math.min(safePlaybackDurationMs, clampedCurrentPlaybackMs + deltaMs));
+    revealControls();
+    seekAudioToPlaybackMs(nextPlaybackMs, { autoplay: isPlaying });
+  }, [clampedCurrentPlaybackMs, isPlaying, revealControls, safePlaybackDurationMs, seekAudioToPlaybackMs]);
+
+  const handleTouchSurfaceTap = useCallback((event) => {
+    if (event.pointerType !== 'touch') return;
+    if (event.target?.closest?.('button, input, select, a, .theory-player-settings')) return;
+    const rect = event.currentTarget?.getBoundingClientRect?.();
+    if (!rect?.width) return;
+    const side = event.clientX < (rect.left + (rect.width / 2)) ? 'left' : 'right';
+    const now = Date.now();
+    const previousTap = lastTouchTapRef.current;
+    lastTouchTapRef.current = { at: now, side };
+    if (previousTap.side !== side || (now - previousTap.at) > 340) {
+      revealControls();
+      return;
+    }
+    lastTouchTapRef.current = { at: 0, side: '' };
+    const seconds = side === 'left' ? -10 : 10;
+    seekBySeconds(seconds);
+    setTouchSeekFeedback({ side, seconds, key: now });
+    if (touchSeekFeedbackTimerRef.current) clearTimeout(touchSeekFeedbackTimerRef.current);
+    touchSeekFeedbackTimerRef.current = setTimeout(() => {
+      setTouchSeekFeedback(null);
+      touchSeekFeedbackTimerRef.current = null;
+    }, 780);
+  }, [revealControls, seekBySeconds]);
+
+  const handleSeekPointerMove = useCallback((event) => {
+    const rect = event.currentTarget?.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    setSeekPreview({
+      percent: ratio * 100,
+      ms: Math.round(safePlaybackDurationMs * ratio),
+    });
+  }, [safePlaybackDurationMs]);
 
   const handleToggleMute = useCallback(() => {
+    revealControls({ keepVisible: true });
     setIsMuted((prev) => !prev);
-  }, []);
+  }, [revealControls]);
 
   const handleVolumeChange = useCallback((event) => {
     const nextVolume = Math.max(0, Math.min(1, Number(event.target?.value) || 0));
+    revealControls({ keepVisible: true });
     setVolume(nextVolume);
     setIsMuted(nextVolume <= 0);
-  }, []);
+  }, [revealControls]);
 
-  const handlePlaybackRateChange = useCallback((event) => {
-    const nextRate = Number(event.target?.value);
-    if (!Number.isFinite(nextRate)) return;
-    setPlaybackRate(nextRate);
-  }, []);
+  const handleRetryPlayback = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setMediaError('');
+    setMediaStatus('loading');
+    try {
+      audio.load();
+      await seekAudioToPlaybackMs(clampedCurrentPlaybackMs, { autoplay: true });
+    } catch {
+      setMediaStatus('error');
+      setMediaError('Видео пока не загрузилось. Проверьте соединение и повторите попытку.');
+    }
+  }, [clampedCurrentPlaybackMs, seekAudioToPlaybackMs]);
 
   const toggleFullscreen = useCallback(async () => {
     if (typeof document === 'undefined') return;
     const playerElement = playerContainerRef.current;
     if (!playerElement) return;
+    revealControls({ keepVisible: true });
     const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || null;
     try {
       if (fullscreenElement === playerElement) {
@@ -1279,9 +1431,72 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
         playerElement.webkitRequestFullscreen();
       }
     } catch {
-      // Ignore fullscreen API rejections and unsupported environments.
+      setMediaError('Полноэкранный режим недоступен в этом браузере.');
     }
-  }, []);
+  }, [revealControls]);
+
+  const handlePlayerKeyDown = useCallback((event) => {
+    const key = String(event.key || '').toLowerCase();
+    if (key === 'escape' && isSettingsOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsSettingsOpen(false);
+      revealControls({ keepVisible: true });
+      return;
+    }
+    const target = event.target;
+    const targetTag = String(target?.tagName || '').toLowerCase();
+    if (
+      targetTag === 'input'
+      || targetTag === 'select'
+      || targetTag === 'textarea'
+      || targetTag === 'button'
+      || target?.isContentEditable
+      || target?.closest?.('.monaco-editor')
+    ) {
+      return;
+    }
+    if (key === ' ' || key === 'k') {
+      event.preventDefault();
+      void togglePlayback();
+      return;
+    }
+    if (key === 'arrowleft') {
+      event.preventDefault();
+      seekBySeconds(-5);
+      return;
+    }
+    if (key === 'arrowright') {
+      event.preventDefault();
+      seekBySeconds(5);
+      return;
+    }
+    if (key === 'j') {
+      event.preventDefault();
+      seekBySeconds(-10);
+      return;
+    }
+    if (key === 'l') {
+      event.preventDefault();
+      seekBySeconds(10);
+      return;
+    }
+    if (key === 'm') {
+      event.preventDefault();
+      handleToggleMute();
+      return;
+    }
+    if (key === 'f') {
+      event.preventDefault();
+      void toggleFullscreen();
+      return;
+    }
+    if (/^[0-9]$/.test(key)) {
+      event.preventDefault();
+      const ratio = Number(key) / 10;
+      seekAudioToPlaybackMs(Math.round(safePlaybackDurationMs * ratio), { autoplay: isPlaying });
+    }
+  }, [handleToggleMute, isPlaying, isSettingsOpen, revealControls, safePlaybackDurationMs, seekAudioToPlaybackMs, seekBySeconds, toggleFullscreen, togglePlayback]);
 
   const fullscreenActionLabel = isFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть полноэкранный режим';
   const editorHeight = '100%';
@@ -1301,7 +1516,7 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
   if (!normalized || !hasPlayableAudio || normalized.events.length === 0) {
     return (
       <div
-        className={`mt-3 overflow-hidden rounded-2xl bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/45 px-4 py-4 text-xs text-slate-600 shadow-[0_10px_24px_rgba(124,58,237,0.09)] ${className}`}
+        className={`theory-recording-empty mt-3 overflow-hidden rounded-2xl px-4 py-4 text-xs ${className}`}
       >
         {FALLBACK_EMPTY_STATE_TEXT}
       </div>
@@ -1312,9 +1527,43 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
     <div className={`mt-3 ${className}`}>
       <div
         ref={playerContainerRef}
-        className={`group relative overflow-hidden bg-gradient-to-br from-[#06122d] via-[#050d1f] to-[#030816] p-[2px] shadow-[0_22px_46px_rgba(15,23,42,0.42)] ${isFullscreen ? 'h-full w-full rounded-none' : 'rounded-[1.4rem]'}`}
-        onMouseEnter={() => setIsPlayerHovered(true)}
-        onMouseLeave={() => setIsPlayerHovered(false)}
+        className={`theory-recording-player group relative overflow-hidden bg-gradient-to-br from-[#06122d] via-[#050d1f] to-[#030816] p-[2px] shadow-[0_22px_46px_rgba(15,23,42,0.42)] focus:outline-none ${isStudyExperience ? 'theory-recording-player--study' : ''} ${isFullscreen ? 'h-full w-full rounded-none' : 'rounded-[1.4rem]'}`}
+        data-controls-visible={shouldShowControls ? 'true' : 'false'}
+        data-theory-player="true"
+        tabIndex={0}
+        role="region"
+        aria-label={title ? `Видеоразбор: ${title}` : 'Видеоразбор задачи'}
+        onKeyDown={(event) => {
+          setIsKeyboardMode(true);
+          handlePlayerKeyDown(event);
+        }}
+        onPointerMove={() => revealControls()}
+        onPointerDown={(event) => {
+          setIsKeyboardMode(false);
+          revealControls();
+          if (!event.target?.closest?.('.theory-player-settings, .theory-player-settings-trigger')) {
+            setIsSettingsOpen(false);
+          }
+        }}
+        onPointerUp={handleTouchSurfaceTap}
+        onMouseEnter={() => revealControls()}
+        onFocusCapture={(event) => {
+          const keyboardFocus = Boolean(event.target?.matches?.(':focus-visible'));
+          setIsKeyboardMode(keyboardFocus);
+          setHasPlayerFocus(true);
+          revealControls({ keepVisible: keyboardFocus });
+        }}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setHasPlayerFocus(false);
+            setIsSettingsOpen(false);
+          }
+        }}
+        onDoubleClick={(event) => {
+          if (!supportsHover) return;
+          if (event.target?.closest?.('button, input, select, a')) return;
+          void toggleFullscreen();
+        }}
       >
         <div className="pointer-events-none absolute -left-14 -top-16 h-44 w-44 rounded-full bg-sky-400/14 blur-3xl" />
 
@@ -1327,6 +1576,9 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             onPlay={() => {
               setIsPlaying(true);
               setHasPlaybackStarted(true);
+              setMediaStatus('ready');
+              setMediaError('');
+              revealControls({ forceAutoHide: true });
               stopFrameLoop();
               rafRef.current = requestAnimationFrame(runFrameLoop);
             }}
@@ -1337,6 +1589,8 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
                 return;
               }
               setIsPlaying(false);
+              setMediaStatus('ready');
+              revealControls({ keepVisible: true });
               stopFrameLoop();
               const currentPlaybackMs = Math.max(
                 0,
@@ -1375,6 +1629,8 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             }}
             onLoadedMetadata={(event) => {
               setDurationMs(totalAudioDurationMs);
+              setMediaStatus('ready');
+              setMediaError('');
               const requestedPlaybackMs = pendingSeekPlaybackMsRef.current ?? Math.max(0, Math.round(resumePositionMsRef.current || 0));
               const targetSegment = resolveSegmentAtPlaybackMs(requestedPlaybackMs);
               if (!targetSegment) return;
@@ -1389,10 +1645,39 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
               pendingSeekPlaybackMsRef.current = null;
               if (autoplayAfterSegmentLoadRef.current) {
                 autoplayAfterSegmentLoadRef.current = false;
-                event.currentTarget.play().catch(() => {});
+                event.currentTarget.play().catch(() => {
+                  setMediaStatus('error');
+                  setMediaError('Не удалось запустить воспроизведение. Нажмите «Повторить» или проверьте настройки браузера.');
+                });
                 return;
               }
               autoplayAfterSegmentLoadRef.current = false;
+            }}
+            onLoadStart={() => setMediaStatus('loading')}
+            onWaiting={() => setMediaStatus('loading')}
+            onCanPlay={() => {
+              setMediaStatus('ready');
+              setMediaError('');
+            }}
+            onPlaying={() => {
+              setMediaStatus('ready');
+              setMediaError('');
+            }}
+            onProgress={(event) => {
+              const audio = event.currentTarget;
+              if (!audio?.buffered?.length || totalAudioDurationMs <= 0) return;
+              const localBufferedMs = Math.max(0, Number(audio.buffered.end(audio.buffered.length - 1)) || 0) * 1000;
+              const globalBufferedMs = Math.min(
+                totalAudioDurationMs,
+                (currentAudioSegment?.startMs || 0) + localBufferedMs
+              );
+              setBufferedPercent(Math.max(0, Math.min(100, (globalBufferedMs / totalAudioDurationMs) * 100)));
+            }}
+            onError={() => {
+              setIsPlaying(false);
+              setMediaStatus('error');
+              setMediaError('Не удалось загрузить звук видеоразбора.');
+              revealControls({ keepVisible: true });
             }}
           />
 
@@ -1503,21 +1788,78 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             </div>
           )}
 
-          <div className={`pointer-events-none absolute inset-0 z-10 transition-opacity duration-300 ${(!hasPlaybackStarted && isPrePlaybackState) ? 'opacity-100' : 'opacity-0'}`}>
+          <div className={`theory-player-preview-mask pointer-events-none absolute inset-0 z-10 transition-opacity duration-300 ${(!hasPlaybackStarted && isPrePlaybackState) ? 'opacity-100' : 'opacity-0'}`}>
             <div
-              className={`absolute inset-0 transition-colors duration-300 ${
-                isPrePlaybackState ? 'bg-slate-950/78' : 'bg-slate-950/48'
+              className={`theory-player-preview-dim absolute inset-0 transition-colors duration-300 ${
+                isPrePlaybackState
+                  ? (isStudyExperience ? 'bg-slate-950/52' : 'bg-slate-950/78')
+                  : 'bg-slate-950/48'
               }`}
             />
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(56,189,248,0.09),transparent_52%)]" />
-            <div className="absolute inset-0 bg-gradient-to-b from-slate-950/8 via-transparent to-slate-950/82" />
+            <div className="theory-player-preview-ambient absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(56,189,248,0.09),transparent_52%)]" />
+            <div className="theory-player-preview-footer absolute inset-0 bg-gradient-to-b from-slate-950/8 via-transparent to-slate-950/82" />
           </div>
 
-          <div className={`pointer-events-none absolute right-4 top-3 z-20 inline-flex items-center gap-2 rounded-full bg-slate-900/56 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200/90 backdrop-blur-md transition-all duration-200 ${topLabelVisibilityClass}`}>
-            <span>Видеоразбор</span>
-            <span className="h-1 w-1 rounded-full bg-violet-300/80" />
-            <span>{formatRecordingDuration(safePlaybackDurationMs)}</span>
-          </div>
+          {isFullscreen && (
+            <div className={`theory-player-top-label pointer-events-none absolute left-4 right-4 top-3 z-20 flex items-start justify-between gap-3 text-slate-100 transition-all duration-200 ${topLabelVisibilityClass}`}>
+              <div className="min-w-0 rounded-xl bg-slate-950/58 px-3 py-2 backdrop-blur-md">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200/90">Видеоразбор</div>
+                {title && <div className="mt-0.5 truncate text-sm font-semibold text-white">{title}</div>}
+              </div>
+              <span className="shrink-0 rounded-full bg-slate-950/58 px-3 py-1.5 text-[10px] font-bold text-slate-200 backdrop-blur-md">
+                {formatRecordingDuration(safePlaybackDurationMs)}
+              </span>
+            </div>
+          )}
+
+          {mediaStatus === 'loading' && hasPlaybackStarted && !mediaError && (
+            <div className="pointer-events-none absolute left-1/2 top-1/2 z-[24] -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-950/72 p-4 text-white shadow-xl backdrop-blur-md">
+              <Loader2 size={28} className="animate-spin" />
+            </div>
+          )}
+
+          {mediaStatus === 'error' && mediaError && (
+            <div className="absolute left-1/2 top-1/2 z-[25] w-[min(92%,420px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-rose-400/30 bg-slate-950/92 p-4 text-center text-white shadow-2xl backdrop-blur-xl">
+              <AlertTriangle size={24} className="mx-auto text-rose-300" />
+              <div className="mt-2 text-sm font-semibold">{mediaError}</div>
+              <button
+                type="button"
+                onClick={handleRetryPlayback}
+                className="mt-3 inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-xs font-bold transition hover:bg-white/16"
+              >
+                <RotateCw size={14} />
+                Повторить
+              </button>
+            </div>
+          )}
+
+          {touchSeekFeedback && (
+            <div
+              key={touchSeekFeedback.key}
+              className={`theory-player-touch-feedback is-${touchSeekFeedback.side} is-visible`}
+              aria-live="polite"
+            >
+              {touchSeekFeedback.seconds < 0 ? <RotateCcw size={24} /> : <RotateCw size={24} />}
+              <span>{Math.abs(touchSeekFeedback.seconds)} секунд</span>
+            </div>
+          )}
+
+          {!hasPlaybackStarted && clampedCurrentPlaybackMs > 1200 && !mediaError && (
+            <div className="theory-player-resume-prompt absolute left-1/2 top-[calc(50%+52px)] z-20 -translate-x-1/2">
+              <span>{`Продолжить с ${formatRecordingDuration(clampedCurrentPlaybackMs)}`}</span>
+              <button
+                type="button"
+                className="theory-player-resume-reset"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  clearPersistedProgress();
+                  void seekAudioToPlaybackMs(0, { autoplay: false });
+                }}
+              >
+                Сначала
+              </button>
+            </div>
+          )}
 
           {isFullscreen && hasRunOutputFrame && (
             <div className={runOutputShellClass}>
@@ -1577,87 +1919,153 @@ const TheoryRecordingPlayer = ({ recording, className = '', progressStorageKey =
             </span>
           </button>
 
-          <div className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[#020617]/95 via-[#020617]/72 to-transparent px-3 pb-3 pt-14 transition-all duration-300 md:px-4 ${timelineControlsVisibilityClass}`}>
-            <div className="pointer-events-none absolute inset-x-10 bottom-[66px] h-8 bg-gradient-to-r from-transparent via-violet-500/14 to-transparent blur-2xl" />
-            <div className="pointer-events-none absolute inset-x-16 bottom-[64px] h-5 bg-gradient-to-r from-transparent via-sky-400/16 to-transparent blur-xl" />
-            <div className="rounded-2xl bg-slate-900/58 p-2.5 shadow-[0_10px_28px_rgba(2,6,23,0.46)] backdrop-blur-xl md:p-3">
-              <div className="flex items-center gap-2.5 md:gap-3">
-                <button
-                  type="button"
-                  onClick={togglePlayback}
-                  className={`group relative inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full transition-all duration-200 ${transportPlaybackToneClass}`}
-                  aria-label={playbackActionLabel}
+          <div className={`theory-player-controls absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[#020617]/98 via-[#020617]/76 to-transparent px-3 pb-2.5 pt-16 transition-all duration-300 md:px-4 ${timelineControlsVisibilityClass}`}>
+            <div
+              className="theory-player-seek-shell relative mb-2 h-4"
+              onPointerMove={handleSeekPointerMove}
+              onPointerLeave={() => setSeekPreview(null)}
+            >
+              {timelineMarkers.map((marker) => (
+                <span
+                  key={marker.id}
+                  className={`theory-player-marker theory-player-marker--${marker.kind}`}
+                  style={{ left: `${marker.percent}%` }}
+                  title={marker.label}
+                />
+              ))}
+              {seekPreview && (
+                <span
+                  className="theory-player-seek-preview"
+                  style={{ left: `${seekPreview.percent}%` }}
                 >
-                  <span className="pointer-events-none absolute inset-0 rounded-full bg-white/10 opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
-                  {isPlaying ? (
-                    <Pause size={16} className="relative z-10 drop-shadow-[0_1px_4px_rgba(15,23,42,0.45)]" />
-                  ) : (
-                    <Play size={16} className="relative z-10 translate-x-[1px] drop-shadow-[0_1px_4px_rgba(15,23,42,0.45)]" />
-                  )}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <input
-                    type="range"
-                    min={0}
-                    max={safePlaybackDurationMs}
-                    step={100}
-                    value={clampedCurrentPlaybackMs}
-                    onChange={handleSeek}
-                    className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-transparent accent-sky-400"
-                    style={seekTrackStyle}
-                    aria-label="Перемотка"
-                  />
-                  <div className="mt-1.5 flex items-center justify-between text-[10px] font-semibold tracking-wide text-slate-300/90">
-                    <span>{formatRecordingDuration(clampedCurrentPlaybackMs)}</span>
-                    <span>{formatRecordingDuration(safePlaybackDurationMs)}</span>
-                  </div>
-                </div>
+                  {formatRecordingDuration(seekPreview.ms)}
+                </span>
+              )}
+              <input
+                type="range"
+                min={0}
+                max={safePlaybackDurationMs}
+                step={100}
+                value={clampedCurrentPlaybackMs}
+                onChange={handleSeek}
+                className="theory-player-seek absolute inset-x-0 top-1/2 h-1 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent"
+                style={seekTrackStyle}
+                aria-label="Перемотка"
+                aria-valuetext={`${formatRecordingDuration(clampedCurrentPlaybackMs)} из ${formatRecordingDuration(safePlaybackDurationMs)}`}
+              />
+            </div>
+
+            <div className="flex min-w-0 items-center gap-1 text-white sm:gap-1.5">
+              <button
+                type="button"
+                onClick={togglePlayback}
+                className="theory-player-control-button"
+                aria-label={playbackActionLabel}
+                title={`${playbackActionLabel} (Пробел)`}
+              >
+                {isPlaying ? <Pause size={20} /> : <Play size={20} className="translate-x-[1px]" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => seekBySeconds(-10)}
+                className="theory-player-control-button hidden sm:inline-flex"
+                aria-label="Назад на 10 секунд"
+                title="Назад на 10 секунд (J)"
+              >
+                <RotateCcw size={18} />
+                <span className="theory-player-skip-label">10</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => seekBySeconds(10)}
+                className="theory-player-control-button hidden sm:inline-flex"
+                aria-label="Вперёд на 10 секунд"
+                title="Вперёд на 10 секунд (L)"
+              >
+                <RotateCw size={18} />
+                <span className="theory-player-skip-label">10</span>
+              </button>
+
+              <div className="theory-player-volume group/volume flex items-center">
                 <button
                   type="button"
                   onClick={handleToggleMute}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-100 transition hover:bg-white/16"
+                  className="theory-player-control-button"
                   aria-label={soundActionLabel}
+                  title={`${soundActionLabel} (M)`}
                 >
-                  {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                  {isMuted ? <VolumeX size={19} /> : <Volume2 size={19} />}
                 </button>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={normalizedVolume}
-                  onChange={handleVolumeChange}
-                  className="hidden h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-transparent accent-white sm:block"
-                  style={volumeTrackStyle}
-                  aria-label="Громкость"
-                />
-                <select
-                  value={playbackRate}
-                  onChange={handlePlaybackRateChange}
-                  className="h-9 w-[70px] shrink-0 cursor-pointer rounded-lg border border-white/18 bg-white/10 px-2 text-[11px] font-semibold text-slate-100 outline-none transition hover:bg-white/16"
-                  aria-label="Playback speed"
-                >
-                  {PLAYBACK_RATE_OPTIONS.map((rateOption) => (
-                    <option key={`playback-rate-${rateOption}`} value={rateOption} className="bg-slate-900 text-slate-100">
-                      {`${rateOption}x`}
-                    </option>
-                  ))}
-                </select>
+                <div className="theory-player-volume-slider-wrap">
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={normalizedVolume}
+                    onChange={handleVolumeChange}
+                    className="theory-player-volume-slider h-1 w-20 cursor-pointer appearance-none bg-transparent"
+                    style={volumeTrackStyle}
+                    aria-label="Громкость"
+                  />
+                </div>
+              </div>
+
+              <span className="ml-1 whitespace-nowrap text-[11px] font-semibold tabular-nums text-slate-100 sm:text-xs">
+                {formatRecordingDuration(clampedCurrentPlaybackMs)}
+                <span className="px-1 text-slate-400">/</span>
+                {formatRecordingDuration(safePlaybackDurationMs)}
+              </span>
+
+              <div className="min-w-0 flex-1" />
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={toggleFullscreen}
-                  className={`group relative inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-xl transition-all duration-200 hover:scale-[1.04] ${fullscreenButtonToneClass}`}
-                  aria-label={fullscreenActionLabel}
+                  onClick={() => {
+                    setIsSettingsOpen((prev) => !prev);
+                    revealControls({ keepVisible: true });
+                  }}
+                  className={`theory-player-control-button theory-player-settings-trigger ${isSettingsOpen ? 'is-active' : ''}`}
+                  aria-label="Настройки воспроизведения"
+                  aria-expanded={isSettingsOpen}
+                  title="Настройки"
                 >
-                  <span className="pointer-events-none absolute -inset-1 rounded-[0.95rem] bg-gradient-to-br from-violet-400/24 via-fuchsia-400/20 to-sky-400/22 opacity-80 blur-sm transition-opacity duration-200 group-hover:opacity-100" />
-                  <span className={`pointer-events-none absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.95)] transition-all duration-200 ${fullscreenIndicatorClass}`} />
-                  {isFullscreen ? (
-                    <Minimize2 size={16} className="relative z-10 drop-shadow-[0_1px_4px_rgba(15,23,42,0.45)]" />
-                  ) : (
-                    <Maximize2 size={16} className="relative z-10 drop-shadow-[0_1px_4px_rgba(15,23,42,0.45)]" />
-                  )}
+                  <Settings size={19} />
                 </button>
+                {isSettingsOpen && (
+                  <div className="theory-player-settings" role="menu" aria-label="Скорость воспроизведения">
+                    <div className="px-3 pb-2 pt-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Скорость</div>
+                    <div className="grid grid-cols-2 gap-1 px-2 pb-2">
+                      {PLAYBACK_RATE_OPTIONS.map((rateOption) => (
+                        <button
+                          key={`playback-rate-${rateOption}`}
+                          type="button"
+                          onClick={() => {
+                            setPlaybackRate(rateOption);
+                            setIsSettingsOpen(false);
+                            revealControls();
+                          }}
+                          className={`theory-player-rate-option ${playbackRate === rateOption ? 'is-active' : ''}`}
+                          role="menuitemradio"
+                          aria-checked={playbackRate === rateOption}
+                        >
+                          {rateOption === 1 ? 'Обычная' : `${rateOption}×`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="theory-player-control-button"
+                aria-label={fullscreenActionLabel}
+                title={`${fullscreenActionLabel} (F)`}
+              >
+                {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+              </button>
             </div>
           </div>
         </div>

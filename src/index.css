@@ -68381,3 +68381,1196 @@ html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card
     min-width: 82px;
   }
 }
+
+/* Dark task-notes alignment: one surface per row, no split gradients or black bands. */
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-task-workspace {
+  border-color: #2b3e5c !important;
+  background: #0e192b !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-task-hero {
+  border-color: #2b3e5c !important;
+  background: #101c30 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library.notes-explorer-files {
+  background: #0e192b !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-table,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-table-scroll,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-table,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-table tbody {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-table {
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-table-scroll {
+  overflow: visible !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-row,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-row > td {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-label {
+  color: #8496b2 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-label.is-favorite {
+  color: #fbbf24 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-folder-file-row {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.is-cheatsheet > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.is-cheatsheet.is-pinned > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.is-solution-bundle > td {
+  border-top-color: #2c405f !important;
+  border-bottom-color: #2c405f !important;
+  background: #111e32 !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-folder-file-row > td {
+  border-top-color: #315070 !important;
+  border-bottom-color: #315070 !important;
+  background: #12243a !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row:hover > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row:focus-within > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-folder-file-row:hover > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-folder-file-row:focus-within > td {
+  border-color: #506b92 !important;
+  background: #172942 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.is-cheatsheet > td:first-child {
+  border-left-color: #7c5bd1 !important;
+  box-shadow: inset 3px 0 0 #8b5cf6 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.is-pinned > td:first-child,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.is-cheatsheet.is-pinned > td:first-child {
+  border-left-color: #f59e0b !important;
+  box-shadow: inset 3px 0 0 #f59e0b !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card__meta,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card__meta span {
+  color: #91a4c2 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card__meta > div > span:first-child {
+  color: #bac8dc !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card__meta > div > span:not(:first-child) {
+  color: #71849f !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-file-action-btn:not(.notes-explorer-open-action) {
+  border-color: #314560 !important;
+  background: #101b2e !important;
+  color: #90a1ba !important;
+  opacity: 0.88 !important;
+  transform: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-file-action-btn:not(.notes-explorer-open-action):hover:not(:disabled) {
+  border-color: #526d94 !important;
+  background: #1b2c46 !important;
+  color: #eef4ff !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-pin-btn.is-active {
+  border-color: #6b542b !important;
+  background: #2b2315 !important;
+  color: #fbbf24 !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-share-btn.is-active {
+  border-color: #285b75 !important;
+  background: #102b3b !important;
+  color: #7dd3fc !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-cheatsheet-row-badge {
+  border-color: #55477c !important;
+  background: #241d3b !important;
+  color: #c4b5fd !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-file-action-btn-danger:not(.notes-explorer-open-action):hover:not(:disabled) {
+  border-color: #784151 !important;
+  background: #341923 !important;
+  color: #fda4af !important;
+}
+
+/* Python video theory: study-first player chrome and theatre/miniplayer modes. */
+.python-theory-modal-overlay:has(.python-theory-modal-shell--video) {
+  background: rgba(30, 41, 59, 0.42) !important;
+  backdrop-filter: blur(14px) saturate(1.04) !important;
+  animation: pythonVideoTheoryBackdropIn 0.24s ease-out both;
+}
+
+.python-theory-modal-shell.python-theory-modal-shell--video {
+  width: min(1460px, 98vw) !important;
+  max-width: min(1460px, 98vw) !important;
+  height: min(92dvh, 980px) !important;
+  padding: 9px !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 24px !important;
+  background: #f4f7fb !important;
+  box-shadow: 0 30px 84px rgba(15, 23, 42, 0.28) !important;
+  transform-origin: 50% 42%;
+}
+
+.python-theory-modal-shell.python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) {
+  animation: pythonVideoTheoryShellIn 0.34s cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+.python-theory-modal-shell.python-theory-modal-shell--video::before {
+  content: none !important;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-header {
+  min-height: 64px;
+  margin-bottom: 7px !important;
+  padding: 9px 10px 9px 13px;
+  border: 1px solid #d8e1ec;
+  border-radius: 17px;
+  background: #ffffff;
+  box-shadow: 0 5px 18px rgba(15, 23, 42, 0.055);
+}
+
+.python-theory-modal-shell--video .python-theory-modal-copy {
+  min-height: 42px;
+  padding-left: 50px;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-copy::before {
+  width: 38px;
+  height: 38px;
+  background: linear-gradient(145deg, #0ea5e9, #4f46e5);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2);
+}
+
+.python-theory-modal-shell--video .python-theory-modal-copy::after {
+  left: 16px;
+  border-bottom-width: 5px;
+  border-left-width: 8px;
+  border-top-width: 5px;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-kicker {
+  color: #0369a1 !important;
+  font-size: 9px !important;
+  letter-spacing: 0.18em !important;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-title {
+  margin-top: 1px !important;
+  color: #0f172a !important;
+  font-size: clamp(14px, 1.2vw, 18px) !important;
+  font-weight: 750 !important;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-subtitle {
+  display: block;
+  margin-top: 2px !important;
+  color: #64748b !important;
+  font-size: 11px !important;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-meta {
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-meta span {
+  min-height: 21px;
+  padding: 3px 8px;
+  border-color: #d8e1ec;
+  background: #f8fafc;
+  color: #52627a;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-shortcuts {
+  color: #52627a !important;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-actions button {
+  border-color: #cbd5e1 !important;
+  background: #f8fafc !important;
+  color: #334155 !important;
+  box-shadow: none !important;
+  transition: transform 0.16s ease, border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease !important;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-actions button:hover {
+  border-color: #93c5fd !important;
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-actions button:focus-visible {
+  outline: 2px solid #2563eb !important;
+  outline-offset: 2px !important;
+  border-color: #60a5fa !important;
+}
+
+.python-theory-modal-shell--video .python-theory-modal-actions button:active {
+  transform: scale(0.93);
+}
+
+.python-theory-modal-shell--video .python-theory-modal-player {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid #172033;
+  border-radius: 18px;
+  background: #030712;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+}
+
+.python-theory-modal-shell--video .theory-recording-player {
+  margin: 0 !important;
+  border-radius: 17px !important;
+  background: #030712 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.python-theory-modal-shell--video .theory-recording-player > div {
+  border-radius: 17px !important;
+}
+
+html:not([data-theme='dark']) .python-theory-modal-shell--video .theory-recording-player--study .monaco-editor,
+html:not([data-theme='dark']) .python-theory-modal-shell--video .theory-recording-player--study .monaco-editor-background {
+  background-color: #f7f9fc !important;
+}
+
+html:not([data-theme='dark']) .python-theory-modal-shell--video .theory-recording-player--study .monaco-editor {
+  outline: 1px solid #d7e0eb;
+  outline-offset: -1px;
+}
+
+html:not([data-theme='dark']) .python-theory-modal-shell--video .theory-recording-player--study .monaco-editor .margin {
+  background-color: #f2f5f9 !important;
+  box-shadow: inset -1px 0 #e1e7f0;
+}
+
+.theory-recording-player--study:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(56, 189, 248, 0.72) !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-overlay:has(.python-theory-modal-shell--video) {
+  background: rgba(0, 3, 10, 0.82) !important;
+  backdrop-filter: blur(14px) saturate(0.72) brightness(0.72) !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell.python-theory-modal-shell--video {
+  border-color: #1c2a3f !important;
+  background: #030712 !important;
+  box-shadow: 0 34px 92px rgba(0, 0, 0, 0.78) !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-header {
+  border-color: #1d2c42;
+  background: #080e1b;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-copy::before {
+  background: linear-gradient(145deg, #075985, #3730a3);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-kicker {
+  color: #67e8f9 !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-title {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-subtitle {
+  color: #8291a8 !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-meta span {
+  border-color: #1d2c42;
+  background: #07101e;
+  color: #93a4bc;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-shortcuts {
+  color: #718198 !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-actions button {
+  border-color: #24344c !important;
+  background: #0c1524 !important;
+  color: #aebdd2 !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-actions button:hover {
+  border-color: #315071 !important;
+  background: #101e31 !important;
+  color: #e5edf8 !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-actions button:focus-visible {
+  outline-color: #38bdf8 !important;
+  border-color: #0ea5e9 !important;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .python-theory-modal-player {
+  border-color: #152239;
+  background: #00040c;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell--video .theory-recording-player {
+  background: #00040c !important;
+}
+
+html[data-theme='dark'] .theory-recording-player--study > .pointer-events-none.absolute {
+  opacity: 0.28;
+}
+
+.theory-player-top-label {
+  top: 10px !important;
+  left: 12px !important;
+  right: 12px !important;
+  align-items: flex-start !important;
+}
+
+.theory-player-top-label > div,
+.theory-player-top-label > span {
+  border: 1px solid rgba(71, 85, 105, 0.72);
+  background: rgba(2, 6, 23, 0.88) !important;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.26);
+  backdrop-filter: none !important;
+}
+
+.theory-player-top-label > div {
+  max-width: min(68%, 520px);
+  border-radius: 9px !important;
+  padding: 6px 9px !important;
+}
+
+.theory-player-top-label > span {
+  border-radius: 8px !important;
+  padding: 5px 8px !important;
+  color: #cbd5e1 !important;
+  font-size: 10px !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.theory-player-top-label > div > div:first-child {
+  color: #67e8f9 !important;
+  font-size: 9px !important;
+  letter-spacing: 0.14em !important;
+}
+
+.theory-player-top-label > div > div:last-child:not(:first-child) {
+  margin-top: 2px !important;
+  color: #f1f5f9 !important;
+  font-size: 12px !important;
+  line-height: 1.2;
+}
+
+.theory-recording-player--study .theory-player-preview-dim {
+  background: rgba(3, 7, 18, 0.16) !important;
+}
+
+.theory-recording-player--study .theory-player-preview-ambient {
+  background: none !important;
+}
+
+.theory-recording-player--study .theory-player-preview-footer {
+  background: none !important;
+}
+
+html[data-theme='dark'] .theory-recording-player--study .theory-player-preview-dim {
+  background: rgba(0, 4, 12, 0.28) !important;
+}
+
+.theory-recording-player--study > div.relative > button[aria-label] {
+  border: 1px solid rgba(100, 116, 139, 0.7) !important;
+  background: rgba(2, 6, 23, 0.9) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.38) !important;
+  backdrop-filter: none !important;
+}
+
+.theory-recording-player--study > div.relative > button[aria-label]:hover,
+.theory-recording-player--study > div.relative > button[aria-label]:focus-visible {
+  border-color: rgba(125, 211, 252, 0.68) !important;
+  background: rgba(8, 20, 38, 0.96) !important;
+  outline: none;
+}
+
+.theory-player-controls {
+  padding-top: 36px !important;
+  padding-inline: 12px !important;
+  padding-bottom: max(9px, env(safe-area-inset-bottom));
+  background: linear-gradient(
+    to top,
+    rgba(0, 4, 12, 0.97) 0%,
+    rgba(0, 4, 12, 0.84) 42%,
+    rgba(0, 4, 12, 0.26) 76%,
+    transparent 100%
+  ) !important;
+  transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.22s ease !important;
+}
+
+.theory-player-controls > .theory-player-seek-shell {
+  height: 12px !important;
+  margin-bottom: 6px !important;
+}
+
+.theory-player-controls > .flex {
+  min-height: 40px;
+  align-items: center;
+  gap: 4px !important;
+}
+
+.theory-player-controls > .flex > span:not(.hidden) {
+  margin-left: 4px !important;
+  color: #e2e8f0 !important;
+  font-size: 12px !important;
+  font-weight: 750 !important;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.theory-player-controls > .flex > span.hidden {
+  display: none !important;
+}
+
+.python-theory-modal-shell--minimized .theory-player-controls {
+  padding-top: 25px !important;
+  padding-inline: 8px !important;
+  padding-bottom: max(6px, env(safe-area-inset-bottom)) !important;
+}
+
+.python-theory-modal-shell--minimized .theory-player-controls > .flex {
+  min-height: 36px;
+}
+
+.python-theory-modal-shell--minimized .theory-player-control-button {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+}
+
+.theory-recording-player--study[data-controls-visible='true'] .theory-player-controls {
+  filter: none;
+}
+
+.theory-recording-player--study[data-controls-visible='false'] .theory-player-controls {
+  filter: blur(1.5px);
+}
+
+.theory-player-control-button {
+  position: relative;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.96);
+  transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.theory-player-control-button:hover,
+.theory-player-control-button:focus-visible,
+.theory-player-control-button.is-active {
+  outline: none;
+  background: rgba(148, 163, 184, 0.16);
+  color: #fff;
+}
+
+.theory-player-control-button:active {
+  transform: scale(0.94);
+}
+
+.theory-player-skip-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 1px;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.theory-player-seek-shell {
+  touch-action: none;
+}
+
+.theory-player-seek {
+  border-radius: 999px;
+  transition: height 0.15s ease, filter 0.15s ease, box-shadow 0.18s ease;
+}
+
+.theory-player-seek-shell:hover .theory-player-seek,
+.theory-player-seek:focus-visible {
+  height: 5px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16);
+}
+
+.theory-player-seek::-webkit-slider-thumb,
+.theory-player-volume-slider::-webkit-slider-thumb {
+  width: 13px;
+  height: 13px;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.42);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.theory-player-seek::-moz-range-thumb,
+.theory-player-volume-slider::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border: 0;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.42);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.theory-player-seek-shell:hover .theory-player-seek::-webkit-slider-thumb,
+.theory-player-seek:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.12);
+  box-shadow: 0 1px 7px rgba(0, 0, 0, 0.48), 0 0 0 3px rgba(239, 68, 68, 0.14);
+}
+
+.theory-player-seek-shell:hover .theory-player-seek::-moz-range-thumb,
+.theory-player-seek:focus-visible::-moz-range-thumb {
+  transform: scale(1.12);
+  box-shadow: 0 1px 7px rgba(0, 0, 0, 0.48), 0 0 0 3px rgba(239, 68, 68, 0.14);
+}
+
+.theory-player-volume-slider::-webkit-slider-thumb,
+.theory-player-volume-slider::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  background: #f8fafc;
+}
+
+.theory-player-seek-preview {
+  position: absolute;
+  bottom: 16px;
+  z-index: 4;
+  transform: translateX(-50%);
+  border: 1px solid rgba(71, 85, 105, 0.76);
+  border-radius: 7px;
+  background: rgba(2, 6, 23, 0.96);
+  padding: 5px 7px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.34);
+  animation: pythonVideoSeekPreviewIn 0.13s ease-out both;
+}
+
+.theory-player-marker {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 3px;
+  height: 7px;
+  transform: translate(-50%, -50%);
+  border-radius: 99px;
+  background: rgba(203, 213, 225, 0.88);
+  pointer-events: none;
+  animation: pythonVideoMarkerIn 0.3s ease-out both;
+}
+
+.theory-player-marker:nth-of-type(2n) {
+  animation-delay: 35ms;
+}
+
+.theory-player-marker:nth-of-type(3n) {
+  animation-delay: 70ms;
+}
+
+.theory-player-marker--board {
+  background: #38bdf8;
+}
+
+.theory-player-marker--run {
+  background: #fbbf24;
+}
+
+.theory-player-volume-slider-wrap {
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: width 0.18s ease, opacity 0.15s ease, margin 0.18s ease;
+}
+
+.theory-player-volume:hover .theory-player-volume-slider-wrap,
+.theory-player-volume:focus-within .theory-player-volume-slider-wrap {
+  width: 84px;
+  margin-right: 5px;
+  opacity: 1;
+}
+
+.theory-player-settings {
+  position: absolute;
+  right: 0;
+  bottom: 48px;
+  z-index: 40;
+  width: 190px;
+  overflow: hidden;
+  border: 1px solid #26364e;
+  border-radius: 14px;
+  background: rgba(7, 13, 25, 0.985);
+  color: #e2e8f0;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(18px) saturate(0.86);
+  transform-origin: calc(100% - 24px) 100%;
+  animation: pythonVideoSettingsIn 0.2s cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+.theory-player-rate-option {
+  min-height: 32px;
+  border-radius: 8px;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 700;
+  transition: background-color 0.14s ease, color 0.14s ease, transform 0.14s ease;
+}
+
+.theory-player-rate-option:hover,
+.theory-player-rate-option.is-active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #fff;
+}
+
+.theory-player-rate-option.is-active {
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.38);
+}
+
+.theory-player-rate-option:active {
+  transform: scale(0.96);
+}
+
+.theory-recording-player--study div:has(> .animate-spin) {
+  border: 1px solid rgba(51, 65, 85, 0.72);
+  background: rgba(3, 7, 18, 0.9) !important;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.48) !important;
+  animation: pythonVideoLoadingPanelIn 0.18s ease-out both, pythonVideoLoadingPanelPulse 1.8s ease-in-out 0.18s infinite;
+}
+
+.theory-recording-player--study .animate-spin {
+  color: #67e8f9;
+  filter: drop-shadow(0 0 7px rgba(34, 211, 238, 0.32));
+}
+
+.theory-player-touch-feedback {
+  position: absolute;
+  inset-block: 0;
+  z-index: 23;
+  display: flex;
+  width: 50%;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  overflow: hidden;
+  color: #f8fafc;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theory-player-touch-feedback > span {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.theory-player-touch-feedback.is-left {
+  left: 0;
+  padding-right: 12%;
+}
+
+.theory-player-touch-feedback.is-right {
+  right: 0;
+  padding-left: 12%;
+}
+
+.theory-player-touch-feedback::before {
+  content: '';
+  position: absolute;
+  width: min(44vw, 210px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.66);
+  box-shadow: 0 0 34px rgba(14, 165, 233, 0.09);
+  opacity: 0;
+  transform: scale(0.62);
+}
+
+.theory-player-touch-feedback > * {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.72));
+}
+
+.theory-player-touch-feedback.is-visible {
+  opacity: 1;
+  animation: pythonVideoTouchFeedbackFade 0.56s ease-out both;
+}
+
+.theory-player-touch-feedback.is-visible::before {
+  animation: pythonVideoTouchFeedbackRipple 0.56s cubic-bezier(0.16, 0.78, 0.2, 1) both;
+}
+
+.theory-player-touch-feedback.is-left.is-visible > * {
+  animation: pythonVideoTouchFeedbackLeft 0.4s ease-out both;
+}
+
+.theory-player-touch-feedback.is-right.is-visible > * {
+  animation: pythonVideoTouchFeedbackRight 0.4s ease-out both;
+}
+
+.theory-player-resume-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  max-width: calc(100% - 24px);
+  border: 1px solid rgba(100, 116, 139, 0.46);
+  border-radius: 999px;
+  background: rgba(3, 7, 18, 0.82);
+  padding: 4px 5px 4px 12px;
+  color: #e2e8f0;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(12px) saturate(0.86);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  animation: pythonVideoResumePromptIn 0.28s cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+.theory-player-resume-prompt > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theory-player-resume-reset {
+  min-height: 26px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(125, 211, 252, 0.25);
+  border-radius: 999px;
+  background: rgba(14, 116, 144, 0.18);
+  padding: 0 10px;
+  color: #a5f3fc;
+  font-size: 10px;
+  font-weight: 850;
+  transition: transform 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.theory-player-resume-reset:hover,
+.theory-player-resume-reset:focus-visible {
+  outline: none;
+  border-color: rgba(103, 232, 249, 0.52);
+  background: rgba(8, 145, 178, 0.3);
+  color: #ecfeff;
+}
+
+.theory-player-resume-reset:focus-visible {
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.24);
+}
+
+.theory-player-resume-reset:active {
+  transform: scale(0.95);
+}
+
+.theory-recording-empty {
+  border: 1px solid #dbe3ef;
+  background: #f8fafc;
+  color: #64748b;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .theory-recording-empty {
+  border-color: #334155;
+  background: #111c31;
+  color: #aebdd3;
+}
+
+.python-theory-modal-overlay--minimized {
+  position: fixed !important;
+  inset: auto 18px max(18px, env(safe-area-inset-bottom)) auto !important;
+  z-index: 80 !important;
+  display: block !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  pointer-events: none;
+}
+
+.python-theory-modal-overlay.python-theory-modal-overlay--minimized,
+html[data-theme='dark'] .python-theory-modal-overlay.python-theory-modal-overlay--minimized {
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+
+.python-theory-modal-shell.python-theory-modal-shell--minimized {
+  width: min(520px, calc(100vw - 36px)) !important;
+  max-width: min(520px, calc(100vw - 36px)) !important;
+  height: min(390px, 48dvh) !important;
+  padding: 6px !important;
+  border-radius: 19px !important;
+  pointer-events: auto;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.32) !important;
+  transform-origin: 100% 100%;
+  animation: pythonVideoMiniplayerIn 0.3s cubic-bezier(0.2, 0.84, 0.2, 1) both;
+}
+
+html[data-theme='dark'] .python-theory-modal-shell.python-theory-modal-shell--minimized {
+  box-shadow: 0 26px 66px rgba(0, 0, 0, 0.8) !important;
+}
+
+.python-theory-modal-shell--minimized .python-theory-modal-header {
+  min-height: 48px;
+  margin-bottom: 5px !important;
+  padding: 6px 7px 6px 10px;
+  border-radius: 13px;
+}
+
+.python-theory-modal-shell--minimized .python-theory-modal-copy {
+  min-height: 34px;
+  padding-left: 0;
+}
+
+.python-theory-modal-shell--minimized .python-theory-modal-copy::before,
+.python-theory-modal-shell--minimized .python-theory-modal-copy::after,
+.python-theory-modal-shell--minimized .python-theory-modal-kicker,
+.python-theory-modal-shell--minimized .python-theory-modal-subtitle,
+.python-theory-modal-shell--minimized .python-theory-modal-meta {
+  display: none !important;
+}
+
+.python-theory-modal-shell--minimized .python-theory-modal-title {
+  max-width: 320px;
+  font-size: 13px !important;
+}
+
+.python-theory-modal-shell--minimized .python-theory-modal-actions button {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px !important;
+}
+
+.python-theory-modal-shell--minimized .python-theory-modal-player {
+  border-radius: 13px;
+}
+
+.python-theory-modal-shell--minimized .theory-recording-player,
+.python-theory-modal-shell--minimized .theory-recording-player > div {
+  border-radius: 12px !important;
+}
+
+.theory-recording-player--study[data-controls-visible='true'] .theory-player-controls {
+  animation: pythonVideoControlsIn 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes pythonVideoTheoryBackdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pythonVideoTheoryShellIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pythonVideoMiniplayerIn {
+  from {
+    opacity: 0;
+    transform: translate(12px, 12px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes pythonVideoControlsIn {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pythonVideoSettingsIn {
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pythonVideoSeekPreviewIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes pythonVideoMarkerIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scaleY(0.25);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scaleY(1);
+  }
+}
+
+@keyframes pythonVideoLoadingPanelIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes pythonVideoLoadingPanelPulse {
+  0%, 100% {
+    border-color: rgba(51, 65, 85, 0.68);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, 0.48);
+  }
+  50% {
+    border-color: rgba(34, 211, 238, 0.3);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, 0.54), 0 0 0 4px rgba(34, 211, 238, 0.04);
+  }
+}
+
+@keyframes pythonVideoTouchFeedbackFade {
+  0% {
+    opacity: 0;
+  }
+  14%, 68% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes pythonVideoTouchFeedbackRipple {
+  0% {
+    opacity: 0;
+    transform: scale(0.62);
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes pythonVideoTouchFeedbackLeft {
+  from {
+    opacity: 0;
+    transform: translateX(8px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes pythonVideoTouchFeedbackRight {
+  from {
+    opacity: 0;
+    transform: translateX(-8px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes pythonVideoResumePromptIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@media (max-width: 760px) {
+  .python-theory-modal-overlay:has(.python-theory-modal-shell--video):not(.python-theory-modal-overlay--minimized) {
+    padding: 0 !important;
+  }
+
+  .python-theory-modal-shell.python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    padding: 5px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .python-theory-modal-header {
+    min-height: 54px;
+    margin-bottom: 4px !important;
+    padding: 6px 6px 6px 8px;
+    border-radius: 12px;
+  }
+
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .python-theory-modal-copy {
+    min-height: 38px;
+    padding-left: 0;
+  }
+
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .python-theory-modal-copy::before,
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .python-theory-modal-copy::after,
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .python-theory-modal-subtitle,
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .python-theory-modal-shortcuts {
+    display: none !important;
+  }
+
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .python-theory-modal-meta {
+    margin-top: 3px;
+  }
+
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .python-theory-modal-player,
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .theory-recording-player,
+  .python-theory-modal-shell--video:not(.python-theory-modal-shell--minimized) .theory-recording-player > div {
+    border-radius: 10px !important;
+  }
+
+  .theory-player-control-button {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
+  }
+
+  .theory-player-volume-slider-wrap,
+  .theory-player-top-label > div > div:last-child,
+  .theory-player-top-label > span {
+    display: none !important;
+  }
+
+  .theory-player-settings {
+    right: -44px;
+    width: 176px;
+  }
+
+  .python-theory-modal-overlay--minimized {
+    inset: auto 8px calc(72px + env(safe-area-inset-bottom)) auto !important;
+  }
+
+  .python-theory-modal-shell.python-theory-modal-shell--minimized {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    height: min(320px, 42dvh) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .python-theory-modal-overlay:has(.python-theory-modal-shell--video),
+  .python-theory-modal-shell.python-theory-modal-shell--video,
+  .python-theory-modal-shell--video .python-theory-modal-actions button,
+  .theory-player-top-label,
+  .theory-player-preview-mask,
+  .theory-recording-player--study > div.relative > button[aria-label],
+  .theory-player-controls,
+  .theory-player-seek-shell,
+  .theory-player-seek,
+  .theory-player-control-button,
+  .theory-player-seek-preview,
+  .theory-player-marker,
+  .theory-player-volume-slider-wrap,
+  .theory-player-settings,
+  .theory-player-rate-option,
+  .theory-player-touch-feedback,
+  .theory-player-touch-feedback::before,
+  .theory-player-touch-feedback > *,
+  .theory-player-resume-prompt,
+  .theory-player-resume-reset,
+  .theory-recording-player--study div:has(> .animate-spin),
+  .theory-recording-player--study .animate-spin {
+    transition: none !important;
+    animation: none !important;
+  }
+}

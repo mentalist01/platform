@@ -8,6 +8,8 @@ import {
   CircleDashed,
   Code2,
   FileText,
+  Maximize2,
+  PictureInPicture2,
   PlayCircle,
   RefreshCcw,
   RotateCcw,
@@ -232,6 +234,7 @@ const PythonReviewModal = ({
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [solvedCodeById, setSolvedCodeById] = useState({});
   const [showTheory, setShowTheory] = useState(false);
+  const [isTheoryMinimized, setIsTheoryMinimized] = useState(false);
   const [activeTheoryType, setActiveTheoryType] = useState('');
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
@@ -271,6 +274,8 @@ const PythonReviewModal = ({
   const runnerWarmupStartedRef = useRef(false);
   const workspaceGridRef = useRef(null);
   const workspaceResizePointerIdRef = useRef(null);
+  const theoryDialogRef = useRef(null);
+  const theoryReturnFocusRef = useRef(null);
 
   const questionCodeByIdRef = useRef({});
   const questionCodeLoadingByIdRef = useRef({});
@@ -311,7 +316,86 @@ const PythonReviewModal = ({
 
   useEffect(() => {
     setShowTheory(false);
+    setIsTheoryMinimized(false);
   }, [task?.number, selectedSubsectionId]);
+
+  useEffect(() => {
+    if (!showTheory || typeof document === 'undefined') return undefined;
+    if (!theoryReturnFocusRef.current) theoryReturnFocusRef.current = document.activeElement;
+
+    const handleTheoryEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      if (document.fullscreenElement || document.webkitFullscreenElement) return;
+      event.preventDefault();
+      setShowTheory(false);
+      setIsTheoryMinimized(false);
+    };
+
+    document.addEventListener('keydown', handleTheoryEscape);
+    return () => {
+      document.removeEventListener('keydown', handleTheoryEscape);
+      const returnTarget = theoryReturnFocusRef.current;
+      theoryReturnFocusRef.current = null;
+      if (returnTarget && typeof returnTarget.focus === 'function') {
+        window.requestAnimationFrame(() => returnTarget.focus({ preventScroll: true }));
+      }
+    };
+  }, [showTheory]);
+
+  useEffect(() => {
+    if (!showTheory || typeof document === 'undefined') return undefined;
+    const dialog = theoryDialogRef.current;
+    if (!dialog) return undefined;
+
+    if (isTheoryMinimized) {
+      const returnTarget = theoryReturnFocusRef.current;
+      if (returnTarget && typeof returnTarget.focus === 'function') {
+        window.requestAnimationFrame(() => returnTarget.focus({ preventScroll: true }));
+      }
+      return undefined;
+    }
+
+    const getFocusableElements = () => Array.from(dialog.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter((element) => (
+      element.getAttribute('aria-hidden') !== 'true'
+      && element.getClientRects().length > 0
+    ));
+
+    const focusFrameId = window.requestAnimationFrame(() => {
+      if (dialog.contains(document.activeElement)) return;
+      const preferredTarget = dialog.querySelector('[data-theory-player="true"]')
+        || getFocusableElements()[0]
+        || dialog;
+      preferredTarget.focus({ preventScroll: true });
+    });
+
+    const trapTheoryFocus = (event) => {
+      if (event.key !== 'Tab') return;
+      const focusableElements = getFocusableElements();
+      if (!focusableElements.length) {
+        event.preventDefault();
+        dialog.focus({ preventScroll: true });
+        return;
+      }
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+      if (event.shiftKey && (activeElement === firstElement || !dialog.contains(activeElement))) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener('keydown', trapTheoryFocus);
+    return () => {
+      window.cancelAnimationFrame(focusFrameId);
+      document.removeEventListener('keydown', trapTheoryFocus);
+    };
+  }, [isTheoryMinimized, showTheory]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -1462,6 +1546,7 @@ const PythonReviewModal = ({
   const isRecordingTheory = theoryType === THEORY_RECORDING_TYPE && Boolean(theoryRecording);
   const canOpenTheory = Boolean(theory?.content && (!isRecordingTheory || theoryRecording));
   const theoryLauncherLabel = isRecordingTheory ? 'Видео-теория' : 'Теория';
+  const theoryDisplayTitle = currentQuestion?.title || `Задача ${currentQuestionDisplayIndex}`;
   const editorOptions = {
     minimap: { enabled: false },
     fontSize: isMobileViewport ? 15 : 16,
@@ -2131,7 +2216,10 @@ const PythonReviewModal = ({
                       {canOpenTheory && (
                         <button
                           type="button"
-                          onClick={() => setShowTheory(true)}
+                          onClick={() => {
+                            setIsTheoryMinimized(false);
+                            setShowTheory(true);
+                          }}
                           className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
                             isDarkTheme
                               ? 'border-violet-400/35 bg-violet-500/12 text-violet-100 hover:bg-violet-500/20'
@@ -2172,7 +2260,10 @@ const PythonReviewModal = ({
                         </div>
                         <button
                           type="button"
-                          onClick={() => setShowTheory(true)}
+                          onClick={() => {
+                            setIsTheoryMinimized(false);
+                            setShowTheory(true);
+                          }}
                           className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
                             isDarkTheme
                               ? 'border-violet-400/40 bg-violet-500/14 text-white hover:bg-violet-500/22'
@@ -2432,19 +2523,30 @@ const PythonReviewModal = ({
         </div>
       </div>
       {showTheory && canOpenTheory && theory && (
-        <div className="absolute inset-0 z-[55] flex items-center justify-center bg-slate-950/62 p-3 backdrop-blur-sm md:p-5">
-          <div className={`flex h-[min(82vh,860px)] w-full max-w-[min(1180px,96vw)] flex-col overflow-hidden rounded-[32px] border p-3 md:p-4 ${elevatedCardClass}`}>
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className={`text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>{theoryLauncherLabel}</div>
-                <div className={`mt-1 text-base font-semibold ${primaryTextClass}`}>Материал по текущей задаче</div>
-                <div className={`mt-1 text-sm ${secondaryTextClass}`}>
-                  {isRecordingTheory
-                    ? 'Открыта в широком режиме, чтобы плеер не сжимался в боковой колонке.'
-                    : 'Открыта отдельно, чтобы условие, тесты и редактор оставались на месте.'}
+        <div
+          className={`python-theory-modal-overlay absolute inset-0 z-[55] flex items-center justify-center bg-slate-950/62 p-3 backdrop-blur-sm md:p-5 ${isTheoryMinimized ? 'python-theory-modal-overlay--minimized' : ''}`}
+          role="dialog"
+          aria-modal={isTheoryMinimized ? 'false' : 'true'}
+          aria-labelledby="python-review-video-theory-title"
+        >
+          <div
+            ref={theoryDialogRef}
+            tabIndex={-1}
+            className={`python-theory-modal-shell python-theory-modal-shell--video flex h-[min(82vh,860px)] w-full max-w-[min(1180px,96vw)] flex-col overflow-hidden rounded-[32px] border p-3 md:p-4 ${isTheoryMinimized ? 'python-theory-modal-shell--minimized' : ''} ${elevatedCardClass}`}
+          >
+            <div className="python-theory-modal-header !mb-1 !min-h-0 !rounded-none !border-0 !bg-transparent !px-1 !py-1 !shadow-none flex items-center justify-between gap-3">
+              <div className="python-theory-modal-copy min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <div className={`python-theory-modal-kicker text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>{theoryLauncherLabel}</div>
+                  <div className="python-theory-modal-meta !mt-0">
+                    <span>{`Задача ${currentQuestionDisplayIndex}/${totalVisibleQuestions}`}</span>
+                  </div>
+                </div>
+                <div id="python-review-video-theory-title" className={`python-theory-modal-title mt-1 text-base font-semibold ${primaryTextClass}`}>
+                  {theoryDisplayTitle}
                 </div>
                 {availableTheoryTypes.length > 1 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {availableTheoryTypes.map((type) => (
                       <button
                         key={`review-theory-modal-type-${type}`}
@@ -2464,21 +2566,41 @@ const PythonReviewModal = ({
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setShowTheory(false)}
-                className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition ${subtleButtonClass}`}
-                aria-label="Закрыть теорию"
-              >
-                <X size={18} />
-              </button>
+              <div className="python-theory-modal-actions flex shrink-0 items-center gap-2">
+                {isRecordingTheory && (
+                  <button
+                    type="button"
+                    onClick={() => setIsTheoryMinimized((prev) => !prev)}
+                    className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition ${subtleButtonClass}`}
+                    aria-label={isTheoryMinimized ? 'Развернуть видеоразбор' : 'Свернуть видеоразбор в мини-плеер'}
+                    title={isTheoryMinimized ? 'Развернуть' : 'Мини-плеер'}
+                  >
+                    {isTheoryMinimized ? <Maximize2 size={18} /> : <PictureInPicture2 size={18} />}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTheory(false);
+                    setIsTheoryMinimized(false);
+                  }}
+                  className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition ${subtleButtonClass}`}
+                  aria-label="Закрыть теорию"
+                  title="Закрыть (Esc)"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="python-theory-modal-player !border-0 !shadow-none min-h-0 flex-1 overflow-hidden">
               {isRecordingTheory && theoryRecording ? (
                 <TheoryRecordingPlayer
                   recording={theoryRecording}
                   theme={theme}
-                  className="mt-0 h-full"
+                  className="!mt-0 h-full"
+                  compact={isTheoryMinimized}
+                  experience="study"
+                  title={theoryDisplayTitle}
                 />
               ) : theoryType === 'gdoc' ? (
                 isGoogleDocEmbedUrl(theory.content) ? (
