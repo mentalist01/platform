@@ -69868,3 +69868,16 @@ html[data-theme='dark'] .progress-overview-milestones .is-reached {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Additional homework goals continue the original panel instead of nesting cards. */
+.student-today-homework__next-goal {
+  border-top-color: rgba(221, 214, 254, 0.82) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__next-goal {
+  border-top-color: rgba(167, 139, 250, 0.25) !important;
+}
+
+html[data-theme='dark'] .student-today-homework__free-order-note {
+  color: #94a3b8 !important;
+}

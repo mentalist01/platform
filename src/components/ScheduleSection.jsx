@@ -1875,16 +1875,111 @@ const ScheduleSection = ({
 
     if (role === 'student' && isNextSection) {
       const primaryGoal = firstPendingGoal || goalViews[0] || null;
-      const primaryProgress = Math.max(0, Math.min(100, Number(primaryGoal?.progressPercent) || 0));
-      const primaryRemaining = primaryGoal?.totalCount > 0
-        ? Math.max(primaryGoal.totalCount - primaryGoal.solvedCount, 0)
-        : 0;
-      const primaryTargets = Array.isArray(primaryGoal?.targetStatus)
-        ? primaryGoal.targetStatus.slice(0, 10)
+      const orderedGoalViews = primaryGoal
+        ? [primaryGoal, ...goalViews.filter((goalView) => goalView !== primaryGoal)]
         : [];
-      const hiddenPrimaryTargets = Math.max((primaryGoal?.targetStatus?.length || 0) - primaryTargets.length, 0);
-      const additionalPendingGoals = goalsSummary.pendingGoals.filter((goalView) => goalView !== primaryGoal);
-      const additionalCompletedCount = goalsSummary.completedGoals.filter((goalView) => goalView !== primaryGoal).length;
+
+      const renderStudentGoalBlock = (goalView, goalIndex) => {
+        if (!goalView) return null;
+        const progressPercent = Math.max(0, Math.min(100, Number(goalView.progressPercent) || 0));
+        const remaining = goalView.totalCount > 0
+          ? Math.max(goalView.totalCount - goalView.solvedCount, 0)
+          : 0;
+        const visibleTargets = Array.isArray(goalView.targetStatus)
+          ? goalView.targetStatus.slice(0, 10)
+          : [];
+        const hiddenTargets = Math.max((goalView.targetStatus?.length || 0) - visibleTargets.length, 0);
+        const isCompleted = goalView.totalCount > 0 && remaining === 0;
+        const isOpenable = Boolean(
+          (goalView.type === GOAL_TYPE_MOCK && onOpenMockGoal)
+          || (goalView.type === GOAL_TYPE_TASK && onOpenTask)
+        );
+        const actionLabel = isCompleted
+          ? 'Посмотреть'
+          : goalView.solvedCount > 0
+            ? (goalView.type === GOAL_TYPE_MOCK ? 'Продолжить пробник' : 'Продолжить цель')
+            : (goalView.type === GOAL_TYPE_MOCK ? 'Начать пробник' : 'Начать цель');
+
+        return (
+          <div
+            key={`student-homework-goal-${goalView.viewKey}`}
+            className={goalIndex > 0 ? 'student-today-homework__next-goal mt-5 border-t border-purple-100 pt-4' : ''}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-purple-600">
+                  <Target size={13} /> {goalIndex === 0 ? 'Текущая цель' : `Ещё одна часть · ${goalIndex + 1}`}
+                </span>
+                {goalIndex > 0 ? (
+                  <span className="student-today-homework__free-order-note text-[10px] font-semibold text-slate-400">Можно выполнить первой</span>
+                ) : null}
+              </div>
+              {goalView.totalCount > 0 ? (
+                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-purple-700 shadow-sm">
+                  {`${goalView.solvedCount}/${goalView.totalCount}`}
+                </span>
+              ) : null}
+            </div>
+
+            <strong className="mt-2 block text-base font-black text-slate-900">{goalView.heading}</strong>
+            <div className="mt-1 text-xs text-slate-500">
+              {goalView.totalCount > 0
+                ? isCompleted ? 'Все задания выполнены.' : `Осталось выполнить: ${remaining}`
+                : 'Откройте цель, чтобы начать.'}
+            </div>
+
+            {goalView.totalCount > 0 ? (
+              <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-purple-100">
+                <div
+                  className={`h-full rounded-full transition-[width] duration-500 ${isCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-400' : 'bg-gradient-to-r from-violet-600 to-fuchsia-500'}`}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            ) : null}
+
+            {visibleTargets.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {visibleTargets.map((item) => (
+                  <span
+                    key={`student-goal-${goalView.viewKey}-${item.num}`}
+                    className={`inline-flex h-7 min-w-7 items-center justify-center rounded-lg border px-2 text-[10px] font-black ${
+                      item.solved
+                        ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                        : 'border-purple-200 bg-white text-purple-700'
+                    }`}
+                  >
+                    №{item.num}{item.solved ? ' ✓' : ''}
+                  </span>
+                ))}
+                {hiddenTargets > 0 ? (
+                  <span className="inline-flex h-7 items-center rounded-lg border border-slate-200 bg-slate-100 px-2 text-[10px] font-black text-slate-500">
+                    +{hiddenTargets}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {isOpenable ? (
+              <button
+                type="button"
+                onClick={() => openGoal(goalView)}
+                className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition hover:-translate-y-0.5 sm:w-auto ${
+                  isCompleted
+                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100'
+                    : 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-[0_10px_22px_rgba(124,58,237,0.2)] hover:from-violet-700 hover:to-fuchsia-700'
+                }`}
+              >
+                {actionLabel}
+                <ArrowRight size={15} />
+              </button>
+            ) : (
+              <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white/80 px-3 py-2 text-xs font-bold text-purple-700">
+                Цель доступна в разделе «Практика»
+              </div>
+            )}
+          </div>
+        );
+      };
 
       return (
         <article key={key} className="student-today-homework-card relative overflow-hidden rounded-[26px] border border-purple-200/85 bg-white/94 p-4 shadow-[0_18px_42px_rgba(99,102,241,0.13)] md:p-5">
@@ -1931,102 +2026,11 @@ const ScheduleSection = ({
 
           <div className="relative mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)]">
             <section className="student-today-homework__goal-panel rounded-[20px] border border-purple-200/80 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/60 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-purple-600">
-                  <Target size={13} /> Текущая цель
-                </span>
-                {primaryGoal?.totalCount > 0 ? (
-                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-purple-700 shadow-sm">
-                    {`${primaryGoal.solvedCount}/${primaryGoal.totalCount}`}
-                  </span>
-                ) : null}
-              </div>
-
-              {primaryGoal ? (
-                <>
-                  <strong className="mt-2 block text-base font-black text-slate-900">{primaryGoal.heading}</strong>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {primaryGoal.totalCount > 0 ? `Осталось выполнить: ${primaryRemaining}` : 'Откройте цель, чтобы начать.'}
-                  </div>
-                  {primaryGoal.totalCount > 0 ? (
-                    <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-purple-100">
-                      <div
-                        className={`h-full rounded-full ${primaryRemaining === 0 ? 'bg-gradient-to-r from-emerald-500 to-teal-400' : 'bg-gradient-to-r from-violet-600 to-fuchsia-500'}`}
-                        style={{ width: `${primaryProgress}%` }}
-                      />
-                    </div>
-                  ) : null}
-                  {primaryTargets.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {primaryTargets.map((item) => (
-                        <span
-                          key={`student-primary-${primaryGoal.viewKey}-${item.num}`}
-                          className={`inline-flex h-7 min-w-7 items-center justify-center rounded-lg border px-2 text-[10px] font-black ${
-                            item.solved
-                              ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
-                              : 'border-purple-200 bg-white text-purple-700'
-                          }`}
-                        >
-                          №{item.num}{item.solved ? ' ✓' : ''}
-                        </span>
-                      ))}
-                      {hiddenPrimaryTargets > 0 ? (
-                        <span className="inline-flex h-7 items-center rounded-lg border border-slate-200 bg-slate-100 px-2 text-[10px] font-black text-slate-500">
-                          +{hiddenPrimaryTargets}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {firstPendingGoal && canOpenFirstPending ? (
-                    <button
-                      type="button"
-                      onClick={() => openGoal(firstPendingGoal)}
-                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2.5 text-sm font-black text-white shadow-[0_10px_22px_rgba(124,58,237,0.2)] transition hover:-translate-y-0.5 hover:from-violet-700 hover:to-fuchsia-700 sm:w-auto"
-                    >
-                      {firstPendingGoal.type === GOAL_TYPE_MOCK ? 'Продолжить пробник' : 'Продолжить цель'}
-                      <ArrowRight size={15} />
-                    </button>
-                  ) : firstPendingGoal ? (
-                    <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white/80 px-3 py-2 text-xs font-bold text-purple-700">
-                      Цель доступна в разделе «Практика»
-                    </div>
-                  ) : (
-                    <div className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-100 px-3 py-2 text-xs font-bold text-emerald-700">
-                      <CheckCircle size={15} /> Все цели выполнены
-                    </div>
-                  )}
-                </>
+              {orderedGoalViews.length > 0 ? (
+                orderedGoalViews.map((goalView, goalIndex) => renderStudentGoalBlock(goalView, goalIndex))
               ) : (
-                <p className="mt-2 text-sm text-slate-500">Учитель пока не добавил учебные цели.</p>
+                <p className="text-sm text-slate-500">Учитель пока не добавил учебные цели.</p>
               )}
-
-              {(additionalPendingGoals.length > 0 || additionalCompletedCount > 0) ? (
-                <div className="mt-4 border-t border-purple-100 pt-3">
-                  <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Дальше</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {additionalPendingGoals.slice(0, 3).map((goalView) => (
-                      <button
-                        key={`student-next-${goalView.viewKey}`}
-                        type="button"
-                        onClick={() => openGoal(goalView)}
-                        className="rounded-lg border border-purple-100 bg-white px-2.5 py-1.5 text-left text-[11px] font-semibold text-slate-600 transition hover:border-purple-300 hover:text-purple-700"
-                      >
-                        {goalView.heading}
-                      </button>
-                    ))}
-                    {additionalPendingGoals.length > 3 ? (
-                      <span className="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-500">
-                        +{additionalPendingGoals.length - 3} в плане
-                      </span>
-                    ) : null}
-                    {additionalCompletedCount > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-700">
-                        <CheckCircle size={12} /> {additionalCompletedCount} выполнено
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
             </section>
 
             <section className="student-today-homework__checklist-panel rounded-[20px] border border-slate-200/90 bg-slate-50/75 p-4">
