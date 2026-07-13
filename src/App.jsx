@@ -8377,13 +8377,13 @@ const CollabSection = ({
       {inputPane}
     </div>
   ) : null;
-  const collabTopActions = isTeacher ? (
+  const collabTopActions = (
     <div className={`collab-top-actions flex flex-wrap items-center ${
       isCollabFullscreen
         ? 'gap-1.5 md:justify-end'
         : (isDesktopCollabCompact ? 'gap-1.5' : 'gap-2')
     }`}>
-      {(!isCollabFullscreen || !activeStudentId) && renderStudentPicker()}
+      {isTeacher && (!isCollabFullscreen || !activeStudentId) && renderStudentPicker()}
       <button
         type="button"
         onClick={() => setSaveModalOpen(true)}
@@ -8416,7 +8416,7 @@ const CollabSection = ({
         </span>
       )}
     </div>
-  ) : null;
+  );
 
   return (
     <div ref={collabRootRef} className={collabShellClass} style={collabShellStyle}>
@@ -8601,6 +8601,17 @@ const CollabSection = ({
                 <FileText size={15} />
                 <span>Ввод и файлы</span>
                 <ChevronDown size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSaveModalOpen(true)}
+                disabled={!effectiveStudentId}
+                className={`${collabIconButtonBase} collab-code-pill-button is-menu is-files`}
+                title="Сохранить код в конспекты"
+                aria-label="Сохранить код в конспекты"
+              >
+                <Save size={15} />
+                <span>В конспекты</span>
               </button>
             </>
           ) : (
