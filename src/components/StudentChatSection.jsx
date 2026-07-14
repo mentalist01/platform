@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Bell,
@@ -32,6 +32,7 @@ import {
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import ChatInfoDrawer from './ChatInfoDrawer';
+import ChatCodeBlock from './ChatCodeBlock';
 import LinkifiedText from './LinkifiedText';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 
@@ -274,6 +275,7 @@ const getMessageSearchText = (message) => [
   message?.senderName,
   message?.imageName,
   message?.fileName,
+  message?.code,
   message?.replyTo?.text,
   message?.replyTo?.senderName,
   message?.forwardFrom?.text,
@@ -382,6 +384,7 @@ const getMessageReferencePreview = (reference) => {
   if (text) return text;
   if (reference?.hasImage) return reference?.imageName || 'Изображение';
   if (reference?.hasFile) return reference?.fileName || 'Файл';
+  if (reference?.hasCode) return 'Код Python';
   return 'Сообщение';
 };
 
@@ -398,7 +401,8 @@ const buildMessageReferencePayload = (message, options = {}) => {
   const fileName = String(message?.fileName || '').trim();
   const hasImage = Boolean(message?.imageDataUrl || imageName);
   const hasFile = Boolean(message?.fileDataUrl || fileName);
-  if (!messageId || !senderId || (!text && !hasImage && !hasFile)) return null;
+  const hasCode = Boolean(String(message?.code || '').trim());
+  if (!messageId || !senderId || (!text && !hasImage && !hasFile && !hasCode)) return null;
   return {
     messageId,
     chatId: String(options.chatId || '').trim(),
@@ -410,6 +414,7 @@ const buildMessageReferencePayload = (message, options = {}) => {
     text,
     hasImage,
     hasFile,
+    hasCode,
     imageName,
     fileName,
     createdAt: String(message?.createdAt || '').trim(),
@@ -757,13 +762,51 @@ const scrollChatNodeToBottom = (node) => {
   });
 };
 
+const scrollChatNodeToLatest = (node) => {
+  if (!node) return;
+  const messageNodes = node.querySelectorAll('[data-chat-message-id]');
+  const latestMessage = messageNodes[messageNodes.length - 1];
+  const shouldShowMessageStart = Boolean(
+    latestMessage
+    && (
+      latestMessage.dataset.chatScrollAnchor === 'start'
+      || (
+        node.clientHeight > 0
+        && latestMessage.getBoundingClientRect().height > Math.max(180, node.clientHeight - 40)
+      )
+    )
+  );
+  const scroll = () => {
+    if (!shouldShowMessageStart) {
+      node.scrollTop = node.scrollHeight;
+      return;
+    }
+
+    const nodeRect = node.getBoundingClientRect();
+    const messageRect = latestMessage.getBoundingClientRect();
+    node.scrollTop = Math.max(0, node.scrollTop + messageRect.top - nodeRect.top - 16);
+  };
+  scroll();
+  if (typeof window === 'undefined') return;
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(scroll);
+  }
+};
+
+const getHelpRequestQuestionText = (value = '') => {
+  const text = String(value || '').replace(/\r\n?/g, '\n').trim();
+  if (!text) return '';
+  const match = text.match(/Вопрос ученика:\s*([\s\S]*?)(?:\n\s*\n(?:условие|Условие)(?=\s|$)|$)/i);
+  return String(match?.[1] || text).trim();
+};
+
 const applyChatScrollBehavior = (listRef, behaviorRef) => {
   const node = listRef.current;
   const behavior = behaviorRef.current;
   if (!node || !behavior) return;
   behaviorRef.current = null;
   if (behavior.type === 'bottom') {
-    scrollChatNodeToBottom(node);
+    scrollChatNodeToLatest(node);
     return;
   }
   if (behavior.type === 'preserve') {
@@ -1376,7 +1419,7 @@ const ChatMessages = ({
         <div
           ref={listRef}
           onScroll={handleScroll}
-          className="student-chat-messages h-full min-h-0 space-y-3.5 overflow-y-auto rounded-[1.35rem] border border-slate-200/80 p-3 pb-4"
+          className="student-chat-messages h-full min-h-0 space-y-3.5 overflow-y-auto border border-slate-200/80"
         >
     {pinnedMessage && (
       <div className="student-chat-pinned-message-row" data-message-menu-ignore="true">
@@ -1477,12 +1520,14 @@ const ChatMessages = ({
         const messageImageName = String(message?.imageName || '').trim();
         const messageFileDataUrl = String(message?.fileDataUrl || '').trim();
         const messageFileName = String(message?.fileName || '').trim();
+        const messageCode = String(message?.code || '').replace(/\r\n?/g, '\n').trimEnd();
         const messageFileMimeType = normalizeAttachmentMimeType(message?.fileMimeType || getDataUrlMimeType(messageFileDataUrl));
         const messageFileSizeText = formatFileSize(message?.fileSize);
         const renderedImageDataUrl = messageImageDataUrl || (messageFileMimeType.startsWith('image/') ? messageFileDataUrl : '');
         const renderedImageName = messageImageDataUrl ? messageImageName : messageFileName;
         const renderedFileDataUrl = renderedImageDataUrl === messageFileDataUrl ? '' : messageFileDataUrl;
-        const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !renderedFileDataUrl);
+        const isHelpRequest = Boolean(String(message?.helpRequestId || '').trim());
+        const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !renderedFileDataUrl && !messageCode);
         const shouldRenderMessageText = Boolean(messageText && !isTextOnlyForward);
         const senderName = getMessageSenderName(message, fallbackSenderName, own);
         const avatarName = getMessageAvatarName(message, fallbackSenderName, own);
@@ -1530,12 +1575,13 @@ const ChatMessages = ({
           <div
             key={message.id}
             data-chat-message-id={messageId}
+            data-chat-scroll-anchor={isHelpRequest ? 'start' : undefined}
             className={`student-message-row flex items-start gap-2.5 ${own ? 'justify-end' : 'justify-start'} ${highlightedMessageId === messageId ? 'student-message-row--highlighted' : ''} ${selectionMode ? 'student-message-row--selecting' : ''} ${selected ? 'student-message-row--selected' : ''}`}
             onContextMenu={(event) => openMessageContextMenu(event, message)}
           >
             {!own && avatar}
             <div
-              className={`flex max-w-[min(78%,_42rem)] flex-col ${own ? 'items-end' : 'items-start'}`}
+              className={`student-message-stack flex max-w-[min(78%,_42rem)] flex-col ${own ? 'items-end' : 'items-start'} ${isHelpRequest ? 'student-message-stack--help' : ''}`}
               style={messageAccentStyle}
             >
               <div className={`student-message-meta ${own ? 'student-message-meta--mine' : 'student-message-meta--other'} mb-1 flex items-center gap-1.5 px-1 text-[10.5px] font-bold leading-none`}>
@@ -1567,6 +1613,19 @@ const ChatMessages = ({
                 )}
                 {message?.replyTo && (
                   <MessageReferenceCard reference={message.replyTo} type="reply" mine={own} onOpenTarget={openReferencedMessage} />
+                )}
+                {!isEditingMessage && shouldRenderMessageText && isHelpRequest && (
+                  <div className="student-chat-help-question">
+                    <span className="student-chat-help-question__label">Ваш вопрос</span>
+                    <LinkifiedText
+                      text={getHelpRequestQuestionText(messageText)}
+                      className="whitespace-pre-wrap break-words"
+                      linkClassName={own ? 'underline decoration-white/70 underline-offset-2' : 'text-cyan-600 underline decoration-cyan-300 underline-offset-2'}
+                    />
+                  </div>
+                )}
+                {isHelpRequest && (renderedImageDataUrl || renderedFileDataUrl || messageCode) && (
+                  <div className="student-chat-help-context-label">Приложенный контекст</div>
                 )}
                 {renderedImageDataUrl && (
                   <button
@@ -1619,6 +1678,9 @@ const ChatMessages = ({
                     </span>
                   </a>
                 )}
+                {messageCode && (
+                  <ChatCodeBlock code={messageCode} language={message?.codeLanguage || 'python'} />
+                )}
                 {isEditingMessage ? (
                   <form
                     className="student-message-edit-form"
@@ -1669,7 +1731,7 @@ const ChatMessages = ({
                       </button>
                     </div>
                   </form>
-                ) : shouldRenderMessageText && (
+                ) : shouldRenderMessageText && !isHelpRequest && (
                   <LinkifiedText
                     text={messageText}
                     className="whitespace-pre-wrap break-words"
@@ -2103,7 +2165,7 @@ const ChatComposer = ({
   const canSend = !disabled && !sending && (text.trim() || hasAttachment);
 
   return (
-    <div className="student-chat-composer mt-2 shrink-0 rounded-[1.15rem] border border-slate-200/80 p-2">
+    <div className="student-chat-composer shrink-0">
       <input
         ref={imageInputRef}
         type="file"
@@ -2182,17 +2244,17 @@ const ChatComposer = ({
               if (canSend) onSend();
             }
           }}
-          rows={2}
+          rows={1}
           placeholder={disabled ? disabledText : placeholder}
           disabled={disabled}
-          className="min-h-[52px] w-full resize-none rounded-2xl border border-slate-200/80 bg-white px-3 py-2.5 text-sm outline-none transition-all focus:border-cyan-400 focus:ring-4 focus:ring-cyan-200/50 disabled:bg-slate-100 disabled:text-slate-500"
+          className="min-h-[42px] w-full resize-none rounded-xl border border-slate-200/80 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-cyan-400 focus:ring-4 focus:ring-cyan-200/50 disabled:bg-slate-100 disabled:text-slate-500"
         />
         <Button
           type="button"
           variant="secondary"
           onClick={() => imageInputRef.current?.click()}
           disabled={disabled || sending}
-          className="student-chat-attach-button h-[50px] min-w-[50px] rounded-2xl self-end px-0"
+          className="student-chat-attach-button h-[42px] min-w-[42px] rounded-xl self-end px-0"
           title={`Добавить файл (до ${CHAT_FILE_SIZE_LABEL})`}
         >
           <Paperclip size={16} />
@@ -2201,7 +2263,7 @@ const ChatComposer = ({
           type="button"
           onClick={onSend}
           disabled={!canSend}
-          className="student-chat-send-button h-[50px] min-w-[132px] rounded-2xl self-end bg-gradient-to-r from-fuchsia-600 via-purple-600 to-cyan-500 shadow-lg shadow-purple-200/60"
+          className="student-chat-send-button h-[42px] min-w-[118px] rounded-xl self-end bg-gradient-to-r from-fuchsia-600 via-purple-600 to-cyan-500 shadow-lg shadow-purple-200/60"
         >
           <SendHorizontal size={16} />
           {sending ? 'Отправка...' : 'Отправить'}
@@ -2818,26 +2880,26 @@ const StudentChatSection = ({
     user?.id,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyChatScrollBehavior(teacherListRef, teacherScrollBehaviorRef);
     prevTeacherMessageCountRef.current = teacherMessages.length;
   }, [teacherMessages]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (activeTab !== 'teacher') return;
     markChatScrollToBottom(teacherListRef, teacherScrollBehaviorRef, { force: true });
-    scrollChatNodeToBottom(teacherListRef.current);
+    scrollChatNodeToLatest(teacherListRef.current);
   }, [activeTab]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyChatScrollBehavior(socialListRef, socialScrollBehaviorRef);
     prevSocialMessageCountRef.current = socialMessages.length;
   }, [socialMessages]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isSocialTab || !activeSocialChatId) return;
     markChatScrollToBottom(socialListRef, socialScrollBehaviorRef, { force: true });
-    scrollChatNodeToBottom(socialListRef.current);
+    scrollChatNodeToLatest(socialListRef.current);
   }, [activeSocialChatId, isSocialTab]);
 
   const clearTeacherImage = useCallback(() => {
@@ -3630,7 +3692,7 @@ const StudentChatSection = ({
         getLevelProgressFromXp={getLevelProgressFromXp}
         getLeagueIconClassName={getChatProfileLeagueIconClassName}
       />
-      <Card className="student-chat-hero mb-3 shrink-0 overflow-hidden p-0">
+      <Card className="student-chat-hero shrink-0 overflow-hidden p-0">
         <div className="relative z-10 flex flex-col gap-3 p-3 sm:p-3.5 lg:flex-row lg:items-center lg:justify-between">
           <div className="student-chat-hero-heading flex min-w-0 items-center gap-3">
             <span className="student-chat-hero-icon grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/18 bg-white/12 text-cyan-100 shadow-xl shadow-cyan-950/20">

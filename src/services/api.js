@@ -406,6 +406,31 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getStudentHelpChannels: async () => {
+    const res = await apiFetch('/api/student-help/channels');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  sendStudentHelpRequest: async (payload) => {
+    const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+    const res = await apiFetch('/api/student-help-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId: typeof source.requestId === 'string' ? source.requestId : '',
+        channel: source.channel === 'telegram' ? 'telegram' : 'platform',
+        taskNumber: source.taskNumber,
+        taskTitle: typeof source.taskTitle === 'string' ? source.taskTitle : '',
+        levelId: typeof source.levelId === 'string' ? source.levelId : '',
+        questionId: typeof source.questionId === 'string' ? source.questionId : String(source.questionId ?? ''),
+        question: typeof source.question === 'string' ? source.question : '',
+        code: typeof source.code === 'string' ? source.code : '',
+        snapshotDataUrl: typeof source.snapshotDataUrl === 'string' ? source.snapshotDataUrl : '',
+      }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   sendStudentChatMessage: async (payloadOrText) => {
     const payload = normalizeStudentChatMessagePayload(payloadOrText);
     const res = await apiFetch('/api/student-chat/messages', {

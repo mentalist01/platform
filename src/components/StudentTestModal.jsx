@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, ChevronLeft, ChevronRight, Code2, Download, History, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, Code2, Download, FileCode2, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -13,6 +13,8 @@ import { Button } from './ui';
 import TurtleCanvas from './TurtleCanvas';
 
 const STUDENT_TEST_ANSWER_DRAFT_PREFIX = 'student-test-answer-draft-v1';
+const STUDENT_HELP_DRAFT_PREFIX = 'student-help-draft-v1';
+const STUDENT_HELP_CHANNEL_PREF_KEY = 'student-help-channel-v1';
 const STUDENT_CODE_WORKSPACE_PREFS_KEY = 'student-code-workspace-prefs-v1';
 const STUDENT_CODE_LAYOUT_STACKED = 'stacked';
 const STUDENT_CODE_LAYOUT_SIDE = 'side';
@@ -22,9 +24,206 @@ const STUDENT_CODE_FONT_SIZE_DEFAULT = 14;
 const STUDENT_CODE_LAYOUT_ANIMATION_MS = 720;
 const STUDENT_CODE_CLOSE_ANIMATION_MS = 360;
 const STUDENT_TEST_CLOSE_ANIMATION_MS = 340;
+const STUDENT_HELP_CLOSE_ANIMATION_MS = 260;
 const STUDENT_CODE_FOCUS_FULLSCREEN_DELAY_MS = 120;
 const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
 const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
+const createStudentHelpRequestId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `help-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const getStudentHelpDraftKey = ({ studentId, taskNumber, levelId, questionId }) => [
+  STUDENT_HELP_DRAFT_PREFIX,
+  String(studentId || 'student'),
+  String(taskNumber || 'task'),
+  String(levelId || 'level'),
+  String(questionId || 'question'),
+].join(':');
+
+const wrapStudentHelpCanvasText = (context, value, maxWidth) => {
+  const source = String(value || '').replace(/\r\n?/g, '\n').trim();
+  if (!source) return [];
+  const lines = [];
+  source.split('\n').forEach((paragraph, paragraphIndex, paragraphs) => {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    let line = '';
+    words.forEach((word) => {
+      const next = line ? `${line} ${word}` : word;
+      if (line && context.measureText(next).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    });
+    if (line) lines.push(line);
+    if (!words.length) lines.push('');
+    if (paragraphIndex < paragraphs.length - 1) lines.push('');
+  });
+  return lines;
+};
+
+const createStudentHelpTextSnapshot = ({ taskNumber, taskTitle, questionNumber, label, text }) => {
+  if (typeof document === 'undefined') return '';
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) return '';
+  const width = 1200;
+  const horizontalPadding = 68;
+  context.font = '500 27px Inter, Arial, sans-serif';
+  const bodyLines = wrapStudentHelpCanvasText(context, String(text || '').slice(0, 2400), width - horizontalPadding * 2)
+    .slice(0, 30);
+  const height = Math.max(390, Math.min(1450, 250 + Math.max(1, bodyLines.length) * 39));
+  canvas.width = width;
+  canvas.height = height;
+
+  context.fillStyle = '#f5f3ff';
+  context.fillRect(0, 0, width, height);
+  const surface = context.createLinearGradient(0, 0, width, height);
+  surface.addColorStop(0, '#ffffff');
+  surface.addColorStop(1, '#f8fafc');
+  context.fillStyle = surface;
+  context.beginPath();
+  context.roundRect(28, 28, width - 56, height - 56, 30);
+  context.fill();
+  context.strokeStyle = '#ddd6fe';
+  context.lineWidth = 2;
+  context.stroke();
+
+  const accent = context.createLinearGradient(0, 0, width, 0);
+  accent.addColorStop(0, '#7c3aed');
+  accent.addColorStop(1, '#c026d3');
+  context.fillStyle = accent;
+  context.beginPath();
+  context.roundRect(28, 28, 12, height - 56, [30, 0, 0, 30]);
+  context.fill();
+
+  context.fillStyle = '#7c3aed';
+  context.font = '800 20px Inter, Arial, sans-serif';
+  context.fillText(`ЗАДАНИЕ №${taskNumber} · ВОПРОС №${questionNumber}`, horizontalPadding, 92);
+
+  context.fillStyle = '#0f172a';
+  context.font = '800 38px Inter, Arial, sans-serif';
+  context.fillText(String(taskTitle || 'Условие задачи').slice(0, 52), horizontalPadding, 145);
+
+  if (label) {
+    context.fillStyle = '#64748b';
+    context.font = '700 20px Inter, Arial, sans-serif';
+    context.fillText(String(label).slice(0, 70), horizontalPadding, 187);
+  }
+
+  context.fillStyle = '#1e293b';
+  context.font = '500 27px Inter, Arial, sans-serif';
+  let y = label ? 238 : 210;
+  if (bodyLines.length === 0) {
+    context.fillStyle = '#64748b';
+    context.fillText('Условие открыто в текущем задании.', horizontalPadding, y);
+  } else {
+    bodyLines.forEach((line) => {
+      context.fillText(line, horizontalPadding, y);
+      y += 39;
+    });
+  }
+
+  context.fillStyle = '#94a3b8';
+  context.font = '600 17px Inter, Arial, sans-serif';
+  context.fillText('Снимок условия · платформа «Иван на сотку»', horizontalPadding, height - 66);
+  return canvas.toDataURL('image/png');
+};
+
+const loadStudentHelpSnapshotImage = async (entry) => {
+  const source = String(entry?.url || '').trim();
+  if (!source || typeof window === 'undefined') return null;
+  let objectUrl = '';
+  let imageSource = source;
+  if (source.startsWith('/uploads/')) {
+    const response = await authenticatedUploadsFetch(source);
+    if (!response.ok) throw new Error('Не удалось загрузить страницу условия');
+    objectUrl = window.URL.createObjectURL(await response.blob());
+    imageSource = objectUrl;
+  }
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const nextImage = new window.Image();
+      nextImage.decoding = 'async';
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error('Не удалось подготовить страницу условия'));
+      nextImage.src = imageSource;
+    });
+    return { image, objectUrl };
+  } catch (error) {
+    if (objectUrl) window.URL.revokeObjectURL(objectUrl);
+    throw error;
+  }
+};
+
+const createStudentHelpMultiImageSnapshot = async ({ screenshots, taskNumber, questionNumber }) => {
+  if (typeof document === 'undefined' || !Array.isArray(screenshots) || screenshots.length < 2) return '';
+  const loaded = [];
+  try {
+    for (const screenshot of screenshots.slice(0, 12)) {
+      const entry = await loadStudentHelpSnapshotImage(screenshot);
+      if (entry?.image?.naturalWidth > 0 && entry?.image?.naturalHeight > 0) loaded.push(entry);
+    }
+    if (loaded.length < 2) return '';
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) return '';
+    const width = 1280;
+    const padding = 28;
+    const headerHeight = 88;
+    const gap = 22;
+    const contentWidth = width - padding * 2;
+    const heights = loaded.map(({ image }) => Math.max(
+      1,
+      Math.round(image.naturalHeight * (contentWidth / image.naturalWidth))
+    ));
+    const height = headerHeight + padding + heights.reduce((sum, value) => sum + value, 0) + gap * (loaded.length - 1) + padding;
+    canvas.width = width;
+    canvas.height = height;
+
+    context.fillStyle = '#eef2ff';
+    context.fillRect(0, 0, width, height);
+    const headerGradient = context.createLinearGradient(0, 0, width, 0);
+    headerGradient.addColorStop(0, '#6d28d9');
+    headerGradient.addColorStop(1, '#c026d3');
+    context.fillStyle = headerGradient;
+    context.fillRect(0, 0, width, headerHeight);
+    context.fillStyle = '#ffffff';
+    context.font = '800 24px Inter, Arial, sans-serif';
+    context.fillText(`ЗАДАНИЕ №${taskNumber} · ВОПРОС №${questionNumber}`, padding, 38);
+    context.font = '600 17px Inter, Arial, sans-serif';
+    context.fillText(`Условие из ${loaded.length} частей · собрано без пропусков`, padding, 66);
+
+    let y = headerHeight + padding;
+    loaded.forEach(({ image }, index) => {
+      const pageHeight = heights[index];
+      context.fillStyle = '#ffffff';
+      context.fillRect(padding - 2, y - 2, contentWidth + 4, pageHeight + 4);
+      context.strokeStyle = '#cbd5e1';
+      context.lineWidth = 2;
+      context.strokeRect(padding - 2, y - 2, contentWidth + 4, pageHeight + 4);
+      context.drawImage(image, padding, y, contentWidth, pageHeight);
+      context.fillStyle = 'rgba(15, 23, 42, 0.84)';
+      context.beginPath();
+      context.roundRect(padding + 14, y + 14, 92, 34, 17);
+      context.fill();
+      context.fillStyle = '#ffffff';
+      context.font = '700 15px Inter, Arial, sans-serif';
+      context.fillText(`Часть ${index + 1}`, padding + 29, y + 37);
+      y += pageHeight + gap;
+    });
+    return canvas.toDataURL('image/jpeg', 0.86);
+  } finally {
+    loaded.forEach(({ objectUrl }) => {
+      if (objectUrl) window.URL.revokeObjectURL(objectUrl);
+    });
+  }
+};
 
 const clampStudentCodeFontSize = (value) => {
   const numeric = Math.round(Number(value));
@@ -329,6 +528,16 @@ const StudentTestModal = ({
   const [answerHistoryLoading, setAnswerHistoryLoading] = useState(false);
   const [studentTestClosing, setStudentTestClosing] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
+  const [studentHelpOpen, setStudentHelpOpen] = useState(false);
+  const [studentHelpClosing, setStudentHelpClosing] = useState(false);
+  const [studentHelpQuestion, setStudentHelpQuestion] = useState('');
+  const [studentHelpChannel, setStudentHelpChannel] = useState('platform');
+  const [studentHelpChannels, setStudentHelpChannels] = useState(null);
+  const [studentHelpChannelsLoading, setStudentHelpChannelsLoading] = useState(false);
+  const [studentHelpSending, setStudentHelpSending] = useState(false);
+  const [studentHelpPreparingCode, setStudentHelpPreparingCode] = useState(false);
+  const [studentHelpError, setStudentHelpError] = useState('');
+  const [studentHelpResult, setStudentHelpResult] = useState(null);
   const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
   const lastQuestionImageAspectRef = useRef(3.8);
   const questionImageFallbackAspectByKeyRef = useRef(new Map());
@@ -351,6 +560,10 @@ const StudentTestModal = ({
   const questionCodeSavingRef = useRef(new Set());
   const questionCodePendingSaveRef = useRef(new Map());
   const questionCodeAutoSaveTimersRef = useRef(new Map());
+  const studentHelpRequestIdRef = useRef('');
+  const studentHelpTriggerRef = useRef(null);
+  const studentHelpSuccessActionRef = useRef(null);
+  const studentHelpCloseTimerRef = useRef(null);
   const studentTestCloseTimerRef = useRef(null);
   const questionCodeCloseTimerRef = useRef(null);
   const questionCodeLayoutAnimationTimerRef = useRef(null);
@@ -761,9 +974,43 @@ const StudentTestModal = ({
     studentTestCloseTimerRef.current = null;
   };
 
+  const clearStudentHelpCloseTimer = useCallback(() => {
+    if (!studentHelpCloseTimerRef.current) return;
+    clearTimeout(studentHelpCloseTimerRef.current);
+    studentHelpCloseTimerRef.current = null;
+  }, []);
+
+  const requestCloseStudentHelp = useCallback(() => {
+    if (studentHelpSending || studentHelpClosing) return;
+    clearStudentHelpCloseTimer();
+    const trigger = studentHelpTriggerRef.current;
+
+    const finishClose = () => {
+      studentHelpCloseTimerRef.current = null;
+      setStudentHelpClosing(false);
+      setStudentHelpOpen(false);
+      if (typeof window !== 'undefined') {
+        window.requestAnimationFrame(() => {
+          if (trigger?.isConnected) trigger.focus();
+        });
+      }
+    };
+
+    if (prefersReducedStudentMotion()) {
+      finishClose();
+      return;
+    }
+
+    setStudentHelpClosing(true);
+    studentHelpCloseTimerRef.current = setTimeout(finishClose, STUDENT_HELP_CLOSE_ANIMATION_MS);
+  }, [clearStudentHelpCloseTimer, studentHelpClosing, studentHelpSending]);
+
   const requestCloseStudentTest = () => {
     if (studentTestClosing) return;
     clearStudentTestCloseTimer();
+    clearStudentHelpCloseTimer();
+    setStudentHelpClosing(false);
+    setStudentHelpOpen(false);
     if (prefersReducedStudentMotion()) {
       setStudentTestClosing(false);
       onClose?.();
@@ -1257,6 +1504,12 @@ const StudentTestModal = ({
     setSolvedAnswerById({});
     setAnswerHistoryById({});
     setAnswerHistoryLoading(false);
+    clearStudentHelpCloseTimer();
+    setStudentHelpClosing(false);
+    setStudentHelpOpen(false);
+    setStudentHelpQuestion('');
+    setStudentHelpError('');
+    setStudentHelpResult(null);
     questionCodeByIdRef.current = {};
     clearQuestionCodeAutoSaveTimers();
     clearQuestionCodeCloseTimer();
@@ -1354,6 +1607,12 @@ const StudentTestModal = ({
     setSolvedAnswerById({});
     setAnswerHistoryById({});
     setAnswerHistoryLoading(false);
+    clearStudentHelpCloseTimer();
+    setStudentHelpClosing(false);
+    setStudentHelpOpen(false);
+    setStudentHelpQuestion('');
+    setStudentHelpError('');
+    setStudentHelpResult(null);
     questionMainThreadRuntimeFilesRef.current = [];
     disposeQuestionRunnerWorker();
   }, [exitQuestionCodeFocusFullscreen, task?.number]);
@@ -1367,6 +1626,23 @@ const StudentTestModal = ({
       focusMusicVolume: questionCodeFocusMusicVolume,
     }));
   }, [questionCodeFocusMusicEnabled, questionCodeFocusMusicVolume, questionCodeFontSize, questionCodeLayout]);
+
+  useEffect(() => {
+    if (!studentHelpOpen) return undefined;
+    const handleStudentHelpKeyDown = (event) => {
+      if (event.key !== 'Escape' || studentHelpSending || studentHelpClosing) return;
+      event.preventDefault();
+      requestCloseStudentHelp();
+    };
+    window.addEventListener('keydown', handleStudentHelpKeyDown);
+    return () => window.removeEventListener('keydown', handleStudentHelpKeyDown);
+  }, [requestCloseStudentHelp, studentHelpClosing, studentHelpOpen, studentHelpSending]);
+
+  useEffect(() => {
+    if (!studentHelpOpen || studentHelpClosing || !studentHelpResult) return undefined;
+    const frameId = window.requestAnimationFrame(() => studentHelpSuccessActionRef.current?.focus());
+    return () => window.cancelAnimationFrame(frameId);
+  }, [studentHelpClosing, studentHelpOpen, studentHelpResult]);
 
   useEffect(() => {
     activeQuestionIdRef.current = activeQuestionId;
@@ -1495,6 +1771,7 @@ const StudentTestModal = ({
   useEffect(() => () => {
     clearQuestionCodeAutoSaveTimers();
     clearStudentTestCloseTimer();
+    clearStudentHelpCloseTimer();
     clearQuestionCodeCloseTimer();
     clearQuestionCodeLayoutAnimationTimer();
     stopQuestionCodeFocusAudio();
@@ -2075,6 +2352,211 @@ const StudentTestModal = ({
         next[currentIndex] = current;
         return next;
       });
+    };
+
+    const studentHelpDraftKey = getStudentHelpDraftKey({
+      studentId,
+      taskNumber: task?.number,
+      levelId: level,
+      questionId: currentId,
+    });
+
+    const handleOpenStudentHelp = () => {
+      clearStudentHelpCloseTimer();
+      setStudentHelpClosing(false);
+      let savedDraft = '';
+      let savedChannel = 'platform';
+      if (canUseStudentTestDraftStorage()) {
+        try {
+          savedDraft = window.localStorage.getItem(studentHelpDraftKey) || '';
+          savedChannel = window.localStorage.getItem(STUDENT_HELP_CHANNEL_PREF_KEY) === 'telegram'
+            ? 'telegram'
+            : 'platform';
+        } catch {
+          savedDraft = '';
+        }
+      }
+      setStudentHelpQuestion(savedDraft);
+      // Keep the guaranteed channel selected until Telegram availability has
+      // actually been confirmed for this teacher.
+      setStudentHelpChannel('platform');
+      setStudentHelpChannels(null);
+      setStudentHelpError('');
+      setStudentHelpResult(null);
+      studentHelpRequestIdRef.current = '';
+      setStudentHelpOpen(true);
+      if (currentId) loadQuestionCode(currentId);
+
+      setStudentHelpChannelsLoading(true);
+      api.getStudentHelpChannels()
+        .then((payload) => {
+          const nextChannels = payload && typeof payload === 'object' ? payload : null;
+          setStudentHelpChannels(nextChannels);
+          setStudentHelpChannel(
+            savedChannel === 'telegram' && nextChannels?.telegram?.available === true
+              ? 'telegram'
+              : 'platform'
+          );
+        })
+        .catch(() => {
+          setStudentHelpChannels({
+            platform: { available: true },
+            telegram: { available: false, reason: 'Не удалось проверить подключение Telegram' },
+          });
+          setStudentHelpChannel('platform');
+        })
+        .finally(() => setStudentHelpChannelsLoading(false));
+    };
+
+    const handleCloseStudentHelp = () => {
+      requestCloseStudentHelp();
+    };
+
+    const handleStudentHelpQuestionChange = (event) => {
+      const nextValue = String(event.target.value || '').slice(0, 1200);
+      setStudentHelpQuestion(nextValue);
+      setStudentHelpError('');
+      if (canUseStudentTestDraftStorage()) {
+        try {
+          if (nextValue.trim()) window.localStorage.setItem(studentHelpDraftKey, nextValue);
+          else window.localStorage.removeItem(studentHelpDraftKey);
+        } catch {
+          // Draft persistence is helpful but must not block the form.
+        }
+      }
+    };
+
+    const handleStudentHelpPrompt = (prompt) => {
+      const current = String(studentHelpQuestion || '').trim();
+      const next = current ? `${current}\n${prompt}` : prompt;
+      handleStudentHelpQuestionChange({ target: { value: next } });
+    };
+
+    const handleStudentHelpChannelChange = (nextChannel) => {
+      if (nextChannel === 'telegram' && studentHelpChannels?.telegram?.available !== true) return;
+      const normalized = nextChannel === 'telegram' ? 'telegram' : 'platform';
+      setStudentHelpChannel(normalized);
+      setStudentHelpError('');
+      if (canUseStudentTestDraftStorage()) {
+        try {
+          window.localStorage.setItem(STUDENT_HELP_CHANNEL_PREF_KEY, normalized);
+        } catch {
+          // Ignore storage restrictions.
+        }
+      }
+    };
+
+    const handleSendStudentHelp = async (event) => {
+      event?.preventDefault?.();
+      if (studentHelpSending) return;
+      if (studentHelpChannelsLoading && studentHelpChannel === 'telegram') {
+        setStudentHelpError('Подождите секунду — проверяем доступные способы отправки.');
+        return;
+      }
+      if (studentHelpChannel === 'telegram' && studentHelpChannels?.telegram?.available !== true) {
+        setStudentHelpChannel('platform');
+        setStudentHelpError('Telegram сейчас недоступен. Выберите чат платформы — вопрос всё равно дойдёт преподавателю.');
+        return;
+      }
+      const normalizedQuestion = String(studentHelpQuestion || '').trim();
+      if (normalizedQuestion.length < 3) {
+        setStudentHelpError('Напишите хотя бы несколько слов, чтобы преподаватель понял вопрос.');
+        return;
+      }
+      setStudentHelpSending(true);
+      setStudentHelpError('');
+      setStudentHelpResult(null);
+      let code = getQuestionCodeEntry(currentId, questionCodeByIdRef.current).code;
+      const codeEntry = getQuestionCodeEntry(currentId, questionCodeByIdRef.current);
+      if (!codeEntry.loaded) {
+        setStudentHelpPreparingCode(true);
+        try {
+          const payload = await api.getQuestionCode(studentId, task.number, level, currentId);
+          code = typeof payload?.code === 'string' ? payload.code : '';
+          setQuestionCodeEntry(currentId, {
+            code,
+            input: '',
+            updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+          });
+        } catch {
+          code = codeEntry.code || '';
+        } finally {
+          setStudentHelpPreparingCode(false);
+        }
+      }
+
+      let snapshotDataUrl = '';
+      if (screenshots.length > 1) {
+        try {
+          snapshotDataUrl = await createStudentHelpMultiImageSnapshot({
+            screenshots,
+            taskNumber: getTaskDisplayNumber(task),
+            questionNumber: currentQuestionNumber,
+          });
+        } catch {
+          // The server will still attach the first original image if composing
+          // a multi-page condition is unavailable in this browser.
+          snapshotDataUrl = '';
+        }
+      } else if (screenshots.length === 0) {
+        try {
+          snapshotDataUrl = createStudentHelpTextSnapshot({
+            taskNumber: getTaskDisplayNumber(task),
+            taskTitle: task?.title,
+            questionNumber: currentQuestionNumber,
+            label: currentQuestionLabel?.text,
+            text: currentQuestion?.question,
+          });
+        } catch {
+          snapshotDataUrl = '';
+        }
+      }
+
+      try {
+        const requestId = studentHelpRequestIdRef.current || createStudentHelpRequestId();
+        studentHelpRequestIdRef.current = requestId;
+        const payload = await api.sendStudentHelpRequest({
+          requestId,
+          channel: studentHelpChannel,
+          taskNumber: task?.number,
+          taskTitle: task?.title,
+          levelId: level,
+          questionId: currentId,
+          question: normalizedQuestion,
+          code,
+          snapshotDataUrl,
+        });
+        setStudentHelpResult(payload || { ok: true, platformDelivered: true });
+        studentHelpRequestIdRef.current = '';
+        if (canUseStudentTestDraftStorage()) {
+          try {
+            window.localStorage.removeItem(studentHelpDraftKey);
+          } catch {
+            // Ignore storage restrictions after a successful send.
+          }
+        }
+      } catch (error) {
+        setStudentHelpError(String(error?.message || error || 'Не удалось отправить вопрос'));
+      } finally {
+        setStudentHelpSending(false);
+      }
+    };
+
+    const handleStudentHelpDialogKeyDown = (event) => {
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(event.currentTarget.querySelectorAll(
+        'button:not(:disabled), textarea:not(:disabled), input:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'
+      )).filter((node) => node.getAttribute('aria-hidden') !== 'true');
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !event.currentTarget.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
 
     const handleOpenQuestionCodeFocus = () => {
@@ -2908,16 +3390,25 @@ const StudentTestModal = ({
             )}
 
             <section className="student-test-question-panel student-test-panel-enter">
-            {currentQuestionLabel && (
-              <div className="mb-3 md:mb-4">
+            <div className="student-test-question-panel__toolbar">
+              {currentQuestionLabel ? (
                 <span
                   className="inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm"
                   style={getQuestionLabelStyle(currentQuestionLabel)}
                 >
                   <span className="truncate">{currentQuestionLabel.text}</span>
                 </span>
-              </div>
-            )}
+              ) : <span aria-hidden="true" />}
+              <button
+                ref={studentHelpTriggerRef}
+                type="button"
+                className="student-test-help-trigger"
+                onClick={handleOpenStudentHelp}
+              >
+                <CircleHelp size={16} aria-hidden="true" />
+                <span>Спросить учителя</span>
+              </button>
+            </div>
             {screenshots.length > 0 && (
               <div className="space-y-2.5 md:space-y-3 mb-5 md:mb-6">
                 {screenshots.map((img, imageIndex) => {
@@ -3389,6 +3880,233 @@ const StudentTestModal = ({
           </footer>
         </div>
         {codeFocusOverlay}
+        {studentHelpOpen && (
+          <div
+            className={`student-help-modal${studentHelpClosing ? ' is-closing' : ' is-open'}`}
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) handleCloseStudentHelp();
+            }}
+          >
+            <form
+              className={`student-help-modal__dialog${studentHelpResult ? ' is-success' : ''}`}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="student-help-title"
+              onSubmit={handleSendStudentHelp}
+              onKeyDown={handleStudentHelpDialogKeyDown}
+            >
+              <header className="student-help-modal__header">
+                <div className="student-help-modal__heading">
+                  <span className="student-help-modal__icon" aria-hidden="true">
+                    <CircleHelp size={22} />
+                  </span>
+                  <div className="student-help-modal__heading-copy">
+                    <p className="student-help-modal__eyebrow">Вопрос учителю</p>
+                    <h2 id="student-help-title">Спросить учителя</h2>
+                    {!studentHelpResult && (
+                      <p className="student-help-modal__subtitle">
+                        Опишите, где застряли — условие и текущий код приложатся сами.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="student-help-modal__close"
+                  onClick={handleCloseStudentHelp}
+                  disabled={studentHelpSending}
+                  aria-label="Закрыть"
+                >
+                  <X size={19} />
+                </button>
+              </header>
+
+              {studentHelpResult ? (
+                <div className="student-help-success" role="status">
+                  <span className="student-help-success__icon" aria-hidden="true">
+                    <CheckCircle2 size={30} />
+                  </span>
+                  <div className="student-help-success__copy">
+                    <p className="student-help-success__eyebrow">Отправлено</p>
+                    <h3>
+                      {studentHelpResult.telegramDelivered
+                        ? 'Вопрос уже в чате и Telegram'
+                        : 'Вопрос уже в чате преподавателя'}
+                    </h3>
+                    <p>
+                      {studentHelpResult.warning
+                        || 'Преподаватель увидит условие, ваш вопрос и актуальный код. Ответ появится в разделе «Чаты».'}
+                    </p>
+                  </div>
+                  {studentHelpResult.warning && (
+                    <div className="student-help-success__warning">
+                      <AlertTriangle size={16} aria-hidden="true" />
+                      <span>История сохранена на платформе — вопрос не потерян.</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="student-help-modal__body">
+                  <div className="student-help-context">
+                    <span className="student-help-context__icon" aria-hidden="true">
+                      <ListChecks size={17} />
+                    </span>
+                    <div className="student-help-context__main">
+                      <strong>Задание №{getTaskDisplayNumber(task)} · Вопрос №{currentQuestionNumber}</strong>
+                      <small>{task?.title || currentQuestionLabel?.text || 'Задание'}</small>
+                    </div>
+                    <span className="student-help-context__badge">Текущий вопрос</span>
+                  </div>
+
+                  <div className="student-help-composer">
+                    <label className="student-help-field">
+                      <span className="student-help-field__label">
+                        <strong>Что именно не получается?</strong>
+                        <small>{studentHelpQuestion.length ? `${studentHelpQuestion.length}/1200` : 'Можно коротко'}</small>
+                      </span>
+                      <textarea
+                        autoFocus
+                        value={studentHelpQuestion}
+                        onChange={handleStudentHelpQuestionChange}
+                        maxLength={1200}
+                        rows={6}
+                        placeholder="Опишите, где запутались. Например: не понимаю, как сопоставить вершины графа с таблицей."
+                        disabled={studentHelpSending}
+                      />
+                    </label>
+
+                    <div className="student-help-prompts" aria-label="Быстрые подсказки">
+                      <span className="student-help-prompts__label">Быстрый старт</span>
+                      {['Не понимаю условие.', 'Не сходится ответ.', 'Не могу найти ошибку в коде.'].map((prompt) => (
+                        <button
+                          key={prompt}
+                          type="button"
+                          onClick={() => handleStudentHelpPrompt(prompt)}
+                          disabled={studentHelpSending}
+                        >
+                          {prompt.replace(/\.$/, '')}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="student-help-route-summary">
+                    <div className="student-help-bundle" aria-label="Что приложится к вопросу">
+                      <span className="student-help-bundle__label">Учитель увидит</span>
+                      <span className="student-help-bundle__chip">
+                        <Image size={14} aria-hidden="true" />
+                        {screenshots.length > 1 ? `Условие · ${screenshots.length} части` : 'Условие'}
+                      </span>
+                      {(questionCodeLoading || studentHelpPreparingCode) && (
+                        <span className="student-help-bundle__chip is-loading">
+                          <RefreshCcw size={13} className="student-help-spin" aria-hidden="true" />
+                          Код загружается
+                        </span>
+                      )}
+                      {!questionCodeLoading && !studentHelpPreparingCode && questionCodeEntry.code.trim() && (
+                        <span className="student-help-bundle__chip">
+                          <FileCode2 size={14} aria-hidden="true" />
+                          Код
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="student-help-delivery">
+                      <span className="student-help-delivery__icon"><Send size={15} aria-hidden="true" /></span>
+                      <span>
+                        <strong>
+                          {studentHelpChannel === 'telegram' && studentHelpChannels?.telegram?.available === true
+                            ? 'Чат платформы + Telegram'
+                            : 'Ответ придёт в «Чаты»'}
+                        </strong>
+                        <small>Учитель получит уведомление о вопросе</small>
+                      </span>
+                      {studentHelpChannelsLoading && (
+                        <RefreshCcw size={14} className="student-help-spin" aria-label="Проверяем Telegram" />
+                      )}
+                    </div>
+                  </div>
+
+                  {studentHelpChannels?.telegram?.available === true ? (
+                    <section className="student-help-channels" aria-label="Способ отправки">
+                      <div className="student-help-section-title">
+                        <span>Отправить через</span>
+                        <small>Вопрос в любом случае сохранится в чате</small>
+                      </div>
+                      <div className="student-help-channel-switch">
+                        <button
+                          type="button"
+                          className={studentHelpChannel === 'platform' ? 'is-selected' : ''}
+                          onClick={() => handleStudentHelpChannelChange('platform')}
+                          disabled={studentHelpSending}
+                          aria-pressed={studentHelpChannel === 'platform'}
+                        >
+                          Чат платформы
+                        </button>
+                        <button
+                          type="button"
+                          className={studentHelpChannel === 'telegram' ? 'is-selected' : ''}
+                          onClick={() => handleStudentHelpChannelChange('telegram')}
+                          disabled={studentHelpSending}
+                          aria-pressed={studentHelpChannel === 'telegram'}
+                        >
+                          Чат + Telegram
+                        </button>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {studentHelpError && (
+                    <div className="student-help-error" role="alert">
+                      <AlertTriangle size={17} aria-hidden="true" />
+                      <span>{studentHelpError}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <footer className="student-help-modal__footer">
+                {studentHelpResult ? (
+                  <button
+                    ref={studentHelpSuccessActionRef}
+                    type="button"
+                    className="student-help-submit"
+                    onClick={handleCloseStudentHelp}
+                  >
+                    <Check size={18} aria-hidden="true" />
+                    Продолжить решать
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="student-help-cancel"
+                      onClick={handleCloseStudentHelp}
+                      disabled={studentHelpSending}
+                    >
+                      Отмена
+                    </button>
+                    <button
+                      type="submit"
+                      className="student-help-submit"
+                      disabled={studentHelpSending || (studentHelpChannel === 'telegram' && studentHelpChannelsLoading) || studentHelpQuestion.trim().length < 3}
+                    >
+                      {studentHelpSending ? (
+                        <RefreshCcw size={17} className="student-help-spin" aria-hidden="true" />
+                      ) : (
+                        <Send size={17} aria-hidden="true" />
+                      )}
+                      {studentHelpSending
+                        ? 'Собираем и отправляем…'
+                        : (studentHelpChannel === 'telegram' ? 'Отправить в чат + Telegram' : 'Отправить вопрос')}
+                    </button>
+                  </>
+                )}
+              </footer>
+            </form>
+          </div>
+        )}
         {expandedImage && (
           <div
             className="student-test-image-lightbox fixed inset-0 z-[80] bg-black/80 modal-backdrop flex items-center justify-center p-4"

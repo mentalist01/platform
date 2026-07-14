@@ -215,6 +215,11 @@ const STUDENT_CHAT_FILE_NAME_MAX_LENGTH = 180;
 const STUDENT_CHAT_FILE_MIME_TYPE_MAX_LENGTH = 120;
 const STUDENT_CHAT_FILE_PREVIEW_TEXT = '[Файл]';
 const STUDENT_CHAT_UPLOAD_STORAGE_PREFIX = 'student-chat';
+const STUDENT_HELP_QUESTION_MAX_LENGTH = 1200;
+const STUDENT_HELP_CODE_MAX_LENGTH = 20000;
+const STUDENT_HELP_REQUEST_RATE_LIMIT = 3;
+const STUDENT_HELP_REQUEST_RATE_WINDOW_MS = 60 * 1000;
+const STUDENT_HELP_TELEGRAM_TIMEOUT_MS = 12 * 1000;
 const STUDENT_CHAT_MESSAGES_PAGE_SIZE = 15;
 const STUDENT_CHAT_MESSAGES_MAX_PAGE_SIZE = 50;
 const STUDENT_CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -3092,6 +3097,16 @@ const normalizeStudentChatImageName = (value) => {
   return normalized.slice(0, STUDENT_CHAT_IMAGE_NAME_MAX_LENGTH);
 };
 
+const normalizeStudentChatCode = (value) => {
+  if (typeof value !== 'string') return '';
+  const normalized = value.replace(/\r\n?/g, '\n').replace(/\u0000/g, '').slice(0, STUDENT_HELP_CODE_MAX_LENGTH);
+  return normalized.trim() ? normalized.trimEnd() : '';
+};
+
+const normalizeStudentChatCodeLanguage = (value) => (
+  String(value || '').trim().toLowerCase() === 'python' ? 'python' : ''
+);
+
 const normalizeStudentChatFileName = (value) => {
   if (typeof value !== 'string') return '';
   const normalized = normalizeFileName(value).trim();
@@ -3270,7 +3285,8 @@ const normalizeStudentChatMessageReference = (value) => {
   const chatTitle = String(value.chatTitle || '').replace(/\s+/g, ' ').trim().slice(0, 140);
   const hasImage = Boolean(value.hasImage || imageName);
   const hasFile = Boolean(value.hasFile || fileName);
-  if (!messageId || !senderId || (!text && !hasImage && !hasFile)) return null;
+  const hasCode = value.hasCode === true;
+  if (!messageId || !senderId || (!text && !hasImage && !hasFile && !hasCode)) return null;
   return {
     messageId,
     ...(chatId ? { chatId } : {}),
@@ -3282,6 +3298,7 @@ const normalizeStudentChatMessageReference = (value) => {
     text,
     hasImage,
     hasFile,
+    hasCode,
     ...(imageName ? { imageName } : {}),
     ...(fileName ? { fileName } : {}),
     ...(createdAt ? { createdAt } : {}),
@@ -3303,6 +3320,7 @@ const buildStudentChatMessageReference = (message, options = {}) => normalizeStu
   imageName: message?.imageName,
   hasFile: Boolean(message?.fileDataUrl),
   fileName: message?.fileName,
+  hasCode: Boolean(normalizeStudentChatCode(message?.code)),
   createdAt: message?.createdAt,
 });
 
@@ -3467,7 +3485,8 @@ const hasStudentTeacherChatMessageContent = (message) => {
   const text = normalizeStudentChatMessageText(message.text);
   const imageDataUrl = normalizeStudentChatImageDataUrl(message.imageDataUrl);
   const fileDataUrl = normalizeStudentChatFileDataUrl(message.fileDataUrl);
-  return Boolean(text || imageDataUrl || fileDataUrl);
+  const code = normalizeStudentChatCode(message.code);
+  return Boolean(text || imageDataUrl || fileDataUrl || code);
 };
 
 const buildStudentTeacherChatMessagePreview = (message) => {
@@ -3483,6 +3502,8 @@ const buildStudentTeacherChatMessagePreview = (message) => {
     const fileName = normalizeStudentChatFileName(message.fileName);
     return fileName ? `${STUDENT_CHAT_FILE_PREVIEW_TEXT} ${fileName}` : STUDENT_CHAT_FILE_PREVIEW_TEXT;
   }
+  const code = normalizeStudentChatCode(message.code);
+  if (code) return '[Код Python]';
   return '';
 };
 
@@ -3512,6 +3533,8 @@ const normalizeStudentTeacherChatMessage = (value) => {
   const fileName = normalizeStudentChatFileName(value.fileName);
   const fileMimeType = normalizeStudentChatFileMimeType(value.fileMimeType) || getDataUrlMimeType(fileDataUrl);
   const fileSize = normalizeStudentChatFileSize(value.fileSize, fileDataUrl);
+  const code = normalizeStudentChatCode(value.code);
+  const codeLanguage = code ? (normalizeStudentChatCodeLanguage(value.codeLanguage) || 'python') : '';
   const createdAt = normalizeIsoTimestamp(value.createdAt, '');
   const editedAt = normalizeIsoTimestamp(value.editedAt, '');
   const reactions = normalizeStudentChatMessageReactions(value.reactions);
@@ -3521,7 +3544,11 @@ const normalizeStudentTeacherChatMessage = (value) => {
   const targetMessageId = typeof value.targetMessageId === 'string' ? value.targetMessageId.trim() : '';
   const systemActorRole = normalizeStudentChatSystemActorRole(value.systemActorRole);
   const systemActorId = typeof value.systemActorId === 'string' ? value.systemActorId.trim() : '';
-  if (!id || !senderId || (!text && !imageDataUrl && !fileDataUrl) || !createdAt) return null;
+  const helpRequestId = String(value.helpRequestId || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '')
+    .slice(0, 80);
+  if (!id || !senderId || (!text && !imageDataUrl && !fileDataUrl && !code) || !createdAt) return null;
   const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : (senderRole === 'system' ? 'Система' : 'Ученик'));
   const message = {
     id,
@@ -3541,6 +3568,11 @@ const normalizeStudentTeacherChatMessage = (value) => {
     message.systemActorRole = systemActorRole;
     message.systemActorId = systemActorId;
   }
+  if (helpRequestId) {
+    message.helpRequestId = helpRequestId;
+    message.helpTelegramRequested = value.helpTelegramRequested === true;
+    message.helpTelegramDelivered = value.helpTelegramDelivered === true;
+  }
   if (imageDataUrl) {
     message.imageDataUrl = imageDataUrl;
     if (imageName) message.imageName = imageName;
@@ -3550,6 +3582,10 @@ const normalizeStudentTeacherChatMessage = (value) => {
     if (fileName) message.fileName = fileName;
     if (fileMimeType) message.fileMimeType = fileMimeType;
     if (fileSize) message.fileSize = fileSize;
+  }
+  if (code) {
+    message.code = code;
+    message.codeLanguage = codeLanguage;
   }
   return message;
 };
@@ -5870,14 +5906,23 @@ const createStudentTeacherChatMessage = ({
   fileName,
   fileMimeType,
   fileSize,
+  code,
+  codeLanguage,
   replyTo,
   forwardFrom,
   systemType,
   targetMessageId,
   systemActorRole,
   systemActorId,
+  helpRequestId,
+  helpTelegramRequested,
+  helpTelegramDelivered,
 }) => {
   const normalizedText = normalizeStudentChatMessageText(text);
+  const normalizedCode = normalizeStudentChatCode(code);
+  const normalizedCodeLanguage = normalizedCode
+    ? (normalizeStudentChatCodeLanguage(codeLanguage) || 'python')
+    : '';
   const normalizedImageName = normalizeStudentChatImageName(imageName);
   let normalizedImageDataUrl = normalizeStudentChatImageDataUrl(imageDataUrl);
   if (normalizedImageDataUrl.startsWith('data:')) {
@@ -5902,6 +5947,10 @@ const createStudentTeacherChatMessage = ({
     normalizedFileSize = normalizedFileSize || stored.sizeBytes;
   }
   const normalizedSenderRole = getStudentChatMessageSenderRole(senderRole);
+  const normalizedHelpRequestId = String(helpRequestId || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '')
+    .slice(0, 80);
   const message = {
     id: crypto.randomUUID(),
     senderRole: normalizedSenderRole,
@@ -5920,6 +5969,10 @@ const createStudentTeacherChatMessage = ({
     if (normalizedFileMimeType) message.fileMimeType = normalizedFileMimeType;
     if (normalizedFileSize) message.fileSize = normalizedFileSize;
   }
+  if (normalizedCode) {
+    message.code = normalizedCode;
+    message.codeLanguage = normalizedCodeLanguage;
+  }
   const normalizedReplyTo = normalizeStudentChatMessageReference(replyTo);
   const normalizedForwardFrom = normalizeStudentChatMessageReference(forwardFrom);
   if (normalizedReplyTo) message.replyTo = normalizedReplyTo;
@@ -5933,6 +5986,11 @@ const createStudentTeacherChatMessage = ({
   if (normalizedSystemActorRole && normalizedSystemActorId) {
     message.systemActorRole = normalizedSystemActorRole;
     message.systemActorId = normalizedSystemActorId;
+  }
+  if (normalizedHelpRequestId) {
+    message.helpRequestId = normalizedHelpRequestId;
+    message.helpTelegramRequested = helpTelegramRequested === true;
+    message.helpTelegramDelivered = helpTelegramDelivered === true;
   }
   return message;
 };
@@ -6149,6 +6207,10 @@ const mergeStudentChatForwardContent = (payload, forwardSource) => {
     next.fileName = source.fileName || '';
     next.fileMimeType = source.fileMimeType || getDataUrlMimeType(source.fileDataUrl);
     next.fileSize = source.fileSize || 0;
+  }
+  if (!next.code && source.code) {
+    next.code = normalizeStudentChatCode(source.code);
+    next.codeLanguage = normalizeStudentChatCodeLanguage(source.codeLanguage) || 'python';
   }
   next.forwardFrom = forwardSource.reference;
   return next;
@@ -16024,6 +16086,543 @@ app.patch('/api/student-chat-notification-settings', (req, res) => {
   });
 });
 
+const studentHelpRequestRateByStudent = new Map();
+const studentHelpRequestResultById = new Map();
+
+const getTelegramHelpBotToken = () => String(
+  process.env.TELEGRAM_HELP_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || ''
+).trim();
+
+const getTelegramHelpChatIdForTeacher = (teacherId) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  const rawMap = String(process.env.TELEGRAM_TEACHER_CHAT_IDS_JSON || '').trim();
+  if (rawMap && normalizedTeacherId) {
+    try {
+      const parsed = JSON.parse(rawMap);
+      const mapped = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? String(parsed[normalizedTeacherId] || '').trim()
+        : '';
+      if (mapped) return mapped;
+    } catch (error) {
+      console.error('[student-help] invalid TELEGRAM_TEACHER_CHAT_IDS_JSON:', error?.message || error);
+    }
+  }
+  const fallbackTeacherId = String(process.env.TELEGRAM_HELP_SINGLE_TEACHER_ID || '').trim();
+  if (!normalizedTeacherId || !fallbackTeacherId || normalizedTeacherId !== fallbackTeacherId) return '';
+  return String(
+    process.env.TELEGRAM_HELP_CHAT_ID || process.env.TELEGRAM_TEACHER_CHAT_ID || ''
+  ).trim();
+};
+
+const buildStudentHelpPlatformChatUrl = (studentId) => {
+  const rawBase = String(process.env.APP_PUBLIC_URL || '').trim();
+  if (!rawBase) return '';
+  try {
+    const url = new URL(rawBase);
+    url.searchParams.set('view', 'student-chats');
+    url.searchParams.set('chatId', buildStudentTeacherChatId(studentId));
+    return url.toString();
+  } catch {
+    return '';
+  }
+};
+
+const getStudentHelpTelegramAvailability = (student) => {
+  const teacherId = String(student?.teacherId || '').trim();
+  const token = getTelegramHelpBotToken();
+  const chatId = getTelegramHelpChatIdForTeacher(teacherId);
+  return {
+    available: Boolean(teacherId && token && chatId),
+    token,
+    chatId,
+  };
+};
+
+const normalizeStudentHelpQuestion = (value) => String(value || '')
+  .replace(/\r\n?/g, '\n')
+  .replace(/[\u200b-\u200d\ufeff]/g, '')
+  .trim()
+  .slice(0, STUDENT_HELP_QUESTION_MAX_LENGTH);
+
+const normalizeStudentHelpRequestId = (value) => String(value || '')
+  .trim()
+  .replace(/[^a-zA-Z0-9_-]+/g, '')
+  .slice(0, 80);
+
+const consumeStudentHelpRequestRate = (studentId) => {
+  const key = String(studentId || '').trim();
+  const now = Date.now();
+  const recent = (studentHelpRequestRateByStudent.get(key) || [])
+    .filter((timestamp) => now - timestamp < STUDENT_HELP_REQUEST_RATE_WINDOW_MS);
+  if (recent.length >= STUDENT_HELP_REQUEST_RATE_LIMIT) {
+    studentHelpRequestRateByStudent.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  studentHelpRequestRateByStudent.set(key, recent);
+  return true;
+};
+
+const getCachedStudentHelpRequestResult = (studentId, requestId) => {
+  if (!requestId) return null;
+  const key = `${String(studentId || '').trim()}:${requestId}`;
+  const cached = studentHelpRequestResultById.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.createdAt > 10 * 60 * 1000) {
+    studentHelpRequestResultById.delete(key);
+    return null;
+  }
+  return cached.payload || null;
+};
+
+const cacheStudentHelpRequestResult = (studentId, requestId, payload) => {
+  if (!requestId || !payload) return;
+  const key = `${String(studentId || '').trim()}:${requestId}`;
+  studentHelpRequestResultById.set(key, { createdAt: Date.now(), payload });
+  if (studentHelpRequestResultById.size > 500) {
+    const expiry = Date.now() - 10 * 60 * 1000;
+    studentHelpRequestResultById.forEach((entry, entryKey) => {
+      if (!entry || entry.createdAt < expiry) studentHelpRequestResultById.delete(entryKey);
+    });
+  }
+};
+
+const getPersistedStudentHelpRequestResult = (studentId, requestId) => {
+  if (!requestId) return null;
+  const chatId = buildStudentTeacherChatId(studentId);
+  const chat = readStudentChatsDb().find((entry) => String(entry?.id || '').trim() === chatId);
+  const message = Array.isArray(chat?.messages)
+    ? chat.messages.find((entry) => (
+      String(entry?.senderId || '').trim() === String(studentId || '').trim()
+      && String(entry?.helpRequestId || '').trim() === requestId
+    ))
+    : null;
+  if (!message?.id) return null;
+  const telegramRequested = message.helpTelegramRequested === true;
+  const telegramDelivered = message.helpTelegramDelivered === true;
+  return {
+    ok: true,
+    requestId,
+    platformDelivered: true,
+    telegramRequested,
+    telegramDelivered,
+    warning: telegramRequested && !telegramDelivered
+      ? 'Вопрос уже сохранён в чате. Telegram-копия могла ещё обрабатываться; повторное сообщение не создано.'
+      : '',
+    chatId,
+    messageId: message.id,
+  };
+};
+
+const updatePersistedStudentHelpTelegramDelivery = ({ studentId, messageId, delivered }) => {
+  const chatId = buildStudentTeacherChatId(studentId);
+  const chats = readStudentChatsDb();
+  const chatIndex = chats.findIndex((entry) => String(entry?.id || '').trim() === chatId);
+  if (chatIndex < 0) return;
+  const chat = chats[chatIndex];
+  let changed = false;
+  const messages = (Array.isArray(chat?.messages) ? chat.messages : []).map((message) => {
+    if (String(message?.id || '').trim() !== String(messageId || '').trim()) return message;
+    changed = true;
+    return {
+      ...message,
+      helpTelegramDelivered: delivered === true,
+    };
+  });
+  if (!changed) return;
+  chats[chatIndex] = normalizeStudentTeacherChat({ ...chat, messages }) || chat;
+  writeStudentChatsDb(chats);
+};
+
+const resolveStudentHelpSnapshot = (question, fallbackDataUrl = '') => {
+  const screenshots = Array.isArray(question?.screenshots)
+    ? question.screenshots.filter((entry) => entry && (entry.storageName || entry.url))
+    : [];
+  const screenshot = screenshots[0] || null;
+  const normalizedFallback = normalizeStudentChatImageDataUrl(fallbackDataUrl);
+  const fallbackParts = getStudentChatDataUrlParts(normalizedFallback);
+  const hasValidFallback = Boolean(
+    fallbackParts && STUDENT_CHAT_ALLOWED_IMAGE_MIME_TYPES.has(fallbackParts.mime)
+  );
+  const buildFallbackSnapshot = () => ({
+    chatUrl: normalizedFallback,
+    name: fallbackParts?.mime === 'image/jpeg' ? 'task-condition.jpg' : 'task-condition.png',
+    buffer: Buffer.from(fallbackParts.base64, 'base64'),
+    mime: fallbackParts.mime,
+  });
+
+  // The client composes multi-page conditions into one readable image because
+  // a platform chat message has one image slot. Keep the original file path for
+  // the common single-image case so no re-encoding is involved.
+  if (screenshots.length > 1 && hasValidFallback) return buildFallbackSnapshot();
+  if (screenshot) {
+    const fromUrl = String(screenshot.url || '').match(/^\/uploads\/([A-Za-z0-9._-]{1,220})$/)?.[1] || '';
+    const storageName = path.basename(String(screenshot.storageName || fromUrl || '').trim());
+    const filePath = storageName ? path.join(uploadsDir, storageName) : '';
+    if (storageName && filePath && fs.existsSync(filePath)) {
+      const stat = fs.statSync(filePath);
+      const mime = String(screenshot.mimeType || '').trim().toLowerCase()
+        || (storageName.toLowerCase().endsWith('.jpg') || storageName.toLowerCase().endsWith('.jpeg')
+          ? 'image/jpeg'
+          : (storageName.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/png'));
+      if (stat.isFile() && stat.size > 0 && stat.size <= STUDENT_CHAT_IMAGE_MAX_BYTES
+        && STUDENT_CHAT_ALLOWED_IMAGE_MIME_TYPES.has(mime)) {
+        return {
+          chatUrl: `/uploads/${storageName}`,
+          name: normalizeStudentChatImageName(screenshot.name || storageName) || 'task-condition.png',
+          buffer: fs.readFileSync(filePath),
+          mime,
+        };
+      }
+    }
+  }
+
+  if (!hasValidFallback) {
+    return { chatUrl: '', name: '', buffer: null, mime: '' };
+  }
+  return buildFallbackSnapshot();
+};
+
+const getStoredStudentQuestionCode = (studentId, taskNumber, levelId, questionId) => {
+  const data = getStudentData(studentId);
+  const stored = data?.solvedByTask?.[String(taskNumber)]?.[String(levelId)]?._questionCodeById?.[String(questionId)];
+  return normalizeCodeText(typeof stored?.code === 'string' ? stored.code : '').slice(0, STUDENT_HELP_CODE_MAX_LENGTH);
+};
+
+const buildStudentHelpChatText = ({ taskNumber, taskTitle, levelLabel, questionNumber, questionText, conditionText, hasImage, hasCode }) => {
+  const safeTitle = String(taskTitle || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const contextTitle = safeTitle
+    ? `Задание №${taskNumber} «${safeTitle}»`
+    : `Задание №${taskNumber}`;
+  const attachments = [hasImage ? 'условие' : '', hasCode ? 'код' : ''].filter(Boolean);
+  const parts = [
+    '🆘 Вопрос по заданию',
+    '',
+    `${contextTitle} · ${levelLabel} · вопрос №${questionNumber}`,
+  ];
+  if (!hasImage && conditionText) {
+    parts.push('', `Условие: ${String(conditionText).trim().slice(0, 320)}`);
+  }
+  parts.push('', 'Вопрос ученика:', questionText);
+  if (attachments.length > 0) {
+    parts.push('', `${attachments.join(' и ')} ${attachments.length > 1 ? 'приложены' : 'приложено'}.`);
+  }
+  return normalizeStudentChatMessageText(parts.join('\n'));
+};
+
+const appendStudentHelpRequestToChat = (req, res, {
+  student,
+  text,
+  snapshot,
+  code,
+  requestId,
+  telegramRequested,
+}) => {
+  const chats = readStudentChatsDb();
+  const access = ensureStudentTeacherChatAccess(
+    req,
+    res,
+    buildStudentTeacherChatId(student.id),
+    { chats, createIfMissing: true }
+  );
+  if (!access) return null;
+  const message = createStudentTeacherChatMessage({
+    senderRole: 'student',
+    senderId: req.auth.id,
+    senderName: student.name || req.auth.name || 'Ученик',
+    text,
+    imageDataUrl: snapshot.chatUrl,
+    imageName: snapshot.name,
+    code,
+    codeLanguage: code ? 'python' : '',
+    helpRequestId: requestId,
+    helpTelegramRequested: telegramRequested,
+    helpTelegramDelivered: false,
+  });
+  if (!hasStudentTeacherChatMessageContent(message) || !message.senderId) {
+    throw new Error('Не удалось подготовить сообщение');
+  }
+  chats[access.index] = normalizeStudentTeacherChat(appendStudentTeacherChatMessage(access.chat, message)) || access.chat;
+  writeStudentChatsDb(chats);
+  const updatedChat = chats[access.index];
+  broadcastStudentTeacherChatMessageCreated(updatedChat, message);
+  const teacherPushKey = String(updatedChat?.teacherId || '').trim()
+    ? `teacher:${String(updatedChat.teacherId).trim()}`
+    : '';
+  if (teacherPushKey) {
+    const payload = buildStudentTeacherPushPayloadForTeacher(updatedChat, message, student);
+    sendPushNotificationToUserKey(teacherPushKey, payload, { logTarget: teacherPushKey }).catch((error) => {
+      console.error('[student-help] push failed:', error?.message || error);
+    });
+  }
+  return { chat: updatedChat, message };
+};
+
+const callTelegramHelpBot = async (token, method, init) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), STUDENT_HELP_TELEGRAM_TIMEOUT_MS);
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      ...init,
+      signal: controller.signal,
+    });
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || payload?.ok !== true) {
+      throw new Error(String(payload?.description || `Telegram API ${response.status}`).slice(0, 240));
+    }
+    return payload.result || null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const escapeTelegramHtml = (value) => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+const splitTelegramCodeForHtml = (value, maxEscapedLength = 3400) => {
+  const source = normalizeStudentChatCode(value);
+  if (!source) return [];
+  const chunks = [];
+  let current = '';
+  let escapedLength = 0;
+  for (const character of source) {
+    const encodedLength = escapeTelegramHtml(character).length;
+    if (current && escapedLength + encodedLength > maxEscapedLength) {
+      chunks.push(current);
+      current = '';
+      escapedLength = 0;
+    }
+    current += character;
+    escapedLength += encodedLength;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+};
+
+const sendStudentHelpRequestToTelegram = async ({ token, chatId, student, contextLine, questionText, snapshot, code }) => {
+  const platformUrl = buildStudentHelpPlatformChatUrl(student.id);
+  const replyMarkup = platformUrl
+    ? { inline_keyboard: [[{ text: 'Открыть чат на платформе', url: platformUrl }]] }
+    : null;
+  const fullText = `🆘 Вопрос от ${student.name || 'ученика'}\n${contextLine}\n\n${questionText}`;
+  let rootMessageId = null;
+
+  if (snapshot.buffer?.length) {
+    const shortCaption = fullText.length <= 940
+      ? fullText
+      : `🆘 Вопрос от ${student.name || 'ученика'}\n${contextLine}\n\nПолный вопрос — следующим сообщением.`;
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append('photo', new Blob([snapshot.buffer], { type: snapshot.mime || 'image/png' }), snapshot.name || 'task-condition.png');
+    form.append('caption', shortCaption);
+    if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+    const photoMessage = await callTelegramHelpBot(token, 'sendPhoto', { method: 'POST', body: form });
+    rootMessageId = Number(photoMessage?.message_id) || null;
+    if (fullText.length > 940) {
+      const body = {
+        chat_id: chatId,
+        text: fullText,
+        ...(rootMessageId ? { reply_parameters: { message_id: rootMessageId } } : {}),
+      };
+      await callTelegramHelpBot(token, 'sendMessage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+  } else {
+    const body = {
+      chat_id: chatId,
+      text: fullText,
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+    };
+    const textMessage = await callTelegramHelpBot(token, 'sendMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    rootMessageId = Number(textMessage?.message_id) || null;
+  }
+
+  if (code) {
+    const codeChunks = splitTelegramCodeForHtml(code);
+    for (let index = 0; index < codeChunks.length; index += 1) {
+      const chunkLabel = codeChunks.length > 1 ? ` · часть ${index + 1}/${codeChunks.length}` : '';
+      const html = [
+        `<b>${escapeTelegramHtml(`Код ученика${chunkLabel}`)}</b>`,
+        `<pre><code class="language-python">${escapeTelegramHtml(codeChunks[index])}</code></pre>`,
+      ].join('\n');
+      await callTelegramHelpBot(token, 'sendMessage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: html,
+          parse_mode: 'HTML',
+          ...(rootMessageId ? { reply_parameters: { message_id: rootMessageId } } : {}),
+        }),
+      });
+    }
+  }
+};
+
+app.get('/api/student-help/channels', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student?.id) return res.status(404).json({ error: 'Ученик не найден' });
+  const telegram = getStudentHelpTelegramAvailability(student);
+  return res.json({
+    platform: { available: true },
+    telegram: {
+      available: telegram.available,
+      reason: telegram.available ? '' : 'Telegram пока не подключён преподавателем',
+    },
+    teacherName: findTeacherById(student.teacherId)?.name || 'преподаватель',
+  });
+});
+
+app.post('/api/student-help-requests', async (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student?.id) return res.status(404).json({ error: 'Ученик не найден' });
+
+  const requestId = normalizeStudentHelpRequestId(req.body?.requestId);
+  if (!requestId) return res.status(400).json({ error: 'Не удалось определить отправку. Обновите страницу и попробуйте снова.' });
+  const cachedResult = getCachedStudentHelpRequestResult(student.id, requestId);
+  if (cachedResult) return res.json(cachedResult);
+  const persistedResult = getPersistedStudentHelpRequestResult(student.id, requestId);
+  if (persistedResult) {
+    cacheStudentHelpRequestResult(student.id, requestId, persistedResult);
+    return res.json(persistedResult);
+  }
+
+  const questionText = normalizeStudentHelpQuestion(req.body?.question);
+  if (questionText.length < 3) return res.status(400).json({ error: 'Опишите вопрос чуть подробнее' });
+  const channel = String(req.body?.channel || 'platform').trim().toLowerCase();
+  if (!['platform', 'telegram'].includes(channel)) {
+    return res.status(400).json({ error: 'Некорректный способ отправки' });
+  }
+  const taskNumber = Number(req.body?.taskNumber);
+  const levelId = String(req.body?.levelId || '').trim();
+  const questionId = String(req.body?.questionId || '').trim();
+  if (!Number.isFinite(taskNumber) || !levelId || !questionId || !isKnownTaskNumber(taskNumber)) {
+    return res.status(400).json({ error: 'Не удалось определить текущее задание' });
+  }
+  const testsDb = getTestsDbWithPythonInfiniteTraining();
+  const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNumber, levelId, questionId);
+  if (!taskLevels || !questions || !question) {
+    return res.status(400).json({ error: 'Вопрос задания не найден' });
+  }
+  const questionNumber = Math.max(1, questions.findIndex((entry) => String(entry?.id ?? '').trim() === questionId) + 1);
+  if (!consumeStudentHelpRequestRate(student.id)) {
+    return res.status(429).json({ error: 'Слишком много вопросов подряд. Подождите минуту и попробуйте снова.' });
+  }
+
+  const hasClientCode = Object.prototype.hasOwnProperty.call(req.body || {}, 'code');
+  const code = hasClientCode
+    ? normalizeCodeText(req.body?.code).slice(0, STUDENT_HELP_CODE_MAX_LENGTH)
+    : getStoredStudentQuestionCode(student.id, taskNumber, levelId, questionId);
+  const snapshot = resolveStudentHelpSnapshot(question, req.body?.snapshotDataUrl);
+  const levelLabel = ({ basic: 'базовый уровень', advanced: 'продвинутый уровень', expert: 'экспертный уровень' })[levelId]
+    || `${levelId} уровень`;
+  const taskTitle = String(readTaskTitlesDb()?.[String(taskNumber)] || '').trim().slice(0, 120);
+  const chatText = buildStudentHelpChatText({
+    taskNumber,
+    taskTitle,
+    levelLabel,
+    questionNumber,
+    questionText,
+    conditionText: question?.question,
+    hasImage: Boolean(snapshot.chatUrl),
+    hasCode: Boolean(code.trim()),
+  });
+
+  let chatDelivery;
+  try {
+    chatDelivery = appendStudentHelpRequestToChat(req, res, {
+      student,
+      text: chatText,
+      snapshot,
+      code,
+      requestId,
+      telegramRequested: channel === 'telegram',
+    });
+    if (!chatDelivery) return;
+  } catch (error) {
+    console.error('[student-help] platform delivery failed:', error?.message || error);
+    return res.status(500).json({ error: 'Не удалось отправить вопрос в чат' });
+  }
+
+  // Cache the durable platform delivery before contacting Telegram. If the client
+  // times out and retries with the same requestId, it receives this result instead
+  // of creating a duplicate message while the Telegram mirror is still in flight.
+  const platformResponsePayload = {
+    ok: true,
+    requestId,
+    platformDelivered: true,
+    telegramRequested: channel === 'telegram',
+    telegramDelivered: false,
+    warning: channel === 'telegram'
+      ? 'Вопрос уже сохранён в чате. Отправка копии в Telegram продолжается.'
+      : '',
+    chatId: chatDelivery.chat?.id || buildStudentTeacherChatId(student.id),
+    messageId: chatDelivery.message?.id || '',
+  };
+  cacheStudentHelpRequestResult(student.id, requestId, platformResponsePayload);
+
+  let telegramDelivered = false;
+  let warning = '';
+  if (channel === 'telegram') {
+    const telegram = getStudentHelpTelegramAvailability(student);
+    if (!telegram.available) {
+      warning = 'Вопрос сохранён в чате, но Telegram пока не подключён преподавателем.';
+    } else {
+      const safeTitle = taskTitle ? `Задание №${taskNumber} «${taskTitle}»` : `Задание №${taskNumber}`;
+      const contextLine = `${safeTitle} · вопрос №${questionNumber}`;
+      try {
+        await sendStudentHelpRequestToTelegram({
+          token: telegram.token,
+          chatId: telegram.chatId,
+          student,
+          contextLine,
+          questionText,
+          snapshot,
+          code,
+        });
+        telegramDelivered = true;
+        updatePersistedStudentHelpTelegramDelivery({
+          studentId: student.id,
+          messageId: chatDelivery.message?.id,
+          delivered: true,
+        });
+      } catch (error) {
+        console.error('[student-help] Telegram delivery failed:', error?.message || error);
+        warning = 'Вопрос сохранён в чате, но не все материалы удалось доставить в Telegram. Преподаватель всё равно получит уведомление на платформе.';
+      }
+    }
+  }
+
+  const responsePayload = {
+    ok: true,
+    requestId,
+    platformDelivered: true,
+    telegramRequested: channel === 'telegram',
+    telegramDelivered,
+    warning,
+    chatId: platformResponsePayload.chatId,
+    messageId: platformResponsePayload.messageId,
+  };
+  cacheStudentHelpRequestResult(student.id, requestId, responsePayload);
+  return res.json(responsePayload);
+});
+
 app.post('/api/student-chat/messages', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   const text = normalizeStudentChatMessageText(req.body?.text);
@@ -16042,8 +16641,10 @@ app.post('/api/student-chat/messages', (req, res) => {
     fileName,
     fileMimeType,
     fileSize,
+    code,
+    codeLanguage,
   } = messagePayload;
-  if (!messageText && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+  if (!messageText && !imageDataUrl && !fileDataUrl && !code) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const chats = readStudentChatsDb();
   const access = ensureStudentTeacherChatAccess(
@@ -16075,6 +16676,8 @@ app.post('/api/student-chat/messages', (req, res) => {
     fileName,
     fileMimeType,
     fileSize,
+    code,
+    codeLanguage,
     replyTo,
     forwardFrom: forwardSource?.reference,
   });
@@ -16447,8 +17050,10 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
     fileName,
     fileMimeType,
     fileSize,
+    code,
+    codeLanguage,
   } = messagePayload;
-  if (!messageText && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+  if (!messageText && !imageDataUrl && !fileDataUrl && !code) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const chats = readStudentChatsDb();
   const access = ensureStudentTeacherChatAccess(req, res, req.params.chatId, { chats, createIfMissing: true });
@@ -16480,6 +17085,8 @@ app.post('/api/student-chats/:chatId/messages', (req, res) => {
     fileName,
     fileMimeType,
     fileSize,
+    code,
+    codeLanguage,
     replyTo,
     forwardFrom: forwardSource?.reference,
   });
@@ -16829,8 +17436,10 @@ app.post('/api/teacher-social-group-chat/messages', (req, res) => {
     fileName,
     fileMimeType,
     fileSize,
+    code,
+    codeLanguage,
   } = messagePayload;
-  if (!messageText && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+  if (!messageText && !imageDataUrl && !fileDataUrl && !code) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const effectiveTeacherId = isTeacherRole(req.auth)
     ? req.auth.id
@@ -16867,6 +17476,8 @@ app.post('/api/teacher-social-group-chat/messages', (req, res) => {
     fileName,
     fileMimeType,
     fileSize,
+    code,
+    codeLanguage,
     replyTo,
     forwardFrom: forwardSource?.reference,
   });
@@ -17242,8 +17853,10 @@ app.post('/api/student-social-chats/:chatId/messages', (req, res) => {
     fileName,
     fileMimeType,
     fileSize,
+    code,
+    codeLanguage,
   } = messagePayload;
-  if (!messageText && !imageDataUrl && !fileDataUrl) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
+  if (!messageText && !imageDataUrl && !fileDataUrl && !code) return res.status(400).json({ error: 'Введите сообщение или добавьте файл' });
 
   const db = readStudentSocialChatsDb();
   const access = ensureStudentSocialChatAccess(req, res, req.params.chatId, {
@@ -17274,6 +17887,8 @@ app.post('/api/student-social-chats/:chatId/messages', (req, res) => {
     fileName,
     fileMimeType,
     fileSize,
+    code,
+    codeLanguage,
     replyTo,
     forwardFrom: forwardSource?.reference,
   });

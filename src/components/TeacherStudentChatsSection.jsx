@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bell, BellOff, Check, CheckCheck, ChevronDown, Copy, FileText, Forward, Image as ImageIcon, Link, MessageSquare, MoreVertical, PanelRight, Paperclip, Pencil, Pin, Reply, Search, SendHorizontal, SmilePlus, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import { Button, Card } from './ui';
 import ChatInfoDrawer from './ChatInfoDrawer';
+import ChatCodeBlock from './ChatCodeBlock';
 import LinkifiedText from './LinkifiedText';
 
 const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -246,6 +247,7 @@ const getMessageSearchText = (message) => [
   message?.senderName,
   message?.imageName,
   message?.fileName,
+  message?.code,
   message?.replyTo?.text,
   message?.replyTo?.senderName,
   message?.forwardFrom?.text,
@@ -354,6 +356,7 @@ const getMessageReferencePreview = (reference) => {
   if (text) return text;
   if (reference?.hasImage) return reference?.imageName || 'Изображение';
   if (reference?.hasFile) return reference?.fileName || 'Файл';
+  if (reference?.hasCode) return 'Код Python';
   return 'Сообщение';
 };
 
@@ -370,7 +373,8 @@ const buildMessageReferencePayload = (message, options = {}) => {
   const fileName = String(message?.fileName || '').trim();
   const hasImage = Boolean(message?.imageDataUrl || imageName);
   const hasFile = Boolean(message?.fileDataUrl || fileName);
-  if (!messageId || !senderId || (!text && !hasImage && !hasFile)) return null;
+  const hasCode = Boolean(String(message?.code || '').trim());
+  if (!messageId || !senderId || (!text && !hasImage && !hasFile && !hasCode)) return null;
   return {
     messageId,
     chatId: String(options.chatId || '').trim(),
@@ -382,6 +386,7 @@ const buildMessageReferencePayload = (message, options = {}) => {
     text,
     hasImage,
     hasFile,
+    hasCode,
     imageName,
     fileName,
     createdAt: String(message?.createdAt || '').trim(),
@@ -729,13 +734,51 @@ const scrollChatNodeToBottom = (node) => {
   });
 };
 
+const scrollChatNodeToLatest = (node) => {
+  if (!node) return;
+  const messageNodes = node.querySelectorAll('[data-chat-message-id]');
+  const latestMessage = messageNodes[messageNodes.length - 1];
+  const shouldShowMessageStart = Boolean(
+    latestMessage
+    && (
+      latestMessage.dataset.chatScrollAnchor === 'start'
+      || (
+        node.clientHeight > 0
+        && latestMessage.getBoundingClientRect().height > Math.max(180, node.clientHeight - 40)
+      )
+    )
+  );
+  const scroll = () => {
+    if (!shouldShowMessageStart) {
+      node.scrollTop = node.scrollHeight;
+      return;
+    }
+
+    const nodeRect = node.getBoundingClientRect();
+    const messageRect = latestMessage.getBoundingClientRect();
+    node.scrollTop = Math.max(0, node.scrollTop + messageRect.top - nodeRect.top - 16);
+  };
+  scroll();
+  if (typeof window === 'undefined') return;
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(scroll);
+  }
+};
+
+const getHelpRequestQuestionText = (value = '') => {
+  const text = String(value || '').replace(/\r\n?/g, '\n').trim();
+  if (!text) return '';
+  const match = text.match(/Вопрос ученика:\s*([\s\S]*?)(?:\n\s*\n(?:условие|Условие)(?=\s|$)|$)/i);
+  return String(match?.[1] || text).trim();
+};
+
 const applyChatScrollBehavior = (listRef, behaviorRef) => {
   const node = listRef.current;
   const behavior = behaviorRef.current;
   if (!node || !behavior) return;
   behaviorRef.current = null;
   if (behavior.type === 'bottom') {
-    scrollChatNodeToBottom(node);
+    scrollChatNodeToLatest(node);
     return;
   }
   if (behavior.type === 'preserve') {
@@ -1313,7 +1356,7 @@ const TeacherStudentChatsSection = ({
     });
   }, [fetchMessages, messagesLoading, messagesPagination, olderMessagesLoading, selectedChatId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyChatScrollBehavior(messagesRef, messagesScrollBehaviorRef);
     const node = messagesRef.current;
     if (!node) {
@@ -1328,10 +1371,10 @@ const TeacherStudentChatsSection = ({
     };
   }, [messages, updateScrollToBottomButton]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedChatId) return;
     markChatScrollToBottom(messagesRef, messagesScrollBehaviorRef, { force: true });
-    scrollChatNodeToBottom(messagesRef.current);
+    scrollChatNodeToLatest(messagesRef.current);
   }, [selectedChatId]);
 
   useEffect(() => {
@@ -2183,7 +2226,7 @@ const TeacherStudentChatsSection = ({
           </div>
         </div>
       )}
-      <div className="teacher-chat-heading mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div className="teacher-chat-heading mb-3 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <div className="teacher-chat-kicker">центр сообщений</div>
           <h2 className="flex items-center gap-2 text-2xl font-black tracking-[-0.01em]">
@@ -2199,80 +2242,82 @@ const TeacherStudentChatsSection = ({
         </span>
       </div>
 
-      <Card className="teacher-chat-notify-card mb-5">
-        <div className="teacher-chat-status-strip teacher-chat-status-strip--notify">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="teacher-chat-strip-label">
-                Уведомления
+      <div className={`teacher-chat-settings-grid ${canManageSocialChats ? '' : 'teacher-chat-settings-grid--single'}`}>
+        <Card className="teacher-chat-notify-card">
+          <div className="teacher-chat-status-strip teacher-chat-status-strip--notify">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="teacher-chat-strip-label">
+                  Уведомления
+                </div>
+                <div className="teacher-chat-strip-text mt-1">
+                  {resolvedNotifyText}
+                </div>
+                {notifyError && (
+                  <div className="mt-1 text-xs text-red-500">{notifyError}</div>
+                )}
               </div>
-              <div className="teacher-chat-strip-text mt-1">
-                {resolvedNotifyText}
-              </div>
-              {notifyError && (
-                <div className="mt-1 text-xs text-red-500">{notifyError}</div>
-              )}
-            </div>
-            <Button
-              type="button"
-              variant={notifyEnabled ? 'secondary' : 'primary'}
-              onClick={() => onToggleNotify?.()}
-              disabled={!canToggleNotify || (!notifySupported && !notifyEnabled)}
-              className="teacher-chat-control-button sm:ml-3"
-            >
-              <NotifyIcon size={16} />
-              {notifyBusy || notifySyncing
-                ? 'Сохраняем...'
-                : (notifyEnabled ? 'Отключить уведомления' : 'Включить уведомления')}
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      {canManageSocialChats && (
-        <Card className="teacher-chat-course-card mb-5">
-          <div className="teacher-chat-status-strip teacher-chat-status-strip--course flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="teacher-chat-strip-label flex items-center gap-2">
-                <Users size={14} />
-                Чаты курса
-              </div>
-              <div className="teacher-chat-strip-text mt-1">
-                Общий чат группы и личные диалоги между учениками своего курса.
-              </div>
-              {socialSettingsError && (
-                <div className="mt-1 text-xs text-red-500">{socialSettingsError}</div>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
-                variant={resolvedSocialSettings.groupEnabled ? 'success' : 'secondary'}
-                onClick={() => handleSocialSettingToggle('groupEnabled')}
-                disabled={socialSettingsLoading || socialSettingsSaving}
-                className="teacher-chat-control-button min-w-[150px]"
+                variant={notifyEnabled ? 'secondary' : 'primary'}
+                onClick={() => onToggleNotify?.()}
+                disabled={!canToggleNotify || (!notifySupported && !notifyEnabled)}
+                className="teacher-chat-control-button sm:ml-3"
               >
-                {resolvedSocialSettings.groupEnabled ? 'Группа включена' : 'Группа выкл.'}
-              </Button>
-              <Button
-                type="button"
-                variant={resolvedSocialSettings.directEnabled ? 'success' : 'secondary'}
-                onClick={() => handleSocialSettingToggle('directEnabled')}
-                disabled={socialSettingsLoading || socialSettingsSaving}
-                className="teacher-chat-control-button min-w-[150px]"
-              >
-                {resolvedSocialSettings.directEnabled ? 'Личные включены' : 'Личные выкл.'}
+                <NotifyIcon size={16} />
+                {notifyBusy || notifySyncing
+                  ? 'Сохраняем...'
+                  : (notifyEnabled ? 'Отключить уведомления' : 'Включить уведомления')}
               </Button>
             </div>
           </div>
         </Card>
-      )}
+
+        {canManageSocialChats && (
+          <Card className="teacher-chat-course-card">
+            <div className="teacher-chat-status-strip teacher-chat-status-strip--course flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="teacher-chat-strip-label flex items-center gap-2">
+                  <Users size={14} />
+                  Чаты курса
+                </div>
+                <div className="teacher-chat-strip-text mt-1">
+                  Общий чат группы и личные диалоги учеников.
+                </div>
+                {socialSettingsError && (
+                  <div className="mt-1 text-xs text-red-500">{socialSettingsError}</div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={resolvedSocialSettings.groupEnabled ? 'success' : 'secondary'}
+                  onClick={() => handleSocialSettingToggle('groupEnabled')}
+                  disabled={socialSettingsLoading || socialSettingsSaving}
+                  className="teacher-chat-control-button"
+                >
+                  {resolvedSocialSettings.groupEnabled ? 'Группа включена' : 'Группа выкл.'}
+                </Button>
+                <Button
+                  type="button"
+                  variant={resolvedSocialSettings.directEnabled ? 'success' : 'secondary'}
+                  onClick={() => handleSocialSettingToggle('directEnabled')}
+                  disabled={socialSettingsLoading || socialSettingsSaving}
+                  className="teacher-chat-control-button"
+                >
+                  {resolvedSocialSettings.directEnabled ? 'Личные включены' : 'Личные выкл.'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+      </div>
 
       <Card className="teacher-chat-shell">
         {chatsError && <p className="mb-3 text-xs text-red-500">{chatsError}</p>}
         {groupChatError && <p className="mb-3 text-xs text-red-500">{groupChatError}</p>}
         <div className="teacher-chat-layout grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr]">
-          <div className="teacher-chat-sidebar max-h-[520px] space-y-2 overflow-y-auto pr-1">
+          <div className="teacher-chat-sidebar space-y-2 overflow-y-auto pr-1">
             {canManageSocialChats && (
               <button
                 type="button"
@@ -2366,14 +2411,14 @@ const TeacherStudentChatsSection = ({
             )}
           </div>
 
-          <div className="teacher-chat-thread rounded-2xl border p-3">
+          <div className="teacher-chat-thread flex min-h-0 flex-col border">
             {!selectedChatId ? (
               <div className="teacher-chat-empty-state flex min-h-[320px] items-center justify-center rounded-xl border border-dashed text-sm">
                 Выберите чат слева.
               </div>
             ) : (
               <>
-                <div className="teacher-chat-thread-header flex flex-wrap items-center justify-between gap-3 rounded-xl border px-3 py-2.5">
+                <div className="teacher-chat-thread-header flex flex-wrap items-center justify-between gap-3 border">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className={`teacher-chat-thread-avatar ${isGroupChatSelected ? 'teacher-chat-thread-avatar--group' : ''}`}>
                       {isGroupChatSelected ? <Users size={18} /> : getTeacherChatInitials(selectedTitle)}
@@ -2387,33 +2432,35 @@ const TeacherStudentChatsSection = ({
                       </p>
                     </div>
                   </div>
-                  {isGroupChatDisabled && (
-                    <span className="teacher-chat-disabled-pill rounded-full border px-2.5 py-1 text-[11px] font-black">
-                      Группа выключена
-                    </span>
-                  )}
+                  <div className="teacher-chat-thread-header-actions">
+                    {isGroupChatDisabled && (
+                      <span className="teacher-chat-disabled-pill rounded-full border px-2.5 py-1 text-[11px] font-black">
+                        Группа выключена
+                      </span>
+                    )}
+                    <ChatMessageTopTools
+                      searchQuery={searchQuery}
+                      onSearchQueryChange={setSearchQuery}
+                      contentFilter={contentFilter}
+                      onContentFilterChange={setContentFilter}
+                      counts={contentCounts}
+                      menuActions={selectedChatMenuActions}
+                      drawerInfo={{
+                        title: selectedTitle,
+                        subtitle: selectedSubtitle,
+                        status: isGroupChatSelected ? 'Общий чат курса' : 'Диалог с учеником',
+                        avatarLabel: selectedTitle,
+                        avatarIcon: isGroupChatSelected ? Users : null,
+                        kind: isGroupChatSelected ? 'group' : 'direct',
+                      }}
+                      pinnedMessage={selectedChat?.pinnedMessage || null}
+                      onPinnedOpen={(reference) => {
+                        const messageId = String(reference?.messageId || reference?.id || '').trim();
+                        if (messageId) setReferenceRequest({ ...reference, messageId, nonce: Date.now() });
+                      }}
+                    />
+                  </div>
                 </div>
-                <ChatMessageTopTools
-                  searchQuery={searchQuery}
-                  onSearchQueryChange={setSearchQuery}
-                  contentFilter={contentFilter}
-                  onContentFilterChange={setContentFilter}
-                  counts={contentCounts}
-                  menuActions={selectedChatMenuActions}
-                  drawerInfo={{
-                    title: selectedTitle,
-                    subtitle: selectedSubtitle,
-                    status: isGroupChatSelected ? 'Общий чат курса' : 'Диалог с учеником',
-                    avatarLabel: selectedTitle,
-                    avatarIcon: isGroupChatSelected ? Users : null,
-                    kind: isGroupChatSelected ? 'group' : 'direct',
-                  }}
-                  pinnedMessage={selectedChat?.pinnedMessage || null}
-                  onPinnedOpen={(reference) => {
-                    const messageId = String(reference?.messageId || reference?.id || '').trim();
-                    if (messageId) setReferenceRequest({ ...reference, messageId, nonce: Date.now() });
-                  }}
-                />
                 {selectionMode && (
                   <div className="student-message-selection-bar" data-message-menu-ignore="true">
                     <div className="student-message-selection-count">
@@ -2485,7 +2532,7 @@ const TeacherStudentChatsSection = ({
                   </div>
                 )}
 
-                <div className="student-chat-messages-wrap teacher-chat-messages-wrap mt-3">
+                <div className="student-chat-messages-wrap teacher-chat-messages-wrap flex min-h-0 flex-1">
                   <div
                     ref={messagesRef}
                     onScroll={(event) => {
@@ -2495,7 +2542,7 @@ const TeacherStudentChatsSection = ({
                       updateScrollToBottomButton(node);
                       if (node.scrollTop <= 96) loadOlderMessages();
                     }}
-                    className="teacher-chat-messages max-h-[430px] min-h-[320px] space-y-2 overflow-y-auto rounded-xl border p-3"
+                    className="teacher-chat-messages min-h-0 flex-1 space-y-2 overflow-y-auto border"
                   >
                   {selectedChat?.pinnedMessage && (
                     <div className="student-chat-pinned-message-row" data-message-menu-ignore="true">
@@ -2565,22 +2612,25 @@ const TeacherStudentChatsSection = ({
                       const messageImageName = String(message?.imageName || '').trim();
                       const messageFileDataUrl = String(message?.fileDataUrl || '').trim();
                       const messageFileName = String(message?.fileName || '').trim();
+                      const messageCode = String(message?.code || '').replace(/\r\n?/g, '\n').trimEnd();
                       const messageFileMimeType = normalizeAttachmentMimeType(message?.fileMimeType || getDataUrlMimeType(messageFileDataUrl));
                       const messageFileSizeText = formatFileSize(message?.fileSize);
                       const renderedImageDataUrl = messageImageDataUrl || (messageFileMimeType.startsWith('image/') ? messageFileDataUrl : '');
                       const renderedImageName = messageImageDataUrl ? messageImageName : messageFileName;
                       const renderedFileDataUrl = renderedImageDataUrl === messageFileDataUrl ? '' : messageFileDataUrl;
-                      const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !renderedFileDataUrl);
+                      const isHelpRequest = Boolean(String(message?.helpRequestId || '').trim());
+                      const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !renderedFileDataUrl && !messageCode);
                       const shouldRenderMessageText = Boolean(messageText && !isTextOnlyForward);
                       const senderLabel = message?.senderName || selectedChat?.studentName || 'Ученик';
                       return (
                         <div
                           key={message.id}
                           data-chat-message-id={messageId}
+                          data-chat-scroll-anchor={isHelpRequest ? 'start' : undefined}
                           className={`teacher-chat-message-row flex items-start gap-2 ${isTeacherMessage ? 'justify-end' : 'justify-start'} ${highlightedMessageId === messageId ? 'teacher-chat-message-row--highlighted' : ''} ${selectionMode ? 'student-message-row--selecting' : ''} ${selected ? 'student-message-row--selected' : ''}`}
                           onContextMenu={(event) => openMessageContextMenu(event, message)}
                         >
-                          <div className={`teacher-chat-message-stack flex max-w-[88%] flex-col ${isTeacherMessage ? 'items-end' : 'items-start'}`}>
+                          <div className={`teacher-chat-message-stack flex max-w-[88%] flex-col ${isTeacherMessage ? 'items-end' : 'items-start'} ${isHelpRequest ? 'teacher-chat-message-stack--help' : ''}`}>
                           <div
                             className={`teacher-chat-bubble max-w-full rounded-2xl px-3 py-2 text-sm shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${selected ? 'student-message-bubble--selected' : ''} ${
                               isTeacherMessage ? 'teacher-chat-bubble--teacher teacher-chat-bubble--with-status text-white' : 'teacher-chat-bubble--student'
@@ -2605,6 +2655,19 @@ const TeacherStudentChatsSection = ({
                             )}
                             {message?.replyTo && (
                               <MessageReferenceCard reference={message.replyTo} type="reply" mine={isTeacherMessage} onOpenTarget={openReferencedMessage} />
+                            )}
+                            {!isEditingMessage && shouldRenderMessageText && isHelpRequest && (
+                              <div className="teacher-chat-help-question">
+                                <span className="teacher-chat-help-question__label">Вопрос ученика</span>
+                                <LinkifiedText
+                                  text={getHelpRequestQuestionText(messageText)}
+                                  className="whitespace-pre-wrap break-words"
+                                  linkClassName={isTeacherMessage ? 'underline decoration-white/70 underline-offset-2' : 'text-purple-700 underline decoration-purple-400 underline-offset-2'}
+                                />
+                              </div>
+                            )}
+                            {isHelpRequest && (renderedImageDataUrl || renderedFileDataUrl || messageCode) && (
+                              <div className="teacher-chat-help-context-label">Контекст задания</div>
                             )}
                             {renderedImageDataUrl && (
                               <button
@@ -2657,6 +2720,9 @@ const TeacherStudentChatsSection = ({
                                 </span>
                               </a>
                             )}
+                            {messageCode && (
+                              <ChatCodeBlock code={messageCode} language={message?.codeLanguage || 'python'} />
+                            )}
                             {isEditingMessage ? (
                               <form
                                 className="student-message-edit-form"
@@ -2707,7 +2773,7 @@ const TeacherStudentChatsSection = ({
                                   </button>
                                 </div>
                               </form>
-                            ) : shouldRenderMessageText && (
+                            ) : shouldRenderMessageText && !isHelpRequest && (
                               <LinkifiedText
                                 text={messageText}
                                 className="whitespace-pre-wrap break-words"
@@ -3040,7 +3106,7 @@ const TeacherStudentChatsSection = ({
                   )}
                 </div>
 
-                <div className="teacher-chat-composer mt-3">
+                <div className="teacher-chat-composer">
                   <input
                     ref={messageImageInputRef}
                     type="file"
@@ -3127,7 +3193,7 @@ const TeacherStudentChatsSection = ({
                           handleSendMessage();
                         }
                       }}
-                      rows={3}
+                      rows={1}
                       placeholder={composerPlaceholder}
                       className="teacher-chat-textarea w-full resize-none rounded-xl border px-3 py-2.5 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
@@ -3136,7 +3202,7 @@ const TeacherStudentChatsSection = ({
                       variant="secondary"
                       onClick={() => messageImageInputRef.current?.click()}
                       disabled={messageSending || !selectedChatId || isGroupChatDisabled}
-                      className="teacher-chat-attach-button h-[46px] min-w-[48px] self-end px-0 sm:self-stretch"
+                      className="teacher-chat-attach-button h-[42px] min-w-[44px] self-end px-0 sm:self-stretch"
                       title={`Добавить файл (до ${CHAT_FILE_SIZE_LABEL})`}
                     >
                       <Paperclip size={16} />
@@ -3145,7 +3211,7 @@ const TeacherStudentChatsSection = ({
                       type="button"
                       onClick={handleSendMessage}
                       disabled={messageSending || (!messageText.trim() && !messageImageDataUrl && !messageFileDataUrl) || !selectedChatId || isGroupChatDisabled}
-                      className="teacher-chat-send-button h-[46px] min-w-[136px] self-end sm:self-stretch"
+                      className="teacher-chat-send-button h-[42px] min-w-[124px] self-end sm:self-stretch"
                     >
                       <SendHorizontal size={16} />
                       {messageSending ? 'Отправка...' : 'Отправить'}
