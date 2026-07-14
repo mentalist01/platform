@@ -57,6 +57,7 @@ import TeacherLessonStartPrompt from './components/TeacherLessonStartPrompt';
 import TeacherPanel from './components/TeacherPanel';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import CoinGuideIcon from './components/CoinGuideTooltip';
+import TurtleCanvas from './components/TurtleCanvas';
 import { Button, Card, ProgressBar } from './components/ui';
 import {
   USER_SESSION_KEY,
@@ -68,6 +69,8 @@ import {
   clearStoredSession,
 } from './utils/theme';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from './utils/monacoTheme';
+import { normalizeTurtleScene, parseTurtleSceneJson, serializeTurtleScene } from './utils/turtleScene';
+import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
   isPushFeatureSupported,
   getPushPermission,
@@ -1728,6 +1731,8 @@ const PYODIDE_RUN_TIMEOUT_MS = 40000;
 const ALLOW_MAIN_THREAD_PYTHON_FALLBACK = false;
 const PYODIDE_STREAM_FLUSH_MS = 35;
 const PYODIDE_STREAM_CHUNK_CHARS = 2048;
+const PYODIDE_TURTLE_SCENE_JSON_LIMIT = 4 * 1024 * 1024;
+const PYODIDE_TURTLE_SCENE_PRIMITIVE_LIMIT = 20_000;
 const COLLAB_RUN_OUTPUT_LIMIT = 20000;
 const COLLAB_RUN_TIMEOUT_MS = 60000;
 const COLLAB_DEBUG_TIMEOUT_MS = 30 * 60 * 1000;
@@ -1739,6 +1744,7 @@ const COLLAB_EDITOR_FONT_SIZE_DEFAULT = 18;
 const COLLAB_EDITOR_FONT_FAMILY = '"JetBrains Mono", Consolas, "Courier New", monospace';
 const COLLAB_SAVE_NOTICE_VISIBLE_MS = 4400;
 const COLLAB_SAVE_NOTICE_STALE_MS = 8000;
+const COLLAB_TURTLE_AUTO_OPEN_MAX_AGE_MS = 2 * 60 * 1000;
 const COLLAB_MEMORY_SNAPSHOT_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const COLLAB_AUX_PANEL_MODE_INPUT = 'input';
 const COLLAB_AUX_PANEL_MODE_TEST_FILE = 'test-file';
@@ -2317,7 +2323,14 @@ const createPyodideWorker = () => {
       return { push, close };
     };
 
-    const runPython = async (id, source, inputValue, debugMode = false, runtimeFiles = []) => {
+    const runPython = async (
+      id,
+      source,
+      inputValue,
+      debugMode = false,
+      runtimeFiles = [],
+      enableTurtle = false
+    ) => {
       const pyodide = await ensurePyodide();
       mountRuntimeFiles(pyodide, runtimeFiles);
       const safeInput = toText(inputValue);
@@ -2331,6 +2344,7 @@ const createPyodideWorker = () => {
       let error = '';
       let debugTrace = [];
       let debugTraceTruncated = false;
+      let turtleScene = null;
 
       const appendStdout = (value) => {
         const safe = toText(value);
@@ -2374,6 +2388,7 @@ const createPyodideWorker = () => {
       }
 
       const wrapped = [
+        enableTurtle ? ${JSON.stringify(HEADLESS_TURTLE_SOURCE)} : '',
         'import sys, io, traceback, builtins, json',
         'def _debug_safe_repr(_value, _max_len=220):',
         '    try:',
@@ -2470,6 +2485,10 @@ const createPyodideWorker = () => {
         'finally:',
         '    sys.settrace(None)',
         '    builtins.print = builtins.__collab_print_original',
+        'try:',
+        '    __turtle_scene_json = _turtle_export_scene_json()',
+        'except Exception:',
+        '    __turtle_scene_json = ""',
         '__collab_debug_events = _debug_events if _debug_mode else []',
         '__collab_debug_events_json = json.dumps(__collab_debug_events, ensure_ascii=False)',
         '__collab_debug_truncated = bool(_debug_trace_truncated)',
@@ -2511,11 +2530,36 @@ const createPyodideWorker = () => {
             truncatedValue?.destroy?.();
           } catch { /* no-op */ }
         }
+        try {
+          const sceneValue = pyodide.globals.get('__turtle_scene_json');
+          const sceneText = sceneValue && typeof sceneValue.toJs === 'function'
+            ? sceneValue.toJs()
+            : sceneValue;
+          sceneValue?.destroy?.();
+          if (
+            typeof sceneText === 'string'
+            && sceneText
+            && sceneText.length <= ${PYODIDE_TURTLE_SCENE_JSON_LIMIT}
+          ) {
+            const parsedScene = JSON.parse(sceneText);
+            if (parsedScene && typeof parsedScene === 'object' && Array.isArray(parsedScene.primitives)) {
+              const primitivesTruncated = parsedScene.primitives.length > ${PYODIDE_TURTLE_SCENE_PRIMITIVE_LIMIT};
+              turtleScene = {
+                ...parsedScene,
+                primitives: parsedScene.primitives.slice(0, ${PYODIDE_TURTLE_SCENE_PRIMITIVE_LIMIT}),
+                truncated: parsedScene.truncated === true || primitivesTruncated,
+              };
+            }
+          } else if (typeof sceneText === 'string' && sceneText) {
+            appendStderr('\\nРисунок turtle слишком большой и не был показан.\\n');
+          }
+        } catch { /* no-op */ }
       } finally {
         try {
           pyodide.globals.delete('__collab_debug_events');
           pyodide.globals.delete('__collab_debug_events_json');
           pyodide.globals.delete('__collab_debug_truncated');
+          pyodide.globals.delete('__turtle_scene_json');
         } catch { /* no-op */ }
         try {
           if (stdoutDecoder) appendStdout(stdoutDecoder.decode());
@@ -2527,6 +2571,7 @@ const createPyodideWorker = () => {
       return {
         output,
         error,
+        turtleScene,
         debug: useDebugMode
           ? {
             trace: Array.isArray(debugTrace) ? debugTrace : [],
@@ -2546,7 +2591,14 @@ const createPyodideWorker = () => {
           self.postMessage({ id, type: 'ready' });
           return;
         }
-        const result = await runPython(id, data.source, data.input, data.debug, data.files);
+        const result = await runPython(
+          id,
+          data.source,
+          data.input,
+          data.debug,
+          data.files,
+          data.enableTurtle === true
+        );
         if (result?.debug) {
           self.postMessage({
             id,
@@ -2555,7 +2607,13 @@ const createPyodideWorker = () => {
             truncated: Boolean(result.debug.truncated),
           });
         }
-        self.postMessage({ id, type: 'result', output: result.output, error: result.error });
+        self.postMessage({
+          id,
+          type: 'result',
+          output: result.output,
+          error: result.error,
+          turtleScene: result.turtleScene,
+        });
       } catch (err) {
         const message = err && err.message ? err.message : String(err);
         self.postMessage({ id, type: 'result', output: '', error: message });
@@ -2946,6 +3004,9 @@ const CollabSection = ({
   const [runAuthor, setRunAuthor] = useState('');
   const [runTimestamp, setRunTimestamp] = useState(null);
   const [lastRunInput, setLastRunInput] = useState('');
+  const [collabTurtleScene, setCollabTurtleScene] = useState(null);
+  const [collabTurtleWindowOpen, setCollabTurtleWindowOpen] = useState(false);
+  const [collabTurtleAuthor, setCollabTurtleAuthor] = useState('');
   const [outputPanelOpen, setOutputPanelOpen] = useState(false);
   const [outputPanelHeight, setOutputPanelHeight] = useState(() => {
     if (typeof window === 'undefined') return COLLAB_OUTPUT_PANEL_HEIGHT_DEFAULT;
@@ -3034,6 +3095,9 @@ const CollabSection = ({
   const collabTestFileRef = useRef(null);
   const runMapRef = useRef(null);
   const collabAwarenessRef = useRef(null);
+  const collabTurtleCloseRef = useRef(null);
+  const collabTurtlePayloadRef = useRef({ json: '', runId: '' });
+  const collabTurtleSeenRunIdRef = useRef('');
   const runWorkerRef = useRef(null);
   const runPendingRef = useRef(new Map());
   const runSessionRef = useRef(0);
@@ -3309,7 +3373,14 @@ const CollabSection = ({
   const collabIconButtonPrimary = 'is-primary';
   const collabIconButtonAccent = 'is-accent';
   const collabIconButtonDanger = 'is-danger';
-  const canClearRunState = Boolean(runOutput || runError || runStatus !== 'idle' || lastRunInput || debugActive);
+  const canClearRunState = Boolean(
+    runOutput
+    || runError
+    || runStatus !== 'idle'
+    || lastRunInput
+    || debugActive
+    || collabTurtleScene?.used
+  );
   const isBoardCodeAuxOpen = Boolean(useBoardGlassCodePanel && (taskFilesPanelOpen || stdinPanelOpen));
 
   const stopDebugPlayback = useCallback(() => {
@@ -5268,6 +5339,40 @@ const CollabSection = ({
     setTaskFilesPanelOpen(true);
   };
 
+  const applySharedTurtleScene = (jsonValue, runIdValue, sceneTsValue, authorValue) => {
+    const json = typeof jsonValue === 'string' ? jsonValue : '';
+    const runId = typeof runIdValue === 'string' ? runIdValue : String(runIdValue || '');
+    const previousPayload = collabTurtlePayloadRef.current;
+    if (previousPayload.json === json && previousPayload.runId === runId) {
+      if (json && authorValue) setCollabTurtleAuthor(String(authorValue));
+      return;
+    }
+    collabTurtlePayloadRef.current = { json, runId };
+
+    const scene = parseTurtleSceneJson(json);
+    if (!scene?.used) {
+      setCollabTurtleScene(null);
+      setCollabTurtleWindowOpen(false);
+      setCollabTurtleAuthor('');
+      if (!runId) collabTurtleSeenRunIdRef.current = '';
+      return;
+    }
+
+    setCollabTurtleScene(scene);
+    setCollabTurtleAuthor(String(authorValue || ''));
+    const sceneTs = Number(sceneTsValue);
+    const isFresh = Number.isFinite(sceneTs)
+      && sceneTs > 0
+      && Date.now() - sceneTs <= COLLAB_TURTLE_AUTO_OPEN_MAX_AGE_MS;
+    const isNewRun = Boolean(runId) && collabTurtleSeenRunIdRef.current !== runId;
+    if (runId) collabTurtleSeenRunIdRef.current = runId;
+    if (isNewRun && isFresh) setCollabTurtleWindowOpen(true);
+  };
+
+  const closeCollabTurtleWindow = useCallback(() => {
+    setCollabTurtleWindowOpen(false);
+  }, []);
+
   const updateRunStateFromMap = (runMap) => {
     if (!runMap) {
       setRunOutput('');
@@ -5277,6 +5382,11 @@ const CollabSection = ({
       setRunTimestamp(null);
       runTimestampRef.current = null;
       setLastRunInput('');
+      collabTurtlePayloadRef.current = { json: '', runId: '' };
+      collabTurtleSeenRunIdRef.current = '';
+      setCollabTurtleScene(null);
+      setCollabTurtleWindowOpen(false);
+      setCollabTurtleAuthor('');
       setOutputPanelOpen(false);
       outputPanelDismissedRunTokenRef.current = null;
       setDebugActive(false);
@@ -5319,6 +5429,12 @@ const CollabSection = ({
     setRunTimestamp(ts);
     runTimestampRef.current = ts;
     setLastRunInput(input);
+    applySharedTurtleScene(
+      runMap.get('turtleSceneJson'),
+      runMap.get('turtleSceneRunId'),
+      runMap.get('turtleSceneTs'),
+      author
+    );
     if (status === 'running') {
       revealOutputPanelForRun(ts);
     }
@@ -5467,6 +5583,18 @@ const CollabSection = ({
       if (Object.prototype.hasOwnProperty.call(payload, 'input')) {
         setLastRunInput(payload.input || '');
       }
+      if (
+        Object.prototype.hasOwnProperty.call(payload, 'turtleSceneJson')
+        || Object.prototype.hasOwnProperty.call(payload, 'turtleSceneRunId')
+        || Object.prototype.hasOwnProperty.call(payload, 'turtleSceneTs')
+      ) {
+        applySharedTurtleScene(
+          payload.turtleSceneJson,
+          payload.turtleSceneRunId,
+          payload.turtleSceneTs,
+          payload.author
+        );
+      }
       if (Object.prototype.hasOwnProperty.call(payload, 'debugActive')) {
         setDebugActive(Boolean(payload.debugActive));
       }
@@ -5546,6 +5674,21 @@ const CollabSection = ({
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'input')) {
         runMap.set('input', payload.input || '');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'turtleSceneJson')) {
+        runMap.set('turtleSceneJson', typeof payload.turtleSceneJson === 'string' ? payload.turtleSceneJson : '');
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'turtleSceneRunId')) {
+        runMap.set('turtleSceneRunId', String(payload.turtleSceneRunId || ''));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'turtleSceneTs')) {
+        const turtleSceneTs = Number(payload.turtleSceneTs);
+        runMap.set(
+          'turtleSceneTs',
+          payload.turtleSceneTs !== null && payload.turtleSceneTs !== '' && Number.isFinite(turtleSceneTs)
+            ? turtleSceneTs
+            : null
+        );
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'debugActive')) {
         runMap.set('debugActive', Boolean(payload.debugActive));
@@ -5636,6 +5779,7 @@ const CollabSection = ({
       entry.resolve({
         output,
         error,
+        turtleScene: null,
         debugTrace: debugTraceSnapshot,
         debugTraceTruncated: debugTraceTruncatedSnapshot,
       });
@@ -5699,10 +5843,11 @@ const CollabSection = ({
             ? data.debugTraceTruncated
             : pending.debugTraceTruncated
         );
+        const turtleScene = normalizeTurtleScene(data.turtleScene);
         if (typeof pending.onProgress === 'function') {
-          pending.onProgress({ output, error, done: true });
+          pending.onProgress({ output, error, turtleScene, done: true });
         }
-        pending.resolve({ output, error, debugTrace, debugTraceTruncated });
+        pending.resolve({ output, error, turtleScene, debugTrace, debugTraceTruncated });
       };
       worker.onerror = () => disposeRunWorker('Ошибка выполнения Python.');
       worker.onmessageerror = () => disposeRunWorker('Ошибка выполнения Python.');
@@ -5739,7 +5884,7 @@ const CollabSection = ({
     const error = pyodide.globals.get('__error') || '';
     pyodide.globals.delete('__output');
     pyodide.globals.delete('__error');
-    return { output: String(output), error: String(error) };
+    return { output: String(output), error: String(error), turtleScene: null };
   };
 
   const runPythonCode = async (source, inputValue, onProgress = null, options = {}) => {
@@ -5764,7 +5909,7 @@ const CollabSection = ({
           if (typeof pending.onProgress === 'function') {
             pending.onProgress({ output, error, done: true });
           }
-          resolve({ output, error, debugTrace, debugTraceTruncated });
+          resolve({ output, error, turtleScene: null, debugTrace, debugTraceTruncated });
           disposeRunWorker(debugMode ? 'Превышено время отладки.' : 'Превышено время выполнения.');
         }, timeoutMs);
         runPendingRef.current.set(id, {
@@ -5776,13 +5921,21 @@ const CollabSection = ({
           debugTraceTruncated: false,
           onProgress: typeof onProgress === 'function' ? onProgress : null,
         });
-        worker.postMessage({ id, source, input: inputValue, debug: debugMode, files: runtimeFiles });
+        worker.postMessage({
+          id,
+          source,
+          input: inputValue,
+          debug: debugMode,
+          files: runtimeFiles,
+          enableTurtle: true,
+        });
       });
     }
     if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
       return {
         output: '',
-        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
+        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.',
+        turtleScene: null,
       };
     }
     return runPythonInMainThread(source, inputValue, runtimeFiles);
@@ -5878,11 +6031,15 @@ const CollabSection = ({
     const sessionId = runSessionRef.current + 1;
     runSessionRef.current = sessionId;
     const startedAt = Date.now();
+    const turtleRunId = `${startedAt}-${String(userId || role || 'participant')}-${Math.random().toString(36).slice(2, 8)}`;
     runTimestampRef.current = startedAt;
     setRunTimestamp(startedAt);
     setRunLoading(true);
     setRunStatus('running');
     setRunError('');
+    setCollabTurtleScene(null);
+    setCollabTurtleWindowOpen(false);
+    setCollabTurtleAuthor('');
     if (isDebugRun) {
       setDebugActive(false);
       setDebugTrace([]);
@@ -5901,6 +6058,11 @@ const CollabSection = ({
       });
     }
     const inputSnapshot = runInputRef.current || '';
+    publishRunStateRef.current?.({
+      turtleSceneJson: '',
+      turtleSceneRunId: '',
+      turtleSceneTs: null,
+    });
     let runtimeFilesPayload = [];
     try {
       runtimeFilesPayload = await resolveSelectedRuntimeFiles();
@@ -5918,6 +6080,9 @@ const CollabSection = ({
         author: localName,
         ts: Date.now(),
         input: inputSnapshot,
+        turtleSceneJson: '',
+        turtleSceneRunId: '',
+        turtleSceneTs: null,
       });
       return;
     }
@@ -5928,6 +6093,9 @@ const CollabSection = ({
       author: localName,
       ts: startedAt,
       input: inputSnapshot,
+      turtleSceneJson: '',
+      turtleSceneRunId: '',
+      turtleSceneTs: null,
     });
     try {
       const result = await runPythonCode(code, inputSnapshot, (progress) => {
@@ -5996,13 +6164,22 @@ const CollabSection = ({
           });
         }
       }
+      const serializedTurtleScene = serializeTurtleScene(result?.turtleScene);
+      const hasTurtleScene = Boolean(serializedTurtleScene.scene?.used && serializedTurtleScene.json);
+      const turtleSceneTs = hasTurtleScene ? Date.now() : null;
+      const turtleSyncWarning = result?.turtleScene?.used && !hasTurtleScene
+        ? 'Рисунок Turtle слишком большой или содержит неподдерживаемые данные и не был отправлен участникам.'
+        : '';
       publishRunState({
         status: 'done',
         output: normalizeRunText(result.output || ''),
-        error: normalizeRunText(result.error || ''),
+        error: normalizeRunText(mergeRuntimeErrorText(result.error || '', turtleSyncWarning)),
         author: localName,
-        ts: Date.now(),
+        ts: turtleSceneTs || Date.now(),
         input: inputSnapshot,
+        turtleSceneJson: hasTurtleScene ? serializedTurtleScene.json : '',
+        turtleSceneRunId: hasTurtleScene ? turtleRunId : '',
+        turtleSceneTs,
       });
     } catch (err) {
       if (runSessionRef.current !== sessionId) return;
@@ -6028,6 +6205,9 @@ const CollabSection = ({
         author: localName,
         ts: Date.now(),
         input: inputSnapshot,
+        turtleSceneJson: '',
+        turtleSceneRunId: '',
+        turtleSceneTs: null,
       });
     } finally {
       if (runSessionRef.current === sessionId) {
@@ -6080,6 +6260,9 @@ const CollabSection = ({
       author: localName,
       ts: Date.now(),
       input: runInputRef.current || '',
+      turtleSceneJson: '',
+      turtleSceneRunId: '',
+      turtleSceneTs: null,
       debugActive: false,
       debugTrace: [],
       debugTraceTruncated: false,
@@ -6174,6 +6357,9 @@ const CollabSection = ({
       author: '',
       ts: null,
       input: '',
+      turtleSceneJson: '',
+      turtleSceneRunId: '',
+      turtleSceneTs: null,
       debugActive: false,
       debugTrace: [],
       debugTraceTruncated: false,
@@ -6182,6 +6368,25 @@ const CollabSection = ({
       debugSource: '',
     });
   };
+
+  useEffect(() => {
+    if (!collabTurtleWindowOpen || typeof window === 'undefined') return undefined;
+    const previouslyFocused = document.activeElement;
+    const focusFrame = window.requestAnimationFrame(() => collabTurtleCloseRef.current?.focus());
+    const handleTurtleWindowKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      closeCollabTurtleWindow();
+    };
+    window.addEventListener('keydown', handleTurtleWindowKeyDown, true);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener('keydown', handleTurtleWindowKeyDown, true);
+      previouslyFocused?.focus?.();
+    };
+  }, [collabTurtleWindowOpen, closeCollabTurtleWindow]);
 
   useEffect(() => {
     taskFilesSyncReadyRef.current = false;
@@ -8148,9 +8353,24 @@ const CollabSection = ({
       ? 'border-amber-300/70 shadow-[0_0_24px_rgba(251,191,36,0.25)]'
       : (isFullscreenDark ? 'border-slate-700/90' : 'border-gray-900')
   }`;
+  const collabTurtleDisplayAuthor = collabTurtleAuthor || runAuthor;
 
   const resultConsole = (
     <div className={resultConsoleClass}>
+      {collabTurtleScene?.used && (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-2 text-[11px] text-emerald-100">
+          <span>
+            {`🐢 Рисунок Turtle${collabTurtleDisplayAuthor ? ` от ${collabTurtleDisplayAuthor}` : ''}: ${collabTurtleScene.primitives.length.toLocaleString('ru-RU')} элементов`}
+          </span>
+          <button
+            type="button"
+            className="rounded-md border border-emerald-300/45 bg-emerald-300/10 px-2 py-1 font-sans font-bold text-emerald-100 transition hover:bg-emerald-300/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+            onClick={() => setCollabTurtleWindowOpen(true)}
+          >
+            Открыть
+          </button>
+        </div>
+      )}
       {runStatus === 'running' && (
         <div className="mb-2 flex items-center gap-2 text-[11px] text-amber-300">
           <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)] animate-pulse" />
@@ -8214,7 +8434,9 @@ const CollabSection = ({
           )}
         </>
       ) : (
-        <div className="collab-result-empty text-slate-400">Здесь появится вывод программы.</div>
+        <div className="collab-result-empty text-slate-400">
+          {collabTurtleScene?.used ? 'Программа завершила построение рисунка.' : 'Здесь появится вывод программы.'}
+        </div>
       )}
     </div>
   );
@@ -8663,6 +8885,23 @@ const CollabSection = ({
             </>
           )}
 
+          {collabTurtleScene?.used && (
+            <button
+              type="button"
+              onClick={() => setCollabTurtleWindowOpen(true)}
+              className={`${collabIconButtonBase} ${
+                useBoardGlassCodePanel
+                  ? 'collab-code-pill-button is-menu is-files'
+                  : collabIconButtonNeutral
+              }`}
+              title="Открыть рисунок Turtle"
+              aria-label="Открыть рисунок Turtle"
+            >
+              <span aria-hidden="true">🐢</span>
+              {useBoardGlassCodePanel && <span>Рисунок</span>}
+            </button>
+          )}
+
           {!useBoardGlassCodePanel && debugActive && (
             <>
               <span className={`mx-1 h-5 w-px ${collabToolbarDividerClass}`} />
@@ -8851,6 +9090,52 @@ const CollabSection = ({
         )}
         </div>
       </Card>
+      {collabTurtleWindowOpen && collabTurtleScene?.used && (
+        <div
+          className="student-test-turtle-window collab-turtle-window"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeCollabTurtleWindow();
+          }}
+        >
+          <section
+            className="student-test-turtle-window__dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="collab-turtle-window-title"
+            onKeyDown={(event) => {
+              if (event.key !== 'Tab') return;
+              event.preventDefault();
+              collabTurtleCloseRef.current?.focus();
+            }}
+          >
+            <header className="student-test-turtle-window__header">
+              <div className="student-test-turtle-window__title">
+                <span className="student-test-turtle-window__icon" aria-hidden="true">🐢</span>
+                <div>
+                  <strong id="collab-turtle-window-title">Turtle Graphics</strong>
+                  <small>
+                    {collabTurtleDisplayAuthor
+                      ? `Совместный запуск · ${collabTurtleDisplayAuthor}`
+                      : 'Рисунок из совместного кода'}
+                  </small>
+                </div>
+              </div>
+              <button
+                ref={collabTurtleCloseRef}
+                type="button"
+                className="student-test-turtle-window__close"
+                onClick={closeCollabTurtleWindow}
+                aria-label="Закрыть окно Turtle"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="student-test-turtle-window__body">
+              <TurtleCanvas drawing={collabTurtleScene} />
+            </div>
+          </section>
+        </div>
+      )}
       {isCollabFullscreen
         ? saveModal
         : (typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null)}

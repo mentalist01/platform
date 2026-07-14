@@ -7,7 +7,10 @@ import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
+import { normalizeTurtleScene, parseTurtleSceneJson } from '../utils/turtleScene';
+import HEADLESS_TURTLE_SOURCE from '../python/headless_turtle.py?raw';
 import { Button } from './ui';
+import TurtleCanvas from './TurtleCanvas';
 
 const STUDENT_TEST_ANSWER_DRAFT_PREFIX = 'student-test-answer-draft-v1';
 const STUDENT_CODE_WORKSPACE_PREFS_KEY = 'student-code-workspace-prefs-v1';
@@ -340,6 +343,7 @@ const StudentTestModal = ({
   const [questionCodeAutoSavePendingById, setQuestionCodeAutoSavePendingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
   const [questionRunStateById, setQuestionRunStateById] = useState({});
+  const [questionTurtleWindowQuestionId, setQuestionTurtleWindowQuestionId] = useState('');
   const autoStartRef = useRef(false);
   const [autoStartFailed, setAutoStartFailed] = useState(false);
   const questionRunnerWorkerRef = useRef(null);
@@ -357,6 +361,9 @@ const StudentTestModal = ({
   const questionCodeAudioRef = useRef(null);
   const questionCodeTaskPanelRef = useRef(null);
   const questionCodeIdePanelRef = useRef(null);
+  const questionCodeRunButtonRef = useRef(null);
+  const questionTurtleWindowCloseRef = useRef(null);
+  const activeQuestionIdRef = useRef('');
   const questionMainThreadRuntimeFilesRef = useRef([]);
   const [questionCodeFocusFullscreen, setQuestionCodeFocusFullscreen] = useState(false);
   const [questionCodeMusicError, setQuestionCodeMusicError] = useState('');
@@ -369,6 +376,16 @@ const StudentTestModal = ({
     : '';
   const activeQuestion = questions[currentIndex];
   const activeQuestionId = activeQuestion ? String(activeQuestion?.id ?? currentIndex) : '';
+  const closeQuestionTurtleWindow = useCallback((restoreFocus = true) => {
+    setQuestionTurtleWindowQuestionId('');
+    if (
+      restoreFocus
+      && typeof window !== 'undefined'
+      && typeof window.requestAnimationFrame === 'function'
+    ) {
+      window.requestAnimationFrame(() => questionCodeRunButtonRef.current?.focus());
+    }
+  }, []);
   const questionCodeFontSize = clampStudentCodeFontSize(questionCodeWorkspacePrefs?.fontSize);
   const questionCodeLayout = questionCodeWorkspacePrefs?.layout === STUDENT_CODE_LAYOUT_SIDE
     ? STUDENT_CODE_LAYOUT_SIDE
@@ -459,9 +476,9 @@ const StudentTestModal = ({
       const output = typeof entry.output === 'string' ? entry.output : '';
       const error = mergeRuntimeErrorText(entry.error, message);
       if (typeof entry.onProgress === 'function') {
-        entry.onProgress({ output, error, done: true });
+        entry.onProgress({ output, error, turtleScene: null, done: true });
       }
-      entry.resolve({ output, error });
+      entry.resolve({ output, error, turtleScene: null });
     });
     questionRunnerPendingRef.current.clear();
   };
@@ -509,10 +526,11 @@ const StudentTestModal = ({
         const error = typeof data.error === 'string'
           ? data.error
           : (data.error ? String(data.error) : (pending.error || ''));
+        const turtleScene = normalizeTurtleScene(data.turtleScene);
         if (typeof pending.onProgress === 'function') {
-          pending.onProgress({ output, error, done: true });
+          pending.onProgress({ output, error, turtleScene, done: true });
         }
-        pending.resolve({ output, error });
+        pending.resolve({ output, error, turtleScene });
       };
       worker.onerror = () => disposeQuestionRunnerWorker('Ошибка выполнения Python.');
       worker.onmessageerror = () => disposeQuestionRunnerWorker('Ошибка выполнения Python.');
@@ -577,6 +595,7 @@ const StudentTestModal = ({
     const pyodide = await ensurePyodideReady();
     mountQuestionRuntimeFilesInPyodide(pyodide, runtimeFiles);
     const wrapped = [
+      HEADLESS_TURTLE_SOURCE,
       'import sys, io, traceback',
       `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
       '_stdout = io.StringIO()',
@@ -589,15 +608,26 @@ const StudentTestModal = ({
       `    exec(${JSON.stringify(String(source ?? ''))}, _globals, _globals)`,
       'except Exception:',
       '    traceback.print_exc()',
+      'try:',
+      '    __turtle_scene_json = _turtle_export_scene_json()',
+      'except Exception:',
+      '    __turtle_scene_json = ""',
       '__output = _stdout.getvalue()',
       '__error = _stderr.getvalue()',
     ].join('\n');
     await pyodide.runPythonAsync(wrapped);
     const output = pyodide.globals.get('__output') || '';
     const error = pyodide.globals.get('__error') || '';
+    const sceneValue = pyodide.globals.get('__turtle_scene_json') || '';
+    const sceneText = sceneValue && typeof sceneValue.toJs === 'function'
+      ? sceneValue.toJs()
+      : sceneValue;
+    sceneValue?.destroy?.();
+    const turtleScene = parseTurtleSceneJson(sceneText);
     pyodide.globals.delete('__output');
     pyodide.globals.delete('__error');
-    return { output: String(output), error: String(error) };
+    pyodide.globals.delete('__turtle_scene_json');
+    return { output: String(output), error: String(error), turtleScene };
   };
 
   const runQuestionCode = async (source, inputValue, onProgress = null, runtimeFiles = []) => {
@@ -613,9 +643,9 @@ const StudentTestModal = ({
           const output = pending.output || '';
           const error = mergeRuntimeErrorText(pending.error, timeoutMessage);
           if (typeof pending.onProgress === 'function') {
-            pending.onProgress({ output, error, done: true });
+            pending.onProgress({ output, error, turtleScene: null, done: true });
           }
-          resolve({ output, error });
+          resolve({ output, error, turtleScene: null });
           disposeQuestionRunnerWorker('Превышено время выполнения.');
         }, PYODIDE_RUN_TIMEOUT_MS);
         questionRunnerPendingRef.current.set(id, {
@@ -625,13 +655,14 @@ const StudentTestModal = ({
           error: '',
           onProgress: typeof onProgress === 'function' ? onProgress : null,
         });
-        worker.postMessage({ id, source, input: inputValue, files: runtimeFiles });
+        worker.postMessage({ id, source, input: inputValue, files: runtimeFiles, enableTurtle: true });
       });
     }
     if (!ALLOW_MAIN_THREAD_PYTHON_FALLBACK) {
       return {
         output: '',
-        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.'
+        error: 'Не удалось запустить Python в изолированном режиме. Перезагрузите страницу.',
+        turtleScene: null,
       };
     }
     return runQuestionCodeMainThread(source, inputValue, runtimeFiles);
@@ -1108,10 +1139,11 @@ const StudentTestModal = ({
   const runQuestionCodeForQuestion = async (questionId) => {
     const key = String(questionId ?? '').trim();
     if (!key) return;
+    closeQuestionTurtleWindow(false);
     const entry = getQuestionCodeEntry(key);
     setQuestionRunStateById((prev) => ({
       ...(prev || {}),
-      [key]: { loading: true, output: '', error: '', status: 'Подготовка запуска...' },
+      [key]: { loading: true, output: '', error: '', status: 'Подготовка запуска...', turtleScene: null },
     }));
     try {
       const runtimeFiles = await resolveQuestionRuntimeFiles(key);
@@ -1120,7 +1152,7 @@ const StudentTestModal = ({
         : '';
       setQuestionRunStateById((prev) => ({
         ...(prev || {}),
-        [key]: { loading: true, output: '', error: '', status: fileStatus },
+        [key]: { loading: true, output: '', error: '', status: fileStatus, turtleScene: null },
       }));
       const result = await runQuestionCode(entry.code || '', '', (progress) => {
         setQuestionRunStateById((prev) => ({
@@ -1129,9 +1161,15 @@ const StudentTestModal = ({
             loading: !progress?.done,
             output: progress?.output || '',
             error: progress?.error || '',
-            status: fileStatus,
+            status: progress?.turtleScene
+              ? [fileStatus, `Рисунок turtle открыт в отдельном окне (${progress.turtleScene.primitives.length} элементов).`].filter(Boolean).join('\n')
+              : fileStatus,
+            turtleScene: progress?.turtleScene || null,
           },
         }));
+        if (progress?.turtleScene?.used && activeQuestionIdRef.current === key) {
+          setQuestionTurtleWindowQuestionId(key);
+        }
       }, runtimeFiles);
       setQuestionRunStateById((prev) => ({
         ...(prev || {}),
@@ -1139,9 +1177,15 @@ const StudentTestModal = ({
           loading: false,
           output: result?.output || '',
           error: result?.error || '',
-          status: fileStatus,
+          status: result?.turtleScene
+            ? [fileStatus, `Рисунок turtle открыт в отдельном окне (${result.turtleScene.primitives.length} элементов).`].filter(Boolean).join('\n')
+            : fileStatus,
+          turtleScene: result?.turtleScene || null,
         },
       }));
+      if (result?.turtleScene?.used && activeQuestionIdRef.current === key) {
+        setQuestionTurtleWindowQuestionId(key);
+      }
     } catch (err) {
       setQuestionRunStateById((prev) => ({
         ...(prev || {}),
@@ -1150,6 +1194,7 @@ const StudentTestModal = ({
           output: '',
           error: err?.message || 'Ошибка выполнения Python',
           status: '',
+          turtleScene: null,
         },
       }));
     }
@@ -1225,6 +1270,7 @@ const StudentTestModal = ({
     setQuestionCodeAutoSavePendingById({});
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
+    setQuestionTurtleWindowQuestionId('');
     questionMainThreadRuntimeFilesRef.current = [];
     disposeQuestionRunnerWorker();
     setStage('testing');
@@ -1304,6 +1350,7 @@ const StudentTestModal = ({
     setQuestionCodeAutoSavePendingById({});
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
+    setQuestionTurtleWindowQuestionId('');
     setSolvedAnswerById({});
     setAnswerHistoryById({});
     setAnswerHistoryLoading(false);
@@ -1320,6 +1367,17 @@ const StudentTestModal = ({
       focusMusicVolume: questionCodeFocusMusicVolume,
     }));
   }, [questionCodeFocusMusicEnabled, questionCodeFocusMusicVolume, questionCodeFontSize, questionCodeLayout]);
+
+  useEffect(() => {
+    activeQuestionIdRef.current = activeQuestionId;
+    setQuestionTurtleWindowQuestionId('');
+  }, [activeQuestionId]);
+
+  useEffect(() => {
+    if (!questionTurtleWindowQuestionId) return undefined;
+    const frameId = window.requestAnimationFrame(() => questionTurtleWindowCloseRef.current?.focus());
+    return () => window.cancelAnimationFrame(frameId);
+  }, [questionTurtleWindowQuestionId]);
 
   useEffect(() => {
     if (stage !== 'testing') return;
@@ -1352,6 +1410,10 @@ const StudentTestModal = ({
     const handleKeyDown = (event) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
+      if (questionTurtleWindowQuestionId) {
+        closeQuestionTurtleWindow();
+        return;
+      }
       clearQuestionCodeCloseTimer();
       if (questionCodeFocusFullscreen) {
         stopQuestionCodeFocusAudio();
@@ -1375,7 +1437,13 @@ const StudentTestModal = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [exitQuestionCodeFocusFullscreen, questionCodeFocusFullscreen, questionCodeOpen]);
+  }, [
+    closeQuestionTurtleWindow,
+    exitQuestionCodeFocusFullscreen,
+    questionCodeFocusFullscreen,
+    questionCodeOpen,
+    questionTurtleWindowQuestionId,
+  ]);
 
   useEffect(() => {
     const audio = questionCodeAudioRef.current;
@@ -1892,7 +1960,24 @@ const StudentTestModal = ({
     const questionCodeSaving = Boolean(questionCodeSavingById?.[currentId]);
     const questionCodeAutoSavePending = Boolean(questionCodeAutoSavePendingById?.[currentId]);
     const questionCodeError = questionCodeErrorById?.[currentId] || '';
-    const questionRunState = questionRunStateById?.[currentId] || { loading: false, output: '', error: '', status: '' };
+    const questionRunState = questionRunStateById?.[currentId] || {
+      loading: false,
+      output: '',
+      error: '',
+      status: '',
+      turtleScene: null,
+    };
+    const hasQuestionTurtleScene = Boolean(
+      questionRunState.turtleScene?.used
+      && Array.isArray(questionRunState.turtleScene.primitives)
+    );
+    const turtleWindowQuestionId = String(questionTurtleWindowQuestionId || '').trim();
+    const turtleWindowScene = questionRunStateById?.[turtleWindowQuestionId]?.turtleScene || null;
+    const isQuestionTurtleWindowOpen = Boolean(
+      turtleWindowQuestionId
+      && turtleWindowScene?.used
+      && Array.isArray(turtleWindowScene.primitives)
+    );
     const attachedRuntimeFileNames = extraFiles
       .map((file) => getQuestionRuntimePathForFile(file))
       .filter(Boolean);
@@ -1994,6 +2079,7 @@ const StudentTestModal = ({
 
     const handleOpenQuestionCodeFocus = () => {
       clearQuestionCodeCloseTimer();
+      closeQuestionTurtleWindow(false);
       setQuestionCodeClosing(false);
       setQuestionCodeOpen(true);
       if (currentId) loadQuestionCode(currentId);
@@ -2001,6 +2087,7 @@ const StudentTestModal = ({
 
     const handleCloseQuestionCodeFocus = () => {
       clearQuestionCodeCloseTimer();
+      closeQuestionTurtleWindow(false);
       stopQuestionCodeFocusAudio();
       exitQuestionCodeFocusFullscreen();
       if (prefersReducedStudentMotion()) {
@@ -2488,6 +2575,7 @@ const StudentTestModal = ({
                     <span>{isQuestionCodeSideLayout ? 'Условие сверху' : 'Условие слева'}</span>
                   </button>
                   <button
+                    ref={questionCodeRunButtonRef}
                     type="button"
                     onClick={() => runQuestionCodeForQuestion(currentId)}
                     disabled={questionRunState.loading || questionCodeLoading}
@@ -2533,7 +2621,20 @@ const StudentTestModal = ({
                     <aside className="student-test-code-focus__console-pane">
                       <div className="student-test-code-focus__console-head">
                         <span><Terminal size={15} /> Terminal</span>
-                        {questionRunState.loading && <strong>running</strong>}
+                        <div className="student-test-code-focus__console-actions">
+                          {hasQuestionTurtleScene && (
+                            <button
+                              type="button"
+                              className="student-test-code-focus__open-turtle"
+                              onClick={() => setQuestionTurtleWindowQuestionId(currentId)}
+                              title="Открыть рисунок Turtle"
+                            >
+                              <Maximize2 size={13} />
+                              <span>Рисунок</span>
+                            </button>
+                          )}
+                          {questionRunState.loading && <strong>running</strong>}
+                        </div>
                       </div>
                       <pre className="student-test-code-focus__terminal-output">
                         {questionTerminalText}
@@ -2604,6 +2705,48 @@ const StudentTestModal = ({
               )}
             </section>
           </main>
+          {isQuestionTurtleWindowOpen && (
+            <div
+              className="student-test-turtle-window"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) closeQuestionTurtleWindow();
+              }}
+            >
+              <section
+                className="student-test-turtle-window__dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="student-test-turtle-window-title"
+                onKeyDown={(event) => {
+                  if (event.key !== 'Tab') return;
+                  event.preventDefault();
+                  questionTurtleWindowCloseRef.current?.focus();
+                }}
+              >
+                <header className="student-test-turtle-window__header">
+                  <div className="student-test-turtle-window__title">
+                    <span className="student-test-turtle-window__icon" aria-hidden="true">🐢</span>
+                    <div>
+                      <strong id="student-test-turtle-window-title">Turtle Graphics</strong>
+                      <small>Рисунок из solution.py</small>
+                    </div>
+                  </div>
+                  <button
+                    ref={questionTurtleWindowCloseRef}
+                    type="button"
+                    className="student-test-turtle-window__close"
+                    onClick={() => closeQuestionTurtleWindow()}
+                    aria-label="Закрыть окно Turtle"
+                  >
+                    <X size={18} />
+                  </button>
+                </header>
+                <div className="student-test-turtle-window__body">
+                  <TurtleCanvas drawing={turtleWindowScene} />
+                </div>
+              </section>
+            </div>
+          )}
         </div>
       </div>
     ) : null;

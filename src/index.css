@@ -53794,6 +53794,43 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   text-transform: uppercase;
 }
 
+.student-test-code-focus__console-actions {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.student-test-code-focus__open-turtle {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--code-focus-border, rgba(148, 163, 184, 0.35));
+  border-radius: 8px;
+  padding: 3px 8px;
+  color: var(--code-focus-accent-strong, #0f766e);
+  background: var(--code-focus-panel, rgba(15, 23, 42, 0.72));
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.student-test-code-focus__open-turtle:hover {
+  border-color: var(--code-focus-accent, #7c3aed);
+  background: var(--code-focus-subtle, rgba(124, 58, 237, 0.12));
+  transform: translateY(-1px);
+}
+
+.student-test-code-focus__open-turtle:focus-visible {
+  outline: 2px solid var(--code-focus-accent, #7c3aed);
+  outline-offset: 2px;
+}
+
 .student-test-code-focus__terminal-output {
   width: 100%;
   min-height: 0;
@@ -53810,6 +53847,272 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.student-test-code-focus__turtle {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.student-test-code-focus__turtle-surface {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.1) 1px, transparent 1px),
+    #ffffff;
+  background-size: 20px 20px;
+}
+
+.student-test-code-focus__turtle-surface canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.student-test-code-focus__turtle-caption {
+  display: flex;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-top: 1px solid #e2e8f0;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.student-test-code-focus__turtle-caption strong {
+  color: #b45309;
+  font-weight: 900;
+  text-align: right;
+}
+
+.turtle-canvas__summary {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.turtle-canvas__zoom-controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  padding: 2px;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.turtle-canvas__zoom-button,
+.turtle-canvas__zoom-value {
+  display: inline-grid;
+  min-width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  place-items: center;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 7px;
+  color: #334155;
+  background: transparent;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.turtle-canvas__zoom-button {
+  padding: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.turtle-canvas__zoom-value {
+  min-width: 52px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.turtle-canvas__zoom-button:hover:not(:disabled),
+.turtle-canvas__zoom-value:hover:not(:disabled) {
+  color: #5b21b6;
+  background: #f1edff;
+}
+
+.turtle-canvas__zoom-button:active:not(:disabled),
+.turtle-canvas__zoom-value:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.turtle-canvas__zoom-button:focus-visible,
+.turtle-canvas__zoom-value:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 1px;
+}
+
+.turtle-canvas__zoom-button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.turtle-canvas__zoom-value:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.student-test-turtle-window {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: clamp(10px, 3vw, 32px);
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+}
+
+.collab-turtle-window {
+  position: fixed;
+  z-index: 130;
+}
+
+.student-test-turtle-window__dialog {
+  display: flex;
+  width: min(1040px, 100%);
+  height: min(760px, 100%);
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(100, 116, 139, 0.45);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 28px 90px rgba(15, 23, 42, 0.38);
+}
+
+.student-test-turtle-window__header {
+  display: flex;
+  min-height: 56px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 12px 9px 16px;
+  border-bottom: 1px solid #dbe3ee;
+  color: #172033;
+  background: #f8fafc;
+}
+
+.student-test-turtle-window__title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.student-test-turtle-window__title > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.student-test-turtle-window__title strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-test-turtle-window__title small {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-test-turtle-window__icon {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  background: #ecfdf5;
+  font-size: 19px;
+}
+
+.student-test-turtle-window__close {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #475569;
+  background: #ffffff;
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.student-test-turtle-window__close:hover {
+  border-color: #a78bfa;
+  color: #6d28d9;
+  background: #f5f3ff;
+}
+
+.student-test-turtle-window__close:focus-visible {
+  outline: 3px solid rgba(124, 58, 237, 0.3);
+  outline-offset: 2px;
+}
+
+.student-test-turtle-window__body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  background: #ffffff;
+}
+
+.student-test-turtle-window__body .student-test-code-focus__turtle {
+  height: 100%;
 }
 
 .student-test-code-focus__error {
@@ -56239,6 +56542,61 @@ html[data-theme='dark'] .student-test-code-focus__music-error {
 
   .student-test-code-focus__terminal-output {
     font-size: 11px;
+  }
+
+  .student-test-turtle-window {
+    padding: 8px;
+  }
+
+  .student-test-turtle-window__dialog {
+    border-radius: 13px;
+  }
+
+  .student-test-turtle-window__header {
+    min-height: 50px;
+    padding: 7px 8px 7px 10px;
+  }
+
+  .student-test-turtle-window__icon {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+    font-size: 17px;
+  }
+
+  .student-test-code-focus__turtle-caption {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .student-test-code-focus__turtle-caption strong {
+    text-align: left;
+  }
+
+  .turtle-canvas__summary {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .turtle-canvas__zoom-controls {
+    align-self: flex-end;
+    margin-top: 2px;
+  }
+
+  .turtle-canvas__zoom-button,
+  .turtle-canvas__zoom-value {
+    height: 34px;
+  }
+
+  .turtle-canvas__zoom-button {
+    min-width: 34px;
+  }
+
+  .turtle-canvas__zoom-value {
+    min-width: 56px;
   }
 
   .student-test-code-focus__answer-head,
