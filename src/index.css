@@ -41159,6 +41159,79 @@ html[data-theme='dark'] .mock-score-orb__inner {
   min-width: 0;
 }
 
+.sidebar-brand-home {
+  margin: -0.38rem -0.42rem;
+  padding-top: 0.38rem;
+  padding-bottom: 0.38rem;
+  padding-left: 0.42rem;
+  border: 0;
+  border-radius: 1rem;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  transition: background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.sidebar-brand-home:hover {
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 9px 22px rgba(124, 58, 237, 0.08);
+  transform: translateY(-1px);
+}
+
+.sidebar-brand-home:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.sidebar-brand-home:focus-visible,
+.mobile-brand-home:focus-visible {
+  outline: 3px solid rgba(139, 92, 246, 0.24);
+  outline-offset: 2px;
+}
+
+.sidebar-brand-home .sidebar-brand-mark {
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sidebar-brand-home:hover .sidebar-brand-mark {
+  border-color: rgba(124, 58, 237, 0.96) !important;
+  box-shadow:
+    0 14px 25px rgba(124, 58, 237, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  transform: rotate(-3deg) scale(1.035);
+}
+
+.sidebar-brand-home .sidebar-brand-title {
+  transition: color 180ms ease;
+}
+
+.sidebar-brand-home:hover .sidebar-brand-title {
+  color: rgb(91, 33, 182) !important;
+}
+
+.mobile-brand-home {
+  border: 0;
+  background: transparent;
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.mobile-brand-home:hover {
+  background: rgba(245, 243, 255, 0.82);
+  transform: translateY(-1px);
+}
+
+html[data-theme='dark'] .sidebar-brand-home:hover {
+  background: rgba(139, 92, 246, 0.1);
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.22);
+}
+
+html[data-theme='dark'] .sidebar-brand-home:hover .sidebar-brand-title {
+  color: rgb(221, 214, 254) !important;
+}
+
+html[data-theme='dark'] .mobile-brand-home:hover {
+  background: rgba(139, 92, 246, 0.12);
+}
+
 .sidebar-brand-mark {
   width: 2.85rem !important;
   height: 2.85rem !important;

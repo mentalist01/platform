@@ -18085,7 +18085,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <div className="sidebar-grid" />
             </div>
             <div className="sidebar-top relative px-5 py-4 border-b border-white/65 bg-white/55 backdrop-blur-xl">
-              <div className="hidden md:flex items-center gap-3 pr-12">
+              <button
+                type="button"
+                className="sidebar-brand-home hidden md:flex items-center gap-3 pr-12 text-left"
+                onClick={() => {
+                  setView(user.role === 'admin' ? 'admin' : 'schedule');
+                  setMenuOpen(false);
+                }}
+                aria-label="Вернуться на главную"
+                title="На главную"
+              >
                 <div className="sidebar-brand-mark relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-purple-600 to-fuchsia-500 text-white shadow-lg shadow-purple-300/40 ring-1 ring-white/70 font-display text-base font-bold tracking-tight">
                   100
                   <span className="sidebar-brand-dot absolute -right-1 -top-1 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-white/90" />
@@ -18094,7 +18103,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="sidebar-brand-title font-display text-lg font-bold text-slate-900">Иван на сотку</div>
                   <div className="sidebar-brand-subtitle text-[10px] font-semibold uppercase tracking-[0.14em] text-purple-700/80">Личный профиль</div>
                 </div>
-              </div>
+              </button>
               <button
                 type="button"
                 onClick={() => setDesktopNavCollapsed(true)}
@@ -18326,7 +18335,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       </div>
       <div className={`main-shell relative flex-1 flex flex-col app-h overflow-hidden ${desktopNavCollapsed ? 'desktop-main-shifted' : ''}${isStudentChatView ? ' main-shell--student-chat' : ''}`}>
         <header className="sticky top-0 z-20 md:hidden bg-white/85 backdrop-blur border-b border-slate-200/70 px-3.5 py-3 pt-[calc(env(safe-area-inset-top)+0.55rem)] flex justify-between items-center">
-          <LogoMark className="text-lg" />
+          <button
+            type="button"
+            className="mobile-brand-home rounded-lg text-left"
+            onClick={() => {
+              setView(user.role === 'admin' ? 'admin' : 'schedule');
+              setMenuOpen(false);
+            }}
+            aria-label="Вернуться на главную"
+            title="На главную"
+          >
+            <LogoMark className="text-lg" />
+          </button>
           <div className="flex items-center gap-2">
             <ThemeToggleButton
               theme={theme}
