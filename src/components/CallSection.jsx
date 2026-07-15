@@ -1249,6 +1249,7 @@ const CallSection = ({
   students,
   activeStudentId,
   onSelectStudent,
+  onRequestStudentsRefresh,
   studentsLoading,
   uiMode = 'full',
   onRequestExpand,
@@ -5200,6 +5201,7 @@ const CallSection = ({
           className={teacherSelectClass}
           value={activeStudentId || ''}
           onChange={(nextStudentId) => onSelectStudent?.(nextStudentId || null)}
+          onOpen={onRequestStudentsRefresh}
           disabled={studentsLoading}
           placeholder="Выбери ученика"
           dark={isDarkTheme}

@@ -81,6 +81,7 @@ const StudentSearchSelect = ({
   ariaLabel = 'Выберите ученика',
   dark = false,
   includeGraduates = false,
+  onOpen,
 }) => {
   const rootRef = useRef(null);
   const inputRef = useRef(null);
@@ -214,6 +215,7 @@ const StudentSearchSelect = ({
 
   const openMenu = () => {
     if (disabled) return;
+    if (!isOpen) onOpen?.();
     setQuery('');
     setIsOpen(true);
     setActiveIndex(0);

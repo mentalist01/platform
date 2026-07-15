@@ -13870,6 +13870,9 @@ const readDashboardFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+const STUDENT_ROSTER_FOCUS_REVALIDATE_MS = 15_000;
+const STUDENT_ROSTER_PICKER_REVALIDATE_MS = 5_000;
+
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, onThemeToggle, onUserUpdated }) => {
   const STUDENT_CALL_SECTION_ENABLED = true;
   const TEACHER_COMMS_VIEW = 'teacher-comms';
@@ -14107,6 +14110,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [studentsError, setStudentsError] = useState('');
+  const studentsOwnerTeacherIdRef = useRef('');
+  const studentsSyncStateRef = useRef({ teacherId: '', lastSuccessAt: 0, inFlight: null });
+  const storedActiveStudentIdRef = useRef(storedActiveStudentId);
+  storedActiveStudentIdRef.current = storedActiveStudentId;
   const [deletedStudents, setDeletedStudents] = useState([]);
   const [deletedStudentsLoading, setDeletedStudentsLoading] = useState(false);
   const [deletedStudentsError, setDeletedStudentsError] = useState('');
@@ -16143,25 +16150,81 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return { total, solved, remaining, daysToFinish, averagePerDay };
   }, [goalTestsDb, solvedByTask, solvedPerDayStats.average]);
 
-  const loadStudents = async (teacherId) => {
-    setStudentsLoading(true);
-    try {
-      const data = await api.getStudents(teacherId);
-      setStudents(data);
-      setStudentsError('');
-      setActiveStudentId((current) => {
-        if (data.some((s) => s.id === current)) return current;
-        if (storedActiveStudentId && data.some((s) => String(s.id) === storedActiveStudentId)) {
-          return storedActiveStudentId;
-        }
-        return data[0]?.id || null;
-      });
-    } catch (err) {
-      setStudentsError(err?.message || err);
-    } finally {
-      setStudentsLoading(false);
+  const loadStudents = useCallback((teacherId, options = {}) => {
+    const normalizedTeacherId = String(teacherId || '').trim();
+    if (!normalizedTeacherId) return Promise.resolve(null);
+
+    const silent = options?.silent === true;
+    const maxAgeMs = Math.max(0, Number(options?.maxAgeMs) || 0);
+    const syncState = studentsSyncStateRef.current;
+    const now = Date.now();
+
+    if (
+      maxAgeMs > 0
+      && syncState.teacherId === normalizedTeacherId
+      && syncState.lastSuccessAt > 0
+      && now - syncState.lastSuccessAt < maxAgeMs
+    ) {
+      return Promise.resolve(null);
     }
-  };
+
+    if (syncState.inFlight?.teacherId === normalizedTeacherId) {
+      return syncState.inFlight.promise;
+    }
+
+    if (!silent) setStudentsLoading(true);
+
+    const requestPromise = api.getStudents(normalizedTeacherId)
+      .then((payload) => {
+        const data = Array.isArray(payload) ? payload : [];
+        if (studentsOwnerTeacherIdRef.current !== normalizedTeacherId) return data;
+
+        studentsSyncStateRef.current.teacherId = normalizedTeacherId;
+        studentsSyncStateRef.current.lastSuccessAt = Date.now();
+        setStudents(data);
+        setStudentsError('');
+        setActiveStudentId((current) => {
+          if (data.some((student) => student.id === current)) return current;
+          const storedStudentId = storedActiveStudentIdRef.current;
+          if (storedStudentId && data.some((student) => String(student.id) === storedStudentId)) {
+            return storedStudentId;
+          }
+          return data[0]?.id || null;
+        });
+        return data;
+      })
+      .catch((err) => {
+        if (studentsOwnerTeacherIdRef.current === normalizedTeacherId && !silent) {
+          setStudentsError(err?.message || err);
+        }
+        return null;
+      })
+      .finally(() => {
+        const latestSyncState = studentsSyncStateRef.current;
+        if (latestSyncState.inFlight?.promise === requestPromise) {
+          latestSyncState.inFlight = null;
+        }
+        if (studentsOwnerTeacherIdRef.current === normalizedTeacherId && !silent) {
+          setStudentsLoading(false);
+        }
+      });
+
+    studentsSyncStateRef.current = {
+      teacherId: normalizedTeacherId,
+      lastSuccessAt: syncState.teacherId === normalizedTeacherId ? syncState.lastSuccessAt : 0,
+      inFlight: { teacherId: normalizedTeacherId, promise: requestPromise },
+    };
+    return requestPromise;
+  }, []);
+
+  const refreshStudentsIfStale = useCallback((maxAgeMs = STUDENT_ROSTER_FOCUS_REVALIDATE_MS) => {
+    if (user.role !== 'teacher') return Promise.resolve(null);
+    return loadStudents(user.id, { silent: true, maxAgeMs });
+  }, [loadStudents, user.id, user.role]);
+
+  const refreshStudentsForPicker = useCallback(() => (
+    refreshStudentsIfStale(STUDENT_ROSTER_PICKER_REVALIDATE_MS)
+  ), [refreshStudentsIfStale]);
 
   const loadDeletedStudents = async (teacherId) => {
     setDeletedStudentsLoading(true);
@@ -16244,9 +16307,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   useEffect(() => {
     if (user.role === 'teacher') {
-      loadStudents(user.id);
+      const normalizedTeacherId = String(user.id || '').trim();
+      if (studentsOwnerTeacherIdRef.current !== normalizedTeacherId) {
+        studentsOwnerTeacherIdRef.current = normalizedTeacherId;
+        studentsSyncStateRef.current = { teacherId: normalizedTeacherId, lastSuccessAt: 0, inFlight: null };
+      }
+      loadStudents(normalizedTeacherId);
       loadDeletedStudents(user.id);
     } else {
+      studentsOwnerTeacherIdRef.current = '';
+      studentsSyncStateRef.current = { teacherId: '', lastSuccessAt: 0, inFlight: null };
       setStudents([]);
       setActiveStudentId(null);
       setStudentsError('');
@@ -16255,7 +16325,31 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setDeletedStudentsError('');
       setDeletedStudentsLoading(false);
     }
-  }, [user.role, user.id]);
+  }, [loadStudents, user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return undefined;
+
+    const refreshVisibleRoster = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      refreshStudentsIfStale();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshVisibleRoster();
+    };
+
+    window.addEventListener('focus', refreshVisibleRoster);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', refreshVisibleRoster);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshStudentsIfStale, user.role]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return;
+    refreshStudentsIfStale();
+  }, [refreshStudentsIfStale, user.role, view]);
 
   useEffect(() => {
     if (user.role === 'admin') {
@@ -19054,6 +19148,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
+              onRequestStudentsRefresh={refreshStudentsForPicker}
               studentsLoading={studentsLoading}
               uiMode={callUiMode}
               theme={theme}
