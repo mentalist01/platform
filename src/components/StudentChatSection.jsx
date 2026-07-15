@@ -274,6 +274,7 @@ const getMessageSearchText = (message) => [
   message?.text,
   message?.senderName,
   message?.imageName,
+  message?.solutionImageName,
   message?.fileName,
   message?.code,
   message?.replyTo?.text,
@@ -283,7 +284,7 @@ const getMessageSearchText = (message) => [
 ].map((value) => String(value || '').toLowerCase()).join(' ');
 
 const messageMatchesContentFilter = (message, filter) => {
-  if (filter === 'media') return Boolean(message?.imageDataUrl);
+  if (filter === 'media') return Boolean(message?.imageDataUrl || message?.solutionImageDataUrl);
   if (filter === 'files') return Boolean(message?.fileDataUrl);
   if (filter === 'links') return hasMessageLink(message);
   return true;
@@ -293,7 +294,7 @@ const getChatContentCounts = (messages = []) => {
   const list = Array.isArray(messages) ? messages : [];
   return list.reduce((acc, message) => {
     acc.all += 1;
-    if (message?.imageDataUrl) acc.media += 1;
+    if (message?.imageDataUrl || message?.solutionImageDataUrl) acc.media += 1;
     if (message?.fileDataUrl) acc.files += 1;
     if (hasMessageLink(message)) acc.links += 1;
     return acc;
@@ -1518,6 +1519,8 @@ const ChatMessages = ({
         );
         const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
         const messageImageName = String(message?.imageName || '').trim();
+        const solutionImageDataUrl = String(message?.solutionImageDataUrl || '').trim();
+        const solutionImageName = String(message?.solutionImageName || '').trim();
         const messageFileDataUrl = String(message?.fileDataUrl || '').trim();
         const messageFileName = String(message?.fileName || '').trim();
         const messageCode = String(message?.code || '').replace(/\r\n?/g, '\n').trimEnd();
@@ -1527,7 +1530,7 @@ const ChatMessages = ({
         const renderedImageName = messageImageDataUrl ? messageImageName : messageFileName;
         const renderedFileDataUrl = renderedImageDataUrl === messageFileDataUrl ? '' : messageFileDataUrl;
         const isHelpRequest = Boolean(String(message?.helpRequestId || '').trim());
-        const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !renderedFileDataUrl && !messageCode);
+        const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !solutionImageDataUrl && !renderedFileDataUrl && !messageCode);
         const shouldRenderMessageText = Boolean(messageText && !isTextOnlyForward);
         const senderName = getMessageSenderName(message, fallbackSenderName, own);
         const avatarName = getMessageAvatarName(message, fallbackSenderName, own);
@@ -1624,7 +1627,7 @@ const ChatMessages = ({
                     />
                   </div>
                 )}
-                {isHelpRequest && (renderedImageDataUrl || renderedFileDataUrl || messageCode) && (
+                {isHelpRequest && (renderedImageDataUrl || solutionImageDataUrl || renderedFileDataUrl || messageCode) && (
                   <div className="student-chat-help-context-label">Приложенный контекст</div>
                 )}
                 {renderedImageDataUrl && (
@@ -1677,6 +1680,29 @@ const ChatMessages = ({
                       )}
                     </span>
                   </a>
+                )}
+                {solutionImageDataUrl && (
+                  <div className="student-chat-solution-attachment">
+                    <span className="student-chat-solution-attachment__label">
+                      {own ? 'Ваше решение' : 'Решение ученика'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenImage?.({
+                        src: solutionImageDataUrl,
+                        name: solutionImageName || 'Решение ученика',
+                      })}
+                      className="student-chat-solution-attachment__image"
+                      title={solutionImageName || 'Открыть решение'}
+                    >
+                      <img
+                        src={solutionImageDataUrl}
+                        alt={solutionImageName || 'Решение ученика'}
+                        loading="lazy"
+                      />
+                      {solutionImageName && <span>{solutionImageName}</span>}
+                    </button>
+                  </div>
                 )}
                 {messageCode && (
                   <ChatCodeBlock code={messageCode} language={message?.codeLanguage || 'python'} />

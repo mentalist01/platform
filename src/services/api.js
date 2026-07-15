@@ -426,6 +426,8 @@ export const api = {
         question: typeof source.question === 'string' ? source.question : '',
         code: typeof source.code === 'string' ? source.code : '',
         snapshotDataUrl: typeof source.snapshotDataUrl === 'string' ? source.snapshotDataUrl : '',
+        solutionImageDataUrl: typeof source.solutionImageDataUrl === 'string' ? source.solutionImageDataUrl : '',
+        solutionImageName: typeof source.solutionImageName === 'string' ? source.solutionImageName : '',
       }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));

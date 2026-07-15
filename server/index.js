@@ -3484,9 +3484,10 @@ const hasStudentTeacherChatMessageContent = (message) => {
   if (!message || typeof message !== 'object') return false;
   const text = normalizeStudentChatMessageText(message.text);
   const imageDataUrl = normalizeStudentChatImageDataUrl(message.imageDataUrl);
+  const solutionImageDataUrl = normalizeStudentChatImageDataUrl(message.solutionImageDataUrl);
   const fileDataUrl = normalizeStudentChatFileDataUrl(message.fileDataUrl);
   const code = normalizeStudentChatCode(message.code);
-  return Boolean(text || imageDataUrl || fileDataUrl || code);
+  return Boolean(text || imageDataUrl || solutionImageDataUrl || fileDataUrl || code);
 };
 
 const buildStudentTeacherChatMessagePreview = (message) => {
@@ -3497,6 +3498,8 @@ const buildStudentTeacherChatMessagePreview = (message) => {
   }
   const imageDataUrl = normalizeStudentChatImageDataUrl(message.imageDataUrl);
   if (imageDataUrl) return STUDENT_CHAT_IMAGE_PREVIEW_TEXT;
+  const solutionImageDataUrl = normalizeStudentChatImageDataUrl(message.solutionImageDataUrl);
+  if (solutionImageDataUrl) return '[Решение ученика]';
   const fileDataUrl = normalizeStudentChatFileDataUrl(message.fileDataUrl);
   if (fileDataUrl) {
     const fileName = normalizeStudentChatFileName(message.fileName);
@@ -3529,6 +3532,8 @@ const normalizeStudentTeacherChatMessage = (value) => {
   const text = normalizeStudentChatMessageText(value.text);
   const imageDataUrl = normalizeStudentChatImageDataUrl(value.imageDataUrl);
   const imageName = normalizeStudentChatImageName(value.imageName);
+  const solutionImageDataUrl = normalizeStudentChatImageDataUrl(value.solutionImageDataUrl);
+  const solutionImageName = normalizeStudentChatImageName(value.solutionImageName);
   const fileDataUrl = normalizeStudentChatFileDataUrl(value.fileDataUrl);
   const fileName = normalizeStudentChatFileName(value.fileName);
   const fileMimeType = normalizeStudentChatFileMimeType(value.fileMimeType) || getDataUrlMimeType(fileDataUrl);
@@ -3548,7 +3553,7 @@ const normalizeStudentTeacherChatMessage = (value) => {
     .trim()
     .replace(/[^a-zA-Z0-9_-]+/g, '')
     .slice(0, 80);
-  if (!id || !senderId || (!text && !imageDataUrl && !fileDataUrl && !code) || !createdAt) return null;
+  if (!id || !senderId || (!text && !imageDataUrl && !solutionImageDataUrl && !fileDataUrl && !code) || !createdAt) return null;
   const senderName = senderNameRaw || (senderRole === 'teacher' ? 'Преподаватель' : (senderRole === 'system' ? 'Система' : 'Ученик'));
   const message = {
     id,
@@ -3577,6 +3582,10 @@ const normalizeStudentTeacherChatMessage = (value) => {
     message.imageDataUrl = imageDataUrl;
     if (imageName) message.imageName = imageName;
   }
+  if (solutionImageDataUrl) {
+    message.solutionImageDataUrl = solutionImageDataUrl;
+    if (solutionImageName) message.solutionImageName = solutionImageName;
+  }
   if (fileDataUrl) {
     message.fileDataUrl = fileDataUrl;
     if (fileName) message.fileName = fileName;
@@ -3603,6 +3612,17 @@ const persistStudentChatMessageAttachmentsForStorage = (message) => {
       if (stored.url) next.imageDataUrl = stored.url;
     } catch (error) {
       console.warn('[json-storage] failed to externalize chat image:', error?.message || error);
+    }
+  }
+  if (typeof next.solutionImageDataUrl === 'string' && next.solutionImageDataUrl.startsWith('data:')) {
+    try {
+      const stored = persistStudentChatDataUrlAttachment(next.solutionImageDataUrl, {
+        kind: 'solution',
+        name: next.solutionImageName,
+      });
+      if (stored.url) next.solutionImageDataUrl = stored.url;
+    } catch (error) {
+      console.warn('[json-storage] failed to externalize solution image:', error?.message || error);
     }
   }
   if (typeof next.fileDataUrl === 'string' && next.fileDataUrl.startsWith('data:')) {
@@ -5902,6 +5922,8 @@ const createStudentTeacherChatMessage = ({
   text,
   imageDataUrl,
   imageName,
+  solutionImageDataUrl,
+  solutionImageName,
   fileDataUrl,
   fileName,
   fileMimeType,
@@ -5931,6 +5953,15 @@ const createStudentTeacherChatMessage = ({
       name: normalizedImageName,
     });
     normalizedImageDataUrl = stored.url || '';
+  }
+  const normalizedSolutionImageName = normalizeStudentChatImageName(solutionImageName);
+  let normalizedSolutionImageDataUrl = normalizeStudentChatImageDataUrl(solutionImageDataUrl);
+  if (normalizedSolutionImageDataUrl.startsWith('data:')) {
+    const stored = persistStudentChatDataUrlAttachment(normalizedSolutionImageDataUrl, {
+      kind: 'solution',
+      name: normalizedSolutionImageName,
+    });
+    normalizedSolutionImageDataUrl = stored.url || '';
   }
   const normalizedFileName = normalizeStudentChatFileName(fileName);
   let normalizedFileDataUrl = normalizeStudentChatFileDataUrl(fileDataUrl);
@@ -5962,6 +5993,10 @@ const createStudentTeacherChatMessage = ({
   if (normalizedImageDataUrl) {
     message.imageDataUrl = normalizedImageDataUrl;
     if (normalizedImageName) message.imageName = normalizedImageName;
+  }
+  if (normalizedSolutionImageDataUrl) {
+    message.solutionImageDataUrl = normalizedSolutionImageDataUrl;
+    if (normalizedSolutionImageName) message.solutionImageName = normalizedSolutionImageName;
   }
   if (normalizedFileDataUrl) {
     message.fileDataUrl = normalizedFileDataUrl;
@@ -16283,18 +16318,37 @@ const resolveStudentHelpSnapshot = (question, fallbackDataUrl = '') => {
   return buildFallbackSnapshot();
 };
 
+const resolveStudentHelpSolutionImage = (value, imageName = '') => {
+  const source = typeof value === 'string' ? value.trim() : '';
+  if (!source || !source.startsWith('data:')) {
+    return { chatUrl: '', name: '', buffer: null, mime: '' };
+  }
+  const normalized = normalizeStudentChatImageDataUrl(source);
+  const parts = getStudentChatDataUrlParts(normalized);
+  if (!parts || !STUDENT_CHAT_ALLOWED_IMAGE_MIME_TYPES.has(parts.mime)) {
+    return { chatUrl: '', name: '', buffer: null, mime: '' };
+  }
+  const extension = parts.mime === 'image/jpeg' ? '.jpg' : (parts.mime === 'image/webp' ? '.webp' : '.png');
+  return {
+    chatUrl: normalized,
+    name: normalizeStudentChatImageName(imageName) || `student-solution${extension}`,
+    buffer: Buffer.from(parts.base64, 'base64'),
+    mime: parts.mime,
+  };
+};
+
 const getStoredStudentQuestionCode = (studentId, taskNumber, levelId, questionId) => {
   const data = getStudentData(studentId);
   const stored = data?.solvedByTask?.[String(taskNumber)]?.[String(levelId)]?._questionCodeById?.[String(questionId)];
   return normalizeCodeText(typeof stored?.code === 'string' ? stored.code : '').slice(0, STUDENT_HELP_CODE_MAX_LENGTH);
 };
 
-const buildStudentHelpChatText = ({ taskNumber, taskTitle, levelLabel, questionNumber, questionText, conditionText, hasImage, hasCode }) => {
+const buildStudentHelpChatText = ({ taskNumber, taskTitle, levelLabel, questionNumber, questionText, conditionText, hasImage, hasCode, hasSolutionImage }) => {
   const safeTitle = String(taskTitle || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   const contextTitle = safeTitle
     ? `Задание №${taskNumber} «${safeTitle}»`
     : `Задание №${taskNumber}`;
-  const attachments = [hasImage ? 'условие' : '', hasCode ? 'код' : ''].filter(Boolean);
+  const attachments = [hasImage ? 'условие' : '', hasCode ? 'код' : '', hasSolutionImage ? 'решение ученика' : ''].filter(Boolean);
   const parts = [
     '🆘 Вопрос по заданию',
     '',
@@ -16305,7 +16359,10 @@ const buildStudentHelpChatText = ({ taskNumber, taskTitle, levelLabel, questionN
   }
   parts.push('', 'Вопрос ученика:', questionText);
   if (attachments.length > 0) {
-    parts.push('', `${attachments.join(' и ')} ${attachments.length > 1 ? 'приложены' : 'приложено'}.`);
+    const attachmentList = attachments.length > 1
+      ? `${attachments.slice(0, -1).join(', ')} и ${attachments.at(-1)}`
+      : attachments[0];
+    parts.push('', `${attachmentList} ${attachments.length > 1 ? 'приложены' : 'приложено'}.`);
   }
   return normalizeStudentChatMessageText(parts.join('\n'));
 };
@@ -16314,6 +16371,7 @@ const appendStudentHelpRequestToChat = (req, res, {
   student,
   text,
   snapshot,
+  solutionImage,
   code,
   requestId,
   telegramRequested,
@@ -16333,6 +16391,8 @@ const appendStudentHelpRequestToChat = (req, res, {
     text,
     imageDataUrl: snapshot.chatUrl,
     imageName: snapshot.name,
+    solutionImageDataUrl: solutionImage.chatUrl,
+    solutionImageName: solutionImage.name,
     code,
     codeLanguage: code ? 'python' : '',
     helpRequestId: requestId,
@@ -16406,7 +16466,7 @@ const splitTelegramCodeForHtml = (value, maxEscapedLength = 3400) => {
   return chunks;
 };
 
-const sendStudentHelpRequestToTelegram = async ({ token, chatId, student, contextLine, questionText, snapshot, code }) => {
+const sendStudentHelpRequestToTelegram = async ({ token, chatId, student, contextLine, questionText, snapshot, solutionImage, code }) => {
   const platformUrl = buildStudentHelpPlatformChatUrl(student.id);
   const replyMarkup = platformUrl
     ? { inline_keyboard: [[{ text: 'Открыть чат на платформе', url: platformUrl }]] }
@@ -16449,6 +16509,19 @@ const sendStudentHelpRequestToTelegram = async ({ token, chatId, student, contex
       body: JSON.stringify(body),
     });
     rootMessageId = Number(textMessage?.message_id) || null;
+  }
+
+  if (solutionImage?.buffer?.length) {
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append(
+      'photo',
+      new Blob([solutionImage.buffer], { type: solutionImage.mime || 'image/png' }),
+      solutionImage.name || 'student-solution.png'
+    );
+    form.append('caption', '🖼 Решение ученика');
+    if (rootMessageId) form.append('reply_parameters', JSON.stringify({ message_id: rootMessageId }));
+    await callTelegramHelpBot(token, 'sendPhoto', { method: 'POST', body: form });
   }
 
   if (code) {
@@ -16530,6 +16603,13 @@ app.post('/api/student-help-requests', async (req, res) => {
     ? normalizeCodeText(req.body?.code).slice(0, STUDENT_HELP_CODE_MAX_LENGTH)
     : getStoredStudentQuestionCode(student.id, taskNumber, levelId, questionId);
   const snapshot = resolveStudentHelpSnapshot(question, req.body?.snapshotDataUrl);
+  const solutionImageSource = typeof req.body?.solutionImageDataUrl === 'string'
+    ? req.body.solutionImageDataUrl.trim()
+    : '';
+  const solutionImage = resolveStudentHelpSolutionImage(solutionImageSource, req.body?.solutionImageName);
+  if (solutionImageSource && !solutionImage.chatUrl) {
+    return res.status(400).json({ error: 'Изображение решения повреждено, имеет неподдерживаемый формат или больше 5 МБ' });
+  }
   const levelLabel = ({ basic: 'базовый уровень', advanced: 'продвинутый уровень', expert: 'экспертный уровень' })[levelId]
     || `${levelId} уровень`;
   const taskTitle = String(readTaskTitlesDb()?.[String(taskNumber)] || '').trim().slice(0, 120);
@@ -16542,6 +16622,7 @@ app.post('/api/student-help-requests', async (req, res) => {
     conditionText: question?.question,
     hasImage: Boolean(snapshot.chatUrl),
     hasCode: Boolean(code.trim()),
+    hasSolutionImage: Boolean(solutionImage.chatUrl),
   });
 
   let chatDelivery;
@@ -16550,6 +16631,7 @@ app.post('/api/student-help-requests', async (req, res) => {
       student,
       text: chatText,
       snapshot,
+      solutionImage,
       code,
       requestId,
       telegramRequested: channel === 'telegram',
@@ -16594,6 +16676,7 @@ app.post('/api/student-help-requests', async (req, res) => {
           contextLine,
           questionText,
           snapshot,
+          solutionImage,
           code,
         });
         telegramDelivered = true;

@@ -246,6 +246,7 @@ const getMessageSearchText = (message) => [
   message?.text,
   message?.senderName,
   message?.imageName,
+  message?.solutionImageName,
   message?.fileName,
   message?.code,
   message?.replyTo?.text,
@@ -255,7 +256,7 @@ const getMessageSearchText = (message) => [
 ].map((value) => String(value || '').toLowerCase()).join(' ');
 
 const messageMatchesContentFilter = (message, filter) => {
-  if (filter === 'media') return Boolean(message?.imageDataUrl);
+  if (filter === 'media') return Boolean(message?.imageDataUrl || message?.solutionImageDataUrl);
   if (filter === 'files') return Boolean(message?.fileDataUrl);
   if (filter === 'links') return hasMessageLink(message);
   return true;
@@ -265,7 +266,7 @@ const getChatContentCounts = (messages = []) => {
   const list = Array.isArray(messages) ? messages : [];
   return list.reduce((acc, message) => {
     acc.all += 1;
-    if (message?.imageDataUrl) acc.media += 1;
+    if (message?.imageDataUrl || message?.solutionImageDataUrl) acc.media += 1;
     if (message?.fileDataUrl) acc.files += 1;
     if (hasMessageLink(message)) acc.links += 1;
     return acc;
@@ -2610,6 +2611,8 @@ const TeacherStudentChatsSection = ({
                       );
                       const messageImageDataUrl = String(message?.imageDataUrl || '').trim();
                       const messageImageName = String(message?.imageName || '').trim();
+                      const solutionImageDataUrl = String(message?.solutionImageDataUrl || '').trim();
+                      const solutionImageName = String(message?.solutionImageName || '').trim();
                       const messageFileDataUrl = String(message?.fileDataUrl || '').trim();
                       const messageFileName = String(message?.fileName || '').trim();
                       const messageCode = String(message?.code || '').replace(/\r\n?/g, '\n').trimEnd();
@@ -2619,21 +2622,39 @@ const TeacherStudentChatsSection = ({
                       const renderedImageName = messageImageDataUrl ? messageImageName : messageFileName;
                       const renderedFileDataUrl = renderedImageDataUrl === messageFileDataUrl ? '' : messageFileDataUrl;
                       const isHelpRequest = Boolean(String(message?.helpRequestId || '').trim());
-                      const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !renderedFileDataUrl && !messageCode);
+                      const isTextOnlyForward = Boolean(message?.forwardFrom && messageText.trim() && !renderedImageDataUrl && !solutionImageDataUrl && !renderedFileDataUrl && !messageCode);
                       const shouldRenderMessageText = Boolean(messageText && !isTextOnlyForward);
                       const senderLabel = message?.senderName || selectedChat?.studentName || 'Ученик';
+                      const avatarLabel = isTeacherMessage ? (message?.senderName || 'Преподаватель') : senderLabel;
+                      const avatarDataUrl = String(message?.senderAvatarDataUrl || '').trim();
+                      const accentIndex = getTeacherChatAccentIndex(message?.senderId || avatarLabel);
+                      const messageAvatar = (
+                        <span
+                          className={`student-message-avatar teacher-chat-message-avatar teacher-chat-list-avatar--${accentIndex}`}
+                          aria-hidden="true"
+                        >
+                          {avatarDataUrl
+                            ? <img src={avatarDataUrl} alt="" />
+                            : getTeacherChatInitials(avatarLabel)}
+                        </span>
+                      );
                       return (
                         <div
                           key={message.id}
                           data-chat-message-id={messageId}
                           data-chat-scroll-anchor={isHelpRequest ? 'start' : undefined}
-                          className={`teacher-chat-message-row flex items-start gap-2 ${isTeacherMessage ? 'justify-end' : 'justify-start'} ${highlightedMessageId === messageId ? 'teacher-chat-message-row--highlighted' : ''} ${selectionMode ? 'student-message-row--selecting' : ''} ${selected ? 'student-message-row--selected' : ''}`}
+                          className={`student-message-row teacher-chat-message-row flex items-start gap-2.5 ${isTeacherMessage ? 'justify-end' : 'justify-start'} ${highlightedMessageId === messageId ? 'teacher-chat-message-row--highlighted' : ''} ${selectionMode ? 'student-message-row--selecting' : ''} ${selected ? 'student-message-row--selected' : ''}`}
                           onContextMenu={(event) => openMessageContextMenu(event, message)}
                         >
-                          <div className={`teacher-chat-message-stack flex max-w-[88%] flex-col ${isTeacherMessage ? 'items-end' : 'items-start'} ${isHelpRequest ? 'teacher-chat-message-stack--help' : ''}`}>
+                          {!isTeacherMessage && messageAvatar}
+                          <div className={`student-message-stack teacher-chat-message-stack flex max-w-[min(78%,_42rem)] flex-col ${isTeacherMessage ? 'items-end' : 'items-start'} ${isHelpRequest ? 'student-message-stack--help teacher-chat-message-stack--help' : ''}`}>
+                          <div className={`student-message-meta ${isTeacherMessage ? 'student-message-meta--mine' : 'student-message-meta--other'} mb-1 flex items-center gap-1.5 px-1 text-[10.5px] font-bold leading-none`}>
+                            <span>{isTeacherMessage ? 'Вы' : senderLabel}</span>
+                            <span className="student-message-time">{formatDateTime(message?.createdAt)}</span>
+                          </div>
                           <div
-                            className={`teacher-chat-bubble max-w-full rounded-2xl px-3 py-2 text-sm shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${selected ? 'student-message-bubble--selected' : ''} ${
-                              isTeacherMessage ? 'teacher-chat-bubble--teacher teacher-chat-bubble--with-status text-white' : 'teacher-chat-bubble--student'
+                            className={`student-message-bubble teacher-chat-bubble relative max-w-full overflow-hidden rounded-[1.15rem] border px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${isEditingMessage ? 'student-message-bubble--editing' : ''} ${selected ? 'student-message-bubble--selected' : ''} ${
+                              isTeacherMessage ? 'student-message-bubble--mine student-message-bubble--with-status text-white' : 'student-message-bubble--other text-slate-800'
                             }`}
                             onClick={(event) => {
                               if (selectionMode) {
@@ -2645,11 +2666,6 @@ const TeacherStudentChatsSection = ({
                               openMessageContextMenu(event, message);
                             }}
                           >
-                            {!isTeacherMessage && (
-                              <div className="teacher-chat-message-author mb-1 text-[11px] font-black">
-                                {senderLabel}
-                              </div>
-                            )}
                             {message?.forwardFrom && (
                               <MessageReferenceCard reference={message.forwardFrom} type="forward" mine={isTeacherMessage} />
                             )}
@@ -2657,8 +2673,8 @@ const TeacherStudentChatsSection = ({
                               <MessageReferenceCard reference={message.replyTo} type="reply" mine={isTeacherMessage} onOpenTarget={openReferencedMessage} />
                             )}
                             {!isEditingMessage && shouldRenderMessageText && isHelpRequest && (
-                              <div className="teacher-chat-help-question">
-                                <span className="teacher-chat-help-question__label">Вопрос ученика</span>
+                              <div className="student-chat-help-question teacher-chat-help-question">
+                                <span className="student-chat-help-question__label teacher-chat-help-question__label">Вопрос ученика</span>
                                 <LinkifiedText
                                   text={getHelpRequestQuestionText(messageText)}
                                   className="whitespace-pre-wrap break-words"
@@ -2666,8 +2682,8 @@ const TeacherStudentChatsSection = ({
                                 />
                               </div>
                             )}
-                            {isHelpRequest && (renderedImageDataUrl || renderedFileDataUrl || messageCode) && (
-                              <div className="teacher-chat-help-context-label">Контекст задания</div>
+                            {isHelpRequest && (renderedImageDataUrl || solutionImageDataUrl || renderedFileDataUrl || messageCode) && (
+                              <div className="student-chat-help-context-label teacher-chat-help-context-label">Приложенный контекст</div>
                             )}
                             {renderedImageDataUrl && (
                               <button
@@ -2676,13 +2692,15 @@ const TeacherStudentChatsSection = ({
                                   src: renderedImageDataUrl,
                                   name: renderedImageName || messageImageName || 'Изображение',
                                 })}
-                                className="student-message-image-trigger mb-2 block w-full overflow-hidden rounded-lg border border-white/20 text-left"
+                                className={`student-message-image-trigger mb-2 block w-full overflow-hidden rounded-2xl border text-left ${
+                                  isTeacherMessage ? 'border-white/20 bg-white/10' : 'border-slate-200 bg-slate-950/5'
+                                }`}
                                 title={renderedImageName || 'Открыть изображение'}
                               >
                                 <img
                                   src={renderedImageDataUrl}
                                   alt={renderedImageName || 'Изображение'}
-                                  className="max-h-[260px] w-full object-contain bg-black/10"
+                                  className="max-h-[240px] w-full object-contain"
                                   loading="lazy"
                                 />
                                 {renderedImageName && (
@@ -2696,10 +2714,10 @@ const TeacherStudentChatsSection = ({
                               <a
                                 href={renderedFileDataUrl}
                                 download={messageFileName || undefined}
-                                className={`teacher-chat-file-link mb-2 flex items-center gap-2 rounded-xl border px-3 py-2.5 ${
+                                className={`student-message-file teacher-chat-file-link mb-2 flex items-center gap-2 rounded-2xl border px-3 py-2.5 ${
                                   isTeacherMessage
-                                    ? 'teacher-chat-file-link--teacher text-white'
-                                    : 'teacher-chat-file-link--student'
+                                    ? 'border-white/20 bg-white/12 text-white'
+                                    : 'border-slate-200 bg-white/75 text-slate-800'
                                 }`}
                                 title={messageFileName || 'Скачать файл'}
                               >
@@ -2719,6 +2737,27 @@ const TeacherStudentChatsSection = ({
                                   )}
                                 </span>
                               </a>
+                            )}
+                            {solutionImageDataUrl && (
+                              <div className="student-chat-solution-attachment">
+                                <span className="student-chat-solution-attachment__label">Решение ученика</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setImageViewer({
+                                    src: solutionImageDataUrl,
+                                    name: solutionImageName || 'Решение ученика',
+                                  })}
+                                  className="student-chat-solution-attachment__image"
+                                  title={solutionImageName || 'Открыть решение'}
+                                >
+                                  <img
+                                    src={solutionImageDataUrl}
+                                    alt={solutionImageName || 'Решение ученика'}
+                                    loading="lazy"
+                                  />
+                                  {solutionImageName && <span>{solutionImageName}</span>}
+                                </button>
+                              </div>
                             )}
                             {messageCode && (
                               <ChatCodeBlock code={messageCode} language={message?.codeLanguage || 'python'} />
@@ -2780,9 +2819,6 @@ const TeacherStudentChatsSection = ({
                                 linkClassName={isTeacherMessage ? 'underline decoration-white/70 underline-offset-2' : 'text-purple-700 underline decoration-purple-400 underline-offset-2'}
                               />
                             )}
-                            <div className={`teacher-chat-message-time mt-1 text-[10px] ${isTeacherMessage ? 'teacher-chat-message-time--teacher' : 'teacher-chat-message-time--student'}`}>
-                              {formatDateTime(message?.createdAt)}
-                            </div>
                             {isTeacherMessage && <MessageDeliveryStatus message={message} />}
                           </div>
                           {showMessageToolbar && (
@@ -2931,6 +2967,7 @@ const TeacherStudentChatsSection = ({
                             </div>
                           )}
                         </div>
+                        {isTeacherMessage && messageAvatar}
                         {selectionMode && (
                           <button
                             type="button"

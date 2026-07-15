@@ -25,6 +25,8 @@ const STUDENT_CODE_LAYOUT_ANIMATION_MS = 720;
 const STUDENT_CODE_CLOSE_ANIMATION_MS = 360;
 const STUDENT_TEST_CLOSE_ANIMATION_MS = 340;
 const STUDENT_HELP_CLOSE_ANIMATION_MS = 260;
+const STUDENT_HELP_SOLUTION_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const STUDENT_HELP_SOLUTION_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp']);
 const STUDENT_CODE_FOCUS_FULLSCREEN_DELAY_MS = 120;
 const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
 const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
@@ -33,6 +35,44 @@ const createStudentHelpRequestId = () => {
     return crypto.randomUUID();
   }
   return `help-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const readStudentHelpSolutionImage = (file) => new Promise((resolve, reject) => {
+  if (!file) {
+    reject(new Error('Выберите изображение решения'));
+    return;
+  }
+  const mime = String(file.type || '').trim().toLowerCase();
+  if (!STUDENT_HELP_SOLUTION_IMAGE_TYPES.has(mime)) {
+    reject(new Error('Можно прикрепить PNG, JPG или WebP'));
+    return;
+  }
+  if (!Number.isFinite(file.size) || file.size <= 0 || file.size > STUDENT_HELP_SOLUTION_IMAGE_MAX_BYTES) {
+    reject(new Error('Изображение должно быть не больше 5 МБ'));
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+    if (!dataUrl) {
+      reject(new Error('Не удалось прочитать изображение'));
+      return;
+    }
+    resolve({
+      dataUrl,
+      name: String(file.name || 'student-solution.png').slice(0, 180),
+      size: file.size,
+    });
+  };
+  reader.onerror = () => reject(new Error('Не удалось прочитать изображение'));
+  reader.readAsDataURL(file);
+});
+
+const formatStudentHelpImageSize = (value) => {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size <= 0) return '';
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} МБ`;
+  return `${Math.max(1, Math.round(size / 1024))} КБ`;
 };
 
 const getStudentHelpDraftKey = ({ studentId, taskNumber, levelId, questionId }) => [
@@ -538,6 +578,7 @@ const StudentTestModal = ({
   const [studentHelpPreparingCode, setStudentHelpPreparingCode] = useState(false);
   const [studentHelpError, setStudentHelpError] = useState('');
   const [studentHelpResult, setStudentHelpResult] = useState(null);
+  const [studentHelpSolutionImage, setStudentHelpSolutionImage] = useState(null);
   const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
   const lastQuestionImageAspectRef = useRef(3.8);
   const questionImageFallbackAspectByKeyRef = useRef(new Map());
@@ -565,6 +606,7 @@ const StudentTestModal = ({
   const studentHelpTriggerRef = useRef(null);
   const studentHelpSuccessActionRef = useRef(null);
   const studentHelpCloseTimerRef = useRef(null);
+  const studentHelpSolutionInputRef = useRef(null);
   const studentTestCloseTimerRef = useRef(null);
   const questionCodeCloseTimerRef = useRef(null);
   const questionCodeLayoutAnimationTimerRef = useRef(null);
@@ -2393,6 +2435,8 @@ const StudentTestModal = ({
       setStudentHelpChannels(null);
       setStudentHelpError('');
       setStudentHelpResult(null);
+      setStudentHelpSolutionImage(null);
+      if (studentHelpSolutionInputRef.current) studentHelpSolutionInputRef.current.value = '';
       studentHelpRequestIdRef.current = '';
       setStudentHelpOpen(true);
       if (currentId) loadQuestionCode(currentId);
@@ -2454,6 +2498,26 @@ const StudentTestModal = ({
           // Ignore storage restrictions.
         }
       }
+    };
+
+    const handleStudentHelpSolutionImageChange = async (event) => {
+      const file = event?.target?.files?.[0] || null;
+      if (!file) return;
+      setStudentHelpError('');
+      try {
+        const image = await readStudentHelpSolutionImage(file);
+        setStudentHelpSolutionImage(image);
+      } catch (error) {
+        setStudentHelpSolutionImage(null);
+        if (studentHelpSolutionInputRef.current) studentHelpSolutionInputRef.current.value = '';
+        setStudentHelpError(String(error?.message || error || 'Не удалось прикрепить изображение'));
+      }
+    };
+
+    const handleRemoveStudentHelpSolutionImage = () => {
+      setStudentHelpSolutionImage(null);
+      if (studentHelpSolutionInputRef.current) studentHelpSolutionInputRef.current.value = '';
+      setStudentHelpError('');
     };
 
     const handleSendStudentHelp = async (event) => {
@@ -2535,8 +2599,12 @@ const StudentTestModal = ({
           question: normalizedQuestion,
           code,
           snapshotDataUrl,
+          solutionImageDataUrl: studentHelpSolutionImage?.dataUrl || '',
+          solutionImageName: studentHelpSolutionImage?.name || '',
         });
         setStudentHelpResult(payload || { ok: true, platformDelivered: true });
+        setStudentHelpSolutionImage(null);
+        if (studentHelpSolutionInputRef.current) studentHelpSolutionInputRef.current.value = '';
         studentHelpRequestIdRef.current = '';
         if (canUseStudentTestDraftStorage()) {
           try {
@@ -4015,6 +4083,71 @@ const StudentTestModal = ({
                     </div>
                   </div>
 
+                  <section className={`student-help-solution${studentHelpSolutionImage ? ' has-image' : ''}`}>
+                    <input
+                      ref={studentHelpSolutionInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="student-help-solution__input"
+                      onChange={handleStudentHelpSolutionImageChange}
+                      disabled={studentHelpSending}
+                      tabIndex={-1}
+                      aria-hidden="true"
+                    />
+                    {studentHelpSolutionImage ? (
+                      <>
+                        <button
+                          type="button"
+                          className="student-help-solution__preview"
+                          onClick={() => setExpandedImage(studentHelpSolutionImage.dataUrl)}
+                          aria-label="Открыть прикреплённое решение"
+                        >
+                          <img src={studentHelpSolutionImage.dataUrl} alt="Решение ученика" />
+                        </button>
+                        <span className="student-help-solution__copy">
+                          <strong>Ваше решение приложено</strong>
+                          <small>
+                            {[studentHelpSolutionImage.name, formatStudentHelpImageSize(studentHelpSolutionImage.size)]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </small>
+                        </span>
+                        <span className="student-help-solution__actions">
+                          <button
+                            type="button"
+                            onClick={() => studentHelpSolutionInputRef.current?.click()}
+                            disabled={studentHelpSending}
+                          >
+                            Заменить
+                          </button>
+                          <button
+                            type="button"
+                            className="is-remove"
+                            onClick={handleRemoveStudentHelpSolutionImage}
+                            disabled={studentHelpSending}
+                            aria-label="Удалить изображение решения"
+                          >
+                            <X size={14} />
+                          </button>
+                        </span>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="student-help-solution__empty"
+                        onClick={() => studentHelpSolutionInputRef.current?.click()}
+                        disabled={studentHelpSending}
+                      >
+                        <span className="student-help-solution__icon"><Image size={17} /></span>
+                        <span>
+                          <strong>Прикрепить своё решение</strong>
+                          <small>Необязательно · PNG, JPG или WebP до 5 МБ</small>
+                        </span>
+                        <span className="student-help-solution__add">Добавить</span>
+                      </button>
+                    )}
+                  </section>
+
                   <div className="student-help-route-summary">
                     <div className="student-help-bundle" aria-label="Что приложится к вопросу">
                       <span className="student-help-bundle__label">Учитель увидит</span>
@@ -4032,6 +4165,12 @@ const StudentTestModal = ({
                         <span className="student-help-bundle__chip">
                           <FileCode2 size={14} aria-hidden="true" />
                           Код
+                        </span>
+                      )}
+                      {studentHelpSolutionImage && (
+                        <span className="student-help-bundle__chip is-solution">
+                          <Image size={14} aria-hidden="true" />
+                          Решение
                         </span>
                       )}
                     </div>
