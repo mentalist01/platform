@@ -55281,7 +55281,10 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #a78bfa #eef2f7;
+  scrollbar-width: thin;
   background:
     linear-gradient(rgba(148, 163, 184, 0.1) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.1) 1px, transparent 1px),
@@ -55289,12 +55292,48 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   background-size: 20px 20px;
 }
 
+.turtle-canvas__scroll-content {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+}
+
 .student-test-code-focus__turtle-surface canvas {
-  position: absolute;
-  inset: 0;
+  position: sticky;
+  top: 0;
+  left: 0;
   display: block;
-  max-width: 100%;
-  max-height: 100%;
+  max-width: none;
+  max-height: none;
+}
+
+.student-test-code-focus__turtle-surface.is-pannable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.student-test-code-focus__turtle-surface.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.student-test-code-focus__turtle-surface::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.student-test-code-focus__turtle-surface::-webkit-scrollbar-track {
+  background: #eef2f7;
+}
+
+.student-test-code-focus__turtle-surface::-webkit-scrollbar-thumb {
+  border: 3px solid #eef2f7;
+  border-radius: 999px;
+  background: #a78bfa;
+}
+
+.student-test-code-focus__turtle-surface::-webkit-scrollbar-thumb:hover {
+  background: #8b5cf6;
 }
 
 .student-test-code-focus__turtle-caption {

@@ -8640,6 +8640,53 @@ const CollabSection = ({
     </div>
   );
 
+  const collabTurtleWindow = collabTurtleWindowOpen && collabTurtleScene?.used ? (
+    <div
+      className="student-test-turtle-window collab-turtle-window"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeCollabTurtleWindow();
+      }}
+    >
+      <section
+        className="student-test-turtle-window__dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="collab-turtle-window-title"
+        onKeyDown={(event) => {
+          if (event.key !== 'Tab') return;
+          event.preventDefault();
+          collabTurtleCloseRef.current?.focus();
+        }}
+      >
+        <header className="student-test-turtle-window__header">
+          <div className="student-test-turtle-window__title">
+            <span className="student-test-turtle-window__icon" aria-hidden="true">🐢</span>
+            <div>
+              <strong id="collab-turtle-window-title">Turtle Graphics</strong>
+              <small>
+                {collabTurtleDisplayAuthor
+                  ? `Совместный запуск · ${collabTurtleDisplayAuthor}`
+                  : 'Рисунок из совместного кода'}
+              </small>
+            </div>
+          </div>
+          <button
+            ref={collabTurtleCloseRef}
+            type="button"
+            className="student-test-turtle-window__close"
+            onClick={closeCollabTurtleWindow}
+            aria-label="Закрыть окно Turtle"
+          >
+            <X size={18} />
+          </button>
+        </header>
+        <div className="student-test-turtle-window__body">
+          <TurtleCanvas drawing={collabTurtleScene} />
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   return (
     <div ref={collabRootRef} className={collabShellClass} style={collabShellStyle}>
       {collabSaveNoticeOverlay}
@@ -9090,51 +9137,10 @@ const CollabSection = ({
         )}
         </div>
       </Card>
-      {collabTurtleWindowOpen && collabTurtleScene?.used && (
-        <div
-          className="student-test-turtle-window collab-turtle-window"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeCollabTurtleWindow();
-          }}
-        >
-          <section
-            className="student-test-turtle-window__dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="collab-turtle-window-title"
-            onKeyDown={(event) => {
-              if (event.key !== 'Tab') return;
-              event.preventDefault();
-              collabTurtleCloseRef.current?.focus();
-            }}
-          >
-            <header className="student-test-turtle-window__header">
-              <div className="student-test-turtle-window__title">
-                <span className="student-test-turtle-window__icon" aria-hidden="true">🐢</span>
-                <div>
-                  <strong id="collab-turtle-window-title">Turtle Graphics</strong>
-                  <small>
-                    {collabTurtleDisplayAuthor
-                      ? `Совместный запуск · ${collabTurtleDisplayAuthor}`
-                      : 'Рисунок из совместного кода'}
-                  </small>
-                </div>
-              </div>
-              <button
-                ref={collabTurtleCloseRef}
-                type="button"
-                className="student-test-turtle-window__close"
-                onClick={closeCollabTurtleWindow}
-                aria-label="Закрыть окно Turtle"
-              >
-                <X size={18} />
-              </button>
-            </header>
-            <div className="student-test-turtle-window__body">
-              <TurtleCanvas drawing={collabTurtleScene} />
-            </div>
-          </section>
-        </div>
+      {collabTurtleWindow && (
+        isCollabFullscreen || typeof document === 'undefined'
+          ? collabTurtleWindow
+          : createPortal(collabTurtleWindow, document.body)
       )}
       {isCollabFullscreen
         ? saveModal

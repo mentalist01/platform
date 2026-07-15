@@ -261,10 +261,23 @@ const renderPrimitive = (context, primitive, mapPoint, scale) => {
 
 const TurtleCanvas = ({ drawing, className = '' }) => {
   const hostRef = useRef(null);
+  const scrollContentRef = useRef(null);
   const canvasRef = useRef(null);
+  const pendingScrollCenterRef = useRef(null);
+  const scrollRestoreFrameRef = useRef(null);
+  const previousDrawingRef = useRef(drawing);
+  const panRef = useRef({ active: false, pointerId: null });
+  const [isPanning, setIsPanning] = useState(false);
   const [zoomState, setZoomState] = useState(() => ({ drawing, value: 1 }));
   const zoom = zoomState.drawing === drawing ? zoomState.value : 1;
   const setZoom = useCallback((nextValue) => {
+    const host = hostRef.current;
+    if (host) {
+      pendingScrollCenterRef.current = {
+        x: (host.scrollLeft + host.clientWidth / 2) / Math.max(1, host.scrollWidth),
+        y: (host.scrollTop + host.clientHeight / 2) / Math.max(1, host.scrollHeight),
+      };
+    }
     setZoomState((currentState) => {
       const currentZoom = currentState.drawing === drawing ? currentState.value : 1;
       const value = typeof nextValue === 'function' ? nextValue(currentZoom) : nextValue;
@@ -289,39 +302,89 @@ const TurtleCanvas = ({ drawing, className = '' }) => {
   }, [setZoom]);
   const resetZoom = useCallback(() => setZoom(1), [setZoom]);
 
+  const stopPanning = useCallback((event = null) => {
+    const host = hostRef.current;
+    const pointerId = panRef.current.pointerId;
+    if (
+      host
+      && pointerId !== null
+      && host.hasPointerCapture?.(pointerId)
+      && (!event || event.pointerId === pointerId)
+    ) {
+      host.releasePointerCapture(pointerId);
+    }
+    panRef.current = { active: false, pointerId: null };
+    setIsPanning(false);
+  }, []);
+
+  const handlePanStart = useCallback((event) => {
+    const host = hostRef.current;
+    if (!host || zoom <= 1 || event.button !== 0) return;
+    const rect = host.getBoundingClientRect();
+    const isOnVerticalScrollbar = event.clientX >= rect.left + host.clientWidth;
+    const isOnHorizontalScrollbar = event.clientY >= rect.top + host.clientHeight;
+    if (isOnVerticalScrollbar || isOnHorizontalScrollbar) return;
+    event.preventDefault();
+    host.setPointerCapture?.(event.pointerId);
+    panRef.current = {
+      active: true,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: host.scrollLeft,
+      scrollTop: host.scrollTop,
+    };
+    setIsPanning(true);
+  }, [zoom]);
+
+  const handlePanMove = useCallback((event) => {
+    const host = hostRef.current;
+    const pan = panRef.current;
+    if (!host || !pan.active || pan.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    host.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
+    host.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+  }, []);
+
   const draw = useCallback(() => {
     const host = hostRef.current;
+    const scrollContent = scrollContentRef.current;
     const canvas = canvasRef.current;
-    if (!host || !canvas) return;
+    if (!host || !scrollContent || !canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
 
     const rect = host.getBoundingClientRect();
-    const cssWidth = Math.max(1, Math.round(rect.width || host.clientWidth || DEFAULT_CANVAS_WIDTH));
-    const cssHeight = Math.max(1, Math.round(rect.height || host.clientHeight || DEFAULT_CANVAS_HEIGHT));
+    const viewportWidth = Math.max(1, Math.round(host.clientWidth || rect.width || DEFAULT_CANVAS_WIDTH));
+    const viewportHeight = Math.max(1, Math.round(host.clientHeight || rect.height || DEFAULT_CANVAS_HEIGHT));
+    const scrollScale = Math.max(1, zoom);
+    const contentWidth = Math.max(viewportWidth, Math.round(viewportWidth * scrollScale));
+    const contentHeight = Math.max(viewportHeight, Math.round(viewportHeight * scrollScale));
     const pixelRatio = Math.max(1, Math.min(MAX_DEVICE_PIXEL_RATIO, window.devicePixelRatio || 1));
-    const pixelWidth = Math.max(1, Math.round(cssWidth * pixelRatio));
-    const pixelHeight = Math.max(1, Math.round(cssHeight * pixelRatio));
+    const pixelWidth = Math.max(1, Math.round(viewportWidth * pixelRatio));
+    const pixelHeight = Math.max(1, Math.round(viewportHeight * pixelRatio));
 
+    scrollContent.style.width = `${contentWidth}px`;
+    scrollContent.style.height = `${contentHeight}px`;
     if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
     if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
-    canvas.style.width = `${cssWidth}px`;
-    canvas.style.height = `${cssHeight}px`;
+    canvas.style.width = `${viewportWidth}px`;
+    canvas.style.height = `${viewportHeight}px`;
     context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    context.clearRect(0, 0, cssWidth, cssHeight);
+    context.clearRect(0, 0, viewportWidth, viewportHeight);
     context.fillStyle = normalizeColor(drawing?.background, '#ffffff');
-    context.fillRect(0, 0, cssWidth, cssHeight);
+    context.fillRect(0, 0, viewportWidth, viewportHeight);
 
     const worldWidth = Math.max(1e-9, drawingBounds.maxX - drawingBounds.minX);
     const worldHeight = Math.max(1e-9, drawingBounds.maxY - drawingBounds.minY);
-    const availableWidth = Math.max(1, cssWidth - CANVAS_PADDING_PX * 2);
-    const availableHeight = Math.max(1, cssHeight - CANVAS_PADDING_PX * 2);
+    const availableWidth = Math.max(1, viewportWidth - CANVAS_PADDING_PX * 2);
+    const availableHeight = Math.max(1, viewportHeight - CANVAS_PADDING_PX * 2);
     const fitScale = Math.max(1e-9, Math.min(availableWidth / worldWidth, availableHeight / worldHeight));
     const scale = fitScale * zoom;
     const renderedWidth = worldWidth * scale;
     const renderedHeight = worldHeight * scale;
-    const offsetX = (cssWidth - renderedWidth) / 2;
-    const offsetY = (cssHeight - renderedHeight) / 2;
+    const offsetX = (contentWidth - renderedWidth) / 2 - host.scrollLeft;
+    const offsetY = (contentHeight - renderedHeight) / 2 - host.scrollTop;
     const mapPoint = (xValue, yValue) => {
       const x = toFiniteNumber(xValue);
       const y = toFiniteNumber(yValue);
@@ -333,6 +396,23 @@ const TurtleCanvas = ({ drawing, className = '' }) => {
     };
 
     primitives.forEach((primitive) => renderPrimitive(context, primitive, mapPoint, scale));
+
+    if (previousDrawingRef.current !== drawing) {
+      previousDrawingRef.current = drawing;
+      pendingScrollCenterRef.current = { x: 0.5, y: 0.5 };
+    }
+    const pendingCenter = pendingScrollCenterRef.current;
+    if (pendingCenter) {
+      pendingScrollCenterRef.current = null;
+      if (scrollRestoreFrameRef.current) window.cancelAnimationFrame(scrollRestoreFrameRef.current);
+      scrollRestoreFrameRef.current = window.requestAnimationFrame(() => {
+        scrollRestoreFrameRef.current = null;
+        const currentHost = hostRef.current;
+        if (!currentHost) return;
+        currentHost.scrollLeft = pendingCenter.x * currentHost.scrollWidth - currentHost.clientWidth / 2;
+        currentHost.scrollTop = pendingCenter.y * currentHost.scrollHeight - currentHost.clientHeight / 2;
+      });
+    }
   }, [drawing?.background, drawingBounds, primitives, zoom]);
 
   useLayoutEffect(() => {
@@ -344,10 +424,13 @@ const TurtleCanvas = ({ drawing, className = '' }) => {
     const host = hostRef.current;
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleDraw) : null;
     if (host && observer) observer.observe(host);
+    host?.addEventListener('scroll', scheduleDraw, { passive: true });
     if (!observer) window.addEventListener('resize', scheduleDraw);
     return () => {
       window.cancelAnimationFrame(animationFrame);
+      if (scrollRestoreFrameRef.current) window.cancelAnimationFrame(scrollRestoreFrameRef.current);
       observer?.disconnect();
+      host?.removeEventListener('scroll', scheduleDraw);
       if (!observer) window.removeEventListener('resize', scheduleDraw);
     };
   }, [draw]);
@@ -382,12 +465,21 @@ const TurtleCanvas = ({ drawing, className = '' }) => {
     <figure className={['student-test-code-focus__turtle', 'turtle-canvas', className].filter(Boolean).join(' ')}>
       <div
         ref={hostRef}
-        className="student-test-code-focus__turtle-surface turtle-canvas__surface"
-        title="Масштаб: Ctrl + колесо мыши"
+        className={`student-test-code-focus__turtle-surface turtle-canvas__surface${
+          zoom > 1 ? ' is-pannable' : ''
+        }${isPanning ? ' is-panning' : ''}`}
+        title="Масштаб: Ctrl + колесо мыши. Перемещение: перетаскивание, полосы прокрутки или обычное колесо."
+        onPointerDown={handlePanStart}
+        onPointerMove={handlePanMove}
+        onPointerUp={stopPanning}
+        onPointerCancel={stopPanning}
+        onLostPointerCapture={stopPanning}
       >
-        <canvas ref={canvasRef} role="img" aria-label={canvasLabel}>
-          {canvasLabel}
-        </canvas>
+        <div ref={scrollContentRef} className="turtle-canvas__scroll-content">
+          <canvas ref={canvasRef} role="img" aria-label={canvasLabel}>
+            {canvasLabel}
+          </canvas>
+        </div>
       </div>
       <figcaption className="student-test-code-focus__turtle-caption turtle-canvas__caption">
         <div className="turtle-canvas__summary">
