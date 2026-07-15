@@ -63223,10 +63223,12 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .board-bottom-contro
 /* Compact board controls inside the code + board workspace. */
 .collab-workspace-card--glass-board .board-tool-rail,
 html[data-theme='dark'] .collab-workspace-card--glass-board .board-tool-rail {
+  top: 72px !important;
   width: 40px !important;
   gap: 3px !important;
   padding: 4px !important;
   border-radius: 14px !important;
+  transform: none !important;
 }
 
 .collab-workspace-card--glass-board .board-tool-rail__button,
