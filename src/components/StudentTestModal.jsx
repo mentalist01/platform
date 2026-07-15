@@ -553,6 +553,7 @@ const StudentTestModal = ({
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
   const [questionRunStateById, setQuestionRunStateById] = useState({});
   const [questionTurtleWindowQuestionId, setQuestionTurtleWindowQuestionId] = useState('');
+  const [questionTurtleWindowFullscreen, setQuestionTurtleWindowFullscreen] = useState(false);
   const autoStartRef = useRef(false);
   const [autoStartFailed, setAutoStartFailed] = useState(false);
   const questionRunnerWorkerRef = useRef(null);
@@ -590,6 +591,7 @@ const StudentTestModal = ({
   const activeQuestion = questions[currentIndex];
   const activeQuestionId = activeQuestion ? String(activeQuestion?.id ?? currentIndex) : '';
   const closeQuestionTurtleWindow = useCallback((restoreFocus = true) => {
+    setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
     if (
       restoreFocus
@@ -1523,6 +1525,7 @@ const StudentTestModal = ({
     setQuestionCodeAutoSavePendingById({});
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
+    setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
     questionMainThreadRuntimeFilesRef.current = [];
     disposeQuestionRunnerWorker();
@@ -1603,6 +1606,7 @@ const StudentTestModal = ({
     setQuestionCodeAutoSavePendingById({});
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
+    setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
     setSolvedAnswerById({});
     setAnswerHistoryById({});
@@ -1646,6 +1650,7 @@ const StudentTestModal = ({
 
   useEffect(() => {
     activeQuestionIdRef.current = activeQuestionId;
+    setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
   }, [activeQuestionId]);
 
@@ -1687,6 +1692,10 @@ const StudentTestModal = ({
       if (event.key !== 'Escape') return;
       event.preventDefault();
       if (questionTurtleWindowQuestionId) {
+        if (questionTurtleWindowFullscreen) {
+          setQuestionTurtleWindowFullscreen(false);
+          return;
+        }
         closeQuestionTurtleWindow();
         return;
       }
@@ -1718,6 +1727,7 @@ const StudentTestModal = ({
     exitQuestionCodeFocusFullscreen,
     questionCodeFocusFullscreen,
     questionCodeOpen,
+    questionTurtleWindowFullscreen,
     questionTurtleWindowQuestionId,
   ]);
 
@@ -3189,7 +3199,7 @@ const StudentTestModal = ({
           </main>
           {isQuestionTurtleWindowOpen && (
             <div
-              className="student-test-turtle-window"
+              className={`student-test-turtle-window${questionTurtleWindowFullscreen ? ' is-fullscreen' : ''}`}
               onMouseDown={(event) => {
                 if (event.target === event.currentTarget) closeQuestionTurtleWindow();
               }}
@@ -3213,15 +3223,29 @@ const StudentTestModal = ({
                       <small>Рисунок из solution.py</small>
                     </div>
                   </div>
-                  <button
-                    ref={questionTurtleWindowCloseRef}
-                    type="button"
-                    className="student-test-turtle-window__close"
-                    onClick={() => closeQuestionTurtleWindow()}
-                    aria-label="Закрыть окно Turtle"
-                  >
-                    <X size={18} />
-                  </button>
+                  <div className="student-test-turtle-window__actions">
+                    <button
+                      type="button"
+                      className="student-test-turtle-window__close student-test-turtle-window__fullscreen"
+                      onClick={() => setQuestionTurtleWindowFullscreen((current) => !current)}
+                      aria-pressed={questionTurtleWindowFullscreen}
+                      aria-label={questionTurtleWindowFullscreen
+                        ? 'Выйти из полноэкранного режима Turtle'
+                        : 'Развернуть окно Turtle на весь экран'}
+                      title={questionTurtleWindowFullscreen ? 'Свернуть окно' : 'На весь экран'}
+                    >
+                      {questionTurtleWindowFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                    </button>
+                    <button
+                      ref={questionTurtleWindowCloseRef}
+                      type="button"
+                      className="student-test-turtle-window__close"
+                      onClick={() => closeQuestionTurtleWindow()}
+                      aria-label="Закрыть окно Turtle"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
                 </header>
                 <div className="student-test-turtle-window__body">
                   <TurtleCanvas drawing={turtleWindowScene} />

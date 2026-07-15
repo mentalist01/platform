@@ -3006,6 +3006,7 @@ const CollabSection = ({
   const [lastRunInput, setLastRunInput] = useState('');
   const [collabTurtleScene, setCollabTurtleScene] = useState(null);
   const [collabTurtleWindowOpen, setCollabTurtleWindowOpen] = useState(false);
+  const [collabTurtleWindowFullscreen, setCollabTurtleWindowFullscreen] = useState(false);
   const [collabTurtleAuthor, setCollabTurtleAuthor] = useState('');
   const [outputPanelOpen, setOutputPanelOpen] = useState(false);
   const [outputPanelHeight, setOutputPanelHeight] = useState(() => {
@@ -5353,6 +5354,7 @@ const CollabSection = ({
     if (!scene?.used) {
       setCollabTurtleScene(null);
       setCollabTurtleWindowOpen(false);
+      setCollabTurtleWindowFullscreen(false);
       setCollabTurtleAuthor('');
       if (!runId) collabTurtleSeenRunIdRef.current = '';
       return;
@@ -5370,6 +5372,7 @@ const CollabSection = ({
   };
 
   const closeCollabTurtleWindow = useCallback(() => {
+    setCollabTurtleWindowFullscreen(false);
     setCollabTurtleWindowOpen(false);
   }, []);
 
@@ -5386,6 +5389,7 @@ const CollabSection = ({
       collabTurtleSeenRunIdRef.current = '';
       setCollabTurtleScene(null);
       setCollabTurtleWindowOpen(false);
+      setCollabTurtleWindowFullscreen(false);
       setCollabTurtleAuthor('');
       setOutputPanelOpen(false);
       outputPanelDismissedRunTokenRef.current = null;
@@ -6039,6 +6043,7 @@ const CollabSection = ({
     setRunError('');
     setCollabTurtleScene(null);
     setCollabTurtleWindowOpen(false);
+    setCollabTurtleWindowFullscreen(false);
     setCollabTurtleAuthor('');
     if (isDebugRun) {
       setDebugActive(false);
@@ -6378,6 +6383,10 @@ const CollabSection = ({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation?.();
+      if (collabTurtleWindowFullscreen) {
+        setCollabTurtleWindowFullscreen(false);
+        return;
+      }
       closeCollabTurtleWindow();
     };
     window.addEventListener('keydown', handleTurtleWindowKeyDown, true);
@@ -6386,7 +6395,7 @@ const CollabSection = ({
       window.removeEventListener('keydown', handleTurtleWindowKeyDown, true);
       previouslyFocused?.focus?.();
     };
-  }, [collabTurtleWindowOpen, closeCollabTurtleWindow]);
+  }, [collabTurtleWindowFullscreen, collabTurtleWindowOpen, closeCollabTurtleWindow]);
 
   useEffect(() => {
     taskFilesSyncReadyRef.current = false;
@@ -8642,7 +8651,7 @@ const CollabSection = ({
 
   const collabTurtleWindow = collabTurtleWindowOpen && collabTurtleScene?.used ? (
     <div
-      className="student-test-turtle-window collab-turtle-window"
+      className={`student-test-turtle-window collab-turtle-window${collabTurtleWindowFullscreen ? ' is-fullscreen' : ''}`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) closeCollabTurtleWindow();
       }}
@@ -8670,15 +8679,29 @@ const CollabSection = ({
               </small>
             </div>
           </div>
-          <button
-            ref={collabTurtleCloseRef}
-            type="button"
-            className="student-test-turtle-window__close"
-            onClick={closeCollabTurtleWindow}
-            aria-label="Закрыть окно Turtle"
-          >
-            <X size={18} />
-          </button>
+          <div className="student-test-turtle-window__actions">
+            <button
+              type="button"
+              className="student-test-turtle-window__close student-test-turtle-window__fullscreen"
+              onClick={() => setCollabTurtleWindowFullscreen((current) => !current)}
+              aria-pressed={collabTurtleWindowFullscreen}
+              aria-label={collabTurtleWindowFullscreen
+                ? 'Выйти из полноэкранного режима Turtle'
+                : 'Развернуть окно Turtle на весь экран'}
+              title={collabTurtleWindowFullscreen ? 'Свернуть окно' : 'На весь экран'}
+            >
+              {collabTurtleWindowFullscreen ? <Minimize2 size={18} /> : <Expand size={18} />}
+            </button>
+            <button
+              ref={collabTurtleCloseRef}
+              type="button"
+              className="student-test-turtle-window__close"
+              onClick={closeCollabTurtleWindow}
+              aria-label="Закрыть окно Turtle"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </header>
         <div className="student-test-turtle-window__body">
           <TurtleCanvas drawing={collabTurtleScene} />

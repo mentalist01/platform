@@ -55469,6 +55469,19 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   border-radius: 18px;
   background: #ffffff;
   box-shadow: 0 28px 90px rgba(15, 23, 42, 0.38);
+  transition: width 0.2s ease, height 0.2s ease, border-radius 0.2s ease, box-shadow 0.2s ease;
+}
+
+.student-test-turtle-window.is-fullscreen {
+  padding: 0;
+}
+
+.student-test-turtle-window.is-fullscreen .student-test-turtle-window__dialog {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .student-test-turtle-window__header {
@@ -55530,6 +55543,13 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   font-size: 19px;
 }
 
+.student-test-turtle-window__actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+}
+
 .student-test-turtle-window__close {
   display: inline-flex;
   width: 34px;
@@ -55543,6 +55563,10 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   background: #ffffff;
   cursor: pointer;
   transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.student-test-turtle-window__fullscreen {
+  color: #6d28d9;
 }
 
 .student-test-turtle-window__close:hover {
