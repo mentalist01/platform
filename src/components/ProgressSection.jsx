@@ -4,13 +4,16 @@ import {
   ArrowUpDown,
   BarChart2,
   BookOpen,
+  CheckCircle2,
   ChevronRight,
+  CircleDashed,
   Clock3,
   Copy,
   Crown,
   Eye,
   FileText,
   Flame,
+  History,
   ListChecks,
   PackageOpen,
   Pencil,
@@ -24,6 +27,7 @@ import {
   Trash2,
   Trophy,
   Users,
+  RefreshCw,
 } from 'lucide-react';
 import { api } from '../services/api';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
@@ -36,6 +40,11 @@ import StudentTestModal from './StudentTestModal';
 import { Button, Card } from './ui';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
+import {
+  buildWeeklyTaskPracticeStats,
+  getWeeklyTaskPracticeIndicator,
+  getWeeklyTaskPracticeStats,
+} from '../utils/weeklyTaskPractice';
 import CoinGuideIcon from './CoinGuideTooltip';
 
 const compareMockTaskKeys = (left, right) => {
@@ -263,6 +272,89 @@ const applyProgressTaskXpMultiplier = (baseReward, artifactLevels = {}, taskNumb
 };
 
 const getProgressQuestionId = (question, index) => String(question?.id ?? index ?? '').trim();
+
+const getProgressTaskQuestionCount = (task, testsDb, gameTheoryTask) => {
+  if (!testsDb || typeof testsDb !== 'object') return null;
+  const taskNumber = Number(task?.number ?? task?.id);
+  if (!Number.isFinite(taskNumber)) return 0;
+  const normalizedTask = normalizeProgressTaskForXp(taskNumber, gameTheoryTask);
+  const taskLevels = testsDb?.[String(taskNumber)]
+    || testsDb?.[String(normalizedTask)]
+    || testsDb?.[taskNumber];
+  if (!taskLevels || typeof taskLevels !== 'object') return 0;
+  const questionKeys = new Set();
+  Object.entries(taskLevels).forEach(([levelId, questions]) => {
+    if (!Array.isArray(questions)) return;
+    questions.forEach((question, index) => {
+      const questionId = getProgressQuestionId(question, index);
+      if (questionId) questionKeys.add(`${levelId}\u001f${questionId}`);
+    });
+  });
+  return questionKeys.size;
+};
+
+const WEEKLY_TASK_PRACTICE_CLASS_BY_KEY = {
+  new: 'weekly-task-practice--new',
+  unknown: 'weekly-task-practice--unknown',
+  below: 'weekly-task-practice--below',
+  unavailable: 'weekly-task-practice--unavailable',
+  'building-low': 'weekly-task-practice--building-low',
+  'building-mid': 'weekly-task-practice--building-mid',
+  'building-high': 'weekly-task-practice--building-high',
+  current: 'weekly-task-practice--current',
+  recent: 'weekly-task-practice--recent',
+  due: 'weekly-task-practice--due',
+  stale: 'weekly-task-practice--stale',
+};
+
+const WEEKLY_TASK_PRACTICE_ICON_BY_KEY = {
+  new: CircleDashed,
+  unknown: CircleDashed,
+  below: Target,
+  unavailable: CircleDashed,
+  'building-low': Target,
+  'building-mid': Target,
+  'building-high': Target,
+  current: CheckCircle2,
+  recent: Clock3,
+  due: RefreshCw,
+  stale: History,
+};
+
+const WeeklyTaskPracticeBadge = ({ indicator, compact = false, summary = false }) => {
+  const label = compact ? indicator.compactLabel : indicator.label;
+  const toneClass = WEEKLY_TASK_PRACTICE_CLASS_BY_KEY[indicator.key]
+    || WEEKLY_TASK_PRACTICE_CLASS_BY_KEY.unknown;
+  const StatusIcon = WEEKLY_TASK_PRACTICE_ICON_BY_KEY[indicator.key] || Clock3;
+  const content = summary ? (
+    <span className="weekly-task-practice__copy">
+      <span className="weekly-task-practice__headline">{label}</span>
+      {indicator.detail && (
+        <span className="weekly-task-practice__detail">{indicator.detail}</span>
+      )}
+    </span>
+  ) : (indicator.dateTime ? (
+    <time dateTime={indicator.dateTime}>{label}</time>
+  ) : (
+    <span>{label}</span>
+  ));
+  return (
+    <span
+      className={`weekly-task-practice ${toneClass} ${compact ? 'weekly-task-practice--compact' : ''} ${summary ? 'weekly-task-practice--summary' : ''}`}
+      title={indicator.title}
+      aria-label={indicator.ariaLabel}
+    >
+      {summary ? (
+        <span className="weekly-task-practice__icon" aria-hidden="true">
+          <StatusIcon size={15} strokeWidth={2.2} />
+        </span>
+      ) : (
+        <StatusIcon size={compact ? 10 : 13} strokeWidth={2.25} aria-hidden="true" />
+      )}
+      {content}
+    </span>
+  );
+};
 
 const normalizeProgressSectionStudentData = (data) => {
   const artifactInventory = normalizeProgressArtifactInventory(data?.artifactInventory);
@@ -1524,6 +1616,22 @@ const ProgressSection = ({
   const progressMap = role === 'teacher'
     ? (studentData.progress || {})
     : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}));
+
+  const weeklyTaskPracticeByTask = useMemo(() => (
+    buildWeeklyTaskPracticeStats(studentData, { gameTheoryTask: GAME_THEORY_TASK })
+  ), [studentData, GAME_THEORY_TASK]);
+  const getTaskPracticeIndicator = (task, taskProgress) => {
+    const taskNumber = Number(task?.number ?? task?.id);
+    const stats = getWeeklyTaskPracticeStats(
+      weeklyTaskPracticeByTask,
+      taskNumber,
+      GAME_THEORY_TASK
+    );
+    return getWeeklyTaskPracticeIndicator(stats, {
+      progress: taskProgress,
+      availableQuestionCount: getProgressTaskQuestionCount(task, testsDb, GAME_THEORY_TASK),
+    });
+  };
 
   const totalMastery = (() => {
     if (!taskList.length) return 0;
@@ -3616,16 +3724,7 @@ const ProgressSection = ({
                         ? 'rgba(16,185,129,0.34)'
                         : (isStable ? 'rgba(139,92,246,0.34)' : (isWarmingUp ? 'rgba(245,158,11,0.34)' : 'rgba(148,163,184,0.26)'));
                       const progressAngle = Math.max(0, Math.min(360, Number(node.val || 0) * 3.6));
-                      const statusLabel = isMastered
-                        ? 'Выполнено 85%+'
-                        : (isStable ? 'В темпе' : (isWarmingUp ? 'Практика' : 'Фокус'));
-                      const statusTone = isMastered
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : (isStable
-                            ? 'border-purple-200 bg-purple-50 text-purple-700'
-                            : (isWarmingUp
-                                ? 'border-amber-200 bg-amber-50 text-amber-700'
-                                : 'border-slate-200 bg-slate-50 text-slate-600'));
+                      const practiceIndicator = getTaskPracticeIndicator(node.task, node.val);
                       return (
                         <button
                           key={`mobile-path-${node.task.id}`}
@@ -3651,7 +3750,7 @@ const ProgressSection = ({
                             '--ring-stroke': `${mobilePathLayout.strokeWidth}px`,
                             '--node-delay': `${Math.max(0, node.idx % 8) * 60}ms`
                           }}
-                          aria-label={`Открыть тему ${node.task.title}. Выполнено ${node.val}%`}
+                          aria-label={`Открыть тему ${node.task.title}. Выполнено ${node.val}%. ${practiceIndicator.ariaLabel}`}
                           aria-expanded={isSelected}
                         >
                           <div
@@ -3704,9 +3803,7 @@ const ProgressSection = ({
                                 {node.title}
                               </div>
                               <div className="mt-1.5 flex justify-center">
-                                <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-none ${statusTone}`}>
-                                  {statusLabel}
-                                </span>
+                                <WeeklyTaskPracticeBadge indicator={practiceIndicator} compact />
                               </div>
                             </div>
                           </div>
@@ -3734,6 +3831,12 @@ const ProgressSection = ({
               const hasXpBonus = xpStats.multiplier > 1.0001;
               const statusKey = val >= 85 ? 'strong' : (val >= 60 ? 'active' : (val >= 40 ? 'practice' : 'focus'));
               const statusLabel = val >= 85 ? 'Выполнено 85%+' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
+              const practiceIndicator = role === 'student' ? getTaskPracticeIndicator(task, val) : null;
+              const studentActionLabel = val <= 0
+                ? 'Начать практику'
+                : (practiceIndicator && ['due', 'stale'].includes(practiceIndicator.key)
+                    ? 'Повторить тему'
+                    : 'Продолжить практику');
               const openTopic = () => {
                 if (role === 'teacher') setReviewTask(task);
                 else {
@@ -3757,7 +3860,7 @@ const ProgressSection = ({
                     } : undefined}
                     role={role === 'student' && clickable ? 'button' : undefined}
                     tabIndex={role === 'student' && clickable ? 0 : undefined}
-                    aria-label={role === 'student' && clickable ? `${task.title}. ${statusLabel}. Выполнено ${val}%` : undefined}
+                    aria-label={role === 'student' && clickable ? `${task.title}. ${statusLabel}. Выполнено ${val}%. ${practiceIndicator.ariaLabel}` : undefined}
                   >
                     <span className="progress-topic-card__glint" aria-hidden="true" />
                     <div className="progress-topic-card__header flex items-start justify-between gap-2.5">
@@ -3824,6 +3927,11 @@ const ProgressSection = ({
                         </button>
                       )}
                     </div>
+                    {practiceIndicator && (
+                      <div className="mt-2.5 flex">
+                        <WeeklyTaskPracticeBadge indicator={practiceIndicator} summary />
+                      </div>
+                    )}
                     <div className="progress-topic-progress mt-3">
                       <div
                         className="progress-topic-progress__track overflow-hidden rounded-full"
@@ -3841,7 +3949,7 @@ const ProgressSection = ({
                       <div className="progress-topic-action mt-auto flex items-center gap-2 pt-2.5 text-xs font-bold">
                         <span className="progress-topic-action__label inline-flex items-center gap-1.5">
                           {role === 'student' && <PlayCircle size={15} aria-hidden="true" />}
-                          {role === 'teacher' ? 'Смотреть ответы' : (val > 0 ? 'Продолжить практику' : 'Начать практику')}
+                          {role === 'teacher' ? 'Смотреть ответы' : studentActionLabel}
                         </span>
                       </div>
                     )}
