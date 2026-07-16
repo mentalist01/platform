@@ -198,6 +198,7 @@ const MockExamModal = ({
   const autoAdvanceTimerRef = useRef(null);
   const successBurstTimerRef = useRef(null);
   const artifactDropTimerRef = useRef(null);
+  const modalCardRef = useRef(null);
   const modalTaskNumbers = useMemo(() => {
     const examTasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
     const available = (Array.isArray(MOCK_TASK_NUMBERS) ? MOCK_TASK_NUMBERS : [])
@@ -208,6 +209,7 @@ const MockExamModal = ({
   const activeAttempt = displayAttempt && typeof displayAttempt === 'object' ? displayAttempt : {};
   const effectiveAttemptMode = normalizeMockAttemptMode(activeAttempt?.mode, normalizeMockAttemptMode(attemptMode));
   const isTimerMode = effectiveAttemptMode === MOCK_ATTEMPT_MODE_TIMER;
+  const rewardsDisabled = Boolean(exam?.rewardsDisabled || activeAttempt?.rewardsDisabled);
   const timerPaused = isTimerMode && Boolean(String(activeAttempt?.timerPausedAt || '').trim()) && !String(activeAttempt?.timerFinishedAt || '').trim();
   const timerExpiresAtMs = isTimerMode ? Date.parse(String(activeAttempt?.timerExpiresAt || '')) : Number.NaN;
   const timerDurationMs = Math.max(60 * 1000, Math.floor(Number(activeAttempt?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS));
@@ -218,6 +220,11 @@ const MockExamModal = ({
     : timerDurationMs);
   const timerExpired = isTimerMode && (timerPaused || Number.isFinite(timerExpiresAtMs)) && timerRemainingMs <= 0;
   const timerLabel = formatMockTimerDuration(timerRemainingMs);
+
+  useEffect(() => {
+    const focusFrame = window.requestAnimationFrame(() => modalCardRef.current?.focus());
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [exam?.id]);
 
   const readAttemptAnswers = useCallback((attempt) => (
     attempt?.answers && typeof attempt.answers === 'object' ? attempt.answers : {}
@@ -989,6 +996,11 @@ const MockExamModal = ({
         <span className="mock-exam-launch__spark mock-exam-launch__spark--three" />
       </div>
       <div
+        ref={modalCardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Пробник «${exam.title || 'Без названия'}»`}
+        tabIndex={-1}
         className={`modal-card mock-exam-modal-card ${isTimerMode ? 'mock-exam-modal--timer' : ''} relative flex max-h-[96vh] w-full max-w-[96rem] flex-col overflow-hidden rounded-[2rem] border p-4 shadow-2xl md:p-6 ${shellClassName}`}
         style={shellStyle}
       >
@@ -1022,7 +1034,9 @@ const MockExamModal = ({
             <div className={`mock-exam-artifact-hint ${isTimerMode ? 'mock-exam-artifact-hint--timer' : ''}`}>
               <Sparkles size={15} />
               <span>
-                {isTimerMode
+                {rewardsDisabled
+                  ? 'Персональный пробник работает как тренировка: без опыта, монет, артефактов и сундуков.'
+                  : isTimerMode
                   ? 'Артефакты выпадают только из сундуков за рубежи таймера.'
                   : 'Артефакты не выпадают в обычном режиме. Запусти таймерный пробник и открывай сундуки за рубежи.'}
               </span>

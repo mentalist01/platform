@@ -1034,6 +1034,16 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  createRandomMockExam: async (requestId, options = {}) => {
+    const res = await apiFetch('/api/mock-exams/random', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId: String(requestId || '').trim() }),
+      signal: options?.signal,
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   createMockExam: async (title) => {
     const res = await apiFetch('/api/mock-exams', {
       method: 'POST',

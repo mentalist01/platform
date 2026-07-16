@@ -34,6 +34,7 @@ import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
+import RandomMockGenerator from './RandomMockGenerator';
 import ProgressReviewModal from './ProgressReviewModal';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
@@ -725,6 +726,7 @@ const ProgressSection = ({
   const taskRunnerWorkerRef = useRef(null);
   const taskRunnerPendingRef = useRef(new Map());
   const mockAttemptRequestIdRef = useRef(0);
+  const randomMockRequestIdRef = useRef('');
   const timerChestFlightTimersRef = useRef([]);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
@@ -2314,12 +2316,65 @@ const ProgressSection = ({
     } catch (err) {
       if (mockAttemptRequestIdRef.current !== requestId) return;
       setMockExamsError(err?.message || 'Не удалось открыть пробник.');
+      if (options?.throwOnError) {
+        setActiveMockExam(null);
+        setActiveMockAttempt(null);
+        setActiveMockInitialTask(null);
+        setActiveMockMode(MOCK_ATTEMPT_MODE_CLASSIC);
+        throw err;
+      }
       setActiveMockAttempt({});
     } finally {
       if (mockAttemptRequestIdRef.current === requestId) {
         setStartingMockExamId(null);
       }
     }
+  };
+
+  const handleGenerateRandomMockExam = ({ signal } = {}) => {
+    if (role !== 'student') {
+      return Promise.reject(new Error('Персональный пробник доступен только ученику.'));
+    }
+    if (!randomMockRequestIdRef.current) {
+      randomMockRequestIdRef.current = globalThis.crypto?.randomUUID?.()
+        || `random-mock-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    return api.createRandomMockExam(randomMockRequestIdRef.current, { signal });
+  };
+
+  const handleRandomMockGenerated = (result) => {
+    const exam = result?.exam;
+    if (!exam?.id) return;
+    const removedExamIds = new Set(
+      (Array.isArray(result?.removedExamIds) ? result.removedExamIds : [])
+        .map((examId) => String(examId || '').trim())
+        .filter(Boolean)
+    );
+    setMockExams((previous) => [
+      exam,
+      ...(Array.isArray(previous) ? previous : []).filter((item) => (
+        String(item?.id || '') !== String(exam.id)
+        && !removedExamIds.has(String(item?.id || ''))
+      )),
+    ]);
+    setMockAttemptsByExam((previous) => {
+      const next = { ...(previous || {}) };
+      delete next[String(exam.id)];
+      removedExamIds.forEach((examId) => delete next[examId]);
+      return next;
+    });
+    randomMockRequestIdRef.current = '';
+    setMockExamsError('');
+  };
+
+  const handleStartRandomMockExam = async (result) => {
+    const exam = result?.exam;
+    if (!exam?.id) throw new Error('Не удалось открыть собранный пробник.');
+    await handleOpenMockExam(exam, {
+      mode: mockModePreset,
+      skipClassicModeWarning: true,
+      throwOnError: true,
+    });
   };
 
   const handleRestoreMockTimerRewards = async (exam) => {
@@ -2499,7 +2554,12 @@ const ProgressSection = ({
         );
       const isTimerMode = selectedMode === MOCK_ATTEMPT_MODE_TIMER;
       const canRestartTimerAttempt = Boolean(isTimerMode && (stats.canRestartTimerAttempt || isMockTimerAttemptEnded(attempt)));
-      const timerRewardsDisabled = Boolean(attempt?.timerRewardsDisabled || (canSwitchClassicAttemptToTimer && isTimerMode));
+      const timerRewardsDisabled = Boolean(
+        exam?.rewardsDisabled
+        || attempt?.rewardsDisabled
+        || attempt?.timerRewardsDisabled
+        || (canSwitchClassicAttemptToTimer && isTimerMode)
+      );
       const rewardInfo = getMockNextRewardInfo(stats.secondary, selectedMode);
       const taskStats = Array.isArray(stats.taskStats) ? stats.taskStats : [];
       const nextOpenTask = taskStats.find((taskStat) => !taskStat.solved && taskStat.attempted)
@@ -2800,8 +2860,15 @@ const ProgressSection = ({
     const progressValue = Math.max(0, Math.min(100, Number(examStats.progressPercent) || 0));
     const scoreGap = examRow?.rewardGap ?? (nextRewardMilestone ? Math.max(0, nextRewardMilestone.score - scoreValue) : 0);
     const canRestartTimerAttempt = Boolean(isTimerMode && (examRow?.canRestartTimerAttempt || examStats.canRestartTimerAttempt || isMockTimerAttemptEnded(attempt)));
-    const timerRewardsDisabled = Boolean(attempt?.timerRewardsDisabled || (canSwitchClassicAttemptToTimer && isTimerMode));
-    const nextRewardText = timerResultsHidden
+    const rewardsDisabled = Boolean(exam?.rewardsDisabled || attempt?.rewardsDisabled);
+    const timerRewardsDisabled = Boolean(
+      rewardsDisabled
+      || attempt?.timerRewardsDisabled
+      || (canSwitchClassicAttemptToTimer && isTimerMode)
+    );
+    const nextRewardText = rewardsDisabled
+      ? 'Персональная тренировка · без наград'
+      : timerResultsHidden
       ? 'Результат после завершения'
       : (timerRewardsDisabled
       ? 'Награды таймера отключены'
@@ -3080,8 +3147,10 @@ const ProgressSection = ({
                   <div className={`mock-reward-shell mock-quest-reward rounded-2xl p-2.5 ${isTimerMode ? 'mock-reward-shell--timer' : ''} ${timerRewardsDisabled ? 'mock-reward-shell--disabled' : ''}`}>
                     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
                       <span className="mock-reward-title inline-flex items-center gap-1.5 font-semibold">
-                        {isTimerMode ? <Flame size={13} /> : <Crown size={13} />}
-                        {isTimerMode
+                        {rewardsDisabled ? <BookOpen size={13} /> : (isTimerMode ? <Flame size={13} /> : <Crown size={13} />)}
+                        {rewardsDisabled
+                          ? 'Тренировочный режим'
+                          : isTimerMode
                           ? (timerResultsHidden ? 'Ответы сохранены' : 'Награды таймера')
                           : 'Награды за результат'}
                       </span>
@@ -3090,7 +3159,7 @@ const ProgressSection = ({
                         {nextRewardText}
                       </span>
                     </div>
-                    <div className="mock-reward-track mt-2">
+                    {!rewardsDisabled && <div className="mock-reward-track mt-2">
                       <div className="mock-reward-track__bar">
                         <div
                           className="mock-reward-track__fill"
@@ -3165,7 +3234,7 @@ const ProgressSection = ({
                           </div>
                         );
                       })}
-                    </div>
+                    </div>}
                   </div>
                   </div>
 
@@ -4193,9 +4262,22 @@ const ProgressSection = ({
                         <Sparkles size={13} /> План на сегодня
                       </div>
                       <h3 className="mock-dashboard-v2__title mt-1 text-lg font-black">Ваш следующий шаг</h3>
-                      <p className="mock-dashboard-v2__subtitle mt-0.5 text-xs">Продолжите начатый вариант или выберите другой ниже.</p>
+                      <p className="mock-dashboard-v2__subtitle mt-0.5 text-xs">Продолжите начатый вариант или соберите новый специально под себя.</p>
                     </div>
                   </div>
+
+                  <RandomMockGenerator
+                    onGenerate={handleGenerateRandomMockExam}
+                    onGenerated={handleRandomMockGenerated}
+                    onStart={handleStartRandomMockExam}
+                    getSummary={(result) => ({
+                      newCount: result?.summary?.freshTaskCount ?? null,
+                      repeatCount: result?.summary?.repeatTaskCount ?? null,
+                      totalCount: result?.summary?.taskCount ?? null,
+                    })}
+                    title="Собрать персональный пробник"
+                    description="Подберём базовые задания, которые вы ещё не решали. Повторы появятся только там, где новых уже не осталось. Тренировочный режим — без наград."
+                  />
 
                   <div className="mock-dashboard-v2 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(420px,0.9fr)]">
                     <div className="mock-command-focus mock-dashboard-primary flex min-w-0 flex-col rounded-[20px] border p-4">
@@ -4215,7 +4297,7 @@ const ProgressSection = ({
                             ) : null}
                           </div>
                           <div className="mock-focus-title mt-1 text-base font-black md:text-lg">
-                            {focusMockExam ? studentMockOverview.focusTitle : 'Пробников пока нет'}
+                            {focusMockExam ? studentMockOverview.focusTitle : 'Соберите свой первый пробник'}
                           </div>
                           <div className="mock-focus-detail mt-1 text-xs">
                             {focusMockExam
@@ -4224,7 +4306,7 @@ const ProgressSection = ({
                                   ? `${studentMockOverview.focusDescription} · следующее задание №${studentMockOverview.focusTaskLabel}`
                                   : studentMockOverview.focusDescription
                               )
-                              : 'Когда учитель добавит пробник, он появится здесь.'}
+                              : 'Выше можно собрать личный вариант из базовых заданий — нерешённые будут в приоритете.'}
                           </div>
                         </div>
                       </div>
@@ -4241,16 +4323,17 @@ const ProgressSection = ({
                             ? (focusMockStats?.hasStarted
                                 ? 'Прогресс сохранён — продолжите с нужного места'
                                 : 'Начните с первого задания — прогресс сохранится автоматически')
-                            : 'Новые варианты появятся автоматически'}
+                            : 'Если новых задач не останется, добавим материал на повторение'}
                         </span>
-                        <Button
-                          onClick={openFocusMockExam}
-                          disabled={!focusMockExam}
-                          className="mock-focus-button shrink-0"
-                        >
-                          <PlayCircle size={16} />
-                          {studentMockOverview?.focusActionLabel || 'Открыть'}
-                        </Button>
+                        {focusMockExam && (
+                          <Button
+                            onClick={openFocusMockExam}
+                            className="mock-focus-button shrink-0"
+                          >
+                            <PlayCircle size={16} />
+                            {studentMockOverview?.focusActionLabel || 'Открыть'}
+                          </Button>
+                        )}
                       </div>
                     </div>
 
