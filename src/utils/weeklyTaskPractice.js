@@ -3,9 +3,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const WEEKLY_TASK_PRACTICE_TARGET = 10;
 export const WEEKLY_TASK_PRACTICE_WINDOW_DAYS = 7;
 
-const WEEKLY_TASK_PRACTICE_DUE_AFTER_DAYS = 60;
-const WEEKLY_TASK_PRACTICE_STALE_AFTER_DAYS = 120;
-
 const isObjectRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 const parseTimestamp = (value) => {
@@ -362,10 +359,10 @@ export const getWeeklyTaskPracticeIndicator = (
         ? Math.floor((referenceTimestamp - earliestRecordedTimestamp) / DAY_MS)
         : 0;
 
-      if (elapsedLowerBoundDays >= WEEKLY_TASK_PRACTICE_DUE_AFTER_DAYS) {
+      if (elapsedLowerBoundDays >= 30) {
         const elapsedLowerBound = formatElapsedLowerBound(elapsedLowerBoundDays);
         const exactBoundary = formatExactDate(earliestRecordedAt);
-        const staleByLowerBound = elapsedLowerBoundDays >= WEEKLY_TASK_PRACTICE_STALE_AFTER_DAYS;
+        const staleByLowerBound = elapsedLowerBoundDays >= 60;
         return {
           ...base,
           key: staleByLowerBound ? 'stale' : 'due',
@@ -416,7 +413,7 @@ export const getWeeklyTaskPracticeIndicator = (
   const exactDate = formatExactDate(qualifiedAt);
   const sharedTitle = `Последняя полноценная практика: ${exactDate}. Тогда за ${windowDays} дней было решено не менее ${target} разных заданий. Сейчас: ${currentCount} из ${target}.`;
 
-  if (elapsedDays >= WEEKLY_TASK_PRACTICE_STALE_AFTER_DAYS) {
+  if (elapsedDays >= 60) {
     const elapsed = formatElapsed(elapsedDays);
     return {
       ...base,
@@ -428,7 +425,7 @@ export const getWeeklyTaskPracticeIndicator = (
       title: sharedTitle,
     };
   }
-  if (elapsedDays >= WEEKLY_TASK_PRACTICE_DUE_AFTER_DAYS) {
+  if (elapsedDays >= 30) {
     const elapsed = formatElapsed(elapsedDays);
     return {
       ...base,
