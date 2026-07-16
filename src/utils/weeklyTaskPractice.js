@@ -113,40 +113,17 @@ export const buildWeeklyTaskPracticeStats = (
 ) => {
   const safeTarget = Math.max(1, Math.trunc(Number(target) || WEEKLY_TASK_PRACTICE_TARGET));
   const safeWindowDays = Math.max(1, Math.trunc(Number(windowDays) || WEEKLY_TASK_PRACTICE_WINDOW_DAYS));
+  const referenceTimestamp = parseTimestamp(referenceDate);
   const referenceDay = getLocalDayNumber(referenceDate);
   if (!Number.isFinite(referenceDay)) return {};
 
   const eventsByTask = new Map();
-  const historyTimestampsByTaskAndQuestion = new Map();
-  const solvedByTask = isObjectRecord(studentData?.solvedByTask) ? studentData.solvedByTask : {};
+  const firstEventByQuestion = new Map();
+  let earliestRecordedAt = '';
+  let earliestRecordedTimestamp = Number.POSITIVE_INFINITY;
 
-  Object.entries(solvedByTask).forEach(([taskKey, taskEntry]) => {
-    if (!isObjectRecord(taskEntry)) return;
-    const normalizedTask = normalizeTaskNumber(taskKey, gameTheoryTask);
-    if (!Number.isFinite(normalizedTask)) return;
-
-    Object.entries(taskEntry).forEach(([levelId, levelEntry]) => {
-      if (String(levelId).startsWith('_') || !isObjectRecord(levelEntry)) return;
-      const answerHistory = isObjectRecord(levelEntry.answerHistory) ? levelEntry.answerHistory : {};
-      Object.entries(answerHistory).forEach(([questionId, entries]) => {
-        if (!Array.isArray(entries)) return;
-        const questionKey = getQuestionPracticeKey(levelId, questionId);
-        if (!questionKey) return;
-        entries.forEach((entry) => {
-          if (entry?.correct !== true) return;
-          const timestamp = parseTimestamp(entry?.submittedAt);
-          if (!Number.isFinite(timestamp)) return;
-          addEvent(eventsByTask, normalizedTask, gameTheoryTask, questionKey, timestamp, 'answer-history');
-          const dedupeKey = `${normalizedTask}\u001e${questionKey}`;
-          const knownTimestamps = historyTimestampsByTaskAndQuestion.get(dedupeKey) || [];
-          knownTimestamps.push(timestamp);
-          historyTimestampsByTaskAndQuestion.set(dedupeKey, knownTimestamps);
-        });
-      });
-    });
-  });
-
-  // Legacy fallback: old correct solutions may have a solved event but no answer history.
+  // solvedEvents is created only when a question is solved correctly for the first
+  // time. Repeated correct answers and incorrect attempts do not refresh practice.
   // Mock exams belong to a separate product flow and are intentionally not mixed into
   // the student's weekly practice for the topic cards.
   const solvedEvents = Array.isArray(studentData?.solvedEvents) ? studentData.solvedEvents : [];
@@ -156,10 +133,21 @@ export const buildWeeklyTaskPracticeStats = (
     const questionKey = getQuestionPracticeKey(event?.levelId, event?.questionId);
     const timestamp = parseTimestamp(event?.solvedAt);
     if (!Number.isFinite(normalizedTask) || !questionKey || !Number.isFinite(timestamp)) return;
+    const dayNumber = getLocalDayNumber(timestamp);
+    if (!Number.isFinite(dayNumber) || dayNumber > referenceDay) return;
+
     const dedupeKey = `${normalizedTask}\u001e${questionKey}`;
-    const matchesAnswerHistory = (historyTimestampsByTaskAndQuestion.get(dedupeKey) || [])
-      .some((historyTimestamp) => Math.abs(historyTimestamp - timestamp) <= 5000);
-    if (matchesAnswerHistory) return;
+    const previous = firstEventByQuestion.get(dedupeKey);
+    if (!previous || timestamp < previous.timestamp) {
+      firstEventByQuestion.set(dedupeKey, { normalizedTask, questionKey, timestamp });
+    }
+    if (timestamp < earliestRecordedTimestamp) {
+      earliestRecordedTimestamp = timestamp;
+      earliestRecordedAt = new Date(timestamp).toISOString();
+    }
+  });
+
+  firstEventByQuestion.forEach(({ normalizedTask, questionKey, timestamp }) => {
     addEvent(eventsByTask, normalizedTask, gameTheoryTask, questionKey, timestamp, 'solved-event');
   });
 
@@ -172,22 +160,40 @@ export const buildWeeklyTaskPracticeStats = (
       safeWindowDays
     );
   });
+  Object.defineProperty(statsByTask, '__meta', {
+    value: {
+      target: safeTarget,
+      windowDays: safeWindowDays,
+      referenceDay,
+      referenceTimestamp,
+      earliestRecordedAt,
+    },
+    enumerable: false,
+  });
   return statsByTask;
 };
 
 export const getWeeklyTaskPracticeStats = (statsByTask, taskNumber, gameTheoryTask = 19) => {
   const normalizedTask = normalizeTaskNumber(taskNumber, gameTheoryTask);
   const stored = Number.isFinite(normalizedTask) ? statsByTask?.[String(normalizedTask)] : null;
-  if (stored) return stored;
+  const meta = isObjectRecord(statsByTask?.__meta) ? statsByTask.__meta : {};
+  const shared = {
+    referenceTimestamp: parseTimestamp(meta.referenceTimestamp),
+    earliestRecordedAt: typeof meta.earliestRecordedAt === 'string' ? meta.earliestRecordedAt : '',
+  };
+  if (stored) return { ...stored, ...shared };
   return {
-    target: WEEKLY_TASK_PRACTICE_TARGET,
-    windowDays: WEEKLY_TASK_PRACTICE_WINDOW_DAYS,
-    referenceDay: getLocalDayNumber(new Date()),
+    target: Math.max(1, Number(meta.target) || WEEKLY_TASK_PRACTICE_TARGET),
+    windowDays: Math.max(1, Number(meta.windowDays) || WEEKLY_TASK_PRACTICE_WINDOW_DAYS),
+    referenceDay: Number.isFinite(Number(meta.referenceDay))
+      ? Number(meta.referenceDay)
+      : getLocalDayNumber(new Date()),
     currentCount: 0,
     qualifiedAt: '',
     lastSolvedAt: '',
     recordedSolutionCount: 0,
     recordedQuestionCount: 0,
+    ...shared,
   };
 };
 
@@ -238,6 +244,21 @@ const formatElapsed = (days) => {
   return `${parts.value} ${parts.unit}`;
 };
 
+const formatElapsedLowerBound = (days) => {
+  const safeDays = Math.max(1, Math.floor(Number(days) || 0));
+  if (safeDays < 14) return `${safeDays} ${safeDays === 1 ? 'дня' : 'дней'}`;
+  if (safeDays < 60) {
+    const weeks = Math.max(1, Math.floor(safeDays / 7));
+    return `${weeks} ${weeks === 1 ? 'недели' : 'недель'}`;
+  }
+  if (safeDays < 365) {
+    const months = Math.max(1, Math.floor(safeDays / 30));
+    return `${months} ${months === 1 ? 'месяца' : 'месяцев'}`;
+  }
+  const years = Math.max(1, Math.floor(safeDays / 365));
+  return `${years} ${years === 1 ? 'года' : 'лет'}`;
+};
+
 const formatAgo = (days) => {
   if (days <= 0) return 'сегодня';
   if (days === 1) return 'вчера';
@@ -266,6 +287,9 @@ export const getWeeklyTaskPracticeIndicator = (
   const currentCount = Math.max(0, Number(stats?.currentCount) || 0);
   const qualifiedAt = typeof stats?.qualifiedAt === 'string' ? stats.qualifiedAt : '';
   const recordedSolutionCount = Math.max(0, Number(stats?.recordedSolutionCount) || 0);
+  const earliestRecordedAt = typeof stats?.earliestRecordedAt === 'string'
+    ? stats.earliestRecordedAt
+    : '';
   const referenceDay = Number.isFinite(Number(stats?.referenceDay))
     ? Number(stats.referenceDay)
     : getLocalDayNumber(new Date());
@@ -290,7 +314,13 @@ export const getWeeklyTaskPracticeIndicator = (
   const normalizedAvailableCount = availableQuestionCount === null
     ? null
     : Math.max(0, Math.trunc(Number(availableQuestionCount) || 0));
-  if (!qualifiedAt && normalizedAvailableCount !== null && normalizedAvailableCount < target) {
+  const hasLegacyProgress = recordedSolutionCount <= 0 && Number(progress) > 0;
+  if (
+    !qualifiedAt
+    && !hasLegacyProgress
+    && normalizedAvailableCount !== null
+    && normalizedAvailableCount < target
+  ) {
     return {
       ...base,
       key: 'unavailable',
@@ -320,7 +350,30 @@ export const getWeeklyTaskPracticeIndicator = (
   }
 
   if (!qualifiedAt) {
-    if (recordedSolutionCount <= 0 && Number(progress) > 0) {
+    if (hasLegacyProgress) {
+      const earliestRecordedTimestamp = parseTimestamp(earliestRecordedAt);
+      const referenceTimestamp = parseTimestamp(stats?.referenceTimestamp) ?? Date.now();
+      const elapsedLowerBoundDays = Number.isFinite(earliestRecordedTimestamp)
+        && Number.isFinite(referenceTimestamp)
+        && referenceTimestamp >= earliestRecordedTimestamp
+        ? Math.floor((referenceTimestamp - earliestRecordedTimestamp) / DAY_MS)
+        : 0;
+
+      if (elapsedLowerBoundDays >= 30) {
+        const elapsedLowerBound = formatElapsedLowerBound(elapsedLowerBoundDays);
+        const exactBoundary = formatExactDate(earliestRecordedAt);
+        const staleByLowerBound = elapsedLowerBoundDays >= 60;
+        return {
+          ...base,
+          key: staleByLowerBound ? 'stale' : 'due',
+          label: staleByLowerBound ? 'Давно без практики' : 'Пора повторить тему',
+          detail: `Новых решений нет более ${elapsedLowerBound}`,
+          compactLabel: `Более ${elapsedLowerBound}`,
+          ariaLabel: `По теме не было новых правильных решений более ${elapsedLowerBound}`,
+          title: `Точная дата старых решений не сохранилась. Новые решения по теме были раньше ${exactBoundary} — самой ранней сохранившейся даты решения этого ученика.`,
+        };
+      }
+
       return {
         ...base,
         key: 'unknown',
