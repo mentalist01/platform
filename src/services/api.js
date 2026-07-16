@@ -1035,10 +1035,14 @@ export const api = {
     return parseJsonResponse(res);
   },
   createRandomMockExam: async (requestId, options = {}) => {
+    const levelId = String(options?.levelId || 'basic').trim().toLowerCase();
     const res = await apiFetch('/api/mock-exams/random', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestId: String(requestId || '').trim() }),
+      body: JSON.stringify({
+        requestId: String(requestId || '').trim(),
+        levelId,
+      }),
       signal: options?.signal,
     });
     if (!res.ok) throw new Error(await parseApiError(res));

@@ -726,7 +726,7 @@ const ProgressSection = ({
   const taskRunnerWorkerRef = useRef(null);
   const taskRunnerPendingRef = useRef(new Map());
   const mockAttemptRequestIdRef = useRef(0);
-  const randomMockRequestIdRef = useRef('');
+  const randomMockRequestRef = useRef({ requestId: '', levelId: '' });
   const timerChestFlightTimersRef = useRef([]);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
@@ -2331,15 +2331,22 @@ const ProgressSection = ({
     }
   };
 
-  const handleGenerateRandomMockExam = ({ signal } = {}) => {
+  const handleGenerateRandomMockExam = ({ signal, levelId = 'basic' } = {}) => {
     if (role !== 'student') {
       return Promise.reject(new Error('Персональный пробник доступен только ученику.'));
     }
-    if (!randomMockRequestIdRef.current) {
-      randomMockRequestIdRef.current = globalThis.crypto?.randomUUID?.()
+    const normalizedLevelId = levelId === 'advanced' ? 'advanced' : 'basic';
+    if (randomMockRequestRef.current.levelId !== normalizedLevelId) {
+      randomMockRequestRef.current = { requestId: '', levelId: normalizedLevelId };
+    }
+    if (!randomMockRequestRef.current.requestId) {
+      randomMockRequestRef.current.requestId = globalThis.crypto?.randomUUID?.()
         || `random-mock-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
-    return api.createRandomMockExam(randomMockRequestIdRef.current, { signal });
+    return api.createRandomMockExam(randomMockRequestRef.current.requestId, {
+      signal,
+      levelId: normalizedLevelId,
+    });
   };
 
   const handleRandomMockGenerated = (result) => {
@@ -2363,7 +2370,7 @@ const ProgressSection = ({
       removedExamIds.forEach((examId) => delete next[examId]);
       return next;
     });
-    randomMockRequestIdRef.current = '';
+    randomMockRequestRef.current = { requestId: '', levelId: '' };
     setMockExamsError('');
   };
 
@@ -4276,7 +4283,7 @@ const ProgressSection = ({
                       totalCount: result?.summary?.taskCount ?? null,
                     })}
                     title="Собрать персональный пробник"
-                    description="Подберём базовые задания, которые вы ещё не решали. Повторы появятся только там, где новых уже не осталось. Тренировочный режим — без наград."
+                    description="Подберём задания выбранного уровня, которые вы ещё не решали. Тренировочный режим — без наград."
                   />
 
                   <div className="mock-dashboard-v2 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(420px,0.9fr)]">
@@ -4306,7 +4313,7 @@ const ProgressSection = ({
                                   ? `${studentMockOverview.focusDescription} · следующее задание №${studentMockOverview.focusTaskLabel}`
                                   : studentMockOverview.focusDescription
                               )
-                              : 'Выше можно собрать личный вариант из базовых заданий — нерешённые будут в приоритете.'}
+                              : 'Выше можно собрать личный вариант выбранного уровня — нерешённые будут в приоритете.'}
                           </div>
                         </div>
                       </div>

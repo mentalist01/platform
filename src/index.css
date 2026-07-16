@@ -74404,6 +74404,73 @@ html[data-theme='dark'] .progress-section--mocks .mock-ticket-v3__teacher-action
   color: #64748b !important;
 }
 
+.progress-section--mocks .mock-random-builder__level-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  width: max-content;
+  min-width: 252px;
+  padding: 3px;
+  border: 1px solid rgb(148 163 184 / 0.2);
+  border-radius: 14px;
+  background: rgb(241 245 249 / 0.72);
+}
+
+.progress-section--mocks .mock-random-builder__level-label {
+  min-width: 0;
+  cursor: pointer;
+}
+
+.progress-section--mocks .mock-random-builder__level-option {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+  transition: color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.progress-section--mocks .mock-random-builder__level-label[data-disabled='false']:hover .mock-random-builder__level-option {
+  color: #334155;
+  background: rgb(255 255 255 / 0.58);
+}
+
+.progress-section--mocks .mock-random-builder__level-label[data-selected='true'][data-level='basic'] .mock-random-builder__level-option {
+  border-color: rgb(14 165 233 / 0.17);
+  background: rgb(240 249 255 / 0.96);
+  color: #0369a1;
+  box-shadow: 0 0 18px rgb(14 165 233 / 0.16);
+}
+
+.progress-section--mocks .mock-random-builder__level-label[data-selected='true'][data-level='advanced'] .mock-random-builder__level-option {
+  border-color: rgb(139 92 246 / 0.17);
+  background: rgb(245 243 255 / 0.96);
+  color: #6d28d9;
+  box-shadow: 0 0 18px rgb(124 58 237 / 0.16);
+}
+
+.progress-section--mocks .mock-random-builder__level-input:focus-visible + .mock-random-builder__level-option {
+  outline: 2px solid rgb(14 165 233 / 0.72);
+  outline-offset: 2px;
+}
+
+.progress-section--mocks .mock-random-builder__level-label[data-level='advanced'] .mock-random-builder__level-input:focus-visible + .mock-random-builder__level-option {
+  outline-color: rgb(139 92 246 / 0.72);
+}
+
+.progress-section--mocks .mock-random-builder__level-input:disabled + .mock-random-builder__level-option {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .progress-section--mocks .mock-random-builder__chip {
   border-color: rgb(148 163 184 / 0.25) !important;
   background: rgb(248 250 252 / 0.86) !important;
@@ -74537,6 +74604,18 @@ html[data-theme='dark'] .progress-section--mocks .mock-ticket-v3__teacher-action
   color: #0369a1 !important;
 }
 
+.mock-random-generation__level-pill {
+  background: rgb(240 249 255 / 0.88);
+  color: #0369a1;
+  box-shadow: 0 0 18px rgb(14 165 233 / 0.14);
+}
+
+.mock-random-generation__level-pill[data-level='advanced'] {
+  background: rgb(245 243 255 / 0.9);
+  color: #6d28d9;
+  box-shadow: 0 0 18px rgb(124 58 237 / 0.16);
+}
+
 .mock-random-generation__loading-icon {
   box-shadow: 0 12px 28px rgb(14 165 233 / 0.12);
 }
@@ -74662,6 +74741,34 @@ html[data-theme='dark'] .progress-section--mocks .mock-random-builder__descripti
   color: #a8b8ca !important;
 }
 
+html[data-theme='dark'] .progress-section--mocks .mock-random-builder__level-switch {
+  border-color: rgb(148 163 184 / 0.14);
+  background: rgb(2 8 23 / 0.34);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-random-builder__level-option {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-random-builder__level-label[data-disabled='false']:hover .mock-random-builder__level-option {
+  color: #dbeafe;
+  background: rgb(255 255 255 / 0.045);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-random-builder__level-label[data-selected='true'][data-level='basic'] .mock-random-builder__level-option {
+  border-color: rgb(56 189 248 / 0.18);
+  background: rgb(14 116 144 / 0.17);
+  color: #7dd3fc;
+  box-shadow: 0 0 20px rgb(14 165 233 / 0.13);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-random-builder__level-label[data-selected='true'][data-level='advanced'] .mock-random-builder__level-option {
+  border-color: rgb(167 139 250 / 0.18);
+  background: rgb(91 33 182 / 0.18);
+  color: #c4b5fd;
+  box-shadow: 0 0 20px rgb(124 58 237 / 0.15);
+}
+
 html[data-theme='dark'] .progress-section--mocks .mock-random-builder__eyebrow {
   color: #7dd3fc !important;
 }
@@ -74704,6 +74811,18 @@ html[data-theme='dark'] .mock-random-generation__eyebrow {
   border-color: rgb(56 189 248 / 0.2) !important;
   background: rgb(14 116 144 / 0.14) !important;
   color: #7dd3fc !important;
+}
+
+html[data-theme='dark'] .mock-random-generation__level-pill {
+  background: rgb(14 116 144 / 0.15);
+  color: #7dd3fc;
+  box-shadow: 0 0 18px rgb(14 165 233 / 0.12);
+}
+
+html[data-theme='dark'] .mock-random-generation__level-pill[data-level='advanced'] {
+  background: rgb(91 33 182 / 0.2);
+  color: #c4b5fd;
+  box-shadow: 0 0 18px rgb(124 58 237 / 0.14);
 }
 
 html[data-theme='dark'] .mock-random-generation__close {
@@ -74866,6 +74985,21 @@ html[data-theme='dark'] .mock-random-generation__start-error {
 
   .progress-section--mocks .mock-random-builder__description {
     font-size: 12px !important;
+  }
+
+  .progress-section--mocks .mock-random-builder__tools,
+  .progress-section--mocks .mock-random-builder__level-field,
+  .progress-section--mocks .mock-random-builder__level-switch {
+    width: 100%;
+  }
+
+  .progress-section--mocks .mock-random-builder__level-switch {
+    min-width: 0;
+  }
+
+  .progress-section--mocks .mock-random-builder__level-option {
+    min-height: 44px;
+    font-size: 12px;
   }
 
   .mock-random-generation__ray {

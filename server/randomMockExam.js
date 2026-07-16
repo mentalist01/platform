@@ -1,10 +1,16 @@
 export const PERSONAL_RANDOM_MOCK_SOURCE = 'personal-random';
 export const PERSONAL_RANDOM_MOCK_LEVEL_ID = 'basic';
+export const PERSONAL_RANDOM_MOCK_LEVEL_IDS = Object.freeze(['basic', 'advanced']);
 
 const MOCK_TASK_NUMBERS = Array.from({ length: 27 }, (_, index) => index + 1);
 const SOURCE_TASK_NUMBERS = MOCK_TASK_NUMBERS.filter((taskNumber) => taskNumber !== 20 && taskNumber !== 21);
 
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const normalizeLevelId = (value) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return PERSONAL_RANDOM_MOCK_LEVEL_IDS.includes(normalized) ? normalized : '';
+};
 
 const getQuestionId = (question) => {
   const value = question?.id;
@@ -48,16 +54,35 @@ const replaceQuestionAnswers = (question, answers) => {
 export const normalizeRandomMockSolvedByTask = (value) => {
   const source = isRecord(value) ? value : {};
   const normalized = {};
-  Object.entries(source).forEach(([taskNumber, questionIds]) => {
+  Object.entries(source).forEach(([taskNumber, storedValue]) => {
     const numericTaskNumber = Number(taskNumber);
     if (!Number.isInteger(numericTaskNumber) || numericTaskNumber < 1 || numericTaskNumber > 27) return;
-    if (!Array.isArray(questionIds)) return;
-    const ids = Array.from(new Set(
-      questionIds.map((questionId) => String(questionId ?? '').trim()).filter(Boolean)
-    ));
-    if (ids.length > 0) normalized[String(numericTaskNumber)] = ids;
+    const sourceByLevel = Array.isArray(storedValue)
+      ? { [PERSONAL_RANDOM_MOCK_LEVEL_ID]: storedValue }
+      : (isRecord(storedValue) ? storedValue : {});
+    const normalizedByLevel = {};
+    PERSONAL_RANDOM_MOCK_LEVEL_IDS.forEach((levelId) => {
+      const questionIds = sourceByLevel[levelId];
+      if (!Array.isArray(questionIds)) return;
+      const ids = Array.from(new Set(
+        questionIds.map((questionId) => String(questionId ?? '').trim()).filter(Boolean)
+      ));
+      if (ids.length > 0) normalizedByLevel[levelId] = ids;
+    });
+    if (Object.keys(normalizedByLevel).length > 0) {
+      normalized[String(numericTaskNumber)] = normalizedByLevel;
+    }
   });
   return normalized;
+};
+
+export const getPersonalRandomMockLevelId = (exam) => {
+  const directLevelId = normalizeLevelId(exam?.randomLevelId);
+  if (directLevelId) return directLevelId;
+  const taskLevelId = Object.values(isRecord(exam?.tasks) ? exam.tasks : {})
+    .map((question) => normalizeLevelId(question?.sourceLevelId))
+    .find(Boolean);
+  return taskLevelId || PERSONAL_RANDOM_MOCK_LEVEL_ID;
 };
 
 export const collectSolvedPersonalRandomMockQuestions = ({
@@ -68,7 +93,10 @@ export const collectSolvedPersonalRandomMockQuestions = ({
 } = {}) => {
   const solvedByTask = normalizeRandomMockSolvedByTask(previousSolvedByTask);
   const nextSets = Object.entries(solvedByTask).reduce((acc, [taskNumber, questionIds]) => {
-    acc[taskNumber] = new Set(questionIds);
+    acc[taskNumber] = Object.entries(questionIds).reduce((levelAcc, [levelId, ids]) => {
+      levelAcc[levelId] = new Set(ids);
+      return levelAcc;
+    }, {});
     return acc;
   }, {});
   const attempts = isRecord(mockAttempts) ? mockAttempts : {};
@@ -82,6 +110,7 @@ export const collectSolvedPersonalRandomMockQuestions = ({
     ) return;
     const solvedEver = attempts?.[String(exam.id)]?.solvedEver;
     if (!isRecord(solvedEver)) return;
+    const examLevelId = getPersonalRandomMockLevelId(exam);
     const groups = new Map();
     Object.entries(isRecord(exam.tasks) ? exam.tasks : {}).forEach(([mockTaskNumber, question]) => {
       const numericSourceTaskNumber = Number(question?.sourceTaskNumber);
@@ -91,10 +120,16 @@ export const collectSolvedPersonalRandomMockQuestions = ({
         ? String(numericSourceTaskNumber)
         : '';
       const sourceQuestionId = String(question?.sourceQuestionId ?? '').trim();
+      const sourceLevelId = normalizeLevelId(question?.sourceLevelId) || examLevelId;
       if (!sourceTaskNumber || !sourceQuestionId) return;
-      const groupKey = `${sourceTaskNumber}\u0000${sourceQuestionId}`;
+      const groupKey = `${sourceLevelId}\u0000${sourceTaskNumber}\u0000${sourceQuestionId}`;
       if (!groups.has(groupKey)) {
-        groups.set(groupKey, { sourceTaskNumber, sourceQuestionId, mockTaskNumbers: [] });
+        groups.set(groupKey, {
+          sourceLevelId,
+          sourceTaskNumber,
+          sourceQuestionId,
+          mockTaskNumbers: [],
+        });
       }
       groups.get(groupKey).mockTaskNumbers.push(String(mockTaskNumber));
     });
@@ -103,22 +138,29 @@ export const collectSolvedPersonalRandomMockQuestions = ({
         group.mockTaskNumbers.length === 0
         || !group.mockTaskNumbers.every((taskNumber) => solvedEver[taskNumber] === true)
       ) return;
-      if (!nextSets[group.sourceTaskNumber]) nextSets[group.sourceTaskNumber] = new Set();
-      nextSets[group.sourceTaskNumber].add(group.sourceQuestionId);
+      if (!nextSets[group.sourceTaskNumber]) nextSets[group.sourceTaskNumber] = {};
+      if (!nextSets[group.sourceTaskNumber][group.sourceLevelId]) {
+        nextSets[group.sourceTaskNumber][group.sourceLevelId] = new Set();
+      }
+      nextSets[group.sourceTaskNumber][group.sourceLevelId].add(group.sourceQuestionId);
     });
   });
 
-  return Object.entries(nextSets).reduce((acc, [taskNumber, questionIds]) => {
-    if (questionIds.size > 0) acc[taskNumber] = Array.from(questionIds);
+  return Object.entries(nextSets).reduce((acc, [taskNumber, questionIdsByLevel]) => {
+    const normalizedByLevel = Object.entries(questionIdsByLevel).reduce((levelAcc, [levelId, questionIds]) => {
+      if (questionIds.size > 0) levelAcc[levelId] = Array.from(questionIds);
+      return levelAcc;
+    }, {});
+    if (Object.keys(normalizedByLevel).length > 0) acc[taskNumber] = normalizedByLevel;
     return acc;
   }, {});
 };
 
-const getTaskSolvedQuestionIds = (solvedByTask, randomMockSolvedByTask, taskNumber) => {
+const getTaskSolvedQuestionIds = (solvedByTask, randomMockSolvedByTask, taskNumber, levelId) => {
   const taskKeys = taskNumber === 19 ? ['19', '20', '21'] : [String(taskNumber)];
   const solvedIds = new Set();
   taskKeys.forEach((taskKey) => {
-    const solved = solvedByTask?.[taskKey]?.[PERSONAL_RANDOM_MOCK_LEVEL_ID]?.solved;
+    const solved = solvedByTask?.[taskKey]?.[levelId]?.solved;
     if (!Array.isArray(solved)) return;
     solved.forEach((questionId) => {
       const normalized = String(questionId ?? '').trim();
@@ -126,7 +168,7 @@ const getTaskSolvedQuestionIds = (solvedByTask, randomMockSolvedByTask, taskNumb
     });
   });
   taskKeys.forEach((taskKey) => {
-    const solved = randomMockSolvedByTask?.[taskKey];
+    const solved = randomMockSolvedByTask?.[taskKey]?.[levelId];
     if (!Array.isArray(solved)) return;
     solved.forEach((questionId) => {
       const normalized = String(questionId ?? '').trim();
@@ -157,21 +199,21 @@ const chooseQuestion = (questions, solvedQuestionIds, pickIndex) => {
   };
 };
 
-const withSelectionMetadata = (question, sourceTaskNumber, selected, mockTaskNumber) => ({
+const withSelectionMetadata = (question, sourceTaskNumber, sourceLevelId, selected, mockTaskNumber) => ({
   ...question,
   sourceQuestionId: selected.questionId || `position-${selected.index + 1}`,
   sourceTaskNumber,
-  sourceLevelId: PERSONAL_RANDOM_MOCK_LEVEL_ID,
+  sourceLevelId,
   randomSelection: selected.isFresh ? 'fresh' : 'repeat',
   randomMockTaskNumber: mockTaskNumber,
 });
 
-const expandGameTheoryQuestion = (question, selected) => {
+const expandGameTheoryQuestion = (question, levelId, selected) => {
   const answers = getExpectedAnswers(question, 4);
   return {
-    19: withSelectionMetadata(replaceQuestionAnswers(question, [answers[0]]), 19, selected, 19),
-    20: withSelectionMetadata(replaceQuestionAnswers(question, [answers[1], answers[2]]), 19, selected, 20),
-    21: withSelectionMetadata(replaceQuestionAnswers(question, [answers[3]]), 19, selected, 21),
+    19: withSelectionMetadata(replaceQuestionAnswers(question, [answers[0]]), 19, levelId, selected, 19),
+    20: withSelectionMetadata(replaceQuestionAnswers(question, [answers[1], answers[2]]), 19, levelId, selected, 20),
+    21: withSelectionMetadata(replaceQuestionAnswers(question, [answers[3]]), 19, levelId, selected, 21),
   };
 };
 
@@ -183,8 +225,10 @@ export const buildPersonalRandomMockTasks = ({
   testsDb,
   solvedByTask,
   randomMockSolvedByTask,
+  levelId = PERSONAL_RANDOM_MOCK_LEVEL_ID,
   pickIndex = (length) => Math.floor(Math.random() * length),
 } = {}) => {
+  const normalizedLevelId = normalizeLevelId(levelId) || PERSONAL_RANDOM_MOCK_LEVEL_ID;
   const sourceDb = isRecord(testsDb) ? testsDb : {};
   const solved = isRecord(solvedByTask) ? solvedByTask : {};
   const randomSolved = normalizeRandomMockSolvedByTask(randomMockSolvedByTask);
@@ -195,7 +239,7 @@ export const buildPersonalRandomMockTasks = ({
   let sourceQuestionCount = 0;
 
   SOURCE_TASK_NUMBERS.forEach((taskNumber) => {
-    const questions = sourceDb?.[String(taskNumber)]?.[PERSONAL_RANDOM_MOCK_LEVEL_ID];
+    const questions = sourceDb?.[String(taskNumber)]?.[normalizedLevelId];
     const expandedTaskNumbers = taskNumber === 19 ? [19, 20, 21] : [taskNumber];
     if (!Array.isArray(questions) || questions.length === 0) {
       missingTaskNumbers.push(...expandedTaskNumbers);
@@ -204,7 +248,7 @@ export const buildPersonalRandomMockTasks = ({
 
     const selected = chooseQuestion(
       questions.filter((question) => isRecord(question)),
-      getTaskSolvedQuestionIds(solved, randomSolved, taskNumber),
+      getTaskSolvedQuestionIds(solved, randomSolved, taskNumber, normalizedLevelId),
       pickIndex
     );
     if (!selected) {
@@ -213,11 +257,12 @@ export const buildPersonalRandomMockTasks = ({
     }
 
     const selectedTasks = taskNumber === 19
-      ? expandGameTheoryQuestion(selected.question, selected)
+      ? expandGameTheoryQuestion(selected.question, normalizedLevelId, selected)
       : {
           [taskNumber]: withSelectionMetadata(
             selected.question,
             taskNumber,
+            normalizedLevelId,
             selected,
             taskNumber
           ),
@@ -232,6 +277,7 @@ export const buildPersonalRandomMockTasks = ({
   return {
     tasks,
     summary: {
+      levelId: normalizedLevelId,
       taskCount: Object.keys(tasks).length,
       freshTaskCount,
       repeatTaskCount,

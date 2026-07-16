@@ -23,9 +23,12 @@ import {
   remapProgressQuestionTargets,
 } from './questionTargetRemap.js';
 import {
+  PERSONAL_RANDOM_MOCK_LEVEL_ID,
+  PERSONAL_RANDOM_MOCK_LEVEL_IDS,
   PERSONAL_RANDOM_MOCK_SOURCE,
   buildPersonalRandomMockTasks,
   collectSolvedPersonalRandomMockQuestions,
+  getPersonalRandomMockLevelId,
   isPersonalRandomMockExam,
   normalizeRandomMockSolvedByTask,
 } from './randomMockExam.js';
@@ -19945,6 +19948,16 @@ app.post('/api/mock-exams/random', (req, res) => {
   if (!student) return;
 
   const requestId = String(req.body?.requestId || '').trim().slice(0, 120);
+  const rawLevelId = req.body?.levelId;
+  if (rawLevelId !== null && typeof rawLevelId !== 'undefined' && typeof rawLevelId !== 'string') {
+    return res.status(400).json({ error: 'Выберите базовый или продвинутый уровень.' });
+  }
+  const levelId = rawLevelId === null || typeof rawLevelId === 'undefined' || String(rawLevelId).trim() === ''
+    ? PERSONAL_RANDOM_MOCK_LEVEL_ID
+    : String(rawLevelId).trim().toLowerCase();
+  if (!PERSONAL_RANDOM_MOCK_LEVEL_IDS.includes(levelId)) {
+    return res.status(400).json({ error: 'Выберите базовый или продвинутый уровень.' });
+  }
   let mockExams;
   let progressDb;
   let testsDb;
@@ -19966,6 +19979,11 @@ app.post('/api/mock-exams/random', (req, res) => {
     ? studentPersonalExams.find((exam) => String(exam?.generationRequestId || '') === requestId)
     : null;
   if (existingRequestExam) {
+    if (getPersonalRandomMockLevelId(existingRequestExam) !== levelId) {
+      return res.status(409).json({
+        error: 'Этот запрос уже использован для другого уровня. Запустите сборку ещё раз.',
+      });
+    }
     return res.json({
       exam: serializeMockExamEntry(existingRequestExam, { sanitizeForStudent: true }),
       summary: existingRequestExam.randomSummary || {},
@@ -19991,14 +20009,16 @@ app.post('/api/mock-exams/random', (req, res) => {
     testsDb,
     solvedByTask: studentData.solvedByTask,
     randomMockSolvedByTask,
+    levelId,
     pickIndex: (length) => crypto.randomInt(length),
   });
   if (generated.summary.taskCount < MOCK_TASK_NUMBERS.length) {
     const missingLabel = generated.summary.missingTaskNumbers.join(', ');
+    const levelLabel = levelId === 'advanced' ? 'продвинутых' : 'базовых';
     return res.status(422).json({
       error: missingLabel
-        ? `Пока не хватает базовых заданий для номеров: ${missingLabel}.`
-        : 'Пока не хватает базовых заданий для полного пробника.',
+        ? `Пока не хватает ${levelLabel} заданий для номеров: ${missingLabel}.`
+        : `Пока не хватает ${levelLabel} заданий для полного пробника.`,
     });
   }
 
@@ -20013,6 +20033,7 @@ app.post('/api/mock-exams/random', (req, res) => {
     updatedAt: createdAt,
     source: PERSONAL_RANDOM_MOCK_SOURCE,
     generatedForStudentId: String(student.id),
+    randomLevelId: levelId,
     generationRequestId: requestId || crypto.randomUUID(),
     generationNumber,
     tasks: generated.tasks,
@@ -20020,7 +20041,9 @@ app.post('/api/mock-exams/random', (req, res) => {
     rewardsDisabled: true,
     badges: [
       { label: 'Личный вариант', themeId: 'ocean' },
-      { label: 'Базовый уровень', themeId: 'forest' },
+      levelId === 'advanced'
+        ? { label: 'Продвинутый уровень', themeId: 'violet' }
+        : { label: 'Базовый уровень', themeId: 'forest' },
     ],
     access: { all: false, students: [String(student.id)] },
   };

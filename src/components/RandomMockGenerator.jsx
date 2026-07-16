@@ -19,10 +19,21 @@ import {
   X,
 } from 'lucide-react';
 
-const DEFAULT_STAGES = [
+const DEFAULT_LEVEL_OPTIONS = [
+  { id: 'basic', label: 'Базовый' },
+  { id: 'advanced', label: 'Продвинутый' },
+];
+
+const getGenerationStages = (levelId) => [
   { progress: 12, delay: 180, label: 'Смотрим историю решений' },
   { progress: 34, delay: 540, label: 'Выбираем нерешённые задания' },
-  { progress: 57, delay: 940, label: 'Собираем базовый уровень' },
+  {
+    progress: 57,
+    delay: 940,
+    label: levelId === 'advanced'
+      ? 'Собираем продвинутый уровень'
+      : 'Собираем базовый уровень',
+  },
   { progress: 76, delay: 1360, label: 'Проверяем каждый номер' },
   { progress: 92, delay: 1780, label: 'Готовим пробник к старту' },
 ];
@@ -105,7 +116,7 @@ const usePrefersReducedMotion = () => {
 
 /**
  * Props:
- * - onGenerate({ signal }): Promise<result> — creates a personal mock exam.
+ * - onGenerate({ signal, levelId }): Promise<result> — creates a personal mock exam.
  * - onGenerated(result): optional notification after successful generation.
  * - onStart(result): optional callback for opening the generated exam.
  * - getSummary(result): optional mapper to { newCount, repeatCount, totalCount }.
@@ -127,9 +138,11 @@ const RandomMockGenerator = ({
   completionDelayMs = 320,
   eyebrow = 'Новый вариант',
   title = 'Собрать персональный пробник',
-  description = 'По одному заданию каждого типа из базового уровня',
+  description = 'По одному заданию каждого типа выбранного уровня',
   buttonLabel = 'Собрать пробник',
 }) => {
+  const [selectedLevelId, setSelectedLevelId] = useState('basic');
+  const [generationLevelId, setGenerationLevelId] = useState('basic');
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState('idle');
   const [progress, setProgress] = useState(0);
@@ -149,6 +162,16 @@ const RandomMockGenerator = ({
   const titleId = `random-mock-generator-title-${instanceId}`;
   const descriptionId = `random-mock-generator-description-${instanceId}`;
   const builderTitleId = `random-mock-builder-title-${instanceId}`;
+  const levelGroupName = `random-mock-level-${instanceId}`;
+
+  const selectedLevel = DEFAULT_LEVEL_OPTIONS.find((option) => option.id === selectedLevelId)
+    || DEFAULT_LEVEL_OPTIONS[0];
+  const generationLevel = DEFAULT_LEVEL_OPTIONS.find((option) => option.id === generationLevelId)
+    || DEFAULT_LEVEL_OPTIONS[0];
+  const generationStages = useMemo(
+    () => getGenerationStages(generationLevel.id),
+    [generationLevel.id]
+  );
 
   const clearStageTimers = useCallback(() => {
     stageTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
@@ -237,6 +260,7 @@ const RandomMockGenerator = ({
 
   const startGeneration = useCallback(async () => {
     if (disabled || typeof onGenerate !== 'function') return;
+    const levelId = selectedLevel.id;
 
     clearStageTimers();
     abortControllerRef.current?.abort();
@@ -248,11 +272,13 @@ const RandomMockGenerator = ({
     setResult(null);
     setErrorMessage('');
     setStartError('');
+    setGenerationLevelId(levelId);
     setProgress(reducedMotion ? 18 : 6);
     setStageIndex(0);
     setView('loading');
 
-    DEFAULT_STAGES.forEach((stage, index) => {
+    const stages = getGenerationStages(levelId);
+    stages.forEach((stage, index) => {
       const timerId = window.setTimeout(() => {
         if (requestIdRef.current !== requestId || controller.signal.aborted) return;
         setStageIndex(index);
@@ -262,14 +288,17 @@ const RandomMockGenerator = ({
     });
 
     try {
-      const generationPromise = Promise.resolve(onGenerate({ signal: controller.signal }));
+      const generationPromise = Promise.resolve(onGenerate({
+        signal: controller.signal,
+        levelId,
+      }));
       const loadingFloor = reducedMotion ? Promise.resolve() : wait(minLoadingMs);
       const [generated] = await Promise.all([generationPromise, loadingFloor]);
       if (requestIdRef.current !== requestId || controller.signal.aborted) return;
 
       clearStageTimers();
       setResult(generated);
-      setStageIndex(DEFAULT_STAGES.length);
+      setStageIndex(stages.length);
       setProgress(READY_STAGE.progress);
       if (!reducedMotion) await wait(completionDelayMs);
       if (requestIdRef.current !== requestId || controller.signal.aborted) return;
@@ -298,15 +327,14 @@ const RandomMockGenerator = ({
     onGenerate,
     onGenerated,
     reducedMotion,
+    selectedLevel.id,
   ]);
 
   const openGenerator = useCallback(() => {
     if (disabled || typeof onGenerate !== 'function') return;
     setIsOpen(true);
     onOpen?.();
-    window.requestAnimationFrame(() => {
-      startGeneration();
-    });
+    startGeneration();
   }, [disabled, onGenerate, onOpen, startGeneration]);
 
   const handleStart = useCallback(async () => {
@@ -335,9 +363,9 @@ const RandomMockGenerator = ({
     }
   }, [getSummary, result]);
 
-  const currentStage = stageIndex >= DEFAULT_STAGES.length
+  const currentStage = stageIndex >= generationStages.length
     ? READY_STAGE
-    : DEFAULT_STAGES[stageIndex];
+    : generationStages[stageIndex];
   const safeTaskCount = toSafeCount(taskCount);
   const displaySummary = {
     ...summary,
@@ -367,7 +395,7 @@ const RandomMockGenerator = ({
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            aria-describedby={descriptionId}
+            aria-describedby={view === 'error' ? descriptionId : undefined}
             aria-busy={view === 'loading'}
             tabIndex={-1}
             className={joinClasses(
@@ -393,9 +421,17 @@ const RandomMockGenerator = ({
             )}
 
             <div className="relative z-10">
-              <div className="mock-random-generation__eyebrow inline-flex items-center gap-1.5 rounded-full border border-sky-200/70 bg-sky-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-sky-700">
-                <Sparkles size={13} />
-                Персональная подборка
+              <div className="mock-random-generation__eyebrow-row flex flex-wrap items-center gap-2">
+                <div className="mock-random-generation__eyebrow inline-flex items-center gap-1.5 rounded-full border border-sky-200/70 bg-sky-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-sky-700">
+                  <Sparkles size={13} />
+                  Персональная подборка
+                </div>
+                <span
+                  className="mock-random-generation__level-pill inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-black"
+                  data-level={generationLevel.id}
+                >
+                  {generationLevel.label}
+                </span>
               </div>
 
               {view === 'success' ? (
@@ -499,9 +535,6 @@ const RandomMockGenerator = ({
                       <h2 id={titleId} className="text-2xl font-black leading-tight text-slate-950 sm:text-[1.7rem]">
                         Собираем ваш пробник
                       </h2>
-                      <p id={descriptionId} className="mt-1.5 text-sm leading-relaxed text-slate-500">
-                        Сначала берём задания, которые вы ещё не решали. Повторы добавим только там, где новых не осталось.
-                      </p>
                     </div>
                   </div>
 
@@ -548,9 +581,6 @@ const RandomMockGenerator = ({
                     </div>
                   </div>
 
-                  <p className="mock-random-generation__loading-note mt-3 text-center text-[11px] font-semibold text-slate-400">
-                    Обычно это занимает всего несколько секунд
-                  </p>
                 </div>
               )}
             </div>
@@ -570,7 +600,7 @@ const RandomMockGenerator = ({
         aria-labelledby={builderTitleId}
       >
         <div className="mock-random-builder__aurora" aria-hidden="true" />
-        <div className="mock-random-builder__grid relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="mock-random-builder__grid relative z-10 flex flex-col gap-4 md:flex-row md:items-center">
           <div className="mock-random-builder__icon relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-sky-200/70 bg-sky-50 text-sky-700" aria-hidden="true">
             <span className="mock-random-builder__icon-glow" />
             <Sparkles className="relative z-10" size={22} />
@@ -586,17 +616,50 @@ const RandomMockGenerator = ({
             <p className="mock-random-builder__description mt-1 text-xs leading-relaxed text-slate-500 sm:text-sm">
               {description}
             </p>
-            <div className="mock-random-builder__meta mt-3 flex flex-wrap items-center gap-1.5">
-              <span className="mock-random-builder__chip mock-random-builder__chip--priority inline-flex items-center gap-1.5 rounded-full border border-sky-200/70 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700">
-                <ListChecks size={13} />
-                Нерешённые — в приоритете
-              </span>
-              {safeTaskCount !== null && (
-                <span className="mock-random-builder__chip inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-600">
-                  <BookOpen size={13} />
-                  {`${safeTaskCount} ${getRussianCountLabel(safeTaskCount, ['задание', 'задания', 'заданий'])}`}
+            <div className="mock-random-builder__tools mt-3 flex flex-wrap items-center gap-2.5">
+              <fieldset className="mock-random-builder__level-field min-w-0">
+                <legend className="sr-only">Уровень пробника</legend>
+                <div className="mock-random-builder__level-switch">
+                  {DEFAULT_LEVEL_OPTIONS.map((option) => {
+                    const isAdvanced = option.id === 'advanced';
+                    return (
+                      <label
+                        key={option.id}
+                        className="mock-random-builder__level-label"
+                        data-level={option.id}
+                        data-selected={option.id === selectedLevel.id ? 'true' : 'false'}
+                        data-disabled={cannotGenerate ? 'true' : 'false'}
+                      >
+                        <input
+                          type="radio"
+                          name={levelGroupName}
+                          value={option.id}
+                          checked={option.id === selectedLevel.id}
+                          onChange={() => setSelectedLevelId(option.id)}
+                          disabled={cannotGenerate}
+                          className="mock-random-builder__level-input sr-only"
+                        />
+                        <span className="mock-random-builder__level-option">
+                          {isAdvanced ? <Sparkles size={13} /> : <BookOpen size={13} />}
+                          <span>{option.label}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+              <div className="mock-random-builder__meta flex flex-wrap items-center gap-1.5">
+                <span className="mock-random-builder__chip mock-random-builder__chip--priority inline-flex items-center gap-1.5 rounded-full border border-sky-200/70 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700">
+                  <ListChecks size={13} />
+                  Нерешённые — в приоритете
                 </span>
-              )}
+                {safeTaskCount !== null && (
+                  <span className="mock-random-builder__chip inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-600">
+                    <BookOpen size={13} />
+                    {`${safeTaskCount} ${getRussianCountLabel(safeTaskCount, ['задание', 'задания', 'заданий'])}`}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -606,7 +669,7 @@ const RandomMockGenerator = ({
             onClick={openGenerator}
             disabled={cannotGenerate}
             aria-haspopup="dialog"
-            className="mock-random-builder__button group inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55 sm:w-auto"
+            className="mock-random-builder__button group inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55 md:w-auto"
           >
             <span className="mock-random-builder__button-sheen" aria-hidden="true" />
             <Sparkles className="relative z-10" size={17} />
