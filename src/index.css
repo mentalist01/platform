@@ -78030,7 +78030,7 @@ html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.moc
 }
 
 .progress-section--mocks .mock-exam-sheet__header {
-  grid-template-columns: minmax(0, 1fr) minmax(245px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 390px);
   gap: 24px;
 }
 
@@ -78109,13 +78109,15 @@ html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.moc
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  align-content: start;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(155px, 165px);
+  align-content: center;
+  align-items: center;
+  gap: 10px;
   border: 0 !important;
   border-radius: 20px;
   background:
     linear-gradient(135deg, rgb(var(--mock-sheet-action) / 0.16), rgb(167 139 250 / 0.09) 58%, rgb(59 130 246 / 0.07)) !important;
-  padding: 15px;
+  padding: 12px 14px;
   box-shadow:
     inset 0 0 0 1px rgb(var(--mock-sheet-action) / 0.14),
     inset 0 1px 0 rgb(255 255 255 / 0.62),
@@ -78174,7 +78176,32 @@ html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.moc
 .progress-section--mocks .mock-exam-sheet__score-hero {
   display: grid;
   min-width: 0;
-  gap: 4px;
+  grid-column: 1;
+  grid-row: 1;
+  align-content: center;
+  gap: 3px;
+}
+
+.progress-section--mocks .mock-exam-sheet__launch > .mock-exam-sheet__start {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.progress-section--mocks .mock-exam-sheet__teacher-actions {
+  display: flex;
+  min-width: 0;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  gap: 6px;
+}
+
+.progress-section--mocks .mock-exam-sheet__teacher-actions .mock-exam-sheet__teacher-action {
+  min-width: 0;
+  min-height: 32px;
+  flex: 1 1 0;
+  padding: 5px 7px;
+  font-size: 9.5px;
+  line-height: 1.1;
 }
 
 .progress-section--mocks .mock-exam-sheet__score-head {
@@ -78205,16 +78232,16 @@ html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.moc
 .progress-section--mocks .mock-exam-sheet__score-value {
   display: flex;
   min-width: 0;
-  min-height: 61px;
+  min-height: 53px;
   align-items: flex-end;
-  gap: 9px;
-  margin-top: 2px;
+  gap: 8px;
+  margin-top: 1px;
 }
 
 .progress-section--mocks .mock-exam-sheet__score-value > strong {
   color: rgb(var(--mock-score-rgb));
   font-family: var(--font-display, inherit);
-  font-size: clamp(56px, 4.8vw, 68px);
+  font-size: clamp(54px, 4.2vw, 62px);
   font-variant-numeric: tabular-nums;
   font-weight: 920;
   letter-spacing: -0.075em;
@@ -78242,8 +78269,19 @@ html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.moc
 .progress-section--mocks .mock-exam-sheet__launch[data-score-state='hidden'] .mock-exam-sheet__score-value > strong,
 .progress-section--mocks .mock-exam-sheet__launch[data-score-state='empty'] .mock-exam-sheet__score-value > strong {
   color: rgb(var(--mock-sheet-action) / 0.42);
-  font-size: 54px;
   text-shadow: none;
+}
+
+.progress-section--mocks .mock-exam-sheet__launch[data-score-state='pending'] .mock-exam-sheet__score-value,
+.progress-section--mocks .mock-exam-sheet__launch[data-score-state='hidden'] .mock-exam-sheet__score-value,
+.progress-section--mocks .mock-exam-sheet__launch[data-score-state='empty'] .mock-exam-sheet__score-value {
+  min-height: 36px;
+}
+
+.progress-section--mocks .mock-exam-sheet__launch[data-score-state='pending'] .mock-exam-sheet__score-value > strong,
+.progress-section--mocks .mock-exam-sheet__launch[data-score-state='hidden'] .mock-exam-sheet__score-value > strong,
+.progress-section--mocks .mock-exam-sheet__launch[data-score-state='empty'] .mock-exam-sheet__score-value > strong {
+  font-size: 38px;
 }
 
 .progress-section--mocks .mock-exam-sheet__launch[data-score-state='pending'] .mock-exam-sheet__score-value > span,
@@ -78777,40 +78815,39 @@ html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sh
   .progress-section--mocks .mock-exam-sheet__launch {
     grid-template-columns: minmax(0, 1fr) minmax(160px, 190px);
     align-items: center;
-    padding: 13px;
+    padding: 12px 13px;
   }
 
   .progress-section--mocks .mock-exam-sheet__score-hero {
     grid-column: 1;
-    grid-row: 1 / span 3;
+    grid-row: auto;
     align-self: center;
     padding-right: 10px;
   }
 
-  .progress-section--mocks .mock-exam-sheet__launch > .mock-exam-sheet__start,
-  .progress-section--mocks .mock-exam-sheet__launch > .mock-exam-sheet__teacher-action {
+  .progress-section--mocks .mock-exam-sheet__launch > .mock-exam-sheet__start {
     grid-column: 2;
   }
 }
 
 @container (max-width: 460px) {
   .progress-section--mocks .mock-exam-sheet__launch {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(132px, 145px);
+    gap: 8px;
   }
 
   .progress-section--mocks .mock-exam-sheet__score-hero {
     grid-column: 1;
     grid-row: auto;
-    padding-right: 0;
+    padding-right: 6px;
   }
 
-  .progress-section--mocks .mock-exam-sheet__launch > .mock-exam-sheet__start,
-  .progress-section--mocks .mock-exam-sheet__launch > .mock-exam-sheet__teacher-action {
-    grid-column: 1;
+  .progress-section--mocks .mock-exam-sheet__launch > .mock-exam-sheet__start {
+    grid-column: 2;
   }
 
   .progress-section--mocks .mock-exam-sheet__score-value > strong {
-    font-size: 56px;
+    font-size: 52px;
   }
 
   .progress-section--mocks .mock-exam-sheet__metrics {
@@ -78848,6 +78885,23 @@ html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sh
   .progress-section--mocks .mock-exam-sheet .mock-reward-milestone--edge-start,
   .progress-section--mocks .mock-exam-sheet .mock-reward-milestone--edge-end {
     width: 34px !important;
+  }
+}
+
+@container (max-width: 360px) {
+  .progress-section--mocks .mock-exam-sheet__launch {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .progress-section--mocks .mock-exam-sheet__score-hero {
+    grid-column: 1;
+    padding-right: 0;
+  }
+
+  .progress-section--mocks .mock-exam-sheet__launch > .mock-exam-sheet__start,
+  .progress-section--mocks .mock-exam-sheet__teacher-actions {
+    grid-column: 1;
+    grid-row: auto;
   }
 }
 

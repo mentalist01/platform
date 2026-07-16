@@ -2934,10 +2934,10 @@ const ProgressSection = ({
     const scoreHeroCaption = !hasExamTasks
       ? 'Пока нет заданий'
       : hasVisibleScore
-        ? (isFinalScore ? 'из 100 возможных' : 'из 100 · обновляется по ходу')
+        ? 'из 100 возможных'
         : isTimerMode
-          ? 'Откроется после завершения таймера'
-          : 'Появится после первого ответа';
+          ? 'После завершения таймера'
+          : 'После первого ответа';
     const scoreHeroAriaLabel = hasVisibleScore
       ? `${scoreHeroLabel}: ${scoreValue} ${getBallLabel(scoreValue)} из 100.`
       : `${scoreHeroLabel}. ${scoreHeroCaption}.`;
@@ -3054,27 +3054,31 @@ const ProgressSection = ({
               <ChevronRight className="mock-start-button__arrow" size={17} />
             </Button>
 
-            {canTeacherContinueTimerAttempt && (
-              <button
-                type="button"
-                onClick={() => handleContinueMockTimerAttempt(exam)}
-                disabled={isContinuingTimerAttempt}
-                className="mock-exam-sheet__teacher-action"
-              >
-                <Clock3 size={14} />
-                <span>{isContinuingTimerAttempt ? 'Открываем…' : 'Продолжить экзамен'}</span>
-              </button>
-            )}
-            {canTeacherRestoreTimerRewards && (
-              <button
-                type="button"
-                onClick={() => handleRestoreMockTimerRewards(exam)}
-                disabled={isRestoringTimerRewards}
-                className="mock-exam-sheet__teacher-action mock-exam-sheet__teacher-action--rewards"
-              >
-                <PackageOpen size={14} />
-                <span>{isRestoringTimerRewards ? 'Возвращаем…' : 'Вернуть награды'}</span>
-              </button>
+            {(canTeacherContinueTimerAttempt || canTeacherRestoreTimerRewards) && (
+              <div className="mock-exam-sheet__teacher-actions">
+                {canTeacherContinueTimerAttempt && (
+                  <button
+                    type="button"
+                    onClick={() => handleContinueMockTimerAttempt(exam)}
+                    disabled={isContinuingTimerAttempt}
+                    className="mock-exam-sheet__teacher-action"
+                  >
+                    <Clock3 size={14} />
+                    <span>{isContinuingTimerAttempt ? 'Открываем…' : 'Продолжить экзамен'}</span>
+                  </button>
+                )}
+                {canTeacherRestoreTimerRewards && (
+                  <button
+                    type="button"
+                    onClick={() => handleRestoreMockTimerRewards(exam)}
+                    disabled={isRestoringTimerRewards}
+                    className="mock-exam-sheet__teacher-action mock-exam-sheet__teacher-action--rewards"
+                  >
+                    <PackageOpen size={14} />
+                    <span>{isRestoringTimerRewards ? 'Возвращаем…' : 'Вернуть награды'}</span>
+                  </button>
+                )}
+              </div>
             )}
           </aside>
         </div>
