@@ -2892,20 +2892,55 @@ const ProgressSection = ({
             : examStats.hasStarted
               ? 'В работе'
               : 'Новый';
-    const launchEyebrow = !hasExamTasks
-      ? 'Статус'
-      : (examStats.isCompleted || canRestartTimerAttempt)
-        ? 'Результат'
-        : examStats.hasStarted
-          ? 'Следующее задание'
-          : 'Начать с задания';
-    const launchValue = !hasExamTasks
-      ? 'Ожидаем задания'
-      : (examStats.isCompleted || canRestartTimerAttempt)
-        ? `${scoreValue} ${getBallLabel(scoreValue)}`
-        : nextOpenTaskLabel
-          ? `№${nextOpenTaskLabel}`
-          : 'Пробник';
+    const timerAttemptFinished = Boolean(
+      isTimerMode
+      && String(attempt?.timerFinishedAt || '').trim()
+    );
+    const hasVisibleScore = Boolean(
+      hasExamTasks
+      && (
+        timerAttemptFinished
+        || (
+          !isTimerMode
+          && (examStats.attemptedCount > 0 || examStats.solvedCount > 0)
+        )
+      )
+    );
+    const isFinalScore = Boolean(
+      hasVisibleScore
+      && (timerAttemptFinished || examStats.isCompleted)
+    );
+    const scoreHeroState = !hasExamTasks
+      ? 'empty'
+      : hasVisibleScore
+        ? (isFinalScore ? 'final' : 'live')
+        : (isTimerMode && modeLocked)
+          ? 'hidden'
+          : 'pending';
+    const scoreHeroBand = !hasVisibleScore
+      ? 'pending'
+      : scoreValue >= 100
+        ? 'perfect'
+        : scoreValue >= 80
+          ? 'excellent'
+          : scoreValue >= 50
+            ? 'strong'
+            : scoreValue >= 30
+              ? 'growing'
+              : 'starting';
+    const scoreHeroLabel = role === 'teacher'
+      ? (hasVisibleScore && !isFinalScore ? 'Сейчас у ученика' : 'Результат ученика')
+      : (hasVisibleScore && !isFinalScore ? 'Сейчас у тебя' : 'Твой результат');
+    const scoreHeroCaption = !hasExamTasks
+      ? 'Пока нет заданий'
+      : hasVisibleScore
+        ? (isFinalScore ? 'из 100 возможных' : 'из 100 · обновляется по ходу')
+        : isTimerMode
+          ? 'Откроется после завершения таймера'
+          : 'Появится после первого ответа';
+    const scoreHeroAriaLabel = hasVisibleScore
+      ? `${scoreHeroLabel}: ${scoreValue} ${getBallLabel(scoreValue)} из 100.`
+      : `${scoreHeroLabel}. ${scoreHeroCaption}.`;
     const launchButtonLabel = !hasExamTasks
       ? 'Скоро'
       : canRestartTimerAttempt
@@ -2962,11 +2997,6 @@ const ProgressSection = ({
                     <strong>{examStats.solvedCount}</strong>
                     <span>{`из ${examStats.totalCount} заданий`}</span>
                   </span>
-                  <span className="mock-exam-sheet__metric">
-                    <Trophy size={14} />
-                    <strong>{scoreValue}</strong>
-                    <span>{getBallLabel(scoreValue)}</span>
-                  </span>
                   {isTimerMode && (
                     <span className="mock-exam-sheet__metric mock-exam-sheet__metric--timer">
                       <Clock3 size={14} />
@@ -2984,10 +3014,28 @@ const ProgressSection = ({
             </div>
           </div>
 
-          <aside className="mock-exam-sheet__launch" aria-label="Следующий шаг">
-            <div className="mock-exam-sheet__launch-copy">
-              <span>{launchEyebrow}</span>
-              <strong>{launchValue}</strong>
+          <aside
+            className="mock-exam-sheet__launch"
+            data-score-state={scoreHeroState}
+            data-score-band={scoreHeroBand}
+            aria-label={scoreHeroAriaLabel}
+          >
+            <div className="mock-exam-sheet__score-hero">
+              <div className="mock-exam-sheet__score-head">
+                <span>{scoreHeroLabel}</span>
+                <span className="mock-exam-sheet__score-icon" aria-hidden="true">
+                  {hasVisibleScore
+                    ? <Trophy size={15} />
+                    : isTimerMode
+                      ? <Clock3 size={15} />
+                      : <Sparkles size={15} />}
+                </span>
+              </div>
+              <div className="mock-exam-sheet__score-value" aria-hidden="true">
+                <strong>{hasVisibleScore ? scoreValue : '—'}</strong>
+                <span>{hasVisibleScore ? getBallLabel(scoreValue) : 'баллов'}</span>
+              </div>
+              <small>{scoreHeroCaption}</small>
             </div>
             <Button
               variant={examStats.isCompleted ? 'secondary' : 'primary'}
