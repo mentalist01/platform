@@ -25,21 +25,23 @@ const DEFAULT_LEVEL_OPTIONS = [
 ];
 
 const getGenerationStages = (levelId) => [
-  { progress: 12, delay: 180, label: 'Смотрим историю решений' },
-  { progress: 34, delay: 540, label: 'Выбираем нерешённые задания' },
+  { progress: 11, delay: 180, label: 'Смотрим историю решений' },
+  { progress: 32, delay: 600, label: 'Выбираем нерешённые задания' },
   {
-    progress: 57,
-    delay: 940,
+    progress: 56,
+    delay: 1080,
     label: levelId === 'advanced'
       ? 'Собираем продвинутый уровень'
       : 'Собираем базовый уровень',
   },
-  { progress: 76, delay: 1360, label: 'Проверяем каждый номер' },
-  { progress: 92, delay: 1780, label: 'Готовим пробник к старту' },
+  { progress: 78, delay: 1580, label: 'Проверяем каждый номер' },
+  { progress: 94, delay: 2020, label: 'Готовим пробник к старту' },
 ];
 
 const READY_STAGE = { progress: 100, label: 'Пробник готов' };
-const PROGRESS_CELL_COUNT = 12;
+const MOCK_TASK_COUNT = 27;
+const SUCCESS_SPARK_COUNT = 10;
+const BUILDER_PARTICLE_COUNT = 5;
 
 const joinClasses = (...values) => values.filter(Boolean).join(' ');
 
@@ -134,8 +136,8 @@ const RandomMockGenerator = ({
   disabled = false,
   className = '',
   taskCount = null,
-  minLoadingMs = 2100,
-  completionDelayMs = 320,
+  minLoadingMs = 2400,
+  completionDelayMs = 760,
   eyebrow = 'Новый вариант',
   title = 'Собрать персональный пробник',
   description = 'По одному заданию каждого типа выбранного уровня',
@@ -156,6 +158,7 @@ const RandomMockGenerator = ({
   const closeButtonRef = useRef(null);
   const abortControllerRef = useRef(null);
   const requestIdRef = useRef(0);
+  const startRunIdRef = useRef(0);
   const stageTimersRef = useRef([]);
   const reducedMotion = usePrefersReducedMotion();
   const instanceId = useId().replace(/:/g, '');
@@ -191,6 +194,7 @@ const RandomMockGenerator = ({
 
   const closeModal = useCallback((reason = 'close') => {
     requestIdRef.current += 1;
+    startRunIdRef.current += 1;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     setIsOpen(false);
@@ -203,6 +207,7 @@ const RandomMockGenerator = ({
 
   useEffect(() => () => {
     requestIdRef.current += 1;
+    startRunIdRef.current += 1;
     abortControllerRef.current?.abort();
     clearStageTimers();
   }, [clearStageTimers]);
@@ -210,23 +215,33 @@ const RandomMockGenerator = ({
   useEffect(() => {
     if (!isOpen || typeof document === 'undefined') return undefined;
     const previousBodyOverflow = document.body.style.overflow;
+    const previousBodyPaddingRight = document.body.style.paddingRight;
+    const appRoot = document.getElementById('root');
+    const previousRootInert = appRoot?.inert || false;
+    const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+    if (scrollbarWidth > 0) {
+      const currentPaddingRight = Number.parseFloat(window.getComputedStyle(document.body).paddingRight) || 0;
+      document.body.style.paddingRight = `${currentPaddingRight + scrollbarWidth}px`;
+    }
     document.body.style.overflow = 'hidden';
+    if (appRoot) appRoot.inert = true;
     return () => {
       document.body.style.overflow = previousBodyOverflow;
+      document.body.style.paddingRight = previousBodyPaddingRight;
+      if (appRoot) appRoot.inert = previousRootInert;
     };
   }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || typeof document === 'undefined') return undefined;
     const focusTimer = window.setTimeout(() => {
-      if (view === 'loading' || isStarting) dialogRef.current?.focus();
-      else closeButtonRef.current?.focus();
+      if (!dialogRef.current?.contains(document.activeElement)) closeButtonRef.current?.focus();
     }, 0);
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (view !== 'loading' && !isStarting) closeModal('escape');
+        closeModal(view === 'loading' ? 'cancel-loading' : 'escape');
         return;
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
@@ -242,6 +257,11 @@ const RandomMockGenerator = ({
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+      if (document.activeElement === dialogRef.current) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -256,7 +276,7 @@ const RandomMockGenerator = ({
       window.clearTimeout(focusTimer);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [closeModal, isOpen, isStarting, view]);
+  }, [closeModal, isOpen, view]);
 
   const startGeneration = useCallback(async () => {
     if (disabled || typeof onGenerate !== 'function') return;
@@ -342,16 +362,20 @@ const RandomMockGenerator = ({
       closeModal('done');
       return;
     }
+    const startRunId = startRunIdRef.current + 1;
+    startRunIdRef.current = startRunId;
     setIsStarting(true);
     setStartError('');
     try {
       await onStart(result);
+      if (startRunIdRef.current !== startRunId) return;
       closeModal('start');
     } catch (error) {
+      if (startRunIdRef.current !== startRunId) return;
       setStartError(getErrorMessage(error));
       onError?.(error, { phase: 'start' });
     } finally {
-      setIsStarting(false);
+      if (startRunIdRef.current === startRunId) setIsStarting(false);
     }
   }, [closeModal, onError, onStart, result]);
 
@@ -366,6 +390,10 @@ const RandomMockGenerator = ({
   const currentStage = stageIndex >= generationStages.length
     ? READY_STAGE
     : generationStages[stageIndex];
+  const accessibleStageIndex = stageIndex >= generationStages.length - 1
+    ? generationStages.length - 1
+    : (stageIndex >= 2 ? 2 : 0);
+  const accessibleStageLabel = generationStages[accessibleStageIndex]?.label || currentStage.label;
   const safeTaskCount = toSafeCount(taskCount);
   const displaySummary = {
     ...summary,
@@ -373,21 +401,28 @@ const RandomMockGenerator = ({
   };
   const hasSummary = [displaySummary.newCount, displaySummary.repeatCount, displaySummary.totalCount]
     .some((value) => value !== null && value !== undefined);
-  const activeProgressCells = Math.round((progress / 100) * PROGRESS_CELL_COUNT);
+  const activeTaskNodes = Math.round((progress / 100) * MOCK_TASK_COUNT);
   const cannotGenerate = disabled || typeof onGenerate !== 'function';
 
   const modal = isOpen && typeof document !== 'undefined'
     ? createPortal((
         <div
           className="mock-random-generation fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-slate-950/70 p-3 backdrop-blur-md sm:items-center sm:p-4"
+          data-level={generationLevel.id}
+          data-view={view}
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget && view !== 'loading' && !isStarting) closeModal('backdrop');
+            if (event.target === event.currentTarget && view !== 'loading') closeModal('backdrop');
           }}
         >
           <div className="mock-random-generation__field" aria-hidden="true">
-            <span className="mock-random-generation__halo" />
+            <span className="mock-random-generation__field-grid" />
+            <span className="mock-random-generation__halo mock-random-generation__halo--outer" />
+            <span className="mock-random-generation__halo mock-random-generation__halo--inner" />
             <span className="mock-random-generation__ray mock-random-generation__ray--one" />
             <span className="mock-random-generation__ray mock-random-generation__ray--two" />
+            <span className="mock-random-generation__ray mock-random-generation__ray--three" />
+            <span className="mock-random-generation__field-orbit mock-random-generation__field-orbit--one" />
+            <span className="mock-random-generation__field-orbit mock-random-generation__field-orbit--two" />
           </div>
 
           <section
@@ -395,30 +430,29 @@ const RandomMockGenerator = ({
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            aria-describedby={view === 'error' ? descriptionId : undefined}
             aria-busy={view === 'loading'}
             tabIndex={-1}
             className={joinClasses(
               'mock-random-generation__card relative isolate my-auto w-full max-w-[36rem] overflow-hidden rounded-[28px] border border-white/70 bg-white p-5 shadow-2xl sm:p-6',
               `mock-random-generation__card--${view}`
             )}
+            data-level={generationLevel.id}
+            data-stage={stageIndex}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="mock-random-generation__card-glow" aria-hidden="true" />
             <div className="mock-random-generation__card-sheen" aria-hidden="true" />
+            <div className="mock-random-generation__card-scan" aria-hidden="true" />
 
-            {view !== 'loading' && (
-              <button
-                ref={closeButtonRef}
-                type="button"
-                onClick={() => closeModal('close-button')}
-                disabled={isStarting}
-                className="mock-random-generation__close absolute right-3 top-3 z-20 inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-wait disabled:opacity-45 sm:right-4 sm:top-4"
-                aria-label="Закрыть"
-              >
-                <X size={18} />
-              </button>
-            )}
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={() => closeModal(view === 'loading' ? 'cancel-loading' : 'close-button')}
+              className="mock-random-generation__close absolute right-3 top-3 z-20 inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-wait disabled:opacity-45 sm:right-4 sm:top-4"
+              aria-label={view === 'loading' ? 'Отменить сборку' : (isStarting ? 'Закрыть, не дожидаясь открытия' : 'Закрыть')}
+            >
+              <X size={18} />
+            </button>
 
             <div className="relative z-10">
               <div className="mock-random-generation__eyebrow-row flex flex-wrap items-center gap-2">
@@ -436,31 +470,46 @@ const RandomMockGenerator = ({
 
               {view === 'success' ? (
                 <div className="mock-random-generation__result mt-5">
-                  <div className="mock-random-generation__success-icon flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-600">
-                    <CheckCircle2 size={28} />
+                  <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                    Пробник готов. Можно начинать.
+                  </span>
+                  <div className="mock-random-generation__success-stage" aria-hidden="true">
+                    <span className="mock-random-generation__success-wave mock-random-generation__success-wave--one" />
+                    <span className="mock-random-generation__success-wave mock-random-generation__success-wave--two" />
+                    <span className="mock-random-generation__success-orbit" />
+                    {Array.from({ length: SUCCESS_SPARK_COUNT }, (_, index) => (
+                      <span
+                        key={index}
+                        className="mock-random-generation__success-spark"
+                        style={{ '--success-spark-index': index }}
+                      />
+                    ))}
+                    <div className="mock-random-generation__success-icon flex h-16 w-16 items-center justify-center rounded-full text-emerald-600">
+                      <CheckCircle2 size={32} strokeWidth={2.4} />
+                    </div>
                   </div>
-                  <h2 id={titleId} className="mt-4 text-2xl font-black leading-tight text-slate-950 sm:text-[1.7rem]">
+                  <h2 id={titleId} className="mock-random-generation__success-title mt-5 text-2xl font-black leading-tight text-slate-950 sm:text-[1.7rem]">
                     Пробник собран
                   </h2>
 
                   {hasSummary && <div id={descriptionId} className="mock-random-generation__summary mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {displaySummary.newCount !== null && displaySummary.newCount !== undefined && (
-                      <div className="mock-random-generation__summary-item mock-random-generation__summary-item--new rounded-2xl border border-sky-200/70 bg-sky-50/80 p-3 text-sky-700">
-                        <Sparkles size={16} />
+                      <div className="mock-random-generation__summary-item mock-random-generation__summary-item--new rounded-2xl border border-sky-200/70 bg-sky-50/80 p-3 text-sky-700" style={{ '--summary-index': 0 }}>
+                        <span className="mock-random-generation__summary-icon"><Sparkles size={16} /></span>
                         <strong>{displaySummary.newCount}</strong>
                         <span>{getRussianCountLabel(displaySummary.newCount, ['новое', 'новых', 'новых'])}</span>
                       </div>
                     )}
                     {displaySummary.repeatCount !== null && displaySummary.repeatCount !== undefined && (
-                      <div className="mock-random-generation__summary-item mock-random-generation__summary-item--repeat rounded-2xl border border-violet-200/70 bg-violet-50/80 p-3 text-violet-700">
-                        <RefreshCw size={16} />
+                      <div className="mock-random-generation__summary-item mock-random-generation__summary-item--repeat rounded-2xl border border-violet-200/70 bg-violet-50/80 p-3 text-violet-700" style={{ '--summary-index': 1 }}>
+                        <span className="mock-random-generation__summary-icon"><RefreshCw size={16} /></span>
                         <strong>{displaySummary.repeatCount}</strong>
                         <span>{displaySummary.repeatCount === 0 ? 'без повторов' : 'на повторение'}</span>
                       </div>
                     )}
                     {displaySummary.totalCount !== null && displaySummary.totalCount !== undefined && (
-                      <div className="mock-random-generation__summary-item mock-random-generation__summary-item--total col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-slate-700 sm:col-span-1">
-                        <ListChecks size={16} />
+                      <div className="mock-random-generation__summary-item mock-random-generation__summary-item--total col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-slate-700 sm:col-span-1" style={{ '--summary-index': 2 }}>
+                        <span className="mock-random-generation__summary-icon"><ListChecks size={16} /></span>
                         <strong>{displaySummary.totalCount}</strong>
                         <span>{getRussianCountLabel(displaySummary.totalCount, ['задание', 'задания', 'заданий'])}</span>
                       </div>
@@ -496,7 +545,7 @@ const RandomMockGenerator = ({
                   </div>
                 </div>
               ) : view === 'error' ? (
-                <div className="mock-random-generation__result mt-5">
+                <div className="mock-random-generation__result mock-random-generation__result--error mt-5">
                   <div className="mock-random-generation__error-icon flex h-14 w-14 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 text-rose-600">
                     <AlertCircle size={28} />
                   </div>
@@ -526,58 +575,85 @@ const RandomMockGenerator = ({
                 </div>
               ) : (
                 <div className="mock-random-generation__loading mt-5">
-                  <div className="mock-random-generation__loading-head flex items-start gap-3.5">
-                    <div className="mock-random-generation__loading-icon relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 text-sky-700" aria-hidden="true">
-                      <span className="mock-random-generation__loading-ring" />
-                      <BookOpen size={24} />
+                  <div className="mock-random-generation__loading-layout">
+                    <div className="mock-random-generation__engine" aria-hidden="true">
+                      <span className="mock-random-generation__engine-aura" />
+                      <span className="mock-random-generation__engine-scan" />
+                      <span className="mock-random-generation__engine-ring mock-random-generation__engine-ring--outer" />
+                      <span className="mock-random-generation__engine-ring mock-random-generation__engine-ring--inner" />
+                      <div className="mock-random-generation__task-orbit">
+                        {Array.from({ length: MOCK_TASK_COUNT }, (_, index) => (
+                          <span
+                            key={index}
+                            className={joinClasses(
+                              'mock-random-generation__task-node',
+                              index < activeTaskNodes && 'is-active'
+                            )}
+                            style={{
+                              '--task-node-angle': `${index * (360 / MOCK_TASK_COUNT)}deg`,
+                              '--task-node-index': index,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div className="mock-random-generation__engine-core">
+                        <span className="mock-random-generation__engine-core-pulse" />
+                        <BookOpen size={25} />
+                        <strong>{`${Math.round(progress)}%`}</strong>
+                      </div>
                     </div>
-                    <div className="min-w-0 pt-0.5">
+
+                    <div className="mock-random-generation__loading-copy min-w-0">
                       <h2 id={titleId} className="text-2xl font-black leading-tight text-slate-950 sm:text-[1.7rem]">
                         Собираем ваш пробник
                       </h2>
+                      <div className="mock-random-generation__stage-counter mt-3" aria-hidden="true">
+                        {generationStages.map((stage, index) => (
+                          <span
+                            key={stage.label}
+                            className={joinClasses(
+                              'mock-random-generation__stage-dot',
+                              index <= stageIndex && 'is-active',
+                              index === stageIndex && 'is-current'
+                            )}
+                          />
+                        ))}
+                      </div>
+                      <div
+                        key={`${stageIndex}-${currentStage.label}`}
+                        className="mock-random-generation__status mt-4 min-w-0 text-sm font-bold text-slate-700"
+                        aria-hidden="true"
+                      >
+                        {currentStage.label}
+                      </div>
+                      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                        {accessibleStageLabel}
+                      </span>
                     </div>
                   </div>
 
                   <div className="mock-random-generation__selection mt-6 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4">
-                    <div className="mock-random-generation__cells grid grid-cols-6 gap-1.5 sm:grid-cols-12" aria-hidden="true">
-                      {Array.from({ length: PROGRESS_CELL_COUNT }, (_, index) => (
-                        <span
-                          key={index}
-                          className={joinClasses(
-                            'mock-random-generation__cell h-2 rounded-full bg-slate-200',
-                            index < activeProgressCells && 'is-active bg-gradient-to-r from-sky-400 to-violet-500'
-                          )}
-                          style={{ '--random-cell-index': index }}
-                        />
-                      ))}
+                    <div className="mock-random-generation__progress-head flex items-center justify-between gap-3">
+                      <span>Сборка варианта</span>
+                      <strong>{`${activeTaskNodes} / ${MOCK_TASK_COUNT}`}</strong>
                     </div>
-
-                    <div className="mt-5 flex items-end justify-between gap-3">
-                      <div
-                        key={`${stageIndex}-${currentStage.label}`}
-                        className="mock-random-generation__status min-w-0 text-sm font-bold text-slate-700"
-                        aria-live="polite"
-                        aria-atomic="true"
-                      >
-                        {currentStage.label}
-                      </div>
-                      <div className="mock-random-generation__percent shrink-0 text-sm font-black tabular-nums text-sky-700">
-                        {`${Math.round(progress)}%`}
-                      </div>
-                    </div>
-
                     <div
-                      className="mock-random-generation__progress mt-2.5 h-2 overflow-hidden rounded-full bg-slate-200"
+                      className="mock-random-generation__progress mt-3 h-2 rounded-full bg-slate-200"
                       role="progressbar"
                       aria-label={currentStage.label}
                       aria-valuemin={0}
                       aria-valuemax={100}
                       aria-valuenow={Math.round(progress)}
+                      aria-valuetext={`${currentStage.label}: ${Math.round(progress)}%`}
+                      style={{ '--progress-position': `${Math.max(0, Math.min(100, progress))}%` }}
                     >
-                      <span
-                        className="mock-random-generation__progress-fill relative block h-full rounded-full bg-gradient-to-r from-sky-400 via-blue-500 to-violet-600"
-                        style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
-                      />
+                      <span className="mock-random-generation__progress-clip" aria-hidden="true">
+                        <span
+                          className="mock-random-generation__progress-fill relative block h-full rounded-full bg-gradient-to-r from-sky-400 via-blue-500 to-violet-600"
+                          style={{ transform: `scaleX(${Math.max(0, Math.min(100, progress)) / 100})` }}
+                        />
+                      </span>
+                      <span className="mock-random-generation__progress-energy" aria-hidden="true" />
                     </div>
                   </div>
 
@@ -598,12 +674,39 @@ const RandomMockGenerator = ({
           className
         )}
         aria-labelledby={builderTitleId}
+        data-level={selectedLevel.id}
       >
-        <div className="mock-random-builder__aurora" aria-hidden="true" />
+        <div className="mock-random-builder__visual-field" aria-hidden="true">
+          <span className="mock-random-builder__aurora mock-random-builder__aurora--primary" />
+          <span className="mock-random-builder__aurora mock-random-builder__aurora--secondary" />
+          <span className="mock-random-builder__spectrum" />
+          <span className="mock-random-builder__scan" />
+          <span className="mock-random-builder__blueprint">
+            {Array.from({ length: MOCK_TASK_COUNT }, (_, index) => (
+              <i key={index} style={{ '--builder-node-index': index }} />
+            ))}
+          </span>
+          {Array.from({ length: BUILDER_PARTICLE_COUNT }, (_, index) => (
+            <span
+              key={index}
+              className="mock-random-builder__particle"
+              style={{ '--builder-particle-index': index }}
+            />
+          ))}
+        </div>
         <div className="mock-random-builder__grid relative z-10 flex flex-col gap-4 md:flex-row md:items-center">
-          <div className="mock-random-builder__icon relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-sky-200/70 bg-sky-50 text-sky-700" aria-hidden="true">
+          <div className="mock-random-builder__icon relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-sky-700" aria-hidden="true">
             <span className="mock-random-builder__icon-glow" />
-            <Sparkles className="relative z-10" size={22} />
+            <span className="mock-random-builder__icon-orbit mock-random-builder__icon-orbit--one" />
+            <span className="mock-random-builder__icon-orbit mock-random-builder__icon-orbit--two" />
+            <span className="mock-random-builder__icon-core">
+              <span className="mock-random-builder__icon-symbol" data-active={selectedLevel.id === 'basic' ? 'true' : 'false'}>
+                <BookOpen size={21} />
+              </span>
+              <span className="mock-random-builder__icon-symbol" data-active={selectedLevel.id === 'advanced' ? 'true' : 'false'}>
+                <Sparkles size={22} />
+              </span>
+            </span>
           </div>
 
           <div className="mock-random-builder__content min-w-0 flex-1">
@@ -619,7 +722,10 @@ const RandomMockGenerator = ({
             <div className="mock-random-builder__tools mt-3 flex flex-wrap items-center gap-2.5">
               <fieldset className="mock-random-builder__level-field min-w-0">
                 <legend className="sr-only">Уровень пробника</legend>
-                <div className="mock-random-builder__level-switch">
+                <div className="mock-random-builder__level-switch" data-level={selectedLevel.id}>
+                  <span className="mock-random-builder__level-indicator" aria-hidden="true">
+                    <span className="mock-random-builder__level-indicator-glow" />
+                  </span>
                   {DEFAULT_LEVEL_OPTIONS.map((option) => {
                     const isAdvanced = option.id === 'advanced';
                     return (
@@ -640,7 +746,9 @@ const RandomMockGenerator = ({
                           className="mock-random-builder__level-input sr-only"
                         />
                         <span className="mock-random-builder__level-option">
-                          {isAdvanced ? <Sparkles size={13} /> : <BookOpen size={13} />}
+                          <span className="mock-random-builder__level-icon">
+                            {isAdvanced ? <Sparkles size={13} /> : <BookOpen size={13} />}
+                          </span>
                           <span>{option.label}</span>
                         </span>
                       </label>
@@ -671,7 +779,9 @@ const RandomMockGenerator = ({
             aria-haspopup="dialog"
             className="mock-random-builder__button group inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55 md:w-auto"
           >
+            <span className="mock-random-builder__button-glow" aria-hidden="true" />
             <span className="mock-random-builder__button-sheen" aria-hidden="true" />
+            <span className="mock-random-builder__button-orbit" aria-hidden="true" />
             <Sparkles className="relative z-10" size={17} />
             <span className="relative z-10">{buttonLabel}</span>
             <ArrowRight className="mock-random-builder__button-arrow relative z-10" size={16} />
