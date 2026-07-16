@@ -16,6 +16,13 @@ import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
+import {
+  QUESTION_INSERT_MODE_CUSTOM,
+  QUESTION_INSERT_MODE_END,
+  QUESTION_INSERT_MODE_START,
+  normalizeQuestionInsertMode,
+  resolveQuestionInsertIndex,
+} from '../utils/questionInsertion';
 
 const STUDENT_GRADE_OPTIONS = [
   { value: '11', label: '11 класс' },
@@ -200,6 +207,8 @@ const TeacherPanel = ({
   const [testsError, setTestsError] = useState('');
   const [selectedTask, setSelectedTask] = useState(1);
   const [selectedLevel, setSelectedLevel] = useState('basic');
+  const [questionInsertMode, setQuestionInsertMode] = useState(QUESTION_INSERT_MODE_END);
+  const [questionInsertPosition, setQuestionInsertPosition] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentGrade, setNewStudentGrade] = useState('11');
   const [newStudentEgeScore, setNewStudentEgeScore] = useState('');
@@ -613,6 +622,20 @@ const TeacherPanel = ({
         color: normalizeQuestionLabelColor(questionLabelColor),
       }
       : null;
+    const existingLevelQuestions = Array.isArray(testDb?.[selectedTask]?.[selectedLevel])
+      ? testDb[selectedTask][selectedLevel]
+      : [];
+    const questionInsertIndex = editingQuestionId
+      ? null
+      : resolveQuestionInsertIndex(
+          questionInsertMode,
+          questionInsertPosition,
+          existingLevelQuestions.length
+        );
+    if (!editingQuestionId && questionInsertIndex === null) {
+      setQuestionUploadError(`Укажите место от 1 до ${existingLevelQuestions.length + 1}.`);
+      return;
+    }
 
     setIsUploadingQuestion(true);
     setQuestionUploadError('');
@@ -639,9 +662,15 @@ const TeacherPanel = ({
     }
 
     const updatedDb = { ...(testDb || {}) };
-    if (!updatedDb[selectedTask]) updatedDb[selectedTask] = { basic: [], advanced: [], expert: [] };
-    if (!updatedDb[selectedTask][selectedLevel]) updatedDb[selectedTask][selectedLevel] = [];
-    const levelList = updatedDb[selectedTask][selectedLevel];
+    const taskDb = {
+      basic: [],
+      advanced: [],
+      expert: [],
+      ...(updatedDb[selectedTask] || {}),
+    };
+    const levelList = Array.isArray(taskDb[selectedLevel]) ? [...taskDb[selectedLevel]] : [];
+    taskDb[selectedLevel] = levelList;
+    updatedDb[selectedTask] = taskDb;
     const finalScreenshots = [...existingQuestionScreenshots, ...uploadedScreenshots];
     const finalFiles = [...existingQuestionFiles, ...uploadedFiles];
 
@@ -681,12 +710,12 @@ const TeacherPanel = ({
         files: finalFiles,
         ...(questionLabel ? { label: questionLabel } : {}),
       };
-      levelList.push(newQuestion);
+      levelList.splice(questionInsertIndex, 0, newQuestion);
     }
-    
-    setTestDb(updatedDb);
+
     try {
       await api.saveTests(updatedDb);
+      setTestDb(updatedDb);
     } catch (err) {
       setQuestionUploadError(err?.message || err);
       setIsUploadingQuestion(false);
@@ -742,6 +771,40 @@ const TeacherPanel = ({
   };
 
   const currentQuestions = testDb?.[selectedTask]?.[selectedLevel] || [];
+  const maxQuestionInsertPosition = currentQuestions.length + 1;
+  const previewQuestionInsertIndex = resolveQuestionInsertIndex(
+    questionInsertMode,
+    questionInsertPosition,
+    currentQuestions.length
+  );
+  const newQuestionInsertPosition = previewQuestionInsertIndex === null
+    ? null
+    : previewQuestionInsertIndex + 1;
+
+  useEffect(() => {
+    if (questionInsertMode !== QUESTION_INSERT_MODE_CUSTOM) return;
+    setQuestionInsertPosition((previous) => {
+      if (!String(previous).trim()) return previous;
+      const numericPosition = Number(previous);
+      if (!Number.isInteger(numericPosition)) return previous;
+      return String(Math.max(1, Math.min(maxQuestionInsertPosition, numericPosition)));
+    });
+  }, [selectedTask, selectedLevel, currentQuestions.length, questionInsertMode, maxQuestionInsertPosition]);
+
+  const handleQuestionInsertModeChange = (value) => {
+    const nextMode = normalizeQuestionInsertMode(value);
+    setQuestionInsertMode(nextMode);
+    setQuestionUploadError('');
+    if (nextMode === QUESTION_INSERT_MODE_CUSTOM) {
+      setQuestionInsertPosition((previous) => {
+        const numericPosition = Number(previous);
+        if (Number.isInteger(numericPosition) && numericPosition >= 1 && numericPosition <= maxQuestionInsertPosition) {
+          return String(numericPosition);
+        }
+        return String(maxQuestionInsertPosition);
+      });
+    }
+  };
   const levelQuestionFileCount = currentQuestions.reduce(
     (total, item) => total + (Array.isArray(item?.files) ? item.files.length : 0),
     0
@@ -1030,7 +1093,7 @@ const TeacherPanel = ({
     + existingQuestionFiles.length;
   const editorQuestionNumber = editingQuestionId
     ? Math.max(1, currentQuestions.findIndex((item) => item.id === editingQuestionId) + 1)
-    : currentQuestions.length + 1;
+    : (newQuestionInsertPosition ?? '—');
   const hasQuestionCondition = Boolean(question.trim())
     || questionScreenshots.length > 0
     || existingQuestionScreenshots.length > 0;
@@ -3319,10 +3382,81 @@ const TeacherPanel = ({
             </div>
           </Card>
 
-          <div className="teacher-test-builder-count bg-blue-50 p-4 rounded-xl border border-blue-100 text-sm text-blue-800">
-            <strong>Всего вопросов:</strong> {currentQuestions.length}<br/>
-            Минимум 11 вопросов рекомендуется для разнообразия выборки.
-          </div>
+          <Card className="teacher-test-builder-control-card teacher-question-insert-card">
+            <label htmlFor="teacher-question-insert-mode">Место нового вопроса</label>
+            <select
+              id="teacher-question-insert-mode"
+              value={questionInsertMode}
+              onChange={(event) => handleQuestionInsertModeChange(event.target.value)}
+              disabled={Boolean(editingQuestionId)}
+              className="teacher-question-insert-card__select"
+            >
+              <option value={QUESTION_INSERT_MODE_END}>В конец списка</option>
+              <option value={QUESTION_INSERT_MODE_START}>В начало списка</option>
+              <option value={QUESTION_INSERT_MODE_CUSTOM}>На выбранное место</option>
+            </select>
+
+            {questionInsertMode === QUESTION_INSERT_MODE_CUSTOM && (
+              <>
+                <div className="teacher-question-insert-card__custom">
+                  <span>Место</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max={maxQuestionInsertPosition}
+                    inputMode="numeric"
+                    value={questionInsertPosition}
+                    onChange={(event) => {
+                      setQuestionInsertPosition(event.target.value.replace(/[^\d]/g, '').slice(0, 4));
+                      setQuestionUploadError('');
+                    }}
+                    onBlur={() => {
+                      setQuestionInsertPosition((previous) => {
+                        if (!String(previous).trim()) return previous;
+                        const numericPosition = Number(previous);
+                        if (!Number.isInteger(numericPosition)) return previous;
+                        return String(Math.max(1, Math.min(maxQuestionInsertPosition, numericPosition)));
+                      });
+                    }}
+                    disabled={Boolean(editingQuestionId)}
+                    aria-label={`Место нового вопроса от 1 до ${maxQuestionInsertPosition}`}
+                    aria-invalid={newQuestionInsertPosition === null}
+                    aria-describedby={newQuestionInsertPosition === null ? 'teacher-question-insert-error' : undefined}
+                  />
+                  <span>из {maxQuestionInsertPosition}</span>
+                </div>
+                {newQuestionInsertPosition === null && !editingQuestionId && (
+                  <span
+                    id="teacher-question-insert-error"
+                    className="teacher-question-insert-card__error"
+                    role="alert"
+                  >
+                    Введите число от 1 до {maxQuestionInsertPosition}
+                  </span>
+                )}
+              </>
+            )}
+
+            <div className="teacher-question-insert-card__summary">
+              <strong>
+                {editingQuestionId
+                  ? `Редактируется вопрос №${editorQuestionNumber}`
+                  : (newQuestionInsertPosition === null
+                      ? 'Укажите место'
+                      : `Следующий будет №${newQuestionInsertPosition}`)}
+              </strong>
+              <span>Сейчас: {currentQuestions.length} · рекомендуется от 11</span>
+            </div>
+            <p>
+              {editingQuestionId
+                ? 'При редактировании порядок вопросов не меняется.'
+                : (questionInsertMode === QUESTION_INSERT_MODE_START
+                    ? 'Каждый новый вопрос будет становиться первым.'
+                    : (questionInsertMode === QUESTION_INSERT_MODE_CUSTOM
+                        ? 'Новый вопрос займёт выбранное место, остальные сдвинутся ниже.'
+                        : 'По умолчанию новые вопросы добавляются после существующих.'))}
+            </p>
+          </Card>
         </div>
 
         {/* MIDDLE COLUMN: Form */}
@@ -3802,8 +3936,18 @@ const TeacherPanel = ({
                       : 'Нужно добавить условие или изображение и указать правильный ответ.'}
                   </div>
                 </div>
-                <Button onClick={handleSaveQuestion} className="teacher-question-editor__save" disabled={isUploadingQuestion}>
-                  <Save size={18} /> {isUploadingQuestion ? 'Загрузка...' : (editingQuestionId ? 'Сохранить изменения' : 'Сохранить вопрос в базу')}
+                <Button
+                  onClick={handleSaveQuestion}
+                  className="teacher-question-editor__save"
+                  disabled={isUploadingQuestion || (!editingQuestionId && newQuestionInsertPosition === null)}
+                >
+                  <Save size={18} /> {isUploadingQuestion
+                    ? 'Загрузка...'
+                    : (editingQuestionId
+                        ? 'Сохранить изменения'
+                        : (newQuestionInsertPosition === null
+                            ? 'Укажите место вопроса'
+                            : `Добавить вопрос №${editorQuestionNumber}`))}
                 </Button>
               </div>
             </div>

@@ -18,6 +18,10 @@ import {
   buildPythonInfiniteTrainingTaskEntry,
 } from '../src/data/pythonInfiniteTrainingTasks.js';
 import { getLevelFromXp } from '../src/utils/leveling.js';
+import {
+  QuestionTargetRemapConflictError,
+  remapProgressQuestionTargets,
+} from './questionTargetRemap.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -903,6 +907,18 @@ const backupJsonFileBeforeWrite = (filePath) => {
   }
 };
 const stringifyJsonForStorage = (data) => `${JSON.stringify(data, null, 2)}\n`;
+const readJsonObjectFileStrict = (filePath) => {
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('JSON root must be an object');
+    }
+    return data;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return {};
+    throw error;
+  }
+};
 const writeJsonFileAtomic = (filePath, data) => {
   backupJsonFileBeforeWrite(filePath);
   writeFileAtomic(filePath, stringifyJsonForStorage(data), 'utf8');
@@ -19821,11 +19837,51 @@ app.get('/api/tests', (req, res) => {
 app.put('/api/tests', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const payload = req.body;
-  if (!payload || typeof payload !== 'object') {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return res.status(400).json({ error: 'Некорректные данные' });
   }
+  let previousTestsDb;
+  let progressDb;
+  try {
+    previousTestsDb = readJsonObjectFileStrict(testsFile);
+    progressDb = readJsonObjectFileStrict(progressFile);
+  } catch (error) {
+    console.error('[tests] failed to read databases before safe save:', error);
+    return res.status(500).json({
+      error: 'Не удалось безопасно прочитать текущую базу. Обновите страницу и попробуйте ещё раз.',
+    });
+  }
+  let progressMigration;
+  try {
+    progressMigration = remapProgressQuestionTargets(
+      progressDb,
+      previousTestsDb,
+      payload
+    );
+  } catch (error) {
+    if (error instanceof QuestionTargetRemapConflictError) {
+      return res.status(409).json({ error: error.message });
+    }
+    throw error;
+  }
+
   writeTestsDb(payload);
-  res.json({ ok: true });
+  if (progressMigration.changed) {
+    try {
+      writeProgressDb(progressMigration.db);
+    } catch (error) {
+      try {
+        writeTestsDb(previousTestsDb);
+      } catch (rollbackError) {
+        console.error('[tests] failed to roll back tests after homework remap error:', rollbackError);
+      }
+      throw error;
+    }
+  }
+  res.json({
+    ok: true,
+    remappedHomeworkReferences: progressMigration.changedReferences,
+  });
 });
 
 app.get('/api/mock-exams', (req, res) => {
