@@ -3831,7 +3831,7 @@ const ProgressSection = ({
               const hasXpBonus = xpStats.multiplier > 1.0001;
               const statusKey = val >= 85 ? 'strong' : (val >= 60 ? 'active' : (val >= 40 ? 'practice' : 'focus'));
               const statusLabel = val >= 85 ? 'Выполнено 85%+' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
-              const practiceIndicator = role === 'student' ? getTaskPracticeIndicator(task, val) : null;
+              const practiceIndicator = getTaskPracticeIndicator(task, val);
               const studentActionLabel = val <= 0
                 ? 'Начать практику'
                 : (practiceIndicator && ['due', 'stale'].includes(practiceIndicator.key)
