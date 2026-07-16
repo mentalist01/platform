@@ -75957,22 +75957,22 @@ html[data-theme='dark'] .mock-random-generation__start-error {
   animation-delay: calc(var(--mock-sheet-index) * 24ms);
 }
 
-.progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='best'] {
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='best'] {
   --mock-sheet-accent: 217 119 6;
   --mock-sheet-accent-strong: 180 83 9;
 }
 
-.progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='done'] {
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='done'] {
   --mock-sheet-accent: 5 150 105;
   --mock-sheet-accent-strong: 4 120 87;
 }
 
-.progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='progress'] {
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='progress'] {
   --mock-sheet-accent: 124 58 237;
   --mock-sheet-accent-strong: 109 40 217;
 }
 
-.progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='empty'] {
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='empty'] {
   --mock-sheet-accent: 100 116 139;
   --mock-sheet-accent-strong: 71 85 105;
 }
@@ -77137,5 +77137,730 @@ html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sh
   .progress-section--mocks .mock-student-card.mock-exam-sheet :focus-visible {
     outline: 2px solid Highlight !important;
     outline-offset: 2px !important;
+  }
+}
+
+/* Soft route art direction: warm, expressive mock cards without side stripes or 3D. */
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet {
+  --mock-sheet-action: 102 88 245;
+  --mock-sheet-action-strong: 79 70 229;
+  --mock-sheet-accent: 91 109 246;
+  --mock-sheet-accent-strong: 68 64 197;
+  --mock-sheet-aura: 91 109 246;
+  --mock-sheet-aura-secondary: 46 166 215;
+  --mock-sheet-ink: #251b3b;
+  --mock-sheet-muted: #756c86;
+  --mock-sheet-line: rgb(82 62 116 / 0.1);
+  --mock-sheet-panel: rgb(246 243 251 / 0.78);
+  --mock-sheet-surface: #fdfbff;
+  border: 1px solid rgb(82 62 116 / 0.09) !important;
+  border-radius: 26px !important;
+  background:
+    radial-gradient(ellipse 46% 76% at 94% -24%, rgb(var(--mock-sheet-aura) / 0.16), transparent 69%),
+    radial-gradient(ellipse 32% 48% at -5% 112%, rgb(var(--mock-sheet-aura-secondary) / 0.09), transparent 72%),
+    linear-gradient(145deg, #fffefd 0%, #fdfbff 58%, #faf9ff 100%) !important;
+  padding: 22px !important;
+  box-shadow:
+    0 18px 50px rgb(44 30 74 / 0.1),
+    inset 0 1px 0 rgb(255 255 255 / 0.88) !important;
+  transition: border-color 220ms ease, box-shadow 220ms ease !important;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='best'] {
+  --mock-sheet-accent: 238 164 54;
+  --mock-sheet-accent-strong: 169 91 0;
+  --mock-sheet-aura: 238 164 54;
+  --mock-sheet-aura-secondary: 244 114 182;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='done'] {
+  --mock-sheet-accent: 24 182 143;
+  --mock-sheet-accent-strong: 4 120 87;
+  --mock-sheet-aura: 24 182 143;
+  --mock-sheet-aura-secondary: 34 197 225;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='progress'] {
+  --mock-sheet-accent: 139 92 246;
+  --mock-sheet-accent-strong: 109 40 217;
+  --mock-sheet-aura: 139 92 246;
+  --mock-sheet-aura-secondary: 236 72 153;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[data-state='empty'] {
+  --mock-sheet-accent: 148 139 165;
+  --mock-sheet-accent-strong: 91 82 105;
+  --mock-sheet-aura: 148 139 165;
+  --mock-sheet-aura-secondary: 125 145 180;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[data-level='advanced'] {
+  --mock-sheet-aura-secondary: 236 72 153;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode {
+  --mock-sheet-aura: 255 122 69;
+  --mock-sheet-aura-secondary: 167 139 250;
+  border-color: rgb(255 122 69 / 0.12) !important;
+  background:
+    radial-gradient(ellipse 46% 76% at 94% -24%, rgb(var(--mock-sheet-aura) / 0.14), transparent 69%),
+    radial-gradient(ellipse 32% 48% at -5% 112%, rgb(var(--mock-sheet-aura-secondary) / 0.09), transparent 72%),
+    linear-gradient(145deg, #fffefd 0%, #fdfbff 58%, #faf9ff 100%) !important;
+  box-shadow:
+    0 18px 50px rgb(44 30 74 / 0.1),
+    inset 0 1px 0 rgb(255 255 255 / 0.88) !important;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet:hover,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode:hover {
+  border-color: rgb(82 62 116 / 0.09) !important;
+  box-shadow:
+    0 18px 50px rgb(44 30 74 / 0.1),
+    inset 0 1px 0 rgb(255 255 255 / 0.88) !important;
+  transform: none !important;
+}
+
+.progress-section--mocks .mock-exam-sheet__header {
+  grid-template-columns: minmax(0, 1fr) minmax(205px, 235px);
+  gap: 24px;
+}
+
+.progress-section--mocks .mock-exam-sheet__kicker {
+  gap: 8px 11px;
+}
+
+.progress-section--mocks .mock-exam-sheet__state,
+.progress-section--mocks .mock-exam-sheet__notice {
+  min-height: 27px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 10.5px;
+  font-weight: 780;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.progress-section--mocks .mock-exam-sheet__state {
+  background: rgb(var(--mock-sheet-accent) / 0.11);
+}
+
+.progress-section--mocks .mock-exam-sheet__type,
+.progress-section--mocks .mock-exam-sheet__edition {
+  color: var(--mock-sheet-muted);
+  font-size: 11px;
+  font-weight: 680;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.progress-section--mocks .mock-exam-sheet__type {
+  color: rgb(var(--mock-sheet-action-strong));
+}
+
+.progress-section--mocks .mock-exam-sheet__title {
+  margin-top: 10px;
+  color: var(--mock-sheet-ink) !important;
+  font-size: clamp(24px, 2.2vw, 30px);
+  font-weight: 860;
+  letter-spacing: -0.042em;
+  line-height: 1.04;
+}
+
+.progress-section--mocks .mock-exam-sheet__metrics {
+  gap: 8px 15px;
+  margin-top: 13px;
+}
+
+.progress-section--mocks .mock-exam-sheet__metric,
+.progress-section--mocks .mock-exam-sheet__metric:last-child {
+  min-height: 24px;
+  border-right: 0;
+  margin-right: 0;
+  padding-right: 0;
+  color: var(--mock-sheet-muted);
+  font-size: 11px;
+}
+
+.progress-section--mocks .mock-exam-sheet__metric strong {
+  color: var(--mock-sheet-ink);
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.progress-section--mocks .mock-exam-sheet__metric svg {
+  color: rgb(var(--mock-sheet-accent));
+}
+
+.progress-section--mocks .mock-exam-sheet__launch {
+  gap: 11px;
+  border: 0 !important;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgb(var(--mock-sheet-action) / 0.12), rgb(167 139 250 / 0.065)) !important;
+  padding: 14px;
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--mock-sheet-action) / 0.1),
+    0 12px 30px rgb(var(--mock-sheet-action) / 0.08);
+}
+
+.progress-section--mocks .mock-exam-sheet__launch-copy > span {
+  color: var(--mock-sheet-muted);
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.progress-section--mocks .mock-exam-sheet__launch-copy > strong {
+  color: rgb(var(--mock-sheet-action-strong));
+  font-size: 25px;
+  font-weight: 900;
+}
+
+.progress-section--mocks .mock-student-card.mock-exam-sheet .mock-start-button,
+.progress-section--mocks .mock-student-card.mock-exam-sheet .mock-exam-sheet__start,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-start-button {
+  min-height: 48px !important;
+  border-radius: 14px !important;
+  background:
+    linear-gradient(110deg, #6658f5 0%, #4169e1 55%, #167ca8 100%) !important;
+  background-size: 125% 100% !important;
+  box-shadow: 0 10px 26px rgb(74 103 232 / 0.23) !important;
+  font-size: 12.5px !important;
+  transition: background-position 260ms ease, box-shadow 220ms ease, filter 180ms ease !important;
+}
+
+.progress-section--mocks .mock-student-card.mock-exam-sheet .mock-start-button:hover:not(:disabled),
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-start-button:hover:not(:disabled) {
+  background-position: 100% 0 !important;
+  box-shadow: 0 13px 30px rgb(74 103 232 / 0.29) !important;
+  filter: saturate(1.05);
+}
+
+.progress-section--mocks .mock-student-card.mock-exam-sheet .mock-start-button__icon {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.15);
+}
+
+.progress-section--mocks .mock-exam-sheet__tasks {
+  margin-top: 16px;
+  border: 0 !important;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgb(246 243 251 / 0.9), rgb(239 246 255 / 0.76)) !important;
+  padding: 14px;
+  box-shadow:
+    inset 0 0 0 1px rgb(82 62 116 / 0.065),
+    inset 0 1px 0 rgb(255 255 255 / 0.7);
+}
+
+.progress-section--mocks .mock-exam-sheet__tasks-head > span,
+.progress-section--mocks .mock-exam-sheet__section-title > span,
+.progress-section--mocks .mock-exam-sheet .mock-reward-title {
+  color: #5d536d !important;
+  font-size: 11.5px !important;
+  font-weight: 760 !important;
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+
+.progress-section--mocks .mock-exam-sheet__tasks-head > strong {
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.72);
+  padding: 4px 8px;
+  color: rgb(var(--mock-sheet-accent-strong));
+  font-size: 10.5px;
+  box-shadow: inset 0 0 0 1px rgb(82 62 116 / 0.07);
+}
+
+.progress-section--mocks .mock-exam-sheet__task-grid {
+  gap: 6px;
+  margin-top: 11px;
+}
+
+.progress-section--mocks .mock-exam-sheet__task {
+  height: 36px;
+  border: 0 !important;
+  border-radius: 11px;
+  background: rgb(255 255 255 / 0.86);
+  box-shadow:
+    inset 0 0 0 1px rgb(82 62 116 / 0.09),
+    0 4px 10px rgb(44 30 74 / 0.035);
+  color: #71677f;
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.progress-section--mocks .mock-exam-sheet__task[data-task-state='solved'] {
+  border: 0 !important;
+  background: #e4f8f0;
+  box-shadow: inset 0 0 0 1px rgb(24 182 143 / 0.2);
+  color: #046c56;
+}
+
+.progress-section--mocks .mock-exam-sheet__task[data-task-state='attempted'] {
+  border: 0 !important;
+  background: #fff0d7;
+  box-shadow: inset 0 0 0 1px rgb(238 164 54 / 0.23);
+  color: #8f4f00;
+}
+
+.progress-section--mocks .mock-exam-sheet__task[data-task-state='next'],
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__task[data-task-state='next'] {
+  border: 0 !important;
+  background: linear-gradient(135deg, #6658f5, #4169e1) !important;
+  box-shadow:
+    0 0 0 4px rgb(var(--mock-sheet-action) / 0.11),
+    0 8px 18px rgb(var(--mock-sheet-action) / 0.2) !important;
+  color: #fff;
+  animation:
+    mockExamNextTaskIn 360ms cubic-bezier(0.22, 1, 0.36, 1) both,
+    mockExamNextHalo 1500ms 720ms ease-in-out 2;
+}
+
+.progress-section--mocks .mock-exam-sheet__dock {
+  gap: 12px;
+  margin-top: 12px;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.progress-section--mocks .mock-exam-sheet__mode,
+.progress-section--mocks .mock-exam-sheet__reward-area {
+  border: 0;
+  border-radius: 18px;
+  padding: 12px;
+  box-shadow: inset 0 0 0 1px rgb(82 62 116 / 0.065);
+}
+
+.progress-section--mocks .mock-exam-sheet__mode {
+  background: linear-gradient(135deg, rgb(238 242 255 / 0.84), rgb(245 243 255 / 0.76));
+}
+
+.progress-section--mocks .mock-exam-sheet__reward-area {
+  background: linear-gradient(135deg, rgb(255 250 235 / 0.82), rgb(250 245 255 / 0.74));
+}
+
+.progress-section--mocks .mock-exam-sheet__section-title {
+  margin-bottom: 9px;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-choice,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-reward-shell {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch {
+  position: relative;
+  overflow: hidden;
+  border-radius: 15px !important;
+  background: rgb(255 255 255 / 0.48) !important;
+  box-shadow: inset 0 0 0 1px rgb(82 62 116 / 0.055) !important;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch::before {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  z-index: 0;
+  width: calc(50% - 3px);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.94);
+  box-shadow: 0 5px 16px rgb(44 30 74 / 0.09);
+  content: '';
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-choice--timer .mock-mode-switch::before {
+  transform: translateX(100%);
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch__option,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch__option--active,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-mode-choice .mock-mode-switch__option,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-mode-choice .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  position: relative;
+  z-index: 1;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #756c86 !important;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch__option--active {
+  color: rgb(var(--mock-sheet-action-strong)) !important;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-mode-choice .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  color: #c6542b !important;
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-track {
+  height: 60px !important;
+  margin-top: 10px !important;
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-track__bar,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-reward-track__bar {
+  top: 27px !important;
+  height: 6px !important;
+  background: #ede8f4 !important;
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-track__fill {
+  background: linear-gradient(90deg, #7167f2, #a76be8) !important;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-reward-track__fill {
+  background: linear-gradient(90deg, #ff7a45, #ee6f9f) !important;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-reward-milestone__label,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-reward-milestone__label--chest,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode.mock-student-card--timer-rewards-disabled .mock-reward-milestone--disabled .mock-reward-milestone__label,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode.mock-student-card--timer-rewards-disabled .mock-reward-milestone--disabled .mock-reward-milestone__label--chest {
+  min-height: 58px !important;
+  grid-template-rows: 18px 1fr;
+  gap: 17px 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: #5d536d !important;
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-milestone__label::after,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-reward-milestone__label::after {
+  top: 22px;
+  width: 12px;
+  height: 12px;
+  border: 3px solid #c9bfda;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.65);
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-milestone__score {
+  color: #756c86;
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-milestone__prize {
+  color: #4d435f;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-milestone--next .mock-reward-milestone__label::after,
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-reward-milestone--next .mock-reward-milestone__label::after {
+  top: 21px;
+  width: 14px;
+  height: 14px;
+  border: 3px solid #fff;
+  background: linear-gradient(135deg, #7167f2, #a76be8) !important;
+  box-shadow: 0 0 0 4px rgb(113 103 242 / 0.14);
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-reward-milestone--next .mock-reward-milestone__label::after {
+  background: linear-gradient(135deg, #ff7a45, #ee6f9f) !important;
+  box-shadow: 0 0 0 4px rgb(255 122 69 / 0.14);
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-milestone--achieved .mock-reward-milestone__label::after,
+.progress-section--mocks .mock-exam-sheet .mock-reward-milestone--awarded .mock-reward-milestone__label::after {
+  border-color: #fff;
+  background: #18b68f;
+  box-shadow: 0 0 0 3px rgb(24 182 143 / 0.14);
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-milestone--disabled .mock-reward-milestone__label {
+  opacity: 0.52;
+}
+
+.progress-section--mocks .mock-exam-sheet .mock-reward-milestone__check {
+  top: 24px;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode {
+  --mock-sheet-ink: #f7f2ff;
+  --mock-sheet-muted: #aa9fba;
+  --mock-sheet-line: rgb(214 198 240 / 0.1);
+  --mock-sheet-panel: rgb(36 29 49 / 0.84);
+  --mock-sheet-surface: #191522;
+  border-color: rgb(214 198 240 / 0.1) !important;
+  background:
+    radial-gradient(ellipse 48% 78% at 94% -24%, rgb(var(--mock-sheet-aura) / 0.18), transparent 69%),
+    radial-gradient(ellipse 34% 48% at -5% 112%, rgb(var(--mock-sheet-aura-secondary) / 0.12), transparent 72%),
+    linear-gradient(145deg, #1c1726 0%, #191522 58%, #17131f 100%) !important;
+  box-shadow:
+    0 22px 54px rgb(5 3 12 / 0.38),
+    inset 0 1px 0 rgb(255 255 255 / 0.045) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__title,
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__metric strong {
+  color: var(--mock-sheet-ink) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__type,
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__edition,
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__metric,
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__launch-copy > span {
+  color: var(--mock-sheet-muted) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__launch {
+  background: linear-gradient(135deg, rgb(var(--mock-sheet-action) / 0.18), rgb(167 139 250 / 0.08)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgb(194 181 253 / 0.1),
+    0 14px 32px rgb(2 6 23 / 0.18);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__launch-copy > strong {
+  color: #c4b5fd;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__tasks {
+  background: linear-gradient(135deg, rgb(36 29 49 / 0.9), rgb(26 32 48 / 0.8)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgb(214 198 240 / 0.075),
+    inset 0 1px 0 rgb(255 255 255 / 0.035);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__tasks-head > span,
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__section-title > span,
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet .mock-reward-title {
+  color: #d5c9e5 !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__tasks-head > strong {
+  background: rgb(255 255 255 / 0.055);
+  box-shadow: inset 0 0 0 1px rgb(214 198 240 / 0.08);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__task {
+  border: 0 !important;
+  background: rgb(31 26 42 / 0.9);
+  box-shadow:
+    inset 0 0 0 1px rgb(214 198 240 / 0.09),
+    0 5px 12px rgb(2 6 23 / 0.08);
+  color: #ada2bc;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__task[data-task-state='solved'] {
+  background: rgb(14 68 57 / 0.82);
+  color: #6ee7b7;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__task[data-task-state='attempted'] {
+  background: rgb(75 52 20 / 0.82);
+  color: #fcd34d;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__mode {
+  background: linear-gradient(135deg, rgb(38 34 65 / 0.82), rgb(34 28 49 / 0.82));
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__reward-area {
+  background: linear-gradient(135deg, rgb(57 43 30 / 0.58), rgb(42 29 51 / 0.78));
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__mode,
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet__reward-area {
+  box-shadow: inset 0 0 0 1px rgb(214 198 240 / 0.07);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch {
+  background: rgb(7 5 15 / 0.28) !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch::before {
+  background: #30283f;
+  box-shadow: 0 6px 18px rgb(2 6 23 / 0.24);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch__option,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-mode-choice .mock-mode-switch__option {
+  color: #aa9fba !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch__option--active {
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet .mock-reward-track__bar {
+  background: #3a3148 !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-reward-track__bar {
+  background: #3a3148 !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-mode-choice .mock-mode-switch__option--timer.mock-mode-switch__option--active {
+  color: #fdad8b !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-reward-title {
+  color: #fdad8b !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-reward-next {
+  color: #b9afc7 !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-reward-milestone__score {
+  color: #b9afc7 !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode .mock-reward-milestone__prize {
+  color: #eee8f7 !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-reward-milestone__label,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-reward-milestone__label--chest {
+  color: #d5c9e5 !important;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet .mock-reward-milestone__score {
+  color: #aa9fba;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet .mock-reward-milestone__prize {
+  color: #eee8f7;
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-exam-sheet .mock-reward-milestone__label::after {
+  border-color: #746a82;
+  background: #211b2d;
+  box-shadow: 0 0 0 2px rgb(25 21 34 / 0.75);
+}
+
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet:hover,
+html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode:hover {
+  border-color: rgb(214 198 240 / 0.1) !important;
+  box-shadow:
+    0 22px 54px rgb(5 3 12 / 0.38),
+    inset 0 1px 0 rgb(255 255 255 / 0.045) !important;
+}
+
+@keyframes mockExamNextHalo {
+  0%, 100% {
+    box-shadow:
+      0 0 0 4px rgb(var(--mock-sheet-action) / 0.1),
+      0 8px 18px rgb(var(--mock-sheet-action) / 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px rgb(var(--mock-sheet-action) / 0.13),
+      0 10px 22px rgb(var(--mock-sheet-action) / 0.24);
+  }
+}
+
+@container (max-width: 720px) {
+  .progress-section--mocks .mock-exam-sheet__header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 17px;
+  }
+
+  .progress-section--mocks .mock-exam-sheet__launch {
+    padding: 13px;
+  }
+}
+
+@container (max-width: 460px) {
+  .progress-section--mocks .mock-exam-sheet__metrics {
+    align-items: center;
+    flex-direction: row;
+    gap: 8px 12px;
+  }
+
+  .progress-section--mocks .mock-exam-sheet__metric,
+  .progress-section--mocks .mock-exam-sheet__metric:last-child {
+    width: auto;
+  }
+
+  .progress-section--mocks .mock-exam-sheet__task-grid {
+    gap: 6px;
+  }
+
+  .progress-section--mocks .mock-exam-sheet__task-grid--short {
+    grid-template-columns: repeat(var(--mock-task-count), minmax(0, 1fr));
+  }
+
+  .progress-section--mocks .mock-exam-sheet__task {
+    height: 38px;
+  }
+
+  .progress-section--mocks .mock-exam-sheet .mock-reward-milestone__score {
+    font-size: 9.5px;
+  }
+
+  .progress-section--mocks .mock-exam-sheet .mock-reward-milestone__prize {
+    font-size: 10px;
+  }
+
+  .progress-section--mocks .mock-exam-sheet .mock-reward-milestone,
+  .progress-section--mocks .mock-exam-sheet .mock-reward-milestone--edge-start,
+  .progress-section--mocks .mock-exam-sheet .mock-reward-milestone--edge-end {
+    width: 34px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .progress-section--mocks .mock-student-card.mock-exam-sheet {
+    border-radius: 22px !important;
+    padding: 16px !important;
+  }
+
+  .progress-section--mocks .mock-exam-sheet__title {
+    font-size: 22px;
+  }
+
+  .progress-section--mocks .mock-exam-sheet__tasks,
+  .progress-section--mocks .mock-exam-sheet__mode,
+  .progress-section--mocks .mock-exam-sheet__reward-area {
+    border-radius: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-section--mocks .mock-student-card.mock-exam-sheet,
+  .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-start-button,
+  .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-start-button__arrow,
+  .progress-section--mocks .mock-exam-sheet__task[data-task-state='next'],
+  .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch::before,
+  .progress-section--mocks .mock-exam-sheet .mock-reward-track__fill,
+  .progress-section--mocks .mock-exam-sheet .mock-reward-milestone__tooltip {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .progress-section--mocks .mock-student-card.mock-exam-sheet,
+  html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode,
+  .progress-section--mocks .mock-exam-sheet__launch,
+  .progress-section--mocks .mock-exam-sheet__tasks,
+  .progress-section--mocks .mock-exam-sheet__mode,
+  .progress-section--mocks .mock-exam-sheet__reward-area,
+  .progress-section--mocks .mock-exam-sheet__task {
+    border: 1px solid CanvasText !important;
+    background: Canvas !important;
+    box-shadow: none !important;
+    color: CanvasText !important;
+  }
+
+  .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-mode-switch::before {
+    border: 1px solid Highlight;
+    background: Canvas;
+    box-shadow: none;
   }
 }
