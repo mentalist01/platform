@@ -99,34 +99,6 @@ const MOCK_TIMER_CHEST_MILESTONES = [
   { score: 80, chests: 1 },
   { score: 100, chests: 1 },
 ];
-const handleMockPremiumCardPointerMove = (event) => {
-  const element = event.currentTarget;
-  const rect = element.getBoundingClientRect();
-  if (!rect.width || !rect.height) return;
-
-  const pointerX = ((event.clientX - rect.left) / rect.width) * 100;
-  const pointerY = ((event.clientY - rect.top) / rect.height) * 100;
-  const tiltX = ((50 - pointerY) / 50) * 0.28;
-  const tiltY = ((pointerX - 50) / 50) * 0.38;
-
-  element.classList.add('mock-premium-card--interactive');
-  element.style.setProperty('--mock-card-pointer-x', `${pointerX.toFixed(2)}%`);
-  element.style.setProperty('--mock-card-pointer-y', `${pointerY.toFixed(2)}%`);
-  element.style.setProperty('--mock-card-tilt-x', `${tiltX.toFixed(2)}deg`);
-  element.style.setProperty('--mock-card-tilt-y', `${tiltY.toFixed(2)}deg`);
-  element.style.setProperty('--mock-card-lift', '-0.65px');
-};
-
-const handleMockPremiumCardPointerLeave = (event) => {
-  const element = event.currentTarget;
-  element.classList.remove('mock-premium-card--interactive');
-  element.style.setProperty('--mock-card-pointer-x', '50%');
-  element.style.setProperty('--mock-card-pointer-y', '42%');
-  element.style.setProperty('--mock-card-tilt-x', '0deg');
-  element.style.setProperty('--mock-card-tilt-y', '0deg');
-  element.style.setProperty('--mock-card-lift', '0px');
-};
-
 const MOCK_EXAM_FILTERS = [
   { id: 'all', label: 'Все' },
   { id: 'focus', label: 'Фокус' },
@@ -2781,10 +2753,7 @@ const ProgressSection = ({
 
   const renderStudentMockCard = (exam, examRow = null) => {
     if (!exam) return null;
-    const stickerSurface = String(theme || '').trim().toLowerCase() === 'dark' ? 'dark' : 'light';
     const examBadges = normalizeMockExamBadges(exam.badges);
-    const primaryBadge = examBadges[0] || null;
-    const secondaryBadges = examBadges.slice(1);
     const attempt = examRow?.attempt || mockAttemptsByExam?.[exam.id];
     const fallbackAttemptMode = normalizeMockAttemptMode(attempt?.mode);
     const fallbackSolvedMap = fallbackAttemptMode === MOCK_ATTEMPT_MODE_TIMER && !String(attempt?.timerFinishedAt || '').trim()
@@ -2874,13 +2843,13 @@ const ProgressSection = ({
       || (canSwitchClassicAttemptToTimer && isTimerMode)
     );
     const nextRewardText = rewardsDisabled
-      ? 'Персональная тренировка · без наград'
+      ? 'Без наград — только практика'
       : timerResultsHidden
-      ? 'Результат после завершения'
+      ? 'Результат появится после завершения'
       : (timerRewardsDisabled
-      ? 'Награды таймера отключены'
+      ? 'Для этого пробника награды отключены'
       : (nextRewardMilestone
-        ? `Ещё ${scoreGap} ${getBallLabel(scoreGap)} до ${isTimerMode ? 'сундука' : 'награды'}`
+        ? `До ${isTimerMode ? 'следующего сундука' : 'следующего рубежа'} — ${scoreGap} ${getBallLabel(scoreGap)}`
         : (isTimerMode ? 'Все сундуки открыты' : 'Все рубежи забраны')));
     const timerRemainingLabel = isTimerMode && examStats.timerRemainingMs !== null
       ? formatMockTimerDuration(examStats.timerRemainingMs)
@@ -2896,7 +2865,13 @@ const ProgressSection = ({
           : examStats.hasStarted
             ? 'mock-start-button--continue'
             : 'mock-start-button--start';
-    const nextOpenTaskLabel = examRow?.nextOpenTask?.label || examRow?.nextOpenTask?.taskKey || '';
+    const taskStats = Array.isArray(examStats.taskStats) ? examStats.taskStats : [];
+    const nextOpenTask = examRow?.nextOpenTask
+      || taskStats.find((taskStat) => !taskStat.solved && taskStat.attempted)
+      || taskStats.find((taskStat) => !taskStat.solved)
+      || taskStats[0]
+      || null;
+    const nextOpenTaskLabel = nextOpenTask?.label || nextOpenTask?.taskKey || '';
     const contextualActionLabel = !hasExamTasks
       ? 'Скоро'
       : canRestartTimerAttempt
@@ -2942,236 +2917,276 @@ const ProgressSection = ({
         [exam.id]: normalizeMockAttemptMode(nextMode),
       }));
     };
+    const isPersonalRandomMock = String(exam?.source || '').trim() === 'personal-random';
+    const randomLevelId = String(exam?.randomLevelId || '').trim().toLowerCase();
+    const examTitleId = `mock-exam-sheet-title-${String(exam.id || 'item').replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+    const cardVisualState = !hasExamTasks
+      ? 'empty'
+      : examStats.isCompleted
+        ? 'done'
+        : isFocusExam
+          ? 'focus'
+          : isBestExam
+            ? 'best'
+            : examStats.hasStarted
+              ? 'progress'
+              : 'new';
+    const stateLabel = !hasExamTasks
+      ? 'Скоро'
+      : examStats.isCompleted
+        ? 'Готово'
+        : isFocusExam
+          ? 'Фокус'
+          : isBestExam
+            ? 'Лучший'
+            : examStats.hasStarted
+              ? 'В работе'
+              : 'Новый';
+    const launchEyebrow = !hasExamTasks
+      ? 'Статус'
+      : (examStats.isCompleted || canRestartTimerAttempt)
+        ? 'Результат'
+        : examStats.hasStarted
+          ? 'Следующее задание'
+          : 'Начать с задания';
+    const launchValue = !hasExamTasks
+      ? 'Ожидаем задания'
+      : (examStats.isCompleted || canRestartTimerAttempt)
+        ? `${scoreValue} ${getBallLabel(scoreValue)}`
+        : nextOpenTaskLabel
+          ? `№${nextOpenTaskLabel}`
+          : 'Пробник';
+    const launchButtonLabel = !hasExamTasks
+      ? 'Скоро'
+      : canRestartTimerAttempt
+        ? 'Открыть'
+        : examStats.isCompleted
+          ? 'Повторить'
+          : examStats.hasStarted
+            ? 'Продолжить'
+            : 'Начать';
+    const taskMapAriaLabel = `Лист заданий «${exam.title}»: ${examStats.solvedCount} из ${examStats.totalCount} выполнено${nextOpenTaskLabel && !examStats.isCompleted ? `, следующее задание ${nextOpenTaskLabel}` : ''}.`;
 
     return (
-      <div
+      <article
         key={exam.id}
-        role={hasExamTasks ? 'button' : 'group'}
-        tabIndex={hasExamTasks ? 0 : undefined}
-        onClick={openStudentMockExam}
-        onKeyDown={(event) => {
-          if (!hasExamTasks) return;
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            handleOpenMockExam(exam, { mode: selectedMode });
-          }
-        }}
-        onPointerMove={handleMockPremiumCardPointerMove}
-        onPointerLeave={handleMockPremiumCardPointerLeave}
-        style={{
-          '--mock-card-pointer-x': '50%',
-          '--mock-card-pointer-y': '42%',
-          '--mock-card-tilt-x': '0deg',
-          '--mock-card-tilt-y': '0deg',
-          '--mock-card-lift': '0px',
-        }}
-        className={`mock-student-card mock-student-card--compact mock-premium-card mock-ticket-v3 group relative overflow-hidden rounded-[26px] border p-0 text-left transition-all duration-300 ${hasExamTasks ? 'cursor-pointer hover:-translate-y-0.5' : 'mock-student-card--empty cursor-default'} ${cardStateClass} ${isTimerMode ? 'mock-student-card--timer-mode' : ''} ${timerRewardsDisabled ? 'mock-student-card--timer-rewards-disabled' : ''}`}
+        aria-labelledby={examTitleId}
+        data-state={cardVisualState}
+        data-mode={isTimerMode ? 'timer' : 'classic'}
+        data-kind={isPersonalRandomMock ? 'personal' : 'standard'}
+        data-level={randomLevelId || undefined}
+        style={{ '--mock-sheet-index': Math.max(0, Number(examRow?.index) || 0) }}
+        className={`mock-student-card mock-exam-sheet relative overflow-hidden text-left ${!hasExamTasks ? 'mock-student-card--empty' : ''} ${cardStateClass} ${isTimerMode ? 'mock-student-card--timer-mode' : ''} ${timerRewardsDisabled ? 'mock-student-card--timer-rewards-disabled' : ''}`}
       >
-        <div className="mock-quest-grid relative grid gap-0 lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="mock-quest-body p-3.5 md:p-4">
-            <div className="mock-quest-heading flex flex-col gap-3 md:flex-row md:items-start">
-              <div className="mock-ticket-mark mock-quest-emblem flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sky-300">
-                <span className="mock-quest-emblem__ring" aria-hidden="true" />
-                {isTimerMode ? <Flame size={19} /> : <ShieldCheck size={19} />}
+        <div className="mock-exam-sheet__header">
+          <div className="mock-exam-sheet__identity">
+            <div className="mock-exam-sheet__kicker">
+              <span className="mock-exam-sheet__state" data-state={cardVisualState}>{stateLabel}</span>
+              {isPersonalRandomMock && <span className="mock-exam-sheet__type">Персональный</span>}
+              {examBadges.slice(0, 2).map((badge, badgeIndex) => (
+                <span key={`${badge.themeId}-${badge.label}-${badgeIndex}`} className="mock-exam-sheet__edition">
+                  {badge.label}
+                </span>
+              ))}
+              {hasExamTasks && isTimerMode && timerRewardsDisabled && (
+                <span className="mock-exam-sheet__notice">
+                  <PackageOpen size={12} />
+                  Без наград
+                </span>
+              )}
+              {hasExamTasks && isTimerMode && examStats.isTimerPaused && (
+                <span className="mock-exam-sheet__notice mock-exam-sheet__notice--pause">
+                  <Clock3 size={12} />
+                  Пауза
+                </span>
+              )}
+            </div>
+
+            <h4 id={examTitleId} className="mock-exam-sheet__title">{exam.title}</h4>
+
+            <div className="mock-exam-sheet__metrics">
+              {hasExamTasks ? (
+                <>
+                  <span className="mock-exam-sheet__metric">
+                    <ListChecks size={14} />
+                    <strong>{examStats.solvedCount}</strong>
+                    <span>{`из ${examStats.totalCount} заданий`}</span>
+                  </span>
+                  <span className="mock-exam-sheet__metric">
+                    <Trophy size={14} />
+                    <strong>{scoreValue}</strong>
+                    <span>{getBallLabel(scoreValue)}</span>
+                  </span>
+                  {isTimerMode && (
+                    <span className="mock-exam-sheet__metric mock-exam-sheet__metric--timer">
+                      <Clock3 size={14} />
+                      <strong>{modeLocked ? timerRemainingLabel : '235 мин'}</strong>
+                      <span>{examStats.isTimerPaused ? 'на паузе' : 'таймер'}</span>
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="mock-exam-sheet__metric mock-exam-sheet__metric--empty">
+                  <Sparkles size={14} />
+                  <span>Задания готовятся</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          <aside className="mock-exam-sheet__launch" aria-label="Следующий шаг">
+            <div className="mock-exam-sheet__launch-copy">
+              <span>{launchEyebrow}</span>
+              <strong>{launchValue}</strong>
+            </div>
+            <Button
+              variant={examStats.isCompleted ? 'secondary' : 'primary'}
+              onClick={openStudentMockExam}
+              disabled={!hasExamTasks || isStartingThisMock}
+              aria-busy={isStartingThisMock || undefined}
+              aria-label={`${contextualActionLabel}. ${exam.title}`}
+              className={`mock-start-button mock-exam-sheet__start ${actionButtonStateClass} ${isStartingThisMock ? 'mock-start-button--loading' : ''}`}
+            >
+              <span className="mock-start-button__icon">
+                {examStats.isCompleted ? <RefreshCw size={16} /> : <PlayCircle size={16} />}
+              </span>
+              <span className="mock-start-button__label">
+                {isStartingThisMock ? 'Открываем…' : launchButtonLabel}
+              </span>
+              <ChevronRight className="mock-start-button__arrow" size={17} />
+            </Button>
+
+            {canTeacherContinueTimerAttempt && (
+              <button
+                type="button"
+                onClick={() => handleContinueMockTimerAttempt(exam)}
+                disabled={isContinuingTimerAttempt}
+                className="mock-exam-sheet__teacher-action"
+              >
+                <Clock3 size={14} />
+                <span>{isContinuingTimerAttempt ? 'Открываем…' : 'Продолжить экзамен'}</span>
+              </button>
+            )}
+            {canTeacherRestoreTimerRewards && (
+              <button
+                type="button"
+                onClick={() => handleRestoreMockTimerRewards(exam)}
+                disabled={isRestoringTimerRewards}
+                className="mock-exam-sheet__teacher-action mock-exam-sheet__teacher-action--rewards"
+              >
+                <PackageOpen size={14} />
+                <span>{isRestoringTimerRewards ? 'Возвращаем…' : 'Вернуть награды'}</span>
+              </button>
+            )}
+          </aside>
+        </div>
+
+        {hasExamTasks ? (
+          <>
+            <section className="mock-exam-sheet__tasks" aria-label={taskMapAriaLabel}>
+              <div className="mock-exam-sheet__tasks-head">
+                <span>
+                  <ListChecks size={14} />
+                  Лист заданий
+                </span>
+                <strong>{`${Math.round(progressValue)}%`}</strong>
               </div>
+              <div
+                className={`mock-exam-sheet__task-grid ${taskStats.length <= 7 ? 'mock-exam-sheet__task-grid--short' : ''}`}
+                role="list"
+                style={{ '--mock-task-count': Math.max(1, taskStats.length) }}
+              >
+                {taskStats.map((taskStat, taskIndex) => {
+                  const isNextTask = !examStats.isCompleted && String(taskStat.taskKey) === String(nextOpenTask?.taskKey || '');
+                  const taskState = taskStat.solved
+                    ? 'solved'
+                    : isNextTask
+                        ? 'next'
+                        : taskStat.attempted
+                          ? 'attempted'
+                          : 'idle';
+                  const taskStateLabel = taskState === 'solved'
+                    ? 'решено'
+                    : taskState === 'attempted'
+                      ? 'есть попытка'
+                      : taskState === 'next'
+                        ? 'следующее'
+                        : 'не начато';
+                  const rawTaskLabel = String(taskStat.label || taskStat.taskKey || taskIndex + 1);
+                  const displayTaskLabel = /^\d$/.test(rawTaskLabel) ? `0${rawTaskLabel}` : rawTaskLabel;
+                  return (
+                    <span
+                      key={taskStat.taskKey || taskIndex}
+                      role="listitem"
+                      aria-label={`Задание ${rawTaskLabel}: ${taskStateLabel}`}
+                      className="mock-exam-sheet__task"
+                      data-task-state={taskState}
+                      style={{ '--mock-task-index': taskIndex }}
+                    >
+                      <span>{displayTaskLabel}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            </section>
 
-              <div className="min-w-0 flex-1">
-                <div className="mock-ticket-v3__top">
-                  <div className="mock-ticket-v3__identity min-w-0 flex-1">
-                    <div className="mock-quest-badges flex flex-wrap items-center gap-1.5">
-                      {isFocusExam ? (
-                        <span className="mock-state-chip mock-state-chip--focus">Фокус</span>
-                      ) : isBestExam ? (
-                        <span className="mock-state-chip mock-state-chip--best">Лучший</span>
-                      ) : examStats.isCompleted ? (
-                        <span className="mock-state-chip mock-state-chip--done">Готово</span>
-                      ) : !hasExamTasks ? (
-                        <span className="mock-state-chip">Скоро</span>
-                      ) : examStats.hasStarted ? (
-                        <span className="mock-state-chip mock-state-chip--progress">В работе</span>
-                      ) : (
-                        <span className="mock-state-chip">Новый</span>
-                      )}
-                      {hasExamTasks && isTimerMode && timerRewardsDisabled && (
-                        <span className="mock-state-chip mock-state-chip--timer mock-state-chip--no-rewards">
-                          <PackageOpen size={11} />
-                          Без наград
-                        </span>
-                      )}
-                      {hasExamTasks && isTimerMode && examStats.isTimerPaused && (
-                        <span className="mock-state-chip mock-state-chip--timer">
-                          <Clock3 size={11} />
-                          Пауза
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="mt-2">
-                      <p className="mock-quest-title text-xl font-display font-bold leading-tight text-gray-900 md:text-[1.35rem]">{exam.title}</p>
-                    </div>
-
-                    <div className="mock-quest-stats mt-2 flex flex-wrap items-center gap-1.5">
-                      {hasExamTasks ? (
-                        <>
-                          <span>
-                            <BookOpen size={12} />
-                            {`${examStats.solvedCount} из ${examStats.totalCount} выполнено`}
-                          </span>
-                          <span>
-                            <Trophy size={12} />
-                            {`${scoreValue} ${getBallLabel(scoreValue)}`}
-                          </span>
-                          {isTimerMode && (
-                            <span className="mock-quest-stat--timer">
-                              <Flame size={12} />
-                              {modeLocked ? `${examStats.isTimerPaused ? 'Пауза: ' : ''}${timerRemainingLabel}` : 'Таймер 235 мин'}
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <span>
-                          <Sparkles size={12} />
-                          Задания готовятся
-                        </span>
-                      )}
-                    </div>
-
-                    {hasExamTasks && (
-                      <div
-                        className="mock-ticket-v3__progress"
-                        role="progressbar"
-                        aria-label="Прогресс пробника"
-                        aria-valuemin="0"
-                        aria-valuemax="100"
-                        aria-valuenow={Math.round(progressValue)}
-                      >
-                        <span style={{ width: `${progressValue}%` }} />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mock-ticket-v3__actions">
-                    {primaryBadge && (
-                      <div className="mock-quest-sticker">
-                        <MockExamBadgeSticker badge={primaryBadge} size="sm" className="mock-card-sticker" surface={stickerSurface} />
-                      </div>
-                    )}
-                    <div className="mock-ticket-v3__cta-stack">
-                      <Button
-                        variant={examStats.isCompleted ? 'secondary' : 'primary'}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openStudentMockExam();
-                        }}
-                        disabled={!hasExamTasks || isStartingThisMock}
-                        aria-busy={isStartingThisMock || undefined}
-                        className={`mock-start-button ${actionButtonStateClass} ${isStartingThisMock ? 'mock-start-button--loading' : ''}`}
-                      >
-                        <span className="mock-start-button__icon">
-                          <PlayCircle size={16} />
-                        </span>
-                        <span className="mock-start-button__label">
-                          {isStartingThisMock ? 'Запускаем...' : contextualActionLabel}
-                        </span>
-                        <ChevronRight className="mock-start-button__arrow" size={17} />
-                      </Button>
-                      {canTeacherContinueTimerAttempt && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleContinueMockTimerAttempt(exam);
-                          }}
-                          onKeyDown={(event) => event.stopPropagation()}
-                          disabled={isContinuingTimerAttempt}
-                          className="mock-ticket-v3__teacher-action mock-ticket-v3__teacher-action--continue"
-                        >
-                          <Clock3 size={14} />
-                          <span>{isContinuingTimerAttempt ? 'Открываем...' : 'Продолжить экзамен'}</span>
-                        </button>
-                      )}
-                      {canTeacherRestoreTimerRewards && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleRestoreMockTimerRewards(exam);
-                          }}
-                          onKeyDown={(event) => event.stopPropagation()}
-                          disabled={isRestoringTimerRewards}
-                          className="mock-ticket-v3__teacher-action mock-ticket-v3__teacher-action--rewards"
-                        >
-                          <PackageOpen size={14} />
-                          <span>{isRestoringTimerRewards ? 'Возвращаем...' : 'Вернуть награды'}</span>
-                        </button>
-                      )}
-                    </div>
+            <div className="mock-exam-sheet__dock">
+              <section className="mock-exam-sheet__mode" aria-label="Режим прохождения">
+                <div className="mock-exam-sheet__section-title">
+                  <span>Режим</span>
+                  {modeLocked && !canSwitchClassicAttemptToTimer && <small>зафиксирован</small>}
+                </div>
+                <div
+                  className={`mock-mode-choice ${isTimerMode ? 'mock-mode-choice--timer' : 'mock-mode-choice--classic'} ${modeLocked && !canSwitchClassicAttemptToTimer ? 'mock-mode-choice--locked' : ''} ${shouldWarnClassicLock ? 'mock-mode-choice--warning' : ''}`}
+                  role="group"
+                  aria-label={`Режим прохождения: ${exam.title}`}
+                >
+                  <div className={`mock-mode-switch ${modeLocked && !canSwitchClassicAttemptToTimer ? 'mock-mode-switch--locked' : ''}`}>
+                    <button
+                      type="button"
+                      onClick={() => setStudentMockMode(MOCK_ATTEMPT_MODE_CLASSIC)}
+                      disabled={modeLocked && !canSwitchClassicAttemptToTimer && isTimerMode}
+                      aria-pressed={!isTimerMode}
+                      className={`mock-mode-switch__option ${!isTimerMode ? 'mock-mode-switch__option--active' : ''}`}
+                    >
+                      <BookOpen size={14} />
+                      <span>Без таймера</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStudentMockMode(MOCK_ATTEMPT_MODE_TIMER)}
+                      disabled={modeLocked && !canSwitchClassicAttemptToTimer && !isTimerMode}
+                      aria-pressed={isTimerMode}
+                      className={`mock-mode-switch__option mock-mode-switch__option--timer ${isTimerMode ? 'mock-mode-switch__option--active' : ''}`}
+                    >
+                      <Clock3 size={14} />
+                      <span>С таймером</span>
+                    </button>
                   </div>
                 </div>
+              </section>
 
-                {secondaryBadges.length > 0 && (
-                  <MockExamBadges badges={secondaryBadges} className="mt-2" />
-                )}
-
-                {hasExamTasks ? (
-                  <>
-                  <div className="mock-card-controls mt-3">
-                  <div
-                    className={`mock-mode-choice ${isTimerMode ? 'mock-mode-choice--timer' : 'mock-mode-choice--classic'} ${modeLocked && !canSwitchClassicAttemptToTimer ? 'mock-mode-choice--locked' : ''} ${shouldWarnClassicLock ? 'mock-mode-choice--warning' : ''}`}
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => event.stopPropagation()}
-                  >
-                    <div className={`mock-mode-switch ${modeLocked && !canSwitchClassicAttemptToTimer ? 'mock-mode-switch--locked' : ''}`}>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setStudentMockMode(MOCK_ATTEMPT_MODE_CLASSIC);
-                        }}
-                        disabled={modeLocked && !canSwitchClassicAttemptToTimer && isTimerMode}
-                        aria-pressed={!isTimerMode}
-                        className={`mock-mode-switch__option ${!isTimerMode ? 'mock-mode-switch__option--active' : ''}`}
-                      >
-                        <BookOpen size={14} />
-                        <span>Без таймера</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setStudentMockMode(MOCK_ATTEMPT_MODE_TIMER);
-                        }}
-                        disabled={modeLocked && !canSwitchClassicAttemptToTimer && !isTimerMode}
-                        aria-pressed={isTimerMode}
-                        className={`mock-mode-switch__option mock-mode-switch__option--timer ${isTimerMode ? 'mock-mode-switch__option--active' : ''}`}
-                      >
-                        <Clock3 size={14} />
-                        <span>С таймером</span>
-                      </button>
-                    </div>
+              <section className="mock-exam-sheet__reward-area" aria-label="Награды пробника">
+                <div className={`mock-reward-shell mock-exam-sheet__rewards ${isTimerMode ? 'mock-reward-shell--timer' : ''} ${timerRewardsDisabled ? 'mock-reward-shell--disabled' : ''}`}>
+                  <div className="mock-exam-sheet__reward-head">
+                    <span className="mock-reward-title">
+                      {rewardsDisabled ? <BookOpen size={14} /> : (isTimerMode ? <Flame size={14} /> : <Crown size={14} />)}
+                      {rewardsDisabled
+                        ? 'Тренировка'
+                        : isTimerMode
+                          ? (timerResultsHidden ? 'Ответы сохранены' : 'Сундуки')
+                          : 'Рубежи наград'}
+                    </span>
+                    <span className="mock-reward-next">
+                      {isTimerMode && modeLocked ? `${examStats.isTimerPaused ? 'Пауза: ' : ''}${timerRemainingLabel} · ` : ''}
+                      {nextRewardText}
+                    </span>
                   </div>
 
-                  <div className={`mock-reward-shell mock-quest-reward rounded-2xl p-2.5 ${isTimerMode ? 'mock-reward-shell--timer' : ''} ${timerRewardsDisabled ? 'mock-reward-shell--disabled' : ''}`}>
-                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
-                      <span className="mock-reward-title inline-flex items-center gap-1.5 font-semibold">
-                        {rewardsDisabled ? <BookOpen size={13} /> : (isTimerMode ? <Flame size={13} /> : <Crown size={13} />)}
-                        {rewardsDisabled
-                          ? 'Тренировочный режим'
-                          : isTimerMode
-                          ? (timerResultsHidden ? 'Ответы сохранены' : 'Награды таймера')
-                          : 'Награды за результат'}
-                      </span>
-                      <span className="mock-reward-next">
-                        {isTimerMode && modeLocked ? `${examStats.isTimerPaused ? 'Пауза: ' : ''}${timerRemainingLabel} · ` : ''}
-                        {nextRewardText}
-                      </span>
-                    </div>
-                    {!rewardsDisabled && <div className="mock-reward-track mt-2">
-                      <div className="mock-reward-track__bar">
-                        <div
-                          className="mock-reward-track__fill"
-                          style={{ width: `${scoreValue}%` }}
-                        />
+                  {!rewardsDisabled && (
+                    <div className="mock-reward-track">
+                      <div className="mock-reward-track__bar" aria-hidden="true">
+                        <div className="mock-reward-track__fill" style={{ width: `${scoreValue}%` }} />
                       </div>
                       {visibleMilestones.map((milestone) => {
                         const rewardDisabled = timerRewardsDisabled && isTimerMode;
@@ -3183,80 +3198,60 @@ const ProgressSection = ({
                           && nextRewardMilestone
                           && milestone.score === nextRewardMilestone.score
                         );
-                        const edgeClass = milestone.score >= 100
-                          ? 'mock-reward-milestone--edge-end'
-                          : milestone.score <= 30
-                            ? 'mock-reward-milestone--edge-start'
-                            : '';
                         const chestTooltipText = isTimerMode ? (() => {
                           const chestLabel = getMockChestCountLabel(milestone.chests);
                           const scoreLabel = `${milestone.score} ${getBallLabel(milestone.score)}`;
-                          if (rewardDisabled) {
-                            return `${chestLabel} за ${scoreLabel} сейчас недоступен: награды таймера для этого пробника отключены.`;
-                          }
-                          if (awarded) {
-                            return `${chestLabel} за ${scoreLabel} уже добавлен в хранилище сундуков.`;
-                          }
-                          if (achieved) {
-                            return `${chestLabel} за ${scoreLabel} уже заработан и появится после сохранения результата.`;
-                          }
+                          if (rewardDisabled) return `${chestLabel} за ${scoreLabel} сейчас недоступен: награды таймера для этого пробника отключены.`;
+                          if (awarded) return `${chestLabel} за ${scoreLabel} уже добавлен в хранилище сундуков.`;
+                          if (achieved) return `${chestLabel} за ${scoreLabel} уже заработан и появится после сохранения результата.`;
                           return `${chestLabel} за ${scoreLabel}: набери этот результат в режиме таймера, чтобы получить сундук с наградой.`;
                         })() : '';
                         return (
                           <div
                             key={milestone.score}
-                            className={`mock-reward-milestone ${achieved ? 'mock-reward-milestone--achieved' : ''} ${awarded ? 'mock-reward-milestone--awarded' : ''} ${isNextRewardMilestone ? 'mock-reward-milestone--next' : ''} ${rewardDisabled ? 'mock-reward-milestone--disabled' : ''} ${edgeClass}`}
-                            style={{ left: `${milestone.score}%` }}
+                            className={`mock-reward-milestone ${milestone.score >= 100 ? 'mock-reward-milestone--edge-end' : ''} ${achieved ? 'mock-reward-milestone--achieved' : ''} ${awarded ? 'mock-reward-milestone--awarded' : ''} ${isNextRewardMilestone ? 'mock-reward-milestone--next' : ''} ${rewardDisabled ? 'mock-reward-milestone--disabled' : ''}`}
+                            style={{ '--mock-reward-score': milestone.score }}
                           >
                             <div
                               className={`mock-reward-milestone__label ${isTimerMode ? 'mock-reward-milestone__label--chest' : ''}`}
-                              data-tooltip={chestTooltipText || undefined}
-                              aria-label={chestTooltipText || undefined}
+                              aria-label={chestTooltipText || `${milestone.score} баллов — ${milestone.coins} монет`}
                               tabIndex={isTimerMode ? 0 : undefined}
-                              onClick={isTimerMode ? (event) => event.stopPropagation() : undefined}
-                              onKeyDown={isTimerMode ? (event) => event.stopPropagation() : undefined}
                             >
-                              {isTimerMode ? (
-                                <>
-                                  <img
-                                    src={chestClosedImage}
-                                    alt=""
-                                    draggable="false"
-                                    className="mock-reward-milestone__chest-icon"
-                                  />
-                                  <span>{`x${milestone.chests}`}</span>
-                                  <span className="mock-reward-milestone__tooltip" role="tooltip">
-                                    {chestTooltipText}
-                                  </span>
-                                </>
-                              ) : (
-                                <>
-                                  <span>{milestone.coins}</span>
-                                  <CoinGuideIcon className="h-3 w-3 object-contain" />
-                                </>
+                              <span className="mock-reward-milestone__score">{`${milestone.score} б.`}</span>
+                              <span className="mock-reward-milestone__prize">
+                                {isTimerMode ? (
+                                  <>
+                                    <img src={chestClosedImage} alt="" draggable="false" className="mock-reward-milestone__chest-icon" />
+                                    <span>{`×${milestone.chests}`}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span>{milestone.coins}</span>
+                                    <CoinGuideIcon className="h-3 w-3 object-contain" />
+                                  </>
+                                )}
+                              </span>
+                              {isTimerMode && (
+                                <span className="mock-reward-milestone__tooltip" role="tooltip">{chestTooltipText}</span>
                               )}
                               {awarded && <span className="mock-reward-milestone__check">✓</span>}
                             </div>
-                            <div className="mock-reward-milestone__tick" />
                           </div>
                         );
                       })}
-                    </div>}
-                  </div>
-                  </div>
-
-                  </>
-                ) : (
-                  <div className="mock-empty-note mt-4 rounded-[22px] px-3 py-2.5 text-xs font-semibold text-gray-500">
-                    Учитель ещё добавляет задания.
-                  </div>
-                )}
-              </div>
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
+          </>
+        ) : (
+          <div className="mock-exam-sheet__empty-note">
+            <Sparkles size={16} />
+            <span>Учитель ещё добавляет задания — карточка станет активной, когда пробник будет готов.</span>
           </div>
-
-        </div>
-      </div>
+        )}
+      </article>
     );
   };
 
