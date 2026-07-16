@@ -2038,8 +2038,38 @@ html[data-theme='dark'] .board-canvas-outline {
   .weekly-task-practice--summary.weekly-task-practice--unknown,
   .weekly-task-practice--summary.weekly-task-practice--below,
   .weekly-task-practice--summary.weekly-task-practice--unavailable {
+    grid-template-columns: 1rem minmax(0, 1fr);
+    min-height: 2.1rem;
+    gap: 0.4rem;
+    padding: 0.34rem 0.62rem 0.34rem 0.48rem;
     background: transparent;
     box-shadow: none;
+  }
+
+  .weekly-task-practice--summary.weekly-task-practice--new .weekly-task-practice__icon,
+  .weekly-task-practice--summary.weekly-task-practice--unknown .weekly-task-practice__icon,
+  .weekly-task-practice--summary.weekly-task-practice--below .weekly-task-practice__icon,
+  .weekly-task-practice--summary.weekly-task-practice--unavailable .weekly-task-practice__icon {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .weekly-task-practice--summary.weekly-task-practice--new .weekly-task-practice__icon svg,
+  .weekly-task-practice--summary.weekly-task-practice--unknown .weekly-task-practice__icon svg,
+  .weekly-task-practice--summary.weekly-task-practice--below .weekly-task-practice__icon svg,
+  .weekly-task-practice--summary.weekly-task-practice--unavailable .weekly-task-practice__icon svg {
+    width: 0.88rem;
+    height: 0.88rem;
+    filter: none;
+  }
+
+  .weekly-task-practice--summary.weekly-task-practice--new .weekly-task-practice__headline,
+  .weekly-task-practice--summary.weekly-task-practice--unknown .weekly-task-practice__headline,
+  .weekly-task-practice--summary.weekly-task-practice--below .weekly-task-practice__headline,
+  .weekly-task-practice--summary.weekly-task-practice--unavailable .weekly-task-practice__headline {
+    color: #64748b;
+    font-size: 0.7rem;
+    font-weight: 700;
   }
 
   .weekly-task-practice--summary.weekly-task-practice--new::after,
