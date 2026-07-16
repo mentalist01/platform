@@ -7,6 +7,11 @@ import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { getStudentUnpaidLessonOccurrences } from '../utils/studentPaymentReminder';
+import {
+  MOCK_EXAM_MODE_CLASSIC as MOCK_ATTEMPT_MODE_CLASSIC,
+  MOCK_EXAM_MODE_TIMER as MOCK_ATTEMPT_MODE_TIMER,
+  normalizeAssignedMockExamMode as normalizeAssignedMockMode,
+} from '../utils/mockExamMode';
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const SHOW_SCHEDULE_SKILL_TREE = false;
@@ -545,7 +550,15 @@ const ScheduleSection = ({
   onTogglePush = null,
 }) => {
   const DEFAULT_HOMEWORK = '';
-  const DEFAULT_GOAL = { type: GOAL_TYPE_TASK, taskNumber: '', levelId: 'basic', targetInput: '', includeAll: false, mockExamId: '' };
+  const DEFAULT_GOAL = {
+    type: GOAL_TYPE_TASK,
+    taskNumber: '',
+    levelId: 'basic',
+    targetInput: '',
+    includeAll: false,
+    mockExamId: '',
+    mode: MOCK_ATTEMPT_MODE_TIMER,
+  };
   const [homeworks, setHomeworks] = useState([]);
   const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
   const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt()), daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
@@ -1473,7 +1486,8 @@ const ScheduleSection = ({
             if (!mockExamId) return null;
             return {
               type: GOAL_TYPE_MOCK,
-              mockExamId
+              mockExamId,
+              mode: normalizeAssignedMockMode(goal?.mode),
             };
           }
           const normalizedTaskNumber = normalizeTaskNumber(goal?.taskNumber);
@@ -1680,6 +1694,7 @@ const ScheduleSection = ({
         viewKey: `mock-${mockExamId}-${goalIndex}`,
         type: GOAL_TYPE_MOCK,
         mockExamId,
+        mode: normalizeAssignedMockMode(goal?.mode),
         heading: `Пробник · ${mockExam?.title || 'Пробник недоступен'}`,
         totalCount,
         solvedCount,
@@ -2324,7 +2339,17 @@ const ScheduleSection = ({
                   <div key={goalView.viewKey} className="rounded-xl border border-purple-100/80 bg-white/90 px-3 py-2.5 space-y-2.5">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <div className="text-xs font-semibold text-purple-700">{goalView.heading}</div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="text-xs font-semibold text-purple-700">{goalView.heading}</div>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                            goalView.mode === MOCK_ATTEMPT_MODE_TIMER
+                              ? 'bg-sky-50 text-sky-700 ring-1 ring-sky-100'
+                              : 'bg-violet-50 text-violet-700 ring-1 ring-violet-100'
+                          }`}>
+                            {goalView.mode === MOCK_ATTEMPT_MODE_TIMER ? <Clock3 size={10} /> : <BookOpen size={10} />}
+                            {goalView.mode === MOCK_ATTEMPT_MODE_TIMER ? 'С таймером' : 'Обычный режим'}
+                          </span>
+                        </div>
                         <div className="text-[11px] text-slate-500">
                           {goalView.totalCount > 0
                             ? `Выполнено ${goalView.solvedCount}/${goalView.totalCount}`
@@ -2580,7 +2605,8 @@ const ScheduleSection = ({
               return {
                 ...DEFAULT_GOAL,
                 type: GOAL_TYPE_MOCK,
-                mockExamId: goal.mockExamId
+                mockExamId: goal.mockExamId,
+                mode: normalizeAssignedMockMode(goal.mode),
               };
             }
             return {
@@ -2636,7 +2662,8 @@ const ScheduleSection = ({
             if (!mockExamId) return null;
             return {
               type: GOAL_TYPE_MOCK,
-              mockExamId
+              mockExamId,
+              mode: normalizeAssignedMockMode(goal?.mode),
             };
           }
           const taskNumber = String(goal?.taskNumber || '').trim();
@@ -3216,7 +3243,7 @@ const ScheduleSection = ({
                 : null;
               return (
                 <div key={`${index}-${goalType}-${goal?.taskNumber || goal?.mockExamId || 'goal'}`} className="rounded-2xl border border-purple-100/70 bg-white/90 p-3.5 space-y-3 shadow-sm shadow-purple-100/40">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <select
                       value={goalType}
                       onChange={(e) => {
@@ -3244,6 +3271,38 @@ const ScheduleSection = ({
                             <option key={exam.id} value={exam.id}>{exam.title}</option>
                           ))}
                         </select>
+                        <div
+                          className="flex items-center gap-1 rounded-xl border border-purple-100 bg-purple-50/65 p-1 md:col-span-2"
+                          role="group"
+                          aria-label="Режим прохождения пробника"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => updateGoal(index, { mode: MOCK_ATTEMPT_MODE_TIMER })}
+                            aria-pressed={normalizeAssignedMockMode(goal?.mode) === MOCK_ATTEMPT_MODE_TIMER}
+                            className={`flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition ${
+                              normalizeAssignedMockMode(goal?.mode) === MOCK_ATTEMPT_MODE_TIMER
+                                ? 'bg-white text-orange-600 shadow-sm ring-1 ring-orange-100'
+                                : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
+                            }`}
+                          >
+                            <Clock3 size={14} />
+                            Таймер
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateGoal(index, { mode: MOCK_ATTEMPT_MODE_CLASSIC })}
+                            aria-pressed={normalizeAssignedMockMode(goal?.mode) === MOCK_ATTEMPT_MODE_CLASSIC}
+                            className={`flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition ${
+                              normalizeAssignedMockMode(goal?.mode) === MOCK_ATTEMPT_MODE_CLASSIC
+                                ? 'bg-white text-violet-700 shadow-sm ring-1 ring-violet-100'
+                                : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
+                            }`}
+                          >
+                            <BookOpen size={14} />
+                            Обычный
+                          </button>
+                        </div>
                         <div className="flex items-center justify-end gap-3">
                           {(Array.isArray(form.goals) ? form.goals.length : 0) > 1 && (
                             <button

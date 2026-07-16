@@ -19,6 +19,18 @@ import {
 } from '../src/data/pythonInfiniteTrainingTasks.js';
 import { getLevelFromXp } from '../src/utils/leveling.js';
 import {
+  buildWeeklyTaskPracticeMilestones,
+  buildWeeklyTaskPracticeStats,
+  normalizeWeeklyTaskPracticeMilestones,
+} from '../src/utils/weeklyTaskPractice.js';
+import {
+  MOCK_EXAM_MODE_CLASSIC,
+  MOCK_EXAM_MODE_TIMER,
+  normalizeAssignedMockExamMode,
+  normalizeMockExamMode,
+  resolveMockExamAttemptMode,
+} from '../src/utils/mockExamMode.js';
+import {
   QuestionTargetRemapConflictError,
   remapProgressQuestionTargets,
 } from './questionTargetRemap.js';
@@ -5071,20 +5083,24 @@ const ensureTeacherSocialGroupChatAccess = (req, res, teacherId, options = {}) =
 
 const normalizeMockExamAccess = (access, fallbackAll = true) => {
   if (!access || typeof access !== 'object') {
-    return { all: fallbackAll, students: [] };
+    return { all: fallbackAll, students: [], mode: MOCK_EXAM_MODE_TIMER };
   }
   const students = Array.isArray(access.students)
     ? access.students.map((id) => String(id)).filter(Boolean)
     : [];
-  return { all: Boolean(access.all), students };
+  return {
+    all: Boolean(access.all),
+    students,
+    mode: normalizeAssignedMockExamMode(access.mode),
+  };
 };
 
 const normalizeMockExamAccessForSave = (access) => {
   const normalized = normalizeMockExamAccess(access, false);
   if (normalized.all) {
-    return { all: true, students: [] };
+    return { all: true, students: [], mode: normalized.mode };
   }
-  return { all: false, students: normalized.students };
+  return { all: false, students: normalized.students, mode: normalized.mode };
 };
 
 const isMockExamVisibleToStudent = (exam, studentId) => {
@@ -9795,8 +9811,8 @@ const MOCK_COIN_MILESTONES = [
   { score: 80, coins: 80 },
   { score: 100, coins: 100 },
 ];
-const MOCK_ATTEMPT_MODE_CLASSIC = 'classic';
-const MOCK_ATTEMPT_MODE_TIMER = 'timer';
+const MOCK_ATTEMPT_MODE_CLASSIC = MOCK_EXAM_MODE_CLASSIC;
+const MOCK_ATTEMPT_MODE_TIMER = MOCK_EXAM_MODE_TIMER;
 const MOCK_EXAM_TIMER_DURATION_MS = 235 * 60 * 1000;
 const MOCK_TIMER_CHEST_MILESTONES = [
   { score: 30, chests: 1 },
@@ -9809,10 +9825,7 @@ const MOCK_TIMER_CHEST_OPEN_DURATION_MS = 3 * 60 * 60 * 1000;
 const MOCK_TIMER_CHEST_SLOT_COUNT = 8;
 
 const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) => {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === MOCK_ATTEMPT_MODE_TIMER) return MOCK_ATTEMPT_MODE_TIMER;
-  if (normalized === MOCK_ATTEMPT_MODE_CLASSIC) return MOCK_ATTEMPT_MODE_CLASSIC;
-  return fallback;
+  return normalizeMockExamMode(value, fallback);
 };
 
 const normalizeMockTimerTimestamp = (value) => {
@@ -10399,7 +10412,33 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
 const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => {
   const answers = normalizeMockAttemptAnswers(exam, rawAnswers);
   const solved = recomputeMockSolvedMap(exam, answers);
-  const mode = normalizeMockAttemptMode(meta?.mode || meta?.attemptMode);
+  const hasTimerMarkers = Boolean(
+    normalizeMockTimerTimestamp(meta?.timerStartedAt)
+    || normalizeMockTimerTimestamp(meta?.timerExpiresAt)
+    || normalizeMockTimerTimestamp(meta?.timerFinishedAt)
+    || normalizeMockTimerTimestamp(meta?.timerPausedAt)
+  );
+  const hasLegacySolvedState = [meta?.solved, meta?.solvedEver].some((solvedMap) => (
+    solvedMap
+    && typeof solvedMap === 'object'
+    && !Array.isArray(solvedMap)
+    && Object.values(solvedMap).some(Boolean)
+  ));
+  const hasLegacyStartedAttempt = Boolean(
+    meta?.modeLockedAt
+    || hasTimerMarkers
+    || hasLegacySolvedState
+    || hasMockAttemptStarted(exam, answers)
+  );
+  const assignedMode = normalizeAssignedMockExamMode(
+    meta?.requiredMode ?? exam?.requiredMode ?? exam?.access?.mode
+  );
+  const fallbackMode = hasTimerMarkers
+    ? MOCK_ATTEMPT_MODE_TIMER
+    : (hasLegacyStartedAttempt ? MOCK_ATTEMPT_MODE_CLASSIC : assignedMode);
+  const mode = hasLegacyStartedAttempt
+    ? normalizeMockAttemptMode(meta?.mode || meta?.attemptMode, fallbackMode)
+    : assignedMode;
   const modeLockedAt = typeof meta?.modeLockedAt === 'string' && meta.modeLockedAt.trim()
     ? meta.modeLockedAt.trim()
     : '';
@@ -10708,6 +10747,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       schedule: [],
       solvedByTask: {},
       solvedEvents: [],
+      weeklyTaskPracticeMilestones: {},
       streak: getDefaultStreak(),
       nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: [],
@@ -10743,6 +10783,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
     || raw.mocks
     || raw.schedule
     || raw.solvedByTask
+    || Object.prototype.hasOwnProperty.call(raw, 'weeklyTaskPracticeMilestones')
     || raw.streak
     || raw.mockAttempts
     || Object.prototype.hasOwnProperty.call(raw, 'randomMockSolvedByTask')
@@ -10813,6 +10854,9 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       schedule: Array.isArray(raw.schedule) ? raw.schedule : [],
       solvedByTask,
       solvedEvents,
+      weeklyTaskPracticeMilestones: normalizeWeeklyTaskPracticeMilestones(
+        raw.weeklyTaskPracticeMilestones
+      ),
       streak: normalizeStreak(raw.streak),
       nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
@@ -10852,6 +10896,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
     schedule: [],
     solvedByTask: {},
     solvedEvents: [],
+    weeklyTaskPracticeMilestones: {},
     streak: getDefaultStreak(),
     nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
     homeworks: [],
@@ -10893,6 +10938,9 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     schedule: Array.isArray(data.schedule) ? data.schedule : [],
     solvedByTask: data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {},
     solvedEvents: Array.isArray(data.solvedEvents) ? data.solvedEvents : [],
+    weeklyTaskPracticeMilestones: normalizeWeeklyTaskPracticeMilestones(
+      data.weeklyTaskPracticeMilestones
+    ),
     streak: normalizeStreak(data.streak),
     nextLesson: data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
@@ -11337,7 +11385,11 @@ const normalizeGoals = (goals, testsDb = null) => {
     if (goalType === GOAL_TYPE_MOCK) {
       const mockExamId = String(goal.mockExamId || '').trim();
       if (!mockExamId) return;
-      result.push({ type: GOAL_TYPE_MOCK, mockExamId });
+      result.push({
+        type: GOAL_TYPE_MOCK,
+        mockExamId,
+        mode: normalizeMockAttemptMode(goal?.mode, MOCK_ATTEMPT_MODE_TIMER),
+      });
       return;
     }
     const taskNum = Number(goal.taskNumber);
@@ -11429,6 +11481,43 @@ const getNormalizedHomeworkGoals = (entry, testsDb = null) => {
   const normalized = normalizeGoals(entry?.goals, testsDb);
   if (normalized.length > 0) return normalized;
   return normalizeGoalsFromLegacy(entry, testsDb);
+};
+
+const getStudentMockHomeworkMode = (studentData, examId, testsDb = null) => {
+  const normalizedExamId = String(examId || '').trim();
+  if (!normalizedExamId) return null;
+  const entries = getStudentHomeworkNavItems(studentData)
+    .map((entry, index) => ({
+      entry,
+      index,
+      activityMs: getStudentNavTimestampMs(entry?.issuedAt, entry?.createdAt, entry?.updatedAt),
+    }))
+    .sort((left, right) => (
+      right.activityMs - left.activityMs || left.index - right.index
+    ));
+
+  for (const { entry } of entries) {
+    const goals = getNormalizedHomeworkGoals(entry, testsDb);
+    for (let index = goals.length - 1; index >= 0; index -= 1) {
+      const goal = goals[index];
+      if (
+        normalizeGoalType(goal) === GOAL_TYPE_MOCK
+        && String(goal?.mockExamId || '').trim() === normalizedExamId
+      ) {
+        return normalizeAssignedMockExamMode(goal?.mode);
+      }
+    }
+  }
+
+  return null;
+};
+
+const getRequiredMockExamModeForStudent = (exam, studentData = null, testsDb = null) => {
+  const homeworkMode = studentData
+    ? getStudentMockHomeworkMode(studentData, exam?.id, testsDb)
+    : null;
+  if (homeworkMode) return homeworkMode;
+  return normalizeAssignedMockExamMode(exam?.access?.mode);
 };
 
 const getHomeworkSortTime = (entry) => {
@@ -14510,6 +14599,8 @@ const serializeMockExamEntry = (exam, options = {}) => {
   if (!exam || typeof exam !== 'object') return exam;
   const safeExam = options.sanitizeForStudent ? sanitizeMockExamForStudent(exam) : { ...exam };
   safeExam.badges = normalizeMockExamBadges(exam.badges);
+  safeExam.access = normalizeMockExamAccess(exam.access, true);
+  safeExam.requiredMode = getRequiredMockExamModeForStudent(exam, options.studentData);
   return safeExam;
 };
 
@@ -19924,10 +20015,14 @@ app.get('/api/mock-exams', (req, res) => {
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
   if (isStudentRole(req.auth)) {
     if (requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+    const studentData = getStudentData(req.auth.id);
     const filtered = (Array.isArray(list) ? list : []).filter((exam) => (
       isMockExamVisibleToStudent(exam, req.auth.id)
     ));
-    return res.json(filtered.map((exam) => serializeMockExamEntry(exam, { sanitizeForStudent: true })));
+    return res.json(filtered.map((exam) => serializeMockExamEntry(exam, {
+      sanitizeForStudent: true,
+      studentData,
+    })));
   }
   if (requestedStudentId) {
     const student = ensureStudentAccess(req, res, requestedStudentId);
@@ -19935,7 +20030,8 @@ app.get('/api/mock-exams', (req, res) => {
     const filtered = (Array.isArray(list) ? list : []).filter((exam) => (
       isMockExamVisibleToStudent(exam, student.id)
     ));
-    return res.json(filtered.map((exam) => serializeMockExamEntry(exam)));
+    const studentData = getStudentData(student.id);
+    return res.json(filtered.map((exam) => serializeMockExamEntry(exam, { studentData })));
   }
   res.json((Array.isArray(list) ? list : [])
     .filter((exam) => !isPersonalRandomMockExam(exam))
@@ -20047,7 +20143,7 @@ app.post('/api/mock-exams/random', (req, res) => {
         ? { label: 'Продвинутый уровень', themeId: 'violet' }
         : { label: 'Базовый уровень', themeId: 'forest' },
     ],
-    access: { all: false, students: [String(student.id)] },
+    access: { all: false, students: [String(student.id)], mode: MOCK_ATTEMPT_MODE_TIMER },
   };
 
   const nextList = [entry, ...mockExams];
@@ -20068,7 +20164,7 @@ app.post('/api/mock-exams/random', (req, res) => {
   }
 
   return res.json({
-    exam: serializeMockExamEntry(entry, { sanitizeForStudent: true }),
+    exam: serializeMockExamEntry(entry, { sanitizeForStudent: true, studentData }),
     summary: generated.summary,
     reused: false,
   });
@@ -20085,7 +20181,7 @@ app.post('/api/mock-exams', (req, res) => {
     updatedAt: new Date().toISOString(),
     tasks: {},
     badges: [],
-    access: { all: false, students: [] },
+    access: { all: false, students: [], mode: MOCK_ATTEMPT_MODE_TIMER },
   };
   const list = readMockExamsDb();
   list.unshift(entry);
@@ -20108,11 +20204,18 @@ app.get('/api/mock-exams/attempt', (req, res) => {
     return res.status(403).json({ error: 'Mock exam access denied' });
   }
   const data = getStudentData(student.id);
+  const requiredMode = getRequiredMockExamModeForStudent(exam, data);
   const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {};
   const stored = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
     ? attempts[String(examId)]
     : {};
-  res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, stored));
+  res.json({
+    ...normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, {
+      ...stored,
+      requiredMode,
+    }),
+    requiredMode,
+  });
 });
 
 app.patch('/api/mock-exams/attempt/timer-rewards', (req, res) => {
@@ -20275,11 +20378,15 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   }
   const examRewardsDisabled = exam?.rewardsDisabled === true || isPersonalRandomMockExam(exam);
   const data = getStudentData(student.id);
+  const requiredMode = getRequiredMockExamModeForStudent(exam, data);
   const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? { ...data.mockAttempts } : {};
   const previousAttempt = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
     ? attempts[String(examId)]
     : {};
-  const previousAttemptNormalized = normalizeMockAttemptPayload(exam, previousAttempt.answers, previousAttempt.updatedAt, previousAttempt);
+  const previousAttemptNormalized = normalizeMockAttemptPayload(exam, previousAttempt.answers, previousAttempt.updatedAt, {
+    ...previousAttempt,
+    requiredMode,
+  });
   const previousAttemptRawSolved = previousAttempt.solved && typeof previousAttempt.solved === 'object' && !Array.isArray(previousAttempt.solved)
     ? previousAttempt.solved
     : null;
@@ -20287,7 +20394,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     ? previousAttempt.solvedEver
     : null;
   const previousAttemptWasUnfinishedTimer = (
-    normalizeMockAttemptMode(previousAttempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
+    previousAttemptNormalized.mode === MOCK_ATTEMPT_MODE_TIMER
     && !normalizeMockTimerTimestamp(previousAttempt?.timerFinishedAt)
   );
   const previousSolved = previousAttemptRawSolved
@@ -20304,21 +20411,34 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const previousTimerPausedAt = normalizeMockTimerTimestamp(previousAttempt?.timerPausedAt);
   const previousTimerRemainingMs = Math.max(0, Math.floor(Number(previousAttempt?.timerRemainingMs) || 0));
   const previousTimerFinishedAt = normalizeMockTimerTimestamp(previousAttempt?.timerFinishedAt);
-  const previousMode = normalizeMockAttemptMode(previousAttempt?.mode);
-  const previousModeLocked = Boolean(previousAttempt?.modeLockedAt || previousAttemptStarted || previousTimerStartedAt);
-  const requestedMode = normalizeMockAttemptMode(mode, previousMode);
-  const canSwitchClassicAttemptToTimer = (
-    previousModeLocked
-    && previousMode === MOCK_ATTEMPT_MODE_CLASSIC
-    && requestedMode === MOCK_ATTEMPT_MODE_TIMER
-    && !previousTimerFinishedAt
+  const previousMode = normalizeMockAttemptMode(previousAttemptNormalized?.mode);
+  const previousModeLocked = Boolean(
+    previousAttempt?.modeLockedAt
+    || previousAttemptStarted
+    || previousTimerStartedAt
+    || Object.values(previousAttemptRawSolved || {}).some(Boolean)
+    || Object.values(previousAttemptRawSolvedEver || {}).some(Boolean)
   );
-  if (previousModeLocked && requestedMode !== previousMode && !canSwitchClassicAttemptToTimer) {
+  const modeResolution = resolveMockExamAttemptMode({
+    assignedMode: requiredMode,
+    requestedMode: mode,
+    storedMode: previousMode,
+    locked: previousModeLocked,
+  });
+  if (!modeResolution.requestedModeIsValid) {
+    return res.status(400).json({ error: 'Неизвестный режим пробника.' });
+  }
+  if (!modeResolution.requestAllowed) {
+    if (!previousModeLocked) {
+      return res.status(409).json({
+        error: modeResolution.requiredMode === MOCK_ATTEMPT_MODE_TIMER
+          ? 'Учитель назначил этот пробник в режиме с таймером.'
+          : 'Учитель назначил этот пробник в обычном режиме.',
+      });
+    }
     return res.status(409).json({ error: 'Режим пробника уже выбран для этой попытки.' });
   }
-  const attemptMode = canSwitchClassicAttemptToTimer
-    ? MOCK_ATTEMPT_MODE_TIMER
-    : (previousModeLocked ? previousMode : requestedMode);
+  const attemptMode = modeResolution.mode;
   const isTimerFinishRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && finishTimerExam === true;
   const isTimerPauseRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && pauseTimerExam === true;
   const isTimerResumeRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && resumeTimerExam === true;
@@ -20358,7 +20478,6 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const timerRewardsDisabled = (
     examRewardsDisabled
     || Boolean(previousAttempt?.timerRewardsDisabled)
-    || canSwitchClassicAttemptToTimer
     || (canRestartTimerAttempt && !canRestartWithRestoredTimerRewards)
   );
   const modeLockedAt = typeof previousAttempt?.modeLockedAt === 'string' && previousAttempt.modeLockedAt.trim()
@@ -20458,7 +20577,10 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       ...data,
       mockAttempts: attempts,
     });
-    return res.json(updated.mockAttempts?.[String(examId)] || normalizedAttempt);
+    return res.json({
+      ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
+      requiredMode,
+    });
   }
   const secondaryScore = getMockSecondaryScoreFromSolved(normalizedAttemptBase.solved);
   const reachedMilestones = examRewardsDisabled ? [] : getMockCoinMilestoneScoresForScore(secondaryScore);
@@ -20584,6 +20706,16 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       nextMockTimerChests.push(chestRecord);
     }
   });
+  const baselinePracticeStats = buildWeeklyTaskPracticeStats(data, {
+    gameTheoryTask: GAME_THEORY_TASK,
+    referenceDate: new Date(savedAt),
+    referenceDayKey: resolvedDayKey,
+  });
+  const weeklyTaskPracticeMilestones = buildWeeklyTaskPracticeMilestones(
+    baselinePracticeStats,
+    data.weeklyTaskPracticeMilestones,
+    { gameTheoryTask: GAME_THEORY_TASK }
+  );
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
   rewardableSolvedTaskKeys.forEach((taskKey) => {
     const taskNum = Number(taskKey);
@@ -20617,6 +20749,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     mockTimerChestsTotal: normalizeCoinsTotal(data?.mockTimerChestsTotal) + timerChestsGained,
     mockTimerChests: nextMockTimerChests,
     solvedEvents,
+    weeklyTaskPracticeMilestones,
     artifactInventory,
     artifactLevels,
     artifactCards,
@@ -20674,6 +20807,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const timerChestCoinsGained = 0;
   res.json({
     ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
+    requiredMode,
     xpGained,
     mockSolveXpGained,
     xpTotal: updated.xpTotal,
@@ -20705,13 +20839,30 @@ app.patch('/api/mock-exams/:id', (req, res) => {
   const idx = list.findIndex((exam) => exam.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Пробник не найден' });
   const current = list[idx];
+  const currentAccess = normalizeMockExamAccess(current.access, true);
+  const hasAccessPatch = Boolean(access && typeof access === 'object');
+  const hasExplicitAccessMode = hasAccessPatch
+    && Object.prototype.hasOwnProperty.call(access, 'mode');
+  if (hasExplicitAccessMode) {
+    const rawMode = String(access.mode || '').trim().toLowerCase();
+    if (rawMode !== MOCK_ATTEMPT_MODE_TIMER && rawMode !== MOCK_ATTEMPT_MODE_CLASSIC) {
+      return res.status(400).json({ error: 'Выберите режим с таймером или обычный режим.' });
+    }
+  }
+  const nextAccess = hasAccessPatch
+    ? normalizeMockExamAccessForSave({
+      ...currentAccess,
+      ...access,
+      mode: hasExplicitAccessMode ? access.mode : currentAccess.mode,
+    })
+    : current.access;
   const trimmed = typeof title === 'string' ? title.trim() : '';
   const next = {
     ...current,
     title: trimmed || current.title,
     tasks: tasks && typeof tasks === 'object' ? tasks : current.tasks || {},
     badges: badges !== undefined ? normalizeMockExamBadges(badges) : normalizeMockExamBadges(current.badges),
-    access: access && typeof access === 'object' ? normalizeMockExamAccessForSave(access) : current.access,
+    access: nextAccess,
     updatedAt: new Date().toISOString(),
   };
   list[idx] = next;
@@ -20875,6 +21026,17 @@ app.post('/api/progress/solve', async (req, res) => {
     if (diff < -1 || diff > 1) return serverDayKey;
     return clientDayKey;
   })();
+  const practiceReferenceDate = new Date(submittedAt);
+  const baselinePracticeStats = buildWeeklyTaskPracticeStats(data, {
+    gameTheoryTask: GAME_THEORY_TASK,
+    referenceDate: practiceReferenceDate,
+    referenceDayKey: resolvedDayKey,
+  });
+  const baselinePracticeMilestones = buildWeeklyTaskPracticeMilestones(
+    baselinePracticeStats,
+    data.weeklyTaskPracticeMilestones,
+    { gameTheoryTask: GAME_THEORY_TASK }
+  );
   const solvedEvents = Array.isArray(data.solvedEvents) ? [...data.solvedEvents] : [];
   const streak = normalizeStreak(data.streak);
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
@@ -20948,6 +21110,23 @@ app.post('/api/progress/solve', async (req, res) => {
   const progress = { ...(data.progress || {}) };
   progress[taskKey] = taskProgress;
 
+  const nextPracticeStats = buildWeeklyTaskPracticeStats({
+    ...data,
+    progress,
+    solvedByTask,
+    solvedEvents,
+    weeklyTaskPracticeMilestones: baselinePracticeMilestones,
+  }, {
+    gameTheoryTask: GAME_THEORY_TASK,
+    referenceDate: practiceReferenceDate,
+    referenceDayKey: resolvedDayKey,
+  });
+  const weeklyTaskPracticeMilestones = buildWeeklyTaskPracticeMilestones(
+    nextPracticeStats,
+    baselinePracticeMilestones,
+    { gameTheoryTask: GAME_THEORY_TASK }
+  );
+
   if (solvedEvents.length > STUDENT_SOLVED_EVENTS_LIMIT) {
     solvedEvents.splice(0, solvedEvents.length - STUDENT_SOLVED_EVENTS_LIMIT);
   }
@@ -20996,6 +21175,7 @@ app.post('/api/progress/solve', async (req, res) => {
     ...data,
     solvedByTask,
     solvedEvents,
+    weeklyTaskPracticeMilestones,
     progress,
     streak,
     xpTotal,

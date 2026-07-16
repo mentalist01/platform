@@ -69,6 +69,10 @@ import {
   clearStoredSession,
 } from './utils/theme';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from './utils/monacoTheme';
+import {
+  MOCK_EXAM_MODE_TIMER,
+  normalizeAssignedMockExamMode,
+} from './utils/mockExamMode';
 import { normalizeTurtleScene, parseTurtleSceneJson, serializeTurtleScene } from './utils/turtleScene';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
@@ -621,18 +625,22 @@ const PRIMARY_TO_SECONDARY = {
   28: 98,
   29: 100,
 };
-const LEGACY_MOCK_EXAM_ACCESS = { all: true, students: [] };
+const LEGACY_MOCK_EXAM_ACCESS = { all: true, students: [], mode: MOCK_EXAM_MODE_TIMER };
 
 const normalizeMockExamAccess = (access, fallback = LEGACY_MOCK_EXAM_ACCESS) => {
   if (!access || typeof access !== 'object') {
-    return { ...fallback };
+    return {
+      ...fallback,
+      mode: normalizeAssignedMockExamMode(fallback?.mode),
+    };
   }
   const students = Array.isArray(access.students)
     ? access.students.map((id) => String(id)).filter(Boolean)
     : [];
   return {
     all: Boolean(access.all),
-    students
+    students,
+    mode: normalizeAssignedMockExamMode(access.mode),
   };
 };
 
