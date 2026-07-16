@@ -11,7 +11,7 @@ import {
   AlertCircle,
   ArrowRight,
   BookOpen,
-  CheckCircle2,
+  Check,
   ListChecks,
   PlayCircle,
   RefreshCw,
@@ -40,8 +40,6 @@ const getGenerationStages = (levelId) => [
 
 const READY_STAGE = { progress: 100, label: 'Пробник готов' };
 const MOCK_TASK_COUNT = 27;
-const SUCCESS_SPARK_COUNT = 10;
-const BUILDER_PARTICLE_COUNT = 5;
 
 const joinClasses = (...values) => values.filter(Boolean).join(' ');
 
@@ -93,6 +91,11 @@ const getDefaultSummary = (result) => {
       ?? source.questionsCount
       ?? result?.exam?.taskCount
       ?? inferredExamTaskCount
+    ),
+    fallbackCount: toSafeCount(
+      source.fallbackCount
+      ?? source.fallbackTaskCount
+      ?? source.basicFallbackCount
     ),
   };
 };
@@ -474,18 +477,11 @@ const RandomMockGenerator = ({
                     Пробник готов. Можно начинать.
                   </span>
                   <div className="mock-random-generation__success-stage" aria-hidden="true">
-                    <span className="mock-random-generation__success-wave mock-random-generation__success-wave--one" />
-                    <span className="mock-random-generation__success-wave mock-random-generation__success-wave--two" />
-                    <span className="mock-random-generation__success-orbit" />
-                    {Array.from({ length: SUCCESS_SPARK_COUNT }, (_, index) => (
-                      <span
-                        key={index}
-                        className="mock-random-generation__success-spark"
-                        style={{ '--success-spark-index': index }}
-                      />
-                    ))}
-                    <div className="mock-random-generation__success-icon flex h-16 w-16 items-center justify-center rounded-full text-emerald-600">
-                      <CheckCircle2 size={32} strokeWidth={2.4} />
+                    <span className="mock-random-generation__success-bloom" />
+                    <span className="mock-random-generation__success-trace mock-random-generation__success-trace--left" />
+                    <span className="mock-random-generation__success-trace mock-random-generation__success-trace--right" />
+                    <div className="mock-random-generation__success-icon">
+                      <Check className="mock-random-generation__success-check" size={40} strokeWidth={2.45} />
                     </div>
                   </div>
                   <h2 id={titleId} className="mock-random-generation__success-title mt-5 text-2xl font-black leading-tight text-slate-950 sm:text-[1.7rem]">
@@ -515,6 +511,13 @@ const RandomMockGenerator = ({
                       </div>
                     )}
                   </div>}
+
+                  {displaySummary.fallbackCount > 0 && (
+                    <div className="mock-random-generation__fallback-note mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold">
+                      <BookOpen size={14} />
+                      <span>{`Из базового уровня — ${displaySummary.fallbackCount} ${getRussianCountLabel(displaySummary.fallbackCount, ['задание', 'задания', 'заданий'])}`}</span>
+                    </div>
+                  )}
 
                   {startError && (
                     <div className="mock-random-generation__start-error mt-3 flex items-start gap-2 rounded-xl px-3 py-2 text-sm" role="alert">
@@ -679,26 +682,12 @@ const RandomMockGenerator = ({
         <div className="mock-random-builder__visual-field" aria-hidden="true">
           <span className="mock-random-builder__aurora mock-random-builder__aurora--primary" />
           <span className="mock-random-builder__aurora mock-random-builder__aurora--secondary" />
-          <span className="mock-random-builder__spectrum" />
           <span className="mock-random-builder__scan" />
-          <span className="mock-random-builder__blueprint">
-            {Array.from({ length: MOCK_TASK_COUNT }, (_, index) => (
-              <i key={index} style={{ '--builder-node-index': index }} />
-            ))}
-          </span>
-          {Array.from({ length: BUILDER_PARTICLE_COUNT }, (_, index) => (
-            <span
-              key={index}
-              className="mock-random-builder__particle"
-              style={{ '--builder-particle-index': index }}
-            />
-          ))}
+          <span className="mock-random-builder__light-path" />
         </div>
         <div className="mock-random-builder__grid relative z-10 flex flex-col gap-4 md:flex-row md:items-center">
           <div className="mock-random-builder__icon relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-sky-700" aria-hidden="true">
             <span className="mock-random-builder__icon-glow" />
-            <span className="mock-random-builder__icon-orbit mock-random-builder__icon-orbit--one" />
-            <span className="mock-random-builder__icon-orbit mock-random-builder__icon-orbit--two" />
             <span className="mock-random-builder__icon-core">
               <span className="mock-random-builder__icon-symbol" data-active={selectedLevel.id === 'basic' ? 'true' : 'false'}>
                 <BookOpen size={21} />

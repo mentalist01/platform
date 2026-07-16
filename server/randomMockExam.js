@@ -236,33 +236,41 @@ export const buildPersonalRandomMockTasks = ({
   const missingTaskNumbers = [];
   let freshTaskCount = 0;
   let repeatTaskCount = 0;
+  let fallbackTaskCount = 0;
   let sourceQuestionCount = 0;
 
   SOURCE_TASK_NUMBERS.forEach((taskNumber) => {
-    const questions = sourceDb?.[String(taskNumber)]?.[normalizedLevelId];
     const expandedTaskNumbers = taskNumber === 19 ? [19, 20, 21] : [taskNumber];
-    if (!Array.isArray(questions) || questions.length === 0) {
-      missingTaskNumbers.push(...expandedTaskNumbers);
-      return;
+    const candidateLevelIds = normalizedLevelId === 'advanced'
+      ? ['advanced', PERSONAL_RANDOM_MOCK_LEVEL_ID]
+      : [normalizedLevelId];
+    let selected = null;
+    let sourceLevelId = '';
+    for (const candidateLevelId of candidateLevelIds) {
+      const questions = sourceDb?.[String(taskNumber)]?.[candidateLevelId];
+      if (!Array.isArray(questions) || questions.length === 0) continue;
+      const levelSelection = chooseQuestion(
+        questions.filter((question) => isRecord(question)),
+        getTaskSolvedQuestionIds(solved, randomSolved, taskNumber, candidateLevelId),
+        pickIndex
+      );
+      if (!levelSelection) continue;
+      selected = levelSelection;
+      sourceLevelId = candidateLevelId;
+      break;
     }
-
-    const selected = chooseQuestion(
-      questions.filter((question) => isRecord(question)),
-      getTaskSolvedQuestionIds(solved, randomSolved, taskNumber, normalizedLevelId),
-      pickIndex
-    );
     if (!selected) {
       missingTaskNumbers.push(...expandedTaskNumbers);
       return;
     }
 
     const selectedTasks = taskNumber === 19
-      ? expandGameTheoryQuestion(selected.question, normalizedLevelId, selected)
+      ? expandGameTheoryQuestion(selected.question, sourceLevelId, selected)
       : {
           [taskNumber]: withSelectionMetadata(
             selected.question,
             taskNumber,
-            normalizedLevelId,
+            sourceLevelId,
             selected,
             taskNumber
           ),
@@ -272,6 +280,7 @@ export const buildPersonalRandomMockTasks = ({
     sourceQuestionCount += 1;
     if (selected.isFresh) freshTaskCount += addedTaskCount;
     else repeatTaskCount += addedTaskCount;
+    if (sourceLevelId !== normalizedLevelId) fallbackTaskCount += addedTaskCount;
   });
 
   return {
@@ -281,9 +290,10 @@ export const buildPersonalRandomMockTasks = ({
       taskCount: Object.keys(tasks).length,
       freshTaskCount,
       repeatTaskCount,
+      fallbackTaskCount,
       sourceQuestionCount,
       missingTaskNumbers,
-      usedFallbacks: repeatTaskCount > 0,
+      usedFallbacks: repeatTaskCount > 0 || fallbackTaskCount > 0,
     },
   };
 };

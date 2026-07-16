@@ -20014,11 +20014,13 @@ app.post('/api/mock-exams/random', (req, res) => {
   });
   if (generated.summary.taskCount < MOCK_TASK_NUMBERS.length) {
     const missingLabel = generated.summary.missingTaskNumbers.join(', ');
-    const levelLabel = levelId === 'advanced' ? 'продвинутых' : 'базовых';
+    const shortageLabel = levelId === 'advanced'
+      ? 'заданий продвинутого и базового уровней'
+      : 'базовых заданий';
     return res.status(422).json({
       error: missingLabel
-        ? `Пока не хватает ${levelLabel} заданий для номеров: ${missingLabel}.`
-        : `Пока не хватает ${levelLabel} заданий для полного пробника.`,
+        ? `Пока не хватает ${shortageLabel} для номеров: ${missingLabel}.`
+        : `Пока не хватает ${shortageLabel} для полного пробника.`,
     });
   }
 

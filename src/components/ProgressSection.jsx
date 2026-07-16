@@ -4281,6 +4281,7 @@ const ProgressSection = ({
                       newCount: result?.summary?.freshTaskCount ?? null,
                       repeatCount: result?.summary?.repeatTaskCount ?? null,
                       totalCount: result?.summary?.taskCount ?? null,
+                      fallbackCount: result?.summary?.fallbackTaskCount ?? null,
                     })}
                     title="Собрать персональный пробник"
                     description="Подберём задания выбранного уровня, которые вы ещё не решали. Тренировочный режим — без наград."
