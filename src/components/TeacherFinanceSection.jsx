@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Calculator,
+  CalendarClock,
   CalendarDays,
   CheckCircle2,
   CircleDollarSign,
@@ -10,6 +12,11 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { api } from '../services/api';
+import {
+  calculateCurrentMonthForecast,
+  calculateTeacherIncomeScenario,
+  countCurrentTeacherStudents,
+} from '../utils/teacherFinanceCalculations';
 import { Button, Card } from './ui';
 
 const formatMoney = (value) => {
@@ -23,9 +30,14 @@ const formatMoney = (value) => {
   }).format(safeAmount);
 };
 
-const normalizeNumberInput = (value) => String(value ?? '')
-  .replace(',', '.')
-  .replace(/[^\d.]/g, '');
+const normalizeNumberInput = (value) => {
+  const sanitized = String(value ?? '')
+    .replace(',', '.')
+    .replace(/[^\d.]/g, '');
+  const decimalIndex = sanitized.indexOf('.');
+  if (decimalIndex < 0) return sanitized;
+  return `${sanitized.slice(0, decimalIndex + 1)}${sanitized.slice(decimalIndex + 1).replace(/\./g, '')}`;
+};
 
 const parseAmount = (value) => {
   const normalized = normalizeNumberInput(value).trim();
@@ -60,6 +72,11 @@ const formatStudentCount = (value) => {
     : (mod10 === 1 ? 'ученик' : (mod10 >= 2 && mod10 <= 4 ? 'ученика' : 'учеников'));
   return `${count} ${word}`;
 };
+
+const formatDecimal = (value, maximumFractionDigits = 1) => new Intl.NumberFormat('ru-RU', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits,
+}).format(Math.max(0, Number(value) || 0));
 
 const formatMonthLabel = (monthKey) => {
   const match = String(monthKey || '').match(/^(\d{4})-(\d{2})$/);
@@ -101,6 +118,7 @@ const SummaryMetric = ({ icon, label, value, tone = 'violet', hint }) => {
     violet: 'border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 text-violet-700',
     emerald: 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-cyan-50 text-emerald-700',
     sky: 'border-sky-200 bg-gradient-to-br from-sky-50 to-blue-50 text-sky-700',
+    amber: 'border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-amber-700',
   };
   return (
     <div className={`teacher-finance-simple__summary rounded-2xl border p-4 ${tones[tone] || tones.violet}`} data-tone={tone}>
@@ -118,13 +136,17 @@ const SummaryMetric = ({ icon, label, value, tone = 'violet', hint }) => {
   );
 };
 
-const TeacherFinanceSection = ({ teacherId, studentsLoading }) => {
+const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) => {
   const [snapshot, setSnapshot] = useState(null);
   const [commissionDrafts, setCommissionDrafts] = useState({});
   const [commissionBaselines, setCommissionBaselines] = useState({});
   const [loading, setLoading] = useState(true);
   const [savingStudentId, setSavingStudentId] = useState('');
   const [error, setError] = useState('');
+  const [calculatorStudents, setCalculatorStudents] = useState('');
+  const [calculatorLessonsPerWeek, setCalculatorLessonsPerWeek] = useState('1');
+  const [calculatorHourlyRate, setCalculatorHourlyRate] = useState('2000');
+  const [calculatorWorkingDays, setCalculatorWorkingDays] = useState('5');
 
   const applySnapshot = (data) => {
     const nextSnapshot = data && typeof data === 'object' ? data : {};
@@ -203,6 +225,44 @@ const TeacherFinanceSection = ({ teacherId, studentsLoading }) => {
       .sort((left, right) => right.month.localeCompare(left.month, 'ru'));
   }, [snapshot?.history, snapshot?.incomeByMonth]);
 
+  const currentStudentCount = useMemo(() => countCurrentTeacherStudents(students), [students]);
+
+  useEffect(() => {
+    if (loading || studentsLoading) return;
+    setCalculatorStudents((current) => current || String(currentStudentCount || 10));
+  }, [currentStudentCount, loading, studentsLoading]);
+
+  const currentMonthKey = String(snapshot?.month || '').trim();
+  const currentMonthIncome = incomeByMonth.find((item) => item.month === currentMonthKey) || {
+    month: currentMonthKey,
+    lessonCount: 0,
+    grossRevenue: 0,
+    receivedRevenue: 0,
+  };
+  const currentMonthForecast = calculateCurrentMonthForecast({
+    income: currentMonthIncome,
+    monthKey: currentMonthKey,
+  });
+  const incomeScenario = calculateTeacherIncomeScenario({
+    studentCount: calculatorStudents,
+    lessonsPerWeek: calculatorLessonsPerWeek,
+    hourlyRate: calculatorHourlyRate,
+    workingDaysPerWeek: calculatorWorkingDays,
+  });
+  const calculatorStudentPresets = Array.from(new Set([
+    currentStudentCount,
+    10,
+    15,
+    20,
+    30,
+  ])).filter((count) => count > 0);
+  const forecastMonthName = formatMonthLabel(currentMonthKey)
+    .replace(/\s+\d{4}$/u, '')
+    .toLowerCase();
+  const forecastHint = currentMonthForecast.actualRevenue > 0
+    ? `${formatMoney(currentMonthForecast.actualRevenue)} за ${currentMonthForecast.elapsedDays} дн. · ещё ≈ ${formatMoney(Math.round(currentMonthForecast.additionalRevenue))}`
+    : 'Появится после первого завершённого занятия';
+
   const handleCommissionChange = (studentId, value) => {
     setCommissionDrafts((prev) => ({
       ...prev,
@@ -253,7 +313,7 @@ const TeacherFinanceSection = ({ teacherId, studentsLoading }) => {
         </div>
 
         {!loading ? (
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <SummaryMetric
               icon={TrendingUp}
               label="Начислено по занятиям"
@@ -275,9 +335,162 @@ const TeacherFinanceSection = ({ teacherId, studentsLoading }) => {
               hint={`Комиссии: ${formatMoney(totals.commissionAmount)}`}
               tone="emerald"
             />
+            <SummaryMetric
+              icon={CalendarClock}
+              label={`Прогноз на ${forecastMonthName || 'текущий месяц'}`}
+              value={`≈ ${formatMoney(Math.round(currentMonthForecast.projectedRevenue))}`}
+              hint={forecastHint}
+              tone="amber"
+            />
           </div>
         ) : null}
       </Card>
+
+      {!loading ? (
+        <Card className="teacher-finance-simple__calculator overflow-hidden border border-violet-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.07)]">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] xl:items-stretch">
+            <div className="min-w-0">
+              <div className="flex items-start gap-3">
+                <div className="teacher-finance-simple__calculator-icon rounded-2xl border border-violet-200 bg-violet-50 p-2.5 text-violet-700">
+                  <Calculator size={20} />
+                </div>
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Планирование</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <h3 className="text-lg font-black text-slate-950">Калькулятор дохода</h3>
+                    <span className="teacher-finance-simple__current-students rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">
+                      Сейчас: {formatStudentCount(currentStudentCount)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs font-medium leading-relaxed text-slate-500">
+                    Посчитайте средний месяц при занятиях по 60 минут. В стартовом значении — только текущие ученики, без выпускников.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+                <label className="teacher-finance-simple__calculator-field min-w-0">
+                  <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Учеников</span>
+                  <div className="relative">
+                    <Users className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-violet-500" size={16} />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={calculatorStudents}
+                      onChange={(event) => setCalculatorStudents(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                      aria-label="Количество учеников для расчёта"
+                      className="teacher-finance-simple__input w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm font-black text-slate-900 outline-none transition focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                    />
+                  </div>
+                </label>
+
+                <label className="teacher-finance-simple__calculator-field min-w-0">
+                  <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Занятий в неделю</span>
+                  <div className="relative">
+                    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-violet-500" size={16} />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={calculatorLessonsPerWeek}
+                      onChange={(event) => setCalculatorLessonsPerWeek(normalizeNumberInput(event.target.value).slice(0, 4))}
+                      aria-label="Занятий в неделю на одного ученика"
+                      className="teacher-finance-simple__input w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm font-black text-slate-900 outline-none transition focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                    />
+                  </div>
+                </label>
+
+                <label className="teacher-finance-simple__calculator-field min-w-0">
+                  <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Ставка за час</span>
+                  <div className="relative">
+                    <CircleDollarSign className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-violet-500" size={16} />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={calculatorHourlyRate}
+                      onChange={(event) => setCalculatorHourlyRate(normalizeNumberInput(event.target.value).slice(0, 8))}
+                      aria-label="Ставка за один час"
+                      className="teacher-finance-simple__input w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-9 text-sm font-black text-slate-900 outline-none transition focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">₽</span>
+                  </div>
+                </label>
+
+                <label className="teacher-finance-simple__calculator-field min-w-0">
+                  <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Рабочих дней</span>
+                  <div className="relative">
+                    <Clock3 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-violet-500" size={16} />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={calculatorWorkingDays}
+                      onChange={(event) => setCalculatorWorkingDays(event.target.value.replace(/\D/g, '').slice(0, 1))}
+                      aria-label="Рабочих дней в неделю"
+                      className="teacher-finance-simple__input w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm font-black text-slate-900 outline-none transition focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                    />
+                  </div>
+                </label>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="mr-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Быстро выбрать</span>
+                {calculatorStudentPresets.map((count) => {
+                  const active = incomeScenario.studentCount === count;
+                  return (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => setCalculatorStudents(String(count))}
+                      aria-pressed={active}
+                      className={`teacher-finance-simple__preset rounded-full border px-3 py-1.5 text-xs font-black transition ${
+                        active
+                          ? 'border-violet-300 bg-violet-100 text-violet-700'
+                          : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-violet-200 hover:bg-violet-50'
+                      }`}
+                    >
+                      {count}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="teacher-finance-simple__calculator-result flex min-w-0 flex-col justify-between rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-600 via-indigo-600 to-sky-600 p-5 text-white shadow-[0_16px_34px_rgba(79,70,229,0.22)]" aria-live="polite">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-100">Ожидаемый доход в месяц</div>
+                <output className="mt-2 block text-3xl font-black tracking-tight sm:text-4xl">
+                  ≈ {formatMoney(Math.round(incomeScenario.monthlyIncome))}
+                </output>
+              </div>
+              <div className="mt-5 space-y-2 text-xs font-semibold text-violet-50/90">
+                <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/15">
+                  {formatDecimal(incomeScenario.studentCount, 0)} × {formatDecimal(incomeScenario.lessonsPerWeek)} × {formatDecimal(incomeScenario.weeksPerMonth, 2)} × {formatMoney(incomeScenario.hourlyRate)}
+                </div>
+                <div className="teacher-finance-simple__workload-grid grid grid-cols-2 gap-2">
+                  <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/10">
+                    <span className="block text-[9px] uppercase tracking-[0.1em] text-violet-100/75">В день</span>
+                    <strong className="mt-0.5 block text-sm text-white">≈ {formatDecimal(incomeScenario.dailyHours)} ч</strong>
+                  </div>
+                  <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/10">
+                    <span className="block text-[9px] uppercase tracking-[0.1em] text-violet-100/75">В неделю</span>
+                    <strong className="mt-0.5 block text-sm text-white">{formatDecimal(incomeScenario.weeklyLessons)} ч</strong>
+                  </div>
+                  <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/10">
+                    <span className="block text-[9px] uppercase tracking-[0.1em] text-violet-100/75">В месяц</span>
+                    <strong className="mt-0.5 block text-sm text-white">≈ {formatDecimal(incomeScenario.monthlyLessons)} занятий</strong>
+                  </div>
+                  <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/10">
+                    <span className="block text-[9px] uppercase tracking-[0.1em] text-violet-100/75">Доход в день</span>
+                    <strong className="mt-0.5 block text-sm text-white">≈ {formatMoney(Math.round(incomeScenario.dailyIncome))}</strong>
+                  </div>
+                </div>
+                <p className="text-[10px] leading-relaxed text-violet-100/80">
+                  {formatMoney(incomeScenario.weeklyIncome)} в неделю · {formatDecimal(incomeScenario.workingDaysPerWeek, 0)} рабочих дней · до налогов, комиссий и отмен
+                </p>
+              </div>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       {!loading && incomeByMonth.length > 0 ? (
         <Card className="teacher-finance-simple__months border border-slate-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.07)]">

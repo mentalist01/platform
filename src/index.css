@@ -849,7 +849,8 @@ html[data-theme='dark'] .teacher-finance-simple__student.surface-card {
     inset 0 1px 0 rgba(148, 163, 184, 0.09) !important;
 }
 
-html[data-theme='dark'] .teacher-finance-simple__months.surface-card {
+html[data-theme='dark'] .teacher-finance-simple__months.surface-card,
+html[data-theme='dark'] .teacher-finance-simple__calculator.surface-card {
   border-color: rgba(71, 85, 105, 0.72) !important;
   background: linear-gradient(145deg, rgba(17, 25, 45, 0.97), rgba(11, 19, 35, 0.98)) !important;
   box-shadow:
@@ -901,6 +902,7 @@ html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='emerald'] {
   background: linear-gradient(145deg, rgba(5, 150, 105, 0.2), rgba(6, 78, 59, 0.34)) !important;
 }
 
+html[data-theme='dark'] .teacher-finance-simple__summary[data-tone='amber'],
 html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='amber'] {
   border-color: rgba(245, 158, 11, 0.42) !important;
   background: linear-gradient(145deg, rgba(180, 83, 9, 0.2), rgba(69, 26, 3, 0.36)) !important;
@@ -933,6 +935,41 @@ html[data-theme='dark'] .teacher-finance-simple__input:focus {
   border-color: rgba(167, 139, 250, 0.78) !important;
   background: rgba(15, 23, 42, 0.96) !important;
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.14) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__calculator-icon {
+  border-color: rgba(139, 92, 246, 0.42) !important;
+  background: rgba(91, 33, 182, 0.22) !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__calculator .text-violet-700 {
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__current-students {
+  border-color: rgba(52, 211, 153, 0.42) !important;
+  background: rgba(6, 95, 70, 0.26) !important;
+  color: #6ee7b7 !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__preset {
+  border-color: rgba(100, 116, 139, 0.56) !important;
+  background: rgba(15, 23, 42, 0.72) !important;
+  color: #a8b5ca !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__preset:hover,
+html[data-theme='dark'] .teacher-finance-simple__preset[aria-pressed='true'] {
+  border-color: rgba(167, 139, 250, 0.58) !important;
+  background: rgba(91, 33, 182, 0.28) !important;
+  color: #ddd6fe !important;
+}
+
+.teacher-finance-simple__summary,
+.teacher-finance-simple__calculator-result,
+.teacher-finance-simple__input {
+  font-variant-numeric: tabular-nums;
 }
 
 html[data-theme='dark'] .teacher-finance-simple [data-tone='violet'] .text-violet-700,
