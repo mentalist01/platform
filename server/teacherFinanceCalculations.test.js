@@ -14,6 +14,8 @@ test('current student count excludes graduates and deleted students', () => {
     { id: 'active-10', grade: '10' },
     { id: 'graduate-en', grade: 'graduate' },
     { id: 'graduate-ru', grade: 'Выпускник' },
+    { id: 'graduate-alumni', grade: 'alumni' },
+    { id: 'graduate-alumnus', grade: 'alumnus' },
     { id: 'deleted', grade: 11, deletedAt: '2026-07-01T00:00:00.000Z' },
   ]), 2);
   assert.equal(countCurrentTeacherStudents(null), 0);

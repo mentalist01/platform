@@ -44,6 +44,10 @@ import {
   isPersonalRandomMockExam,
   normalizeRandomMockSolvedByTask,
 } from './randomMockExam.js';
+import {
+  expandTeacherFinanceMonthOccurrences,
+  summarizeTeacherFinanceCalendarPlan,
+} from './teacherFinanceCalendarPlan.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -1896,7 +1900,11 @@ const normalizeTeacherFinanceMonthKey = (value) => {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
 };
 
-const getCurrentTeacherFinanceMonthKey = () => new Date().toISOString().slice(0, 7);
+const getCurrentTeacherFinanceMonthKey = () => {
+  const calendarDayKey = getDatePartsInCalendarTimeZone(new Date())?.dayKey;
+  return normalizeTeacherFinanceMonthKey(String(calendarDayKey || '').slice(0, 7))
+    || new Date().toISOString().slice(0, 7);
+};
 
 const normalizeTeacherFinanceText = (value, maxLength) => {
   if (typeof value !== 'string') return '';
@@ -12888,6 +12896,69 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
     });
   });
 
+  const calendarPlanMonth = normalizeTeacherFinanceMonthKey(String(nowInfo.todayKey || '').slice(0, 7))
+    || getCurrentTeacherFinanceMonthKey();
+  const studentStartDayById = Object.fromEntries(
+    Array.from(studentStartNumberById.entries()).map(([studentId, dayNumber]) => [
+      studentId,
+      numberToDayKey(dayNumber) || '',
+    ])
+  );
+  const remainingCalendarOccurrencesByKey = new Map();
+  expandTeacherFinanceMonthOccurrences({
+    entries: scheduleEntries,
+    monthKey: calendarPlanMonth,
+    studentStartDayById,
+  }).forEach((occurrence) => {
+    const studentId = String(occurrence?.studentId || '').trim();
+    if (!studentId || !studentsById.has(studentId)) return;
+    const paymentState = buildStudentSchedulePaymentState({
+      teacherId: normalizedTeacherId,
+      studentId,
+      entry: occurrence.entry,
+      sourceEntry: occurrence.entry,
+      dayKey: occurrence.dayKey,
+      startMinutes: occurrence.startMinutes,
+      endMinutes: occurrence.endMinutes,
+      teacherMarks,
+      nowInfo,
+    });
+    if (!paymentState || paymentState.finished) return;
+    const { lessonPrice } = getLessonPriceForPaymentOccurrence(
+      currentEntry,
+      studentId,
+      occurrence
+    );
+    const existing = remainingCalendarOccurrencesByKey.get(occurrence.occurrenceKey);
+    if (existing) {
+      existing.trial = existing.trial || Boolean(paymentState.trial);
+      return;
+    }
+    remainingCalendarOccurrencesByKey.set(occurrence.occurrenceKey, {
+      occurrenceKey: occurrence.occurrenceKey,
+      studentId,
+      dayKey: occurrence.dayKey,
+      time: occurrence.time,
+      durationMinutes: occurrence.durationMinutes,
+      lessonPrice: roundTeacherFinanceNumber(lessonPrice),
+      trial: Boolean(paymentState.trial),
+    });
+  });
+  const calendarPlan = {
+    ...summarizeTeacherFinanceCalendarPlan({
+      monthKey: calendarPlanMonth,
+      students,
+      completedOccurrences: Object.entries(nextLedger).map(([occurrenceKey, entry]) => ({
+        ...entry,
+        occurrenceKey,
+      })),
+      remainingOccurrences: Array.from(remainingCalendarOccurrencesByKey.values()),
+    }),
+    asOfDayKey: nowInfo.todayKey,
+    generatedAt: nowInfo.now.toISOString(),
+    timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
+  };
+
   const incomeByMonthMap = new Map();
   const ensureIncomeMonth = (monthKey) => {
     const normalizedMonth = normalizeTeacherFinanceMonthKey(monthKey);
@@ -12959,6 +13030,7 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
   return {
     profitabilityByStudent,
     incomeByMonth,
+    calendarPlan,
     lessonLedger: nextLedger,
     ledgerUpdates,
     ledgerDeletes: Array.from(ledgerDeletes),
@@ -12996,6 +13068,7 @@ const buildTeacherFinanceResponseWithProfitability = async (teacherId, monthKey)
   return {
     ...response,
     incomeByMonth: profitabilityResult.incomeByMonth,
+    calendarPlan: profitabilityResult.calendarPlan,
     students: (Array.isArray(response.students) ? response.students : []).map((student) => ({
       ...student,
       profitability: profitabilityResult.profitabilityByStudent.get(student.id) || null,

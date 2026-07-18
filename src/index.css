@@ -850,7 +850,8 @@ html[data-theme='dark'] .teacher-finance-simple__student.surface-card {
 }
 
 html[data-theme='dark'] .teacher-finance-simple__months.surface-card,
-html[data-theme='dark'] .teacher-finance-simple__calculator.surface-card {
+html[data-theme='dark'] .teacher-finance-simple__calculator.surface-card,
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan.surface-card {
   border-color: rgba(71, 85, 105, 0.72) !important;
   background: linear-gradient(145deg, rgba(17, 25, 45, 0.97), rgba(11, 19, 35, 0.98)) !important;
   box-shadow:
@@ -878,26 +879,30 @@ html[data-theme='dark'] .teacher-finance-simple .text-slate-400 {
 }
 
 html[data-theme='dark'] .teacher-finance-simple__summary,
-html[data-theme='dark'] .teacher-finance-simple__metric {
+html[data-theme='dark'] .teacher-finance-simple__metric,
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-stat {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 12px 26px rgba(2, 6, 23, 0.22);
 }
 
 html[data-theme='dark'] .teacher-finance-simple__summary[data-tone='violet'],
-html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='violet'] {
+html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='violet'],
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-stat[data-tone='violet'] {
   border-color: rgba(139, 92, 246, 0.48) !important;
   background: linear-gradient(145deg, rgba(91, 33, 182, 0.26), rgba(30, 27, 75, 0.42)) !important;
 }
 
 html[data-theme='dark'] .teacher-finance-simple__summary[data-tone='sky'],
-html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='sky'] {
+html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='sky'],
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-stat[data-tone='sky'] {
   border-color: rgba(14, 165, 233, 0.44) !important;
   background: linear-gradient(145deg, rgba(3, 105, 161, 0.25), rgba(8, 47, 73, 0.42)) !important;
 }
 
 html[data-theme='dark'] .teacher-finance-simple__summary[data-tone='emerald'],
-html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='emerald'] {
+html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='emerald'],
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-stat[data-tone='emerald'] {
   border-color: rgba(16, 185, 129, 0.42) !important;
   background: linear-gradient(145deg, rgba(5, 150, 105, 0.2), rgba(6, 78, 59, 0.34)) !important;
 }
@@ -943,6 +948,33 @@ html[data-theme='dark'] .teacher-finance-simple__calculator-icon {
   color: #c4b5fd !important;
 }
 
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-icon,
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-badge {
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  background: rgba(3, 105, 161, 0.22) !important;
+  color: #7dd3fc !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-details,
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-empty {
+  border-color: rgba(71, 85, 105, 0.64) !important;
+  background: rgba(15, 23, 42, 0.68) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-warning {
+  border-color: rgba(245, 158, 11, 0.42) !important;
+  background: rgba(120, 53, 15, 0.28) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan-progress {
+  background: rgba(51, 65, 85, 0.78) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__calendar-plan .text-sky-700 {
+  color: #7dd3fc !important;
+}
+
 html[data-theme='dark'] .teacher-finance-simple__calculator .text-violet-700 {
   color: #c4b5fd !important;
 }
@@ -967,6 +999,8 @@ html[data-theme='dark'] .teacher-finance-simple__preset[aria-pressed='true'] {
 }
 
 .teacher-finance-simple__summary,
+.teacher-finance-simple__calendar-plan-hero,
+.teacher-finance-simple__calendar-plan-stat,
 .teacher-finance-simple__calculator-result,
 .teacher-finance-simple__input {
   font-variant-numeric: tabular-nums;

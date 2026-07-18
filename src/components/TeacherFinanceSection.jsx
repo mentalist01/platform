@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import {
-  calculateCurrentMonthForecast,
   calculateTeacherIncomeScenario,
   countCurrentTeacherStudents,
 } from '../utils/teacherFinanceCalculations';
@@ -77,6 +76,26 @@ const formatDecimal = (value, maximumFractionDigits = 1) => new Intl.NumberForma
   minimumFractionDigits: 0,
   maximumFractionDigits,
 }).format(Math.max(0, Number(value) || 0));
+
+const formatWorkingDayCount = (value) => {
+  const count = Math.max(0, Math.floor(Number(value) || 0));
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  const word = mod100 >= 11 && mod100 <= 14
+    ? 'рабочих дней'
+    : (mod10 === 1 ? 'рабочий день' : (mod10 >= 2 && mod10 <= 4 ? 'рабочих дня' : 'рабочих дней'));
+  return `${count} ${word}`;
+};
+
+const normalizeCalendarPlanMetric = (value, fallback = {}) => {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    revenue: Math.max(0, Number(source.revenue ?? fallback.revenue) || 0),
+    lessonCount: Math.max(0, Math.floor(Number(source.lessonCount ?? fallback.lessonCount) || 0)),
+    hours: Math.max(0, Number(source.hours ?? fallback.hours) || 0),
+    workingDayCount: Math.max(0, Math.floor(Number(source.workingDayCount ?? fallback.workingDayCount) || 0)),
+  };
+};
 
 const formatMonthLabel = (monthKey) => {
   const match = String(monthKey || '').match(/^(\d{4})-(\d{2})$/);
@@ -239,10 +258,39 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
     grossRevenue: 0,
     receivedRevenue: 0,
   };
-  const currentMonthForecast = calculateCurrentMonthForecast({
-    income: currentMonthIncome,
-    monthKey: currentMonthKey,
+  const rawCalendarPlan = snapshot?.calendarPlan && typeof snapshot.calendarPlan === 'object'
+    ? snapshot.calendarPlan
+    : {};
+  const calendarPlanMonthKey = String(rawCalendarPlan.month || currentMonthKey).trim();
+  const calendarPlanActual = normalizeCalendarPlanMetric(rawCalendarPlan.actual, {
+    revenue: currentMonthIncome.grossRevenue,
+    lessonCount: currentMonthIncome.lessonCount,
   });
+  const calendarPlanRemaining = normalizeCalendarPlanMetric(rawCalendarPlan.remaining);
+  const calendarPlanTotal = normalizeCalendarPlanMetric(rawCalendarPlan.total, {
+    revenue: calendarPlanActual.revenue + calendarPlanRemaining.revenue,
+    lessonCount: calendarPlanActual.lessonCount + calendarPlanRemaining.lessonCount,
+    hours: calendarPlanActual.hours + calendarPlanRemaining.hours,
+    workingDayCount: calendarPlanActual.workingDayCount + calendarPlanRemaining.workingDayCount,
+  });
+  const calendarPlanCompletionPercent = Math.max(
+    0,
+    Math.min(100, Math.round(Number(rawCalendarPlan.completionPercent) || 0))
+  );
+  const calendarPlanAverageHours = Math.max(0, Number(rawCalendarPlan.averageHoursPerWorkingDay) || 0);
+  const calendarPlanStudentCount = Math.max(0, Math.floor(Number(rawCalendarPlan.studentCount) || 0));
+  const calendarPlanUnpricedLessonCount = Math.max(
+    0,
+    Math.floor(Number(rawCalendarPlan.unpricedLessonCount) || 0)
+  );
+  const calendarPlanUnpricedStudentCount = Math.max(
+    0,
+    Math.floor(Number(rawCalendarPlan.unpricedStudentCount) || 0)
+  );
+  const calendarPlanMonthName = formatMonthLabel(calendarPlanMonthKey)
+    .replace(/\s+\d{4}$/u, '')
+    .toLowerCase();
+  const calendarPlanTotalValue = `${calendarPlanUnpricedLessonCount > 0 ? 'от ' : ''}${formatMoney(calendarPlanTotal.revenue)}`;
   const incomeScenario = calculateTeacherIncomeScenario({
     studentCount: calculatorStudents,
     lessonsPerWeek: calculatorLessonsPerWeek,
@@ -256,12 +304,6 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
     20,
     30,
   ])).filter((count) => count > 0);
-  const forecastMonthName = formatMonthLabel(currentMonthKey)
-    .replace(/\s+\d{4}$/u, '')
-    .toLowerCase();
-  const forecastHint = currentMonthForecast.actualRevenue > 0
-    ? `${formatMoney(currentMonthForecast.actualRevenue)} за ${currentMonthForecast.elapsedDays} дн. · ещё ≈ ${formatMoney(Math.round(currentMonthForecast.additionalRevenue))}`
-    : 'Появится после первого завершённого занятия';
 
   const handleCommissionChange = (studentId, value) => {
     setCommissionDrafts((prev) => ({
@@ -308,7 +350,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
           </div>
           <div className="inline-flex w-fit items-center gap-2 rounded-2xl border border-violet-200 bg-white/85 px-3 py-2 text-xs font-bold text-violet-700 shadow-sm">
             <Users size={15} />
-            {formatStudentCount(studentRows.length)}
+            {formatStudentCount(currentStudentCount)}
           </div>
         </div>
 
@@ -337,14 +379,128 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
             />
             <SummaryMetric
               icon={CalendarClock}
-              label={`Прогноз на ${forecastMonthName || 'текущий месяц'}`}
-              value={`≈ ${formatMoney(Math.round(currentMonthForecast.projectedRevenue))}`}
-              hint={forecastHint}
+              label={`План на ${calendarPlanMonthName || 'текущий месяц'}`}
+              value={calendarPlanTotalValue}
+              hint={calendarPlanTotal.lessonCount > 0
+                ? `${formatLessonCount(calendarPlanTotal.lessonCount)} · ${formatDecimal(calendarPlanTotal.hours)} ч по календарю`
+                : 'В календаре пока нет занятий'}
               tone="amber"
             />
           </div>
         ) : null}
       </Card>
+
+      {!loading ? (
+        <Card className="teacher-finance-simple__calendar-plan overflow-hidden border border-sky-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.07)]">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="teacher-finance-simple__calendar-plan-icon rounded-2xl border border-sky-200 bg-sky-50 p-2.5 text-sky-700">
+                <CalendarClock size={20} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-black uppercase tracking-[0.14em] text-sky-700">План по календарю</div>
+                <h3 className="mt-1 text-lg font-black text-slate-950">
+                  План начислений на {calendarPlanMonthName || 'текущий месяц'}
+                </h3>
+                <p className="mt-1 max-w-3xl text-xs font-medium leading-relaxed text-slate-500">
+                  Реальные занятия и ставки учеников — без экстраполяции по среднему темпу.
+                </p>
+              </div>
+            </div>
+            <span className="teacher-finance-simple__calendar-plan-badge inline-flex w-fit items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] text-sky-700">
+              <CalendarDays size={13} />
+              По текущему расписанию
+            </span>
+          </div>
+
+          {calendarPlanTotal.lessonCount > 0 ? (
+            <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(280px,0.82fr)_minmax(0,1.18fr)]">
+              <div className="teacher-finance-simple__calendar-plan-hero flex min-w-0 flex-col justify-between rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-600 via-blue-600 to-violet-600 p-5 text-white shadow-[0_16px_34px_rgba(37,99,235,0.2)]" aria-live="polite">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.14em] text-sky-100">
+                    Ожидаемые начисления к концу месяца
+                  </div>
+                  <output className="mt-2 block text-3xl font-black tracking-tight sm:text-4xl">
+                    {calendarPlanTotalValue}
+                  </output>
+                  <div className="mt-2 text-xs font-semibold text-sky-100/85">
+                    {formatMoney(calendarPlanActual.revenue)} начислено + {formatMoney(calendarPlanRemaining.revenue)} впереди
+                  </div>
+                </div>
+                <div className="mt-5 grid grid-cols-2 gap-2 text-xs font-semibold text-sky-50/90">
+                  <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/15">
+                    <span className="block text-[9px] uppercase tracking-[0.1em] text-sky-100/75">Всего занятий</span>
+                    <strong className="mt-0.5 block text-sm text-white">{formatLessonCount(calendarPlanTotal.lessonCount)}</strong>
+                  </div>
+                  <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/15">
+                    <span className="block text-[9px] uppercase tracking-[0.1em] text-sky-100/75">Часов в месяце</span>
+                    <strong className="mt-0.5 block text-sm text-white">{formatDecimal(calendarPlanTotal.hours)} ч</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="teacher-finance-simple__calendar-plan-details min-w-0 rounded-3xl border border-slate-200 bg-slate-50/75 p-4">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="teacher-finance-simple__calendar-plan-stat rounded-2xl border border-emerald-200 bg-emerald-50/80 p-3" data-tone="emerald">
+                    <div className="text-[9px] font-black uppercase tracking-[0.12em] text-emerald-700">Уже начислено</div>
+                    <div className="mt-1 text-lg font-black text-slate-950">{formatMoney(calendarPlanActual.revenue)}</div>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-500">
+                      {formatLessonCount(calendarPlanActual.lessonCount)} · {formatDecimal(calendarPlanActual.hours)} ч
+                    </div>
+                  </div>
+                  <div className="teacher-finance-simple__calendar-plan-stat rounded-2xl border border-sky-200 bg-sky-50/80 p-3" data-tone="sky">
+                    <div className="text-[9px] font-black uppercase tracking-[0.12em] text-sky-700">Осталось по плану</div>
+                    <div className="mt-1 text-lg font-black text-slate-950">{formatMoney(calendarPlanRemaining.revenue)}</div>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-500">
+                      {formatLessonCount(calendarPlanRemaining.lessonCount)} · {formatDecimal(calendarPlanRemaining.hours)} ч
+                    </div>
+                  </div>
+                  <div className="teacher-finance-simple__calendar-plan-stat rounded-2xl border border-violet-200 bg-violet-50/80 p-3" data-tone="violet">
+                    <div className="text-[9px] font-black uppercase tracking-[0.12em] text-violet-700">Нагрузка</div>
+                    <div className="mt-1 text-lg font-black text-slate-950">{formatWorkingDayCount(calendarPlanTotal.workingDayCount)}</div>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-500">
+                      ≈ {formatDecimal(calendarPlanAverageHours)} ч в рабочий день
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-slate-500">
+                    <span>Проведено {calendarPlanActual.lessonCount} из {calendarPlanTotal.lessonCount}</span>
+                    <span>{calendarPlanCompletionPercent}%</span>
+                  </div>
+                  <div className="teacher-finance-simple__calendar-plan-progress mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-sky-500 to-violet-500 transition-[width]"
+                      style={{ width: `${calendarPlanCompletionPercent}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-semibold text-slate-500">
+                    <span>Участники месяца: {formatStudentCount(calendarPlanStudentCount)}</span>
+                    <span>{formatWorkingDayCount(calendarPlanRemaining.workingDayCount)} впереди</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="teacher-finance-simple__calendar-plan-empty mt-5 rounded-3xl border border-dashed border-sky-200 bg-sky-50/55 px-5 py-8 text-center">
+              <CalendarDays className="mx-auto text-sky-500" size={24} />
+              <div className="mt-3 text-sm font-black text-slate-900">На {calendarPlanMonthName || 'текущий месяц'} пока нет занятий</div>
+              <p className="mt-1 text-xs font-medium text-slate-500">Добавьте занятия в календарь — план появится автоматически.</p>
+            </div>
+          )}
+
+          {calendarPlanUnpricedLessonCount > 0 ? (
+            <div className="teacher-finance-simple__calendar-plan-warning mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+              В сумму не вошло {formatLessonCount(calendarPlanUnpricedLessonCount)} без указанной стоимости. Стоимость не заполнена: {formatStudentCount(calendarPlanUnpricedStudentCount)}. Итог показан как минимальный.
+            </div>
+          ) : null}
+
+          <p className="mt-4 text-[11px] font-medium leading-relaxed text-slate-500">
+            Будущие занятия считаются только для текущих учеников. Пробные, отменённые и события без ученика не учитываются. Это план начислений; фактические оплаты отмечаются отдельно.
+          </p>
+        </Card>
+      ) : null}
 
       {!loading ? (
         <Card className="teacher-finance-simple__calculator overflow-hidden border border-violet-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.07)]">
