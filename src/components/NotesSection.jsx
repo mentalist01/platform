@@ -22,7 +22,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import ImageViewer from './ImageViewer';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -47,6 +47,27 @@ const mergeFolderLists = (lists) => {
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const DEFAULT_NOTES_CATEGORY = 'class';
 const ROOT_FOLDER_LABEL = 'Материалы задания';
+const NOTES_PREVIEW_CLOSE_MS = 460;
+const NOTES_FOLDER_OPEN_MS = 380;
+const NOTES_FOLDER_CREATOR_ID = 'notes-folder-creator-panel';
+const NOTES_PYTHON_CREATOR_ID = 'notes-python-creator-panel';
+const NOTES_VIEW_TRANSITION_ENTRY_ANIMATIONS = new Set([
+  'notesMotionViewIn',
+  'notesMotionHeroIn',
+  'notesMotionContentIn',
+  'notesLandingCardIn',
+  'notesProgressReveal',
+  'notesProgressSheen',
+  'notesWorkspaceIn',
+  'notesHeroAccentIn',
+  'notesInlinePanelIn',
+  'notesLibraryIn',
+  'notesResourceRowIn',
+]);
+const getNotesMotionDuration = (durationMs) => {
+  if (typeof window === 'undefined' || !window.matchMedia) return durationMs;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : durationMs;
+};
 
 const formatFileAddedAt = (file) => {
   const createdAt = String(file?.createdAt || '').trim();
@@ -202,6 +223,7 @@ const NotesSection = ({
   highlightPython
 }) => {
   const [currentTask, setCurrentTask] = useState(null);
+  const [transitionTaskNumber, setTransitionTaskNumber] = useState(null);
   const monacoTheme = resolveMonacoColorTheme(theme);
   const [currentCategory, setCurrentCategory] = useState(null);
   const [files, setFiles] = useState([]);
@@ -271,6 +293,7 @@ const NotesSection = ({
   const fileRowRefs = useRef(new Map());
   const lastFileRowRectsRef = useRef(new Map());
   const favoriteFlightIdsRef = useRef(new Set());
+  const taskBackButtonRef = useRef(null);
   const fileRef = useRef(null);
   const pyRunnerWorkerRef = useRef(null);
   const pyRunnerPendingRef = useRef(new Map());
@@ -280,6 +303,48 @@ const NotesSection = ({
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const getFileUrl = (file) => withStudentId(file?.url, effectiveStudentId);
   const getMemorySnapshotUrl = (file) => withStudentId(file?.memory?.boardSnapshot?.url, effectiveStudentId);
+  const runNotesViewTransition = useCallback((update) => {
+    if (typeof update !== 'function') return null;
+    const reduceMotion = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion || typeof document === 'undefined' || typeof document.startViewTransition !== 'function') {
+      update();
+      return null;
+    }
+    try {
+      const transition = document.startViewTransition(() => {
+        flushSync(update);
+        const notesRoot = document.querySelector('[data-tour="notes"]');
+        notesRoot?.getAnimations?.({ subtree: true }).forEach((animation) => {
+          if (!NOTES_VIEW_TRANSITION_ENTRY_ANIMATIONS.has(animation.animationName)) return;
+          try {
+            animation.finish();
+          } catch {
+            // An animation can already be idle when the browser captures the new state.
+          }
+        });
+      });
+      transition?.finished?.catch?.(() => {});
+      return transition;
+    } catch {
+      update();
+      return null;
+    }
+  }, []);
+  const restoreNotesFocus = useCallback((transition, getTarget) => {
+    const focusTarget = () => {
+      const schedule = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+        ? (callback) => window.requestAnimationFrame(callback)
+        : (callback) => setTimeout(callback, 0);
+      schedule(() => {
+        const target = typeof getTarget === 'function' ? getTarget() : getTarget?.current;
+        target?.focus?.({ preventScroll: true });
+      });
+    };
+    const updateDone = transition?.updateCallbackDone;
+    if (updateDone?.then) updateDone.then(focusTarget, focusTarget);
+    else focusTarget();
+  }, []);
   const clearFolderMotionTimers = () => {
     if (folderPressTimeoutRef.current) {
       clearTimeout(folderPressTimeoutRef.current);
@@ -407,7 +472,7 @@ const NotesSection = ({
     folderPressTimeoutRef.current = setTimeout(() => {
       setPressingFolderId((current) => (current === folderId ? null : current));
       folderPressTimeoutRef.current = null;
-    }, 180);
+    }, getNotesMotionDuration(180));
   };
   const openFolderWithAnimation = (folderId) => {
     if (!folderId) {
@@ -421,7 +486,7 @@ const NotesSection = ({
     folderOpenTimeoutRef.current = setTimeout(() => {
       folderOpenTimeoutRef.current = null;
       selectFolder(folderId);
-    }, 190);
+    }, getNotesMotionDuration(NOTES_FOLDER_OPEN_MS));
   };
 
   const taskOptions = MOCK_TASKS;
@@ -1152,11 +1217,18 @@ const NotesSection = ({
         effectiveStudentId,
         currentFolderId || null
       );
-      setFolders(prev => [created, ...prev]);
-      setNewFolderName('');
-      setIsCreatingFolder(false);
-      setFoldersError('');
-      selectFolder(created.id);
+      const transition = runNotesViewTransition(() => {
+        setFolders(prev => [created, ...prev]);
+        setNewFolderName('');
+        setIsCreatingFolder(false);
+        setFoldersError('');
+        selectFolder(created.id);
+      });
+      restoreNotesFocus(transition, () => (
+        typeof document === 'undefined'
+          ? null
+          : document.querySelector('[data-notes-folder-creator-trigger]')
+      ));
     } catch (err) {
       setFoldersError(err?.message || err);
     }
@@ -1468,10 +1540,17 @@ const NotesSection = ({
           },
         }
       );
-      setFiles((prev) => [created, ...prev]);
-      setPyDraftName('');
-      setPyDraftCode('');
-      setShowPyCreator(false);
+      const transition = runNotesViewTransition(() => {
+        setFiles((prev) => [created, ...prev]);
+        setPyDraftName('');
+        setPyDraftCode('');
+        setShowPyCreator(false);
+      });
+      restoreNotesFocus(transition, () => (
+        typeof document === 'undefined'
+          ? null
+          : document.querySelector('[data-notes-python-creator-trigger]')
+      ));
     } catch (err) {
       setPyDraftError(err?.message || err);
     } finally {
@@ -1753,9 +1832,7 @@ const NotesSection = ({
     setSolutionHoverPreview(null);
     const fileId = String(file.id || '').trim();
     if (!fileId) return;
-    const isSolutionBundleFile = isSavedSolutionBundleFile(file);
-    const isAnimatedMemoryPyFile = isSolutionBundleFile || isCheatsheetFile(file);
-    if (isAnimatedMemoryPyFile && collapsingSolutionIds[fileId]) {
+    if (collapsingSolutionIds[fileId]) {
       clearSolutionCollapseTimer(fileId);
       setCollapsingSolutionIds((prev) => {
         if (!prev[fileId]) return prev;
@@ -1767,7 +1844,7 @@ const NotesSection = ({
       return;
     }
     const willOpen = !expandedPyIds[fileId];
-    if (!willOpen && isAnimatedMemoryPyFile) {
+    if (!willOpen) {
       setCollapsingSolutionIds((prev) => ({ ...prev, [fileId]: true }));
       if (editingPyId === file.id) {
         setEditingPyId(null);
@@ -1794,28 +1871,11 @@ const NotesSection = ({
           delete next[fileId];
           return next;
         });
-      }, 460);
+      }, getNotesMotionDuration(NOTES_PREVIEW_CLOSE_MS));
       solutionCollapseTimersRef.current.set(fileId, timer);
       return;
     }
-    setExpandedPyIds((prev) => {
-      const next = { ...prev };
-      if (next[fileId]) delete next[fileId];
-      else next[fileId] = true;
-      return next;
-    });
-    if (!willOpen && editingPyId === file.id) {
-      setEditingPyId(null);
-      setPyEditDraft('');
-      setPyEditSaving(false);
-      setPyEditError('');
-      setPyRunInput('');
-      setPyRunOutput('');
-      setPyRunError('');
-      setPyRunLoading(false);
-      return;
-    }
-    if (!willOpen) return;
+    setExpandedPyIds((prev) => ({ ...prev, [fileId]: true }));
     await loadPyFileContent(file);
   };
 
@@ -1970,37 +2030,60 @@ const NotesSection = ({
     }
   };
 
+  const toggleSimplePreview = (file, expandedMap, setExpandedMap) => {
+    const fileId = String(file?.id || '').trim();
+    if (!fileId) return;
+    if (collapsingSolutionIds[fileId]) {
+      clearSolutionCollapseTimer(fileId);
+      setCollapsingSolutionIds((prev) => {
+        if (!prev[fileId]) return prev;
+        const next = { ...prev };
+        delete next[fileId];
+        return next;
+      });
+      setExpandedMap((prev) => ({ ...prev, [fileId]: true }));
+      return;
+    }
+    if (!expandedMap[fileId]) {
+      setExpandedMap((prev) => ({ ...prev, [fileId]: true }));
+      return;
+    }
+    setCollapsingSolutionIds((prev) => ({ ...prev, [fileId]: true }));
+    clearSolutionCollapseTimer(fileId);
+    const timer = setTimeout(() => {
+      solutionCollapseTimersRef.current.delete(fileId);
+      setExpandedMap((prev) => {
+        if (!prev[fileId]) return prev;
+        const next = { ...prev };
+        delete next[fileId];
+        return next;
+      });
+      setCollapsingSolutionIds((prev) => {
+        if (!prev[fileId]) return prev;
+        const next = { ...prev };
+        delete next[fileId];
+        return next;
+      });
+    }, getNotesMotionDuration(NOTES_PREVIEW_CLOSE_MS));
+    solutionCollapseTimersRef.current.set(fileId, timer);
+  };
+
   const togglePdfPreview = (file) => {
     const url = getFileUrl(file);
     if (!url || !isPdfFile(file.name)) return;
-    setExpandedPdfIds((prev) => {
-      const next = { ...prev };
-      if (next[file.id]) delete next[file.id];
-      else next[file.id] = true;
-      return next;
-    });
+    toggleSimplePreview(file, expandedPdfIds, setExpandedPdfIds);
   };
 
   const toggleImagePreview = (file) => {
     const url = getFileUrl(file);
     if (!url || !isImageFile(file)) return;
-    setExpandedImageIds((prev) => {
-      const next = { ...prev };
-      if (next[file.id]) delete next[file.id];
-      else next[file.id] = true;
-      return next;
-    });
+    toggleSimplePreview(file, expandedImageIds, setExpandedImageIds);
   };
 
   const toggleTextPreview = (file) => {
     const url = getFileUrl(file);
     if (!url || !isTextFile(file?.name)) return;
-    setExpandedTextIds((prev) => {
-      const next = { ...prev };
-      if (next[file.id]) delete next[file.id];
-      else next[file.id] = true;
-      return next;
-    });
+    toggleSimplePreview(file, expandedTextIds, setExpandedTextIds);
   };
 
   const toggleFilePreview = (file) => {
@@ -2373,21 +2456,72 @@ const NotesSection = ({
   const openTaskExplorer = (taskNumber) => {
     const normalized = normalizeTaskNumber(taskNumber);
     if (!Number.isFinite(normalized)) return;
-    pendingFolderIdRef.current = null;
-    folderRestoreTargetRef.current = null;
-    restoringRef.current = false;
-    setCurrentTask(normalized);
-    setCurrentCategory(DEFAULT_NOTES_CATEGORY);
-    setCurrentFolderId(null);
+    if (transitionTaskNumber !== normalized) {
+      flushSync(() => setTransitionTaskNumber(normalized));
+    }
+    const transition = runNotesViewTransition(() => {
+      pendingFolderIdRef.current = null;
+      folderRestoreTargetRef.current = null;
+      restoringRef.current = false;
+      setCurrentTask(normalized);
+      setCurrentCategory(DEFAULT_NOTES_CATEGORY);
+      setCurrentFolderId(null);
+    });
+    restoreNotesFocus(transition, () => taskBackButtonRef.current);
   };
 
   const closeTaskExplorer = () => {
-    pendingFolderIdRef.current = null;
-    folderRestoreTargetRef.current = null;
-    restoringRef.current = false;
-    setCurrentTask(null);
-    setCurrentCategory(null);
-    setCurrentFolderId(null);
+    const taskToRestore = normalizedCurrentTask;
+    if (Number.isFinite(taskToRestore) && transitionTaskNumber !== taskToRestore) {
+      flushSync(() => setTransitionTaskNumber(taskToRestore));
+    }
+    const transition = runNotesViewTransition(() => {
+      pendingFolderIdRef.current = null;
+      folderRestoreTargetRef.current = null;
+      restoringRef.current = false;
+      setCurrentTask(null);
+      setCurrentCategory(null);
+      setCurrentFolderId(null);
+    });
+    restoreNotesFocus(transition, () => (
+      typeof document === 'undefined'
+        ? null
+        : document.querySelector(`[data-notes-task-number="${taskToRestore}"]`)
+    ));
+  };
+
+  const closeFolderCreator = () => {
+    const transition = runNotesViewTransition(() => setIsCreatingFolder(false));
+    restoreNotesFocus(transition, () => (
+      typeof document === 'undefined'
+        ? null
+        : document.querySelector('[data-notes-folder-creator-trigger]')
+    ));
+  };
+
+  const toggleFolderCreator = () => {
+    if (isCreatingFolder) {
+      closeFolderCreator();
+      return;
+    }
+    runNotesViewTransition(() => setIsCreatingFolder(true));
+  };
+
+  const closePythonCreator = () => {
+    const transition = runNotesViewTransition(() => setShowPyCreator(false));
+    restoreNotesFocus(transition, () => (
+      typeof document === 'undefined'
+        ? null
+        : document.querySelector('[data-notes-python-creator-trigger]')
+    ));
+  };
+
+  const togglePythonCreator = () => {
+    if (showPyCreator) {
+      closePythonCreator();
+      return;
+    }
+    runNotesViewTransition(() => setShowPyCreator(true));
   };
 
   const getFileTypeLabel = (file) => {
@@ -2429,7 +2563,7 @@ const NotesSection = ({
   }
 
   if (!currentTask) return (
-    <div className="animate-fadeIn space-y-4 md:space-y-5" data-tour="notes">
+    <div className="notes-motion-view notes-motion-view--landing space-y-4 md:space-y-5" data-tour="notes">
       <div className="notes-landing-hero rounded-2xl border p-4 md:p-5">
         <div className="notes-landing-hero__body flex flex-col gap-3">
           <div className="notes-landing-hero__header flex flex-wrap items-center justify-between gap-4">
@@ -2461,7 +2595,7 @@ const NotesSection = ({
       </div>
 
       <div className="notes-landing-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-        {taskOptions.map((task) => {
+        {taskOptions.map((task, taskIndex) => {
           const taskFilesCount = taskCounts.get(task.number) || 0;
           const hasFiles = taskFilesCount > 0;
           const taskFilesLabel = `${taskFilesCount} ${formatRussianCountLabel(
@@ -2473,6 +2607,7 @@ const NotesSection = ({
           return (
             <Card
               key={task.number}
+              data-notes-task-number={task.number}
               onClick={() => openTaskExplorer(task.number)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -2483,6 +2618,10 @@ const NotesSection = ({
               tabIndex={0}
               aria-label={`Открыть конспекты задания №${getTaskDisplayNumber(task)}`}
               data-filled={hasFiles ? 'true' : 'false'}
+              style={{
+                '--notes-stagger-index': Math.min(taskIndex, 16),
+                viewTransitionName: transitionTaskNumber === task.number ? 'notes-active-task' : undefined,
+              }}
               className={`notes-card notes-landing-card group p-3 sm:p-3.5 ${
                 hasFiles
                   ? 'notes-card--filled notes-landing-card--filled'
@@ -2724,11 +2863,15 @@ const NotesSection = ({
     : '';
 
   return (
-    <div className="notes-explorer-shell notes-explorer-shell--workspace-v2 animate-fadeIn" data-tour="notes">
-      <section className="notes-task-workspace">
+    <div className="notes-explorer-shell notes-explorer-shell--workspace-v2 notes-motion-view notes-motion-view--workspace" data-tour="notes">
+      <section
+        className="notes-task-workspace"
+        style={{ viewTransitionName: 'notes-active-task' }}
+      >
         <header className="notes-task-hero">
           <div className="notes-task-hero__main">
             <button
+              ref={taskBackButtonRef}
               type="button"
               onClick={handleExplorerBack}
               className="notes-task-back"
@@ -2791,9 +2934,10 @@ const NotesSection = ({
         </header>
 
         <div
-        onDrop={uploadBlockedByRole ? undefined : handleDrop}
-        onDragEnter={uploadBlockedByRole ? undefined : handleDragEnter}
-        onDragOver={uploadBlockedByRole ? undefined : handleDragOver}
+          key={`notes-library-${currentFolderId || 'root'}`}
+          onDrop={uploadBlockedByRole ? undefined : handleDrop}
+          onDragEnter={uploadBlockedByRole ? undefined : handleDragEnter}
+          onDragOver={uploadBlockedByRole ? undefined : handleDragOver}
         onDragLeave={uploadBlockedByRole ? undefined : handleDragLeave}
         data-tour="files"
         className={`notes-explorer-files notes-library transition-all ${
@@ -2835,17 +2979,23 @@ const NotesSection = ({
                 <span className="notes-commandbar__result-count">{searchResultsLabel}</span>
               )}
               <Button
+                data-notes-folder-creator-trigger
                 variant="secondary"
-                onClick={() => setIsCreatingFolder((v) => !v)}
+                onClick={toggleFolderCreator}
                 disabled={uploadBlockedByRole}
+                aria-expanded={isCreatingFolder}
+                aria-controls={NOTES_FOLDER_CREATOR_ID}
                 className="notes-explorer-folder-add-btn notes-commandbar__secondary"
               >
                 <FolderPlus size={16} /> {isCreatingFolder ? 'Скрыть' : 'Новая папка'}
               </Button>
               <Button
+                data-notes-python-creator-trigger
                 variant="secondary"
-                onClick={() => setShowPyCreator((v) => !v)}
+                onClick={togglePythonCreator}
                 disabled={uploadBlockedByRole}
+                aria-expanded={showPyCreator}
+                aria-controls={NOTES_PYTHON_CREATOR_ID}
                 className="notes-explorer-python-toggle notes-explorer-python-quick-btn notes-commandbar__secondary"
               >
                 <Code2 size={16} /> {showPyCreator ? 'Скрыть' : 'Python-файл'}
@@ -2861,14 +3011,18 @@ const NotesSection = ({
           </div>
 
           {isCreatingFolder && (
-            <div className="notes-explorer-create-folder mt-3 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white/85 p-2.5 md:flex-row">
+            <div
+              id={NOTES_FOLDER_CREATOR_ID}
+              className="notes-explorer-create-folder notes-inline-panel notes-inline-panel--folder mt-3 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white/85 p-2.5 md:flex-row"
+              style={{ viewTransitionName: 'notes-create-folder' }}
+            >
               <input
                 type="text"
                 value={newFolderName}
                 onChange={(e) => { setNewFolderName(e.target.value); setFoldersError(''); }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreateFolder();
-                  if (e.key === 'Escape') setIsCreatingFolder(false);
+                  if (e.key === 'Escape') closeFolderCreator();
                 }}
                 placeholder={currentFolderId ? 'Название подпапки' : 'Название папки'}
                 className="notes-explorer-folder-input flex-1 rounded-xl border border-purple-100 bg-white px-4 py-2 outline-none focus:border-purple-500"
@@ -2876,7 +3030,7 @@ const NotesSection = ({
               />
               <Button
                 variant="secondary"
-                onClick={() => setIsCreatingFolder(false)}
+                onClick={closeFolderCreator}
                 className="w-full md:w-auto"
               >
                 Отмена
@@ -2888,13 +3042,17 @@ const NotesSection = ({
           )}
 
           {showPyCreator && (
-          <div className="notes-explorer-python-card is-expanded rounded-2xl border border-slate-200/80 bg-white/85 p-3 md:p-4">
+          <div
+            id={NOTES_PYTHON_CREATOR_ID}
+            className="notes-explorer-python-card notes-inline-panel notes-inline-panel--python is-expanded rounded-2xl border border-slate-200/80 bg-white/85 p-3 md:p-4"
+            style={{ viewTransitionName: 'notes-python-creator' }}
+          >
             <div className="notes-explorer-python-summary flex flex-wrap items-center justify-between gap-2.5">
               <div className="notes-explorer-python-copy">
                 <h3 className="notes-explorer-python-title text-sm font-bold text-gray-800">Новый Python-файл</h3>
                 <p className="notes-explorer-python-subtitle text-xs text-slate-500">{currentFolderLabel}</p>
               </div>
-              <Button variant="secondary" onClick={() => setShowPyCreator(false)} disabled={uploadBlockedByRole} className="notes-explorer-python-toggle w-full sm:w-auto">
+              <Button variant="secondary" onClick={closePythonCreator} disabled={uploadBlockedByRole} className="notes-explorer-python-toggle w-full sm:w-auto">
                 Скрыть
               </Button>
             </div>
@@ -2906,6 +3064,7 @@ const NotesSection = ({
                   onChange={(e) => { setPyDraftName(e.target.value); setPyDraftError(''); }}
                   placeholder="Название файла (без .py)"
                   className="notes-explorer-python-input flex-1 min-w-0 px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+                  autoFocus
                 />
                 <Button onClick={handleCreatePyFile} disabled={pyDraftSaving || !pyDraftName.trim() || uploadBlockedByRole} className="notes-explorer-python-save-btn w-full md:w-auto">
                   {pyDraftSaving ? 'Сохранение...' : 'Сохранить файл'}
@@ -2996,6 +3155,7 @@ const NotesSection = ({
                           } ${isSelectedFolder ? 'is-selected' : ''} ${
                             isPressingFolder ? 'is-pressing' : ''
                           } ${isOpeningFolder ? 'is-opening' : ''}`}
+                          style={{ '--notes-row-index': Math.min(itemIndex, 12) }}
                           onMouseDown={(e) => {
                             if (e.button !== 0 || renamingFolderId === folder.id) return;
                             startFolderPressFeedback(folder.id);
@@ -3141,7 +3301,8 @@ const NotesSection = ({
                     const isMemoryCodeCard = isSolutionBundle || isCheatsheet;
                     const isCollapsingSolution = isSolutionBundle && Boolean(collapsingSolutionIds[f.id]);
                     const isCollapsingCheatsheet = isCheatsheet && Boolean(collapsingSolutionIds[f.id]);
-                    const isCollapsingPreview = isCollapsingSolution || isCollapsingCheatsheet;
+                    const isCollapsingPreview = Boolean(collapsingSolutionIds[f.id]);
+                    const isPreviewPresent = isExpanded;
                     const isPreviewVisuallyOpen = isExpanded && !isCollapsingPreview;
                     const solutionTaskNumber = memory?.taskNumber ?? f?.taskNumber;
                     const solutionTaskDisplay = formatTaskNumber(solutionTaskNumber) || solutionTaskNumber;
@@ -3173,6 +3334,7 @@ const NotesSection = ({
                         && !pyError[f.id]
                         && cheatsheetSourceCode.trim()
                     );
+                    const previewElementId = `notes-preview-${String(f.id).replace(/[^A-Za-z0-9_-]/g, '-')}`;
                     const isCheatsheetCopied = copiedCheatsheetId === String(f.id);
                     const firstFileInList = itemIndex === sortedVisibleFolders.length;
                     const previousFile = itemIndex > sortedVisibleFolders.length
@@ -3212,7 +3374,7 @@ const NotesSection = ({
                           className={`notes-explorer-file-row notes-resource-card ${isPinned ? 'notes-resource-card--favorite' : ''} ${isSolutionBundle ? 'notes-resource-card--solution' : ''} ${isCheatsheet ? 'notes-resource-card--cheatsheet' : ''} border-t border-slate-100 ${
                             isSelected ? 'is-selected' : ''
                           } ${
-                            isPreviewVisuallyOpen ? 'is-preview-open' : ''
+                            isPreviewPresent ? 'is-preview-open' : ''
                           } ${
                             isPreviewable ? 'is-previewable' : ''
                           } ${
@@ -3226,6 +3388,7 @@ const NotesSection = ({
                           } ${
                             favoriteMotion === 'removing' ? 'is-favorite-removing' : ''
                           }`}
+                          style={{ '--notes-row-index': Math.min(itemIndex, 12) }}
                           draggable={renamingId !== f.id && manageable}
                           onDragStart={(e) => {
                             if (!manageable) return;
@@ -3289,6 +3452,8 @@ const NotesSection = ({
                           }}
                           role="button"
                           tabIndex={renamingId === f.id ? -1 : 0}
+                          aria-expanded={isPreviewable ? isPreviewVisuallyOpen : undefined}
+                          aria-controls={isPreviewable ? previewElementId : undefined}
                           title={isMemoryCodeCard ? solutionActionTitle : (isPreviewable ? 'Один клик — открыть файл' : 'Выделить файл')}
                         >
                           <td className="notes-resource-card__identity px-3 py-2.5">
@@ -3500,7 +3665,10 @@ const NotesSection = ({
                                     toggleFilePreview(f);
                                   }}
                                   className={`notes-explorer-file-action-btn notes-explorer-folder-open-btn notes-explorer-open-action rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 ${isCheatsheet ? 'notes-cheatsheet-open-btn' : ''}`}
-                                  title={isSolutionBundle || isCheatsheet ? solutionActionTitle : (isExpanded ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
+                                  title={isSolutionBundle || isCheatsheet ? solutionActionTitle : (isPreviewVisuallyOpen ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
+                                  aria-label={isSolutionBundle || isCheatsheet ? solutionActionTitle : (isPreviewVisuallyOpen ? 'Скрыть предпросмотр' : 'Открыть предпросмотр')}
+                                  aria-expanded={isPreviewVisuallyOpen}
+                                  aria-controls={previewElementId}
                                   type="button"
                                 >
                                   <span className="notes-explorer-open-action__label">
@@ -3556,9 +3724,16 @@ const NotesSection = ({
                           </td>
                         </tr>
                         {isPyFile(f.name) && (
-                          <tr className={`${expandedPyIds[f.id] ? '' : 'hidden'} ${isSolutionBundle ? `notes-solution-preview-row ${isCollapsingSolution ? 'is-closing' : ''}` : ''} ${isCheatsheet ? `notes-cheatsheet-preview-row ${isCollapsingCheatsheet ? 'is-closing' : ''}` : ''}`}>
-                            <td colSpan={3} className={`notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3 ${isSolutionBundle ? `notes-solution-preview-cell ${isCollapsingSolution ? 'is-closing' : ''}` : ''} ${isCheatsheet ? `notes-cheatsheet-preview-cell ${isCollapsingCheatsheet ? 'is-closing' : ''}` : ''}`}>
-                              <div className={`notes-explorer-preview-panel ${isSolutionBundle ? `notes-solution-preview-panel ${isCollapsingSolution ? 'is-closing' : ''}` : (isCheatsheet ? `notes-cheatsheet-preview-panel ${isCollapsingCheatsheet ? 'is-closing' : ''}` : 'space-y-3 rounded-xl border border-slate-200 bg-white p-2')}`}>
+                          <tr
+                            id={previewElementId}
+                            className={`${expandedPyIds[f.id] ? 'notes-generic-preview-row' : 'hidden'} ${isCollapsingPreview ? 'is-closing' : ''} ${isSolutionBundle ? `notes-solution-preview-row ${isCollapsingSolution ? 'is-closing' : ''}` : ''} ${isCheatsheet ? `notes-cheatsheet-preview-row ${isCollapsingCheatsheet ? 'is-closing' : ''}` : ''}`}
+                            aria-hidden={isCollapsingPreview || undefined}
+                            inert={isCollapsingPreview}
+                          >
+                            <td colSpan={3} className={`notes-explorer-preview-cell notes-generic-preview-cell border-t border-slate-100 bg-white px-3 py-3 ${isCollapsingPreview ? 'is-closing' : ''} ${isSolutionBundle ? `notes-solution-preview-cell ${isCollapsingSolution ? 'is-closing' : ''}` : ''} ${isCheatsheet ? `notes-cheatsheet-preview-cell ${isCollapsingCheatsheet ? 'is-closing' : ''}` : ''}`}>
+                              <div className={`notes-generic-preview-reveal ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                                <div className="notes-generic-preview-reveal__content">
+                                  <div className={`notes-explorer-preview-panel notes-generic-preview-panel ${isCollapsingPreview ? 'is-closing' : ''} ${isSolutionBundle ? `notes-solution-preview-panel ${isCollapsingSolution ? 'is-closing' : ''}` : (isCheatsheet ? `notes-cheatsheet-preview-panel ${isCollapsingCheatsheet ? 'is-closing' : ''}` : 'space-y-3 rounded-xl border border-slate-200 bg-white p-2')}`}>
                                 {!isSolutionBundle && !isCheatsheet && (
                                   <div className="flex flex-wrap items-center justify-between gap-2">
                                     <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
@@ -4047,45 +4222,76 @@ const NotesSection = ({
                                 {!isSolutionBundle && !isCheatsheet && editingPyId === f.id && pyEditError && (
                                   <p className="text-xs text-red-500">{pyEditError}</p>
                                 )}
+                                  </div>
+                                </div>
                               </div>
                             </td>
                           </tr>
                         )}
                         {isPdfFile(f.name) && (
-                          <tr className={`${expandedPdfIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
-                              <div className="notes-explorer-preview-panel overflow-hidden rounded-xl border border-slate-200 bg-white">
-                                <iframe
-                                  title={f.name}
-                                  src={getFileUrl(f)}
-                                  className="w-full"
-                                  style={{ height: pdfPreviewHeight }}
-                                />
+                          <tr
+                            id={previewElementId}
+                            className={`${expandedPdfIds[f.id] ? 'notes-generic-preview-row' : 'hidden'} ${isCollapsingPreview ? 'is-closing' : ''}`}
+                            aria-hidden={isCollapsingPreview || undefined}
+                            inert={isCollapsingPreview}
+                          >
+                            <td colSpan={3} className={`notes-explorer-preview-cell notes-generic-preview-cell border-t border-slate-100 bg-white px-3 py-3 ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                              <div className={`notes-generic-preview-reveal ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                                <div className="notes-generic-preview-reveal__content">
+                                  <div className={`notes-explorer-preview-panel notes-generic-preview-panel overflow-hidden rounded-xl border border-slate-200 bg-white ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                                    <iframe
+                                      title={f.name}
+                                      src={getFileUrl(f)}
+                                      className="w-full"
+                                      style={{ height: pdfPreviewHeight }}
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             </td>
                           </tr>
                         )}
                         {isImageFile(f) && (
-                          <tr className={`${expandedImageIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
-                              <ImageViewer
-                                src={getFileUrl(f)}
-                                alt={f.name || 'Изображение'}
-                                maxHeight={imagePreviewMaxHeight}
-                              />
+                          <tr
+                            id={previewElementId}
+                            className={`${expandedImageIds[f.id] ? 'notes-generic-preview-row' : 'hidden'} ${isCollapsingPreview ? 'is-closing' : ''}`}
+                            aria-hidden={isCollapsingPreview || undefined}
+                            inert={isCollapsingPreview}
+                          >
+                            <td colSpan={3} className={`notes-explorer-preview-cell notes-generic-preview-cell border-t border-slate-100 bg-white px-3 py-3 ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                              <div className={`notes-generic-preview-reveal ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                                <div className="notes-generic-preview-reveal__content">
+                                  <div className={`notes-generic-preview-panel ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                                    <ImageViewer
+                                      src={getFileUrl(f)}
+                                      alt={f.name || 'Изображение'}
+                                      maxHeight={imagePreviewMaxHeight}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
                             </td>
                           </tr>
                         )}
                         {isTextFile(f.name) && (
-                          <tr className={`${expandedTextIds[f.id] ? '' : 'hidden'}`}>
-                            <td colSpan={3} className="notes-explorer-preview-cell border-t border-slate-100 bg-white px-3 py-3">
-                              <div className="notes-explorer-preview-panel overflow-hidden rounded-xl border border-slate-200 bg-white">
-                                <iframe
-                                  title={f.name}
-                                  src={getFileUrl(f)}
-                                  className="w-full bg-white"
-                                  style={{ height: pdfPreviewHeight }}
-                                />
+                          <tr
+                            id={previewElementId}
+                            className={`${expandedTextIds[f.id] ? 'notes-generic-preview-row' : 'hidden'} ${isCollapsingPreview ? 'is-closing' : ''}`}
+                            aria-hidden={isCollapsingPreview || undefined}
+                            inert={isCollapsingPreview}
+                          >
+                            <td colSpan={3} className={`notes-explorer-preview-cell notes-generic-preview-cell border-t border-slate-100 bg-white px-3 py-3 ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                              <div className={`notes-generic-preview-reveal ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                                <div className="notes-generic-preview-reveal__content">
+                                  <div className={`notes-explorer-preview-panel notes-generic-preview-panel overflow-hidden rounded-xl border border-slate-200 bg-white ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                                    <iframe
+                                      title={f.name}
+                                      src={getFileUrl(f)}
+                                      className="w-full bg-white"
+                                      style={{ height: pdfPreviewHeight }}
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             </td>
                           </tr>
