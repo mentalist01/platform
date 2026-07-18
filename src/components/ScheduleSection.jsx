@@ -318,6 +318,18 @@ const getStudentLessonKey = (entry) => (
   String(entry?.id || `${entry?.currentWeekDate || ''}-${entry?.weekdayKey || ''}-${entry?.time || ''}-${entry?.createdAt || 'slot'}`)
 );
 
+const getLessonTopicOccurrenceKey = (studentId, entry) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  const dayKey = String(entry?.currentWeekDate || entry?.date || '').trim();
+  const time = String(entry?.time || '').trim();
+  const duration = Number(entry?.durationMinutes);
+  const durationMinutes = Number.isFinite(duration) && duration >= 15
+    ? Math.min(360, Math.round(duration))
+    : 60;
+  if (!normalizedStudentId || !dayKey || !time) return '';
+  return [normalizedStudentId, dayKey, time, durationMinutes].join('|');
+};
+
 const isPaymentOverdueScheduleEntry = (entry) => Boolean(entry?.isPaymentOverdueOccurrence);
 
 const getSchedulePaymentStateForDate = (entry, dateKey) => {
@@ -579,6 +591,9 @@ const ScheduleSection = ({
   const [showHistory, setShowHistory] = useState(false);
   const [scheduleCompactMode, setScheduleCompactMode] = useState(false);
   const [lessonSchedule, setLessonSchedule] = useState([]);
+  const [lessonTopicsByOccurrence, setLessonTopicsByOccurrence] = useState({});
+  const [lessonTopicsLoading, setLessonTopicsLoading] = useState(false);
+  const [lessonTopicsRefreshKey, setLessonTopicsRefreshKey] = useState(0);
   const [scheduleForm, setScheduleForm] = useState({ ...DEFAULT_SCHEDULE_FORM });
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
@@ -599,6 +614,7 @@ const ScheduleSection = ({
   const [lessonReminderError, setLessonReminderError] = useState('');
   const [homeworkChecklistBusy, setHomeworkChecklistBusy] = useState({});
   const [homeworkClock, setHomeworkClock] = useState(() => Date.now());
+  const lessonTopicsLoadedKeyRef = React.useRef('');
   const googleScheduleAutoSyncKeyRef = React.useRef('');
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
@@ -1113,6 +1129,32 @@ const ScheduleSection = ({
     return `${relativeLabel}, ${dateLabel}`;
   };
 
+  const getLessonTopicDisplayText = (topic) => {
+    if (!topic || typeof topic !== 'object') return '';
+    if (topic.source === 'teacher') return String(topic.text || '').trim();
+    const taskNumbers = Array.from(new Set(
+      (Array.isArray(topic.taskNumbers) ? topic.taskNumbers : [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value))
+    ));
+    if (taskNumbers.length === 1) {
+      const taskNumber = taskNumbers[0];
+      const task = [...(Array.isArray(taskOptions) ? taskOptions : []), ...(Array.isArray(pythonTaskOptions) ? pythonTaskOptions : [])]
+        .find((entry) => Number(entry?.number ?? entry?.id) === taskNumber);
+      const displayNumber = task
+        ? String(getTaskDisplayNumber(task) || formatTaskNumber(taskNumber) || taskNumber)
+        : String(formatTaskNumber(taskNumber) || taskNumber);
+      const title = String(task?.title || '').trim();
+      return `Задание ${displayNumber}${title ? ` · ${title}` : ''}`;
+    }
+    if (taskNumbers.length > 1) {
+      const visible = taskNumbers.slice(0, 2).map((taskNumber) => String(formatTaskNumber(taskNumber) || taskNumber));
+      const rest = taskNumbers.length - visible.length;
+      return `Задания ${visible.join(', ')}${rest > 0 ? ` · ещё ${rest}` : ''}`;
+    }
+    return String(topic.text || '').trim();
+  };
+
   const renderStudentWeekSchedule = () => {
     const now = new Date();
     const todayKey = formatScheduleDayKey(new Date());
@@ -1206,6 +1248,12 @@ const ScheduleSection = ({
               const durationLabel = Number.isFinite(duration) && duration > 0 ? `${Math.round(duration)} мин` : '60 мин';
               const lessonDate = parseScheduleDayKey(entry?.currentWeekDate || entry?.date);
               const dayNumber = lessonDate?.getDate?.() || '';
+              const topicKey = getLessonTopicOccurrenceKey(effectiveStudentId, entry);
+              const lessonTopic = topicKey ? lessonTopicsByOccurrence[topicKey] : null;
+              const lessonTopicText = getLessonTopicDisplayText(lessonTopic);
+              const emptyTopicText = timingState === 'past'
+                ? 'Конспекты к занятию не найдены'
+                : 'Тема пока не задана';
               return (
                 <article
                   key={lessonKey}
@@ -1225,6 +1273,14 @@ const ScheduleSection = ({
                       <Clock3 size={14} />
                       <strong>{getScheduleTimeRangeLabel(entry)}</strong>
                       <span>{durationLabel}</span>
+                    </div>
+                    <div
+                      className={`schedule-shell__student-lesson-topic${lessonTopic ? ` schedule-shell__student-lesson-topic--${lessonTopic.source}` : ' schedule-shell__student-lesson-topic--empty'}`}
+                      title={lessonTopicText || emptyTopicText}
+                    >
+                      <BookOpen size={13} />
+                      <span>{lessonTopic?.source === 'teacher' ? 'Тема учителя' : (lessonTopic ? 'По конспектам' : 'Тема')}</span>
+                      <strong>{lessonTopicText || (lessonTopicsLoading ? 'Определяем тему…' : emptyTopicText)}</strong>
                     </div>
                   </div>
                   {lessonUrl && (
@@ -1599,6 +1655,54 @@ const ScheduleSection = ({
     },
     [displayWeekSchedule, overdueUnpaidSchedule]
   );
+  const lessonTopicsRange = useMemo(() => {
+    const dayKeys = studentVisibleSchedule
+      .map((entry) => String(entry?.currentWeekDate || entry?.date || '').trim())
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right, 'ru'));
+    return dayKeys.length > 0
+      ? { from: dayKeys[0], to: dayKeys[dayKeys.length - 1] }
+      : null;
+  }, [studentVisibleSchedule]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleLessonTopicUpdated = (event) => {
+      const updatedStudentId = String(event?.detail?.studentId || '').trim();
+      if (updatedStudentId && updatedStudentId !== String(effectiveStudentId || '').trim()) return;
+      setLessonTopicsRefreshKey((value) => value + 1);
+    };
+    window.addEventListener('student-lesson-topic-updated', handleLessonTopicUpdated);
+    return () => window.removeEventListener('student-lesson-topic-updated', handleLessonTopicUpdated);
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    if (!effectiveStudentId || !lessonTopicsRange) {
+      setLessonTopicsByOccurrence({});
+      setLessonTopicsLoading(false);
+      lessonTopicsLoadedKeyRef.current = '';
+      return undefined;
+    }
+    let cancelled = false;
+    const loadKey = `${effectiveStudentId}|${lessonTopicsRange.from}|${lessonTopicsRange.to}`;
+    if (lessonTopicsLoadedKeyRef.current !== loadKey) setLessonTopicsLoading(true);
+    api.getLessonTopics(requestStudentId, lessonTopicsRange)
+      .then((data) => {
+        if (cancelled) return;
+        const topics = data?.topics && typeof data.topics === 'object' && !Array.isArray(data.topics)
+          ? data.topics
+          : {};
+        setLessonTopicsByOccurrence(topics);
+        lessonTopicsLoadedKeyRef.current = loadKey;
+      })
+      .catch(() => {
+        if (!cancelled) setLessonTopicsByOccurrence({});
+      })
+      .finally(() => {
+        if (!cancelled) setLessonTopicsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId, lessonTopicsRange, lessonTopicsRefreshKey, requestStudentId]);
   const studentOverdueUnpaidCount = useMemo(
     () => studentVisibleSchedule.filter((entry) => isScheduleEntryOverdueUnpaid(entry)).length,
     [studentVisibleSchedule]

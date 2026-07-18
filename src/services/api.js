@@ -1450,6 +1450,32 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  getLessonTopics: async (studentId, options = {}) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    if (options?.from) params.append('from', String(options.from));
+    if (options?.to) params.append('to', String(options.to));
+    params.append('_ts', String(Date.now()));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/lesson-topics?${qs}` : '/api/lesson-topics');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateLessonTopic: async (studentId, occurrence = {}, text = '') => {
+    const res = await apiFetch('/api/lesson-topics', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId,
+        dayKey: occurrence?.dayKey,
+        time: occurrence?.time,
+        durationMinutes: occurrence?.durationMinutes,
+        text,
+      }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getTeacherSchedule: async (teacherId) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', String(teacherId));

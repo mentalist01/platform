@@ -53,6 +53,7 @@ import StudentNotificationsCenter from './components/StudentNotificationsCenter'
 import SignupGuestChat from './components/SignupGuestChat';
 import TeacherCalendarSection from './components/TeacherCalendarSection';
 import TeacherFinanceSection from './components/TeacherFinanceSection';
+import TeacherLessonEndPrompt from './components/TeacherLessonEndPrompt';
 import TeacherLessonStartPrompt from './components/TeacherLessonStartPrompt';
 import TeacherPanel from './components/TeacherPanel';
 import ThemeToggleButton from './components/ThemeToggleButton';
@@ -19168,12 +19169,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             />
           )}
           {user.role === 'teacher' && (
-            <TeacherLessonStartPrompt
-              teacherId={user.id}
-              students={studentsWithNicknames}
-              getStudentLabel={getStudentLabel}
-              onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
-            />
+            <>
+              <TeacherLessonStartPrompt
+                teacherId={user.id}
+                students={studentsWithNicknames}
+                getStudentLabel={getStudentLabel}
+                onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
+              />
+              <TeacherLessonEndPrompt
+                teacherId={user.id}
+                students={studentsWithNicknames}
+                getStudentLabel={getStudentLabel}
+              />
+            </>
           )}
           {user.role === 'student' && (
             <StudentLessonJoinPrompt

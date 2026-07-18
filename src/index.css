@@ -23254,6 +23254,75 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   font-weight: 850;
 }
 
+.schedule-shell__student-lesson-topic {
+  display: grid;
+  grid-template-columns: 14px auto minmax(0, 1fr);
+  align-items: start;
+  gap: 5px;
+  max-width: 100%;
+  margin-top: 6px;
+  color: #475569;
+}
+
+.schedule-shell__student-lesson-topic > svg {
+  margin-top: 2px;
+  color: #0ea5e9;
+}
+
+.schedule-shell__student-lesson-topic > span {
+  display: inline-flex;
+  min-height: 18px;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  border-radius: 999px;
+  background: rgba(224, 242, 254, 0.72);
+  color: #0369a1;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.025em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.schedule-shell__student-lesson-topic > strong {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.schedule-shell__student-lesson-topic--teacher > svg {
+  color: #7c3aed;
+}
+
+.schedule-shell__student-lesson-topic--teacher > span {
+  border-color: rgba(124, 58, 237, 0.22);
+  background: rgba(237, 233, 254, 0.76);
+  color: #6d28d9;
+}
+
+.schedule-shell__student-lesson-topic--teacher > strong {
+  color: #4c1d95;
+}
+
+.schedule-shell__student-lesson-topic--empty > svg,
+.schedule-shell__student-lesson-topic--empty > strong {
+  color: #94a3b8;
+}
+
+.schedule-shell__student-lesson-topic--empty > span {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(241, 245, 249, 0.7);
+  color: #64748b;
+}
+
 .schedule-shell__student-lesson-link {
   display: inline-flex;
   min-height: 34px;
@@ -23606,6 +23675,455 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   }
 }
 
+.teacher-lesson-end-prompt {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 136;
+  width: min(410px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid rgba(139, 92, 246, 0.28);
+  border-radius: 25px;
+  background:
+    radial-gradient(circle at 4% 0%, rgba(196, 181, 253, 0.34), transparent 37%),
+    radial-gradient(circle at 100% 15%, rgba(125, 211, 252, 0.25), transparent 42%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.985), rgba(250, 245, 255, 0.97) 55%, rgba(240, 249, 255, 0.96));
+  color: #172033;
+  box-shadow:
+    0 30px 80px rgba(76, 29, 149, 0.2),
+    0 12px 34px rgba(14, 165, 233, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  isolation: isolate;
+  animation: teacherLessonEndPromptIn 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.teacher-lesson-end-prompt::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 18%, rgba(255, 255, 255, 0.52) 42%, transparent 64%);
+  transform: translateX(-120%);
+  animation: teacherLessonEndPromptSheen 6.5s ease-in-out 1.3s infinite;
+  pointer-events: none;
+}
+
+.teacher-lesson-end-prompt__glow {
+  position: absolute;
+  z-index: -1;
+  top: -76px;
+  right: -52px;
+  width: 190px;
+  height: 190px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.2);
+  filter: blur(42px);
+  animation: teacherLessonEndPromptGlow 4.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.teacher-lesson-end-prompt__header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: start;
+  padding: 17px 17px 14px;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.12);
+}
+
+.teacher-lesson-end-prompt__header-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  border-radius: 15px;
+  background: linear-gradient(145deg, rgba(209, 250, 229, 0.96), rgba(224, 242, 254, 0.9));
+  color: #059669;
+  box-shadow:
+    0 11px 24px rgba(16, 185, 129, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.teacher-lesson-end-prompt__heading {
+  min-width: 0;
+}
+
+.teacher-lesson-end-prompt__heading > span {
+  display: block;
+  color: #7c3aed;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.15em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.teacher-lesson-end-prompt__heading > strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 3px;
+  color: #111827;
+  font-size: 19px;
+  font-weight: 950;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.teacher-lesson-end-prompt__heading > small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.teacher-lesson-end-prompt__header-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.teacher-lesson-end-prompt__icon-button {
+  display: inline-grid;
+  width: 31px;
+  height: 31px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.64);
+  color: #64748b;
+  cursor: pointer;
+  transition: transform 170ms ease, border-color 170ms ease, background 170ms ease, color 170ms ease, box-shadow 170ms ease;
+}
+
+.teacher-lesson-end-prompt__icon-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(139, 92, 246, 0.34);
+  background: rgba(237, 233, 254, 0.84);
+  color: #6d28d9;
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.11);
+}
+
+.teacher-lesson-end-prompt__body {
+  padding: 14px 17px 17px;
+}
+
+.teacher-lesson-end-prompt__current-topic {
+  display: grid;
+  grid-template-columns: 29px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  padding: 10px 11px;
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(240, 249, 255, 0.88), rgba(245, 243, 255, 0.84));
+}
+
+.teacher-lesson-end-prompt__current-topic > svg {
+  width: 29px;
+  height: 29px;
+  padding: 7px;
+  border-radius: 9px;
+  background: rgba(224, 242, 254, 0.86);
+  color: #0284c7;
+}
+
+.teacher-lesson-end-prompt__current-topic > div {
+  min-width: 0;
+}
+
+.teacher-lesson-end-prompt__current-topic span,
+.teacher-lesson-end-prompt__current-topic strong {
+  display: block;
+}
+
+.teacher-lesson-end-prompt__current-topic span {
+  color: #0284c7;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.teacher-lesson-end-prompt__current-topic strong {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 2px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.teacher-lesson-end-prompt__current-topic.is-empty {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.teacher-lesson-end-prompt__current-topic.is-empty > svg,
+.teacher-lesson-end-prompt__current-topic.is-empty span {
+  color: #94a3b8;
+}
+
+.teacher-lesson-end-prompt__next-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px 10px;
+  margin-top: 12px;
+  padding: 0 2px;
+}
+
+.teacher-lesson-end-prompt__next-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #7c3aed;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.teacher-lesson-end-prompt__next-meta > strong {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.teacher-lesson-end-prompt__field {
+  position: relative;
+  display: block;
+  margin-top: 9px;
+}
+
+.teacher-lesson-end-prompt__field > span {
+  display: block;
+  margin: 0 0 6px 2px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.teacher-lesson-end-prompt__field textarea {
+  display: block;
+  width: 100%;
+  min-height: 82px;
+  resize: vertical;
+  padding: 11px 12px 23px;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 14px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.82);
+  color: #1e293b;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.42;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.035);
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.teacher-lesson-end-prompt__field textarea::placeholder {
+  color: #94a3b8;
+  font-weight: 650;
+}
+
+.teacher-lesson-end-prompt__field textarea:focus {
+  border-color: rgba(124, 58, 237, 0.62);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 0 0 4px rgba(139, 92, 246, 0.1),
+    0 12px 24px rgba(124, 58, 237, 0.08);
+}
+
+.teacher-lesson-end-prompt__field > small {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  color: #94a3b8;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.teacher-lesson-end-prompt__error,
+.teacher-lesson-end-prompt__saved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.teacher-lesson-end-prompt__error {
+  border: 1px solid rgba(244, 63, 94, 0.22);
+  background: rgba(255, 228, 230, 0.72);
+  color: #be123c;
+}
+
+.teacher-lesson-end-prompt__saved {
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  background: rgba(209, 250, 229, 0.72);
+  color: #047857;
+  animation: teacherLessonEndSavedIn 280ms ease both;
+}
+
+.teacher-lesson-end-prompt__save {
+  display: inline-flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid rgba(109, 40, 217, 0.36);
+  border-radius: 13px;
+  background: linear-gradient(125deg, #7c3aed, #6366f1 55%, #0284c7);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+  box-shadow:
+    0 13px 28px rgba(99, 102, 241, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  transition: transform 180ms ease, filter 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+
+.teacher-lesson-end-prompt__save:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: saturate(1.08) brightness(1.04);
+  box-shadow:
+    0 17px 34px rgba(99, 102, 241, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.teacher-lesson-end-prompt__save:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+.teacher-lesson-end-prompt--collapsed {
+  display: flex;
+  width: min(350px, calc(100vw - 32px));
+  align-items: center;
+  padding: 7px;
+  border-radius: 18px;
+}
+
+.teacher-lesson-end-prompt--collapsed::before,
+.teacher-lesson-end-prompt--collapsed .teacher-lesson-end-prompt__glow {
+  display: none;
+}
+
+.teacher-lesson-end-prompt__collapsed-main {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 3px 6px 3px 3px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.teacher-lesson-end-prompt__collapsed-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #7c3aed, #0ea5e9);
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.22);
+}
+
+.teacher-lesson-end-prompt__collapsed-main small,
+.teacher-lesson-end-prompt__collapsed-main strong {
+  display: block;
+}
+
+.teacher-lesson-end-prompt__collapsed-main small {
+  color: #7c3aed;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.teacher-lesson-end-prompt__collapsed-main strong {
+  overflow: hidden;
+  margin-top: 1px;
+  color: #1e293b;
+  font-size: 11px;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.teacher-lesson-end-prompt__collapsed-main > svg {
+  color: #7c3aed;
+}
+
+@keyframes teacherLessonEndPromptIn {
+  from {
+    opacity: 0;
+    transform: translate3d(18px, 22px, 0) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes teacherLessonEndPromptSheen {
+  0%, 58% { transform: translateX(-120%); opacity: 0; }
+  67% { opacity: 0.78; }
+  82%, 100% { transform: translateX(120%); opacity: 0; }
+}
+
+@keyframes teacherLessonEndPromptGlow {
+  0%, 100% { transform: scale(0.92); opacity: 0.55; }
+  50% { transform: scale(1.08); opacity: 0.9; }
+}
+
+@keyframes teacherLessonEndSavedIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .teacher-lesson-end-prompt,
+  .teacher-lesson-end-prompt::before,
+  .teacher-lesson-end-prompt__glow,
+  .teacher-lesson-end-prompt__saved {
+    animation: none !important;
+  }
+
+  .teacher-lesson-end-prompt__icon-button,
+  .teacher-lesson-end-prompt__save,
+  .teacher-lesson-end-prompt__field textarea {
+    transition: none !important;
+  }
+}
+
 @media (max-width: 900px) {
   .schedule-shell__composer-grid {
     grid-template-columns: minmax(0, 1fr) minmax(145px, 0.45fr);
@@ -23711,6 +24229,158 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   .student-lesson-join-prompt__meta {
     padding: 8px 16px 16px;
   }
+
+  .teacher-lesson-end-prompt {
+    right: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    width: calc(100vw - 20px);
+    max-height: min(82vh, 620px);
+    overflow-y: auto;
+    border-radius: 21px;
+  }
+
+  .teacher-lesson-end-prompt__header {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 9px;
+    padding: 14px 13px 12px;
+  }
+
+  .teacher-lesson-end-prompt__header-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 13px;
+  }
+
+  .teacher-lesson-end-prompt__header-actions {
+    flex-direction: column-reverse;
+  }
+
+  .teacher-lesson-end-prompt__heading > strong {
+    font-size: 17px;
+  }
+
+  .teacher-lesson-end-prompt__body {
+    padding: 12px 13px 14px;
+  }
+
+  .teacher-lesson-end-prompt__next-meta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .teacher-lesson-end-prompt--collapsed {
+    width: calc(100vw - 20px);
+    overflow: hidden;
+  }
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt {
+  border-color: rgba(167, 139, 250, 0.38);
+  background:
+    radial-gradient(circle at 4% 0%, rgba(124, 58, 237, 0.28), transparent 38%),
+    radial-gradient(circle at 100% 15%, rgba(14, 165, 233, 0.2), transparent 43%),
+    linear-gradient(150deg, rgba(15, 23, 42, 0.98), rgba(30, 27, 75, 0.96) 56%, rgba(8, 47, 73, 0.95));
+  color: rgb(226, 232, 240);
+  box-shadow:
+    0 32px 84px rgba(2, 6, 23, 0.68),
+    0 12px 36px rgba(76, 29, 149, 0.22),
+    inset 0 1px 0 rgba(148, 163, 184, 0.11);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt::before {
+  background: linear-gradient(115deg, transparent 18%, rgba(148, 163, 184, 0.1) 42%, transparent 64%);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__header {
+  border-bottom-color: rgba(167, 139, 250, 0.17);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__header-icon {
+  border-color: rgba(52, 211, 153, 0.3);
+  background: linear-gradient(145deg, rgba(6, 78, 59, 0.72), rgba(8, 47, 73, 0.76));
+  color: rgb(110, 231, 183);
+  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.36);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__heading > span,
+html[data-theme='dark'] .teacher-lesson-end-prompt__collapsed-main small {
+  color: rgb(196, 181, 253);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__heading > strong,
+html[data-theme='dark'] .teacher-lesson-end-prompt__collapsed-main strong {
+  color: rgb(248, 250, 252);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__heading > small,
+html[data-theme='dark'] .teacher-lesson-end-prompt__next-meta > strong {
+  color: rgba(203, 213, 225, 0.8);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__icon-button {
+  border-color: rgba(100, 116, 139, 0.42);
+  background: rgba(15, 23, 42, 0.66);
+  color: rgba(203, 213, 225, 0.86);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__icon-button:hover {
+  border-color: rgba(167, 139, 250, 0.42);
+  background: rgba(76, 29, 149, 0.42);
+  color: rgb(221, 214, 254);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__current-topic {
+  border-color: rgba(56, 189, 248, 0.24);
+  background: linear-gradient(145deg, rgba(8, 47, 73, 0.52), rgba(30, 27, 75, 0.5));
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__current-topic > svg {
+  background: rgba(8, 47, 73, 0.8);
+  color: rgb(125, 211, 252);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__current-topic span {
+  color: rgb(125, 211, 252);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__current-topic strong {
+  color: rgba(226, 232, 240, 0.92);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__current-topic.is-empty {
+  border-color: rgba(100, 116, 139, 0.34);
+  background: rgba(15, 23, 42, 0.52);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__next-meta > span,
+html[data-theme='dark'] .teacher-lesson-end-prompt__field > span,
+html[data-theme='dark'] .teacher-lesson-end-prompt__collapsed-main > svg {
+  color: rgb(196, 181, 253);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__field textarea {
+  border-color: rgba(167, 139, 250, 0.32);
+  background: rgba(15, 23, 42, 0.7);
+  color: rgb(241, 245, 249);
+  box-shadow: inset 0 1px 2px rgba(2, 6, 23, 0.32);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__field textarea:focus {
+  border-color: rgba(167, 139, 250, 0.68);
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__error {
+  border-color: rgba(251, 113, 133, 0.32);
+  background: rgba(127, 29, 29, 0.34);
+  color: rgb(254, 205, 211);
+}
+
+html[data-theme='dark'] .teacher-lesson-end-prompt__saved {
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(6, 78, 59, 0.38);
+  color: rgb(167, 243, 208);
 }
 
 html[data-theme='dark'] .student-lesson-join-prompt {
@@ -23921,6 +24591,37 @@ html[data-theme='dark'] .schedule-shell__student-board-empty {
   border-color: rgba(71, 85, 105, 0.62) !important;
   background: rgba(15, 23, 42, 0.68) !important;
   color: rgba(203, 213, 225, 0.82) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-topic > strong {
+  color: rgba(203, 213, 225, 0.9) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-topic > span {
+  border-color: rgba(56, 189, 248, 0.28) !important;
+  background: rgba(8, 47, 73, 0.64) !important;
+  color: rgb(125, 211, 252) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-topic--teacher > span {
+  border-color: rgba(167, 139, 250, 0.34) !important;
+  background: rgba(76, 29, 149, 0.42) !important;
+  color: rgb(221, 214, 254) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-topic--teacher > strong {
+  color: rgb(221, 214, 254) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-topic--empty > span {
+  border-color: rgba(100, 116, 139, 0.36) !important;
+  background: rgba(30, 41, 59, 0.66) !important;
+  color: rgba(148, 163, 184, 0.92) !important;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-topic--empty > svg,
+html[data-theme='dark'] .schedule-shell__student-lesson-topic--empty > strong {
+  color: rgba(148, 163, 184, 0.76) !important;
 }
 
 html[data-theme='dark'] .schedule-shell__student-lesson-link {
@@ -37586,7 +38287,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
 
 .notes-explorer-shell .notes-solution-preview-cell {
   overflow: hidden;
-  animation: notesSolutionCellIn 0.42s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  animation: notesSolutionCellIn 0.22s cubic-bezier(0.2, 0.9, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-solution-preview-row.is-closing {
@@ -37598,11 +38299,11 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
 }
 
 .notes-explorer-shell .notes-solution-preview-cell.is-closing {
-  animation: notesSolutionCellOut 0.44s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: notesSolutionCellOut 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-cheatsheet-preview-cell.is-closing {
-  animation: notesSolutionCellOut 0.44s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: notesSolutionCellOut 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 @keyframes notesSolutionCellIn {
@@ -37648,7 +38349,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
   padding: 0.45rem;
   transform-origin: top center;
   will-change: max-height, opacity, transform, filter;
-  animation: notesSolutionPanelIn 0.48s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  animation: notesSolutionPanelIn 0.24s cubic-bezier(0.2, 0.9, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-cheatsheet-preview-cell {
@@ -37656,7 +38357,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
   border-top-color: rgba(196, 181, 253, 0.52) !important;
   background: transparent !important;
   padding: 0 !important;
-  animation: notesSolutionCellIn 0.42s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  animation: notesSolutionCellIn 0.22s cubic-bezier(0.2, 0.9, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-cheatsheet-preview-panel {
@@ -37673,7 +38374,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
   box-shadow: none;
   padding: 0.5rem;
   transform-origin: top center;
-  animation: notesSolutionPanelIn 0.48s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  animation: notesSolutionPanelIn 0.24s cubic-bezier(0.2, 0.9, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-cheatsheet-preview-panel::before {
@@ -37700,7 +38401,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
     linear-gradient(135deg, rgba(255, 255, 255, 0.97), rgba(250, 245, 255, 0.46));
   box-shadow: none;
   padding: 0.8rem 0.88rem 0.68rem;
-  animation: notesSolutionContentRise 0.34s 0.12s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: notesSolutionContentRise 0.2s 0.04s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   backdrop-filter: blur(16px);
 }
 
@@ -37880,7 +38581,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
   background:
     linear-gradient(145deg, rgba(240, 253, 244, 0.98), rgba(187, 247, 208, 0.7)) !important;
   color: #047857 !important;
-  animation: notesCheatsheetButtonPop 0.34s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  animation: notesCheatsheetButtonPop 0.2s cubic-bezier(0.2, 0.9, 0.2, 1) both;
 }
 
 @keyframes notesCheatsheetButtonPop {
@@ -38032,11 +38733,11 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
 }
 
 .notes-explorer-shell .notes-solution-preview-panel.is-closing {
-  animation: notesSolutionPanelOut 0.44s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: notesSolutionPanelOut 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-cheatsheet-preview-panel.is-closing {
-  animation: notesSolutionPanelOut 0.44s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: notesSolutionPanelOut 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-solution-preview-panel::before {
@@ -38048,24 +38749,24 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
   opacity: 0.9;
   pointer-events: none;
   transform-origin: left center;
-  animation: notesSolutionShineIn 0.62s 0.08s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: notesSolutionShineIn 0.3s 0.03s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-solution-preview-panel.is-closing::before {
-  animation: notesSolutionShineOut 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: notesSolutionShineOut 0.15s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-cheatsheet-preview-panel.is-closing::before {
-  animation: notesSolutionShineOut 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: notesSolutionShineOut 0.15s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-solution-preview-panel.is-closing .notes-solution-header,
 .notes-explorer-shell .notes-solution-preview-panel.is-closing .notes-solution-pane {
-  animation: notesSolutionContentOut 0.22s ease both;
+  animation: notesSolutionContentOut 0.15s ease both;
 }
 
 .notes-explorer-shell .notes-cheatsheet-preview-panel.is-closing .notes-cheatsheet-card {
-  animation: notesSolutionContentOut 0.22s ease both;
+  animation: notesSolutionContentOut 0.15s ease both;
 }
 
 @keyframes notesSolutionPanelIn {
@@ -38150,7 +38851,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
   margin-bottom: 0.45rem;
   padding: 0.62rem 0.72rem;
-  animation: notesSolutionContentRise 0.34s 0.12s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: notesSolutionContentRise 0.2s 0.04s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .notes-explorer-shell .notes-solution-header__title {
@@ -38253,7 +38954,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
   box-shadow:
     0 10px 24px rgba(15, 23, 42, 0.055),
     inset 0 1px 0 rgba(255, 255, 255, 0.86);
-  animation: notesSolutionPaneIn 0.38s 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: notesSolutionPaneIn 0.22s 0.05s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   transition:
     border-color 0.16s ease,
     box-shadow 0.16s ease,
@@ -38487,7 +39188,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-result-conso
   background: linear-gradient(90deg, #38bdf8, #818cf8, #a78bfa);
   opacity: 0.78;
   transform-origin: left center;
-  animation: notesSolutionHoverLineIn 0.44s 0.06s cubic-bezier(0.2, 0.85, 0.2, 1) both;
+  animation: notesSolutionHoverLineIn 0.24s 0.03s cubic-bezier(0.2, 0.85, 0.2, 1) both;
 }
 
 @keyframes notesSolutionHoverPreviewIn {
@@ -48179,30 +48880,30 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 /* Notes premium motion layer: scoped and reduced-motion safe. */
 .notes-motion-view {
   transform-origin: 50% 2rem;
-  animation: notesMotionViewIn 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesMotionViewIn 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-motion-view--landing .notes-landing-hero {
-  animation: notesMotionHeroIn 680ms 40ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesMotionHeroIn 280ms 10ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-motion-view--landing .notes-landing-title,
 .notes-motion-view--landing .notes-landing-subtitle,
 .notes-motion-view--landing .notes-landing-stats,
 .notes-motion-view--landing .notes-landing-progress {
-  animation: notesMotionContentIn 540ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesMotionContentIn 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-motion-view--landing .notes-landing-subtitle {
-  animation-delay: 70ms;
+  animation-delay: 30ms;
 }
 
 .notes-motion-view--landing .notes-landing-stats {
-  animation-delay: 120ms;
+  animation-delay: 50ms;
 }
 
 .notes-motion-view--landing .notes-landing-progress {
-  animation-delay: 170ms;
+  animation-delay: 70ms;
 }
 
 .notes-landing-progress {
@@ -48219,23 +48920,23 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
   opacity: 0;
   pointer-events: none;
   transform: translateX(-115%);
-  animation: notesProgressSheen 980ms 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesProgressSheen 520ms 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-landing-progress__fill {
   position: relative;
   overflow: hidden;
   transform-origin: left center;
-  animation: notesProgressReveal 980ms 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesProgressReveal 480ms 80ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-landing-card {
   cursor: pointer;
-  animation: notesLandingCardIn 660ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(90ms + var(--notes-stagger-index, 0) * 28ms);
+  animation: notesLandingCardIn 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(15ms + var(--notes-stagger-index, 0) * 6ms);
   transition:
-    transform 440ms cubic-bezier(0.16, 1, 0.3, 1),
-    filter 440ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 220ms cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 .notes-landing-card::before {
@@ -48255,9 +48956,9 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 
 .notes-landing-card::after {
   transition:
-    opacity 420ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
-    filter 420ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+    opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 220ms cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 .notes-landing-card .notes-folder-shape,
@@ -48268,13 +48969,13 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 .notes-landing-card__status,
 .notes-landing-card__text {
   transition:
-    transform 440ms cubic-bezier(0.16, 1, 0.3, 1),
-    filter 440ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 300ms ease,
-    color 300ms ease,
-    background-color 300ms ease,
-    border-color 300ms ease,
-    box-shadow 440ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 180ms ease,
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 .notes-landing-card:hover,
@@ -48286,7 +48987,7 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 
 .notes-landing-card:hover::before,
 .notes-landing-card:focus-visible::before {
-  animation: notesCardSheen 920ms 40ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesCardSheen 480ms 20ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-landing-card:hover .notes-folder-shape,
@@ -48325,7 +49026,7 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 }
 
 .notes-motion-view--workspace .notes-task-workspace {
-  animation: notesWorkspaceIn 680ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesWorkspaceIn 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-motion-view--workspace .notes-task-hero__main > *,
@@ -48333,39 +49034,39 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 .notes-motion-view--workspace .notes-commandbar,
 .notes-motion-view--workspace .notes-library__heading,
 .notes-motion-view--workspace .notes-explorer-empty-state {
-  animation: notesMotionContentIn 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesMotionContentIn 210ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-motion-view--workspace .notes-task-hero__main > :nth-child(1) {
-  animation-delay: 80ms;
+  animation-delay: 20ms;
 }
 
 .notes-motion-view--workspace .notes-task-hero__main > :nth-child(2) {
-  animation-delay: 125ms;
+  animation-delay: 35ms;
 }
 
 .notes-motion-view--workspace .notes-task-hero__main > :nth-child(3) {
-  animation-delay: 170ms;
+  animation-delay: 50ms;
 }
 
 .notes-motion-view--workspace .notes-task-hero__lower {
-  animation-delay: 190ms;
+  animation-delay: 65ms;
 }
 
 .notes-motion-view--workspace .notes-commandbar {
-  animation-delay: 220ms;
+  animation-delay: 0ms;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-task-hero::before {
   transform-origin: left center;
-  animation: notesHeroAccentIn 840ms 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesHeroAccentIn 400ms 60ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-task-hero__icon {
   transition:
-    transform 380ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 380ms cubic-bezier(0.16, 1, 0.3, 1),
-    filter 300ms ease;
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 180ms ease;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-task-hero__identity:hover .notes-task-hero__icon {
@@ -48380,12 +49081,12 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 .notes-explorer-shell--workspace-v2 .notes-commandbar__clear,
 .notes-explorer-shell--workspace-v2 .notes-explorer-file-action-btn {
   transition:
-    transform 300ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 220ms ease,
-    background-color 220ms ease,
-    color 220ms ease,
-    box-shadow 300ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 220ms ease !important;
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    box-shadow 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 140ms ease !important;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-task-back:active,
@@ -48398,10 +49099,10 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 
 .notes-explorer-shell--workspace-v2 .notes-commandbar__search {
   transition:
-    transform 360ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 220ms ease,
-    box-shadow 360ms cubic-bezier(0.16, 1, 0.3, 1),
-    background-color 220ms ease;
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 140ms ease,
+    box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 140ms ease;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-commandbar__search:focus-within {
@@ -48410,24 +49111,24 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 
 .notes-explorer-shell--workspace-v2 .notes-inline-panel {
   transform-origin: top center;
-  animation: notesInlinePanelIn 540ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesInlinePanelIn 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-library.notes-explorer-files {
-  animation: notesLibraryIn 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesLibraryIn 210ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-resource-card {
-  animation: notesResourceRowIn 440ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(70ms + var(--notes-row-index, 0) * 24ms);
+  animation: notesResourceRowIn 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(8ms + var(--notes-row-index, 0) * 6ms);
 }
 
 .notes-explorer-shell--workspace-v2 .notes-resource-card > td {
   transition:
-    transform 360ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 220ms ease,
-    background-color 220ms ease,
-    box-shadow 360ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-resource-card:hover > td,
@@ -48446,15 +49147,15 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 }
 
 .notes-explorer-shell--workspace-v2 .notes-explorer-folder-file-row.is-opening > td {
-  animation: notesPremiumFolderOpen 300ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
+  animation: notesPremiumFolderOpen 140ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-explorer-folder-file-row.is-opening .notes-explorer-inline-folder-icon {
-  animation: notesPremiumFolderIcon 360ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
+  animation: notesPremiumFolderIcon 150ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-explorer-folder-file-row.is-opening .notes-explorer-folder-open-chevron {
-  animation: notesPremiumChevron 320ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
+  animation: notesPremiumChevron 140ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-explorer-file-action-btn:hover:not(:disabled) {
@@ -48466,7 +49167,7 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 }
 
 .notes-explorer-shell--workspace-v2 .notes-explorer-file-action-btn svg {
-  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .notes-explorer-shell--workspace-v2 .notes-library.notes-explorer-files.is-dragging {
@@ -48487,7 +49188,7 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   transform-origin: top center;
-  animation: notesGenericPreviewIn 480ms 30ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: notesGenericPreviewIn 230ms 10ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notes-explorer-shell .notes-generic-preview-cell:not(.notes-solution-preview-cell):not(.notes-cheatsheet-preview-cell) > .notes-generic-preview-reveal > .notes-generic-preview-reveal__content {
@@ -48497,10 +49198,18 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 }
 
 .notes-explorer-shell .notes-generic-preview-cell:not(.notes-solution-preview-cell):not(.notes-cheatsheet-preview-cell) > .notes-generic-preview-reveal.is-closing {
-  animation: notesGenericPreviewOut 430ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: notesGenericPreviewOut 190ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 @supports (view-transition-name: none) {
+  ::view-transition,
+  ::view-transition-group(*),
+  ::view-transition-image-pair(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    pointer-events: none;
+  }
+
   ::view-transition-group(root),
   ::view-transition-old(root),
   ::view-transition-new(root) {
@@ -48518,7 +49227,7 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
 
   ::view-transition-group(notes-active-task) {
     z-index: 80;
-    animation-duration: 620ms;
+    animation-duration: 280ms;
     animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   }
 
@@ -48527,28 +49236,28 @@ html[data-theme='dark'] .mock-classic-lock-card__cancel:hover {
   }
 
   ::view-transition-old(notes-active-task) {
-    animation: notesSharedElementOld 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: notesSharedElementOld 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   ::view-transition-new(notes-active-task) {
-    animation: notesSharedElementNew 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: notesSharedElementNew 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   ::view-transition-group(notes-create-folder),
   ::view-transition-group(notes-python-creator) {
     z-index: 90;
-    animation-duration: 520ms;
+    animation-duration: 240ms;
     animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   ::view-transition-old(notes-create-folder),
   ::view-transition-old(notes-python-creator) {
-    animation: notesDisclosureOld 360ms cubic-bezier(0.4, 0, 0.2, 1) both;
+    animation: notesDisclosureOld 180ms cubic-bezier(0.4, 0, 0.2, 1) both;
   }
 
   ::view-transition-new(notes-create-folder),
   ::view-transition-new(notes-python-creator) {
-    animation: notesDisclosureNew 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: notesDisclosureNew 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 }
 

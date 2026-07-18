@@ -49,6 +49,18 @@ import {
   summarizeCurrentTeacherStudentsSchedule,
   summarizeTeacherFinanceCalendarPlan,
 } from './teacherFinanceCalendarPlan.js';
+import {
+  LESSON_NOTE_ACTIVITY_LIMIT,
+  buildLessonTopicOccurrenceKey,
+  expandLessonScheduleOccurrences,
+  normalizeLessonDayKey,
+  normalizeLessonNoteActivity,
+  normalizeLessonTime,
+  normalizeLessonTopicRecord,
+  normalizeLessonTopicText,
+  normalizeLessonTopicsStore,
+  resolveLessonTopicsForOccurrences,
+} from './lessonTopics.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -178,6 +190,7 @@ const broadcastNotificationsFile = path.join(dataDir, 'broadcast-notifications.j
 const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json');
 const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json');
+const lessonTopicsFile = path.join(dataDir, 'lesson-topics.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const paymentNotificationsFile = path.join(dataDir, 'payment-notifications.json');
 const paymentSenderLinksFile = path.join(dataDir, 'payment-sender-links.json');
@@ -1554,6 +1567,15 @@ const readTeacherCalendarMarksDb = () => {
   }
 };
 
+const readLessonTopicsStore = () => {
+  try {
+    const raw = fs.readFileSync(lessonTopicsFile, 'utf8');
+    return normalizeLessonTopicsStore(JSON.parse(raw));
+  } catch {
+    return normalizeLessonTopicsStore(null);
+  }
+};
+
 const writeFilesDb = (data) => {
   writeJsonFileAtomic(dataFile, data);
 };
@@ -1588,6 +1610,32 @@ const writeTeacherCalendarSyncDb = (data) => {
 
 const writeTeacherCalendarMarksDb = (data) => {
   writeJsonFileAtomic(teacherCalendarMarksFile, normalizeTeacherCalendarMarksDb(data));
+};
+
+const writeLessonTopicsStore = (data) => {
+  writeJsonFileAtomic(lessonTopicsFile, normalizeLessonTopicsStore(data));
+};
+
+const appendLessonNoteActivity = ({ studentId, teacherId, taskNumber, fileId, source, occurredAt } = {}) => {
+  const activity = normalizeLessonNoteActivity({
+    id: crypto.randomUUID(),
+    studentId,
+    teacherId,
+    taskNumber,
+    fileId,
+    source,
+    occurredAt: occurredAt || new Date().toISOString(),
+  });
+  if (!activity) return null;
+  try {
+    const store = readLessonTopicsStore();
+    store.activities = [...store.activities, activity].slice(-LESSON_NOTE_ACTIVITY_LIMIT);
+    writeLessonTopicsStore(store);
+    return activity;
+  } catch (error) {
+    console.warn('[lesson-topics] failed to append note activity:', error?.message || error);
+    return null;
+  }
 };
 
 const PAYMENT_NOTIFICATION_STORAGE_LIMIT = 500;
@@ -2912,6 +2960,18 @@ const hardDeleteStudentData = (studentIds = []) => {
     }
   });
   if (progressChanged) writeProgressDb(progressDb);
+
+  const lessonTopicsStore = readLessonTopicsStore();
+  const nextLessonTopics = Object.fromEntries(
+    Object.entries(lessonTopicsStore.topics).filter(([, entry]) => !idSet.has(entry?.studentId))
+  );
+  const nextLessonActivities = lessonTopicsStore.activities.filter((entry) => !idSet.has(entry?.studentId));
+  if (
+    Object.keys(nextLessonTopics).length !== Object.keys(lessonTopicsStore.topics).length
+    || nextLessonActivities.length !== lessonTopicsStore.activities.length
+  ) {
+    writeLessonTopicsStore({ topics: nextLessonTopics, activities: nextLessonActivities });
+  }
 
   const usageDb = readUsageDb();
   let usageChanged = false;
@@ -22021,6 +22081,154 @@ app.get('/api/student-schedule', async (req, res) => {
   res.json(responseSchedule);
 });
 
+const getLessonTopicsRange = (fromValue, toValue) => {
+  const todayKey = normalizeLessonDayKey(getDatePartsInCalendarTimeZone(new Date())?.dayKey)
+    || normalizeLessonDayKey(new Date().toISOString().slice(0, 10));
+  const todayNumber = dayKeyToNumber(todayKey);
+  const fallbackFrom = Number.isFinite(todayNumber) ? numberToDayKey(todayNumber - 14) : todayKey;
+  const fallbackTo = Number.isFinite(todayNumber) ? numberToDayKey(todayNumber + 21) : todayKey;
+  const fromDayKey = normalizeLessonDayKey(fromValue) || fallbackFrom;
+  const toDayKey = normalizeLessonDayKey(toValue) || fallbackTo;
+  const fromNumber = dayKeyToNumber(fromDayKey);
+  const toNumber = dayKeyToNumber(toDayKey);
+  if (
+    !fromDayKey
+    || !toDayKey
+    || !Number.isFinite(fromNumber)
+    || !Number.isFinite(toNumber)
+    || toNumber < fromNumber
+    || toNumber - fromNumber > 186
+  ) {
+    return null;
+  }
+  return { fromDayKey, toDayKey };
+};
+
+const getScheduleForLessonTopics = async (student, auth) => {
+  const data = getStudentData(student.id);
+  let schedule = Array.isArray(data.schedule) ? data.schedule : [];
+  try {
+    const syncResult = await syncStudentScheduleFromGoogleCalendar(student, auth, {
+      force: false,
+      persist: !isStudentRole(auth),
+      rangeMode: GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING,
+      notify: false,
+    });
+    if (Array.isArray(syncResult?.schedule)) schedule = syncResult.schedule;
+  } catch {
+    // Local schedule and already persisted Google occurrences still provide a useful fallback.
+  }
+  return schedule;
+};
+
+app.get('/api/lesson-topics', async (req, res) => {
+  const { studentId, from, to } = req.query || {};
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const range = getLessonTopicsRange(from, to);
+  if (!range) {
+    return res.status(400).json({ error: 'Некорректный период занятий' });
+  }
+  const schedule = await getScheduleForLessonTopics(student, req.auth);
+  const scheduleOccurrences = expandLessonScheduleOccurrences({
+    studentId: student.id,
+    schedule,
+    fromDayKey: range.fromDayKey,
+    toDayKey: range.toDayKey,
+    timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
+  });
+  const store = readLessonTopicsStore();
+  const manualOccurrences = expandLessonScheduleOccurrences({
+    studentId: student.id,
+    schedule: Object.values(store.topics).filter((entry) => entry?.studentId === student.id),
+    fromDayKey: range.fromDayKey,
+    toDayKey: range.toDayKey,
+    timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
+  });
+  const occurrences = Array.from(new Map(
+    [...scheduleOccurrences, ...manualOccurrences].map((entry) => [entry.key, entry])
+  ).values());
+  const topics = resolveLessonTopicsForOccurrences({
+    occurrences,
+    manualTopics: store.topics,
+    activities: store.activities,
+    files: readFilesDb(),
+  });
+  return res.json({
+    topics,
+    from: range.fromDayKey,
+    to: range.toDayKey,
+  });
+});
+
+app.put('/api/lesson-topics', async (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const { studentId, dayKey, time, durationMinutes, text } = req.body || {};
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const normalizedDayKey = normalizeLessonDayKey(dayKey);
+  const normalizedTime = normalizeLessonTime(time);
+  const normalizedDuration = normalizeScheduleDurationMinutes(durationMinutes);
+  const normalizedText = normalizeLessonTopicText(text);
+  const occurrenceKey = buildLessonTopicOccurrenceKey({
+    studentId: student.id,
+    dayKey: normalizedDayKey,
+    time: normalizedTime,
+    durationMinutes: normalizedDuration,
+  });
+  if (!occurrenceKey) {
+    return res.status(400).json({ error: 'Некорректное занятие' });
+  }
+
+  const store = readLessonTopicsStore();
+  if (!normalizedText) {
+    delete store.topics[occurrenceKey];
+    writeLessonTopicsStore(store);
+    notifyScheduleSyncUpdate({
+      scope: 'lesson-topic',
+      action: 'deleted',
+      teacherId: student.teacherId,
+      studentId: student.id,
+      occurrenceKey,
+    });
+    return res.json({ ok: true, occurrenceKey, topic: null });
+  }
+
+  const nowIso = new Date().toISOString();
+  const existing = normalizeLessonTopicRecord(store.topics[occurrenceKey]);
+  const topicRecord = normalizeLessonTopicRecord({
+    studentId: student.id,
+    teacherId: student.teacherId,
+    dayKey: normalizedDayKey,
+    time: normalizedTime,
+    durationMinutes: normalizedDuration,
+    text: normalizedText,
+    createdAt: existing?.createdAt || nowIso,
+    updatedAt: nowIso,
+    updatedById: req.auth?.id,
+    updatedByName: req.auth?.name,
+  });
+  store.topics[occurrenceKey] = topicRecord;
+  writeLessonTopicsStore(store);
+  notifyScheduleSyncUpdate({
+    scope: 'lesson-topic',
+    action: 'updated',
+    teacherId: student.teacherId,
+    studentId: student.id,
+    occurrenceKey,
+  });
+  return res.json({
+    ok: true,
+    occurrenceKey,
+    topic: {
+      text: topicRecord.text,
+      source: 'teacher',
+      taskNumbers: [],
+      updatedAt: topicRecord.updatedAt,
+    },
+  });
+});
+
 app.post('/api/student-schedule/google-sync', async (req, res) => {
   if (isStudentRole(req.auth)) {
     return res.status(403).json({ error: 'Синхронизация расписания доступна преподавателю.' });
@@ -23708,6 +23916,10 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     memory,
     url: `/uploads/${req.file.filename}`,
     storageName: req.file.filename,
+    ...(normalizedCategory === 'class' ? {
+      lessonStudentId: student.id,
+      lessonSavedAt: createdAt,
+    } : {}),
     ...(isLessonSharedUpload ? {
       teacherId: studentTeacherId,
       sharedScope: LESSON_SHARED_SCOPE,
@@ -23717,6 +23929,16 @@ app.post('/api/files', upload.single('file'), (req, res) => {
 
   db.unshift(entry);
   writeFilesDb(db);
+  if (normalizedCategory === 'class') {
+    appendLessonNoteActivity({
+      studentId: student.id,
+      teacherId: studentTeacherId,
+      taskNumber: taskNum,
+      fileId: entry.id,
+      source: 'file-upload',
+      occurredAt: createdAt,
+    });
+  }
 
   const [entryWithFolderPath] = enrichFilesWithFolderPath([entry], readFoldersDb());
   res.json(entryWithFolderPath || entry);
@@ -23773,6 +23995,8 @@ app.patch('/api/files/:id', (req, res) => {
     : normalizeTeacherId(ownerStudent?.teacherId);
 
   let updated = { ...current };
+  let lessonActivityAt = '';
+  let lessonActivitySource = '';
 
   if (hasLessonSharedField) {
     const nextLessonShared = Boolean(req.body.lessonShared);
@@ -23992,7 +24216,19 @@ app.patch('/api/files/:id', (req, res) => {
     fs.writeFileSync(filePath, content, 'utf8');
     updated.sizeBytes = nextSizeBytes;
     updated.size = formatSize(nextSizeBytes);
-    updated.date = new Date().toLocaleDateString('ru-RU');
+    lessonActivityAt = new Date().toISOString();
+    lessonActivitySource = 'file-content-save';
+    updated.date = new Date(lessonActivityAt).toLocaleDateString('ru-RU');
+    if (String(updated.category || '').trim() === 'class') {
+      const lessonStudentId = String(
+        updated.lessonStudentId
+        || updated.originalStudentId
+        || (isLessonSharedFile(updated) ? '' : updated.studentId)
+        || ''
+      ).trim();
+      if (lessonStudentId) updated.lessonStudentId = lessonStudentId;
+      updated.lessonSavedAt = lessonActivityAt;
+    }
   }
 
   if (hasMemoryField) {
@@ -24007,6 +24243,24 @@ app.patch('/api/files/:id', (req, res) => {
 
   db[idx] = updated;
   writeFilesDb(db);
+  if (lessonActivityAt && String(updated.category || '').trim() === 'class') {
+    const lessonStudentId = String(
+      updated.lessonStudentId
+      || updated.originalStudentId
+      || (isLessonSharedFile(updated) ? '' : updated.studentId)
+      || ''
+    ).trim();
+    if (lessonStudentId) {
+      appendLessonNoteActivity({
+        studentId: lessonStudentId,
+        teacherId: ownerTeacherId,
+        taskNumber: updated.taskNumber,
+        fileId: updated.id,
+        source: lessonActivitySource,
+        occurredAt: lessonActivityAt,
+      });
+    }
+  }
   const [updatedWithFolderPath] = enrichFilesWithFolderPath([updated], readFoldersDb());
   res.json(updatedWithFolderPath || updated);
 });
@@ -24056,8 +24310,22 @@ app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => 
     itemCount: Number.isFinite(itemCount) ? itemCount : 0,
   });
   const previousStorageName = path.basename(String(current?.memory?.boardSnapshot?.storageName || '').trim());
+  const lessonStudentId = String(
+    current?.lessonStudentId
+    || current?.originalStudentId
+    || (isLessonSharedFile(current) ? '' : current?.studentId)
+    || ''
+  ).trim();
+  const lessonOwnerStudent = lessonStudentId
+    ? findStudentById(lessonStudentId, { allowDeleted: true })
+    : null;
+  const lessonTeacherId = normalizeTeacherId(current?.teacherId || lessonOwnerStudent?.teacherId);
   const updated = {
     ...current,
+    ...(String(current?.category || '').trim() === 'class' && lessonStudentId ? {
+      lessonStudentId,
+      lessonSavedAt: createdAt,
+    } : {}),
     memory: normalizeFileMemory({
       ...(current.memory || {}),
       boardSnapshot: snapshot,
@@ -24071,6 +24339,16 @@ app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => 
 
   db[idx] = updated;
   writeFilesDb(db);
+  if (String(updated?.category || '').trim() === 'class' && lessonStudentId) {
+    appendLessonNoteActivity({
+      studentId: lessonStudentId,
+      teacherId: lessonTeacherId,
+      taskNumber: updated.taskNumber,
+      fileId: updated.id,
+      source: 'board-snapshot-save',
+      occurredAt: createdAt,
+    });
+  }
 
   if (previousStorageName && previousStorageName !== req.file.filename) {
     fs.unlink(path.join(uploadsDir, previousStorageName), () => {});

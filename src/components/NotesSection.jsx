@@ -47,8 +47,7 @@ const mergeFolderLists = (lists) => {
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 const DEFAULT_NOTES_CATEGORY = 'class';
 const ROOT_FOLDER_LABEL = 'Материалы задания';
-const NOTES_PREVIEW_CLOSE_MS = 460;
-const NOTES_FOLDER_OPEN_MS = 380;
+const NOTES_PREVIEW_CLOSE_MS = 200;
 const NOTES_FOLDER_CREATOR_ID = 'notes-folder-creator-panel';
 const NOTES_PYTHON_CREATOR_ID = 'notes-python-creator-panel';
 const NOTES_VIEW_TRANSITION_ENTRY_ANIMATIONS = new Set([
@@ -237,7 +236,6 @@ const NotesSection = ({
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [selectedFolderId, setSelectedFolderId] = useState(null);
   const [pressingFolderId, setPressingFolderId] = useState(null);
-  const [openingFolderId, setOpeningFolderId] = useState(null);
   const [newFolderName, setNewFolderName] = useState('');
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [renamingFolderId, setRenamingFolderId] = useState(null);
@@ -287,7 +285,6 @@ const NotesSection = ({
   const initializedStudentKeyRef = useRef('');
   const dragDepthRef = useRef(0);
   const folderPressTimeoutRef = useRef(null);
-  const folderOpenTimeoutRef = useRef(null);
   const solutionCollapseTimersRef = useRef(new Map());
   const favoriteMotionTimersRef = useRef(new Map());
   const fileRowRefs = useRef(new Map());
@@ -349,10 +346,6 @@ const NotesSection = ({
     if (folderPressTimeoutRef.current) {
       clearTimeout(folderPressTimeoutRef.current);
       folderPressTimeoutRef.current = null;
-    }
-    if (folderOpenTimeoutRef.current) {
-      clearTimeout(folderOpenTimeoutRef.current);
-      folderOpenTimeoutRef.current = null;
     }
   };
   const clearSolutionCollapseTimer = (fileId) => {
@@ -459,34 +452,22 @@ const NotesSection = ({
     clearFolderMotionTimers();
     setSelectedFolderId(null);
     setPressingFolderId(null);
-    setOpeningFolderId(null);
     pendingFolderIdRef.current = null;
     folderRestoreTargetRef.current = null;
     restoringRef.current = false;
     setCurrentFolderId(folderId || null);
   };
   const startFolderPressFeedback = (folderId) => {
-    if (!folderId || folderOpenTimeoutRef.current) return;
+    if (!folderId) return;
     if (folderPressTimeoutRef.current) clearTimeout(folderPressTimeoutRef.current);
     setPressingFolderId(folderId);
     folderPressTimeoutRef.current = setTimeout(() => {
       setPressingFolderId((current) => (current === folderId ? null : current));
       folderPressTimeoutRef.current = null;
-    }, getNotesMotionDuration(180));
+    }, getNotesMotionDuration(90));
   };
   const openFolderWithAnimation = (folderId) => {
-    if (!folderId) {
-      selectFolder(null);
-      return;
-    }
-    clearFolderMotionTimers();
-    setSelectedFolderId(folderId);
-    setPressingFolderId(null);
-    setOpeningFolderId(folderId);
-    folderOpenTimeoutRef.current = setTimeout(() => {
-      folderOpenTimeoutRef.current = null;
-      selectFolder(folderId);
-    }, getNotesMotionDuration(NOTES_FOLDER_OPEN_MS));
+    selectFolder(folderId || null);
   };
 
   const taskOptions = MOCK_TASKS;
@@ -547,7 +528,6 @@ const NotesSection = ({
     setFiles([]);
     setSelectedFolderId(null);
     setPressingFolderId(null);
-    setOpeningFolderId(null);
     setSelectedFileIds({});
     setExpandedPyIds({});
     setExpandedPdfIds({});
@@ -2459,7 +2439,7 @@ const NotesSection = ({
     if (transitionTaskNumber !== normalized) {
       flushSync(() => setTransitionTaskNumber(normalized));
     }
-    const transition = runNotesViewTransition(() => {
+    flushSync(() => {
       pendingFolderIdRef.current = null;
       folderRestoreTargetRef.current = null;
       restoringRef.current = false;
@@ -2467,7 +2447,7 @@ const NotesSection = ({
       setCurrentCategory(DEFAULT_NOTES_CATEGORY);
       setCurrentFolderId(null);
     });
-    restoreNotesFocus(transition, () => taskBackButtonRef.current);
+    restoreNotesFocus(null, () => taskBackButtonRef.current);
   };
 
   const closeTaskExplorer = () => {
@@ -2475,7 +2455,7 @@ const NotesSection = ({
     if (Number.isFinite(taskToRestore) && transitionTaskNumber !== taskToRestore) {
       flushSync(() => setTransitionTaskNumber(taskToRestore));
     }
-    const transition = runNotesViewTransition(() => {
+    flushSync(() => {
       pendingFolderIdRef.current = null;
       folderRestoreTargetRef.current = null;
       restoringRef.current = false;
@@ -2483,7 +2463,7 @@ const NotesSection = ({
       setCurrentCategory(null);
       setCurrentFolderId(null);
     });
-    restoreNotesFocus(transition, () => (
+    restoreNotesFocus(null, () => (
       typeof document === 'undefined'
         ? null
         : document.querySelector(`[data-notes-task-number="${taskToRestore}"]`)
@@ -3128,7 +3108,6 @@ const NotesSection = ({
                       const isDropTarget = dragOverFolderId === folder.id;
                       const isSelectedFolder = selectedFolderId === folder.id;
                       const isPressingFolder = pressingFolderId === folder.id;
-                      const isOpeningFolder = openingFolderId === folder.id;
                       const folderItemsLabel = `${childFolderCount} ${formatRussianCountLabel(
                         childFolderCount,
                         'папка',
@@ -3154,7 +3133,7 @@ const NotesSection = ({
                             isDropTarget ? 'is-drop-target' : ''
                           } ${isSelectedFolder ? 'is-selected' : ''} ${
                             isPressingFolder ? 'is-pressing' : ''
-                          } ${isOpeningFolder ? 'is-opening' : ''}`}
+                          }`}
                           style={{ '--notes-row-index': Math.min(itemIndex, 12) }}
                           onMouseDown={(e) => {
                             if (e.button !== 0 || renamingFolderId === folder.id) return;
