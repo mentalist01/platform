@@ -46,6 +46,7 @@ import {
 } from './randomMockExam.js';
 import {
   expandTeacherFinanceMonthOccurrences,
+  summarizeCurrentTeacherStudentsSchedule,
   summarizeTeacherFinanceCalendarPlan,
 } from './teacherFinanceCalendarPlan.js';
 
@@ -12944,6 +12945,66 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
       trial: Boolean(paymentState.trial),
     });
   });
+  const currentWeekStartDayKey = normalizeDayKey(nowInfo.weekStartKey);
+  const currentWeekStartNumber = dayKeyToNumber(currentWeekStartDayKey);
+  const currentWeekEndDayKey = Number.isFinite(currentWeekStartNumber)
+    ? numberToDayKey(currentWeekStartNumber + 6)
+    : '';
+  const currentWeekScheduleEntriesByKey = new Map();
+  if (currentWeekStartDayKey && currentWeekEndDayKey) {
+    const currentWeekMonthKeys = new Set([
+      currentWeekStartDayKey.slice(0, 7),
+      currentWeekEndDayKey.slice(0, 7),
+    ]);
+    currentWeekMonthKeys.forEach((monthKey) => {
+      expandTeacherFinanceMonthOccurrences({
+        entries: scheduleEntries,
+        monthKey,
+        studentStartDayById,
+      }).forEach((occurrence) => {
+        if (
+          occurrence.dayKey < currentWeekStartDayKey
+          || occurrence.dayKey > currentWeekEndDayKey
+        ) return;
+        const studentId = String(occurrence?.studentId || '').trim();
+        if (!studentId || !studentsById.has(studentId)) return;
+        const paymentState = buildStudentSchedulePaymentState({
+          teacherId: normalizedTeacherId,
+          studentId,
+          entry: occurrence.entry,
+          sourceEntry: occurrence.entry,
+          dayKey: occurrence.dayKey,
+          startMinutes: occurrence.startMinutes,
+          endMinutes: occurrence.endMinutes,
+          teacherMarks,
+          nowInfo,
+        });
+        if (!paymentState) return;
+        const existing = currentWeekScheduleEntriesByKey.get(occurrence.occurrenceKey);
+        const trial = Boolean(
+          existing?.trial
+          || occurrence?.entry?.trial
+          || occurrence?.entry?.isTrial
+          || String(occurrence?.entry?.status || '').trim().toLowerCase() === 'trial'
+          || paymentState.trial
+        );
+        currentWeekScheduleEntriesByKey.set(occurrence.occurrenceKey, {
+          ...(existing || occurrence.entry),
+          date: occurrence.dayKey,
+          studentId,
+          time: occurrence.time,
+          durationMinutes: occurrence.durationMinutes,
+          excludedDates: [],
+          trial,
+        });
+      });
+    });
+  }
+  const currentStudentsSummary = summarizeCurrentTeacherStudentsSchedule({
+    students,
+    entries: Array.from(currentWeekScheduleEntriesByKey.values()),
+    weekStartDayKey: currentWeekStartDayKey,
+  });
   const calendarPlan = {
     ...summarizeTeacherFinanceCalendarPlan({
       monthKey: calendarPlanMonth,
@@ -12954,6 +13015,7 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
       })),
       remainingOccurrences: Array.from(remainingCalendarOccurrencesByKey.values()),
     }),
+    currentStudentsSummary,
     asOfDayKey: nowInfo.todayKey,
     generatedAt: nowInfo.now.toISOString(),
     timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,

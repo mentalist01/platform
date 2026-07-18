@@ -97,12 +97,114 @@ const normalizeCalendarPlanMetric = (value, fallback = {}) => {
   };
 };
 
+const SCHEDULE_WEEKDAY_META = [
+  { order: 1, label: 'Пн', aliases: ['monday', 'mon', 'понедельник', 'пн'] },
+  { order: 2, label: 'Вт', aliases: ['tuesday', 'tue', 'вторник', 'вт'] },
+  { order: 3, label: 'Ср', aliases: ['wednesday', 'wed', 'среда', 'ср'] },
+  { order: 4, label: 'Чт', aliases: ['thursday', 'thu', 'четверг', 'чт'] },
+  { order: 5, label: 'Пт', aliases: ['friday', 'fri', 'пятница', 'пт'] },
+  { order: 6, label: 'Сб', aliases: ['saturday', 'sat', 'суббота', 'сб'] },
+  { order: 7, label: 'Вс', aliases: ['sunday', 'sun', 'воскресенье', 'вс'] },
+];
+
+const normalizeScheduleWeekday = (value) => {
+  const raw = String(value || '').trim();
+  const normalized = raw.toLocaleLowerCase('ru-RU').replace(/\.$/u, '');
+  const match = SCHEDULE_WEEKDAY_META.find((item) => item.aliases.includes(normalized));
+  return {
+    label: match?.label || raw || 'День',
+    order: match?.order || 99,
+  };
+};
+
+const normalizeCurrentStudentsSummary = (value) => {
+  const source = value && typeof value === 'object' ? value : {};
+  const normalizedStudents = (Array.isArray(source.students) ? source.students : [])
+    .map((student, index) => {
+      const scheduleSlots = (Array.isArray(student?.scheduleSlots) ? student.scheduleSlots : [])
+        .map((slot) => {
+          const weekday = normalizeScheduleWeekday(slot?.weekday ?? slot?.weekdayKey);
+          const reportedWeekdayOrder = Number(slot?.weekdayOrder);
+          const weekdayOrder = Number.isInteger(reportedWeekdayOrder)
+            && reportedWeekdayOrder >= 1
+            && reportedWeekdayOrder <= 7
+            ? reportedWeekdayOrder
+            : weekday.order;
+          const weekdayLabel = SCHEDULE_WEEKDAY_META.find((item) => item.order === weekdayOrder)?.label
+            || weekday.label;
+          return {
+            dayKey: String(slot?.dayKey || '').trim(),
+            weekday: weekdayLabel,
+            weekdayOrder,
+            time: String(slot?.time || '').trim(),
+            durationMinutes: Math.max(0, Math.round(Number(slot?.durationMinutes) || 0)),
+          };
+        })
+        .sort((left, right) => (
+          (left.weekdayOrder - right.weekdayOrder)
+          || left.time.localeCompare(right.time, 'ru')
+        ));
+      const lessonCountRaw = Number(student?.lessonCountPerWeek);
+      const hoursRaw = Number(student?.hoursPerWeek);
+      const lessonCountPerWeek = Number.isFinite(lessonCountRaw) && lessonCountRaw >= 0
+        ? lessonCountRaw
+        : scheduleSlots.length;
+      const hoursPerWeek = Number.isFinite(hoursRaw) && hoursRaw >= 0
+        ? hoursRaw
+        : scheduleSlots.reduce((total, slot) => total + (slot.durationMinutes / 60), 0);
+      return {
+        studentId: String(student?.studentId || '').trim(),
+        name: String(student?.name || '').trim() || 'Ученик',
+        lessonCountPerWeek,
+        hoursPerWeek,
+        scheduleSlots,
+        fallbackKey: `calendar-student-${index}`,
+      };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, 'ru', { sensitivity: 'base' }));
+  const reportedStudentCount = Number(source.studentCount);
+  const reportedLessonCount = Number(source.weeklyLessonCount);
+  const reportedHours = Number(source.weeklyHours);
+  return {
+    weekStartDayKey: String(source.weekStartDayKey || '').trim(),
+    weekEndDayKey: String(source.weekEndDayKey || '').trim(),
+    studentCount: Number.isFinite(reportedStudentCount) && reportedStudentCount >= 0
+      ? Math.floor(reportedStudentCount)
+      : normalizedStudents.length,
+    weeklyLessonCount: Number.isFinite(reportedLessonCount) && reportedLessonCount >= 0
+      ? reportedLessonCount
+      : normalizedStudents.reduce((total, student) => total + student.lessonCountPerWeek, 0),
+    weeklyHours: Number.isFinite(reportedHours) && reportedHours >= 0
+      ? reportedHours
+      : normalizedStudents.reduce((total, student) => total + student.hoursPerWeek, 0),
+    students: normalizedStudents,
+  };
+};
+
 const formatMonthLabel = (monthKey) => {
   const match = String(monthKey || '').match(/^(\d{4})-(\d{2})$/);
   if (!match) return 'Без месяца';
   const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
   const label = date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
   return label.charAt(0).toUpperCase() + label.slice(1).replace(' г.', '');
+};
+
+const formatCalendarWeekRange = (startDayKey, endDayKey) => {
+  const parseDayKey = (value) => {
+    const normalized = String(value || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
+    const date = new Date(`${normalized}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+  const startDate = parseDayKey(startDayKey);
+  const endDate = parseDayKey(endDayKey);
+  if (!startDate || !endDate) return '';
+  const sameYear = startDate.getFullYear() === endDate.getFullYear();
+  const sameMonth = sameYear && startDate.getMonth() === endDate.getMonth();
+  const dayMonth = (date) => date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  if (sameMonth) return `${startDate.getDate()}–${dayMonth(endDate)}`;
+  if (sameYear) return `${dayMonth(startDate)} — ${dayMonth(endDate)}`;
+  return `${startDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })} — ${endDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
 };
 
 const getStudentProfitability = (student, commissionDraft) => {
@@ -244,12 +346,32 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
       .sort((left, right) => right.month.localeCompare(left.month, 'ru'));
   }, [snapshot?.history, snapshot?.incomeByMonth]);
 
-  const currentStudentCount = useMemo(() => countCurrentTeacherStudents(students), [students]);
+  const rosterCurrentStudentCount = useMemo(() => countCurrentTeacherStudents(students), [students]);
+  const nestedCurrentStudentsSummary = snapshot?.calendarPlan?.currentStudentsSummary;
+  const topLevelCurrentStudentsSummary = snapshot?.currentStudentsSummary;
+  const hasCurrentStudentsSummary = Boolean(
+    (nestedCurrentStudentsSummary && typeof nestedCurrentStudentsSummary === 'object')
+    || (topLevelCurrentStudentsSummary && typeof topLevelCurrentStudentsSummary === 'object')
+  );
+  const currentStudentsSummary = normalizeCurrentStudentsSummary(
+    nestedCurrentStudentsSummary && typeof nestedCurrentStudentsSummary === 'object'
+      ? nestedCurrentStudentsSummary
+      : topLevelCurrentStudentsSummary
+  );
+  const currentStudentCount = hasCurrentStudentsSummary
+    ? currentStudentsSummary.studentCount
+    : rosterCurrentStudentCount;
+  const currentCalendarWeekRange = formatCalendarWeekRange(
+    currentStudentsSummary.weekStartDayKey,
+    currentStudentsSummary.weekEndDayKey
+  );
 
   useEffect(() => {
     if (loading || studentsLoading) return;
-    setCalculatorStudents((current) => current || String(currentStudentCount || 10));
-  }, [currentStudentCount, loading, studentsLoading]);
+    setCalculatorStudents((current) => current || String(
+      hasCurrentStudentsSummary ? currentStudentCount : (currentStudentCount || 10)
+    ));
+  }, [currentStudentCount, hasCurrentStudentsSummary, loading, studentsLoading]);
 
   const currentMonthKey = String(snapshot?.month || '').trim();
   const currentMonthIncome = incomeByMonth.find((item) => item.month === currentMonthKey) || {
@@ -499,6 +621,97 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
           <p className="mt-4 text-[11px] font-medium leading-relaxed text-slate-500">
             Будущие занятия считаются только для текущих учеников. Пробные, отменённые и события без ученика не учитываются. Это план начислений; фактические оплаты отмечаются отдельно.
           </p>
+        </Card>
+      ) : null}
+
+      {!loading ? (
+        <Card className="teacher-finance-simple__students-overview overflow-hidden border border-emerald-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.07)]">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="teacher-finance-simple__students-overview-icon rounded-2xl border border-emerald-200 bg-emerald-50 p-2.5 text-emerald-700">
+                <Users size={20} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">
+                  Текущая неделя · пн–вс{currentCalendarWeekRange ? ` · ${currentCalendarWeekRange}` : ''}
+                </div>
+                <h3 className="mt-1 text-lg font-black text-slate-950">Ученики по календарю</h3>
+                <p className="mt-1 max-w-2xl text-xs font-medium leading-relaxed text-slate-500">
+                  Только текущие ученики, у которых есть занятие на этой неделе. Выпускники и пробные события не входят.
+                </p>
+              </div>
+            </div>
+
+            <dl className="teacher-finance-simple__students-overview-totals grid w-full grid-cols-3 gap-2 xl:w-auto xl:min-w-[430px]">
+              <div className="teacher-finance-simple__students-overview-total rounded-2xl border border-emerald-200 bg-emerald-50/75 px-3 py-2.5" data-tone="emerald">
+                <dt className="text-[9px] font-black uppercase tracking-[0.1em] text-emerald-700">Учеников</dt>
+                <dd className="mt-0.5 text-lg font-black text-slate-950">{formatDecimal(currentStudentsSummary.studentCount, 0)}</dd>
+              </div>
+              <div className="teacher-finance-simple__students-overview-total rounded-2xl border border-sky-200 bg-sky-50/75 px-3 py-2.5" data-tone="sky">
+                <dt className="text-[9px] font-black uppercase tracking-[0.1em] text-sky-700">Занятий</dt>
+                <dd className="mt-0.5 text-lg font-black text-slate-950">{formatDecimal(currentStudentsSummary.weeklyLessonCount)}</dd>
+              </div>
+              <div className="teacher-finance-simple__students-overview-total rounded-2xl border border-violet-200 bg-violet-50/75 px-3 py-2.5" data-tone="violet">
+                <dt className="text-[9px] font-black uppercase tracking-[0.1em] text-violet-700">Часов</dt>
+                <dd className="mt-0.5 text-lg font-black text-slate-950">{formatDecimal(currentStudentsSummary.weeklyHours)} ч</dd>
+              </div>
+            </dl>
+          </div>
+
+          {currentStudentsSummary.students.length > 0 ? (
+            <ul className="mt-4 grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+              {currentStudentsSummary.students.map((student) => {
+                const visibleSlots = student.scheduleSlots.slice(0, 4);
+                const hiddenSlotCount = Math.max(0, student.scheduleSlots.length - visibleSlots.length);
+                return (
+                  <li
+                    key={student.studentId || student.fallbackKey}
+                    className="teacher-finance-simple__student-week-row min-w-0 rounded-2xl border border-slate-200 bg-slate-50/75 p-3"
+                  >
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="teacher-finance-simple__student-week-avatar grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-emerald-200 bg-emerald-100 text-sm font-black text-emerald-700">
+                          {student.name.charAt(0).toLocaleUpperCase('ru-RU')}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-black text-slate-950" title={student.name}>{student.name}</div>
+                          <div className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                            {formatLessonCount(student.lessonCountPerWeek)} на неделе · {formatDecimal(student.hoursPerWeek)} ч
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 flex min-h-6 flex-wrap items-center gap-1.5">
+                      {visibleSlots.length > 0 ? visibleSlots.map((slot, slotIndex) => (
+                        <span
+                          key={`${slot.weekday}-${slot.time}-${slot.durationMinutes}-${slotIndex}`}
+                          className="teacher-finance-simple__student-week-slot inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-600"
+                        >
+                          <CalendarDays size={11} />
+                          {slot.weekday}{slot.time ? ` ${slot.time}` : ''}
+                          {slot.durationMinutes > 0 && slot.durationMinutes !== 60 ? ` · ${slot.durationMinutes} мин` : ''}
+                        </span>
+                      )) : (
+                        <span className="text-[10px] font-semibold text-slate-400">Время занятий не указано</span>
+                      )}
+                      {hiddenSlotCount > 0 ? (
+                        <span className="teacher-finance-simple__student-week-more rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">
+                          +{hiddenSlotCount}
+                        </span>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="teacher-finance-simple__students-overview-empty mt-4 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/55 px-5 py-7 text-center">
+              <CalendarDays className="mx-auto text-emerald-500" size={22} />
+              <div className="mt-2 text-sm font-black text-slate-900">На этой неделе занятий с текущими учениками нет</div>
+              <p className="mt-1 text-xs font-medium text-slate-500">Сводка обновится автоматически, когда занятия появятся в календаре.</p>
+            </div>
+          )}
         </Card>
       ) : null}
 

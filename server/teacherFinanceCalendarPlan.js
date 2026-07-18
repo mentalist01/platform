@@ -335,3 +335,178 @@ export const summarizeTeacherFinanceCalendarPlan = ({
     studentCount: includedStudentIds.size,
   };
 };
+
+const WEEKDAY_KEYS_BY_ORDER = [
+  '',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+  'sunday',
+];
+
+const dayKeyToNumber = (value) => {
+  const dayKey = normalizeDayKey(value);
+  if (!dayKey) return NaN;
+  const [year, month, day] = dayKey.split('-').map(Number);
+  return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
+};
+
+const numberToDayKey = (value) => {
+  if (!Number.isFinite(value)) return '';
+  return normalizeDayKey(new Date(value * 86_400_000).toISOString().slice(0, 10));
+};
+
+const getWeekdayMetaForDayKey = (dayKey) => {
+  const dayNumber = dayKeyToNumber(dayKey);
+  if (!Number.isFinite(dayNumber)) return null;
+  const date = new Date(dayNumber * 86_400_000);
+  const sundayBasedOrder = date.getUTCDay();
+  const weekdayOrder = sundayBasedOrder === 0 ? 7 : sundayBasedOrder;
+  return {
+    weekdayOrder,
+    weekdayKey: WEEKDAY_KEYS_BY_ORDER[weekdayOrder],
+  };
+};
+
+export const summarizeCurrentTeacherStudentsSchedule = ({
+  students = [],
+  entries = [],
+  weekStartDayKey,
+} = {}) => {
+  const normalizedWeekStart = normalizeDayKey(weekStartDayKey);
+  const emptySummary = {
+    weekStartDayKey: '',
+    weekEndDayKey: '',
+    studentCount: 0,
+    weeklyLessonCount: 0,
+    weeklyHours: 0,
+    students: [],
+  };
+  if (!normalizedWeekStart) return emptySummary;
+
+  const weekStartNumber = dayKeyToNumber(normalizedWeekStart);
+  const weekDays = Array.from({ length: 7 }, (_, index) => {
+    const dayKey = numberToDayKey(weekStartNumber + index);
+    return {
+      dayKey,
+      ...getWeekdayMetaForDayKey(dayKey),
+    };
+  });
+  const weekEndDayKey = weekDays.at(-1)?.dayKey || '';
+  const studentsById = new Map();
+  (Array.isArray(students) ? students : []).forEach((student) => {
+    const studentId = String(student?.id ?? '').trim();
+    if (!studentId || studentsById.has(studentId) || !isCurrentStudent(student)) return;
+    studentsById.set(studentId, student);
+  });
+
+  const slotsByStudentId = new Map();
+  const seenOccurrenceKeys = new Set();
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    if (
+      !entry
+      || typeof entry !== 'object'
+      || entry?.isTeacherSlot
+      || isTrial(entry)
+      || isCancelled(entry)
+    ) return;
+    const studentId = String(entry?.studentId ?? '').trim();
+    const student = studentsById.get(studentId);
+    const time = normalizeTime(entry?.time);
+    if (!student || !time) return;
+    const durationMinutes = normalizeDurationMinutes(entry?.durationMinutes);
+    const excludedDates = new Set(
+      (Array.isArray(entry?.excludedDates) ? entry.excludedDates : [])
+        .map(normalizeDayKey)
+        .filter(Boolean)
+    );
+    const studentStartDay = getDayKeyFromDateLike(student?.createdAt);
+    const rawExplicitDate = String(entry?.date ?? '').trim();
+    let candidateDays = [];
+
+    if (rawExplicitDate) {
+      const dayKey = normalizeDayKey(rawExplicitDate);
+      if (
+        !dayKey
+        || dayKey < normalizedWeekStart
+        || dayKey > weekEndDayKey
+        || (studentStartDay && dayKey < studentStartDay)
+      ) return;
+      const weekdayMeta = getWeekdayMetaForDayKey(dayKey);
+      if (!weekdayMeta) return;
+      candidateDays = [{ dayKey, ...weekdayMeta }];
+    } else {
+      const weekdayOrder = getWeekdayOrder(entry);
+      if (!weekdayOrder) return;
+      const entryStartDay = getDayKeyFromDateLike(entry?.createdAt);
+      candidateDays = weekDays.filter(({ dayKey, weekdayOrder: candidateOrder }) => (
+        candidateOrder === weekdayOrder
+        && (!entryStartDay || dayKey >= entryStartDay)
+        && (!studentStartDay || dayKey >= studentStartDay)
+      ));
+    }
+
+    candidateDays.forEach(({ dayKey, weekdayOrder, weekdayKey }) => {
+      if (excludedDates.has(dayKey)) return;
+      const occurrenceKey = [studentId, dayKey, time, durationMinutes].join(':');
+      if (seenOccurrenceKeys.has(occurrenceKey)) return;
+      seenOccurrenceKeys.add(occurrenceKey);
+      const list = slotsByStudentId.get(studentId) || [];
+      list.push({
+        dayKey,
+        weekdayOrder,
+        weekdayKey,
+        time,
+        durationMinutes,
+      });
+      slotsByStudentId.set(studentId, list);
+    });
+  });
+
+  const summaryStudents = Array.from(slotsByStudentId.entries()).map(([studentId, rawSlots]) => {
+    const student = studentsById.get(studentId);
+    const scheduleSlots = rawSlots.sort((left, right) => (
+      left.weekdayOrder - right.weekdayOrder
+      || left.time.localeCompare(right.time, 'ru')
+      || left.durationMinutes - right.durationMinutes
+    ));
+    const totalDurationMinutes = scheduleSlots.reduce(
+      (total, slot) => total + slot.durationMinutes,
+      0
+    );
+    const uniqueDurations = new Set(scheduleSlots.map((slot) => slot.durationMinutes));
+    const name = String(student?.nickname || student?.name || scheduleSlots[0]?.studentName || 'Ученик').trim()
+      || 'Ученик';
+    return {
+      studentId,
+      name,
+      lessonCountPerWeek: scheduleSlots.length,
+      hoursPerWeek: roundToTwoDecimals(totalDurationMinutes / 60),
+      ...(uniqueDurations.size === 1
+        ? { lessonDurationMinutes: scheduleSlots[0].durationMinutes }
+        : {}),
+      scheduleSlots,
+    };
+  }).sort((left, right) => left.name.localeCompare(right.name, 'ru', {
+    sensitivity: 'base',
+    numeric: true,
+  }));
+
+  return {
+    weekStartDayKey: normalizedWeekStart,
+    weekEndDayKey,
+    studentCount: summaryStudents.length,
+    weeklyLessonCount: summaryStudents.reduce(
+      (total, student) => total + student.lessonCountPerWeek,
+      0
+    ),
+    weeklyHours: roundToTwoDecimals(summaryStudents.reduce(
+      (total, student) => total + student.hoursPerWeek,
+      0
+    )),
+    students: summaryStudents,
+  };
+};

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   expandTeacherFinanceMonthOccurrences,
+  summarizeCurrentTeacherStudentsSchedule,
   summarizeTeacherFinanceCalendarPlan,
 } from './teacherFinanceCalendarPlan.js';
 
@@ -245,4 +246,153 @@ test('lesson price is flat per occurrence while durations determine hours and wo
   assert.equal(result.averageHoursPerWorkingDay, 1.75);
   assert.equal(result.pricedLessonCount, 3);
   assert.equal(result.unpricedLessonCount, 0);
+});
+
+test('current student summary reflects the effective Monday-to-Sunday schedule', () => {
+  const result = summarizeCurrentTeacherStudentsSchedule({
+    weekStartDayKey: '2026-07-13',
+    students: [
+      { id: 'active-a', name: 'Анна', grade: 11, createdAt: '2026-06-01T12:00:00.000Z' },
+      { id: 'active-b', name: 'Борис', nickname: 'Боря', grade: 10 },
+      { id: 'graduate', name: 'Выпускник', grade: 'graduate' },
+      { id: 'deleted', name: 'Удалённый', grade: 11, deletedAt: '2026-07-01T00:00:00.000Z' },
+      { id: 'without-lessons', name: 'Нет занятий', grade: 11 },
+    ],
+    entries: [
+      { id: 'anna-monday', studentId: 'active-a', weekdayKey: 'monday', time: '10:00', durationMinutes: 60 },
+      {
+        id: 'anna-wednesday-cancelled',
+        studentId: 'active-a',
+        weekdayKey: 'wednesday',
+        time: '10:00',
+        durationMinutes: 90,
+        excludedDates: ['2026-07-15'],
+      },
+      { id: 'anna-friday', studentId: 'active-a', date: '2026-07-17', time: '12:30', durationMinutes: 30 },
+      { id: 'anna-friday-copy', studentId: 'active-a', date: '2026-07-17', time: '12:30', durationMinutes: 30 },
+      { id: 'boris-tuesday', studentId: 'active-b', weekdayKey: 'tuesday', time: '18:00', durationMinutes: 45 },
+      { id: 'graduate-slot', studentId: 'graduate', weekdayKey: 'tuesday', time: '11:00' },
+      { id: 'deleted-slot', studentId: 'deleted', weekdayKey: 'thursday', time: '11:00' },
+      { id: 'trial-slot', studentId: 'active-b', weekdayKey: 'friday', time: '11:00', trial: true },
+      { id: 'cancelled-slot', studentId: 'active-b', weekdayKey: 'saturday', time: '11:00', status: 'cancelled' },
+      { id: 'unmatched-google', studentId: '', date: '2026-07-16', time: '11:00' },
+      { id: 'teacher-slot', studentId: 'active-a', isTeacherSlot: true, date: '2026-07-18', time: '11:00' },
+      { id: 'outside-week', studentId: 'active-a', date: '2026-07-20', time: '11:00' },
+    ],
+  });
+
+  assert.deepEqual(result, {
+    weekStartDayKey: '2026-07-13',
+    weekEndDayKey: '2026-07-19',
+    studentCount: 2,
+    weeklyLessonCount: 3,
+    weeklyHours: 2.25,
+    students: [
+      {
+        studentId: 'active-a',
+        name: 'Анна',
+        lessonCountPerWeek: 2,
+        hoursPerWeek: 1.5,
+        scheduleSlots: [
+          {
+            dayKey: '2026-07-13',
+            weekdayOrder: 1,
+            weekdayKey: 'monday',
+            time: '10:00',
+            durationMinutes: 60,
+          },
+          {
+            dayKey: '2026-07-17',
+            weekdayOrder: 5,
+            weekdayKey: 'friday',
+            time: '12:30',
+            durationMinutes: 30,
+          },
+        ],
+      },
+      {
+        studentId: 'active-b',
+        name: 'Боря',
+        lessonCountPerWeek: 1,
+        hoursPerWeek: 0.75,
+        lessonDurationMinutes: 45,
+        scheduleSlots: [{
+          dayKey: '2026-07-14',
+          weekdayOrder: 2,
+          weekdayKey: 'tuesday',
+          time: '18:00',
+          durationMinutes: 45,
+        }],
+      },
+    ],
+  });
+});
+
+test('current student summary respects entry and student creation dates', () => {
+  const result = summarizeCurrentTeacherStudentsSchedule({
+    weekStartDayKey: '2026-07-13',
+    students: [
+      { id: 'entry-bound', name: 'Entry bound', grade: 11 },
+      { id: 'student-bound', name: 'Student bound', grade: 11, createdAt: '2026-07-17T10:00:00.000Z' },
+    ],
+    entries: [
+      {
+        id: 'created-after-monday',
+        studentId: 'entry-bound',
+        weekdayKey: 'monday',
+        time: '10:00',
+        createdAt: '2026-07-15T10:00:00.000Z',
+      },
+      {
+        id: 'created-before-thursday',
+        studentId: 'entry-bound',
+        weekdayKey: 'thursday',
+        time: '10:00',
+        createdAt: '2026-07-15T10:00:00.000Z',
+      },
+      { id: 'before-student', studentId: 'student-bound', weekdayKey: 'thursday', time: '12:00' },
+      { id: 'after-student', studentId: 'student-bound', weekdayKey: 'saturday', time: '12:00' },
+    ],
+  });
+
+  assert.equal(result.studentCount, 2);
+  assert.equal(result.weeklyLessonCount, 2);
+  assert.deepEqual(
+    result.students.map((student) => [student.studentId, student.scheduleSlots[0].dayKey]),
+    [
+      ['entry-bound', '2026-07-16'],
+      ['student-bound', '2026-07-18'],
+    ]
+  );
+});
+
+test('current student summary handles a week crossing month boundaries and invalid input', () => {
+  const result = summarizeCurrentTeacherStudentsSchedule({
+    weekStartDayKey: '2026-06-29',
+    students: [{ id: 'active', name: 'Ученик', grade: 11 }],
+    entries: [
+      { id: 'wednesday', studentId: 'active', weekdayKey: 'wednesday', time: '9:00', durationMinutes: 0 },
+      { id: 'sunday', studentId: 'active', date: '2026-07-05', time: '13:00', durationMinutes: 120 },
+      { id: 'next-monday', studentId: 'active', date: '2026-07-06', time: '13:00' },
+    ],
+  });
+
+  assert.equal(result.studentCount, 1);
+  assert.equal(result.weeklyLessonCount, 2);
+  assert.equal(result.weeklyHours, 3);
+  assert.deepEqual(result.students[0].scheduleSlots.map((slot) => slot.dayKey), [
+    '2026-07-01',
+    '2026-07-05',
+  ]);
+  assert.deepEqual(summarizeCurrentTeacherStudentsSchedule({
+    weekStartDayKey: 'invalid',
+    students: [{ id: 'active', name: 'Ученик', grade: 11 }],
+  }), {
+    weekStartDayKey: '',
+    weekEndDayKey: '',
+    studentCount: 0,
+    weeklyLessonCount: 0,
+    weeklyHours: 0,
+    students: [],
+  });
 });
