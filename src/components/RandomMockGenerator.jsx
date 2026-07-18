@@ -20,8 +20,8 @@ import {
 } from 'lucide-react';
 
 const DEFAULT_LEVEL_OPTIONS = [
-  { id: 'basic', label: 'Базовый' },
-  { id: 'advanced', label: 'Продвинутый' },
+  { id: 'basic', label: 'Базовый', description: 'Основной уровень' },
+  { id: 'advanced', label: 'Продвинутый', description: 'Повышенная сложность' },
 ];
 
 const getGenerationStages = (levelId) => [
@@ -167,7 +167,9 @@ const RandomMockGenerator = ({
   const instanceId = useId().replace(/:/g, '');
   const titleId = `random-mock-generator-title-${instanceId}`;
   const descriptionId = `random-mock-generator-description-${instanceId}`;
+  const dialogId = `random-mock-generator-dialog-${instanceId}`;
   const builderTitleId = `random-mock-builder-title-${instanceId}`;
+  const builderDescriptionId = `random-mock-builder-description-${instanceId}`;
   const levelGroupName = `random-mock-level-${instanceId}`;
 
   const selectedLevel = DEFAULT_LEVEL_OPTIONS.find((option) => option.id === selectedLevelId)
@@ -429,6 +431,7 @@ const RandomMockGenerator = ({
           </div>
 
           <section
+            id={dialogId}
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
@@ -677,104 +680,144 @@ const RandomMockGenerator = ({
           className
         )}
         aria-labelledby={builderTitleId}
+        aria-describedby={builderDescriptionId}
+        aria-disabled={cannotGenerate || undefined}
         data-level={selectedLevel.id}
       >
         <div className="mock-random-builder__visual-field" aria-hidden="true">
           <span className="mock-random-builder__aurora mock-random-builder__aurora--primary" />
-          <span className="mock-random-builder__aurora mock-random-builder__aurora--secondary" />
-          <span className="mock-random-builder__scan" />
-          <span className="mock-random-builder__light-path" />
+          <span className="mock-random-builder__frame-halo" />
+          <span className="mock-random-builder__edge-light" />
         </div>
-        <div className="mock-random-builder__grid relative z-10 flex flex-col gap-4 md:flex-row md:items-center">
-          <div className="mock-random-builder__icon relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-sky-700" aria-hidden="true">
-            <span className="mock-random-builder__icon-glow" />
-            <span className="mock-random-builder__icon-core">
-              <span className="mock-random-builder__icon-symbol" data-active={selectedLevel.id === 'basic' ? 'true' : 'false'}>
-                <BookOpen size={21} />
-              </span>
-              <span className="mock-random-builder__icon-symbol" data-active={selectedLevel.id === 'advanced' ? 'true' : 'false'}>
-                <Sparkles size={22} />
-              </span>
-            </span>
-          </div>
-
-          <div className="mock-random-builder__content min-w-0 flex-1">
-            <div className="mock-random-builder__eyebrow text-[10px] font-black uppercase tracking-[0.16em] text-sky-700">
-              {eyebrow}
-            </div>
-            <h3 id={builderTitleId} className="mock-random-builder__title mt-1 text-lg font-black leading-tight text-slate-950 sm:text-xl">
-              {title}
-            </h3>
-            <p className="mock-random-builder__description mt-1 text-xs leading-relaxed text-slate-500 sm:text-sm">
-              {description}
-            </p>
-            <div className="mock-random-builder__tools mt-3 flex flex-wrap items-center gap-2.5">
-              <fieldset className="mock-random-builder__level-field min-w-0">
-                <legend className="sr-only">Уровень пробника</legend>
-                <div className="mock-random-builder__level-switch" data-level={selectedLevel.id}>
-                  <span className="mock-random-builder__level-indicator" aria-hidden="true">
-                    <span className="mock-random-builder__level-indicator-glow" />
+        <div className="mock-random-builder__grid relative z-10">
+          <div className="mock-random-builder__intro min-w-0">
+            <div className="mock-random-builder__intro-main">
+              <div className="mock-random-builder__icon relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-sky-700" aria-hidden="true">
+                <span className="mock-random-builder__icon-core">
+                  <span className="mock-random-builder__icon-symbol" data-active={selectedLevel.id === 'basic' ? 'true' : 'false'}>
+                    <BookOpen size={21} />
                   </span>
-                  {DEFAULT_LEVEL_OPTIONS.map((option) => {
-                    const isAdvanced = option.id === 'advanced';
-                    return (
-                      <label
-                        key={option.id}
-                        className="mock-random-builder__level-label"
-                        data-level={option.id}
-                        data-selected={option.id === selectedLevel.id ? 'true' : 'false'}
-                        data-disabled={cannotGenerate ? 'true' : 'false'}
-                      >
-                        <input
-                          type="radio"
-                          name={levelGroupName}
-                          value={option.id}
-                          checked={option.id === selectedLevel.id}
-                          onChange={() => setSelectedLevelId(option.id)}
-                          disabled={cannotGenerate}
-                          className="mock-random-builder__level-input sr-only"
-                        />
-                        <span className="mock-random-builder__level-option">
-                          <span className="mock-random-builder__level-icon">
-                            {isAdvanced ? <Sparkles size={13} /> : <BookOpen size={13} />}
-                          </span>
-                          <span>{option.label}</span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </fieldset>
-              <div className="mock-random-builder__meta flex flex-wrap items-center gap-1.5">
-                <span className="mock-random-builder__chip mock-random-builder__chip--priority inline-flex items-center gap-1.5 rounded-full border border-sky-200/70 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700">
-                  <ListChecks size={13} />
-                  Нерешённые — в приоритете
+                  <span className="mock-random-builder__icon-symbol" data-active={selectedLevel.id === 'advanced' ? 'true' : 'false'}>
+                    <Sparkles size={22} />
+                  </span>
                 </span>
-                {safeTaskCount !== null && (
-                  <span className="mock-random-builder__chip inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-600">
-                    <BookOpen size={13} />
-                    {`${safeTaskCount} ${getRussianCountLabel(safeTaskCount, ['задание', 'задания', 'заданий'])}`}
-                  </span>
-                )}
+              </div>
+
+              <div className="mock-random-builder__content min-w-0 flex-1">
+                <div className="mock-random-builder__eyebrow text-[10px] font-black uppercase tracking-[0.16em] text-sky-700">
+                  {eyebrow}
+                </div>
+                <h3 id={builderTitleId} className="mock-random-builder__title mt-1 text-lg font-black leading-tight text-slate-950 sm:text-xl">
+                  {title}
+                </h3>
+                <p id={builderDescriptionId} className="mock-random-builder__description mt-1 text-xs leading-relaxed text-slate-500 sm:text-sm">
+                  {description}
+                </p>
               </div>
             </div>
+
+            <div className="mock-random-builder__insights" aria-label="Как будет собран пробник">
+              <span className="mock-random-builder__insight mock-random-builder__insight--primary">
+                <ListChecks size={14} />
+                <span>Нерешённые — сначала</span>
+              </span>
+              <span className="mock-random-builder__insight">
+                <RefreshCw size={13} />
+                <span>Повторение, если новых не хватит</span>
+              </span>
+              {safeTaskCount !== null && (
+                <span className="mock-random-builder__insight">
+                  <BookOpen size={13} />
+                  <span>{safeTaskCount} {getRussianCountLabel(safeTaskCount, ['задание', 'задания', 'заданий'])}</span>
+                </span>
+              )}
+            </div>
           </div>
 
-          <button
-            ref={triggerRef}
-            type="button"
-            onClick={openGenerator}
-            disabled={cannotGenerate}
-            aria-haspopup="dialog"
-            className="mock-random-builder__button group inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55 md:w-auto"
-          >
-            <span className="mock-random-builder__button-glow" aria-hidden="true" />
-            <span className="mock-random-builder__button-sheen" aria-hidden="true" />
-            <span className="mock-random-builder__button-orbit" aria-hidden="true" />
-            <Sparkles className="relative z-10" size={17} />
-            <span className="relative z-10">{buttonLabel}</span>
-            <ArrowRight className="mock-random-builder__button-arrow relative z-10" size={16} />
-          </button>
+          <fieldset className="mock-random-builder__level-field min-w-0">
+            <legend className="sr-only">Уровень пробника</legend>
+            <div className="mock-random-builder__section-head" aria-hidden="true">
+              <span className="mock-random-builder__section-index">01</span>
+              <span className="mock-random-builder__section-copy">
+                <strong>Уровень пробника</strong>
+                <small>Выберите сложность</small>
+              </span>
+            </div>
+            <div className="mock-random-builder__level-switch" data-level={selectedLevel.id}>
+                {DEFAULT_LEVEL_OPTIONS.map((option) => {
+                  const isAdvanced = option.id === 'advanced';
+                  const isSelected = option.id === selectedLevel.id;
+                  return (
+                    <label
+                      key={option.id}
+                      className="mock-random-builder__level-label"
+                      data-level={option.id}
+                      data-selected={isSelected ? 'true' : 'false'}
+                      data-disabled={cannotGenerate ? 'true' : 'false'}
+                    >
+                      <input
+                        type="radio"
+                        name={levelGroupName}
+                        value={option.id}
+                        checked={isSelected}
+                        onChange={() => setSelectedLevelId(option.id)}
+                        disabled={cannotGenerate}
+                        className="mock-random-builder__level-input sr-only"
+                      />
+                      <span className="mock-random-builder__level-option">
+                        <span className="mock-random-builder__level-icon" aria-hidden="true">
+                          {isAdvanced ? <Sparkles size={15} /> : <BookOpen size={15} />}
+                        </span>
+                        <span className="mock-random-builder__level-copy">
+                          <strong>{option.label}</strong>
+                          <small>{option.description}</small>
+                        </span>
+                        <span className="mock-random-builder__level-check" aria-hidden="true">
+                          <Check size={13} strokeWidth={3} />
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+          </fieldset>
+
+          <div className="mock-random-builder__actions">
+            <div className="mock-random-builder__action-head">
+              <span className="mock-random-builder__action-kicker">
+                <span className="mock-random-builder__action-index">02</span>
+                <span>Готово к сборке</span>
+              </span>
+              <span className="mock-random-builder__action-level">
+                <span aria-hidden="true" />
+                {selectedLevel.label}
+              </span>
+            </div>
+
+            <div className="mock-random-builder__mode-note">
+              <span className="mock-random-builder__mode-icon" aria-hidden="true">
+                <PlayCircle size={15} />
+              </span>
+              <span className="mock-random-builder__mode-copy">
+                <strong>Персональная тренировка</strong>
+                <small>Без наград · прогресс сохранится</small>
+              </span>
+            </div>
+
+            <button
+              ref={triggerRef}
+              type="button"
+              onClick={openGenerator}
+              disabled={cannotGenerate}
+              aria-haspopup="dialog"
+              aria-controls={dialogId}
+              className="mock-random-builder__button group inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-violet-600 px-5 text-sm font-black text-white shadow-lg shadow-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55"
+            >
+              <Sparkles className="relative z-10" size={17} />
+              <span className="relative z-10">{buttonLabel}</span>
+              <ArrowRight className="mock-random-builder__button-arrow relative z-10" size={16} />
+            </button>
+          </div>
         </div>
       </section>
       {modal}

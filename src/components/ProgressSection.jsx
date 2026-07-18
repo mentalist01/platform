@@ -114,19 +114,19 @@ const MOCK_TIMER_CHEST_MILESTONES = [
 ];
 const MOCK_EXAM_FILTERS = [
   { id: 'all', label: 'Все' },
-  { id: 'focus', label: 'Фокус' },
   { id: 'active', label: 'В работе' },
-  { id: 'new', label: 'Новые' },
-  { id: 'timer', label: 'Таймер' },
-  { id: 'reward', label: 'Рядом награда' },
-  { id: 'done', label: 'Готовые' },
+  { id: 'new', label: 'Не начаты' },
+  { id: 'done', label: 'Завершены' },
+  { id: 'timer', label: 'С таймером', dividerBefore: true },
+  { id: 'reward', label: 'Награда рядом' },
 ];
+const DEFAULT_MOCK_EXAM_SORT = 'score';
 const MOCK_EXAM_SORTS = [
-  { id: 'smart', label: 'Умная очередь' },
-  { id: 'progress', label: 'Прогресс' },
-  { id: 'score', label: 'Баллы' },
-  { id: 'reward', label: 'Награды рядом' },
-  { id: 'title', label: 'Название' },
+  { id: 'score', label: 'Сначала с высоким баллом', description: 'От максимального результата к минимальному' },
+  { id: 'progress', label: 'Сначала с большим прогрессом', description: 'От большего процента выполнения к меньшему' },
+  { id: 'title', label: 'По названию А–Я', description: 'В алфавитном порядке' },
+  { id: 'smart', label: 'Сначала важные', description: 'Начатые и важные варианты поднимаются наверх' },
+  { id: 'reward', label: 'Сначала ближе к награде', description: 'Сначала варианты, где ближе следующая награда' },
 ];
 const PROGRESS_XP_GLOBAL_ARTIFACT_BONUSES = {
   krylov: 1,
@@ -560,41 +560,6 @@ const formatMockTimerDuration = (value) => {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 };
 
-const buildMockChartLinePath = (points) => {
-  if (!Array.isArray(points) || points.length === 0) return '';
-  return points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-    .join(' ');
-};
-
-const buildMockChartAreaPath = (points, baselineY) => {
-  if (!Array.isArray(points) || points.length === 0) return '';
-  const linePath = buildMockChartLinePath(points);
-  const firstPoint = points[0];
-  const lastPoint = points[points.length - 1];
-  return `${linePath} L ${lastPoint.x} ${baselineY} L ${firstPoint.x} ${baselineY} Z`;
-};
-
-const getMockTaskChartTooltipStyle = (point, chart) => {
-  const chartWidth = Math.max(1, Number(chart?.width) || 1);
-  const chartHeight = Math.max(1, Number(chart?.height) || 1);
-  const xRatio = Math.max(0, Math.min(1, (Number(point?.x) || 0) / chartWidth));
-  const yRatio = Math.max(0, Math.min(1, (Number(point?.y) || 0) / chartHeight));
-  let transform = 'translate(-50%, calc(-100% - 14px))';
-
-  if (xRatio > 0.82) {
-    transform = 'translate(calc(-100% + 18px), calc(-100% - 14px))';
-  } else if (xRatio < 0.18) {
-    transform = 'translate(-18px, calc(-100% - 14px))';
-  }
-
-  return {
-    left: `${xRatio * 100}%`,
-    top: `${yRatio * 100}%`,
-    transform,
-  };
-};
-
 const ProgressSection = ({
   progress,
   onUpdateProgress,
@@ -691,7 +656,7 @@ const ProgressSection = ({
   const [startingMockExamId, setStartingMockExamId] = useState(null);
   const [mockExamFilter, setMockExamFilter] = useState('all');
   const [mockExamQuery, setMockExamQuery] = useState('');
-  const [mockExamSort, setMockExamSort] = useState('smart');
+  const [mockExamSort, setMockExamSort] = useState(DEFAULT_MOCK_EXAM_SORT);
   const [mockChestTestRewards, setMockChestTestRewards] = useState([]);
   const [timerChestFlights, setTimerChestFlights] = useState([]);
   const [duplicatingMockExamId, setDuplicatingMockExamId] = useState(null);
@@ -866,6 +831,7 @@ const ProgressSection = ({
       return {
         examId: exam.id,
         examTitle: exam.title,
+        resultsVisible: timerResultsVisible,
         attemptMode,
         isModeLocked,
         timerStartedAt: typeof attempt?.timerStartedAt === 'string' ? attempt.timerStartedAt : '',
@@ -930,11 +896,15 @@ const ProgressSection = ({
     const totalTaskCount = playableExamStats.reduce((sum, examStat) => sum + examStat.totalCount, 0);
     const totalAttemptedCount = playableExamStats.reduce((sum, examStat) => sum + examStat.attemptedCount, 0);
     const totalSolvedCount = playableExamStats.reduce((sum, examStat) => sum + examStat.solvedCount, 0);
+    const totalReviewedAttemptedCount = playableExamStats.reduce((sum, examStat) => (
+      sum + (examStat.resultsVisible ? examStat.attemptedCount : 0)
+    ), 0);
+    const pendingResultCount = Math.max(0, totalAttemptedCount - totalReviewedAttemptedCount);
     const overallProgressPercent = totalTaskCount > 0
       ? Math.max(0, Math.min(100, Math.round((totalSolvedCount / totalTaskCount) * 100)))
       : 0;
-    const accuracyPercent = totalAttemptedCount > 0
-      ? Math.max(0, Math.min(100, Math.round((totalSolvedCount / totalAttemptedCount) * 100)))
+    const accuracyPercent = totalReviewedAttemptedCount > 0
+      ? Math.max(0, Math.min(100, Math.round((totalSolvedCount / totalReviewedAttemptedCount) * 100)))
       : 0;
     const averageSecondaryScore = startedExams.length > 0
       ? Math.round(startedExams.reduce((sum, examStat) => sum + examStat.secondary, 0) / startedExams.length)
@@ -953,6 +923,8 @@ const ProgressSection = ({
           taskKey: taskStat.taskKey,
           label: taskStat.label,
           attemptedCount: 0,
+          reviewedCount: 0,
+          pendingCount: 0,
           solvedCount: 0,
           totalCount: 0,
           openTargets: [],
@@ -960,7 +932,12 @@ const ProgressSection = ({
         current.totalCount += 1;
         if (taskStat.attempted) {
           current.attemptedCount += 1;
-          if (taskStat.solved) current.solvedCount += 1;
+          if (examStat.resultsVisible) {
+            current.reviewedCount += 1;
+            if (taskStat.solved) current.solvedCount += 1;
+          } else {
+            current.pendingCount += 1;
+          }
         }
         if (!taskStat.solved) {
           current.openTargets.push({
@@ -975,7 +952,7 @@ const ProgressSection = ({
     }, {});
 
     const taskInsights = Object.values(taskPerformance)
-      .filter((taskStat) => taskStat.attemptedCount > 0)
+      .filter((taskStat) => taskStat.reviewedCount > 0)
       .map((taskStat) => {
         const sortedTargets = [...(taskStat.openTargets || [])].sort((left, right) => {
           if (left.attempted !== right.attempted) return left.attempted ? -1 : 1;
@@ -986,7 +963,7 @@ const ProgressSection = ({
           openExamId: sortedTargets[0]?.examId || '',
           accuracyPercent: Math.max(
             0,
-            Math.min(100, Math.round((taskStat.solvedCount / taskStat.attemptedCount) * 100))
+            Math.min(100, Math.round((taskStat.solvedCount / taskStat.reviewedCount) * 100))
           ),
         };
       });
@@ -994,16 +971,16 @@ const ProgressSection = ({
     const strongestTasks = [...taskInsights]
       .sort((left, right) => {
         if (left.accuracyPercent !== right.accuracyPercent) return right.accuracyPercent - left.accuracyPercent;
-        if (left.attemptedCount !== right.attemptedCount) return right.attemptedCount - left.attemptedCount;
+        if (left.reviewedCount !== right.reviewedCount) return right.reviewedCount - left.reviewedCount;
         return compareMockTaskKeys(left.taskKey, right.taskKey);
       })
       .slice(0, 3);
 
     const weakestTasks = [...taskInsights]
-      .filter((taskStat) => taskStat.solvedCount < taskStat.attemptedCount)
+      .filter((taskStat) => taskStat.solvedCount < taskStat.reviewedCount)
       .sort((left, right) => {
         if (left.accuracyPercent !== right.accuracyPercent) return left.accuracyPercent - right.accuracyPercent;
-        if (left.attemptedCount !== right.attemptedCount) return right.attemptedCount - left.attemptedCount;
+        if (left.reviewedCount !== right.reviewedCount) return right.reviewedCount - left.reviewedCount;
         return compareMockTaskKeys(left.taskKey, right.taskKey);
       })
       .slice(0, 3);
@@ -1013,6 +990,8 @@ const ProgressSection = ({
       const taskStat = taskPerformance[taskKey] || null;
       const totalCount = Number(taskStat?.totalCount) || 0;
       const attemptedCount = Number(taskStat?.attemptedCount) || 0;
+      const reviewedCount = Number(taskStat?.reviewedCount) || 0;
+      const pendingCount = Number(taskStat?.pendingCount) || 0;
       const solvedCount = Number(taskStat?.solvedCount) || 0;
       return {
         taskKey,
@@ -1021,12 +1000,17 @@ const ProgressSection = ({
         detailLabel: formatMockTaskLabel(taskNumber, GAME_THEORY_TASK),
         totalCount,
         attemptedCount,
+        reviewedCount,
+        pendingCount,
         solvedCount,
+        attemptedPercent: totalCount > 0
+          ? Math.max(0, Math.min(100, Math.round((attemptedCount / totalCount) * 100)))
+          : 0,
         completionPercent: totalCount > 0
           ? Math.max(0, Math.min(100, Math.round((solvedCount / totalCount) * 100)))
           : 0,
-        accuracyPercent: attemptedCount > 0
-          ? Math.max(0, Math.min(100, Math.round((solvedCount / attemptedCount) * 100)))
+        accuracyPercent: reviewedCount > 0
+          ? Math.max(0, Math.min(100, Math.round((solvedCount / reviewedCount) * 100)))
           : 0,
       };
     });
@@ -1040,6 +1024,8 @@ const ProgressSection = ({
       completedExamsCount: completedExams.length,
       totalTaskCount,
       totalAttemptedCount,
+      totalReviewedAttemptedCount,
+      pendingResultCount,
       totalSolvedCount,
       overallProgressPercent,
       accuracyPercent,
@@ -1062,9 +1048,11 @@ const ProgressSection = ({
         )
         : '',
       taskChartData,
+      taskInsightsCount: taskInsights.length,
       strongestTasks,
       weakestTasks,
-      hasAnyAttempt: startedExams.length > 0,
+      hasReviewedAnswers: totalReviewedAttemptedCount > 0,
+      hasAnyAttempt: totalAttemptedCount > 0,
     };
   }, [
     GAME_THEORY_TASK,
@@ -2407,48 +2395,11 @@ const ProgressSection = ({
 
   const showStudentMockPreview = Boolean(effectiveStudentId);
   const hasStudentMockPreview = showStudentMockPreview && studentVisibleMockExams.length > 0;
-  const studentMockTaskChart = useMemo(() => {
-    const taskChartData = Array.isArray(studentMockOverview?.taskChartData)
-      ? studentMockOverview.taskChartData
-      : [];
-    if (taskChartData.length === 0) return null;
-
-    const width = 760;
-    const height = 220;
-    const padding = { top: 14, right: 12, bottom: 34, left: 34 };
-    const plotWidth = width - padding.left - padding.right;
-    const plotHeight = height - padding.top - padding.bottom;
-    const baselineY = padding.top + plotHeight;
-    const pointCount = Math.max(taskChartData.length - 1, 1);
-
-    const points = taskChartData.map((item, index) => {
-      const x = padding.left + (plotWidth * index) / pointCount;
-      const y = padding.top + ((100 - item.completionPercent) / 100) * plotHeight;
-      return {
-        ...item,
-        x,
-        y,
-      };
-    });
-
-    const yTicks = [0, 25, 50, 75, 100].map((value) => ({
-      value,
-      y: padding.top + ((100 - value) / 100) * plotHeight,
-    }));
-    const xTicks = points;
-
-    return {
-      width,
-      height,
-      baselineY,
-      points,
-      yTicks,
-      xTicks,
-      linePath: buildMockChartLinePath(points),
-      areaPath: buildMockChartAreaPath(points, baselineY),
-      gradientId: `mock-task-chart-gradient-${role === 'teacher' ? 'teacher' : 'student'}`,
-    };
-  }, [role, studentMockOverview]);
+  const studentMockTaskStats = (Array.isArray(studentMockOverview?.taskChartData)
+    ? studentMockOverview.taskChartData
+    : []
+  ).filter((taskStat) => taskStat.totalCount > 0);
+  const mockTaskChartMinWidth = Math.max(760, studentMockTaskStats.length * 30);
 
   const getStudentMockStats = (exam) => (
     exam?.id ? studentMockOverview?.examStatsById?.[exam.id] || null : null
@@ -2529,6 +2480,13 @@ const ProgressSection = ({
       const isFocus = String(stats.examId || '') === String(studentMockOverview?.focusExamId || '');
       const isBest = String(stats.examId || '') === String(studentMockOverview?.bestExamId || '');
       const hasExamTasks = stats.totalCount > 0;
+      const hasVisibleScore = Boolean(
+        hasExamTasks
+        && (
+          (isTimerMode && String(attempt?.timerFinishedAt || '').trim())
+          || (!isTimerMode && (stats.attemptedCount > 0 || stats.solvedCount > 0))
+        )
+      );
       const rewardIsNear = Boolean(rewardInfo.milestone && rewardInfo.gap <= 10 && !timerRewardsDisabled);
       let smartRank = 50;
       if (isFocus) {
@@ -2564,6 +2522,7 @@ const ProgressSection = ({
         searchText,
         isFocus,
         isBest,
+        hasVisibleScore,
         smartRank,
       };
     })
@@ -2578,7 +2537,6 @@ const ProgressSection = ({
   const mockFilterCounts = useMemo(() => {
     const counts = {
       all: studentMockExamRows.length,
-      focus: 0,
       active: 0,
       new: 0,
       timer: 0,
@@ -2588,7 +2546,6 @@ const ProgressSection = ({
     studentMockExamRows.forEach((row) => {
       const stats = row.stats;
       if (!stats || stats.totalCount <= 0) return;
-      if (row.isFocus || row.rewardIsNear || (stats.hasStarted && !stats.isCompleted)) counts.focus += 1;
       if (row.isTimerMode || stats.attemptMode === MOCK_ATTEMPT_MODE_TIMER) counts.timer += 1;
       if (row.rewardIsNear) counts.reward += 1;
       if (stats.isCompleted) {
@@ -2607,7 +2564,6 @@ const ProgressSection = ({
     const rows = studentMockExamRows.filter((row) => {
       const stats = row.stats;
       if (!stats || stats.totalCount <= 0) return mockExamFilter === 'all' && !normalizedQuery;
-      if (mockExamFilter === 'focus' && !(row.isFocus || row.rewardIsNear || (stats.hasStarted && !stats.isCompleted))) return false;
       if (mockExamFilter === 'active' && !(stats.hasStarted && !stats.isCompleted)) return false;
       if (mockExamFilter === 'new' && stats.hasStarted) return false;
       if (mockExamFilter === 'timer' && !(row.isTimerMode || stats.attemptMode === MOCK_ATTEMPT_MODE_TIMER)) return false;
@@ -2631,8 +2587,16 @@ const ProgressSection = ({
         return right.stats.solvedCount - left.stats.solvedCount;
       }
       if (mockExamSort === 'score') {
+        if (left.hasVisibleScore !== right.hasVisibleScore) return left.hasVisibleScore ? -1 : 1;
         if (left.stats.secondary !== right.stats.secondary) return right.stats.secondary - left.stats.secondary;
-        return right.stats.primary - left.stats.primary;
+        if (left.stats.primary !== right.stats.primary) return right.stats.primary - left.stats.primary;
+        if (left.stats.progressPercent !== right.stats.progressPercent) {
+          return right.stats.progressPercent - left.stats.progressPercent;
+        }
+        return String(left.exam?.title || '').localeCompare(String(right.exam?.title || ''), 'ru', {
+          sensitivity: 'base',
+          numeric: true,
+        });
       }
       if (mockExamSort === 'reward') {
         const leftGap = left.nextRewardMilestone ? left.rewardGap : 999;
@@ -2648,6 +2612,9 @@ const ProgressSection = ({
       return left.index - right.index;
     });
   }, [mockExamFilter, mockExamQuery, mockExamSort, studentMockExamRows]);
+
+  const activeMockSortDescription = MOCK_EXAM_SORTS.find((item) => item.id === mockExamSort)?.description
+    || MOCK_EXAM_SORTS[0].description;
 
   const studentMockDashboard = useMemo(() => {
     const playableRows = studentMockExamRows.filter((row) => row.hasExamTasks);
@@ -2938,9 +2905,10 @@ const ProgressSection = ({
         : isTimerMode
           ? 'После завершения таймера'
           : 'После первого ответа';
+    const scoreEmptyLabel = hasExamTasks ? 'Результата пока нет' : 'Пробник готовится';
     const scoreHeroAriaLabel = hasVisibleScore
       ? `${scoreHeroLabel}: ${scoreValue} ${getBallLabel(scoreValue)} из 100.`
-      : `${scoreHeroLabel}. ${scoreHeroCaption}.`;
+      : `${scoreHeroLabel}: ${scoreEmptyLabel}. ${scoreHeroCaption}.`;
     const launchButtonLabel = !hasExamTasks
       ? 'Скоро'
       : canRestartTimerAttempt
@@ -2950,6 +2918,19 @@ const ProgressSection = ({
           : examStats.hasStarted
             ? 'Продолжить'
             : 'Начать';
+    const launchButtonDisplayLabel = (
+      hasExamTasks
+      && !canRestartTimerAttempt
+      && !examStats.isCompleted
+      && nextOpenTaskLabel
+    )
+      ? `${examStats.hasStarted ? 'Продолжить' : 'Начать'} с №${nextOpenTaskLabel}`
+      : launchButtonLabel;
+    const taskMapStatusLabel = examStats.isCompleted
+      ? 'Все готово'
+      : nextOpenTaskLabel
+        ? `Дальше №${nextOpenTaskLabel}`
+        : `${Math.round(progressValue)}%`;
     const taskMapAriaLabel = `Лист заданий «${exam.title}»: ${examStats.solvedCount} из ${examStats.totalCount} выполнено${nextOpenTaskLabel && !examStats.isCompleted ? `, следующее задание ${nextOpenTaskLabel}` : ''}.`;
 
     return (
@@ -2961,19 +2942,21 @@ const ProgressSection = ({
         data-kind={isPersonalRandomMock ? 'personal' : 'standard'}
         data-level={randomLevelId || undefined}
         style={{ '--mock-sheet-index': Math.max(0, Number(examRow?.index) || 0) }}
-        className={`mock-student-card mock-exam-sheet relative overflow-hidden text-left ${!hasExamTasks ? 'mock-student-card--empty' : ''} ${cardStateClass} ${isTimerMode ? 'mock-student-card--timer-mode' : ''} ${timerRewardsDisabled ? 'mock-student-card--timer-rewards-disabled' : ''}`}
+        className={`mock-student-card mock-exam-sheet relative overflow-hidden text-left ${!hasExamTasks ? 'mock-student-card--empty' : ''} ${cardStateClass} ${isTimerMode ? 'mock-student-card--timer-mode' : ''} ${rewardsDisabled ? 'mock-exam-sheet--practice' : ''} ${timerRewardsDisabled ? 'mock-student-card--timer-rewards-disabled' : ''}`}
       >
         <div className="mock-exam-sheet__header">
           <div className="mock-exam-sheet__identity">
             <div className="mock-exam-sheet__kicker">
               <span className="mock-exam-sheet__state" data-state={cardVisualState}>{stateLabel}</span>
-              {isPersonalRandomMock && <span className="mock-exam-sheet__type">Персональный</span>}
-              {examBadges.slice(0, 2).map((badge, badgeIndex) => (
-                <span key={`${badge.themeId}-${badge.label}-${badgeIndex}`} className="mock-exam-sheet__edition">
-                  {badge.label}
-                </span>
-              ))}
-              {hasExamTasks && isTimerMode && timerRewardsDisabled && (
+              <span className="mock-exam-sheet__metadata">
+                {isPersonalRandomMock && <span className="mock-exam-sheet__type">Персональный</span>}
+                {examBadges.slice(0, 2).map((badge, badgeIndex) => (
+                  <span key={`${badge.themeId}-${badge.label}-${badgeIndex}`} className="mock-exam-sheet__edition">
+                    {badge.label}
+                  </span>
+                ))}
+              </span>
+              {hasExamTasks && isTimerMode && timerRewardsDisabled && !rewardsDisabled && (
                 <span className="mock-exam-sheet__notice">
                   <PackageOpen size={12} />
                   Без наград
@@ -2994,8 +2977,8 @@ const ProgressSection = ({
                 <>
                   <span className="mock-exam-sheet__metric">
                     <ListChecks size={14} />
-                    <strong>{examStats.solvedCount}</strong>
-                    <span>{`из ${examStats.totalCount} заданий`}</span>
+                    <strong>{`${examStats.solvedCount} из ${examStats.totalCount}`}</strong>
+                    <span>{`· ${Math.round(progressValue)}% выполнено`}</span>
                   </span>
                   {isTimerMode && (
                     <span className="mock-exam-sheet__metric mock-exam-sheet__metric--timer">
@@ -3032,8 +3015,14 @@ const ProgressSection = ({
                 </span>
               </div>
               <div className="mock-exam-sheet__score-value" aria-hidden="true">
-                <strong>{hasVisibleScore ? scoreValue : '—'}</strong>
-                <span>{hasVisibleScore ? getBallLabel(scoreValue) : 'баллов'}</span>
+                {hasVisibleScore ? (
+                  <>
+                    <strong>{scoreValue}</strong>
+                    <span>{getBallLabel(scoreValue)}</span>
+                  </>
+                ) : (
+                  <strong className="mock-exam-sheet__score-empty">{scoreEmptyLabel}</strong>
+                )}
               </div>
               <small>{scoreHeroCaption}</small>
             </div>
@@ -3049,7 +3038,7 @@ const ProgressSection = ({
                 {examStats.isCompleted ? <RefreshCw size={16} /> : <PlayCircle size={16} />}
               </span>
               <span className="mock-start-button__label">
-                {isStartingThisMock ? 'Открываем…' : launchButtonLabel}
+                {isStartingThisMock ? 'Открываем…' : launchButtonDisplayLabel}
               </span>
               <ChevronRight className="mock-start-button__arrow" size={17} />
             </Button>
@@ -3091,7 +3080,7 @@ const ProgressSection = ({
                   <ListChecks size={14} />
                   Лист заданий
                 </span>
-                <strong>{`${Math.round(progressValue)}%`}</strong>
+                <strong>{taskMapStatusLabel}</strong>
               </div>
               <div
                 className={`mock-exam-sheet__task-grid ${taskStats.length <= 7 ? 'mock-exam-sheet__task-grid--short' : ''}`}
@@ -3134,10 +3123,6 @@ const ProgressSection = ({
 
             <div className="mock-exam-sheet__dock">
               <section className="mock-exam-sheet__mode" aria-label="Режим прохождения">
-                <div className="mock-exam-sheet__section-title">
-                  <span>Режим</span>
-                  <small>{modeLocked ? 'режим попытки' : 'назначен учителем'}</small>
-                </div>
                 <div
                   className={`mock-mode-assigned ${isTimerMode ? 'mock-mode-assigned--timer' : 'mock-mode-assigned--classic'}`}
                   aria-label={`${getMockModeLabel(selectedMode)}. ${modeLocked ? 'Режим попытки зафиксирован.' : 'Режим назначен учителем.'}`}
@@ -3146,6 +3131,9 @@ const ProgressSection = ({
                     {isTimerMode ? <Clock3 size={18} /> : <BookOpen size={18} />}
                   </span>
                   <span className="mock-mode-assigned__copy">
+                    <span className="mock-mode-assigned__eyebrow">
+                      {modeLocked ? 'Режим попытки' : 'Режим пробника'}
+                    </span>
                     <strong>{isTimerMode ? 'С таймером' : 'Обычный режим'}</strong>
                     <small>
                       {isTimerMode
@@ -3160,24 +3148,37 @@ const ProgressSection = ({
                 </div>
               </section>
 
-              <section className="mock-exam-sheet__reward-area" aria-label="Награды пробника">
-                <div className={`mock-reward-shell mock-exam-sheet__rewards ${isTimerMode ? 'mock-reward-shell--timer' : ''} ${timerRewardsDisabled ? 'mock-reward-shell--disabled' : ''}`}>
-                  <div className="mock-exam-sheet__reward-head">
-                    <span className="mock-reward-title">
-                      {rewardsDisabled ? <BookOpen size={14} /> : (isTimerMode ? <Flame size={14} /> : <Crown size={14} />)}
-                      {rewardsDisabled
-                        ? 'Тренировка'
-                        : isTimerMode
-                          ? (timerResultsHidden ? 'Ответы сохранены' : 'Сундуки')
-                          : 'Рубежи наград'}
+              <section className="mock-exam-sheet__reward-area" aria-label={rewardsDisabled ? 'Условия тренировки' : 'Награды пробника'}>
+                {rewardsDisabled ? (
+                  <div className="mock-exam-sheet__practice-note">
+                    <span className="mock-exam-sheet__practice-icon" aria-hidden="true">
+                      <BookOpen size={18} />
                     </span>
-                    <span className="mock-reward-next">
-                      {isTimerMode && modeLocked ? `${examStats.isTimerPaused ? 'Пауза: ' : ''}${timerRemainingLabel} · ` : ''}
-                      {nextRewardText}
+                    <span className="mock-exam-sheet__practice-copy">
+                      <span>Формат</span>
+                      <strong>Тренировка</strong>
+                      <small>Прогресс сохраняется — можно вернуться позже</small>
+                    </span>
+                    <span className="mock-exam-sheet__practice-status">
+                      <Sparkles size={13} />
+                      Без наград
                     </span>
                   </div>
+                ) : (
+                  <div className={`mock-reward-shell mock-exam-sheet__rewards ${isTimerMode ? 'mock-reward-shell--timer' : ''} ${timerRewardsDisabled ? 'mock-reward-shell--disabled' : ''}`}>
+                    <div className="mock-exam-sheet__reward-head">
+                      <span className="mock-reward-title">
+                        {isTimerMode ? <Flame size={14} /> : <Crown size={14} />}
+                        {isTimerMode
+                          ? (timerResultsHidden ? 'Ответы сохранены' : 'Сундуки')
+                          : 'Рубежи наград'}
+                      </span>
+                      <span className="mock-reward-next">
+                        {isTimerMode && modeLocked ? `${examStats.isTimerPaused ? 'Пауза: ' : ''}${timerRemainingLabel} · ` : ''}
+                        {nextRewardText}
+                      </span>
+                    </div>
 
-                  {!rewardsDisabled && (
                     <div className="mock-reward-track">
                       <div className="mock-reward-track__bar" aria-hidden="true">
                         <div className="mock-reward-track__fill" style={{ width: `${scoreValue}%` }} />
@@ -3234,8 +3235,8 @@ const ProgressSection = ({
                         );
                       })}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </section>
             </div>
           </>
@@ -4293,18 +4294,21 @@ const ProgressSection = ({
       {section === 'mocks' && (
         <div className={role === 'student' ? 'mock-page-shell mock-student-page space-y-4 md:space-y-5' : 'mock-page-shell mock-teacher-page space-y-4 md:space-y-6'}>
           {role === 'student' ? (
-            <div className="mock-student-hero mock-command-center relative overflow-hidden rounded-[24px] p-3.5 md:p-4">
+            <section
+              className="mock-student-hero mock-command-center relative overflow-hidden rounded-[24px] p-3.5 md:p-4"
+              aria-labelledby="mock-next-step-title"
+            >
               <div className="mock-student-hero__grid mock-command-grid relative z-[1] grid gap-3">
                 <div className="mock-command-copy min-w-0 space-y-3">
-                  <div className="mock-dashboard-v2__head flex flex-wrap items-end justify-between gap-3">
+                  <header className="mock-dashboard-v2__head flex flex-wrap items-end justify-between gap-3">
                     <div>
                       <div className="mock-dashboard-v2__kicker inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em]">
-                        <Sparkles size={13} /> План на сегодня
+                        <Sparkles aria-hidden="true" size={13} /> План на сегодня
                       </div>
-                      <h3 className="mock-dashboard-v2__title mt-1 text-lg font-black">Ваш следующий шаг</h3>
-                      <p className="mock-dashboard-v2__subtitle mt-0.5 text-xs">Продолжите начатый вариант или соберите новый специально под себя.</p>
+                      <h2 id="mock-next-step-title" className="mock-dashboard-v2__title mt-1 text-lg font-black">Ваш следующий шаг</h2>
+                      <p className="mock-dashboard-v2__subtitle mt-0.5 text-xs">Продолжите начатый вариант или соберите тренировочный под свой уровень.</p>
                     </div>
-                  </div>
+                  </header>
 
                   <RandomMockGenerator
                     onGenerate={handleGenerateRandomMockExam}
@@ -4317,7 +4321,7 @@ const ProgressSection = ({
                       fallbackCount: result?.summary?.fallbackTaskCount ?? null,
                     })}
                     title="Собрать персональный пробник"
-                    description="Подберём задания выбранного уровня, которые вы ещё не решали. Тренировочный режим — без наград."
+                    description="Подберём задания выбранного уровня по вашей истории решений."
                   />
 
                   <div className="mock-dashboard-v2 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(420px,0.9fr)]">
@@ -4432,7 +4436,7 @@ const ProgressSection = ({
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
           ) : (
             <div className="mock-teacher-hero flex flex-wrap items-center justify-between gap-3 rounded-[28px] p-4 md:p-5">
               <div>
@@ -4464,7 +4468,7 @@ const ProgressSection = ({
                     {role === 'student' && (
                       <div className="mock-list-subtitle text-xs text-gray-500">
                         {studentMockOverview?.hasMockTasks
-                          ? 'Начатые и рекомендованные варианты уже стоят первыми'
+                          ? activeMockSortDescription
                           : 'Заданий пока нет'}
                       </div>
                     )}
@@ -4491,71 +4495,74 @@ const ProgressSection = ({
                 </div>
 
                 {role === 'student' && studentVisibleMockExams.length > 0 && (
-                  <div className="mock-filter-row grid gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-                    <div className="mock-tools-row grid gap-2 lg:grid-cols-[minmax(220px,1fr)_minmax(180px,0.35fr)_auto]">
+                  <div className="mock-filter-row rounded-2xl border border-slate-200 bg-slate-50/80 p-2">
+                    <div className="mock-tools-row grid gap-2">
                       <label className="mock-search-field flex min-w-0 items-center gap-2 rounded-2xl border px-3 py-2">
-                        <Search size={15} />
+                        <Search aria-hidden="true" size={16} />
                         <input
                           type="search"
                           value={mockExamQuery}
                           onChange={(event) => setMockExamQuery(event.target.value)}
-                          placeholder="Поиск по названию, метке или номеру задания"
+                          aria-label="Поиск пробника"
+                          placeholder="Найти пробник"
                           className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                         />
                       </label>
                       <label className="mock-sort-field flex min-w-0 items-center gap-2 rounded-2xl border px-3 py-2">
-                        <ArrowUpDown size={15} />
-                        <select
-                          value={mockExamSort}
-                          onChange={(event) => setMockExamSort(event.target.value)}
-                          className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none"
-                        >
-                          {MOCK_EXAM_SORTS.map((item) => (
-                            <option key={item.id} value={item.id}>{item.label}</option>
-                          ))}
-                        </select>
+                        <ArrowUpDown aria-hidden="true" size={16} />
+                        <span className="mock-sort-field__body min-w-0 flex-1">
+                          <span className="mock-sort-field__label">Сортировка</span>
+                          <select
+                            value={mockExamSort}
+                            onChange={(event) => setMockExamSort(event.target.value)}
+                            aria-label="Сортировка пробников"
+                            className="min-w-0 w-full bg-transparent text-sm font-semibold outline-none"
+                          >
+                            {MOCK_EXAM_SORTS.map((item) => (
+                              <option key={item.id} value={item.id}>{item.label}</option>
+                            ))}
+                          </select>
+                        </span>
                       </label>
-                      {(mockExamQuery || mockExamFilter !== 'all' || mockExamSort !== 'smart') && (
+                      {(mockExamQuery || mockExamFilter !== 'all' || mockExamSort !== DEFAULT_MOCK_EXAM_SORT) && (
                         <button
                           type="button"
                           onClick={() => {
                             setMockExamQuery('');
                             setMockExamFilter('all');
-                            setMockExamSort('smart');
+                            setMockExamSort(DEFAULT_MOCK_EXAM_SORT);
                           }}
                           className="mock-filter-reset rounded-2xl px-3 py-2 text-xs font-bold"
                         >
+                          <RefreshCw aria-hidden="true" size={14} />
                           Сбросить
                         </button>
                       )}
                     </div>
 
-                    <div className="mock-filter-strip flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-                      <div className="mock-filter-group flex min-w-0 flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-white/70 p-1">
-                        {MOCK_EXAM_FILTERS
-                          .filter((item) => (
-                            item.id === 'all'
-                            || item.id === mockExamFilter
-                            || (mockFilterCounts[item.id] ?? 0) > 0
-                          ))
-                          .map((item) => {
-                            const active = mockExamFilter === item.id;
-                            const count = mockFilterCounts[item.id] ?? 0;
-                            return (
+                    <div className="mock-filter-strip">
+                      <span className="mock-filter-strip__label">Показать</span>
+                      <div className="mock-filter-group" role="group" aria-label="Фильтр пробников">
+                        {MOCK_EXAM_FILTERS.map((item) => {
+                          const active = mockExamFilter === item.id;
+                          const count = mockFilterCounts[item.id] ?? 0;
+                          return (
+                            <React.Fragment key={item.id}>
+                              {item.dividerBefore && <span className="mock-filter-divider" aria-hidden="true" />}
                               <button
-                                key={item.id}
                                 type="button"
                                 onClick={() => setMockExamFilter(item.id)}
-                                className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                                  active
-                                    ? 'bg-white text-sky-700 shadow-sm ring-1 ring-sky-100'
-                                    : 'text-slate-500 hover:bg-white/80 hover:text-sky-700'
-                                }`}
+                                aria-pressed={active}
+                                disabled={item.id !== 'all' && count === 0 && !active}
+                                data-active={active ? 'true' : 'false'}
+                                className="mock-filter-chip"
                               >
-                                {`${item.label} ${count}`}
+                                <span>{item.label}</span>
+                                <span className="mock-filter-chip__count">{count}</span>
                               </button>
-                            );
-                          })}
+                            </React.Fragment>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -4598,175 +4605,286 @@ const ProgressSection = ({
               </Card>
 
               {hasStudentMockPreview && studentMockOverview?.hasMockTasks && studentMockOverview.totalTaskCount > 1 && (
-                <Card className="mock-statistics-card space-y-3 md:space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                      <div className="mock-chart-icon flex h-9 w-9 items-center justify-center rounded-xl border">
-                        <BarChart2 size={16} />
+                <Card
+                  className="mock-statistics-card mock-task-analytics"
+                  data-state={studentMockOverview.hasAnyAttempt ? 'ready' : 'empty'}
+                >
+                  <header className="mock-task-analytics__header">
+                    <div className="mock-task-analytics__heading">
+                      <div className="mock-chart-icon" aria-hidden="true">
+                        <BarChart2 size={19} strokeWidth={2.1} />
                       </div>
-                      <span>Статистика по заданиям</span>
+                      <div className="mock-task-analytics__heading-copy">
+                        <span className="mock-task-analytics__eyebrow">Аналитика пробников</span>
+                        <h3 id="mock-task-analytics-title">Статистика по заданиям</h3>
+                        <p>
+                          {studentMockOverview.hasAnyAttempt
+                            ? 'Сравниваем охват и верные решения по каждому типу задания.'
+                            : 'После первого ответа здесь появится точная карта сильных сторон и зон роста.'}
+                        </p>
+                      </div>
                     </div>
-                    <span className="mock-chart-badge rounded-full px-3 py-1 text-xs font-semibold">
-                      {`${studentMockOverview.accuracyPercent}% точность`}
-                    </span>
-                  </div>
 
-                  {studentMockTaskChart && (
-                    <div className="mock-task-chart-panel rounded-[24px] p-3 md:p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-                          Выполнение по заданиям
+                    {studentMockOverview.hasAnyAttempt ? (
+                      <div className="mock-task-analytics__metrics" aria-label="Сводка по ответам">
+                        <div className="mock-task-metric mock-task-metric--accent">
+                          <span>Точность</span>
+                          <strong>
+                            {studentMockOverview.hasReviewedAnswers
+                              ? `${studentMockOverview.accuracyPercent}%`
+                              : '—'}
+                          </strong>
                         </div>
-                        <div className="text-[11px] text-gray-400">0-100%</div>
+                        <div className="mock-task-metric">
+                          <span>Ответов</span>
+                          <strong>{studentMockOverview.totalAttemptedCount}</strong>
+                        </div>
+                        <div className="mock-task-metric">
+                          <span>Верно</span>
+                          <strong>{studentMockOverview.totalSolvedCount}</strong>
+                        </div>
                       </div>
-
-                      <div
-                        className="relative mt-3 w-full"
-                        style={{ maxWidth: `${studentMockTaskChart.width}px` }}
-                        onMouseLeave={() => setHoveredMockTaskPoint(null)}
-                      >
-                        {hoveredMockTaskPoint && (
-                          <div
-                            className="mock-task-chart-tooltip pointer-events-none absolute z-10 w-max max-w-[220px] rounded-2xl px-3 py-2 text-xs shadow-lg"
-                            style={getMockTaskChartTooltipStyle(hoveredMockTaskPoint, studentMockTaskChart)}
-                          >
-                            <div className="font-semibold text-gray-900">
-                              {`Задание ${hoveredMockTaskPoint.label}`}
-                              {hoveredMockTaskPoint.detailLabel !== hoveredMockTaskPoint.label
-                                ? ` (${hoveredMockTaskPoint.detailLabel})`
-                                : ''}
-                            </div>
-                            <div className="mt-1 text-gray-500">
-                              {`${hoveredMockTaskPoint.completionPercent}% выполнено`}
-                            </div>
-                            <div className="mt-1 text-gray-500">
-                              {`${hoveredMockTaskPoint.solvedCount}/${hoveredMockTaskPoint.totalCount} закрыто`}
-                            </div>
-                            <div className="text-gray-500">
-                              {`${hoveredMockTaskPoint.accuracyPercent}% точность`}
-                            </div>
-                          </div>
-                        )}
-
-                        <svg
-                          viewBox={`0 0 ${studentMockTaskChart.width} ${studentMockTaskChart.height}`}
-                          className="h-[220px] w-full overflow-visible"
-                          role="img"
-                          aria-label="График выполнения заданий по пробникам"
-                        >
-                          <defs>
-                            <linearGradient id={studentMockTaskChart.gradientId} x1="0" x2="0" y1="0" y2="1">
-                              <stop offset="0%" stopColor="rgba(168,85,247,0.28)" />
-                              <stop offset="100%" stopColor="rgba(168,85,247,0.02)" />
-                            </linearGradient>
-                          </defs>
-
-                          {studentMockTaskChart.yTicks.map((tick) => (
-                            <g key={`mock-chart-y-${tick.value}`}>
-                              <line
-                                x1="34"
-                                x2={studentMockTaskChart.width - 12}
-                                y1={tick.y}
-                                y2={tick.y}
-                                className="mock-task-chart-grid"
-                              />
-                              <text
-                                x="0"
-                                y={tick.y + 4}
-                                className="mock-task-chart-axis"
-                              >
-                                {`${tick.value}%`}
-                              </text>
-                            </g>
-                          ))}
-
-                          <path
-                            d={studentMockTaskChart.areaPath}
-                            fill={`url(#${studentMockTaskChart.gradientId})`}
-                          />
-                          <path d={studentMockTaskChart.linePath} className="mock-task-chart-line" />
-
-                          {studentMockTaskChart.points.map((point) => (
-                            <g
-                              key={`mock-chart-point-${point.taskNumber}`}
-                              onMouseEnter={() => setHoveredMockTaskPoint(point)}
-                              onMouseMove={() => setHoveredMockTaskPoint(point)}
-                              onFocus={() => setHoveredMockTaskPoint(point)}
-                              onBlur={() => setHoveredMockTaskPoint(null)}
-                            >
-                              <circle
-                                cx={point.x}
-                                cy={point.y}
-                                r="11"
-                                className="mock-task-chart-hit"
-                              />
-                              <circle
-                                cx={point.x}
-                                cy={point.y}
-                                r={point.completionPercent > 0 ? 4 : 3}
-                                className={`mock-task-chart-point ${point.completionPercent > 0 ? 'mock-task-chart-point--active' : ''}`}
-                              />
-                            </g>
-                          ))}
-
-                          {studentMockTaskChart.xTicks.map((point) => (
-                            <text
-                              key={`mock-chart-x-${point.taskNumber}`}
-                              x={point.x}
-                              y={studentMockTaskChart.baselineY + 22}
-                              textAnchor="middle"
-                              className="mock-task-chart-axis"
-                            >
-                              {point.label}
-                            </text>
-                          ))}
-                        </svg>
+                    ) : (
+                      <div className="mock-task-analytics__waiting-badge">
+                        <CircleDashed aria-hidden="true" size={15} />
+                        <span>Ждём первый ответ</span>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </header>
 
                   {studentMockOverview.hasAnyAttempt ? (
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <div className="mock-insight-card mock-insight-card--strong rounded-xl p-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                          Лучше всего
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {studentMockOverview.strongestTasks.map((taskStat) => (
-                            <span
-                              key={`strong-${taskStat.taskKey}`}
-                              className="mock-insight-pill rounded-full px-3 py-1.5 text-xs font-semibold"
-                            >
-                              {`№ ${taskStat.label} · ${taskStat.accuracyPercent}% · ${taskStat.solvedCount}/${taskStat.attemptedCount}`}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="mock-insight-card mock-insight-card--weak rounded-xl p-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
-                          Добить в первую очередь
-                        </div>
-                        {studentMockOverview.weakestTasks.length > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {studentMockOverview.weakestTasks.map((taskStat) => (
-                              <button
-                                key={`weak-${taskStat.taskKey}`}
-                                type="button"
-                                onClick={() => openMockTaskFromInsight(taskStat)}
-                                className="mock-insight-pill rounded-full px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-                              >
-                                {`№ ${taskStat.label} · ${taskStat.accuracyPercent}% · ${taskStat.solvedCount}/${taskStat.attemptedCount}`}
-                              </button>
-                            ))}
+                    <div className="mock-task-analytics__body">
+                      <section className="mock-task-chart-panel" aria-labelledby="mock-task-chart-title">
+                        <div className="mock-task-chart-panel__header">
+                          <div>
+                            <span className="mock-task-chart-panel__eyebrow">Результаты по категориям</span>
+                            <h4 id="mock-task-chart-title">Карта выполнения</h4>
                           </div>
+                          <div className="mock-task-chart-legend" aria-label="Легенда графика">
+                            <span><i className="mock-task-chart-legend__dot mock-task-chart-legend__dot--solved" />Верно</span>
+                            <span><i className="mock-task-chart-legend__dot mock-task-chart-legend__dot--attempted" />Есть ответ</span>
+                          </div>
+                        </div>
+
+                        <div
+                          className="mock-task-chart-scroll"
+                          onMouseLeave={() => setHoveredMockTaskPoint(null)}
+                        >
+                          <div
+                            className="mock-task-chart-stage"
+                            style={{ minWidth: `${mockTaskChartMinWidth}px` }}
+                          >
+                            <div className="mock-task-chart-scale" aria-hidden="true">
+                              <span>100%</span>
+                              <span>75%</span>
+                              <span>50%</span>
+                              <span>25%</span>
+                              <span>0%</span>
+                            </div>
+                            <div className="mock-task-chart-canvas">
+                              <div className="mock-task-chart-grid" aria-hidden="true" />
+                              {hoveredMockTaskPoint && (
+                                <div
+                                  className="mock-task-chart-tooltip"
+                                  style={{
+                                    left: `${((hoveredMockTaskPoint.index + 0.5) / Math.max(1, studentMockTaskStats.length)) * 100}%`,
+                                    transform: hoveredMockTaskPoint.index < 2
+                                      ? 'translateX(0)'
+                                      : hoveredMockTaskPoint.index > studentMockTaskStats.length - 3
+                                        ? 'translateX(-100%)'
+                                        : 'translateX(-50%)',
+                                  }}
+                                >
+                                  <strong>{`Задание ${hoveredMockTaskPoint.detailLabel}`}</strong>
+                                  <span>{`${hoveredMockTaskPoint.attemptedCount}/${hoveredMockTaskPoint.totalCount} с ответом`}</span>
+                                  <span>
+                                    {hoveredMockTaskPoint.reviewedCount > 0
+                                      ? `${hoveredMockTaskPoint.solvedCount}/${hoveredMockTaskPoint.reviewedCount} верно · ${hoveredMockTaskPoint.accuracyPercent}%`
+                                      : 'Точность откроется после проверки'}
+                                  </span>
+                                  {hoveredMockTaskPoint.pendingCount > 0 && (
+                                    <em>{`${hoveredMockTaskPoint.pendingCount} ожидает результата`}</em>
+                                  )}
+                                </div>
+                              )}
+                              <div
+                                className="mock-task-chart-bars"
+                                role="group"
+                                aria-label="Выполнение по типам заданий"
+                                style={{
+                                  gridTemplateColumns: `repeat(${Math.max(1, studentMockTaskStats.length)}, minmax(24px, 1fr))`,
+                                }}
+                              >
+                                {studentMockTaskStats.map((taskStat, index) => (
+                                  <div
+                                    key={`mock-task-bar-${taskStat.taskKey}`}
+                                    role="img"
+                                    tabIndex={0}
+                                    className="mock-task-chart-bar"
+                                    data-attempted={taskStat.attemptedCount > 0 ? 'true' : 'false'}
+                                    aria-label={`Задание ${taskStat.detailLabel}: ответов ${taskStat.attemptedCount} из ${taskStat.totalCount}, верно ${taskStat.solvedCount}`}
+                                    onMouseEnter={() => setHoveredMockTaskPoint({ ...taskStat, index })}
+                                    onFocus={() => setHoveredMockTaskPoint({ ...taskStat, index })}
+                                    onBlur={() => setHoveredMockTaskPoint(null)}
+                                  >
+                                    <span className="mock-task-chart-bar__rail" aria-hidden="true">
+                                      <span
+                                        className="mock-task-chart-bar__fill mock-task-chart-bar__fill--attempted"
+                                        style={{ height: `${taskStat.attemptedPercent}%` }}
+                                      />
+                                      <span
+                                        className="mock-task-chart-bar__fill mock-task-chart-bar__fill--solved"
+                                        style={{ height: `${taskStat.completionPercent}%` }}
+                                      />
+                                    </span>
+                                    <span className="mock-task-chart-bar__label">{taskStat.label}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="mock-task-chart-panel__note">
+                          Светлый слой — задания с ответом, насыщенный — решённые верно.
+                        </p>
+                      </section>
+
+                      <aside className="mock-task-insights" aria-label="Выводы по статистике">
+                        {studentMockOverview.hasReviewedAnswers ? (
+                          <>
+                            <section className="mock-task-insight-block mock-task-insight-block--strong">
+                              <div className="mock-task-insight-block__header">
+                                <span className="mock-task-insight-block__icon" aria-hidden="true">
+                                  <Trophy size={16} />
+                                </span>
+                                <div>
+                                  <span>{studentMockOverview.taskInsightsCount < 3 ? 'Первые данные' : 'Сильные стороны'}</span>
+                                  <small>Лучшие результаты</small>
+                                </div>
+                              </div>
+                              <div className="mock-task-insight-list">
+                                {studentMockOverview.strongestTasks.map((taskStat) => (
+                                  <div key={`strong-${taskStat.taskKey}`} className="mock-task-insight-row">
+                                    <span className="mock-task-insight-row__number">{`№ ${taskStat.label}`}</span>
+                                    <span className="mock-task-insight-row__copy">
+                                      <strong>{`${taskStat.accuracyPercent}%`}</strong>
+                                      <small>{`${taskStat.solvedCount}/${taskStat.reviewedCount} верно`}</small>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </section>
+
+                            <section className="mock-task-insight-block mock-task-insight-block--focus">
+                              <div className="mock-task-insight-block__header">
+                                <span className="mock-task-insight-block__icon" aria-hidden="true">
+                                  <Target size={16} />
+                                </span>
+                                <div>
+                                  <span>В фокусе</span>
+                                  <small>Что повторить дальше</small>
+                                </div>
+                              </div>
+                              {studentMockOverview.weakestTasks.length > 0 ? (
+                                <div className="mock-task-insight-list">
+                                  {studentMockOverview.weakestTasks.map((taskStat) => (
+                                    <button
+                                      key={`weak-${taskStat.taskKey}`}
+                                      type="button"
+                                      onClick={() => openMockTaskFromInsight(taskStat)}
+                                      className="mock-task-insight-row mock-task-insight-row--action"
+                                    >
+                                      <span className="mock-task-insight-row__number">{`№ ${taskStat.label}`}</span>
+                                      <span className="mock-task-insight-row__copy">
+                                        <strong>{`${taskStat.accuracyPercent}%`}</strong>
+                                        <small>{`${taskStat.solvedCount}/${taskStat.reviewedCount} верно`}</small>
+                                      </span>
+                                      <ChevronRight aria-hidden="true" size={15} />
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="mock-task-insight-positive">
+                                  <CheckCircle2 aria-hidden="true" size={17} />
+                                  <span>
+                                    <strong>Явных просадок нет</strong>
+                                    <small>Продолжайте набирать данные.</small>
+                                  </span>
+                                </div>
+                              )}
+                            </section>
+                          </>
                         ) : (
-                          <div className="mt-3 text-sm text-gray-500">Пока без явных просадок.</div>
+                          <section className="mock-task-insight-block mock-task-insight-block--pending">
+                            <span className="mock-task-insight-block__icon" aria-hidden="true">
+                              <Clock3 size={17} />
+                            </span>
+                            <div>
+                              <strong>Ответы уже сохранены</strong>
+                              <p>Точность и рекомендации откроются после завершения пробника с таймером.</p>
+                              {studentMockOverview.pendingResultCount > 0 && (
+                                <span className="mock-task-insight-pending-count">
+                                  {`Ожидают результата: ${studentMockOverview.pendingResultCount}`}
+                                </span>
+                              )}
+                            </div>
+                          </section>
                         )}
-                      </div>
+                      </aside>
                     </div>
                   ) : (
-                    <div className="text-sm text-gray-500">Статистика появится после первых ответов.</div>
+                    <div className="mock-task-analytics__empty">
+                      <div className="mock-task-analytics__empty-copy">
+                        <span className="mock-task-analytics__empty-icon" aria-hidden="true">
+                          <Sparkles size={22} />
+                        </span>
+                        <span className="mock-task-analytics__empty-kicker">Данные ещё собираются</span>
+                        <h4>Первый ответ запустит разбор</h4>
+                        <p>
+                          Решите хотя бы одно задание — мы покажем точность, сильные типы и подскажем,
+                          что стоит повторить следующим.
+                        </p>
+                        {focusMockExam && (
+                          <button
+                            type="button"
+                            className="mock-task-analytics__empty-action"
+                            onClick={openFocusMockExam}
+                          >
+                            <PlayCircle aria-hidden="true" size={17} />
+                            <span>{`Перейти к заданию № ${studentMockOverview.focusTaskLabel || '1'}`}</span>
+                            <ChevronRight aria-hidden="true" size={16} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="mock-task-analytics__preview" aria-hidden="true">
+                        <div className="mock-task-analytics__preview-head">
+                          <span>Что появится здесь</span>
+                          <small>После ответа</small>
+                        </div>
+                        <div className="mock-task-analytics__preview-list">
+                          <div className="mock-task-analytics__preview-row">
+                            <span><Target size={15} /></span>
+                            <div><strong>Точность по заданиям</strong><small>Сравнение по типам</small></div>
+                            <b>—%</b>
+                          </div>
+                          <div className="mock-task-analytics__preview-row">
+                            <span><Trophy size={15} /></span>
+                            <div><strong>Сильные стороны</strong><small>До трёх лидеров</small></div>
+                            <b>№ —</b>
+                          </div>
+                          <div className="mock-task-analytics__preview-row">
+                            <span><ListChecks size={15} /></span>
+                            <div><strong>План повторения</strong><small>Следующий лучший шаг</small></div>
+                            <b>Готовится</b>
+                          </div>
+                        </div>
+                        <div className="mock-task-analytics__preview-foot">
+                          <Sparkles size={13} />
+                          Аналитика обновится автоматически
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </Card>
               )}
