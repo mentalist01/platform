@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2 } from 'lucide-react';
+import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2 } from 'lucide-react';
 import { api, resolveAuthenticatedApiUrl } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -54,6 +54,7 @@ const SCHEDULE_REQUEST_STATUS_PENDING = 'pending';
 const SCHEDULE_REQUEST_STATUS_APPROVED = 'approved';
 const SCHEDULE_REQUEST_STATUS_REJECTED = 'rejected';
 const HOMEWORK_DAY_MS = 24 * 60 * 60 * 1000;
+const LESSON_HISTORY_PAGE_SIZE = 12;
 
 const resolveHomeworkDueAt = (entry) => {
   const explicitDueAt = new Date(entry?.dueAt || '');
@@ -213,6 +214,22 @@ const parseScheduleDayKey = (value) => {
     return null;
   }
   return date;
+};
+
+const getLessonHistoryMonthLabel = (dayKey) => {
+  const date = parseScheduleDayKey(dayKey);
+  if (!date) return 'Ранее';
+  const label = date
+    .toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+    .replace(/\s*г\.$/i, '');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+};
+
+const getLessonHistoryDateLabel = (dayKey) => {
+  const date = parseScheduleDayKey(dayKey);
+  if (!date) return 'Прошедшее занятие';
+  const label = date.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  return label.charAt(0).toUpperCase() + label.slice(1);
 };
 
 const formatScheduleDayKey = (date) => {
@@ -589,6 +606,16 @@ const ScheduleSection = ({
   const [editingId, setEditingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showLessonHistory, setShowLessonHistory] = useState(false);
+  const [lessonHistory, setLessonHistory] = useState([]);
+  const [lessonHistoryTotal, setLessonHistoryTotal] = useState(0);
+  const [lessonHistoryHasMore, setLessonHistoryHasMore] = useState(false);
+  const [lessonHistoryNextOffset, setLessonHistoryNextOffset] = useState(null);
+  const [lessonHistoryLoading, setLessonHistoryLoading] = useState(false);
+  const [lessonHistoryLoadingMore, setLessonHistoryLoadingMore] = useState(false);
+  const [lessonHistoryError, setLessonHistoryError] = useState('');
+  const [lessonHistoryErrorMode, setLessonHistoryErrorMode] = useState('');
+  const [lessonHistoryReloadKey, setLessonHistoryReloadKey] = useState(0);
   const [scheduleCompactMode, setScheduleCompactMode] = useState(false);
   const [lessonSchedule, setLessonSchedule] = useState([]);
   const [lessonTopicsByOccurrence, setLessonTopicsByOccurrence] = useState({});
@@ -1302,6 +1329,129 @@ const ScheduleSection = ({
     );
   };
 
+  const renderStudentLessonHistory = () => (
+    <section className={`student-lesson-history${showLessonHistory ? ' student-lesson-history--open' : ''}`}>
+      <button
+        type="button"
+        className="student-lesson-history__toggle"
+        onClick={() => setShowLessonHistory((value) => !value)}
+        aria-expanded={showLessonHistory}
+        aria-controls="student-lesson-history-panel"
+      >
+        <span className="student-lesson-history__toggle-icon" aria-hidden="true">
+          <History size={18} />
+        </span>
+        <span className="student-lesson-history__toggle-copy">
+          <strong>История занятий</strong>
+          <small>Все прошедшие занятия и их темы</small>
+        </span>
+        {lessonHistoryTotal > 0 && (
+          <span className="student-lesson-history__count">{getLessonCountLabel(lessonHistoryTotal)}</span>
+        )}
+        <ChevronRight className="student-lesson-history__chevron" size={17} aria-hidden="true" />
+      </button>
+
+      <div
+        id="student-lesson-history-panel"
+        className="student-lesson-history__panel"
+        hidden={!showLessonHistory}
+      >
+        {lessonHistoryLoading && lessonHistory.length === 0 ? (
+          <div className="student-lesson-history__status" role="status" aria-live="polite">
+            <RefreshCcw size={16} className="animate-spin" />
+            Собираем прошедшие занятия…
+          </div>
+        ) : lessonHistory.length === 0 && !lessonHistoryError ? (
+          <div className="student-lesson-history__empty">
+            <Calendar size={19} />
+            <div>
+              <strong>История пока пустая</strong>
+              <span>Здесь появятся завершённые занятия и темы, которые вы проходили.</span>
+            </div>
+          </div>
+        ) : (
+          <div className="student-lesson-history__groups">
+            {lessonHistoryGroups.map((group) => (
+              <section className="student-lesson-history__month" key={group.key}>
+                <h3>{group.label}</h3>
+                <ol className="student-lesson-history__list">
+                  {group.items.map((entry, index) => {
+                    const lessonDate = parseScheduleDayKey(entry?.dayKey);
+                    const dayNumber = lessonDate?.getDate?.() || '';
+                    const weekdayIndex = lessonDate?.getDay?.();
+                    const weekdayLabel = ['ВС', 'ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ'][weekdayIndex] || 'ДЕНЬ';
+                    const duration = Number(entry?.durationMinutes);
+                    const durationLabel = Number.isFinite(duration) && duration > 0 ? `${Math.round(duration)} мин` : '60 мин';
+                    const topic = entry?.topic || null;
+                    const topicText = getLessonTopicDisplayText(topic);
+                    const topicSourceLabel = topic?.source === 'teacher'
+                      ? 'Тема учителя'
+                      : (topic ? 'По конспектам' : 'Тема');
+                    return (
+                      <li key={entry?.key || `${entry?.dayKey}-${entry?.time}-${index}`}>
+                        <article className="student-lesson-history__item" style={{ '--history-index': index }}>
+                          <time className="student-lesson-history__date" dateTime={entry?.dayKey || undefined}>
+                            <span>{weekdayLabel}</span>
+                            <strong>{dayNumber}</strong>
+                          </time>
+                          <div className="student-lesson-history__main">
+                            <div className="student-lesson-history__heading">
+                              <strong>{getLessonHistoryDateLabel(entry?.dayKey)}</strong>
+                              {entry?.subject && entry.subject !== DEFAULT_SCHEDULE_SUBJECT && <span>{entry.subject}</span>}
+                            </div>
+                            <div className="student-lesson-history__time">
+                              <Clock3 size={14} />
+                              <strong>{getScheduleTimeRangeLabel(entry)}</strong>
+                              <span>{durationLabel}</span>
+                            </div>
+                            <div
+                              className={`schedule-shell__student-lesson-topic${topic ? ` schedule-shell__student-lesson-topic--${topic.source}` : ' schedule-shell__student-lesson-topic--empty'}`}
+                              title={topicText || 'Тема не сохранилась'}
+                            >
+                              <BookOpen size={13} />
+                              <span>{topicSourceLabel}</span>
+                              <strong>{topicText || 'Тема не сохранилась'}</strong>
+                            </div>
+                          </div>
+                        </article>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
+            ))}
+          </div>
+        )}
+
+        {lessonHistoryError && (
+          <div className="student-lesson-history__error" role="alert">
+            <span>{lessonHistoryError}</span>
+            <button
+              type="button"
+              onClick={lessonHistoryErrorMode === 'more'
+                ? handleLoadMoreLessonHistory
+                : () => setLessonHistoryReloadKey((value) => value + 1)}
+            >
+              Повторить
+            </button>
+          </div>
+        )}
+
+        {lessonHistoryHasMore && !lessonHistoryError && (
+          <button
+            type="button"
+            className="student-lesson-history__more"
+            onClick={handleLoadMoreLessonHistory}
+            disabled={lessonHistoryLoadingMore}
+          >
+            {lessonHistoryLoadingMore ? <RefreshCcw size={15} className="animate-spin" /> : <History size={15} />}
+            {lessonHistoryLoadingMore ? 'Загружаем…' : 'Показать более ранние'}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+
   const resetScheduleForm = () => {
     setScheduleEditingId(null);
     setScheduleForm({ ...DEFAULT_SCHEDULE_FORM });
@@ -1703,6 +1853,95 @@ const ScheduleSection = ({
       });
     return () => { cancelled = true; };
   }, [effectiveStudentId, lessonTopicsRange, lessonTopicsRefreshKey, requestStudentId]);
+
+  useEffect(() => {
+    setShowLessonHistory(false);
+    setLessonHistory([]);
+    setLessonHistoryTotal(0);
+    setLessonHistoryHasMore(false);
+    setLessonHistoryNextOffset(null);
+    setLessonHistoryLoading(false);
+    setLessonHistoryLoadingMore(false);
+    setLessonHistoryError('');
+    setLessonHistoryErrorMode('');
+    setLessonHistoryReloadKey(0);
+  }, [effectiveStudentId]);
+
+  useEffect(() => {
+    if (role !== 'student' || !showLessonHistory || !effectiveStudentId) return undefined;
+    let cancelled = false;
+    setLessonHistoryLoading(true);
+    setLessonHistoryError('');
+    setLessonHistoryErrorMode('');
+    api.getLessonHistory(requestStudentId, { limit: LESSON_HISTORY_PAGE_SIZE, offset: 0 })
+      .then((data) => {
+        if (cancelled) return;
+        const items = Array.isArray(data?.items) ? data.items : [];
+        setLessonHistory(items);
+        setLessonHistoryTotal(Number.isFinite(Number(data?.total)) ? Number(data.total) : items.length);
+        setLessonHistoryHasMore(Boolean(data?.hasMore));
+        setLessonHistoryNextOffset(data?.nextOffset !== null && Number.isFinite(Number(data?.nextOffset))
+          ? Number(data.nextOffset)
+          : null);
+        setLessonHistoryErrorMode('');
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        setLessonHistoryError(loadError?.message || 'Не удалось загрузить историю занятий');
+        setLessonHistoryErrorMode('initial');
+      })
+      .finally(() => {
+        if (!cancelled) setLessonHistoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId, lessonHistoryReloadKey, lessonTopicsRefreshKey, requestStudentId, role, showLessonHistory]);
+
+  const handleLoadMoreLessonHistory = useCallback(async () => {
+    if (lessonHistoryLoadingMore || !lessonHistoryHasMore || lessonHistoryNextOffset === null || !Number.isFinite(Number(lessonHistoryNextOffset))) return;
+    setLessonHistoryLoadingMore(true);
+    setLessonHistoryError('');
+    setLessonHistoryErrorMode('');
+    try {
+      const data = await api.getLessonHistory(requestStudentId, {
+        limit: LESSON_HISTORY_PAGE_SIZE,
+        offset: Number(lessonHistoryNextOffset),
+      });
+      const nextItems = Array.isArray(data?.items) ? data.items : [];
+      setLessonHistory((current) => {
+        const byKey = new Map(current.map((entry) => [entry?.key, entry]));
+        nextItems.forEach((entry) => {
+          if (entry?.key) byKey.set(entry.key, entry);
+        });
+        return Array.from(byKey.values());
+      });
+      setLessonHistoryTotal(Number.isFinite(Number(data?.total)) ? Number(data.total) : lessonHistoryTotal);
+      setLessonHistoryHasMore(Boolean(data?.hasMore));
+      setLessonHistoryNextOffset(data?.nextOffset !== null && Number.isFinite(Number(data?.nextOffset))
+        ? Number(data.nextOffset)
+        : null);
+      setLessonHistoryErrorMode('');
+    } catch (loadError) {
+      setLessonHistoryError(loadError?.message || 'Не удалось загрузить более ранние занятия');
+      setLessonHistoryErrorMode('more');
+    } finally {
+      setLessonHistoryLoadingMore(false);
+    }
+  }, [lessonHistoryHasMore, lessonHistoryLoadingMore, lessonHistoryNextOffset, lessonHistoryTotal, requestStudentId]);
+
+  const lessonHistoryGroups = useMemo(() => {
+    const groups = new Map();
+    (Array.isArray(lessonHistory) ? lessonHistory : []).forEach((entry) => {
+      const monthKey = String(entry?.dayKey || '').slice(0, 7) || 'earlier';
+      const group = groups.get(monthKey) || {
+        key: monthKey,
+        label: getLessonHistoryMonthLabel(entry?.dayKey),
+        items: [],
+      };
+      group.items.push(entry);
+      groups.set(monthKey, group);
+    });
+    return Array.from(groups.values());
+  }, [lessonHistory]);
   const studentOverdueUnpaidCount = useMemo(
     () => studentVisibleSchedule.filter((entry) => isScheduleEntryOverdueUnpaid(entry)).length,
     [studentVisibleSchedule]
@@ -2999,7 +3238,10 @@ const ScheduleSection = ({
               )}
 
               {role === 'student' ? (
-                renderStudentWeekSchedule()
+                <>
+                  {renderStudentWeekSchedule()}
+                  {renderStudentLessonHistory()}
+                </>
               ) : (
                 <>
               <div className="schedule-shell__support-grid">

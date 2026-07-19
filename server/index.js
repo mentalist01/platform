@@ -61,6 +61,13 @@ import {
   normalizeLessonTopicsStore,
   resolveLessonTopicsForOccurrences,
 } from './lessonTopics.js';
+import {
+  buildStudentLessonHistory,
+  collectLessonHistoryTombstones,
+  normalizeLessonHistoryRecord,
+  normalizeLessonHistoryStore,
+  paginateStudentLessonHistory,
+} from './lessonHistory.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -191,6 +198,7 @@ const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json');
 const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json');
 const lessonTopicsFile = path.join(dataDir, 'lesson-topics.json');
+const lessonHistoryFile = path.join(dataDir, 'lesson-history.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const paymentNotificationsFile = path.join(dataDir, 'payment-notifications.json');
 const paymentSenderLinksFile = path.join(dataDir, 'payment-sender-links.json');
@@ -1576,6 +1584,15 @@ const readLessonTopicsStore = () => {
   }
 };
 
+const readLessonHistoryStore = () => {
+  try {
+    const raw = fs.readFileSync(lessonHistoryFile, 'utf8');
+    return normalizeLessonHistoryStore(JSON.parse(raw), { timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE });
+  } catch {
+    return normalizeLessonHistoryStore(null, { timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE });
+  }
+};
+
 const writeFilesDb = (data) => {
   writeJsonFileAtomic(dataFile, data);
 };
@@ -1614,6 +1631,13 @@ const writeTeacherCalendarMarksDb = (data) => {
 
 const writeLessonTopicsStore = (data) => {
   writeJsonFileAtomic(lessonTopicsFile, normalizeLessonTopicsStore(data));
+};
+
+const writeLessonHistoryStore = (data) => {
+  writeJsonFileAtomic(
+    lessonHistoryFile,
+    normalizeLessonHistoryStore(data, { timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE })
+  );
 };
 
 const appendLessonNoteActivity = ({ studentId, teacherId, taskNumber, fileId, source, occurredAt } = {}) => {
@@ -12640,7 +12664,8 @@ const getPaymentScheduleEntryNameKeys = (entry) => {
 const doesPaymentScheduleEntryMatchStudent = (entry, student) => {
   const studentId = String(student?.id || '').trim();
   if (!studentId) return false;
-  if (String(entry?.studentId || '').trim() === studentId) return true;
+  const entryStudentId = String(entry?.studentId || '').trim();
+  if (entryStudentId) return entryStudentId === studentId;
 
   const studentKeys = getPaymentStudentScheduleNameKeys(student);
   if (studentKeys.size === 0) return false;
@@ -22121,6 +22146,153 @@ const getScheduleForLessonTopics = async (student, auth) => {
   return schedule;
 };
 
+const persistStudentLessonHistory = (studentId, items = [], tombstones = {}) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!normalizedStudentId) return;
+  const store = readLessonHistoryStore();
+  const nextOccurrences = { ...store.occurrences };
+  const nextTombstones = { ...(store.tombstones || {}) };
+  const normalizedTombstones = normalizeLessonHistoryStore(
+    { tombstones },
+    { timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE }
+  ).tombstones;
+  const recordedAt = new Date().toISOString();
+  let changed = false;
+  Object.values(normalizedTombstones || {}).forEach((tombstone) => {
+    if (tombstone?.studentId !== normalizedStudentId) return;
+    const previous = nextTombstones[tombstone.key];
+    const nextTombstone = {
+      ...tombstone,
+      recordedAt: previous?.recordedAt || tombstone.recordedAt || recordedAt,
+    };
+    if (JSON.stringify(previous || null) !== JSON.stringify(nextTombstone)) {
+      nextTombstones[tombstone.key] = nextTombstone;
+      changed = true;
+    }
+    if (nextOccurrences[tombstone.key]) {
+      delete nextOccurrences[tombstone.key];
+      changed = true;
+    }
+  });
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const previous = nextOccurrences[item?.key];
+    const normalized = normalizeLessonHistoryRecord({
+      ...item,
+      studentId: normalizedStudentId,
+      recordedAt: previous?.recordedAt || item?.recordedAt || recordedAt,
+    }, { timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE });
+    if (!normalized || normalized.studentId !== normalizedStudentId) return;
+    if (nextTombstones[normalized.key]) return;
+    if (JSON.stringify(previous || null) === JSON.stringify(normalized)) return;
+    nextOccurrences[normalized.key] = normalized;
+    changed = true;
+  });
+  if (changed) writeLessonHistoryStore({ occurrences: nextOccurrences, tombstones: nextTombstones });
+};
+
+const updateLessonHistorySnapshotTopic = (occurrenceKey, topic) => {
+  const key = String(occurrenceKey || '').trim();
+  if (!key) return;
+  const store = readLessonHistoryStore();
+  const existing = store.occurrences[key];
+  if (!existing) return;
+  store.occurrences[key] = {
+    ...existing,
+    topic: topic || null,
+  };
+  writeLessonHistoryStore(store);
+};
+
+const buildResolvedStudentLessonHistory = async (student, auth, options = {}) => {
+  const studentId = String(student?.id || '').trim();
+  if (!studentId) return [];
+  let schedule = Array.isArray(options.scheduleOverride)
+    ? options.scheduleOverride
+    : await getScheduleForLessonTopics(student, auth);
+  schedule = Array.isArray(schedule) ? schedule : [];
+
+  if (options.includeGoogle !== false && student.teacherId) {
+    try {
+      const googleEntries = (await fetchTeacherGoogleCalendarEntries(student.teacherId))
+        .filter((entry) => doesPaymentScheduleEntryMatchStudent(entry, student));
+      schedule = [...schedule, ...googleEntries];
+    } catch {
+      // Persisted schedule and previous history snapshots remain available offline.
+    }
+  }
+
+  const topicStore = readLessonTopicsStore();
+  const historyStore = readLessonHistoryStore();
+  const financeDb = readTeacherFinanceDb();
+  const teacherFinance = getTeacherFinanceTeacherEntry(financeDb, student.teacherId);
+  const ledgerEntries = Object.values(teacherFinance.lessonLedger || {})
+    .filter((entry) => String(entry?.studentId || '').trim() === studentId);
+  const manualTopics = Object.values(topicStore.topics || {})
+    .filter((entry) => String(entry?.studentId || '').trim() === studentId);
+  const storedOccurrences = Object.values(historyStore.occurrences || {})
+    .filter((entry) => String(entry?.studentId || '').trim() === studentId);
+  const currentTombstones = collectLessonHistoryTombstones({
+    studentId,
+    schedule,
+    recordedAt: new Date().toISOString(),
+    timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
+  });
+  const tombstones = {
+    ...(historyStore.tombstones || {}),
+    ...currentTombstones,
+  };
+
+  const occurrences = buildStudentLessonHistory({
+    studentId,
+    studentCreatedAt: student.createdAt,
+    schedule,
+    ledgerEntries,
+    manualTopics,
+    storedOccurrences,
+    tombstones,
+    nowMs: Date.now(),
+    timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
+  });
+  const resolvedTopics = resolveLessonTopicsForOccurrences({
+    occurrences,
+    manualTopics: topicStore.topics,
+    activities: topicStore.activities,
+    files: readFilesDb(),
+  });
+  const history = occurrences.map((occurrence) => ({
+    ...occurrence,
+    topic: resolvedTopics[occurrence.key] || occurrence.topic || null,
+  }));
+  if (options.persist !== false) persistStudentLessonHistory(studentId, history, tombstones);
+  return history;
+};
+
+app.get('/api/lesson-history', async (req, res) => {
+  const { studentId, offset, limit } = req.query || {};
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  try {
+    const history = await buildResolvedStudentLessonHistory(student, req.auth);
+    const page = paginateStudentLessonHistory(history, { offset, limit });
+    return res.json({
+      ...page,
+      items: page.items.map((entry) => ({
+        key: entry.key,
+        dayKey: entry.dayKey,
+        time: entry.time,
+        durationMinutes: entry.durationMinutes,
+        startMs: entry.startMs,
+        endMs: entry.endMs,
+        subject: entry.subject,
+        topic: entry.topic || null,
+      })),
+    });
+  } catch (error) {
+    console.error('[lesson-history] failed to build history:', error);
+    return res.status(500).json({ error: 'Не удалось загрузить историю занятий' });
+  }
+});
+
 app.get('/api/lesson-topics', async (req, res) => {
   const { studentId, from, to } = req.query || {};
   const student = ensureStudentAccess(req, res, studentId);
@@ -22184,6 +22356,7 @@ app.put('/api/lesson-topics', async (req, res) => {
   if (!normalizedText) {
     delete store.topics[occurrenceKey];
     writeLessonTopicsStore(store);
+    updateLessonHistorySnapshotTopic(occurrenceKey, null);
     notifyScheduleSyncUpdate({
       scope: 'lesson-topic',
       action: 'deleted',
@@ -22210,6 +22383,12 @@ app.put('/api/lesson-topics', async (req, res) => {
   });
   store.topics[occurrenceKey] = topicRecord;
   writeLessonTopicsStore(store);
+  updateLessonHistorySnapshotTopic(occurrenceKey, {
+    text: topicRecord.text,
+    source: 'teacher',
+    taskNumbers: [],
+    updatedAt: topicRecord.updatedAt,
+  });
   notifyScheduleSyncUpdate({
     scope: 'lesson-topic',
     action: 'updated',
@@ -22733,7 +22912,7 @@ app.post('/api/student-schedule-requests', async (req, res) => {
   return res.json(requestEntry);
 });
 
-app.patch('/api/student-schedule-requests/:id', (req, res) => {
+app.patch('/api/student-schedule-requests/:id', async (req, res) => {
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const requestId = String(req.params?.id || '').trim();
   if (!requestId) {
@@ -22809,6 +22988,14 @@ app.patch('/api/student-schedule-requests/:id', (req, res) => {
       if (!draftEntry.createdAt && existing?.createdAt) {
         draftEntry.createdAt = existing.createdAt;
       }
+      try {
+        await buildResolvedStudentLessonHistory(student, req.auth, {
+          scheduleOverride: schedule,
+          includeGoogle: false,
+        });
+      } catch (error) {
+        console.warn('[lesson-history] failed to snapshot schedule before approved update:', error?.message || error);
+      }
       schedule[slotIndex] = draftEntry;
       setStudentData(student.id, { ...data, schedule });
       notifyScheduleSyncUpdate({
@@ -22823,6 +23010,14 @@ app.patch('/api/student-schedule-requests/:id', (req, res) => {
       const nextSchedule = schedule.filter((entry) => String(entry?.id || '').trim() !== targetEntryId);
       if (nextSchedule.length === schedule.length) {
         return res.status(404).json({ error: 'Занятие для удаления не найдено' });
+      }
+      try {
+        await buildResolvedStudentLessonHistory(student, req.auth, {
+          scheduleOverride: schedule,
+          includeGoogle: false,
+        });
+      } catch (error) {
+        console.warn('[lesson-history] failed to snapshot schedule before approved delete:', error?.message || error);
       }
       setStudentData(student.id, { ...data, schedule: nextSchedule });
       notifyScheduleSyncUpdate({
@@ -22886,7 +23081,7 @@ app.post('/api/student-schedule', (req, res) => {
   res.json(entry);
 });
 
-app.put('/api/student-schedule/:id', (req, res) => {
+app.put('/api/student-schedule/:id', async (req, res) => {
   if (isStudentRole(req.auth)) {
     return res.status(403).json({ error: 'Изменение расписания ученика требует подтверждения преподавателя' });
   }
@@ -22899,6 +23094,14 @@ app.put('/api/student-schedule/:id', (req, res) => {
   const index = schedule.findIndex((item) => item?.id === id);
   if (index < 0) {
     return res.status(404).json({ error: 'Занятие не найдено' });
+  }
+  try {
+    await buildResolvedStudentLessonHistory(student, req.auth, {
+      scheduleOverride: schedule,
+      includeGoogle: false,
+    });
+  } catch (error) {
+    console.warn('[lesson-history] failed to snapshot schedule before update:', error?.message || error);
   }
   const { entry, error } = buildStudentScheduleEntry(req.body || {}, {
     existing: schedule[index],
@@ -22919,7 +23122,7 @@ app.put('/api/student-schedule/:id', (req, res) => {
   res.json(entry);
 });
 
-app.delete('/api/student-schedule/:id', (req, res) => {
+app.delete('/api/student-schedule/:id', async (req, res) => {
   if (isStudentRole(req.auth)) {
     return res.status(403).json({ error: 'Изменение расписания ученика требует подтверждения преподавателя' });
   }
@@ -22928,6 +23131,14 @@ app.delete('/api/student-schedule/:id', (req, res) => {
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
+  try {
+    await buildResolvedStudentLessonHistory(student, req.auth, {
+      scheduleOverride: data.schedule || [],
+      includeGoogle: false,
+    });
+  } catch (error) {
+    console.warn('[lesson-history] failed to snapshot schedule before delete:', error?.message || error);
+  }
   const schedule = (data.schedule || []).filter((item) => item.id !== id);
   setStudentData(student.id, { ...data, schedule });
   notifyScheduleSyncUpdate({

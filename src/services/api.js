@@ -1461,6 +1461,17 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getLessonHistory: async (studentId, options = {}) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    if (Number.isFinite(Number(options?.offset))) params.append('offset', String(Math.max(0, Math.floor(Number(options.offset)))));
+    if (Number.isFinite(Number(options?.limit))) params.append('limit', String(Math.max(1, Math.floor(Number(options.limit)))));
+    params.append('_ts', String(Date.now()));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/lesson-history?${qs}` : '/api/lesson-history');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   updateLessonTopic: async (studentId, occurrence = {}, text = '') => {
     const res = await apiFetch('/api/lesson-topics', {
       method: 'PUT',
