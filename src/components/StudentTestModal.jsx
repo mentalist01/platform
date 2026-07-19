@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, Code2, Download, FileCode2, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Download, FileCode2, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -585,6 +585,7 @@ const StudentTestModal = ({
   const [questionCodeById, setQuestionCodeById] = useState({});
   const questionCodeByIdRef = useRef({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
+  const [questionCodePreviewOpen, setQuestionCodePreviewOpen] = useState(false);
   const [questionCodeClosing, setQuestionCodeClosing] = useState(false);
   const [questionCodeWorkspacePrefs, setQuestionCodeWorkspacePrefs] = useState(readStudentCodeWorkspacePrefs);
   const [questionCodeLayoutAnimating, setQuestionCodeLayoutAnimating] = useState(false);
@@ -1560,6 +1561,7 @@ const StudentTestModal = ({
     clearQuestionCodeLayoutAnimationTimer();
     setQuestionCodeById({});
     setQuestionCodeOpen(false);
+    setQuestionCodePreviewOpen(false);
     setQuestionCodeClosing(false);
     setQuestionCodeLayoutAnimating(false);
     setQuestionCodeLoadingById({});
@@ -1634,6 +1636,7 @@ const StudentTestModal = ({
     clearQuestionCodeCloseTimer();
     clearQuestionCodeLayoutAnimationTimer();
     setQuestionCodeOpen(false);
+    setQuestionCodePreviewOpen(false);
     setQuestionCodeClosing(false);
     setQuestionCodeLayoutAnimating(false);
     setQuestionCodeFocusFullscreen(false);
@@ -1723,10 +1726,10 @@ const StudentTestModal = ({
   }, [currentIndex, level, questions, solvedIds, stage, studentId, task.number, userAnswers]);
 
   useEffect(() => {
-    if (stage !== 'testing' || !questionCodeOpen) return;
+    if (stage !== 'testing' || (!questionCodeOpen && !questionCodePreviewOpen)) return;
     if (!activeQuestionId) return;
     loadQuestionCode(activeQuestionId);
-  }, [stage, questionCodeOpen, activeQuestionId, studentId, task?.number, level]);
+  }, [stage, questionCodeOpen, questionCodePreviewOpen, activeQuestionId, studentId, task?.number, level]);
 
   useEffect(() => {
     if (!questionCodeOpen) return undefined;
@@ -2643,6 +2646,12 @@ const StudentTestModal = ({
       setQuestionCodeClosing(false);
       setQuestionCodeOpen(true);
       if (currentId) loadQuestionCode(currentId);
+    };
+
+    const handleToggleQuestionCodePreview = () => {
+      const nextOpen = !questionCodePreviewOpen;
+      setQuestionCodePreviewOpen(nextOpen);
+      if (nextOpen && currentId) loadQuestionCode(currentId);
     };
 
     const handleCloseQuestionCodeFocus = () => {
@@ -3915,7 +3924,7 @@ const StudentTestModal = ({
             </section>
 
             <div className="student-test-code-panel student-test-panel-enter">
-              <div className="student-test-code-launch-card">
+              <div className={`student-test-code-launch-card ${questionCodePreviewOpen ? 'is-preview-open' : ''}`}>
                 <div className="student-test-code-launch-card__main">
                   <span className="student-test-code-launch-card__icon" aria-hidden="true">
                     <Code2 size={18} />
@@ -3929,14 +3938,74 @@ const StudentTestModal = ({
                     </div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleOpenQuestionCodeFocus}
-                  className="student-test-code-launch-card__button"
-                >
-                  <span>Решать в коде</span>
-                  <Maximize2 size={16} />
-                </button>
+                <div className="student-test-code-launch-card__actions">
+                  <button
+                    type="button"
+                    onClick={handleToggleQuestionCodePreview}
+                    className="student-test-code-launch-card__preview-toggle"
+                    aria-expanded={questionCodePreviewOpen}
+                    aria-controls="student-test-saved-code-preview"
+                  >
+                    <FileCode2 size={15} />
+                    <span>{questionCodePreviewOpen ? 'Скрыть код' : 'Показать код'}</span>
+                    <ChevronDown size={15} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenQuestionCodeFocus}
+                    className="student-test-code-launch-card__button"
+                  >
+                    <span>Решать в коде</span>
+                    <Maximize2 size={16} />
+                  </button>
+                </div>
+                {questionCodePreviewOpen && (
+                  <div
+                    id="student-test-saved-code-preview"
+                    className="student-test-code-preview"
+                    aria-label={`Сохранённый код для вопроса №${currentQuestionNumber}`}
+                  >
+                    <div className="student-test-code-preview__head">
+                      <span className="student-test-code-preview__file">
+                        <FileCode2 size={14} />
+                        solution.py
+                      </span>
+                      <span className="student-test-code-preview__status">
+                        {questionCodeLoading
+                          ? 'Загружаем…'
+                          : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Черновик не сохранён')}
+                      </span>
+                    </div>
+                    {questionCodeLoading ? (
+                      <div className="student-test-code-preview__message" role="status">
+                        <RefreshCcw size={16} className="animate-spin" />
+                        Загружаем сохранённый код…
+                      </div>
+                    ) : questionCodeError ? (
+                      <div className="student-test-code-preview__message is-error" role="alert">
+                        <AlertTriangle size={16} />
+                        <span>{questionCodeError}</span>
+                        <button type="button" onClick={() => loadQuestionCode(currentId, true)}>Повторить</button>
+                      </div>
+                    ) : questionCodeEntry.code.trim() ? (
+                      <pre className="student-test-code-preview__code" tabIndex={0}><code>{questionCodeEntry.code}</code></pre>
+                    ) : (
+                      <div className="student-test-code-preview__message">
+                        <Code2 size={16} />
+                        Сохранённого кода для этого вопроса пока нет.
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleOpenQuestionCodeFocus}
+                      className="student-test-code-preview__open"
+                    >
+                      <Code2 size={15} />
+                      Решать в коде
+                      <Maximize2 size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
