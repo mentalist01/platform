@@ -7497,15 +7497,6 @@ const CollabSection = ({
             }}
           >
             <span className="collab-remote-editor-caret" aria-hidden />
-            <svg width="15" height="20" viewBox="0 0 15 20" fill="none" aria-hidden>
-              <path
-                d="M1 1L7.2 16L9.6 10.9L14 9.3L1 1Z"
-                fill={cursor.color}
-                stroke="white"
-                strokeWidth="1.15"
-                strokeLinejoin="round"
-              />
-            </svg>
           </div>
         ))}
         {remoteEditorOffscreenIndicators.map((cursor) => (
