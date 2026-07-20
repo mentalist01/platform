@@ -666,6 +666,15 @@ const StudentTestModal = ({
     padding: { top: 16, bottom: 16 },
     lineNumbersMinChars: 3,
   }), [questionCodeFontSize]);
+  const questionCodePreviewEditorOptions = useMemo(() => ({
+    ...questionCodeEditorOptions,
+    folding: false,
+    glyphMargin: false,
+    lineDecorationsWidth: 8,
+    overviewRulerLanes: 0,
+    renderLineHighlight: 'line',
+    padding: { top: 12, bottom: 12 },
+  }), [questionCodeEditorOptions]);
 
   const getQuestionCodeEntry = (questionId, source = null) => {
     const key = String(questionId ?? '').trim();
@@ -2648,6 +2657,13 @@ const StudentTestModal = ({
       if (currentId) loadQuestionCode(currentId);
     };
 
+    const handleQuestionCodeChange = (value) => {
+      const nextCode = value ?? '';
+      setQuestionCodeEntry(currentId, { code: nextCode, input: '' });
+      clearQuestionCodeError(currentId);
+      scheduleQuestionCodeAutoSave(currentId, { code: nextCode, input: '' });
+    };
+
     const handleToggleQuestionCodePreview = () => {
       const nextOpen = !questionCodePreviewOpen;
       setQuestionCodePreviewOpen(nextOpen);
@@ -3176,12 +3192,7 @@ const StudentTestModal = ({
                         theme={monacoTheme}
                         beforeMount={ensureMonacoColorTheme}
                         value={questionCodeEntry.code}
-                        onChange={(value) => {
-                          const nextCode = value ?? '';
-                          setQuestionCodeEntry(currentId, { code: nextCode, input: '' });
-                          clearQuestionCodeError(currentId);
-                          scheduleQuestionCodeAutoSave(currentId, { code: nextCode, input: '' });
-                        }}
+                        onChange={handleQuestionCodeChange}
                         options={questionCodeEditorOptions}
                         loading={<div className="student-test-code-focus__editor-loading">Загрузка редактора...</div>}
                       />
@@ -3973,7 +3984,11 @@ const StudentTestModal = ({
                       <span className="student-test-code-preview__status">
                         {questionCodeLoading
                           ? 'Загружаем…'
-                          : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Черновик не сохранён')}
+                          : (questionCodeSaving
+                              ? 'Автосохранение…'
+                              : (questionCodeAutoSavePending
+                                  ? 'Сохраняем изменения…'
+                                  : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Новый черновик')))}
                       </span>
                     </div>
                     {questionCodeLoading ? (
@@ -3987,12 +4002,18 @@ const StudentTestModal = ({
                         <span>{questionCodeError}</span>
                         <button type="button" onClick={() => loadQuestionCode(currentId, true)}>Повторить</button>
                       </div>
-                    ) : questionCodeEntry.code.trim() ? (
-                      <pre className="student-test-code-preview__code" tabIndex={0}><code>{questionCodeEntry.code}</code></pre>
                     ) : (
-                      <div className="student-test-code-preview__message">
-                        <Code2 size={16} />
-                        Сохранённого кода для этого вопроса пока нет.
+                      <div className="student-test-code-preview__editor">
+                        <Editor
+                          height="210px"
+                          language="python"
+                          theme={monacoTheme}
+                          beforeMount={ensureMonacoColorTheme}
+                          value={questionCodeEntry.code}
+                          onChange={handleQuestionCodeChange}
+                          options={questionCodePreviewEditorOptions}
+                          loading={<div className="student-test-code-preview__message">Загрузка редактора…</div>}
+                        />
                       </div>
                     )}
                     <button

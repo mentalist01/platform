@@ -58707,21 +58707,14 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   white-space: nowrap;
 }
 
-.student-test-code-preview__code {
+.student-test-code-preview__editor {
   min-width: 0;
-  min-height: 84px;
-  max-height: 220px;
-  margin: 0;
-  overflow: auto;
+  min-height: 210px;
+  overflow: hidden;
   border: 1px solid rgba(100, 116, 139, 0.34);
   border-radius: 13px;
-  padding: 13px 15px;
-  color: #dbeafe;
   background: #0b1120;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  font: 500 12px/1.65 "JetBrains Mono", Consolas, "Courier New", monospace;
-  tab-size: 4;
-  white-space: pre;
 }
 
 .student-test-code-preview__message {
