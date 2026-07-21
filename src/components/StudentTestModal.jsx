@@ -623,6 +623,7 @@ const StudentTestModal = ({
   const activeQuestionIdRef = useRef('');
   const questionMainThreadRuntimeFilesRef = useRef([]);
   const [questionCodeFocusFullscreen, setQuestionCodeFocusFullscreen] = useState(false);
+  const [questionCodeFullscreenPortalTarget, setQuestionCodeFullscreenPortalTarget] = useState(null);
   const [questionCodeMusicError, setQuestionCodeMusicError] = useState('');
   const autoStartLevel = ['basic', 'advanced', 'expert'].includes(initialLevel) ? initialLevel : null;
 
@@ -1823,6 +1824,7 @@ const StudentTestModal = ({
       const workspace = questionCodeWorkspaceRef.current;
       const isWorkspaceFullscreen = Boolean(workspace && document.fullscreenElement === workspace);
       setQuestionCodeFocusFullscreen(isWorkspaceFullscreen);
+      setQuestionCodeFullscreenPortalTarget(isWorkspaceFullscreen ? workspace : null);
       if (!isWorkspaceFullscreen) {
         stopQuestionCodeFocusAudio();
         setQuestionCodeMusicError('');
@@ -4360,7 +4362,7 @@ const StudentTestModal = ({
             </form>
           </div>
         )}
-        {expandedImage && (
+        {expandedImage && typeof document !== 'undefined' && createPortal((
           <div
             className="student-test-image-lightbox fixed inset-0 z-[80] bg-black/80 modal-backdrop flex items-center justify-center p-4"
             onClick={() => setExpandedImage(null)}
@@ -4382,7 +4384,7 @@ const StudentTestModal = ({
               </button>
             </div>
           </div>
-        )}
+        ), questionCodeFullscreenPortalTarget || document.body)}
       </div>
     );
     return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;
