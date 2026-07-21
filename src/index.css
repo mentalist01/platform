@@ -58673,7 +58673,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   display: grid;
   width: 100%;
   flex: 0 0 100%;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(148, 163, 184, 0.2);
@@ -58687,6 +58687,14 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.student-test-code-preview__head-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .student-test-code-preview__file,
@@ -58707,9 +58715,50 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   white-space: nowrap;
 }
 
+.student-test-code-preview__copy {
+  display: inline-flex;
+  min-height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  border-radius: 10px;
+  padding: 0 10px;
+  color: #6d28d9;
+  background: rgba(245, 243, 255, 0.9);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.student-test-code-preview__copy:hover:not(:disabled) {
+  border-color: rgba(124, 58, 237, 0.42);
+  background: #ede9fe;
+  transform: translateY(-1px);
+}
+
+.student-test-code-preview__copy.is-copied {
+  border-color: rgba(5, 150, 105, 0.3);
+  color: #047857;
+  background: #ecfdf5;
+}
+
+.student-test-code-preview__copy.is-error {
+  border-color: rgba(225, 29, 72, 0.3);
+  color: #be123c;
+  background: #fff1f2;
+}
+
+.student-test-code-preview__copy:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .student-test-code-preview__editor {
   min-width: 0;
-  min-height: 210px;
+  min-height: clamp(360px, 48dvh, 520px);
   overflow: hidden;
   border: 1px solid rgba(100, 116, 139, 0.34);
   border-radius: 13px;
@@ -58746,30 +58795,6 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   background: transparent;
   font: inherit;
   text-decoration: underline;
-}
-
-.student-test-code-preview__open {
-  display: inline-flex;
-  min-height: 40px;
-  align-self: end;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid rgba(124, 58, 237, 0.2);
-  border-radius: 12px;
-  padding: 0 13px;
-  color: #6d28d9;
-  background: #f5f3ff;
-  font-size: 12px;
-  font-weight: 800;
-  white-space: nowrap;
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-}
-
-.student-test-code-preview__open:hover {
-  border-color: rgba(124, 58, 237, 0.42);
-  background: #ede9fe;
-  transform: translateY(-1px);
 }
 
 @keyframes studentTestCodePreviewIn {
@@ -60966,14 +60991,14 @@ html[data-theme='dark'] .student-test-code-launch-card__meta {
 }
 
 html[data-theme='dark'] .student-test-code-launch-card__preview-toggle,
-html[data-theme='dark'] .student-test-code-preview__open {
+html[data-theme='dark'] .student-test-code-preview__copy {
   border-color: rgba(125, 211, 252, 0.22);
   color: #bae6fd;
   background: rgba(15, 23, 42, 0.82);
 }
 
 html[data-theme='dark'] .student-test-code-launch-card__preview-toggle:hover,
-html[data-theme='dark'] .student-test-code-preview__open:hover {
+html[data-theme='dark'] .student-test-code-preview__copy:hover:not(:disabled) {
   border-color: rgba(125, 211, 252, 0.42);
   background: rgba(30, 41, 59, 0.96);
 }
@@ -60984,6 +61009,18 @@ html[data-theme='dark'] .student-test-code-preview {
 
 html[data-theme='dark'] .student-test-code-preview__file {
   color: #cbd5e1;
+}
+
+html[data-theme='dark'] .student-test-code-preview__copy.is-copied {
+  border-color: rgba(52, 211, 153, 0.34);
+  color: #6ee7b7;
+  background: rgba(6, 78, 59, 0.34);
+}
+
+html[data-theme='dark'] .student-test-code-preview__copy.is-error {
+  border-color: rgba(251, 113, 133, 0.34);
+  color: #fda4af;
+  background: rgba(136, 19, 55, 0.28);
 }
 
 html[data-theme='dark'] .student-test-code-preview__message {
@@ -62647,11 +62684,16 @@ html[data-theme='dark'] .student-test-code-focus__music-error {
     grid-column: 1;
     align-items: flex-start;
     flex-direction: column;
-    gap: 3px;
+    gap: 8px;
   }
 
-  .student-test-code-preview__open {
+  .student-test-code-preview__head-actions {
     width: 100%;
+    justify-content: space-between;
+  }
+
+  .student-test-code-preview__editor {
+    min-height: clamp(320px, 52dvh, 440px);
   }
 
   .student-test-code-focus__header {

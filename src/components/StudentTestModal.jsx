@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Download, FileCode2, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -30,6 +30,35 @@ const STUDENT_HELP_SOLUTION_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'i
 const STUDENT_CODE_FOCUS_FULLSCREEN_DELAY_MS = 120;
 const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
 const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
+const STUDENT_CODE_COPY_FEEDBACK_MS = 1800;
+
+const writeStudentCodeToClipboard = async (value) => {
+  const code = String(value ?? '');
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(code);
+      return;
+    } catch {
+      // Fall back to the legacy copy command when clipboard permissions are restricted.
+    }
+  }
+  if (typeof document === 'undefined') throw new Error('Clipboard is unavailable');
+  const textarea = document.createElement('textarea');
+  textarea.value = code;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  let copied = false;
+  try {
+    textarea.select();
+    copied = document.execCommand('copy');
+  } finally {
+    textarea.remove();
+  }
+  if (!copied) throw new Error('Copy failed');
+};
+
 const createStudentHelpRequestId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -586,6 +615,7 @@ const StudentTestModal = ({
   const questionCodeByIdRef = useRef({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
   const [questionCodePreviewOpen, setQuestionCodePreviewOpen] = useState(false);
+  const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
   const [questionCodeClosing, setQuestionCodeClosing] = useState(false);
   const [questionCodeWorkspacePrefs, setQuestionCodeWorkspacePrefs] = useState(readStudentCodeWorkspacePrefs);
   const [questionCodeLayoutAnimating, setQuestionCodeLayoutAnimating] = useState(false);
@@ -614,6 +644,7 @@ const StudentTestModal = ({
   const questionCodeLayoutAnimationFrameRef = useRef(null);
   const questionCodeLayoutAnimationsRef = useRef([]);
   const questionCodeFocusFullscreenTimerRef = useRef(null);
+  const questionCodeCopyResetTimerRef = useRef(null);
   const questionCodeWorkspaceRef = useRef(null);
   const questionCodeAudioRef = useRef(null);
   const questionCodeTaskPanelRef = useRef(null);
@@ -1707,6 +1738,11 @@ const StudentTestModal = ({
     activeQuestionIdRef.current = activeQuestionId;
     setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
+    setQuestionCodeCopyState('idle');
+    if (questionCodeCopyResetTimerRef.current) {
+      clearTimeout(questionCodeCopyResetTimerRef.current);
+      questionCodeCopyResetTimerRef.current = null;
+    }
   }, [activeQuestionId]);
 
   useEffect(() => {
@@ -1840,6 +1876,10 @@ const StudentTestModal = ({
     clearStudentHelpCloseTimer();
     clearQuestionCodeCloseTimer();
     clearQuestionCodeLayoutAnimationTimer();
+    if (questionCodeCopyResetTimerRef.current) {
+      clearTimeout(questionCodeCopyResetTimerRef.current);
+      questionCodeCopyResetTimerRef.current = null;
+    }
     stopQuestionCodeFocusAudio();
     exitQuestionCodeFocusFullscreen({ updateState: false });
     disposeQuestionRunnerWorker('Python runner stopped.');
@@ -2661,9 +2701,27 @@ const StudentTestModal = ({
 
     const handleQuestionCodeChange = (value) => {
       const nextCode = value ?? '';
+      if (questionCodeCopyState !== 'idle') setQuestionCodeCopyState('idle');
       setQuestionCodeEntry(currentId, { code: nextCode, input: '' });
       clearQuestionCodeError(currentId);
       scheduleQuestionCodeAutoSave(currentId, { code: nextCode, input: '' });
+    };
+
+    const handleCopyQuestionCode = async () => {
+      if (!questionCodeEntry.code) return;
+      try {
+        await writeStudentCodeToClipboard(questionCodeEntry.code);
+        setQuestionCodeCopyState('copied');
+      } catch {
+        setQuestionCodeCopyState('error');
+      }
+      if (questionCodeCopyResetTimerRef.current) {
+        clearTimeout(questionCodeCopyResetTimerRef.current);
+      }
+      questionCodeCopyResetTimerRef.current = setTimeout(() => {
+        setQuestionCodeCopyState('idle');
+        questionCodeCopyResetTimerRef.current = null;
+      }, STUDENT_CODE_COPY_FEEDBACK_MS);
     };
 
     const handleToggleQuestionCodePreview = () => {
@@ -3983,14 +4041,27 @@ const StudentTestModal = ({
                         <FileCode2 size={14} />
                         solution.py
                       </span>
-                      <span className="student-test-code-preview__status">
-                        {questionCodeLoading
-                          ? 'Загружаем…'
-                          : (questionCodeSaving
-                              ? 'Автосохранение…'
-                              : (questionCodeAutoSavePending
-                                  ? 'Сохраняем изменения…'
-                                  : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Новый черновик')))}
+                      <span className="student-test-code-preview__head-actions">
+                        <span className="student-test-code-preview__status">
+                          {questionCodeLoading
+                            ? 'Загружаем…'
+                            : (questionCodeSaving
+                                ? 'Автосохранение…'
+                                : (questionCodeAutoSavePending
+                                    ? 'Сохраняем изменения…'
+                                    : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Новый черновик')))}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleCopyQuestionCode}
+                          className={`student-test-code-preview__copy ${questionCodeCopyState === 'copied' ? 'is-copied' : ''} ${questionCodeCopyState === 'error' ? 'is-error' : ''}`}
+                          disabled={questionCodeLoading || !questionCodeEntry.code}
+                          aria-label={questionCodeCopyState === 'copied' ? 'Код скопирован' : 'Скопировать код'}
+                          title={questionCodeCopyState === 'copied' ? 'Скопировано' : 'Скопировать код'}
+                        >
+                          {questionCodeCopyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
+                          <span>{questionCodeCopyState === 'copied' ? 'Скопировано' : (questionCodeCopyState === 'error' ? 'Не удалось' : 'Копировать')}</span>
+                        </button>
                       </span>
                     </div>
                     {questionCodeLoading ? (
@@ -4007,7 +4078,7 @@ const StudentTestModal = ({
                     ) : (
                       <div className="student-test-code-preview__editor">
                         <Editor
-                          height="210px"
+                          height="clamp(360px, 48dvh, 520px)"
                           language="python"
                           theme={monacoTheme}
                           beforeMount={ensureMonacoColorTheme}
@@ -4018,15 +4089,6 @@ const StudentTestModal = ({
                         />
                       </div>
                     )}
-                    <button
-                      type="button"
-                      onClick={handleOpenQuestionCodeFocus}
-                      className="student-test-code-preview__open"
-                    >
-                      <Code2 size={15} />
-                      Решать в коде
-                      <Maximize2 size={14} />
-                    </button>
                   </div>
                 )}
               </div>

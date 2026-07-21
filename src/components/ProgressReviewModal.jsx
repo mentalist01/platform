@@ -1,11 +1,41 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Download, History, X } from 'lucide-react';
+import { Check, Copy, Download, History, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { Button } from './ui';
+
+const TEACHER_CODE_COPY_FEEDBACK_MS = 1800;
+
+const writeTeacherCodeToClipboard = async (value) => {
+  const code = String(value ?? '');
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(code);
+      return;
+    } catch {
+      // Fall back when clipboard permissions are restricted by the browser.
+    }
+  }
+  if (typeof document === 'undefined') throw new Error('Clipboard is unavailable');
+  const textarea = document.createElement('textarea');
+  textarea.value = code;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  let copied = false;
+  try {
+    textarea.select();
+    copied = document.execCommand('copy');
+  } finally {
+    textarea.remove();
+  }
+  if (!copied) throw new Error('Copy failed');
+};
+
 const ProgressReviewModal = ({
   theme = '',
   task,
@@ -31,6 +61,8 @@ const ProgressReviewModal = ({
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
+  const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
+  const questionCodeCopyResetTimerRef = React.useRef(null);
 
   const getQuestionCodeEntry = (questionId) => {
     const key = String(questionId ?? '').trim();
@@ -179,6 +211,20 @@ const ProgressReviewModal = ({
   }, []);
 
   useEffect(() => {
+    setQuestionCodeCopyState('idle');
+    if (questionCodeCopyResetTimerRef.current) {
+      clearTimeout(questionCodeCopyResetTimerRef.current);
+      questionCodeCopyResetTimerRef.current = null;
+    }
+    return () => {
+      if (questionCodeCopyResetTimerRef.current) {
+        clearTimeout(questionCodeCopyResetTimerRef.current);
+        questionCodeCopyResetTimerRef.current = null;
+      }
+    };
+  }, [currentIndex, levelId, studentId, task?.number]);
+
+  useEffect(() => {
     if (!studentId || !task?.number || !levelId) return;
     const current = questions[currentIndex];
     const currentId = String(current?.id ?? currentIndex).trim();
@@ -277,6 +323,23 @@ const ProgressReviewModal = ({
     wordWrap: 'on',
     automaticLayout: true,
     readOnly: true
+  };
+
+  const handleCopyQuestionCode = async () => {
+    if (!questionCodeEntry.code) return;
+    try {
+      await writeTeacherCodeToClipboard(questionCodeEntry.code);
+      setQuestionCodeCopyState('copied');
+    } catch {
+      setQuestionCodeCopyState('error');
+    }
+    if (questionCodeCopyResetTimerRef.current) {
+      clearTimeout(questionCodeCopyResetTimerRef.current);
+    }
+    questionCodeCopyResetTimerRef.current = setTimeout(() => {
+      setQuestionCodeCopyState('idle');
+      questionCodeCopyResetTimerRef.current = null;
+    }, TEACHER_CODE_COPY_FEEDBACK_MS);
   };
 
   const modal = (
@@ -492,11 +555,32 @@ const ProgressReviewModal = ({
               </details>
 
               <div className="space-y-3 mb-6">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-gray-400 uppercase">Код ученика</label>
-                  <span className="text-xs text-gray-500">
-                    {questionCodeUpdatedAtLabel ? `Сохранено: ${questionCodeUpdatedAtLabel}` : 'Код не сохранён'}
-                  </span>
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block shrink-0 text-xs font-bold text-gray-400 uppercase">Код ученика</label>
+                  <div className="flex min-w-0 items-center justify-end gap-2">
+                    <span className="truncate text-xs text-gray-500">
+                      {questionCodeUpdatedAtLabel ? `Сохранено: ${questionCodeUpdatedAtLabel}` : 'Код не сохранён'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCopyQuestionCode}
+                      disabled={questionCodeLoading || !questionCodeEntry.code}
+                      className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        questionCodeCopyState === 'copied'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : (questionCodeCopyState === 'error'
+                              ? 'border-red-200 bg-red-50 text-red-600'
+                              : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700')
+                      }`}
+                      aria-label={questionCodeCopyState === 'copied' ? 'Код ученика скопирован' : 'Скопировать код ученика'}
+                      title={questionCodeCopyState === 'copied' ? 'Скопировано' : 'Скопировать код'}
+                    >
+                      {questionCodeCopyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
+                      <span aria-live="polite">
+                        {questionCodeCopyState === 'copied' ? 'Скопировано' : (questionCodeCopyState === 'error' ? 'Не удалось' : 'Копировать')}
+                      </span>
+                    </button>
+                  </div>
                 </div>
                 {questionCodeLoading ? (
                   <div className="text-sm text-gray-500">Загрузка кода...</div>
