@@ -83935,3 +83935,16 @@ html[data-theme='dark'] .progress-section--mocks .mock-random-builder__mode-copy
     transform: translateY(1px) scale(0.94) !important;
   }
 }
+
+/* Keep animated note folders inside their grid and avoid the dark-theme sheen artifact. */
+.notes-motion-view--landing .notes-landing-grid {
+  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: 2.75rem;
+}
+
+html[data-theme='dark'] .notes-motion-view--landing .notes-landing-card::before {
+  display: none !important;
+  opacity: 0 !important;
+  animation: none !important;
+}
