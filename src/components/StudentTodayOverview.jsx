@@ -154,7 +154,12 @@ const StudentTodayOverview = ({
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)]">
-        <div className="relative overflow-hidden rounded-[22px] border border-purple-300/80 bg-gradient-to-br from-purple-600 via-violet-600 to-fuchsia-600 p-4 text-white shadow-[0_16px_32px_rgba(124,58,237,0.24)] md:p-5">
+        <button
+          type="button"
+          onClick={primaryAction}
+          aria-label={`${hasHomework ? 'Продолжить' : 'Начать практику'}: ${primaryTitle}`}
+          className="student-today-overview__primary group relative w-full cursor-pointer overflow-hidden rounded-[22px] border border-purple-300/80 bg-gradient-to-br from-purple-600 via-violet-600 to-fuchsia-600 p-4 text-left text-white shadow-[0_16px_32px_rgba(124,58,237,0.24)] transition duration-200 hover:-translate-y-0.5 hover:border-purple-200 hover:shadow-[0_20px_42px_rgba(124,58,237,0.32)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-300/45 md:p-5"
+        >
           <div aria-hidden className="absolute -right-12 -top-16 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
           <div className="relative flex h-full min-h-[154px] flex-col">
             <div className="flex flex-wrap items-center gap-2">
@@ -178,16 +183,12 @@ const StudentTodayOverview = ({
             <strong className="mt-4 max-w-2xl text-xl font-black leading-tight md:text-2xl">{primaryTitle}</strong>
             <span className="mt-1.5 text-sm text-purple-100">{primaryHint}</span>
             {deadline ? <span className="mt-1 text-[11px] text-purple-100/80">Дедлайн: {deadline.dateLabel}</span> : null}
-            <button
-              type="button"
-              onClick={primaryAction}
-              className="student-today-overview__primary-action mt-auto inline-flex w-fit items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-black text-purple-700 shadow-[0_10px_22px_rgba(49,46,129,0.24)] transition hover:-translate-y-0.5 hover:bg-purple-50"
-            >
+            <span className="student-today-overview__primary-action pointer-events-none mt-auto inline-flex w-fit items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-black text-purple-700 shadow-[0_10px_22px_rgba(49,46,129,0.24)] transition group-hover:-translate-y-0.5 group-hover:bg-purple-50">
               {hasHomework ? 'Продолжить' : 'Начать практику'}
               <ArrowRight size={16} />
-            </button>
+            </span>
           </div>
-        </div>
+        </button>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2">
           <QuickAction
