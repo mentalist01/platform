@@ -227,7 +227,9 @@ const PythonTestModal = ({
   studentId,
   testDb,
   initialQuestionIndex,
+  initialSubsectionId,
   onQuestionChange,
+  onSubsectionChange,
   onStreakSaved,
   onXpGain,
   PYTHON_LEVEL_ID,
@@ -895,7 +897,22 @@ const PythonTestModal = ({
 
   useEffect(() => {
     const list = Array.isArray(subsectionModel.questions) ? subsectionModel.questions : [];
-    let rawIndex = Number(initialQuestionIndex);
+    const parsedInitialQuestionIndex = Number(initialQuestionIndex);
+    let rawIndex = initialQuestionIndex !== null
+      && typeof initialQuestionIndex !== 'undefined'
+      && String(initialQuestionIndex).trim() !== ''
+      && Number.isFinite(parsedInitialQuestionIndex)
+      ? parsedInitialQuestionIndex
+      : Number.NaN;
+    const requestedSubsectionId = String(initialSubsectionId || '').trim()
+      ? normalizeTheorySubsectionId(initialSubsectionId)
+      : '';
+    if (!Number.isFinite(rawIndex) && requestedSubsectionId) {
+      const subsectionQuestionIndex = list.findIndex((_, index) => (
+        subsectionModel.questionSectionByIndex.get(index) === requestedSubsectionId
+      ));
+      if (subsectionQuestionIndex >= 0) rawIndex = subsectionQuestionIndex;
+    }
     if (!Number.isFinite(rawIndex) && typeof window !== 'undefined') {
       try {
         rawIndex = Number(window.localStorage.getItem(getQuestionIndexKey()));
@@ -910,7 +927,9 @@ const PythonTestModal = ({
     if (list.length > 0) {
       setCurrentIndex(safeIndex);
       setSelectedSubsectionId(
-        subsectionModel.questionSectionByIndex.get(safeIndex)
+        (requestedSubsectionId && subsectionModel.subsections.some((section) => section.id === requestedSubsectionId)
+          ? requestedSubsectionId
+          : subsectionModel.questionSectionByIndex.get(safeIndex))
         || subsectionModel.subsections.find((section) => section.count > 0)?.id
         || PYTHON_DEFAULT_SUBSECTION_ID
       );
@@ -952,7 +971,7 @@ const PythonTestModal = ({
         })
         .catch((err) => console.error(err));
     }
-  }, [task?.number, subsectionModel, studentId, initialQuestionIndex]);
+  }, [task?.number, subsectionModel, studentId, initialQuestionIndex, initialSubsectionId]);
 
   useEffect(() => {
     if (!questions.length) return;
@@ -961,6 +980,10 @@ const PythonTestModal = ({
       setSelectedSubsectionId(nextSubsectionId);
     }
   }, [currentIndex, questions.length, selectedSubsectionId, subsectionModel]);
+
+  useEffect(() => {
+    onSubsectionChange?.(selectedSubsectionId);
+  }, [onSubsectionChange, selectedSubsectionId]);
 
   useEffect(() => {
     if (!Number.isFinite(currentIndex)) return;

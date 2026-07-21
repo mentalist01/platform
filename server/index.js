@@ -51,6 +51,8 @@ import {
 } from './teacherFinanceCalendarPlan.js';
 import {
   LESSON_NOTE_ACTIVITY_LIMIT,
+  LESSON_NOTE_LEAD_MS,
+  LESSON_NOTE_TAIL_MS,
   buildLessonTopicOccurrenceKey,
   expandLessonScheduleOccurrences,
   normalizeLessonDayKey,
@@ -68,6 +70,11 @@ import {
   normalizeLessonHistoryStore,
   paginateStudentLessonHistory,
 } from './lessonHistory.js';
+import {
+  STUDENT_SEARCH_QUERY_MAX_LENGTH,
+  buildStudentSearchQuery,
+  matchStudentSearchCandidate,
+} from './studentSearch.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -22267,6 +22274,762 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
   return history;
 };
 
+const serializeStudentLessonHistoryEntry = (entry) => ({
+  key: entry.key,
+  dayKey: entry.dayKey,
+  time: entry.time,
+  durationMinutes: entry.durationMinutes,
+  startMs: entry.startMs,
+  endMs: entry.endMs,
+  subject: entry.subject,
+  topic: entry.topic || null,
+});
+
+const getLessonMaterialFileStudentId = (file) => {
+  const explicitStudentId = String(file?.lessonStudentId || file?.originalStudentId || '').trim();
+  if (explicitStudentId) return explicitStudentId;
+  if (isLessonSharedFile(file)) return '';
+  return String(file?.studentId || '').trim();
+};
+
+const getLessonMaterialLegacyTimestamp = (file) => {
+  const candidates = [
+    file?.lessonSavedAt,
+    file?.memory?.boardSnapshot?.createdAt,
+    file?.createdAt,
+  ];
+  return candidates.reduce((latest, value) => {
+    const parsed = Date.parse(String(value || '').trim());
+    if (!Number.isFinite(parsed) || parsed <= latest) return latest;
+    return parsed;
+  }, Number.NEGATIVE_INFINITY);
+};
+
+const serializeStudentLessonMaterial = (file, activityEntries = [], fallbackSavedAtMs = NaN) => {
+  const activityTimes = activityEntries
+    .map((entry) => Date.parse(String(entry?.occurredAt || '').trim()))
+    .filter(Number.isFinite);
+  const savedAtMs = activityTimes.length > 0
+    ? Math.max(...activityTimes)
+    : fallbackSavedAtMs;
+  return {
+    id: String(file?.id || '').trim(),
+    name: String(file?.name || '').trim(),
+    taskNumber: Number.isFinite(Number(file?.taskNumber)) ? Number(file.taskNumber) : null,
+    category: String(file?.category || '').trim(),
+    folderId: file?.folderId || null,
+    folderName: String(file?.folderName || '').trim(),
+    folderPath: Array.isArray(file?.folderPath) ? file.folderPath : [],
+    url: String(file?.url || '').trim(),
+    size: String(file?.size || '').trim(),
+    sizeBytes: Number.isFinite(Number(file?.sizeBytes)) ? Number(file.sizeBytes) : 0,
+    createdAt: String(file?.createdAt || '').trim(),
+    lessonSavedAt: String(file?.lessonSavedAt || '').trim(),
+    savedAt: Number.isFinite(savedAtMs) ? new Date(savedAtMs).toISOString() : '',
+    source: String(file?.source || file?.memory?.source || '').trim(),
+    memory: file?.memory && typeof file.memory === 'object' && !Array.isArray(file.memory)
+      ? file.memory
+      : null,
+    activitySources: Array.from(new Set(
+      activityEntries
+        .map((entry) => String(entry?.source || '').trim())
+        .filter(Boolean)
+    )),
+  };
+};
+
+const collectStudentLessonMaterials = (student, occurrence) => {
+  const studentId = String(student?.id || '').trim();
+  const startMs = Number(occurrence?.startMs);
+  const endMs = Number(occurrence?.endMs);
+  if (!studentId || !Number.isFinite(startMs) || !Number.isFinite(endMs)) return [];
+
+  const windowStartMs = startMs - LESSON_NOTE_LEAD_MS;
+  const windowEndMs = endMs + LESSON_NOTE_TAIL_MS;
+  const topicStore = readLessonTopicsStore();
+  const allActivities = (Array.isArray(topicStore.activities) ? topicStore.activities : [])
+    .map((entry) => normalizeLessonNoteActivity(entry))
+    .filter(Boolean);
+  const matchingActivitiesByFileId = new Map();
+  const filesWithStoredActivity = new Set();
+
+  allActivities.forEach((activity) => {
+    if (activity.studentId !== studentId || !activity.fileId) return;
+    filesWithStoredActivity.add(activity.fileId);
+    const occurredAtMs = Date.parse(activity.occurredAt);
+    if (
+      !Number.isFinite(occurredAtMs)
+      || occurredAtMs < windowStartMs
+      || occurredAtMs > windowEndMs
+    ) {
+      return;
+    }
+    const entries = matchingActivitiesByFileId.get(activity.fileId) || [];
+    entries.push(activity);
+    matchingActivitiesByFileId.set(activity.fileId, entries);
+  });
+
+  const materials = [];
+  enrichFilesWithFolderPath(readFilesDb(), readFoldersDb()).forEach((file) => {
+    if (!file?.id || String(file?.category || '').trim() !== 'class') return;
+    const fileStudentId = getLessonMaterialFileStudentId(file);
+    const isSharedForTeacher = isLessonSharedFile(file)
+      && normalizeTeacherId(file?.teacherId) === normalizeTeacherId(student?.teacherId);
+    if (fileStudentId !== studentId && !isSharedForTeacher) return;
+
+    const activityEntries = matchingActivitiesByFileId.get(String(file.id)) || [];
+    if (activityEntries.length > 0) {
+      materials.push(serializeStudentLessonMaterial(file, activityEntries));
+      return;
+    }
+
+    // Older note files predate explicit activity records. Their saved timestamp is
+    // still enough to associate them with the lesson, unless a newer activity log
+    // already provides a more reliable history for that file.
+    if (fileStudentId !== studentId || filesWithStoredActivity.has(String(file.id))) return;
+    const legacySavedAtMs = getLessonMaterialLegacyTimestamp(file);
+    if (
+      !Number.isFinite(legacySavedAtMs)
+      || legacySavedAtMs < windowStartMs
+      || legacySavedAtMs > windowEndMs
+    ) {
+      return;
+    }
+    materials.push(serializeStudentLessonMaterial(file, [], legacySavedAtMs));
+  });
+
+  return materials.sort((left, right) => {
+    const taskDiff = (Number(left.taskNumber) || 0) - (Number(right.taskNumber) || 0);
+    if (taskDiff !== 0) return taskDiff;
+    const timeDiff = Date.parse(left.savedAt || 0) - Date.parse(right.savedAt || 0);
+    if (Number.isFinite(timeDiff) && timeDiff !== 0) return timeDiff;
+    return left.name.localeCompare(right.name, 'ru');
+  });
+};
+
+const STUDENT_SEARCH_DEFAULT_LIMIT = 30;
+const STUDENT_SEARCH_MAX_LIMIT = 50;
+const STUDENT_SEARCH_MAX_RESULTS_BEFORE_LIMIT = 240;
+const STUDENT_SEARCH_MAX_FILES = 400;
+const STUDENT_SEARCH_MAX_FILE_BYTES = 768 * 1024;
+const STUDENT_SEARCH_MAX_TOTAL_FILE_BYTES = 8 * 1024 * 1024;
+const STUDENT_SEARCH_FILE_CACHE_MAX_BYTES = 12 * 1024 * 1024;
+const STUDENT_SEARCH_FILE_CACHE_MAX_ENTRIES = 320;
+const STUDENT_SEARCH_TEXT_EXTENSIONS = new Set([
+  '.py', '.pyw', '.txt', '.md', '.markdown', '.json', '.jsonl', '.csv', '.tsv',
+  '.js', '.jsx', '.ts', '.tsx', '.html', '.htm', '.css', '.scss', '.sql',
+  '.yaml', '.yml', '.toml', '.ini', '.cfg', '.log', '.xml', '.ipynb',
+  '.c', '.cpp', '.h', '.hpp', '.java', '.kt', '.go', '.rs', '.php', '.rb',
+  '.sh', '.ps1', '.bat',
+]);
+const STUDENT_SEARCH_PRIVATE_OBJECT_KEY_PATTERN = /^(?:answer.*|correct.*|expected.*|solution.*|output|codeHash|codeHint|storageName|url|imageDataUrl|avatarDataUrl)$/i;
+const studentSearchFileCache = new Map();
+let studentSearchFileCacheBytes = 0;
+
+const isStudentSearchTextFile = (file) => {
+  const extension = path.extname(String(file?.name || '')).toLowerCase();
+  if (STUDENT_SEARCH_TEXT_EXTENSIONS.has(extension)) return true;
+  const mimeType = String(file?.mimeType || '').trim().toLowerCase();
+  return mimeType.startsWith('text/')
+    || mimeType === 'application/json'
+    || mimeType === 'application/xml';
+};
+
+const getStudentSearchFileTimestampMs = (file) => {
+  const candidates = [file?.updatedAt, file?.lessonSavedAt, file?.memory?.createdAt, file?.createdAt];
+  for (const candidate of candidates) {
+    const parsed = Date.parse(String(candidate || '').trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+};
+
+const pruneStudentSearchFileCache = () => {
+  while (
+    studentSearchFileCache.size > STUDENT_SEARCH_FILE_CACHE_MAX_ENTRIES
+    || studentSearchFileCacheBytes > STUDENT_SEARCH_FILE_CACHE_MAX_BYTES
+  ) {
+    const oldestKey = studentSearchFileCache.keys().next().value;
+    if (!oldestKey) break;
+    const oldest = studentSearchFileCache.get(oldestKey);
+    studentSearchFileCache.delete(oldestKey);
+    studentSearchFileCacheBytes = Math.max(0, studentSearchFileCacheBytes - (Number(oldest?.sizeBytes) || 0));
+  }
+};
+
+const readStudentSearchFileText = async (file, byteBudget) => {
+  if (!isStudentSearchTextFile(file)) return { text: '', skipped: false, bytes: 0 };
+  const safeStorageName = path.basename(String(file?.storageName || '').trim());
+  if (!safeStorageName) return { text: '', skipped: false, bytes: 0 };
+  const rootPath = `${path.resolve(uploadsDir)}${path.sep}`;
+  const filePath = path.resolve(uploadsDir, safeStorageName);
+  if (!filePath.startsWith(rootPath)) return { text: '', skipped: true, bytes: 0 };
+
+  let stat;
+  try {
+    stat = await fs.promises.stat(filePath);
+  } catch {
+    return { text: '', skipped: false, bytes: 0 };
+  }
+  const sizeBytes = Math.max(0, Number(stat.size) || 0);
+  if (
+    !stat.isFile()
+    || sizeBytes > STUDENT_SEARCH_MAX_FILE_BYTES
+    || byteBudget.used + sizeBytes > STUDENT_SEARCH_MAX_TOTAL_FILE_BYTES
+  ) {
+    return { text: '', skipped: true, bytes: 0 };
+  }
+  byteBudget.used += sizeBytes;
+  const cacheKey = `${safeStorageName}:${Number(stat.mtimeMs) || 0}:${sizeBytes}`;
+  const cached = studentSearchFileCache.get(cacheKey);
+  if (cached) {
+    studentSearchFileCache.delete(cacheKey);
+    studentSearchFileCache.set(cacheKey, cached);
+    return { text: cached.text, skipped: false, bytes: sizeBytes };
+  }
+
+  let buffer;
+  try {
+    buffer = await fs.promises.readFile(filePath);
+  } catch {
+    return { text: '', skipped: false, bytes: sizeBytes };
+  }
+  if (buffer.includes(0)) return { text: '', skipped: true, bytes: sizeBytes };
+  const text = buffer.toString('utf8');
+  studentSearchFileCache.set(cacheKey, { text, sizeBytes });
+  studentSearchFileCacheBytes += sizeBytes;
+  pruneStudentSearchFileCache();
+  return { text, skipped: false, bytes: sizeBytes };
+};
+
+const collectStudentSearchObjectText = (value, options = {}) => {
+  const maxChars = Math.max(1000, Math.min(80_000, Number(options.maxChars) || 24_000));
+  const chunks = [];
+  const seen = new Set();
+  let totalChars = 0;
+  const visit = (current, depth) => {
+    if (totalChars >= maxChars || depth > 5 || current === null || typeof current === 'undefined') return;
+    if (typeof current === 'string' || typeof current === 'number') {
+      const text = String(current).replace(/\0/g, '').trim();
+      if (!text) return;
+      const chunk = text.slice(0, maxChars - totalChars);
+      chunks.push(chunk);
+      totalChars += chunk.length + 1;
+      return;
+    }
+    if (typeof current !== 'object' || seen.has(current)) return;
+    seen.add(current);
+    if (Array.isArray(current)) {
+      current.slice(0, 120).forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    Object.entries(current).slice(0, 120).forEach(([key, entry]) => {
+      if (STUDENT_SEARCH_PRIVATE_OBJECT_KEY_PATTERN.test(key)) return;
+      visit(entry, depth + 1);
+    });
+  };
+  visit(value, 0);
+  return chunks.join('\n');
+};
+
+const getStudentSearchTaskTitle = (taskNumber, taskTitles, testsDb) => {
+  const taskKey = String(taskNumber);
+  const stored = taskTitles?.[taskKey] ?? testsDb?.[taskKey]?.title;
+  if (typeof stored === 'string' && stored.trim()) return stored.trim();
+  if (stored && typeof stored === 'object' && typeof stored.title === 'string' && stored.title.trim()) {
+    return stored.title.trim();
+  }
+  return `Задание №${taskNumber}`;
+};
+
+const getStudentSearchFileTargetFolderId = (file, taskNumber) => {
+  const storedFolderId = String(file?.folderId || '').trim();
+  if (storedFolderId) return storedFolderId;
+  if (!isLessonSharedFile(file) || !Number.isFinite(taskNumber)) return null;
+  const teacherId = normalizeTeacherId(file?.teacherId)
+    || extractTeacherIdFromLessonSharedStudentId(file?.studentId);
+  return teacherId ? buildLessonSharedFolderId(teacherId, taskNumber) : null;
+};
+
+const getStudentSearchFileKind = (file) => {
+  const source = String(file?.source || file?.memory?.source || '').trim();
+  const kind = String(file?.memory?.kind || '').trim();
+  if (source === 'notes-cheatsheet' || kind === 'cheatsheet') {
+    return { kind: 'cheatsheet', group: 'code', sourceLabel: 'Шпаргалка' };
+  }
+  if (source === 'collab-code' || kind === 'code' || isPyFileName(file?.name)) {
+    return { kind: 'saved-code', group: 'code', sourceLabel: 'Сохранённый код' };
+  }
+  return { kind: 'file', group: 'notes', sourceLabel: 'Конспект' };
+};
+
+const collectStudentSavedCodeSearchCandidates = ({ student, studentData, taskTitles, testsDb, addCandidate }) => {
+  const solvedByTask = studentData?.solvedByTask && typeof studentData.solvedByTask === 'object'
+    ? studentData.solvedByTask
+    : {};
+  Object.entries(solvedByTask).forEach(([taskKey, taskEntry]) => {
+    if (!taskEntry || typeof taskEntry !== 'object' || Array.isArray(taskEntry)) return;
+    const taskNumber = Number(taskKey);
+    if (!Number.isFinite(taskNumber)) return;
+    const taskTitle = getStudentSearchTaskTitle(taskNumber, taskTitles, testsDb);
+    const taskCode = taskEntry._taskCode && typeof taskEntry._taskCode === 'object'
+      ? taskEntry._taskCode
+      : null;
+    if (taskCode && (String(taskCode.code || '').trim() || String(taskCode.input || '').trim())) {
+      addCandidate({
+        result: {
+          id: `saved-code:task:${taskNumber}`,
+          kind: 'saved-code',
+          group: 'code',
+          title: taskTitle,
+          subtitle: 'Общий код задания',
+          sourceLabel: 'Сохранённый код',
+          timestamp: String(taskCode.updatedAt || ''),
+          target: { kind: 'task', taskNumber, targetQuestions: null },
+        },
+        fields: [
+          { name: 'title', text: taskTitle, weight: 650 },
+          { name: 'content', text: [taskCode.code, taskCode.input].filter(Boolean).join('\n'), weight: 520 },
+        ],
+      });
+    }
+    Object.entries(taskEntry).forEach(([levelId, levelEntry]) => {
+      if (levelId.startsWith('_') || !levelEntry || typeof levelEntry !== 'object' || Array.isArray(levelEntry)) return;
+      const byQuestionId = levelEntry._questionCodeById && typeof levelEntry._questionCodeById === 'object'
+        ? levelEntry._questionCodeById
+        : {};
+      Object.entries(byQuestionId).forEach(([questionId, savedCode]) => {
+        if (!savedCode || typeof savedCode !== 'object') return;
+        const content = [savedCode.code, savedCode.input].filter(Boolean).join('\n');
+        if (!content.trim()) return;
+        addCandidate({
+          result: {
+            id: `saved-code:question:${taskNumber}:${levelId}:${questionId}`,
+            kind: 'saved-code',
+            group: 'code',
+            title: `${taskTitle} · задача ${questionId}`,
+            subtitle: `Уровень: ${levelId}`,
+            sourceLabel: 'Код задачи',
+            timestamp: String(savedCode.updatedAt || ''),
+            target: { kind: 'task', taskNumber, levelId, targetQuestions: [String(questionId)] },
+          },
+          fields: [
+            { name: 'title', text: `${taskTitle} ${questionId} ${levelId}`, weight: 650 },
+            { name: 'content', text: content, weight: 520 },
+          ],
+        });
+      });
+
+      const solvedCodeByQuestion = levelEntry.solvedCode && typeof levelEntry.solvedCode === 'object'
+        && !Array.isArray(levelEntry.solvedCode)
+        ? levelEntry.solvedCode
+        : {};
+      Object.entries(solvedCodeByQuestion).forEach(([questionId, solvedCode]) => {
+        const content = String(solvedCode || '');
+        if (!content.trim()) return;
+        addCandidate({
+          result: {
+            id: `solved-code:question:${taskNumber}:${levelId}:${questionId}`,
+            kind: 'solved-code',
+            group: 'code',
+            title: `${taskTitle} · решённая задача ${questionId}`,
+            subtitle: `Уровень: ${levelId}`,
+            sourceLabel: 'Отправленное решение',
+            target: { kind: 'task', taskNumber, levelId, targetQuestions: [String(questionId)] },
+          },
+          fields: [
+            { name: 'title', text: `${taskTitle} ${questionId} ${levelId}`, weight: 650 },
+            { name: 'content', text: content, weight: 540 },
+          ],
+        });
+      });
+    });
+  });
+
+  const generalNote = String(studentData?.notes || '').trim();
+  if (generalNote) {
+    addCandidate({
+      result: {
+        id: `student-note:${student.id}:general`,
+        kind: 'student-note',
+        group: 'notes',
+        title: 'Личная заметка',
+        subtitle: 'Заметки об обучении',
+        sourceLabel: 'Заметка',
+        target: { kind: 'progress-section', progressSection: 'notes' },
+      },
+      fields: [
+        { name: 'title', text: 'Личная заметка', weight: 650 },
+        { name: 'content', text: generalNote, weight: 420 },
+      ],
+    });
+  }
+  Object.entries(studentData?.notesByTask || {}).forEach(([taskKey, note]) => {
+    const taskNumber = Number(taskKey);
+    if (!Number.isFinite(taskNumber) || !String(note || '').trim()) return;
+    const taskTitle = getStudentSearchTaskTitle(taskNumber, taskTitles, testsDb);
+    addCandidate({
+      result: {
+        id: `student-note:${student.id}:task:${taskNumber}`,
+        kind: 'student-note',
+        group: 'notes',
+        title: taskTitle,
+        subtitle: 'Заметка к заданию',
+        sourceLabel: 'Заметка',
+        target: { kind: 'progress-section', progressSection: 'notes', taskNumber },
+      },
+      fields: [
+        { name: 'title', text: taskTitle, weight: 650 },
+        { name: 'content', text: note, weight: 420 },
+      ],
+    });
+  });
+};
+
+const collectStudentQuestionSearchCandidates = ({ testsDb, taskTitles, addCandidate }) => {
+  Object.entries(testsDb || {}).forEach(([taskKey, taskEntry]) => {
+    if (!taskEntry || typeof taskEntry !== 'object' || Array.isArray(taskEntry)) return;
+    const taskNumber = Number(taskKey);
+    if (!Number.isFinite(taskNumber)) return;
+    const taskTitle = getStudentSearchTaskTitle(taskNumber, taskTitles, testsDb);
+    const theoryBySubsection = taskEntry.pythonTheoryBySubsection
+      && typeof taskEntry.pythonTheoryBySubsection === 'object'
+      && !Array.isArray(taskEntry.pythonTheoryBySubsection)
+      ? taskEntry.pythonTheoryBySubsection
+      : {};
+    Object.entries(theoryBySubsection).forEach(([subsectionId, theoryEntry]) => {
+      const content = collectStudentSearchObjectText(theoryEntry, { maxChars: 64_000 });
+      if (!content) return;
+      const subsectionLabel = subsectionId === '__default__' ? 'Общая теория' : `Раздел ${subsectionId}`;
+      addCandidate({
+        result: {
+          id: `theory:${taskNumber}:${subsectionId}`,
+          kind: 'theory',
+          group: 'tasks',
+          title: `${taskTitle} · ${subsectionLabel}`,
+          subtitle: 'Теория и шаблоны кода',
+          sourceLabel: 'Теория Python',
+          target: {
+            kind: 'task',
+            taskNumber,
+            levelId: 'python',
+            targetQuestions: null,
+            subsectionId,
+          },
+        },
+        fields: [
+          { name: 'title', text: `${taskTitle} ${subsectionLabel}`, weight: 650 },
+          { name: 'content', text: content, weight: 360 },
+        ],
+      });
+    });
+    Object.entries(taskEntry).forEach(([levelId, questions]) => {
+      if (!Array.isArray(questions)) return;
+      questions.forEach((question, index) => {
+        if (!question || typeof question !== 'object') return;
+        const questionId = String(question.id ?? index + 1);
+        const questionTitle = String(question.title || '').trim();
+        const title = questionTitle || `${taskTitle} · задача ${index + 1}`;
+        const content = collectStudentSearchObjectText(question, { maxChars: 32_000 });
+        if (!content) return;
+        addCandidate({
+          result: {
+            id: `question:${taskNumber}:${levelId}:${questionId}`,
+            kind: 'question',
+            group: 'tasks',
+            title,
+            subtitle: `${taskTitle} · ${levelId}`,
+            sourceLabel: 'Условие задачи',
+            target: { kind: 'task', taskNumber, levelId, targetQuestions: [questionId] },
+          },
+          fields: [
+            { name: 'title', text: `${title} ${taskTitle} ${questionId}`, weight: 650 },
+            { name: 'content', text: content, weight: 300 },
+          ],
+        });
+      });
+    });
+  });
+};
+
+const collectStudentMockSearchCandidates = ({ student, studentData, taskTitles, testsDb, addCandidate }) => {
+  const visibleMocks = readMockExamsDb().filter((exam) => isMockExamVisibleToStudent(exam, student.id));
+  visibleMocks.forEach((exam) => {
+    const safeExam = sanitizeMockExamForStudent(exam);
+    const examId = String(safeExam?.id || '').trim();
+    if (!examId) return;
+    const examTitle = String(safeExam.title || 'Пробник').trim();
+    const badges = Array.isArray(safeExam.badges)
+      ? safeExam.badges.map((badge) => String(badge?.label || badge || '').trim()).filter(Boolean).join(' ')
+      : '';
+    addCandidate({
+      result: {
+        id: `mock:${examId}`,
+        kind: 'mock',
+        group: 'mocks',
+        title: examTitle,
+        subtitle: badges || 'Пробник',
+        sourceLabel: 'Пробник',
+        timestamp: String(safeExam.updatedAt || safeExam.createdAt || ''),
+        target: { kind: 'mock', examId },
+      },
+      fields: [
+        { name: 'title', text: examTitle, weight: 680 },
+        { name: 'metadata', text: [badges, safeExam.source].filter(Boolean).join(' '), weight: 180 },
+      ],
+    });
+    Object.entries(safeExam.tasks || {}).forEach(([taskKey, question]) => {
+      if (!question || typeof question !== 'object') return;
+      const taskNumber = Number(taskKey);
+      const taskTitle = Number.isFinite(taskNumber)
+        ? getStudentSearchTaskTitle(taskNumber, taskTitles, testsDb)
+        : `Задание ${taskKey}`;
+      const content = collectStudentSearchObjectText(question, { maxChars: 32_000 });
+      if (!content) return;
+      addCandidate({
+        result: {
+          id: `mock-question:${examId}:${taskKey}`,
+          kind: 'mock-question',
+          group: 'mocks',
+          title: `${examTitle} · ${taskTitle}`,
+          subtitle: 'Задание пробника',
+          sourceLabel: 'Пробник',
+          timestamp: String(safeExam.updatedAt || safeExam.createdAt || ''),
+          target: { kind: 'mock', examId, taskNumber: String(taskKey || '').trim() || null },
+        },
+        fields: [
+          { name: 'title', text: `${examTitle} ${taskTitle}`, weight: 650 },
+          { name: 'content', text: content, weight: 300 },
+        ],
+      });
+    });
+  });
+
+  (Array.isArray(studentData?.mocks) ? studentData.mocks : []).forEach((mockResult, index) => {
+    if (!mockResult || typeof mockResult !== 'object') return;
+    const resultId = String(mockResult.id || mockResult.examId || index).trim();
+    const examId = String(mockResult.examId || '').trim();
+    const content = collectStudentSearchObjectText({
+      title: mockResult.title,
+      comment: mockResult.comment,
+      date: mockResult.date,
+      score: mockResult.score,
+    });
+    if (!content) return;
+    addCandidate({
+      result: {
+        id: `mock-result:${resultId}`,
+        kind: 'mock-result',
+        group: 'mocks',
+        title: String(mockResult.title || 'Результат пробника').trim(),
+        subtitle: Number.isFinite(Number(mockResult.score)) ? `${Number(mockResult.score)} баллов` : 'Результат',
+        sourceLabel: 'Результат',
+        timestamp: String(mockResult.updatedAt || mockResult.createdAt || mockResult.date || ''),
+        target: examId
+          ? { kind: 'mock', examId }
+          : { kind: 'progress-section', progressSection: 'mocks' },
+      },
+      fields: [
+        { name: 'title', text: String(mockResult.title || 'Результат пробника'), weight: 650 },
+        { name: 'metadata', text: content, weight: 220 },
+      ],
+    });
+  });
+};
+
+const collectStudentHomeworkSearchCandidates = ({ studentData, addCandidate }) => {
+  getStudentHomeworkNavItems(studentData).forEach((homework, index) => {
+    if (!homework || typeof homework !== 'object') return;
+    const content = collectStudentSearchObjectText({
+      homeWork: homework.homeWork,
+      goals: homework.goals,
+      checklistItems: homework.checklistItems,
+    });
+    if (!content) return;
+    const taskNumber = Number(homework.taskNumber);
+    addCandidate({
+      result: {
+        id: `homework:${String(homework.id || index)}`,
+        kind: 'homework',
+        group: 'tasks',
+        title: String(homework.title || homework.homeWork || 'Домашняя работа').trim().slice(0, 160),
+        subtitle: Number.isFinite(taskNumber) ? `Задание №${taskNumber}` : 'Домашняя работа',
+        sourceLabel: 'Домашняя работа',
+        timestamp: String(homework.updatedAt || homework.issuedAt || homework.createdAt || ''),
+        target: Number.isFinite(taskNumber)
+          ? { kind: 'task', taskNumber, levelId: homework.levelId || undefined, targetQuestions: homework.targetQuestions || null }
+          : { kind: 'navigate', view: 'schedule' },
+      },
+      fields: [
+        { name: 'title', text: String(homework.title || homework.homeWork || 'Домашняя работа'), weight: 630 },
+        { name: 'content', text: content, weight: 280 },
+      ],
+    });
+  });
+};
+
+app.get('/api/student-search', async (req, res) => {
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth) && !isStudentRole(req.auth)) return forbid(res);
+  const { studentId, q, limit } = req.query || {};
+  const student = ensureStudentAccess(req, res, studentId, { missingError: 'studentId required' });
+  if (!student) return;
+  const rawQuery = typeof q === 'string' ? q : '';
+  if (rawQuery.length > STUDENT_SEARCH_QUERY_MAX_LENGTH) {
+    return res.status(400).json({ error: `Поисковый запрос длиннее ${STUDENT_SEARCH_QUERY_MAX_LENGTH} символов` });
+  }
+  const query = buildStudentSearchQuery(rawQuery);
+  if (query.normalized.length < 2) {
+    return res.status(400).json({ error: 'Введите минимум 2 символа для поиска' });
+  }
+  const parsedLimit = Number(limit);
+  const resultLimit = Number.isFinite(parsedLimit)
+    ? Math.max(1, Math.min(STUDENT_SEARCH_MAX_LIMIT, Math.floor(parsedLimit)))
+    : STUDENT_SEARCH_DEFAULT_LIMIT;
+  const results = [];
+  const seenResultIds = new Set();
+  let resultCollectionTruncated = false;
+  const addCandidate = (candidate) => {
+    if (results.length >= STUDENT_SEARCH_MAX_RESULTS_BEFORE_LIMIT) {
+      resultCollectionTruncated = true;
+      return;
+    }
+    const match = matchStudentSearchCandidate(candidate, query);
+    const resultId = String(match?.id || '').trim();
+    if (!match || !resultId || seenResultIds.has(resultId)) return;
+    seenResultIds.add(resultId);
+    results.push(match);
+  };
+
+  const rawTestsDb = getTestsDbWithPythonInfiniteTraining(readTestsDb());
+  const testsDb = sanitizeTestsDbForStudent(rawTestsDb);
+  const taskTitles = readTaskTitlesDb();
+  const studentData = getStudentData(student.id);
+  const teacherId = normalizeTeacherId(student.teacherId);
+  const visibleFiles = enrichFilesWithFolderPath(
+    readFilesDb().filter((file) => {
+      if (String(file?.studentId || '').trim() === student.id) return true;
+      return isLessonSharedFile(file) && normalizeTeacherId(file?.teacherId) === teacherId;
+    }),
+    readFoldersDb()
+  ).sort((left, right) => getStudentSearchFileTimestampMs(right) - getStudentSearchFileTimestampMs(left));
+
+  const fileBudget = { used: 0 };
+  let scannedFiles = 0;
+  let skippedFiles = 0;
+  for (const file of visibleFiles.slice(0, STUDENT_SEARCH_MAX_FILES)) {
+    const memory = file?.memory && typeof file.memory === 'object' && !Array.isArray(file.memory)
+      ? file.memory
+      : {};
+    const taskNumber = Number(file?.taskNumber ?? memory?.taskNumber);
+    const taskTitle = Number.isFinite(taskNumber)
+      ? getStudentSearchTaskTitle(taskNumber, taskTitles, testsDb)
+      : 'Конспекты';
+    const fileKind = getStudentSearchFileKind(file);
+    const fileName = String(file?.name || memory?.title || 'Материал').trim();
+    const displayTitle = String(memory?.title || fileName).trim() || fileName;
+    const folderPath = String(file?.folderPath || file?.folderName || '').trim();
+    const metadata = [
+      fileName,
+      folderPath,
+      file?.category,
+      file?.source,
+      memory.title,
+      memory.description,
+      memory.tags,
+      memory.kind,
+      memory.source,
+      memory.codePreview,
+      memory.lastRunOutput,
+      memory.savedBy?.name,
+      memory.boardSnapshot?.name,
+      taskTitle,
+    ].flat(Infinity).filter(Boolean).join('\n');
+    const contentResult = await readStudentSearchFileText(file, fileBudget);
+    if (contentResult.bytes > 0) scannedFiles += 1;
+    if (contentResult.skipped) skippedFiles += 1;
+    addCandidate({
+      result: {
+        id: `file:${String(file?.id || '')}`,
+        kind: fileKind.kind,
+        group: fileKind.group,
+        title: displayTitle,
+        subtitle: [taskTitle, folderPath].filter(Boolean).join(' · '),
+        sourceLabel: fileKind.sourceLabel,
+        timestamp: String(file?.updatedAt || file?.lessonSavedAt || memory?.createdAt || file?.createdAt || ''),
+        target: {
+          kind: 'notes',
+          location: {
+            studentId: student.id,
+            taskNumber: Number.isFinite(taskNumber) ? taskNumber : null,
+            category: String(file?.category || 'class'),
+            folderId: getStudentSearchFileTargetFolderId(file, taskNumber),
+            fileId: String(file?.id || ''),
+          },
+        },
+      },
+      fields: [
+        { name: 'title', text: displayTitle, weight: 700 },
+        { name: 'metadata', text: metadata, weight: 300 },
+        { name: 'content', text: contentResult.text, weight: 560 },
+      ],
+    });
+  }
+  if (visibleFiles.length > STUDENT_SEARCH_MAX_FILES) {
+    skippedFiles += visibleFiles.length - STUDENT_SEARCH_MAX_FILES;
+  }
+
+  collectStudentSavedCodeSearchCandidates({ student, studentData, taskTitles, testsDb, addCandidate });
+  collectStudentQuestionSearchCandidates({ testsDb, taskTitles, addCandidate });
+  collectStudentMockSearchCandidates({ student, studentData, taskTitles, testsDb, addCandidate });
+  collectStudentHomeworkSearchCandidates({ studentData, addCandidate });
+
+  results.sort((left, right) => {
+    const scoreDiff = Number(right.score || 0) - Number(left.score || 0);
+    if (scoreDiff !== 0) return scoreDiff;
+    const timeDiff = Date.parse(String(right.timestamp || '')) - Date.parse(String(left.timestamp || ''));
+    if (Number.isFinite(timeDiff) && timeDiff !== 0) return timeDiff;
+    return String(left.title || '').localeCompare(String(right.title || ''), 'ru');
+  });
+  const total = results.length;
+  return res.json({
+    query: query.raw,
+    studentId: student.id,
+    results: results.slice(0, resultLimit),
+    total,
+    truncated: total > resultLimit || skippedFiles > 0 || resultCollectionTruncated,
+    scan: {
+      visibleFiles: visibleFiles.length,
+      scannedTextFiles: scannedFiles,
+      skippedTextFiles: skippedFiles,
+      scannedBytes: fileBudget.used,
+    },
+  });
+});
+
+app.get('/api/lesson-history/detail', async (req, res) => {
+  const { studentId, occurrenceKey } = req.query || {};
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const normalizedOccurrenceKey = String(occurrenceKey || '').trim();
+  if (!normalizedOccurrenceKey || normalizedOccurrenceKey.length > 760) {
+    return res.status(400).json({ error: 'Некорректное занятие' });
+  }
+  try {
+    const history = await buildResolvedStudentLessonHistory(student, req.auth);
+    const occurrence = history.find((entry) => entry?.key === normalizedOccurrenceKey);
+    if (!occurrence) {
+      return res.status(404).json({ error: 'Занятие не найдено' });
+    }
+    return res.json({
+      lesson: serializeStudentLessonHistoryEntry(occurrence),
+      materials: collectStudentLessonMaterials(student, occurrence),
+    });
+  } catch (error) {
+    console.error('[lesson-history] failed to build lesson detail:', error);
+    return res.status(500).json({ error: 'Не удалось загрузить материалы занятия' });
+  }
+});
+
 app.get('/api/lesson-history', async (req, res) => {
   const { studentId, offset, limit } = req.query || {};
   const student = ensureStudentAccess(req, res, studentId);
@@ -22276,16 +23039,7 @@ app.get('/api/lesson-history', async (req, res) => {
     const page = paginateStudentLessonHistory(history, { offset, limit });
     return res.json({
       ...page,
-      items: page.items.map((entry) => ({
-        key: entry.key,
-        dayKey: entry.dayKey,
-        time: entry.time,
-        durationMinutes: entry.durationMinutes,
-        startMs: entry.startMs,
-        endMs: entry.endMs,
-        subject: entry.subject,
-        topic: entry.topic || null,
-      })),
+      items: page.items.map(serializeStudentLessonHistoryEntry),
     });
   } catch (error) {
     console.error('[lesson-history] failed to build history:', error);

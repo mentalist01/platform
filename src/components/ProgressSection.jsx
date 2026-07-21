@@ -38,6 +38,7 @@ import RandomMockGenerator from './RandomMockGenerator';
 import ProgressReviewModal from './ProgressReviewModal';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
+import StudentWeeklyRecap from './StudentWeeklyRecap';
 import { Button, Card } from './ui';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
@@ -569,6 +570,9 @@ const ProgressSection = ({
   studentId,
   students,
   tasks,
+  weeklyRecapTasks = tasks,
+  solvedRefreshKey = 0,
+  onOpenLesson,
   onTaskTitleUpdate,
   activeStudentId,
   onSelectStudent,
@@ -1517,12 +1521,15 @@ const ProgressSection = ({
     setSection('mocks');
     if (mockExamsLoading) return;
 
-    const targetId = String(openMockExamId);
+    const openMockRequest = openMockExamId && typeof openMockExamId === 'object'
+      ? openMockExamId
+      : { examId: openMockExamId, initialTaskNumber: null };
+    const targetId = String(openMockRequest.examId || '');
     const targetExam = (visibleMockExams || []).find((exam) => String(exam?.id) === targetId)
       || (mockExams || []).find((exam) => String(exam?.id) === targetId);
     if (!targetExam) return;
 
-    handleOpenMockExam(targetExam);
+    handleOpenMockExam(targetExam, { initialTaskNumber: openMockRequest.initialTaskNumber || null });
     onOpenMockExamHandled?.();
   }, [
     role,
@@ -3581,6 +3588,14 @@ const ProgressSection = ({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              {role === 'student' && section === 'progress' && (
+                <StudentWeeklyRecap
+                  studentId={effectiveStudentId}
+                  tasks={weeklyRecapTasks}
+                  solvedRefreshKey={solvedRefreshKey}
+                  onOpenLesson={onOpenLesson}
+                />
+              )}
               {renderStudentPicker()}
             </div>
           </div>

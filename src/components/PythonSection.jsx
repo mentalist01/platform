@@ -505,6 +505,7 @@ const PythonSection = ({
   const [activeTask, setActiveTask] = useState(null);
   const [reviewTask, setReviewTask] = useState(null);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(null);
+  const [activeSubsectionId, setActiveSubsectionId] = useState(null);
   const [studentData, setStudentData] = useState({ progress: {} });
   const [dataError, setDataError] = useState('');
   const [testsDb, setTestsDb] = useState(null);
@@ -573,6 +574,7 @@ const PythonSection = ({
     setReviewTask(null);
     setActiveTask(null);
     setActiveQuestionIndex(null);
+    setActiveSubsectionId(null);
   }, [effectiveStudentId]);
 
   useEffect(() => {
@@ -621,6 +623,7 @@ const PythonSection = ({
     }
     setActiveTaskSectionId(String(target.sectionId || 'topics'));
     setActiveTask(target);
+    setActiveSubsectionId(String(openTask.subsectionId || '').trim() || null);
     if (Number.isFinite(openTask.questionIndex)) {
       setActiveQuestionIndex(openTask.questionIndex);
     } else {
@@ -641,9 +644,10 @@ const PythonSection = ({
       levelId: PYTHON_LEVEL_ID,
       targetQuestions: null,
       section: 'python',
-      questionIndex: Number.isFinite(activeQuestionIndex) ? activeQuestionIndex : null
+      questionIndex: Number.isFinite(activeQuestionIndex) ? activeQuestionIndex : null,
+      subsectionId: String(activeSubsectionId || '').trim() || null
     });
-  }, [activeTask, activeQuestionIndex, role, PYTHON_LEVEL_ID, onTaskStateChange, openTask]);
+  }, [activeTask, activeQuestionIndex, activeSubsectionId, role, PYTHON_LEVEL_ID, onTaskStateChange, openTask]);
 
   useEffect(() => {
     if (!activeTask) return;
@@ -1565,6 +1569,7 @@ const PythonSection = ({
       return;
     }
     setActiveQuestionIndex(null);
+    setActiveSubsectionId(null);
     setActiveTask(focusTask);
   };
   const mobilePythonPathLayout = useMemo(() => {
@@ -1765,6 +1770,7 @@ const PythonSection = ({
     const openTaskCard = () => {
       if (!clickable) return;
       setActiveQuestionIndex(null);
+      setActiveSubsectionId(null);
       setActiveTask(task);
     };
     return (
@@ -2164,6 +2170,7 @@ const PythonSection = ({
                       onClick={(e) => {
                         e.stopPropagation();
                         setActiveQuestionIndex(null);
+                        setActiveSubsectionId(null);
                         setActiveTask(node.task);
                       }}
                       className={`mobile-path-node group absolute z-10 rounded-2xl bg-transparent px-1 transition-transform ${
@@ -2855,12 +2862,15 @@ const PythonSection = ({
           onClose={() => {
             setActiveTask(null);
             setActiveQuestionIndex(null);
+            setActiveSubsectionId(null);
           }}
           progress={progressMap}
           studentId={studentId}
           testDb={testsDb}
           initialQuestionIndex={activeQuestionIndex}
+          initialSubsectionId={activeSubsectionId}
           onQuestionChange={setActiveQuestionIndex}
+          onSubsectionChange={setActiveSubsectionId}
           onStreakSaved={onStreakSaved}
           onXpGain={onXpGain}
           PYTHON_LEVEL_ID={PYTHON_LEVEL_ID}

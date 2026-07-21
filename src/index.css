@@ -22813,7 +22813,8 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   gap: 12px;
 }
 
-.schedule-shell__student-reminder-compact {
+.schedule-shell__student-reminder-compact,
+.schedule-shell__student-history-compact {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -22830,14 +22831,35 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
-.schedule-shell__student-reminder-compact > svg {
+.schedule-shell__student-reminder-compact > svg,
+.schedule-shell__student-history-compact > svg {
   color: #8b5cf6;
 }
 
-.schedule-shell__student-reminder-compact:hover:not(:disabled) {
+.schedule-shell__student-reminder-compact:hover:not(:disabled),
+.schedule-shell__student-history-compact:hover {
   transform: translateY(-1px);
   background: #faf5ff;
   box-shadow: 0 8px 18px rgba(124, 58, 237, 0.12);
+}
+
+.schedule-shell__student-history-compact > span {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.1);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.schedule-shell__student-history-compact.is-active {
+  border-color: rgba(139, 92, 246, 0.64);
+  background: #ede9fe;
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.08);
 }
 
 .schedule-shell__student-reminder-compact:disabled {
@@ -24157,7 +24179,8 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
     flex-direction: column;
   }
 
-  .schedule-shell__student-reminder-compact {
+  .schedule-shell__student-reminder-compact,
+  .schedule-shell__student-history-compact {
     width: 100%;
     max-width: none;
   }
@@ -24586,6 +24609,7 @@ html[data-theme='dark'] .schedule-shell__student-board-empty strong {
 }
 
 html[data-theme='dark'] .schedule-shell__student-reminder-compact,
+html[data-theme='dark'] .schedule-shell__student-history-compact,
 html[data-theme='dark'] .schedule-shell__student-board-loading,
 html[data-theme='dark'] .schedule-shell__student-board-empty {
   border-color: rgba(71, 85, 105, 0.62) !important;
@@ -24631,6 +24655,8 @@ html[data-theme='dark'] .schedule-shell__student-lesson-link {
 }
 
 html[data-theme='dark'] .schedule-shell__student-reminder-compact:hover:not(:disabled),
+html[data-theme='dark'] .schedule-shell__student-history-compact:hover,
+html[data-theme='dark'] .schedule-shell__student-history-compact.is-active,
 html[data-theme='dark'] .schedule-shell__student-lesson-link:hover {
   background: rgba(107, 33, 168, 0.38) !important;
   box-shadow: 0 12px 22px rgba(2, 6, 23, 0.24) !important;
@@ -70645,6 +70671,42 @@ html[data-theme='dark'] .collab-workspace-card--glass-board.collab-workspace-car
   background: rgba(245, 243, 255, 0.46);
 }
 
+.notes-explorer-shell .notes-content-search-match {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.55rem 0.65rem 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(139, 92, 246, 0.24);
+  border-radius: 0.75rem;
+  background: linear-gradient(90deg, rgba(245, 243, 255, 0.94), rgba(236, 254, 255, 0.9));
+  color: #5b21b6;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.notes-explorer-shell .notes-content-search-match code {
+  overflow: hidden;
+  min-width: 0;
+  padding: 0.18rem 0.42rem;
+  border-radius: 0.4rem;
+  background: rgba(255, 255, 255, 0.86);
+  color: #0f172a;
+  font-size: 0.73rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-explorer-shell .notes-python-code__line.is-search-match .notes-python-code__line-number,
+.notes-explorer-shell .notes-python-code__line.is-search-match .notes-python-code__line-content {
+  background: rgba(254, 249, 195, 0.86) !important;
+  box-shadow: inset 0 1px rgba(245, 158, 11, 0.2), inset 0 -1px rgba(245, 158, 11, 0.2);
+}
+
+.notes-explorer-shell .notes-python-code__line.is-search-match .notes-python-code__line-number {
+  color: #b45309 !important;
+}
+
 .notes-explorer-shell .notes-cheatsheet-editor {
   border-radius: 0;
 }
@@ -70725,6 +70787,23 @@ html[data-theme='dark'] .notes-explorer-shell .notes-cheatsheet-code .notes-pyth
   color: #64748b;
 }
 
+html[data-theme='dark'] .notes-explorer-shell .notes-content-search-match {
+  border-color: rgba(167, 139, 250, 0.28);
+  background: linear-gradient(90deg, rgba(76, 29, 149, 0.28), rgba(8, 145, 178, 0.16));
+  color: #ddd6fe;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-content-search-match code {
+  background: rgba(15, 23, 42, 0.76);
+  color: #f8fafc;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-python-code__line.is-search-match .notes-python-code__line-number,
+html[data-theme='dark'] .notes-explorer-shell .notes-python-code__line.is-search-match .notes-python-code__line-content {
+  background: rgba(133, 77, 14, 0.32) !important;
+  box-shadow: inset 0 1px rgba(251, 191, 36, 0.18), inset 0 -1px rgba(251, 191, 36, 0.18);
+}
+
 @media (max-width: 760px) {
   .notes-explorer-shell .notes-cheatsheet-preview-panel {
     padding: 0.5rem;
@@ -70794,6 +70873,7 @@ html[data-theme='dark'] .student-today-overview {
 }
 
 .student-today-schedule-card .schedule-shell__student-reminder-compact,
+.student-today-schedule-card .schedule-shell__student-history-compact,
 .student-today-schedule-card .schedule-shell__lessons-count {
   min-height: 32px;
   border-color: rgba(196, 181, 253, 0.76);
@@ -70921,94 +71001,8 @@ html[data-theme='dark'] .student-today-overview {
   box-shadow: 0 16px 34px rgba(99, 102, 241, 0.1);
 }
 
-.student-lesson-history__toggle {
-  display: flex;
-  width: 100%;
-  min-height: 66px;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 14px;
-  text-align: left;
-  transition: background 160ms ease, color 160ms ease;
-}
-
-.student-lesson-history__toggle:hover {
-  background: rgba(245, 243, 255, 0.66);
-}
-
-.student-lesson-history__toggle:focus-visible {
-  outline: 3px solid rgba(139, 92, 246, 0.24);
-  outline-offset: -3px;
-}
-
-.student-lesson-history__toggle-icon {
-  display: inline-flex;
-  width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(196, 181, 253, 0.7);
-  border-radius: 14px;
-  background: linear-gradient(145deg, #f5f3ff, #eef2ff);
-  color: #7c3aed;
-  box-shadow: 0 7px 16px rgba(124, 58, 237, 0.09);
-}
-
-.student-lesson-history__toggle-copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.student-lesson-history__toggle-copy strong,
-.student-lesson-history__toggle-copy small {
-  display: block;
-}
-
-.student-lesson-history__toggle-copy strong {
-  color: #1e293b;
-  font-size: 14px;
-  font-weight: 950;
-}
-
-.student-lesson-history__toggle-copy small {
-  margin-top: 2px;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.student-lesson-history__count {
-  display: inline-flex;
-  min-height: 28px;
-  align-items: center;
-  padding: 0 10px;
-  border: 1px solid rgba(196, 181, 253, 0.64);
-  border-radius: 999px;
-  background: rgba(245, 243, 255, 0.86);
-  color: #7c3aed;
-  font-size: 10px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.student-lesson-history__chevron {
-  flex: 0 0 auto;
-  color: #8b5cf6;
-  transition: transform 180ms ease;
-}
-
-.student-lesson-history--open .student-lesson-history__chevron {
-  transform: rotate(90deg);
-}
-
-.student-lesson-history__panel[hidden] {
-  display: none;
-}
-
 .student-lesson-history__panel {
   padding: 14px;
-  border-top: 1px solid rgba(226, 232, 240, 0.86);
   animation: studentLessonHistoryReveal 190ms ease both;
 }
 
@@ -71250,21 +71244,6 @@ html[data-theme='dark'] .student-today-overview {
 }
 
 @media (max-width: 640px) {
-  .student-lesson-history__toggle {
-    gap: 9px;
-    padding-inline: 11px;
-  }
-
-  .student-lesson-history__toggle-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 12px;
-  }
-
-  .student-lesson-history__count {
-    display: none;
-  }
-
   .student-lesson-history__panel {
     padding: 10px;
   }
@@ -71286,7 +71265,6 @@ html[data-theme='dark'] .student-today-overview {
 
 @media (prefers-reduced-motion: reduce) {
   .student-lesson-history,
-  .student-lesson-history__chevron,
   .student-lesson-history__panel,
   .student-lesson-history__item,
   .student-lesson-history__more,
@@ -71416,11 +71394,17 @@ html[data-theme='dark'] .student-today-overview {
   .student-today-schedule-card__actions {
     display: grid;
     width: 100%;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .student-today-schedule-card .schedule-shell__student-reminder-compact {
+  .student-today-schedule-card .schedule-shell__student-reminder-compact,
+  .student-today-schedule-card .schedule-shell__student-history-compact {
     width: 100%;
+  }
+
+  .student-today-schedule-card__actions .schedule-shell__lessons-count {
+    grid-column: 1 / -1;
+    justify-self: end;
   }
 
   .student-today-schedule-card .schedule-shell__student-week-strip {
@@ -78156,37 +78140,19 @@ html[data-theme='dark'] .student-lesson-history--open {
   box-shadow: 0 14px 32px rgba(2, 6, 23, 0.28);
 }
 
-html[data-theme='dark'] .student-lesson-history__toggle:hover {
-  background: rgba(76, 29, 149, 0.18);
-}
-
-html[data-theme='dark'] .student-lesson-history__toggle-icon {
-  border-color: rgba(139, 92, 246, 0.42);
-  background: linear-gradient(145deg, rgba(76, 29, 149, 0.54), rgba(30, 41, 59, 0.86));
-  color: #c4b5fd;
-  box-shadow: none;
-}
-
-html[data-theme='dark'] .student-lesson-history__toggle-copy strong,
 html[data-theme='dark'] .student-lesson-history__heading > strong,
 html[data-theme='dark'] .student-lesson-history__empty strong {
   color: #e2e8f0;
 }
 
-html[data-theme='dark'] .student-lesson-history__toggle-copy small,
 html[data-theme='dark'] .student-lesson-history__month > h3,
 html[data-theme='dark'] .student-lesson-history__empty span {
   color: #94a3b8;
 }
 
-html[data-theme='dark'] .student-lesson-history__count {
-  border-color: rgba(139, 92, 246, 0.42);
-  background: rgba(76, 29, 149, 0.3);
+html[data-theme='dark'] .schedule-shell__student-history-compact > span {
+  background: rgba(139, 92, 246, 0.2);
   color: #c4b5fd;
-}
-
-html[data-theme='dark'] .student-lesson-history__panel {
-  border-top-color: rgba(71, 85, 105, 0.62);
 }
 
 html[data-theme='dark'] .student-lesson-history__item {
@@ -83989,4 +83955,1646 @@ html[data-theme='dark'] .notes-motion-view--landing .notes-landing-card::before 
   display: none !important;
   opacity: 0 !important;
   animation: none !important;
+}
+
+/* Student lesson capsule: saved code, notes and board snapshots for a past lesson. */
+.schedule-shell__student-lesson--clickable,
+.student-lesson-history__item--clickable {
+  cursor: pointer;
+  outline: none;
+}
+
+.schedule-shell__student-lesson--clickable:focus-visible,
+.student-lesson-history__item--clickable:focus-visible {
+  border-color: rgba(124, 58, 237, 0.72);
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15), 0 16px 32px rgba(76, 29, 149, 0.12);
+}
+
+.schedule-shell__student-lesson-detail-hint,
+.student-lesson-history__detail-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  width: max-content;
+  margin-top: 0.28rem;
+  color: #7c3aed;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.schedule-shell__student-lesson-detail-hint svg,
+.student-lesson-history__detail-hint svg {
+  transition: transform 160ms ease;
+}
+
+.schedule-shell__student-lesson--clickable:hover .schedule-shell__student-lesson-detail-hint svg,
+.student-lesson-history__item--clickable:hover .student-lesson-history__detail-hint svg {
+  transform: translateX(2px);
+}
+
+.student-lesson-capsule {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(14px) saturate(118%);
+  animation: studentLessonCapsuleBackdropIn 180ms ease-out both;
+}
+
+.student-lesson-capsule__dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(66rem, 100%);
+  max-height: min(92dvh, 58rem);
+  overflow: hidden;
+  border: 1px solid rgba(196, 181, 253, 0.72);
+  border-radius: 1.7rem;
+  background:
+    radial-gradient(circle at 8% -4%, rgba(221, 214, 254, 0.68), transparent 32%),
+    radial-gradient(circle at 92% 0%, rgba(186, 230, 253, 0.48), transparent 30%),
+    rgba(255, 255, 255, 0.98);
+  box-shadow: 0 36px 90px rgba(30, 41, 59, 0.3), 0 8px 30px rgba(88, 28, 135, 0.14);
+  animation: studentLessonCapsuleDialogIn 220ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+.student-lesson-capsule__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.35rem 1.05rem;
+  border-bottom: 1px solid rgba(196, 181, 253, 0.55);
+}
+
+.student-lesson-capsule__heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.student-lesson-capsule__hero-icon {
+  display: inline-flex;
+  width: 2.9rem;
+  height: 2.9rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(167, 139, 250, 0.62);
+  border-radius: 1rem;
+  color: #fff;
+  background: linear-gradient(145deg, #7c3aed, #4f46e5 62%, #0284c7);
+  box-shadow: 0 12px 24px rgba(109, 40, 217, 0.24);
+}
+
+.student-lesson-capsule__eyebrow {
+  display: block;
+  margin-bottom: 0.22rem;
+  color: #7c3aed;
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.student-lesson-capsule__heading h2 {
+  margin: 0;
+  color: #172033;
+  font-size: clamp(1.15rem, 2.2vw, 1.55rem);
+  font-weight: 850;
+  line-height: 1.18;
+  text-transform: capitalize;
+}
+
+.student-lesson-capsule__time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  color: #64748b;
+  font-size: 0.76rem;
+}
+
+.student-lesson-capsule__time strong {
+  color: #334155;
+}
+
+.student-lesson-capsule__time span {
+  padding-left: 0.15rem;
+  color: #94a3b8;
+  font-weight: 650;
+}
+
+.student-lesson-capsule__close {
+  display: inline-flex;
+  width: 2.45rem;
+  height: 2.45rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 0.85rem;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 18px rgba(30, 41, 59, 0.08);
+  transition: border-color 150ms ease, color 150ms ease, transform 150ms ease, background 150ms ease;
+}
+
+.student-lesson-capsule__close:hover {
+  border-color: #c4b5fd;
+  color: #6d28d9;
+  background: #f5f3ff;
+  transform: translateY(-1px);
+}
+
+.student-lesson-capsule__close:focus-visible,
+.student-lesson-capsule a:focus-visible,
+.student-lesson-capsule button:focus-visible {
+  outline: 3px solid rgba(139, 92, 246, 0.28);
+  outline-offset: 2px;
+}
+
+.student-lesson-capsule__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.1rem 1.35rem 1.4rem;
+  scrollbar-gutter: stable;
+}
+
+.student-lesson-capsule__topic {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(167, 139, 250, 0.55);
+  border-radius: 1rem;
+  background: linear-gradient(135deg, rgba(245, 243, 255, 0.96), rgba(239, 246, 255, 0.9));
+}
+
+.student-lesson-capsule__topic > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  color: #7c3aed;
+  font-size: 0.67rem;
+  font-weight: 820;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.student-lesson-capsule__topic > strong {
+  color: #242b3d;
+  font-size: 0.96rem;
+  line-height: 1.4;
+}
+
+.student-lesson-capsule__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.72rem;
+}
+
+.student-lesson-capsule__summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.32rem 0.58rem;
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  border-radius: 999px;
+  color: #475569;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 0.69rem;
+  font-weight: 720;
+}
+
+.student-lesson-capsule__state {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 8rem;
+  margin-top: 0.9rem;
+  padding: 1rem;
+  border: 1px dashed rgba(148, 163, 184, 0.72);
+  border-radius: 1.1rem;
+  color: #64748b;
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.student-lesson-capsule__state > svg {
+  flex: 0 0 auto;
+  color: #8b5cf6;
+}
+
+.student-lesson-capsule__state > div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.student-lesson-capsule__state strong {
+  color: #334155;
+  font-size: 0.88rem;
+}
+
+.student-lesson-capsule__state span {
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.student-lesson-capsule__state > button,
+.student-lesson-capsule__inline-state > button {
+  margin-left: auto;
+  border: 1px solid #c4b5fd;
+  border-radius: 0.7rem;
+  padding: 0.4rem 0.65rem;
+  color: #6d28d9;
+  background: #f5f3ff;
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
+.student-lesson-capsule__state--error {
+  border-color: rgba(251, 113, 133, 0.55);
+  color: #be123c;
+  background: rgba(255, 241, 242, 0.72);
+}
+
+.student-lesson-capsule__state--error > svg,
+.student-lesson-capsule__state--error strong {
+  color: #e11d48;
+}
+
+.student-lesson-capsule__groups {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.student-lesson-capsule__group {
+  overflow: hidden;
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  border-radius: 1.15rem;
+  background: rgba(248, 250, 252, 0.7);
+  box-shadow: 0 10px 28px rgba(30, 41, 59, 0.06);
+}
+
+.student-lesson-capsule__group-heading {
+  padding: 0.78rem 0.9rem 0.7rem;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.72);
+  background: linear-gradient(90deg, rgba(245, 243, 255, 0.92), rgba(240, 249, 255, 0.82));
+}
+
+.student-lesson-capsule__group-heading > span {
+  display: block;
+  color: #8b5cf6;
+  font-size: 0.62rem;
+  font-weight: 820;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.student-lesson-capsule__group-heading h3 {
+  margin: 0.18rem 0 0;
+  color: #273149;
+  font-size: 0.9rem;
+  font-weight: 820;
+}
+
+.student-lesson-capsule__materials {
+  display: grid;
+  gap: 0.72rem;
+  padding: 0.72rem;
+}
+
+.student-lesson-capsule__material {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.96);
+  border-radius: 0.95rem;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.student-lesson-capsule__material-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.72rem 0.78rem;
+}
+
+.student-lesson-capsule__material-icon {
+  display: inline-flex;
+  width: 2.15rem;
+  height: 2.15rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(196, 181, 253, 0.68);
+  border-radius: 0.72rem;
+  color: #6d28d9;
+  background: #f5f3ff;
+}
+
+.student-lesson-capsule__material-name {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 0.12rem;
+}
+
+.student-lesson-capsule__material-name strong {
+  overflow: hidden;
+  color: #273149;
+  font-size: 0.81rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-lesson-capsule__material-name span {
+  overflow: hidden;
+  color: #7c8ba1;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-lesson-capsule__open-file {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid rgba(196, 181, 253, 0.8);
+  border-radius: 0.7rem;
+  padding: 0.42rem 0.58rem;
+  color: #6d28d9;
+  background: #faf8ff;
+  font-size: 0.68rem;
+  font-weight: 760;
+  text-decoration: none;
+}
+
+.student-lesson-capsule__code {
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  background: #101827;
+}
+
+.student-lesson-capsule__code pre {
+  max-height: 24rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.9rem 1rem;
+  color: #dbeafe;
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.62;
+  tab-size: 4;
+  white-space: pre;
+}
+
+.student-lesson-capsule__inline-state {
+  display: flex;
+  min-height: 4.5rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+}
+
+.student-lesson-capsule__inline-state--error {
+  color: #fecdd3;
+}
+
+.student-lesson-capsule__board-image,
+.student-lesson-capsule__snapshot > a {
+  display: block;
+  overflow: hidden;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  background: #eef2ff;
+}
+
+.student-lesson-capsule__board-image img,
+.student-lesson-capsule__snapshot img {
+  display: block;
+  width: 100%;
+  max-height: 31rem;
+  object-fit: contain;
+  background: #fff;
+}
+
+.student-lesson-capsule__snapshot {
+  margin: 0;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.student-lesson-capsule__snapshot figcaption {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.55rem 0.78rem;
+  color: #5b6480;
+  background: #f8fafc;
+  font-size: 0.68rem;
+  font-weight: 710;
+}
+
+.student-lesson-capsule__snapshot figcaption > svg {
+  color: #7c3aed;
+}
+
+.student-lesson-capsule__snapshot figcaption > em {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 0.64rem;
+  font-style: normal;
+  font-weight: 650;
+}
+
+html[data-theme='dark'] .schedule-shell__student-lesson-detail-hint,
+html[data-theme='dark'] .student-lesson-history__detail-hint {
+  color: #c4b5fd;
+}
+
+html[data-theme='dark'] .student-lesson-capsule {
+  background: rgba(2, 6, 23, 0.72);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__dialog {
+  border-color: rgba(129, 140, 248, 0.48);
+  background:
+    radial-gradient(circle at 8% -4%, rgba(91, 33, 182, 0.28), transparent 34%),
+    radial-gradient(circle at 92% 0%, rgba(3, 105, 161, 0.23), transparent 31%),
+    rgba(10, 17, 32, 0.985);
+  box-shadow: 0 42px 100px rgba(0, 0, 0, 0.58), 0 8px 30px rgba(76, 29, 149, 0.24);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__header {
+  border-bottom-color: rgba(99, 102, 241, 0.28);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__eyebrow,
+html[data-theme='dark'] .student-lesson-capsule__topic > span,
+html[data-theme='dark'] .student-lesson-capsule__group-heading > span {
+  color: #c4b5fd;
+}
+
+html[data-theme='dark'] .student-lesson-capsule__heading h2,
+html[data-theme='dark'] .student-lesson-capsule__topic > strong,
+html[data-theme='dark'] .student-lesson-capsule__state strong,
+html[data-theme='dark'] .student-lesson-capsule__group-heading h3,
+html[data-theme='dark'] .student-lesson-capsule__material-name strong {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .student-lesson-capsule__time,
+html[data-theme='dark'] .student-lesson-capsule__time span,
+html[data-theme='dark'] .student-lesson-capsule__material-name span {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .student-lesson-capsule__time strong {
+  color: #dbeafe;
+}
+
+html[data-theme='dark'] .student-lesson-capsule__close {
+  border-color: rgba(100, 116, 139, 0.55);
+  color: #cbd5e1;
+  background: rgba(30, 41, 59, 0.78);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__close:hover {
+  border-color: #8b5cf6;
+  color: #ede9fe;
+  background: rgba(76, 29, 149, 0.48);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__topic {
+  border-color: rgba(124, 58, 237, 0.42);
+  background: linear-gradient(135deg, rgba(46, 16, 101, 0.42), rgba(12, 74, 110, 0.28));
+}
+
+html[data-theme='dark'] .student-lesson-capsule__summary > span {
+  border-color: rgba(71, 85, 105, 0.72);
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__state {
+  border-color: rgba(100, 116, 139, 0.62);
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.62);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__state--error {
+  border-color: rgba(244, 63, 94, 0.48);
+  color: #fda4af;
+  background: rgba(76, 5, 25, 0.3);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__group {
+  border-color: rgba(71, 85, 105, 0.65);
+  background: rgba(15, 23, 42, 0.62);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__group-heading {
+  border-bottom-color: rgba(71, 85, 105, 0.62);
+  background: linear-gradient(90deg, rgba(46, 16, 101, 0.38), rgba(12, 74, 110, 0.24));
+}
+
+html[data-theme='dark'] .student-lesson-capsule__material {
+  border-color: rgba(71, 85, 105, 0.62);
+  background: rgba(15, 23, 42, 0.86);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__material-icon {
+  border-color: rgba(139, 92, 246, 0.48);
+  color: #ddd6fe;
+  background: rgba(76, 29, 149, 0.42);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__open-file {
+  border-color: rgba(139, 92, 246, 0.48);
+  color: #ddd6fe;
+  background: rgba(76, 29, 149, 0.32);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__code,
+html[data-theme='dark'] .student-lesson-capsule__board-image,
+html[data-theme='dark'] .student-lesson-capsule__snapshot > a {
+  border-color: rgba(51, 65, 85, 0.8);
+  background: #050a14;
+}
+
+html[data-theme='dark'] .student-lesson-capsule__snapshot {
+  border-top-color: rgba(51, 65, 85, 0.8);
+}
+
+html[data-theme='dark'] .student-lesson-capsule__snapshot figcaption {
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.92);
+}
+
+@media (max-width: 640px) {
+  .student-lesson-capsule {
+    align-items: end;
+    padding: 0;
+  }
+
+  .student-lesson-capsule__dialog {
+    width: 100%;
+    max-height: 94dvh;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 1.4rem 1.4rem 0 0;
+  }
+
+  .student-lesson-capsule__header,
+  .student-lesson-capsule__body {
+    padding-right: 0.9rem;
+    padding-left: 0.9rem;
+  }
+
+  .student-lesson-capsule__hero-icon {
+    width: 2.45rem;
+    height: 2.45rem;
+    border-radius: 0.82rem;
+  }
+
+  .student-lesson-capsule__open-file > span {
+    display: none;
+  }
+
+  .student-lesson-capsule__state {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .student-lesson-capsule__state > button {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student-lesson-capsule,
+  .student-lesson-capsule__dialog {
+    animation: none !important;
+  }
+
+  .schedule-shell__student-lesson-detail-hint svg,
+  .student-lesson-history__detail-hint svg {
+    transition: none !important;
+  }
+}
+
+@keyframes studentLessonCapsuleBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes studentLessonCapsuleDialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Weekly progress recap: compact entry point + premium dialog */
+.student-weekly-recap-trigger {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  min-height: 44px;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.55rem;
+  overflow: hidden;
+  border: 1px solid rgba(167, 139, 250, 0.42);
+  border-radius: 999px;
+  padding: 0.32rem 0.45rem 0.32rem 0.36rem;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.94), rgba(245, 243, 255, 0.9) 55%, rgba(240, 249, 255, 0.88));
+  color: rgb(var(--ink));
+  box-shadow: 0 9px 24px rgba(99, 102, 241, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(18px);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.student-weekly-recap-trigger::before {
+  position: absolute;
+  inset: -70% auto -70% -28%;
+  z-index: -1;
+  width: 38%;
+  content: '';
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.82), transparent);
+  transform: rotate(16deg) translateX(-210%);
+  transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.student-weekly-recap-trigger:hover {
+  border-color: rgba(139, 92, 246, 0.62);
+  box-shadow: 0 13px 30px rgba(124, 58, 237, 0.17), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transform: translateY(-2px);
+}
+
+.student-weekly-recap-trigger:hover::before {
+  transform: rotate(16deg) translateX(440%);
+}
+
+.student-weekly-recap-trigger:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.student-weekly-recap-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25), 0 13px 30px rgba(124, 58, 237, 0.17);
+}
+
+.student-weekly-recap-trigger__icon {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.78rem;
+  color: #fff;
+  background: linear-gradient(135deg, #7c3aed, #a855f7 55%, #d946ef);
+  box-shadow: 0 7px 16px rgba(124, 58, 237, 0.26);
+}
+
+.student-weekly-recap-trigger__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.05;
+}
+
+.student-weekly-recap-trigger__copy strong {
+  white-space: nowrap;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.student-weekly-recap-trigger__copy small {
+  max-width: 10rem;
+  margin-top: 0.2rem;
+  overflow: hidden;
+  color: rgb(var(--ink-soft));
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-weekly-recap-trigger__xp {
+  display: none;
+  flex: 0 0 auto;
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  border-radius: 999px;
+  padding: 0.26rem 0.5rem;
+  color: #7c3aed;
+  background: rgba(139, 92, 246, 0.09);
+  font-size: 0.62rem;
+  font-weight: 850;
+}
+
+.student-weekly-recap-trigger__arrow {
+  display: inline-flex;
+  width: 1.7rem;
+  height: 1.7rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #7c3aed;
+  background: rgba(139, 92, 246, 0.09);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), background 180ms ease;
+}
+
+.student-weekly-recap-trigger:hover .student-weekly-recap-trigger__arrow {
+  background: rgba(139, 92, 246, 0.16);
+  transform: translateX(2px);
+}
+
+.student-weekly-recap-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1450;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(7px) saturate(112%);
+  animation: studentWeeklyRecapBackdropIn 180ms ease-out both;
+}
+
+.student-weekly-recap-dialog {
+  position: relative;
+  display: flex;
+  width: min(64rem, 100%);
+  max-height: min(52rem, calc(100dvh - 2rem));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(196, 181, 253, 0.58);
+  border-radius: 2rem;
+  background: rgb(var(--surface));
+  box-shadow: 0 32px 110px rgba(15, 23, 42, 0.32), 0 8px 28px rgba(99, 102, 241, 0.16);
+  animation: studentWeeklyRecapDialogIn 250ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.student-weekly-recap-modal.is-closing {
+  pointer-events: none;
+  animation: studentWeeklyRecapBackdropOut 180ms ease-in both;
+}
+
+.student-weekly-recap-modal.is-closing .student-weekly-recap-dialog {
+  animation: studentWeeklyRecapDialogOut 180ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+.student-weekly-recap-dialog__glow {
+  position: absolute;
+  z-index: 0;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(54px);
+}
+
+.student-weekly-recap-dialog__glow--one {
+  top: -6rem;
+  right: -4rem;
+  width: 16rem;
+  height: 16rem;
+  background: rgba(168, 85, 247, 0.18);
+}
+
+.student-weekly-recap-dialog__glow--two {
+  bottom: -7rem;
+  left: -5rem;
+  width: 18rem;
+  height: 18rem;
+  background: rgba(56, 189, 248, 0.13);
+}
+
+.student-weekly-recap-dialog__header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.62);
+  padding: 1rem 1.15rem;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.9), rgba(245, 243, 255, 0.8), rgba(240, 249, 255, 0.74));
+  backdrop-filter: blur(22px);
+}
+
+.student-weekly-recap-dialog__emblem {
+  display: inline-flex;
+  width: 3rem;
+  height: 3rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1rem;
+  color: #fff;
+  background: linear-gradient(135deg, #7c3aed, #a855f7 55%, #d946ef);
+  box-shadow: 0 12px 26px rgba(124, 58, 237, 0.26);
+}
+
+.student-weekly-recap-dialog__eyebrow {
+  color: #7c3aed;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.student-weekly-recap-dialog__title {
+  margin-top: 0.12rem;
+  font-size: clamp(1.15rem, 2.5vw, 1.55rem);
+  font-weight: 900;
+  line-height: 1.05;
+}
+
+.student-weekly-recap-dialog__subtitle {
+  margin-top: 0.24rem;
+  color: rgb(var(--ink-soft));
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.student-weekly-recap-dialog__xp {
+  flex: 0 0 auto;
+  border: 1px solid rgba(167, 139, 250, 0.42);
+  border-radius: 999px;
+  padding: 0.42rem 0.68rem;
+  color: #7c3aed;
+  background: rgba(139, 92, 246, 0.1);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.student-weekly-recap-dialog__close {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  border-radius: 0.9rem;
+  color: rgb(var(--ink-soft));
+  background: rgba(255, 255, 255, 0.76);
+  transition: transform 160ms ease, border-color 160ms ease, color 160ms ease, background 160ms ease;
+}
+
+.student-weekly-recap-dialog__close:hover {
+  border-color: rgba(167, 139, 250, 0.72);
+  color: #7c3aed;
+  background: rgba(245, 243, 255, 0.96);
+  transform: rotate(3deg) scale(1.04);
+}
+
+.student-weekly-recap-dialog__close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.24);
+}
+
+.student-weekly-recap-dialog__scroll {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.student-weekly-recap-dialog__content {
+  padding: 1rem 1.15rem 1.25rem;
+}
+
+.student-weekly-recap-summary > * {
+  animation: studentWeeklyRecapContentIn 330ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.student-weekly-recap-summary > :nth-child(2) { animation-delay: 35ms; }
+.student-weekly-recap-summary > :nth-child(3) { animation-delay: 70ms; }
+.student-weekly-recap-summary > :nth-child(4) { animation-delay: 105ms; }
+
+.student-weekly-recap-stat {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.student-weekly-recap-stat:hover {
+  border-color: rgba(167, 139, 250, 0.5);
+  box-shadow: 0 12px 26px rgba(99, 102, 241, 0.1);
+  transform: translateY(-2px);
+}
+
+html[data-theme='dark'] .student-weekly-recap-trigger {
+  border-color: rgba(139, 92, 246, 0.4);
+  background: linear-gradient(120deg, rgba(15, 23, 42, 0.9), rgba(30, 27, 75, 0.84), rgba(8, 47, 73, 0.74));
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+html[data-theme='dark'] .student-weekly-recap-trigger__xp,
+html[data-theme='dark'] .student-weekly-recap-dialog__xp {
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.16);
+}
+
+html[data-theme='dark'] .student-weekly-recap-modal {
+  background: rgba(2, 6, 23, 0.7);
+}
+
+html[data-theme='dark'] .student-weekly-recap-dialog {
+  border-color: rgba(139, 92, 246, 0.32);
+  background: rgb(var(--surface));
+  box-shadow: 0 34px 120px rgba(0, 0, 0, 0.58), 0 10px 30px rgba(76, 29, 149, 0.2);
+}
+
+html[data-theme='dark'] .student-weekly-recap-dialog__header {
+  border-bottom-color: rgba(71, 85, 105, 0.64);
+  background: linear-gradient(115deg, rgba(15, 23, 42, 0.94), rgba(30, 27, 75, 0.88), rgba(8, 47, 73, 0.8));
+}
+
+html[data-theme='dark'] .student-weekly-recap-dialog__close {
+  border-color: rgba(100, 116, 139, 0.48);
+  background: rgba(15, 23, 42, 0.76);
+}
+
+@media (min-width: 700px) {
+  .student-weekly-recap-trigger__xp {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .student-weekly-recap-modal {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .student-weekly-recap-dialog {
+    width: 100%;
+    max-height: 92dvh;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 1.65rem 1.65rem 0 0;
+    animation-name: studentWeeklyRecapSheetIn;
+    animation-duration: 270ms;
+  }
+
+  .student-weekly-recap-dialog::before {
+    position: absolute;
+    top: 0.42rem;
+    left: 50%;
+    z-index: 5;
+    width: 2.7rem;
+    height: 0.24rem;
+    border-radius: 999px;
+    content: '';
+    background: rgba(148, 163, 184, 0.48);
+    transform: translateX(-50%);
+  }
+
+  .student-weekly-recap-modal.is-closing .student-weekly-recap-dialog {
+    animation-name: studentWeeklyRecapSheetOut;
+  }
+
+  .student-weekly-recap-dialog__header {
+    gap: 0.65rem;
+    padding: 1.15rem 0.85rem 0.8rem;
+  }
+
+  .student-weekly-recap-dialog__emblem {
+    width: 2.55rem;
+    height: 2.55rem;
+    border-radius: 0.86rem;
+  }
+
+  .student-weekly-recap-dialog__subtitle,
+  .student-weekly-recap-dialog__xp {
+    display: none;
+  }
+
+  .student-weekly-recap-dialog__content {
+    padding: 0.85rem 0.85rem calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .student-weekly-recap-trigger__copy small {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student-weekly-recap-trigger,
+  .student-weekly-recap-trigger::before,
+  .student-weekly-recap-trigger__arrow,
+  .student-weekly-recap-modal,
+  .student-weekly-recap-dialog,
+  .student-weekly-recap-summary > *,
+  .student-weekly-recap-stat {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@keyframes studentWeeklyRecapBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes studentWeeklyRecapBackdropOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes studentWeeklyRecapDialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes studentWeeklyRecapDialogOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(9px) scale(0.982);
+  }
+}
+
+@keyframes studentWeeklyRecapSheetIn {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes studentWeeklyRecapSheetOut {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+
+@keyframes studentWeeklyRecapContentIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.student-weekly-recap-modal--celebration:not(.is-closing) {
+  background:
+    radial-gradient(circle at 50% 28%, rgba(168, 85, 247, 0.24), transparent 34%),
+    radial-gradient(circle at 18% 78%, rgba(56, 189, 248, 0.16), transparent 28%),
+    rgba(15, 23, 42, 0.48);
+  background-size: 118% 118%, 124% 124%, auto;
+  animation:
+    studentWeeklyRecapCelebrationBackdropIn 360ms ease-out both,
+    studentWeeklyRecapBackdropAmbient 10s 1.2s ease-in-out infinite;
+}
+
+.student-weekly-recap-dialog--celebration {
+  border-color: rgba(192, 132, 252, 0.72);
+}
+
+.student-weekly-recap-modal--celebration:not(.is-closing) .student-weekly-recap-dialog--celebration {
+  animation: studentWeeklyRecapCelebrationIn 620ms cubic-bezier(0.16, 1.18, 0.32, 1) both;
+}
+
+.student-weekly-recap-modal.is-closing .student-weekly-recap-dialog--celebration {
+  animation: studentWeeklyRecapDialogOut 180ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+.student-weekly-recap-dialog__header--celebration {
+  background:
+    radial-gradient(circle at 12% 12%, rgba(255, 255, 255, 0.82), transparent 25%),
+    linear-gradient(115deg, rgba(250, 245, 255, 0.96), rgba(245, 243, 255, 0.94) 46%, rgba(236, 254, 255, 0.88));
+}
+
+.student-weekly-recap-dialog__header--celebration .student-weekly-recap-dialog__emblem {
+  background: linear-gradient(145deg, #f59e0b, #f97316 48%, #a855f7);
+  box-shadow: 0 12px 30px rgba(249, 115, 22, 0.3), 0 0 0 7px rgba(250, 204, 21, 0.11);
+  animation:
+    studentWeeklyRecapTrophyIn 720ms 180ms cubic-bezier(0.16, 1.25, 0.32, 1) both,
+    studentWeeklyRecapTrophyAmbient 5.6s 1.5s ease-in-out infinite;
+}
+
+.student-weekly-recap-dialog--celebration .student-weekly-recap-dialog__xp {
+  animation: studentWeeklyRecapXpAmbient 4.2s 1.35s ease-in-out infinite;
+}
+
+.student-weekly-recap-celebration-particles {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.student-weekly-recap-celebration-particle {
+  --particle-color: #a855f7;
+  position: absolute;
+  top: 2.5rem;
+  left: var(--particle-x);
+  width: 0.42rem;
+  height: 0.8rem;
+  border-radius: 0.16rem;
+  opacity: 0;
+  background: var(--particle-color);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--particle-color) 58%, transparent);
+  animation: studentWeeklyRecapParticleBurst var(--particle-duration) var(--particle-delay) cubic-bezier(0.2, 0.74, 0.36, 1) both;
+}
+
+.student-weekly-recap-celebration-particle.is-tone-1 {
+  --particle-color: #f59e0b;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+}
+
+.student-weekly-recap-celebration-particle.is-tone-2 {
+  --particle-color: #22d3ee;
+  width: 0.34rem;
+  height: 0.92rem;
+}
+
+.student-weekly-recap-celebration-particle.is-tone-3 {
+  --particle-color: #f472b6;
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 0.08rem;
+}
+
+.student-weekly-recap-celebration {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(167, 139, 250, 0.48);
+  border-radius: 1.35rem;
+  padding: 1rem;
+  background:
+    radial-gradient(circle at 8% 22%, rgba(250, 204, 21, 0.15), transparent 25%),
+    radial-gradient(circle at 92% 14%, rgba(217, 70, 239, 0.14), transparent 26%),
+    linear-gradient(135deg, rgba(250, 245, 255, 0.95), rgba(245, 243, 255, 0.9) 52%, rgba(236, 254, 255, 0.88));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.82), 0 14px 34px rgba(124, 58, 237, 0.1);
+}
+
+.student-weekly-recap-celebration::before,
+.student-weekly-recap-celebration::after {
+  position: absolute;
+  z-index: 0;
+  content: '';
+  pointer-events: none;
+}
+
+.student-weekly-recap-celebration::before {
+  top: -110%;
+  bottom: -110%;
+  left: -22%;
+  width: 16%;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.54), transparent);
+  filter: blur(2px);
+  transform: rotate(17deg) translateX(-260%);
+}
+
+.student-weekly-recap-celebration::after {
+  inset: -20%;
+  opacity: 0.08;
+  background: radial-gradient(circle at 82% 28%, rgba(217, 70, 239, 0.52), transparent 24%);
+}
+
+.student-weekly-recap-celebration > * {
+  position: relative;
+  z-index: 1;
+}
+
+.student-weekly-recap-celebration.is-celebration {
+  animation:
+    studentWeeklyRecapRankCardIn 520ms 480ms cubic-bezier(0.16, 1.16, 0.32, 1) both,
+    studentWeeklyRecapAmbientGlow 6.4s 1.4s ease-in-out infinite;
+}
+
+.student-weekly-recap-celebration.is-celebration::before {
+  animation: studentWeeklyRecapAmbientSheen 5.4s 1.5s ease-in-out infinite;
+}
+
+.student-weekly-recap-celebration.is-celebration::after {
+  animation: studentWeeklyRecapAmbientAurora 6.8s 1.3s ease-in-out infinite;
+}
+
+.student-weekly-recap-celebration__ambient {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.student-weekly-recap-celebration__ambient::before,
+.student-weekly-recap-celebration__ambient::after {
+  position: absolute;
+  content: '';
+  pointer-events: none;
+}
+
+.student-weekly-recap-celebration__ambient::before {
+  inset: 2px;
+  border: 1px solid rgba(192, 132, 252, 0.32);
+  border-radius: calc(1.35rem - 2px);
+  box-shadow: inset 0 0 18px rgba(168, 85, 247, 0.06);
+  animation: studentWeeklyRecapAmbientRing 3.8s ease-in-out infinite;
+}
+
+.student-weekly-recap-celebration__ambient::after {
+  top: 1px;
+  left: -26%;
+  width: 24%;
+  height: 2px;
+  border-radius: 999px;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, #fbbf24 36%, #e879f9 68%, transparent);
+  box-shadow: 0 0 10px rgba(217, 70, 239, 0.52);
+  animation: studentWeeklyRecapAmbientRail 4.8s 1.2s ease-in-out infinite;
+}
+
+.student-weekly-recap-celebration__ambient > i {
+  position: absolute;
+  width: 0.74rem;
+  height: 0.74rem;
+  opacity: 0;
+  background: linear-gradient(145deg, #fbbf24, #f472b6);
+  clip-path: polygon(50% 0, 61% 38%, 100% 50%, 61% 62%, 50% 100%, 39% 62%, 0 50%, 39% 38%);
+  filter: drop-shadow(0 0 7px rgba(245, 158, 11, 0.58));
+  animation: studentWeeklyRecapAmbientSparkle 5.2s ease-in-out infinite;
+}
+
+.student-weekly-recap-celebration__ambient > .is-one {
+  top: 18%;
+  left: 13%;
+  animation-delay: 1.1s;
+}
+
+.student-weekly-recap-celebration__ambient > .is-two {
+  top: 24%;
+  right: 13%;
+  width: 0.62rem;
+  height: 0.62rem;
+  animation-delay: 2.7s;
+}
+
+.student-weekly-recap-celebration__ambient > .is-three {
+  right: 27%;
+  bottom: 16%;
+  width: 0.52rem;
+  height: 0.52rem;
+  animation-delay: 4.3s;
+}
+
+.student-weekly-recap-celebration__halo {
+  position: relative;
+  display: inline-flex;
+  width: 4rem;
+  height: 4rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(251, 191, 36, 0.48);
+  border-radius: 1.35rem;
+  color: #fff;
+  background: linear-gradient(145deg, #f59e0b, #f97316 52%, #a855f7);
+  box-shadow: 0 16px 28px rgba(249, 115, 22, 0.24), 0 0 0 8px rgba(250, 204, 21, 0.08);
+}
+
+.student-weekly-recap-celebration__halo > span {
+  position: absolute;
+  inset: -0.55rem;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 1.7rem;
+}
+
+.student-weekly-recap-celebration.is-celebration .student-weekly-recap-celebration__halo > span {
+  animation: studentWeeklyRecapHalo 900ms 600ms ease-out both;
+}
+
+.student-weekly-recap-celebration.is-celebration .student-weekly-recap-celebration__halo > svg {
+  animation: studentWeeklyRecapTrophyAmbient 5.2s 1.45s ease-in-out infinite;
+}
+
+.student-weekly-recap-celebration__copy {
+  min-width: 0;
+}
+
+.student-weekly-recap-celebration__eyebrow {
+  color: #7c3aed;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.student-weekly-recap-celebration__rank {
+  margin-top: 0.18rem;
+  color: rgb(var(--ink));
+  font-size: clamp(1rem, 2.4vw, 1.35rem);
+  font-weight: 900;
+  line-height: 1.12;
+}
+
+.student-weekly-recap-celebration__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  margin-top: 0.55rem;
+}
+
+.student-weekly-recap-celebration__badges > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
+  padding: 0.28rem 0.52rem;
+  color: rgb(var(--ink-soft));
+  background: rgba(255, 255, 255, 0.68);
+  font-size: 0.64rem;
+  font-weight: 780;
+}
+
+.student-weekly-recap-celebration__badges > .is-positive {
+  border-color: rgba(52, 211, 153, 0.34);
+  color: #047857;
+  background: rgba(236, 253, 245, 0.82);
+}
+
+.student-weekly-recap-celebration__badges > .is-negative {
+  border-color: rgba(251, 146, 60, 0.34);
+  color: #c2410c;
+  background: rgba(255, 247, 237, 0.82);
+}
+
+.student-weekly-recap-celebration__formula {
+  margin-top: 0.52rem;
+  color: rgb(var(--ink-soft));
+  font-size: 0.61rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.student-weekly-recap-celebration__place {
+  display: grid;
+  width: 4.4rem;
+  height: 4.4rem;
+  flex: 0 0 auto;
+  place-content: center;
+  border: 1px solid rgba(167, 139, 250, 0.46);
+  border-radius: 1.45rem;
+  color: #6d28d9;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.9), 0 10px 24px rgba(124, 58, 237, 0.1);
+  text-align: center;
+}
+
+.student-weekly-recap-celebration__place strong {
+  font-size: 1.7rem;
+  font-weight: 950;
+  line-height: 0.95;
+}
+
+.student-weekly-recap-celebration__place span {
+  margin-top: 0.2rem;
+  font-size: 0.6rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.student-weekly-recap-celebration.is-celebration .student-weekly-recap-celebration__place {
+  animation:
+    studentWeeklyRecapPlacePop 480ms 760ms cubic-bezier(0.16, 1.35, 0.32, 1) both,
+    studentWeeklyRecapPlaceAmbient 6.2s 1.5s ease-in-out infinite;
+}
+
+html[data-theme='dark'] .student-weekly-recap-dialog__header--celebration {
+  background:
+    radial-gradient(circle at 12% 12%, rgba(168, 85, 247, 0.18), transparent 26%),
+    linear-gradient(115deg, rgba(30, 27, 75, 0.96), rgba(46, 16, 101, 0.9) 48%, rgba(8, 47, 73, 0.88));
+}
+
+html[data-theme='dark'] .student-weekly-recap-celebration {
+  border-color: rgba(139, 92, 246, 0.42);
+  background:
+    radial-gradient(circle at 8% 22%, rgba(245, 158, 11, 0.12), transparent 26%),
+    radial-gradient(circle at 92% 14%, rgba(217, 70, 239, 0.13), transparent 28%),
+    linear-gradient(135deg, rgba(30, 27, 75, 0.74), rgba(46, 16, 101, 0.58) 52%, rgba(8, 47, 73, 0.56));
+}
+
+html[data-theme='dark'] .student-weekly-recap-celebration__badges > span,
+html[data-theme='dark'] .student-weekly-recap-celebration__place {
+  border-color: rgba(139, 92, 246, 0.35);
+  color: #ddd6fe;
+  background: rgba(15, 23, 42, 0.68);
+}
+
+html[data-theme='dark'] .student-weekly-recap-celebration__badges > .is-positive {
+  border-color: rgba(52, 211, 153, 0.3);
+  color: #6ee7b7;
+  background: rgba(6, 78, 59, 0.35);
+}
+
+html[data-theme='dark'] .student-weekly-recap-celebration__badges > .is-negative {
+  border-color: rgba(251, 146, 60, 0.3);
+  color: #fdba74;
+  background: rgba(124, 45, 18, 0.3);
+}
+
+@media (max-width: 640px) {
+  .student-weekly-recap-modal--celebration:not(.is-closing) .student-weekly-recap-dialog--celebration {
+    animation-name: studentWeeklyRecapCelebrationSheetIn;
+    animation-duration: 560ms;
+  }
+
+  .student-weekly-recap-celebration {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.85rem;
+  }
+
+  .student-weekly-recap-celebration__halo {
+    width: 3.15rem;
+    height: 3.15rem;
+    border-radius: 1.05rem;
+  }
+
+  .student-weekly-recap-celebration__place {
+    grid-column: 1 / -1;
+    width: auto;
+    height: auto;
+    grid-template-columns: auto auto;
+    gap: 0.3rem;
+    border-radius: 0.9rem;
+    padding: 0.48rem 0.72rem;
+  }
+
+  .student-weekly-recap-celebration__place strong {
+    font-size: 1.1rem;
+  }
+
+  .student-weekly-recap-celebration__place span {
+    margin: 0;
+    align-self: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student-weekly-recap-dialog__header--celebration .student-weekly-recap-dialog__emblem,
+  .student-weekly-recap-dialog--celebration .student-weekly-recap-dialog__xp,
+  .student-weekly-recap-celebration,
+  .student-weekly-recap-celebration::before,
+  .student-weekly-recap-celebration::after,
+  .student-weekly-recap-celebration__ambient > i,
+  .student-weekly-recap-celebration__ambient::before,
+  .student-weekly-recap-celebration__ambient::after,
+  .student-weekly-recap-celebration__halo > span,
+  .student-weekly-recap-celebration__halo > svg,
+  .student-weekly-recap-celebration__place {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .student-weekly-recap-celebration-particles {
+    display: none !important;
+  }
+}
+
+@keyframes studentWeeklyRecapCelebrationBackdropIn {
+  0% { opacity: 0; }
+  42% { opacity: 1; }
+  68% { filter: brightness(1.12); }
+  100% { opacity: 1; filter: brightness(1); }
+}
+
+@keyframes studentWeeklyRecapCelebrationIn {
+  0% { opacity: 0; transform: translateY(28px) scale(0.92); }
+  68% { opacity: 1; transform: translateY(-3px) scale(1.012); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentWeeklyRecapCelebrationSheetIn {
+  0% { opacity: 0; transform: translateY(100%); }
+  72% { opacity: 1; transform: translateY(-1.2%); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studentWeeklyRecapTrophyIn {
+  0% { opacity: 0; transform: rotate(-14deg) scale(0.55); }
+  70% { opacity: 1; transform: rotate(4deg) scale(1.08); }
+  100% { opacity: 1; transform: rotate(0) scale(1); }
+}
+
+@keyframes studentWeeklyRecapParticleBurst {
+  0% { opacity: 0; transform: translate3d(0, -18px, 0) rotate(0deg) scale(0.6); }
+  18% { opacity: 1; }
+  78% { opacity: 0.92; }
+  100% { opacity: 0; transform: translate3d(var(--particle-drift), 17rem, 0) rotate(var(--particle-rotate)) scale(1); }
+}
+
+@keyframes studentWeeklyRecapRankCardIn {
+  0% { opacity: 0; transform: translateY(16px) scale(0.97); }
+  72% { opacity: 1; transform: translateY(-2px) scale(1.008); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes studentWeeklyRecapHalo {
+  0% { opacity: 0.6; transform: scale(0.72); }
+  100% { opacity: 0; transform: scale(1.48); }
+}
+
+@keyframes studentWeeklyRecapPlacePop {
+  0% { opacity: 0; transform: scale(0.62) rotate(-5deg); }
+  72% { opacity: 1; transform: scale(1.08) rotate(1.5deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes studentWeeklyRecapTrophyAmbient {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  46% { transform: translateY(-4px) rotate(1.3deg); }
+  60% { transform: translateY(-3px) rotate(-1deg); }
+}
+
+@keyframes studentWeeklyRecapAmbientGlow {
+  0%, 100% { filter: drop-shadow(0 8px 12px rgba(124, 58, 237, 0.035)); }
+  50% { filter: drop-shadow(0 11px 17px rgba(124, 58, 237, 0.12)); }
+}
+
+@keyframes studentWeeklyRecapAmbientSheen {
+  0%, 46% { opacity: 0; transform: rotate(17deg) translateX(-260%); }
+  52% { opacity: 0.28; }
+  70% { opacity: 0.44; transform: rotate(17deg) translateX(760%); }
+  76%, 100% { opacity: 0; transform: rotate(17deg) translateX(760%); }
+}
+
+@keyframes studentWeeklyRecapAmbientAurora {
+  0%, 100% { opacity: 0.06; transform: translate3d(0, 0, 0) scale(0.98); }
+  50% { opacity: 0.14; transform: translate3d(-1.5%, 1%, 0) scale(1.03); }
+}
+
+@keyframes studentWeeklyRecapAmbientSparkle {
+  0%, 56%, 82%, 100% { opacity: 0; transform: scale(0.45) rotate(0deg); }
+  65% { opacity: 0.92; transform: scale(1.16) rotate(24deg); }
+  75% { opacity: 0.38; transform: scale(0.82) rotate(48deg); }
+}
+
+@keyframes studentWeeklyRecapBackdropAmbient {
+  0%, 100% { background-position: 50% 50%, 50% 50%; }
+  50% { background-position: 56% 46%, 44% 54%; }
+}
+
+@keyframes studentWeeklyRecapXpAmbient {
+  0%, 100% { transform: translateY(0); box-shadow: 0 0 0 0 rgba(168, 85, 247, 0); }
+  50% { transform: translateY(-2px); box-shadow: 0 7px 18px rgba(168, 85, 247, 0.17), 0 0 0 4px rgba(192, 132, 252, 0.08); }
+}
+
+@keyframes studentWeeklyRecapAmbientRing {
+  0%, 100% { border-color: rgba(192, 132, 252, 0.28); box-shadow: inset 0 0 18px rgba(168, 85, 247, 0.05); }
+  50% { border-color: rgba(217, 70, 239, 0.64); box-shadow: inset 0 0 24px rgba(168, 85, 247, 0.11), 0 0 14px rgba(168, 85, 247, 0.12); }
+}
+
+@keyframes studentWeeklyRecapAmbientRail {
+  0%, 36% { left: -26%; opacity: 0; }
+  44% { opacity: 0.95; }
+  70% { left: 102%; opacity: 0.82; }
+  76%, 100% { left: 102%; opacity: 0; }
+}
+
+@keyframes studentWeeklyRecapPlaceAmbient {
+  0%, 100% { filter: drop-shadow(0 5px 8px rgba(124, 58, 237, 0.025)); }
+  50% { filter: drop-shadow(0 7px 11px rgba(124, 58, 237, 0.14)); }
 }

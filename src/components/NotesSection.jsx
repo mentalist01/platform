@@ -200,6 +200,7 @@ const NotesSection = ({
   onSelectStudent,
   studentsLoading,
   initialLocation,
+  initialLocationKey = 0,
   onLocationChange,
   withStudentId,
   MOCK_TASKS,
@@ -277,10 +278,13 @@ const NotesSection = ({
   const [pyDraftError, setPyDraftError] = useState('');
   const [pyDraftSaving, setPyDraftSaving] = useState(false);
   const [fileSearch, setFileSearch] = useState('');
+  const [contentSearchFocus, setContentSearchFocus] = useState(null);
   const [_showMobileFolderTools, setShowMobileFolderTools] = useState(false);
   const restoringRef = useRef(false);
   const skipNullSaveRef = useRef(true);
   const pendingFolderIdRef = useRef(null);
+  const pendingFileIdRef = useRef(null);
+  const pendingContentQueryRef = useRef('');
   const folderRestoreTargetRef = useRef(null);
   const initializedStudentKeyRef = useRef('');
   const dragDepthRef = useRef(0);
@@ -505,19 +509,24 @@ const NotesSection = ({
 
   useEffect(() => {
     const studentKey = effectiveStudentId ? String(effectiveStudentId) : '';
-    if (initializedStudentKeyRef.current === studentKey) return;
-    initializedStudentKeyRef.current = studentKey;
+    const restoreKey = `${studentKey}:${String(initialLocationKey)}`;
+    if (initializedStudentKeyRef.current === restoreKey) return;
+    initializedStudentKeyRef.current = restoreKey;
 
     const entry = initialLocation && typeof initialLocation === 'object' ? initialLocation : null;
     const canUseSavedLocation = Boolean(studentKey)
       && (!entry?.studentId || String(entry.studentId) === studentKey);
     const normalizedTask = canUseSavedLocation ? normalizeTaskNumber(entry?.taskNumber) : null;
     const nextTask = Number.isFinite(normalizedTask) ? normalizedTask : null;
-    const nextCategory = nextTask ? DEFAULT_NOTES_CATEGORY : null;
+    const nextCategory = nextTask ? (entry?.category || DEFAULT_NOTES_CATEGORY) : null;
     const nextFolderId = nextTask ? (entry?.folderId || null) : null;
+    const nextFileId = nextTask ? String(entry?.fileId || '').trim() : '';
+    const nextContentQuery = nextFileId ? String(entry?.searchQuery || '').trim() : '';
 
     restoringRef.current = Boolean(nextFolderId);
     pendingFolderIdRef.current = nextFolderId;
+    pendingFileIdRef.current = nextFileId || null;
+    pendingContentQueryRef.current = nextContentQuery;
     folderRestoreTargetRef.current = null;
     skipNullSaveRef.current = true;
     setCurrentTask(nextTask);
@@ -526,6 +535,7 @@ const NotesSection = ({
     setFolders([]);
     setFoldersLoaded(false);
     setFiles([]);
+    setContentSearchFocus(null);
     setSelectedFolderId(null);
     setPressingFolderId(null);
     setSelectedFileIds({});
@@ -549,7 +559,7 @@ const NotesSection = ({
     setPyDraftError('');
     setPyDraftSaving(false);
     setShowMobileFolderTools(false);
-  }, [effectiveStudentId, initialLocation, normalizeTaskNumber]);
+  }, [effectiveStudentId, initialLocation, initialLocationKey, normalizeTaskNumber]);
   const taskCounts = useMemo(() => {
     const map = new Map();
     for (const f of files) {
@@ -617,14 +627,25 @@ const NotesSection = ({
   const folderCounts = useMemo(() => {
     if (!Number.isFinite(normalizedCurrentTask) || !currentCategory) return { root: 0, map: new Map() };
     const map = new Map();
+    const sharedRootByTask = new Map();
+    folders.forEach((folder) => {
+      if (!isLessonSharedFolder(folder) || normalizeParentFolderId(folder?.parentFolderId)) return;
+      const taskNumber = getNotesTaskNumber(folder?.taskNumber);
+      if (!Number.isFinite(taskNumber)) return;
+      sharedRootByTask.set(`${taskNumber}:${String(folder?.category || '')}`, String(folder?.id || '').trim());
+    });
     let root = 0;
     for (const f of files) {
       if (getNotesTaskNumber(f?.taskNumber) !== normalizedCurrentTask || f?.category !== currentCategory) continue;
-      if (f?.folderId) map.set(f.folderId, (map.get(f.folderId) || 0) + 1);
+      const sharedRootId = !f?.folderId && isLessonSharedFile(f)
+        ? sharedRootByTask.get(`${normalizedCurrentTask}:${String(currentCategory)}`)
+        : '';
+      const folderId = String(f?.folderId || sharedRootId || '').trim();
+      if (folderId) map.set(folderId, (map.get(folderId) || 0) + 1);
       else root += 1;
     }
     return { root, map };
-  }, [files, normalizedCurrentTask, currentCategory]);
+  }, [files, folders, normalizedCurrentTask, currentCategory]);
 
   const normalizedFolders = useMemo(() => {
     const ids = new Set((folders || []).map((folder) => String(folder?.id || '').trim()).filter(Boolean));
@@ -845,7 +866,7 @@ const NotesSection = ({
         setFilesError('Не удалось загрузить файлы. Проверьте, что сервер запущен.');
       });
     return () => { cancelled = true; };
-  }, [effectiveStudentId]);
+  }, [effectiveStudentId, initialLocationKey]);
 
   useEffect(() => {
     if (!Number.isFinite(normalizedCurrentTask) || !currentCategory || !effectiveStudentId) {
@@ -871,7 +892,7 @@ const NotesSection = ({
         setFoldersLoaded(true);
       });
     return () => { cancelled = true; };
-  }, [normalizedCurrentTask, currentCategory, effectiveStudentId]);
+  }, [normalizedCurrentTask, currentCategory, effectiveStudentId, initialLocationKey]);
 
   useEffect(() => {
     if (!pendingFolderIdRef.current) return;
@@ -1445,7 +1466,7 @@ const NotesSection = ({
 
   const isPyFile = (name) => name?.toLowerCase().endsWith('.py');
   const isPdfFile = (name) => name?.toLowerCase().endsWith('.pdf');
-  const isTextFile = (name) => /\.(txt|md|csv|tsv|json|xml|html?|css|js|jsx|ts|tsx|log)$/i.test(String(name || ''));
+  const isTextFile = (name) => /\.(txt|md|markdown|csv|tsv|json|jsonl|xml|html?|css|scss|js|jsx|ts|tsx|log|sql|ya?ml|toml|ini|cfg|ipynb|pyw|c|cpp|h|hpp|java|kt|go|rs|php|rb|sh|ps1|bat)$/i.test(String(name || ''));
   const isImageFile = (value) => {
     const name = typeof value === 'string' ? value : value?.name;
     const mime = typeof value === 'string' ? '' : value?.type;
@@ -2074,6 +2095,98 @@ const NotesSection = ({
     return null;
   };
 
+  useEffect(() => {
+    const fileId = String(pendingFileIdRef.current || '').trim();
+    if (!fileId || !Number.isFinite(normalizedCurrentTask) || !currentCategory) return;
+    const file = files.find((entry) => String(entry?.id || '') === fileId);
+    if (!file) return;
+    if (getNotesTaskNumber(file?.taskNumber) !== normalizedCurrentTask) return;
+    if (String(file?.category || '') !== String(currentCategory)) return;
+    const storedFolderId = String(file?.folderId || '').trim();
+    const sharedRootFolder = !storedFolderId && isLessonSharedFile(file)
+      ? folders.find((folder) => (
+        isLessonSharedFolder(folder)
+        && !normalizeParentFolderId(folder?.parentFolderId)
+        && getNotesTaskNumber(folder?.taskNumber) === normalizedCurrentTask
+        && String(folder?.category || '') === String(currentCategory)
+      ))
+      : null;
+    const expectedFolderId = storedFolderId || String(sharedRootFolder?.id || '').trim();
+    const activeFolderId = String(currentFolderId || '').trim();
+    if (expectedFolderId !== activeFolderId) {
+      if (expectedFolderId && folders.some((folder) => String(folder?.id || '').trim() === expectedFolderId)) {
+        setCurrentFolderId(expectedFolderId);
+      }
+      return;
+    }
+
+    pendingFileIdRef.current = null;
+    const contentQuery = String(pendingContentQueryRef.current || '').trim();
+    pendingContentQueryRef.current = '';
+    setFileSearch('');
+    setSelectedFileIds({ [fileId]: true });
+    if (contentQuery && isPyFile(file?.name)) {
+      setContentSearchFocus({ fileId, query: contentQuery });
+      setExpandedPyIds((current) => ({ ...current, [fileId]: true }));
+      void loadPyFileContent(file);
+    } else if (contentQuery && isTextFile(file?.name)) {
+      setContentSearchFocus({ fileId, query: contentQuery });
+      setExpandedTextIds((current) => ({ ...current, [fileId]: true }));
+    } else {
+      setContentSearchFocus(null);
+    }
+    let attempts = 0;
+    const reveal = () => {
+      const row = fileRowRefs.current.get(fileId);
+      if (!row && attempts < 8) {
+        attempts += 1;
+        window.requestAnimationFrame(reveal);
+        return;
+      }
+      row?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      row?.focus?.({ preventScroll: true });
+    };
+    window.requestAnimationFrame(reveal);
+    window.setTimeout(() => {
+      setSelectedFileIds((current) => {
+        if (!current?.[fileId]) return current;
+        const next = { ...current };
+        delete next[fileId];
+        return next;
+      });
+    }, 2200);
+  }, [currentCategory, currentFolderId, files, folders, normalizedCurrentTask]);
+
+  useEffect(() => {
+    const fileId = String(contentSearchFocus?.fileId || '').trim();
+    const query = String(contentSearchFocus?.query || '').trim().toLocaleLowerCase('ru-RU');
+    const isPythonPreview = Boolean(expandedPyIds[fileId]);
+    const isTextPreview = Boolean(expandedTextIds[fileId]);
+    if (!fileId || !query || (!isPythonPreview && !isTextPreview)) return undefined;
+    if (isPythonPreview && !Object.prototype.hasOwnProperty.call(pyContent, fileId)) return undefined;
+
+    let cancelled = false;
+    let attempts = 0;
+    const revealMatch = () => {
+      if (cancelled) return;
+      const previewId = `notes-preview-${fileId.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+      const preview = document.getElementById(previewId);
+      const lines = isPythonPreview && preview
+        ? Array.from(preview.querySelectorAll('.notes-python-code__line'))
+        : [];
+      const matchedLine = lines.find((line) => String(line?.textContent || '').toLocaleLowerCase('ru-RU').includes(query));
+      const target = matchedLine || preview;
+      if (!target && attempts < 10) {
+        attempts += 1;
+        window.requestAnimationFrame(revealMatch);
+        return;
+      }
+      target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    };
+    window.requestAnimationFrame(revealMatch);
+    return () => { cancelled = true; };
+  }, [contentSearchFocus, expandedPyIds, expandedTextIds, pyContent]);
+
   const handleDelete = async (file) => {
     if (!canManageFile(file)) {
       alert('Недостаточно прав для удаления этого файла.');
@@ -2662,9 +2775,13 @@ const NotesSection = ({
     getNotesTaskNumber(f?.taskNumber) === normalizedCurrentTask &&
     f.category === effectiveCategory
   );
-  const filtered = taskFiles.filter((f) => (
-    currentFolderId ? f.folderId === currentFolderId : !f.folderId
-  ));
+  const activeFolder = currentFolderId ? foldersById.get(currentFolderId) : null;
+  const filtered = taskFiles.filter((file) => {
+    const fileFolderId = String(file?.folderId || '').trim();
+    if (!currentFolderId) return !fileFolderId && !isLessonSharedFile(file);
+    if (fileFolderId === currentFolderId) return true;
+    return !fileFolderId && isLessonSharedFile(file) && isLessonSharedFolder(activeFolder);
+  });
   const uploadBlockedByRole = !canUploadToCurrentFolder;
   const getFolderPathSegments = (folderId) => {
     if (!folderId) return [];
@@ -3303,9 +3420,17 @@ const NotesSection = ({
                       ? getCodeInlinePreviewText(inlineCodeSource, pyLoadingId === f.id)
                       : '';
                     const cheatsheetSourceCode = isCheatsheet && hasLoadedPyContent ? String(pyContent[f.id] ?? '') : '';
-                    const cheatsheetLineCount = cheatsheetSourceCode
-                      ? cheatsheetSourceCode.split(/\r?\n/).length
-                      : 0;
+                    const contentMatchQuery = String(
+                      contentSearchFocus?.fileId === String(f.id) ? contentSearchFocus?.query : ''
+                    ).trim();
+                    const normalizedContentMatchQuery = contentMatchQuery.toLocaleLowerCase('ru-RU');
+                    const isContentSearchTarget = Boolean(contentMatchQuery);
+                    const textPreviewBaseUrl = isTextFile(f.name) ? getFileUrl(f) : '';
+                    const textPreviewUrl = textPreviewBaseUrl && isContentSearchTarget
+                      ? `${textPreviewBaseUrl}#:~:text=${encodeURIComponent(contentMatchQuery)}`
+                      : textPreviewBaseUrl;
+                    const cheatsheetSourceLines = cheatsheetSourceCode ? cheatsheetSourceCode.split(/\r?\n/) : [];
+                    const cheatsheetLineCount = cheatsheetSourceLines.length;
                     const canCopyCheatsheetCode = Boolean(
                       isCheatsheet
                         && !isEditingCurrentPy
@@ -3713,6 +3838,13 @@ const NotesSection = ({
                               <div className={`notes-generic-preview-reveal ${isCollapsingPreview ? 'is-closing' : ''}`}>
                                 <div className="notes-generic-preview-reveal__content">
                                   <div className={`notes-explorer-preview-panel notes-generic-preview-panel ${isCollapsingPreview ? 'is-closing' : ''} ${isSolutionBundle ? `notes-solution-preview-panel ${isCollapsingSolution ? 'is-closing' : ''}` : (isCheatsheet ? `notes-cheatsheet-preview-panel ${isCollapsingCheatsheet ? 'is-closing' : ''}` : 'space-y-3 rounded-xl border border-slate-200 bg-white p-2')}`}>
+                                {isContentSearchTarget && (
+                                  <div className="notes-content-search-match" role="status">
+                                    <Search size={14} aria-hidden="true" />
+                                    <span>Найдено в содержимом:</span>
+                                    <code>{contentMatchQuery}</code>
+                                  </div>
+                                )}
                                 {!isSolutionBundle && !isCheatsheet && (
                                   <div className="flex flex-wrap items-center justify-between gap-2">
                                     <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
@@ -4157,15 +4289,20 @@ const NotesSection = ({
                                               ? (
                                                 <pre className="notes-python-code notes-python-code--numbered language-python m-0 p-4 text-sm leading-6">
                                                   <code>
-                                                    {getHighlightedPythonLines(cheatsheetSourceCode, highlightPython).map((lineHtml, index) => (
-                                                      <span className="notes-python-code__line" key={`cheatsheet-line-${index}`}>
+                                                    {getHighlightedPythonLines(cheatsheetSourceCode, highlightPython).map((lineHtml, index) => {
+                                                      const rawLine = cheatsheetSourceLines[index] || '';
+                                                      const isMatchedLine = normalizedContentMatchQuery
+                                                        && rawLine.toLocaleLowerCase('ru-RU').includes(normalizedContentMatchQuery);
+                                                      return (
+                                                      <span className={`notes-python-code__line ${isMatchedLine ? 'is-search-match' : ''}`} key={`cheatsheet-line-${index}`}>
                                                         <span className="notes-python-code__line-number">{index + 1}</span>
                                                         <span
                                                           className="notes-python-code__line-content"
                                                           dangerouslySetInnerHTML={{ __html: lineHtml || '&nbsp;' }}
                                                         />
                                                       </span>
-                                                    ))}
+                                                      );
+                                                    })}
                                                   </code>
                                                 </pre>
                                               )
@@ -4218,9 +4355,16 @@ const NotesSection = ({
                               <div className={`notes-generic-preview-reveal ${isCollapsingPreview ? 'is-closing' : ''}`}>
                                 <div className="notes-generic-preview-reveal__content">
                                   <div className={`notes-explorer-preview-panel notes-generic-preview-panel overflow-hidden rounded-xl border border-slate-200 bg-white ${isCollapsingPreview ? 'is-closing' : ''}`}>
+                                    {isContentSearchTarget && (
+                                      <div className="notes-content-search-match" role="status">
+                                        <Search size={14} aria-hidden="true" />
+                                        <span>Найдено в содержимом:</span>
+                                        <code>{contentMatchQuery}</code>
+                                      </div>
+                                    )}
                                     <iframe
                                       title={f.name}
-                                      src={getFileUrl(f)}
+                                      src={textPreviewUrl}
                                       className="w-full"
                                       style={{ height: pdfPreviewHeight }}
                                     />

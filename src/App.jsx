@@ -42,6 +42,7 @@ import MobileStrategyGame from './components/MobileStrategyGame';
 import ProgressSection from './components/ProgressSection';
 import PythonSection from './components/PythonSection';
 import ScheduleSection from './components/ScheduleSection';
+import StudentGlobalSearch from './components/StudentGlobalSearch';
 import StudentTodayOverview from './components/StudentTodayOverview';
 import StudentLeaderboardSection from './components/StudentLeaderboardSection';
 import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
@@ -50,6 +51,7 @@ import StudentPaymentReminder from './components/StudentPaymentReminder';
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
+import StudentWeeklyRecap from './components/StudentWeeklyRecap';
 import SignupGuestChat from './components/SignupGuestChat';
 import TeacherCalendarSection from './components/TeacherCalendarSection';
 import TeacherFinanceSection from './components/TeacherFinanceSection';
@@ -1633,12 +1635,14 @@ const normalizeStoredOpenTask = (entry) => {
   const section = pythonTask ? 'python' : 'progress';
   const rawIndex = Number(entry.questionIndex);
   const questionIndex = Number.isFinite(rawIndex) && rawIndex >= 0 ? Math.floor(rawIndex) : null;
+  const subsectionId = String(entry.subsectionId || '').trim() || null;
   return {
     taskNumber: normalizedTaskNumber,
     levelId: pythonTask ? PYTHON_LEVEL_ID : entry.levelId,
     targetQuestions: Array.isArray(entry.targetQuestions) ? entry.targetQuestions : null,
     section,
-    questionIndex
+    questionIndex,
+    subsectionId,
   };
 };
 
@@ -13977,6 +13981,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : null;
 
   const [view, setView] = useState(initialView);
+  const [requestedNotesLocation, setRequestedNotesLocation] = useState(initialNotesLocation);
+  const [notesLocationRequestKey, setNotesLocationRequestKey] = useState(0);
 
   useEffect(() => {
     const allowedViewsList = allowedViewsKey ? allowedViewsKey.split('|') : [];
@@ -14021,6 +14027,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     () => (user.role === 'student' ? initialMockExamId : null)
   );
   const [pendingDirectChatRequest, setPendingDirectChatRequest] = useState(null);
+  const [pendingLessonCapsuleKey, setPendingLessonCapsuleKey] = useState('');
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
@@ -14159,6 +14166,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const tasksWithTitles = useMemo(
     () => applyTaskTitles(MOCK_TASKS, taskTitles),
     [taskTitles]
+  );
+  const weeklyRecapTasks = useMemo(
+    () => [...tasksWithTitles, ...PYTHON_TASKS],
+    [tasksWithTitles]
   );
   const teacherNotifs = useMemo(() => {
     const solved = (Array.isArray(teacherSolvedNotifs) ? teacherSolvedNotifs : []).map((note) => ({
@@ -16970,10 +16981,52 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   };
 
   const handleNotesLocationChange = (location) => {
+    setRequestedNotesLocation(location);
     updateUserLocation(user, { notesLocation: location });
   };
 
-  const handleOpenTask = (taskNumber, levelId, targetQuestions) => {
+  const handleGlobalOpenNotes = useCallback((location) => {
+    if (user.role !== 'student') return;
+    const nextLocation = {
+      ...(location && typeof location === 'object' ? location : {}),
+      studentId: user.id,
+    };
+    setRequestedNotesLocation(nextLocation);
+    setNotesLocationRequestKey((current) => current + 1);
+    updateUserLocation(user, { view: 'notes', notesLocation: nextLocation });
+    navigateToView('notes');
+    setMenuOpen(false);
+  }, [navigateToView, user]);
+
+  const handleGlobalOpenLesson = useCallback((lessonKey) => {
+    if (user.role !== 'student') return;
+    const normalizedKey = String(lessonKey || '').trim();
+    if (!normalizedKey) return;
+    setPendingLessonCapsuleKey(normalizedKey);
+    navigateToView('schedule');
+    setMenuOpen(false);
+  }, [navigateToView, user.role]);
+
+  const handleGlobalOpenProgressSection = useCallback((requestedSection = 'progress') => {
+    if (user.role !== 'student') return;
+    const nextSection = ['progress', 'notes', 'mocks'].includes(String(requestedSection || '').trim())
+      ? String(requestedSection).trim()
+      : 'progress';
+    setPendingOpenTask(null);
+    setPendingOpenMockExamId(null);
+    setActiveProgressSection(nextSection);
+    setProgressSectionJumpToken((current) => current + 1);
+    updateUserLocation(user, {
+      view: 'progress',
+      progressSection: nextSection,
+      openTask: null,
+      mockExamId: null,
+    });
+    navigateToView('progress');
+    setMenuOpen(false);
+  }, [navigateToView, user]);
+
+  const handleOpenTask = (taskNumber, levelId, targetQuestions, options = {}) => {
     const normalizedTaskNumber = normalizeTaskNumber(taskNumber);
     if (!Number.isFinite(normalizedTaskNumber)) return;
     const pythonTask = isPythonTaskNumber(normalizedTaskNumber);
@@ -16987,7 +17040,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       levelId: pythonTask ? PYTHON_LEVEL_ID : levelId,
       targetQuestions: Array.isArray(targetQuestions) ? targetQuestions : null,
       section: pythonTask ? 'python' : 'progress',
-      questionIndex: null
+      questionIndex: null,
+      subsectionId: String(options?.subsectionId || '').trim() || null,
     };
     setPendingOpenTask(nextTask);
     setPendingOpenMockExamId(null);
@@ -17005,11 +17059,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   };
 
-  const handleOpenMockGoal = (mockExamId = null) => {
+  const handleOpenMockGoal = (mockExamId = null, initialTaskNumber = null) => {
     if (user.role !== 'student') return;
     const normalizedMockExamId = normalizeMockExamId(mockExamId);
+    const normalizedInitialTaskNumber = String(initialTaskNumber ?? '').trim();
     setPendingOpenTask(null);
-    setPendingOpenMockExamId(normalizedMockExamId || null);
+    setPendingOpenMockExamId(normalizedMockExamId
+      ? (normalizedInitialTaskNumber
+        ? { examId: normalizedMockExamId, initialTaskNumber: normalizedInitialTaskNumber }
+        : normalizedMockExamId)
+      : null);
     navigateToView('progress');
     setMenuOpen(false);
     updateUserLocation(user, {
@@ -17755,6 +17814,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               sourceRect,
             });
           }}
+        />
+      )}
+      {user.role === 'student' && !studentTourActive && (
+        <StudentWeeklyRecap
+          key={`weekly-recap-auto-${user.id}`}
+          studentId={user.id}
+          tasks={weeklyRecapTasks}
+          solvedRefreshKey={goalRefreshTick}
+          onOpenLesson={(lesson) => handleGlobalOpenLesson(lesson?.key)}
+          showTrigger={false}
+          autoReveal
         />
       )}
       <StudentPaymentReminder
@@ -18545,6 +18615,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   </div>
                   </button>
                   <div className="flex shrink-0 items-center gap-1.5 md:ml-auto md:gap-2">
+                  <StudentGlobalSearch
+                    studentId={user.id}
+                    theme={theme}
+                    tasks={tasksWithTitles}
+                    pythonTasks={PYTHON_TASKS}
+                    onNavigate={navigateToView}
+                    onOpenTask={handleOpenTask}
+                    onOpenMock={handleOpenMockGoal}
+                    onOpenNotes={handleGlobalOpenNotes}
+                    onOpenLesson={handleGlobalOpenLesson}
+                    onJoinLesson={handleOpenStudentPlatformLesson}
+                    onOpenProgressSection={handleGlobalOpenProgressSection}
+                  />
                   <button
                     type="button"
                     onClick={openPaceForecastPopup}
@@ -18900,6 +18983,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onOpenTask={user.role === 'student' ? handleOpenTask : null}
               onOpenMockGoal={user.role === 'student' ? handleOpenMockGoal : null}
               solvedRefreshKey={goalRefreshTick}
+              openLessonKey={pendingLessonCapsuleKey}
+              onOpenLessonHandled={() => setPendingLessonCapsuleKey('')}
               progress={progress}
               tasks={tasksWithTitles}
               nextHomeworkFlyRef={scheduleHomeworkFlyRef}
@@ -18982,6 +19067,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentId={user.id}
               students={studentsWithNicknames}
               tasks={tasksWithTitles}
+              weeklyRecapTasks={weeklyRecapTasks}
+              solvedRefreshKey={goalRefreshTick}
+              onOpenLesson={(lesson) => handleGlobalOpenLesson(lesson?.key)}
               onTaskTitleUpdate={handleTaskTitleUpdate}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
@@ -19203,7 +19291,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               studentsLoading={studentsLoading}
-              initialLocation={initialNotesLocation}
+              initialLocation={requestedNotesLocation}
+              initialLocationKey={notesLocationRequestKey}
               onLocationChange={handleNotesLocationChange}
               withStudentId={withStudentId}
               MOCK_TASKS={MOCK_TASKS}

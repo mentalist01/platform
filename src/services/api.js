@@ -1472,6 +1472,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getLessonHistoryDetail: async (studentId, occurrenceKey) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    if (occurrenceKey) params.append('occurrenceKey', String(occurrenceKey));
+    params.append('_ts', String(Date.now()));
+    const res = await apiFetch(`/api/lesson-history/detail?${params.toString()}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   updateLessonTopic: async (studentId, occurrence = {}, text = '') => {
     const res = await apiFetch('/api/lesson-topics', {
       method: 'PUT',
@@ -1734,6 +1743,18 @@ export const api = {
     const res = await apiFetch(qs ? `/api/files?${qs}` : '/api/files');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
+  },
+  searchStudentContent: async (query, studentId, options = {}) => {
+    const params = new URLSearchParams();
+    params.append('q', String(query || '').trim());
+    if (studentId) params.append('studentId', String(studentId));
+    if (Number.isFinite(Number(options?.limit))) {
+      params.append('limit', String(Math.max(1, Math.min(50, Math.floor(Number(options.limit))))));
+    }
+    params.append('_ts', String(Date.now()));
+    const res = await apiFetch(`/api/student-search?${params.toString()}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
   },
   getFolders: async (taskNumber, category, studentId) => {
     const params = new URLSearchParams();

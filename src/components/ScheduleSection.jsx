@@ -3,6 +3,7 @@ import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRigh
 import { api, resolveAuthenticatedApiUrl } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
+import StudentLessonDetailModal from './StudentLessonDetailModal';
 import { Button, Card } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
@@ -550,6 +551,8 @@ const ScheduleSection = ({
   onOpenTask,
   onOpenMockGoal,
   solvedRefreshKey,
+  openLessonKey = '',
+  onOpenLessonHandled = null,
   progress = {},
   tasks,
   nextHomeworkFlyRef,
@@ -616,6 +619,11 @@ const ScheduleSection = ({
   const [lessonHistoryError, setLessonHistoryError] = useState('');
   const [lessonHistoryErrorMode, setLessonHistoryErrorMode] = useState('');
   const [lessonHistoryReloadKey, setLessonHistoryReloadKey] = useState(0);
+  const [selectedLessonDetail, setSelectedLessonDetail] = useState(null);
+  const [lessonDetailData, setLessonDetailData] = useState(null);
+  const [lessonDetailLoading, setLessonDetailLoading] = useState(false);
+  const [lessonDetailError, setLessonDetailError] = useState('');
+  const [lessonDetailReloadKey, setLessonDetailReloadKey] = useState(0);
   const [scheduleCompactMode, setScheduleCompactMode] = useState(false);
   const [lessonSchedule, setLessonSchedule] = useState([]);
   const [lessonTopicsByOccurrence, setLessonTopicsByOccurrence] = useState({});
@@ -1156,6 +1164,18 @@ const ScheduleSection = ({
     return `${relativeLabel}, ${dateLabel}`;
   };
 
+  const getLessonTaskDisplayText = (taskNumberValue) => {
+    const taskNumber = Number(taskNumberValue);
+    if (!Number.isFinite(taskNumber)) return '';
+    const task = [...(Array.isArray(taskOptions) ? taskOptions : []), ...(Array.isArray(pythonTaskOptions) ? pythonTaskOptions : [])]
+      .find((entry) => Number(entry?.number ?? entry?.id) === taskNumber);
+    const displayNumber = task
+      ? String(getTaskDisplayNumber(task) || formatTaskNumber(taskNumber) || taskNumber)
+      : String(formatTaskNumber(taskNumber) || taskNumber);
+    const title = String(task?.title || '').trim();
+    return `Задание ${displayNumber}${title ? ` · ${title}` : ''}`;
+  };
+
   const getLessonTopicDisplayText = (topic) => {
     if (!topic || typeof topic !== 'object') return '';
     if (topic.source === 'teacher') return String(topic.text || '').trim();
@@ -1165,14 +1185,7 @@ const ScheduleSection = ({
         .filter((value) => Number.isFinite(value))
     ));
     if (taskNumbers.length === 1) {
-      const taskNumber = taskNumbers[0];
-      const task = [...(Array.isArray(taskOptions) ? taskOptions : []), ...(Array.isArray(pythonTaskOptions) ? pythonTaskOptions : [])]
-        .find((entry) => Number(entry?.number ?? entry?.id) === taskNumber);
-      const displayNumber = task
-        ? String(getTaskDisplayNumber(task) || formatTaskNumber(taskNumber) || taskNumber)
-        : String(formatTaskNumber(taskNumber) || taskNumber);
-      const title = String(task?.title || '').trim();
-      return `Задание ${displayNumber}${title ? ` · ${title}` : ''}`;
+      return getLessonTaskDisplayText(taskNumbers[0]);
     }
     if (taskNumbers.length > 1) {
       const visible = taskNumbers.slice(0, 2).map((taskNumber) => String(formatTaskNumber(taskNumber) || taskNumber));
@@ -1181,6 +1194,43 @@ const ScheduleSection = ({
     }
     return String(topic.text || '').trim();
   };
+
+  const openStudentLessonDetail = (entry, topic = null) => {
+    const occurrenceKey = String(entry?.key || getLessonTopicOccurrenceKey(effectiveStudentId, entry)).trim();
+    if (!occurrenceKey) return;
+    const dayKey = String(entry?.dayKey || entry?.currentWeekDate || entry?.date || '').trim();
+    setSelectedLessonDetail({
+      ...entry,
+      key: occurrenceKey,
+      dayKey,
+      topic: topic || entry?.topic || null,
+    });
+    setLessonDetailData(null);
+    setLessonDetailError('');
+  };
+
+  const closeStudentLessonDetail = useCallback(() => {
+    setSelectedLessonDetail(null);
+    setLessonDetailData(null);
+    setLessonDetailLoading(false);
+    setLessonDetailError('');
+  }, []);
+
+  const retryStudentLessonDetail = useCallback(() => {
+    setLessonDetailReloadKey((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    const occurrenceKey = String(openLessonKey || '').trim();
+    if (role !== 'student' || !occurrenceKey) return;
+    if (String(selectedLessonDetail?.key || '').trim() !== occurrenceKey) {
+      setSelectedLessonDetail({ key: occurrenceKey });
+      setLessonDetailData(null);
+      setLessonDetailError('');
+      setShowLessonHistory(true);
+    }
+    onOpenLessonHandled?.();
+  }, [onOpenLessonHandled, openLessonKey, role, selectedLessonDetail?.key]);
 
   const renderStudentWeekSchedule = () => {
     const now = new Date();
@@ -1278,14 +1328,24 @@ const ScheduleSection = ({
               const topicKey = getLessonTopicOccurrenceKey(effectiveStudentId, entry);
               const lessonTopic = topicKey ? lessonTopicsByOccurrence[topicKey] : null;
               const lessonTopicText = getLessonTopicDisplayText(lessonTopic);
+              const canOpenLessonDetail = timingState === 'past';
               const emptyTopicText = timingState === 'past'
                 ? 'Конспекты к занятию не найдены'
                 : 'Тема пока не задана';
               return (
                 <article
                   key={lessonKey}
-                  className={`schedule-shell__student-lesson schedule-shell__student-lesson--${timingState}${isNextLesson ? ' schedule-shell__student-lesson--next' : ''}${isOverdueUnpaid ? ' schedule-shell__student-lesson--overdue-unpaid' : ''}`}
+                  className={`schedule-shell__student-lesson schedule-shell__student-lesson--${timingState}${isNextLesson ? ' schedule-shell__student-lesson--next' : ''}${isOverdueUnpaid ? ' schedule-shell__student-lesson--overdue-unpaid' : ''}${canOpenLessonDetail ? ' schedule-shell__student-lesson--clickable' : ''}`}
                   style={{ '--lesson-index': index }}
+                  role={canOpenLessonDetail ? 'button' : undefined}
+                  tabIndex={canOpenLessonDetail ? 0 : undefined}
+                  aria-label={canOpenLessonDetail ? `Открыть материалы занятия ${getStudentWeekDateLabel(entry)}` : undefined}
+                  onClick={canOpenLessonDetail ? () => openStudentLessonDetail(entry, lessonTopic) : undefined}
+                  onKeyDown={canOpenLessonDetail ? (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    openStudentLessonDetail(entry, lessonTopic);
+                  } : undefined}
                 >
                   <div className="schedule-shell__student-lesson-date">
                     <span>{SCHEDULE_WEEKDAY_SHORT_LABELS[entry.weekdayKey] || 'ДЕНЬ'}</span>
@@ -1309,8 +1369,13 @@ const ScheduleSection = ({
                       <span>{lessonTopic?.source === 'teacher' ? 'Тема учителя' : (lessonTopic ? 'По конспектам' : 'Тема')}</span>
                       <strong>{lessonTopicText || (lessonTopicsLoading ? 'Определяем тему…' : emptyTopicText)}</strong>
                     </div>
+                    {canOpenLessonDetail && (
+                      <div className="schedule-shell__student-lesson-detail-hint">
+                        Материалы занятия <ChevronRight size={13} />
+                      </div>
+                    )}
                   </div>
-                  {lessonUrl && (
+                  {lessonUrl && !canOpenLessonDetail && (
                     <a
                       href={lessonUrl}
                       target="_blank"
@@ -1329,32 +1394,11 @@ const ScheduleSection = ({
     );
   };
 
-  const renderStudentLessonHistory = () => (
-    <section className={`student-lesson-history${showLessonHistory ? ' student-lesson-history--open' : ''}`}>
-      <button
-        type="button"
-        className="student-lesson-history__toggle"
-        onClick={() => setShowLessonHistory((value) => !value)}
-        aria-expanded={showLessonHistory}
-        aria-controls="student-lesson-history-panel"
-      >
-        <span className="student-lesson-history__toggle-icon" aria-hidden="true">
-          <History size={18} />
-        </span>
-        <span className="student-lesson-history__toggle-copy">
-          <strong>История занятий</strong>
-          <small>Все прошедшие занятия и их темы</small>
-        </span>
-        {lessonHistoryTotal > 0 && (
-          <span className="student-lesson-history__count">{getLessonCountLabel(lessonHistoryTotal)}</span>
-        )}
-        <ChevronRight className="student-lesson-history__chevron" size={17} aria-hidden="true" />
-      </button>
-
+  const renderStudentLessonHistory = () => showLessonHistory ? (
+    <section className="student-lesson-history student-lesson-history--open">
       <div
         id="student-lesson-history-panel"
         className="student-lesson-history__panel"
-        hidden={!showLessonHistory}
       >
         {lessonHistoryLoading && lessonHistory.length === 0 ? (
           <div className="student-lesson-history__status" role="status" aria-live="polite">
@@ -1389,7 +1433,19 @@ const ScheduleSection = ({
                       : (topic ? 'По конспектам' : 'Тема');
                     return (
                       <li key={entry?.key || `${entry?.dayKey}-${entry?.time}-${index}`}>
-                        <article className="student-lesson-history__item" style={{ '--history-index': index }}>
+                        <article
+                          className="student-lesson-history__item student-lesson-history__item--clickable"
+                          style={{ '--history-index': index }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Открыть материалы занятия ${getLessonHistoryDateLabel(entry?.dayKey)}`}
+                          onClick={() => openStudentLessonDetail(entry, topic)}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' && event.key !== ' ') return;
+                            event.preventDefault();
+                            openStudentLessonDetail(entry, topic);
+                          }}
+                        >
                           <time className="student-lesson-history__date" dateTime={entry?.dayKey || undefined}>
                             <span>{weekdayLabel}</span>
                             <strong>{dayNumber}</strong>
@@ -1411,6 +1467,9 @@ const ScheduleSection = ({
                               <BookOpen size={13} />
                               <span>{topicSourceLabel}</span>
                               <strong>{topicText || 'Тема не сохранилась'}</strong>
+                            </div>
+                            <div className="student-lesson-history__detail-hint">
+                              Открыть материалы <ChevronRight size={13} />
                             </div>
                           </div>
                         </article>
@@ -1450,7 +1509,7 @@ const ScheduleSection = ({
         )}
       </div>
     </section>
-  );
+  ) : null;
 
   const resetScheduleForm = () => {
     setScheduleEditingId(null);
@@ -1865,7 +1924,37 @@ const ScheduleSection = ({
     setLessonHistoryError('');
     setLessonHistoryErrorMode('');
     setLessonHistoryReloadKey(0);
+    setSelectedLessonDetail(null);
+    setLessonDetailData(null);
+    setLessonDetailLoading(false);
+    setLessonDetailError('');
+    setLessonDetailReloadKey(0);
   }, [effectiveStudentId]);
+
+  useEffect(() => {
+    const occurrenceKey = String(selectedLessonDetail?.key || '').trim();
+    if (!occurrenceKey || role !== 'student' || !effectiveStudentId) {
+      setLessonDetailLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setLessonDetailLoading(true);
+    setLessonDetailError('');
+    api.getLessonHistoryDetail(requestStudentId, occurrenceKey)
+      .then((data) => {
+        if (cancelled) return;
+        setLessonDetailData(data && typeof data === 'object' ? data : null);
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        setLessonDetailData(null);
+        setLessonDetailError(loadError?.message || 'Не удалось загрузить материалы занятия');
+      })
+      .finally(() => {
+        if (!cancelled) setLessonDetailLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveStudentId, lessonDetailReloadKey, requestStudentId, role, selectedLessonDetail?.key]);
 
   useEffect(() => {
     if (role !== 'student' || !showLessonHistory || !effectiveStudentId) return undefined;
@@ -3198,19 +3287,35 @@ const ScheduleSection = ({
                 </button>
               )}
               {role === 'student' && (
-                <button
-                  type="button"
-                  onClick={handleToggleLessonReminder}
-                  disabled={lessonReminderLoading || lessonReminderSaving || pushSyncing || pushBusy || !pushReady}
-                  className="schedule-shell__student-reminder-compact"
-                  title={lessonReminderError || pushError || lessonReminderStatusText || 'Напоминания о занятиях'}
-                  aria-pressed={Boolean(pushEnabled && lessonReminderEnabled)}
-                >
-                  {(pushEnabled && lessonReminderEnabled) ? <BellOff size={13} /> : <Bell size={13} />}
-                  {lessonReminderSaving
-                    ? 'Сохраняем...'
-                    : 'Напоминания'}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleToggleLessonReminder}
+                    disabled={lessonReminderLoading || lessonReminderSaving || pushSyncing || pushBusy || !pushReady}
+                    className="schedule-shell__student-reminder-compact"
+                    title={lessonReminderError || pushError || lessonReminderStatusText || 'Напоминания о занятиях'}
+                    aria-pressed={Boolean(pushEnabled && lessonReminderEnabled)}
+                  >
+                    {(pushEnabled && lessonReminderEnabled) ? <BellOff size={13} /> : <Bell size={13} />}
+                    {lessonReminderSaving
+                      ? 'Сохраняем...'
+                      : 'Напоминания'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowLessonHistory((value) => !value)}
+                    className={`schedule-shell__student-history-compact${showLessonHistory ? ' is-active' : ''}`}
+                    title="Все прошедшие занятия и их темы"
+                    aria-expanded={showLessonHistory}
+                    aria-controls="student-lesson-history-panel"
+                  >
+                    <History size={13} />
+                    История
+                    {lessonHistoryTotal > 0 && (
+                      <span aria-label={getLessonCountLabel(lessonHistoryTotal)}>{lessonHistoryTotal}</span>
+                    )}
+                  </button>
+                </>
               )}
               <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                 {role === 'student'
@@ -3932,6 +4037,19 @@ const ScheduleSection = ({
           </div>
         )}
       </div>
+
+      <StudentLessonDetailModal
+        open={Boolean(selectedLessonDetail)}
+        lesson={lessonDetailData?.lesson || selectedLessonDetail}
+        materials={Array.isArray(lessonDetailData?.materials) ? lessonDetailData.materials : []}
+        topicText={getLessonTopicDisplayText(lessonDetailData?.lesson?.topic || selectedLessonDetail?.topic)}
+        loading={lessonDetailLoading}
+        error={lessonDetailError}
+        studentId={effectiveStudentId}
+        formatTaskLabel={getLessonTaskDisplayText}
+        onClose={closeStudentLessonDetail}
+        onRetry={retryStudentLessonDetail}
+      />
     </div>
   );
 };
