@@ -83976,11 +83976,25 @@ html[data-theme='dark'] .notes-motion-view--landing .notes-landing-card::before 
   align-items: center;
   gap: 0.2rem;
   width: max-content;
-  margin-top: 0.28rem;
   color: #7c3aed;
   font-size: 0.65rem;
   font-weight: 750;
   letter-spacing: 0.01em;
+}
+
+.schedule-shell__student-lesson-detail-hint {
+  min-height: 32px;
+  justify-self: end;
+  margin: 0;
+  padding: 0 0.65rem;
+  border: 1px solid rgba(167, 139, 250, 0.42);
+  border-radius: 999px;
+  background: rgba(245, 243, 255, 0.82);
+  box-shadow: 0 6px 14px rgba(124, 58, 237, 0.07);
+}
+
+.student-lesson-history__detail-hint {
+  margin-top: 0.28rem;
 }
 
 .schedule-shell__student-lesson-detail-hint svg,
@@ -84421,6 +84435,12 @@ html[data-theme='dark'] .student-lesson-history__detail-hint {
   color: #c4b5fd;
 }
 
+html[data-theme='dark'] .schedule-shell__student-lesson-detail-hint {
+  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(76, 29, 149, 0.28);
+  box-shadow: none;
+}
+
 html[data-theme='dark'] .student-lesson-capsule {
   background: rgba(2, 6, 23, 0.72);
 }
@@ -84541,6 +84561,24 @@ html[data-theme='dark'] .student-lesson-capsule__snapshot figcaption {
 }
 
 @media (max-width: 640px) {
+  .schedule-shell__student-lesson--clickable .schedule-shell__student-lesson-main {
+    padding-right: 2rem;
+  }
+
+  .schedule-shell__student-lesson-detail-hint {
+    position: absolute;
+    top: 0.65rem;
+    right: 0.65rem;
+    width: 1.85rem;
+    min-height: 1.85rem;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .schedule-shell__student-lesson-detail-hint > span {
+    display: none;
+  }
+
   .student-lesson-capsule {
     align-items: end;
     padding: 0;

@@ -1369,12 +1369,13 @@ const ScheduleSection = ({
                       <span>{lessonTopic?.source === 'teacher' ? 'Тема учителя' : (lessonTopic ? 'По конспектам' : 'Тема')}</span>
                       <strong>{lessonTopicText || (lessonTopicsLoading ? 'Определяем тему…' : emptyTopicText)}</strong>
                     </div>
-                    {canOpenLessonDetail && (
-                      <div className="schedule-shell__student-lesson-detail-hint">
-                        Материалы занятия <ChevronRight size={13} />
-                      </div>
-                    )}
                   </div>
+                  {canOpenLessonDetail && (
+                    <div className="schedule-shell__student-lesson-detail-hint" aria-hidden="true">
+                      <span>Материалы</span>
+                      <ChevronRight size={13} />
+                    </div>
+                  )}
                   {lessonUrl && !canOpenLessonDetail && (
                     <a
                       href={lessonUrl}
