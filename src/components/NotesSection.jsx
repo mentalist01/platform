@@ -175,6 +175,8 @@ const isFileMemoryPinned = (memory) => Boolean(
   memory?.isPinned || memory?.pinned || memory?.favorite || memory?.starred
 );
 
+const isPythonFileName = (name) => /\.py$/i.test(String(name || ''));
+
 const getFileMemoryPinnedAt = (memory) => {
   const raw = String(memory?.pinnedAt || '').trim();
   if (!raw) return 0;
@@ -493,6 +495,23 @@ const NotesSection = ({
     if (entry.isLessonShared === true) return true;
     return String(entry.name || '').trim().toLowerCase() === LESSON_SHARED_FOLDER_NAME;
   };
+  const isSavedSolutionBundleFile = (file) => {
+    const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
+    const sourceRaw = String(memory?.source || file?.source || '').trim();
+    return isPythonFileName(file?.name) && (sourceRaw === 'collab-code' || Boolean(memory?.boardSnapshot?.url));
+  };
+  const isCheatsheetFile = (file) => {
+    const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
+    const sourceRaw = String(memory?.source || file?.source || '').trim();
+    const kindRaw = String(memory?.kind || '').trim();
+    return isPythonFileName(file?.name) && (sourceRaw === 'notes-cheatsheet' || kindRaw === 'cheatsheet');
+  };
+  const isSharedTemplateFile = (file) => (
+    isLessonSharedFile(file) && (isCheatsheetFile(file) || isSavedSolutionBundleFile(file))
+  );
+  const isImportantFile = (file) => (
+    !isLessonSharedFile(file) && isFileMemoryPinned(file?.memory)
+  );
   const normalizeParentFolderId = (value) => {
     const id = typeof value === 'string' ? value.trim() : '';
     return id || null;
@@ -637,6 +656,7 @@ const NotesSection = ({
     let root = 0;
     for (const f of files) {
       if (getNotesTaskNumber(f?.taskNumber) !== normalizedCurrentTask || f?.category !== currentCategory) continue;
+      if (isSharedTemplateFile(f)) continue;
       const sharedRootId = !f?.folderId && isLessonSharedFile(f)
         ? sharedRootByTask.get(`${normalizedCurrentTask}:${String(currentCategory)}`)
         : '';
@@ -1022,18 +1042,6 @@ const NotesSection = ({
 
   const isImageMimeType = (value) => String(value || '').toLowerCase().startsWith('image/');
   const isImageFileName = (name) => /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico|heic|heif)$/i.test(String(name || ''));
-  const isSavedSolutionBundleFile = (file) => {
-    const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
-    const sourceRaw = String(memory?.source || file?.source || '').trim();
-    return isPyFile(file?.name) && (sourceRaw === 'collab-code' || Boolean(memory?.boardSnapshot?.url));
-  };
-  const isCheatsheetFile = (file) => {
-    const memory = file?.memory && typeof file.memory === 'object' ? file.memory : null;
-    const sourceRaw = String(memory?.source || file?.source || '').trim();
-    const kindRaw = String(memory?.kind || '').trim();
-    return isPyFile(file?.name) && (sourceRaw === 'notes-cheatsheet' || kindRaw === 'cheatsheet');
-  };
-
   const getImageExtensionFromMime = (mime) => {
     const normalized = String(mime || '').toLowerCase();
     if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
@@ -1995,6 +2003,23 @@ const NotesSection = ({
     if (role !== 'teacher' || !file?.id || !canManageFile(file)) return;
     const fileId = String(file.id);
     const currentShared = isLessonSharedFile(file);
+    if (currentShared) {
+      const originalStudent = studentsList.find((student) => (
+        String(student?.id || student?.studentId || '') === String(file?.originalStudentId || '')
+      ));
+      const originalStudentName = String(
+        originalStudent?.name || originalStudent?.displayName || originalStudent?.username || ''
+      ).trim();
+      const sharedSectionName = isSharedTemplateFile(file) ? '«Шаблонов»' : '«Файлов к уроку»';
+      const destination = originalStudentName
+        ? ` и вернётся в материалы ученика «${originalStudentName}»`
+        : ' и вернётся в исходные материалы';
+      const confirmed = window.confirm(
+        `Убрать общий доступ к «${getSavedSolutionTitle(file, file?.memory)}»?\n\n`
+        + `Файл исчезнет из ${sharedSectionName} у всех учеников${destination}. Сам файл не удалится.`
+      );
+      if (!confirmed) return;
+    }
     captureFileRowRects();
     favoriteFlightIdsRef.current.add(fileId);
     setFavoriteFlightTick((tick) => tick + 1);
@@ -2102,6 +2127,7 @@ const NotesSection = ({
     if (!file) return;
     if (getNotesTaskNumber(file?.taskNumber) !== normalizedCurrentTask) return;
     if (String(file?.category || '') !== String(currentCategory)) return;
+    const isTemplate = isSharedTemplateFile(file);
     const storedFolderId = String(file?.folderId || '').trim();
     const sharedRootFolder = !storedFolderId && isLessonSharedFile(file)
       ? folders.find((folder) => (
@@ -2111,7 +2137,9 @@ const NotesSection = ({
         && String(folder?.category || '') === String(currentCategory)
       ))
       : null;
-    const expectedFolderId = storedFolderId || String(sharedRootFolder?.id || '').trim();
+    const expectedFolderId = isTemplate
+      ? ''
+      : (storedFolderId || String(sharedRootFolder?.id || '').trim());
     const activeFolderId = String(currentFolderId || '').trim();
     if (expectedFolderId !== activeFolderId) {
       if (expectedFolderId && folders.some((folder) => String(folder?.id || '').trim() === expectedFolderId)) {
@@ -2775,12 +2803,18 @@ const NotesSection = ({
     getNotesTaskNumber(f?.taskNumber) === normalizedCurrentTask &&
     f.category === effectiveCategory
   );
+  const templateFiles = taskFiles.filter(isSharedTemplateFile);
   const activeFolder = currentFolderId ? foldersById.get(currentFolderId) : null;
   const filtered = taskFiles.filter((file) => {
     const fileFolderId = String(file?.folderId || '').trim();
     if (!currentFolderId) return !fileFolderId && !isLessonSharedFile(file);
-    if (fileFolderId === currentFolderId) return true;
-    return !fileFolderId && isLessonSharedFile(file) && isLessonSharedFolder(activeFolder);
+    if (fileFolderId === currentFolderId) {
+      return !(isCurrentFolderLessonShared && isSharedTemplateFile(file));
+    }
+    return !fileFolderId
+      && isLessonSharedFile(file)
+      && !isSharedTemplateFile(file)
+      && isLessonSharedFolder(activeFolder);
   });
   const uploadBlockedByRole = !canUploadToCurrentFolder;
   const getFolderPathSegments = (folderId) => {
@@ -2856,9 +2890,16 @@ const NotesSection = ({
     if (leftShared !== rightShared) return leftShared ? -1 : 1;
     return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
   });
-  const sortedVisibleFiles = [...visibleFiles].sort((left, right) => {
-    const leftPinned = isFileMemoryPinned(left?.memory) || isLessonSharedFile(left);
-    const rightPinned = isFileMemoryPinned(right?.memory) || isLessonSharedFile(right);
+  const visibleTemplateFiles = isSearchMode
+    ? visibleFiles.filter(isSharedTemplateFile)
+    : (!currentFolderId ? templateFiles : []);
+  const visibleRegularFiles = visibleFiles.filter((file) => !isSharedTemplateFile(file));
+  const sortedTemplateFiles = [...visibleTemplateFiles].sort((left, right) => (
+    String(left?.name || '').localeCompare(String(right?.name || ''), 'ru')
+  ));
+  const sortedVisibleFiles = [...visibleRegularFiles].sort((left, right) => {
+    const leftPinned = isImportantFile(left);
+    const rightPinned = isImportantFile(right);
     if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
     if (leftPinned && rightPinned) {
       const pinnedDiff = getFileMemoryPinnedAt(right?.memory) - getFileMemoryPinnedAt(left?.memory);
@@ -2866,12 +2907,26 @@ const NotesSection = ({
     }
     return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
   });
+  const mainVisibleFolders = sortedVisibleFolders.filter((folder) => (
+    !normalizeParentFolderId(folder?.parentFolderId) && isLessonSharedFolder(folder)
+  ));
+  const regularVisibleFolders = sortedVisibleFolders.filter((folder) => !mainVisibleFolders.includes(folder));
   const visibleExplorerItems = [
-    ...sortedVisibleFolders.map((folder) => ({ kind: 'folder', id: `folder-${folder.id}`, folder })),
-    ...sortedVisibleFiles.map((file) => ({ kind: 'file', id: `file-${file.id}`, file })),
+    ...mainVisibleFolders.map((folder) => ({ kind: 'folder', section: 'main', id: `folder-${folder.id}`, folder })),
+    ...sortedTemplateFiles.map((file) => ({ kind: 'file', section: 'templates', id: `template-${file.id}`, file })),
+    ...regularVisibleFolders.map((folder) => ({ kind: 'folder', section: 'folders', id: `folder-${folder.id}`, folder })),
+    ...sortedVisibleFiles.map((file) => ({
+      kind: 'file',
+      section: isImportantFile(file) ? 'important' : 'materials',
+      id: `file-${file.id}`,
+      file,
+    })),
   ];
-  const currentFolderFilesLabel = `${filtered.length} ${formatRussianCountLabel(
-    filtered.length,
+  const mainSectionItemsCount = mainVisibleFolders.length;
+  const foldersSectionItemsCount = regularVisibleFolders.length;
+  const currentFolderFilesCount = filtered.length + (!currentFolderId ? templateFiles.length : 0);
+  const currentFolderFilesLabel = `${currentFolderFilesCount} ${formatRussianCountLabel(
+    currentFolderFilesCount,
     'файл',
     'файла',
     'файлов'
@@ -2893,7 +2948,7 @@ const NotesSection = ({
     ? 'Не удалось показать файлы'
     : isSearchMode
       ? 'Ничего не найдено'
-      : filtered.length === 0
+      : visibleExplorerItems.length === 0
         ? 'Папка пока пустая'
         : '';
   const emptyStateText = filesError
@@ -2924,7 +2979,9 @@ const NotesSection = ({
   const uploadButtonLabel = isUploading
     ? 'Загрузка...'
     : (uploadBlockedByRole ? 'Только учитель' : 'Загрузить');
-  const explorerOverviewLabel = isSearchMode ? `Найдено: ${searchResultsLabel}` : currentFolderItemsLabel;
+  const explorerOverviewLabel = isSearchMode
+    ? `Найдено: ${searchResultsLabel}`
+    : currentFolderItemsLabel;
   const remainingSpaceLabel = `Свободно ${formatBytes(remainingBytes)}`;
   const handleExplorerBack = () => {
     if (currentFolderId) {
@@ -3216,9 +3273,28 @@ const NotesSection = ({
                 </thead>
                 <tbody>
                   {visibleExplorerItems.map((item, itemIndex) => {
+                    const previousExplorerItem = itemIndex > 0 ? visibleExplorerItems[itemIndex - 1] : null;
+                    const showSectionHeader = itemIndex === 0 || previousExplorerItem?.section !== item.section;
+                    const sectionLabel = {
+                      main: 'Главное',
+                      templates: 'Шаблоны',
+                      folders: 'Папки',
+                      important: 'Важное',
+                      materials: 'Материалы',
+                    }[item.section] || 'Материалы';
+                    const sectionCount = item.section === 'main'
+                      ? mainSectionItemsCount
+                      : item.section === 'templates'
+                        ? sortedTemplateFiles.length
+                        : item.section === 'folders'
+                          ? foldersSectionItemsCount
+                          : sortedVisibleFiles.filter((file) => (
+                            item.section === 'important' ? isImportantFile(file) : !isImportantFile(file)
+                          )).length;
                     if (item.kind === 'folder') {
                       const folder = item.folder;
                       const sharedFolder = isLessonSharedFolder(folder);
+                      const folderDisplayName = sharedFolder ? 'Файлы к уроку' : folder.name;
                       const folderFileCount = folderCounts.map.get(folder.id) || 0;
                       const childFolderCount = (folderChildrenByParent.get(folder.id) || []).length;
                       const canDeleteCurrentFolder = canDeleteFolder(folder);
@@ -3233,20 +3309,22 @@ const NotesSection = ({
                       )}, ${folderFileCount} ${formatRussianCountLabel(folderFileCount, 'файл', 'файла', 'файлов')}`;
                       return (
                         <React.Fragment key={item.id}>
-                          {itemIndex === 0 && (
+                          {showSectionHeader && (
                             <tr className="notes-library-group-row">
                               <td colSpan={3}>
-                                <span className="notes-library-group-label">
-                                  <Folder size={14} aria-hidden="true" />
-                                  Папки
-                                  <span>{sortedVisibleFolders.length}</span>
+                                <span className={`notes-library-group-label ${item.section === 'main' ? 'notes-library-group-label--main' : ''}`}>
+                                  {item.section === 'main'
+                                    ? <BookOpen size={14} aria-hidden="true" />
+                                    : <Folder size={14} aria-hidden="true" />}
+                                  {sectionLabel}
+                                  <span>{sectionCount}</span>
                                 </span>
                               </td>
                             </tr>
                           )}
                           <tr
                           key={item.id}
-                          className={`notes-explorer-folder-file-row notes-resource-card notes-resource-card--folder border-t border-slate-100 hover:bg-slate-50 ${
+                          className={`notes-explorer-folder-file-row notes-resource-card notes-resource-card--folder ${sharedFolder ? 'notes-resource-card--system-lesson' : ''} border-t border-slate-100 hover:bg-slate-50 ${
                             isDropTarget ? 'is-drop-target' : ''
                           } ${isSelectedFolder ? 'is-selected' : ''} ${
                             isPressingFolder ? 'is-pressing' : ''
@@ -3310,12 +3388,17 @@ const NotesSection = ({
                                   <>
                                     <div className="flex items-center gap-2">
                                       <span className="notes-explorer-folder-name notes-explorer-file-name block truncate font-medium text-slate-800">
-                                        {folder.name}
+                                        {folderDisplayName}
                                       </span>
                                       {sharedFolder && (
                                         <span className="notes-explorer-folder-shared-badge">Урок</span>
                                       )}
                                     </div>
+                                    {sharedFolder && !isSearchMode && (
+                                      <span className="notes-collection-description block truncate text-xs">
+                                        Общие материалы для учеников
+                                      </span>
+                                    )}
                                     {isSearchMode && (
                                       <span className="notes-explorer-file-path block truncate text-xs">
                                         {getFolderPathLabel(folder)}
@@ -3408,11 +3491,11 @@ const NotesSection = ({
                       ? (isPreviewVisuallyOpen ? 'Скрыть шпаргалку' : 'Открыть шпаргалку')
                       : (isPreviewVisuallyOpen ? 'Скрыть условие и решение' : 'Открыть условие и решение');
                     const isEditingCurrentPy = editingPyId === f.id;
-                    const isPinned = isFileMemoryPinned(memory) || isSharedFile;
+                    const isPinned = isImportantFile(f);
                     const isPinning = Boolean(pinningFileIds[f.id]);
                     const favoriteMotion = favoriteMotionIds[f.id] || '';
                     const showFavoriteBadge = isPinned || favoriteMotion === 'removing';
-                    const showFavoriteButton = isMemoryCodeCard || isSharedFile;
+                    const showFavoriteButton = !isSharedFile;
                     const canToggleTeacherShared = role === 'teacher' && manageable && (!isSharedFile || f?.notesShared || f?.originalStudentId);
                     const hasLoadedPyContent = Object.prototype.hasOwnProperty.call(pyContent, f.id);
                     const inlineCodeSource = hasLoadedPyContent ? pyContent[f.id] : (memory?.codePreview || '');
@@ -3440,16 +3523,6 @@ const NotesSection = ({
                     );
                     const previewElementId = `notes-preview-${String(f.id).replace(/[^A-Za-z0-9_-]/g, '-')}`;
                     const isCheatsheetCopied = copiedCheatsheetId === String(f.id);
-                    const firstFileInList = itemIndex === sortedVisibleFolders.length;
-                    const previousFile = itemIndex > sortedVisibleFolders.length
-                      ? visibleExplorerItems[itemIndex - 1]?.file
-                      : null;
-                    const previousFilePinned = Boolean(
-                      previousFile && (isFileMemoryPinned(previousFile?.memory) || isLessonSharedFile(previousFile))
-                    );
-                    const fileGroupLabel = firstFileInList
-                      ? (isPinned ? 'Важное' : 'Материалы')
-                      : (!isPinned && previousFilePinned ? 'Материалы' : '');
                     const cheatsheetMetaTitle = [
                       solutionTaskLabel,
                       sourceLabel,
@@ -3458,17 +3531,17 @@ const NotesSection = ({
                     ].filter(Boolean).join(' · ');
                     return (
                       <React.Fragment key={f.id}>
-                        {fileGroupLabel && (
+                        {showSectionHeader && (
                           <tr className="notes-library-group-row">
                             <td colSpan={3}>
-                              <span className={`notes-library-group-label ${isPinned ? 'is-favorite' : ''}`}>
-                                {isPinned ? <Star size={14} fill="currentColor" aria-hidden="true" /> : <FileText size={14} aria-hidden="true" />}
-                                {fileGroupLabel}
-                                <span>
-                                  {isPinned
-                                    ? sortedVisibleFiles.filter((file) => isFileMemoryPinned(file?.memory) || isLessonSharedFile(file)).length
-                                    : sortedVisibleFiles.filter((file) => !(isFileMemoryPinned(file?.memory) || isLessonSharedFile(file))).length}
-                                </span>
+                              <span className={`notes-library-group-label ${item.section === 'important' ? 'is-favorite' : ''} ${item.section === 'templates' ? 'is-templates' : ''}`}>
+                                {item.section === 'templates'
+                                  ? <Code2 size={14} aria-hidden="true" />
+                                  : item.section === 'important'
+                                    ? <Star size={14} fill="currentColor" aria-hidden="true" />
+                                    : <FileText size={14} aria-hidden="true" />}
+                                {sectionLabel}
+                                <span>{sectionCount}</span>
                               </span>
                             </td>
                           </tr>
@@ -3612,7 +3685,7 @@ const NotesSection = ({
                                           {showFavoriteBadge && (
                                             <span className={`notes-favorite-row-badge ${favoriteMotion === 'removing' ? 'is-leaving' : ''}`}>
                                               <Star size={12} fill="currentColor" strokeWidth={2.2} />
-                                              Избранное
+                                              Важное
                                             </span>
                                           )}
                                           {isSharedFile && (
@@ -3648,7 +3721,7 @@ const NotesSection = ({
                                           {showFavoriteBadge && (
                                             <span className={`notes-favorite-row-badge ${favoriteMotion === 'removing' ? 'is-leaving' : ''}`}>
                                               <Star size={12} fill="currentColor" strokeWidth={2.2} />
-                                              Избранное
+                                              Важное
                                             </span>
                                           )}
                                           {isSharedFile && (
@@ -3732,7 +3805,6 @@ const NotesSection = ({
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (isSharedFile) return;
                                     togglePinnedFile(f);
                                   }}
                                   className={`notes-explorer-file-action-btn notes-explorer-pin-btn rounded-md p-1.5 ${isPinned ? 'is-active' : ''} ${
@@ -3741,7 +3813,7 @@ const NotesSection = ({
                                     favoriteMotion === 'removing' ? 'is-removing' : ''
                                   }`}
                                   disabled={!manageable || isPinning}
-                                  title={isSharedFile ? 'Общий файл всегда в избранном' : (isPinned ? 'Убрать из избранного' : 'Добавить в избранное')}
+                                  title={isPinned ? 'Убрать из важного' : 'Добавить в важное'}
                                   aria-pressed={isPinned}
                                   type="button"
                                 >
@@ -3754,12 +3826,19 @@ const NotesSection = ({
                                     e.stopPropagation();
                                     toggleLessonSharedFile(f);
                                   }}
-                                  className={`notes-explorer-file-action-btn notes-explorer-share-btn rounded-md p-1.5 ${isSharedFile ? 'is-active' : ''}`}
+                                  className={`notes-explorer-file-action-btn notes-explorer-share-btn rounded-md p-1.5 ${isSharedFile ? 'is-active' : ''} ${
+                                    isSharedTemplateFile(f)
+                                      ? 'notes-explorer-share-btn--labeled'
+                                      : ''
+                                  }`}
                                   title={isSharedFile ? 'Убрать общий доступ' : 'Сделать общим для всех учеников'}
                                   aria-pressed={isSharedFile}
                                   type="button"
                                 >
                                   <Users size={16} />
+                                  {isSharedTemplateFile(f) && (
+                                    <span>Убрать общий</span>
+                                  )}
                                 </button>
                               )}
                               {isPreviewable && (

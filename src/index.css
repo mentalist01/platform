@@ -86294,3 +86294,73 @@ html[data-theme] .student-chat-send-button {
     transition: none !important;
   }
 }
+
+/* Notes: first-class lesson resources and inline templates. */
+.notes-explorer-shell--workspace-v2 .notes-library-group-label--main {
+  color: #6d28d9;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-library-group-label.is-templates {
+  color: #7c3aed;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson > td {
+  border-color: #bae6fd !important;
+  background: #f2f9ff !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson > td:first-child {
+  border-left: 3px solid #0ea5e9 !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson:hover > td,
+.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson:focus-visible > td {
+  border-color: #7dd3fc !important;
+  background: #eaf7ff !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-collection-description {
+  margin-top: 3px;
+  max-width: min(720px, 58vw);
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-share-btn--labeled {
+  width: auto !important;
+  min-width: 118px;
+  gap: 6px;
+  padding-inline: 10px !important;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-label--main {
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-label.is-templates {
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson > td {
+  border-color: #245b7a !important;
+  background: #10283c !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson:hover > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson:focus-visible > td {
+  border-color: #347da2 !important;
+  background: #15334b !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-collection-description {
+  color: #91a4c2 !important;
+}
+
+@media (max-width: 760px) {
+  .notes-explorer-shell--workspace-v2 .notes-collection-description {
+    max-width: 56vw;
+  }
+}
