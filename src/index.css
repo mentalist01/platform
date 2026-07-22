@@ -86301,7 +86301,22 @@ html[data-theme] .student-chat-send-button {
 }
 
 .notes-explorer-shell--workspace-v2 .notes-library-group-label.is-templates {
-  color: #7c3aed;
+  color: #b45309;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card--shared-template > td {
+  border-color: #fde68a !important;
+  background: #fffbeb !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card--shared-template > td:first-child {
+  border-left: 3px solid #f59e0b !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-resource-card--shared-template:hover > td,
+.notes-explorer-shell--workspace-v2 .notes-resource-card--shared-template:focus-within > td {
+  border-color: #fbbf24 !important;
+  background: #fff7d6 !important;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson > td {
@@ -86341,7 +86356,18 @@ html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2
 }
 
 html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-label.is-templates {
-  color: #c4b5fd !important;
+  color: #fbbf24 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-resource-card--shared-template > td {
+  border-color: #6b542b !important;
+  background: #2b2418 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-resource-card--shared-template:hover > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-resource-card--shared-template:focus-within > td {
+  border-color: #94702e !important;
+  background: #382d1b !important;
 }
 
 html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson > td {

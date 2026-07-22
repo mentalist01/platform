@@ -3475,6 +3475,7 @@ const NotesSection = ({
                     const hasBoardSnapshot = Boolean(memory?.boardSnapshot?.url);
                     const memorySnapshotUrl = hasBoardSnapshot ? getMemorySnapshotUrl(f) : '';
                     const isSharedFile = isLessonSharedFile(f);
+                    const isSharedTemplate = isSharedTemplateFile(f);
                     const isCheatsheet = isCheatsheetFile(f);
                     const isSolutionBundle = isPyFile(f.name) && !isCheatsheet && (sourceRaw === 'collab-code' || hasBoardSnapshot);
                     const isMemoryCodeCard = isSolutionBundle || isCheatsheet;
@@ -3548,7 +3549,7 @@ const NotesSection = ({
                         )}
                         <tr
                           ref={(node) => setFileRowRef(f.id, node)}
-                          className={`notes-explorer-file-row notes-resource-card ${isPinned ? 'notes-resource-card--favorite' : ''} ${isSolutionBundle ? 'notes-resource-card--solution' : ''} ${isCheatsheet ? 'notes-resource-card--cheatsheet' : ''} border-t border-slate-100 ${
+                          className={`notes-explorer-file-row notes-resource-card ${isPinned ? 'notes-resource-card--favorite' : ''} ${isSharedTemplate ? 'notes-resource-card--shared-template' : ''} ${isSolutionBundle ? 'notes-resource-card--solution' : ''} ${isCheatsheet ? 'notes-resource-card--cheatsheet' : ''} border-t border-slate-100 ${
                             isSelected ? 'is-selected' : ''
                           } ${
                             isPreviewPresent ? 'is-preview-open' : ''
@@ -3827,7 +3828,7 @@ const NotesSection = ({
                                     toggleLessonSharedFile(f);
                                   }}
                                   className={`notes-explorer-file-action-btn notes-explorer-share-btn rounded-md p-1.5 ${isSharedFile ? 'is-active' : ''} ${
-                                    isSharedTemplateFile(f)
+                                    isSharedTemplate
                                       ? 'notes-explorer-share-btn--labeled'
                                       : ''
                                   }`}
@@ -3836,7 +3837,7 @@ const NotesSection = ({
                                   type="button"
                                 >
                                   <Users size={16} />
-                                  {isSharedTemplateFile(f) && (
+                                  {isSharedTemplate && (
                                     <span>Убрать общий</span>
                                   )}
                                 </button>
