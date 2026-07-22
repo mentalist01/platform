@@ -1497,6 +1497,8 @@ html[data-theme='dark'] .teacher-finance-simple [data-tone='amber'] .text-amber-
     z-index: 48;
     transform: translateY(-50%) translateX(-10px);
     width: 3.7rem;
+    max-height: calc(100dvh - 1rem);
+    overflow: hidden;
     padding: 0.56rem 0.34rem;
     border-radius: 1.18rem;
     border: 1px solid rgba(167, 139, 250, 0.36);
@@ -1520,12 +1522,21 @@ html[data-theme='dark'] .teacher-finance-simple [data-tone='amber'] .text-amber-
   .desktop-nav-fab__stack {
     display: flex;
     width: 100%;
+    min-height: 0;
     flex-direction: column;
     align-items: center;
     gap: 0.46rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+
+  .desktop-nav-fab__stack::-webkit-scrollbar {
+    display: none;
   }
 
   .desktop-nav-fab__divider {
+    flex-shrink: 0;
     width: 2.2rem;
     height: 1px;
     border-radius: 999px;
@@ -1534,6 +1545,7 @@ html[data-theme='dark'] .teacher-finance-simple [data-tone='amber'] .text-amber-
 
   .desktop-nav-fab__toggle,
   .desktop-nav-fab__item {
+    flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -29143,6 +29155,23 @@ html[data-theme='light'] .student-profile-info-chip--self {
   color: rgb(4, 120, 87) !important;
 }
 
+html[data-theme='light'] .student-profile-rating-button {
+  border-color: rgba(109, 40, 217, 0.72) !important;
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 52%, #2563eb 100%) !important;
+  color: #fff !important;
+  box-shadow:
+    0 9px 20px rgba(109, 40, 217, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
+}
+
+html[data-theme='light'] .student-profile-rating-button:hover {
+  border-color: rgba(91, 33, 182, 0.9) !important;
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 52%, #1d4ed8 100%) !important;
+  box-shadow:
+    0 12px 24px rgba(91, 33, 182, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+}
+
 html[data-theme='light'] .student-profile-modal-card__theme-chip {
   border-color: color-mix(in srgb, var(--profile-theme-accent, #a855f7), white 54%);
   background: color-mix(in srgb, var(--profile-theme-accent, #a855f7), white 82%) !important;
@@ -41974,7 +42003,7 @@ html[data-theme='dark'] .sidebar-footer > .mt-2 > div {
   background: transparent !important;
 }
 
-/* Sidebar v4: make the secondary section feel intentional, not like a tiny utility button. */
+/* Sidebar v4: compact, readable navigation rows. */
 .sidebar-nav {
   padding: 1rem 0.72rem 1rem !important;
 }
@@ -42009,78 +42038,12 @@ html[data-theme='dark'] .sidebar-footer > .mt-2 > div {
   height: 1.72rem !important;
 }
 
-.sidebar-more-toggle {
-  min-height: 3rem !important;
-  margin: 0.68rem 0.05rem 0.2rem !important;
-  border: 1px solid rgba(167, 139, 250, 0.26) !important;
-  border-radius: 1rem !important;
-  background: rgba(124, 58, 237, 0.055) !important;
-  padding: 0.48rem 0.58rem 0.48rem 0.68rem !important;
-  color: var(--sidebar-text) !important;
-  font-size: 0.88rem !important;
-  font-weight: 760 !important;
-  letter-spacing: 0 !important;
-  text-transform: none !important;
-}
-
-.sidebar-more-toggle:hover,
-.sidebar-more-toggle[aria-expanded='true'] {
-  border-color: rgba(167, 139, 250, 0.38) !important;
-  background: rgba(124, 58, 237, 0.095) !important;
-  color: rgb(91, 33, 182) !important;
-}
-
-.sidebar-more-toggle > span:first-child {
-  gap: 0.62rem !important;
-}
-
-.sidebar-more-toggle > span:first-child svg {
-  width: 1.15rem !important;
-  height: 1.15rem !important;
-  color: rgb(124, 58, 237);
-}
-
-.sidebar-more-toggle > svg {
-  width: 1.08rem !important;
-  height: 1.08rem !important;
-}
-
-.sidebar-extra-nav {
-  margin-top: 0.35rem !important;
-  padding-left: 0.18rem;
-}
-
-.sidebar-extra-nav > :not([hidden]) ~ :not([hidden]) {
-  margin-top: 0.32rem !important;
-}
-
-.sidebar-extra-nav .sidebar-nav-item {
-  min-height: 3.05rem;
-}
-
 .sidebar-footer {
   padding-inline: 0.85rem !important;
 }
 
 .sidebar-profile-card {
   padding: 0.68rem !important;
-}
-
-html[data-theme='dark'] .sidebar-more-toggle {
-  border-color: rgba(129, 140, 248, 0.28) !important;
-  background: rgba(124, 58, 237, 0.12) !important;
-  color: rgba(226, 232, 240, 0.94) !important;
-}
-
-html[data-theme='dark'] .sidebar-more-toggle:hover,
-html[data-theme='dark'] .sidebar-more-toggle[aria-expanded='true'] {
-  border-color: rgba(167, 139, 250, 0.42) !important;
-  background: rgba(124, 58, 237, 0.22) !important;
-  color: rgb(248, 250, 252) !important;
-}
-
-html[data-theme='dark'] .sidebar-more-toggle > span:first-child svg {
-  color: rgb(196, 181, 253);
 }
 
 /* Mock exams page: keep purple as an accent, not the whole atmosphere. */
@@ -42633,50 +42596,6 @@ html[data-theme='dark'] .sidebar-brand-dot {
   opacity: 1 !important;
 }
 
-.sidebar-nav .sidebar-more-toggle {
-  min-height: 2.85rem !important;
-  margin: 0.85rem 0.12rem 0.05rem !important;
-  border: 0 !important;
-  border-top: 1px solid var(--sidebar-line) !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  padding: 0.78rem 0.38rem 0.3rem !important;
-  color: var(--sidebar-muted) !important;
-  font-size: 0.92rem !important;
-  font-weight: 780 !important;
-  box-shadow: none !important;
-}
-
-.sidebar-nav .sidebar-more-toggle:hover,
-.sidebar-nav .sidebar-more-toggle[aria-expanded='true'] {
-  border-top-color: rgba(167, 139, 250, 0.32) !important;
-  background: transparent !important;
-  color: rgb(91, 33, 182) !important;
-}
-
-.sidebar-nav .sidebar-more-toggle > span:first-child {
-  gap: 0.72rem !important;
-}
-
-.sidebar-nav .sidebar-more-toggle > span:first-child svg {
-  width: 1.28rem !important;
-  height: 1.28rem !important;
-}
-
-.sidebar-nav .sidebar-more-toggle > svg {
-  width: 1.22rem !important;
-  height: 1.22rem !important;
-}
-
-.sidebar-extra-nav {
-  margin-top: 0.52rem !important;
-  padding-left: 0.28rem !important;
-}
-
-.sidebar-extra-nav .sidebar-nav-item {
-  min-height: 3.35rem !important;
-}
-
 html[data-theme='dark'] .sidebar-shell {
   --sidebar-row-active: rgba(255, 255, 255, 0.075);
   --sidebar-row-active-strong: rgba(255, 255, 255, 0.12);
@@ -42723,24 +42642,6 @@ html[data-theme='dark'] .sidebar-nav .sidebar-nav-arrow {
 html[data-theme='dark'] .sidebar-nav .sidebar-nav-item.is-active .sidebar-nav-arrow {
   background: transparent !important;
   color: rgb(248, 250, 252) !important;
-}
-
-html[data-theme='dark'] .sidebar-nav .sidebar-more-toggle {
-  border-top-color: rgba(100, 116, 139, 0.32) !important;
-  background: transparent !important;
-  color: rgba(148, 163, 184, 0.86) !important;
-  box-shadow: none !important;
-}
-
-html[data-theme='dark'] .sidebar-nav .sidebar-more-toggle:hover,
-html[data-theme='dark'] .sidebar-nav .sidebar-more-toggle[aria-expanded='true'] {
-  border-top-color: rgba(139, 92, 246, 0.34) !important;
-  background: transparent !important;
-  color: rgba(226, 232, 240, 0.96) !important;
-}
-
-html[data-theme='dark'] .sidebar-nav .sidebar-more-toggle > span:first-child svg {
-  color: rgba(167, 139, 250, 0.78) !important;
 }
 
 html[data-theme='dark'] .sidebar-collapse-btn {
@@ -61944,11 +61845,13 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
 
 .student-test-code-focus__navigator {
   display: grid;
-  grid-template-columns: minmax(250px, 0.56fr) minmax(0, 1fr);
-  gap: 10px;
-  padding: 10px 12px;
+  grid-template-columns: minmax(300px, 0.62fr) minmax(520px, 1fr);
+  gap: 12px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--code-focus-border);
-  background: color-mix(in srgb, var(--code-focus-panel-muted) 72%, var(--code-focus-panel));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--code-focus-accent) 4%, transparent), transparent 28%),
+    color-mix(in srgb, var(--code-focus-panel-muted) 72%, var(--code-focus-panel));
   animation: studentTestCodeNavigatorIn 0.46s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
 }
 
@@ -61956,25 +61859,34 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
 .student-test-code-focus__level-row {
   display: flex;
   min-width: 0;
+  min-height: 46px;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
+  overflow: hidden;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--code-focus-accent) 13%, var(--code-focus-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--code-focus-panel) 88%, transparent);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--code-focus-panel) 84%, #ffffff 16%), 0 5px 16px rgba(15, 23, 42, 0.035);
 }
 
 .student-test-code-focus__level-row {
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .student-test-code-focus__nav-heading {
   display: grid;
-  min-width: 82px;
+  min-width: 88px;
   flex: 0 0 auto;
-  gap: 2px;
+  gap: 3px;
+  padding-left: 3px;
 }
 
 .student-test-code-focus__nav-heading span {
   color: var(--code-focus-muted);
   font-size: 10px;
   font-weight: 900;
+  letter-spacing: 0.075em;
   line-height: 1;
   text-transform: uppercase;
 }
@@ -61989,6 +61901,25 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
   white-space: nowrap;
 }
 
+.student-test-code-focus__nav-progress {
+  display: block;
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--code-focus-accent) 10%, var(--code-focus-border));
+}
+
+.student-test-code-focus__nav-progress > i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--code-focus-accent), var(--code-focus-accent-2));
+  box-shadow: 0 0 9px color-mix(in srgb, var(--code-focus-accent) 30%, transparent);
+  transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .student-test-code-focus__homework-strip,
 .student-test-code-focus__level-strip {
   display: flex;
@@ -61997,11 +61928,21 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
   gap: 6px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scrollbar-width: thin;
+  scroll-behavior: smooth;
+  scroll-padding-inline: 14px;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+}
+
+.student-test-code-focus__homework-strip::-webkit-scrollbar,
+.student-test-code-focus__level-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .student-test-code-focus__homework-strip {
-  padding: 2px;
+  flex: 1 1 auto;
+  padding: 4px 12px;
 }
 
 .student-test-code-focus__homework-empty {
@@ -62088,13 +62029,14 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
   min-width: 0;
   flex: 1 1 auto;
   align-items: center;
-  justify-content: flex-end;
-  gap: 7px;
+  justify-content: flex-start;
+  gap: 6px;
 }
 
 .student-test-code-focus__level-strip {
-  max-width: min(100%, 640px);
-  padding: 2px;
+  max-width: none;
+  flex: 1 1 auto;
+  padding: 4px 12px;
 }
 
 .student-test-code-focus__level-dot {
@@ -62124,9 +62066,12 @@ html:not([data-theme='dark']) .student-test-code-focus__console-head strong {
 }
 
 .student-test-code-focus__nav-arrow {
+  flex: 0 0 auto;
   width: 32px;
   height: 32px;
   border-radius: 10px;
+  background: color-mix(in srgb, var(--code-focus-accent) 5%, var(--code-focus-panel));
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.045);
 }
 
 .student-test-code-focus__nav-arrow:disabled {
@@ -64143,6 +64088,29 @@ html[data-theme='dark'] .teacher-question-editor__footer {
   color: var(--teacher-task-accent-dark, #075985);
   font-size: 12px;
   font-weight: 900;
+}
+
+.student-test-code-focus__level-number {
+  line-height: 1;
+}
+
+.student-test-code-focus__level-check {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 14px;
+  height: 14px;
+  padding: 2px;
+  border: 2px solid var(--code-focus-panel-muted);
+  border-radius: 999px;
+  color: #ffffff;
+  background: #10b981;
+  box-sizing: border-box;
+  filter: drop-shadow(0 3px 5px rgba(5, 150, 105, 0.22));
+}
+
+.student-test-code-focus__level-dot.is-current .student-test-code-focus__level-check {
+  border-color: var(--code-focus-nav-accent);
 }
 
 .teacher-question-insert-card__summary span,

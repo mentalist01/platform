@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
-  Bell, BellOff, Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet,
+  Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet,
   Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp, Target,
   ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect
 } from 'lucide-react';  
@@ -2839,12 +2839,12 @@ const STUDENT_RATING_TOUR_STEPS = [
   {
     id: 'rating-nav',
     title: 'Как вернуться',
-    text: 'Раздел можно открыть из меню. На телефоне он лежит в «Ещё», на компьютере — в списке разделов.',
+    text: 'Нажми карточку уровня вверху, а затем «Полный рейтинг». На телефоне рейтинг также доступен в «Ещё».',
     emotion: 'peeking',
-    target: '[data-tour="rating-nav"]',
+    target: '[data-tour="level-profile-entry"]',
     fallback: '[data-tour="nav"]',
     view: 'rating',
-    menu: 'open'
+    menu: 'close'
   },
   {
     id: 'rating-position',
@@ -14010,7 +14010,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const levelProfileRequestIdRef = useRef(0);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState('');
-  const [desktopStudentMoreOpen, setDesktopStudentMoreOpen] = useState(false);
   const [desktopNavCollapsed, setDesktopNavCollapsed] = useState(() => {
     if (typeof localStorage === 'undefined') return false;
     try {
@@ -14307,7 +14306,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
   const teacherLessonNavIds = ['call', 'board', 'collab'];
-  const studentCoreNavIds = ['schedule', 'progress', 'python', ...(studentCanSeeReview ? ['review'] : []), ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes'];
   const studentLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const studentPrimaryNav = user.role === 'student'
@@ -14316,14 +14314,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
-      ...[...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'notes']
+      ...['notes']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
     : visibleNav;
-  const studentExtraNav = user.role === 'student'
-    ? visibleNav.filter((item) => !studentCoreNavIds.includes(item.id) && !studentLessonNavIds.includes(item.id))
-    : [];
   const lessonQuickNavIds = user.role === 'teacher'
     ? teacherLessonNavIds
     : studentLessonNavIds;
@@ -14382,8 +14377,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const desktopPrimaryNav = user.role === 'student'
     ? studentPrimaryNav
     : teacherDesktopPrimaryNav;
-  const desktopExtraActive = user.role === 'student'
-    && studentExtraNav.some((item) => item.id === view);
   const desktopFabNav = desktopPrimaryNav;
   const mobileNavLabels = {
     schedule: 'График',
@@ -14988,13 +14981,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     teacherSignupNotifySyncing,
     useNativeAndroidPush,
   ]);
-  useEffect(() => {
-    if (user.role !== 'student') {
-      setDesktopStudentMoreOpen(false);
-      return;
-    }
-    if (desktopExtraActive) setDesktopStudentMoreOpen(true);
-  }, [desktopExtraActive, user.role]);
   const syncPushSubscriptionState = useCallback(async ({ silent = true } = {}) => {
     if (user.role !== 'student') return;
 
@@ -15234,32 +15220,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
     await handleEnablePush();
   }, [handleDisablePush, handleEnablePush, pushBusy, pushSubscribed, pushSyncing]);
-  const pushStatusText = (() => {
-    if (pushSyncing) return 'Проверяем статус push...';
-    if (!pushSupported) {
-      return useNativeAndroidPush
-        ? (pushError || 'RuStore Push недоступен на этом Android-устройстве.')
-        : 'Push не поддерживается в этом браузере.';
-    }
-    if (pushPermission === 'denied') {
-      return useNativeAndroidPush
-        ? 'Уведомления заблокированы в настройках Android.'
-        : 'Уведомления заблокированы в настройках браузера.';
-    }
-    if (pushSubscribed) {
-      return useNativeAndroidPush
-        ? 'Push-уведомления через RuStore включены.'
-        : 'Push-уведомления включены.';
-    }
-    return useNativeAndroidPush
-      ? 'Включите push через RuStore, чтобы получать уведомления о домашке и новых сообщениях.'
-      : 'Включите push, чтобы получать уведомления о домашке и новых сообщениях.';
-  })();
-  const pushButtonLabel = pushBusy
-    ? 'Сохраняем...'
-    : (pushSubscribed ? 'Отключить push' : 'Включить push');
-  const PushButtonIcon = pushSubscribed ? BellOff : Bell;
-
   const handleAvatarFile = useCallback(async (file) => {
     if (!file || !['student', 'teacher'].includes(user.role) || avatarSaving) return;
     if (!String(file.type || '').toLowerCase().startsWith('image/')) {
@@ -15304,61 +15264,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return (
       <button
         type="button"
-        className={`${className} relative overflow-hidden bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-300/40 ring-1 ring-white/70 transition hover:-translate-y-0.5`}
+        className={`${className} group relative overflow-visible font-bold transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 disabled:opacity-70`}
         onClick={() => avatarInputRef.current?.click()}
         disabled={avatarSaving}
         aria-label="Сменить аватарку"
         title="Сменить аватарку"
       >
-        {content}
-        <span className="absolute bottom-0 right-0 grid h-4 w-4 place-items-center rounded-tl-md bg-slate-950/72 text-white">
+        <span
+          className="absolute inset-0 flex items-center justify-center overflow-hidden bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-md shadow-purple-300/40 ring-1 ring-white/70"
+          style={{ borderRadius: 'inherit' }}
+        >
+          {content}
+        </span>
+        <span className="pointer-events-none absolute -bottom-1 -right-1 grid h-[18px] w-[18px] place-items-center rounded-full border-2 border-white bg-violet-600 text-white shadow-sm transition-transform duration-150 group-hover:scale-110 group-focus-visible:scale-110">
           <Camera size={iconSize} />
         </span>
       </button>
     );
   };
 
-  const renderPushControl = ({ mobile = false } = {}) => {
-    if (user.role !== 'student') return null;
-    return (
-      <div className={mobile ? 'mt-3' : 'mt-2'}>
-        <div className={`rounded-xl border ${
-          mobile ? 'px-3 py-2.5' : 'px-2.5 py-2'
-        } ${
-          pushSupported
-            ? 'border-purple-200/80 bg-white/85'
-            : 'border-slate-200 bg-slate-50'
-        }`}>
-          <div className={`flex items-start justify-between ${mobile ? 'gap-3' : 'gap-2'}`}>
-            <div className="min-w-0">
-              <p className={mobile ? 'text-[10px] font-bold uppercase tracking-[0.17em] text-purple-600' : 'text-[9px] font-bold uppercase tracking-[0.14em] text-purple-600'}>
-                Push
-              </p>
-              <p className={mobile ? 'mt-1 text-[11px] text-slate-600' : 'mt-0.5 truncate text-[10px] leading-tight text-slate-600'}>{pushStatusText}</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleTogglePush}
-              disabled={!pushSupported || pushBusy || pushSyncing || !pushReady}
-              className={`inline-flex shrink-0 items-center ${
-                mobile ? 'gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px]' : 'gap-1 rounded-md px-2 py-1 text-[10px] leading-none'
-              } border font-semibold transition ${
-                pushSubscribed
-                  ? 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'
-                  : 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100'
-              } disabled:cursor-not-allowed disabled:opacity-60`}
-            >
-              <PushButtonIcon size={mobile ? 13 : 11} />
-              {pushButtonLabel}
-            </button>
-          </div>
-          {pushError && pushError !== pushStatusText && (
-            <p className={mobile ? 'mt-2 text-[11px] text-rose-600' : 'mt-1 text-[10px] leading-tight text-rose-600'}>{pushError}</p>
-          )}
-        </div>
-      </div>
-    );
-  };
   useEffect(() => {
     if (user.role !== 'student') {
       setPushSupported(isPushFeatureSupported());
@@ -16799,7 +16723,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           const teacherChat = teacherChatResult.value?.chat || null;
           const teacherUnread = Math.max(0, Math.floor(Number(teacherChat?.unreadForStudent) || 0));
           const teacherAudible = notificationSettingsLoaded && notificationSettings.teacherEnabled !== false;
-          if (teacherAudible) total += teacherUnread;
+          total += teacherUnread;
           soundCandidates.push({
             key: teacherChat?.id ? `teacher:${teacherChat.id}` : 'teacher:default',
             unreadCount: teacherUnread,
@@ -16813,9 +16737,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           const groupChat = payload?.groupChat || null;
           const groupUnread = Math.max(0, Math.floor(Number(groupChat?.unreadForStudent) || 0));
           const groupAudible = notificationSettingsLoaded && notificationSettings.groupEnabled !== false;
-          if (groupAudible) {
-            total += groupUnread;
-          }
+          total += groupUnread;
           soundCandidates.push({
             key: groupChat?.id ? `group:${groupChat.id}` : '',
             unreadCount: groupUnread,
@@ -16828,7 +16750,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           (Array.isArray(payload?.directChats) ? payload.directChats : []).forEach((chat) => {
             const directUnread = Math.max(0, Math.floor(Number(chat?.unreadForStudent) || 0));
             const directAudible = notificationSettingsLoaded && directNotificationSettings?.[chat?.id] !== false;
-            if (directAudible) total += directUnread;
+            total += directUnread;
             soundCandidates.push({
               key: chat?.id ? `direct:${chat.id}` : '',
               unreadCount: directUnread,
@@ -17803,6 +17725,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         <StudentNotificationsCenter
           user={user}
           onOpenMockExam={handleOpenMockGoal}
+          chatUnreadCount={studentChatNavUnreadTotal}
+          onOpenChat={PLATFORM_CHATS_ENABLED ? () => navigateToView('chat') : null}
           onStudentCoinsChange={(nextCoinsTotal) => setStudentCoinsTotal(normalizeCoinsTotal(nextCoinsTotal))}
           theme={theme}
           onGiftCoinsClaim={({ coinsGained, coinsTotal, sourceRect }) => {
@@ -18241,6 +18165,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           className={`h-full w-64 lg:w-72 sidebar-shell rounded-none overflow-hidden transition-transform duration-300 ease-out ${
             desktopNavCollapsed ? '-translate-x-full' : 'translate-x-0'
           }`}
+          aria-hidden={desktopNavCollapsed}
+          inert={desktopNavCollapsed}
         >
           <div className="relative flex h-full flex-col">
             <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -18350,78 +18276,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </button>
                   );
                 })}
-                {user.role === 'student' && studentExtraNav.length > 0 && (
-                  <div className="mt-1">
-                    <button
-                      type="button"
-                      onClick={() => setDesktopStudentMoreOpen((prev) => !prev)}
-                      className={`sidebar-more-toggle group relative flex w-full items-center justify-between gap-2 rounded-2xl border px-3.5 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.06em] transition-colors ${
-                        desktopExtraActive
-                          ? 'border-purple-200/90 bg-purple-50 text-purple-700'
-                          : 'border-purple-100/80 bg-white/80 text-slate-600 hover:border-purple-200 hover:bg-purple-50/80 hover:text-purple-700'
-                      }`}
-                      aria-expanded={desktopStudentMoreOpen}
-                    >
-                      <span className="flex items-center gap-2">
-                        <MoreHorizontal size={14} />
-                        <span>Дополнительно</span>
-                      </span>
-                      <ChevronRight
-                        size={14}
-                        className={`transition-transform duration-200 ${desktopStudentMoreOpen ? 'rotate-90' : ''}`}
-                      />
-                      {renderNavBadge('more', 'sidebar')}
-                    </button>
-                    {desktopStudentMoreOpen && (
-                      <div className="sidebar-extra-nav mt-2 space-y-2">
-                        {studentExtraNav.map((n, idx) => {
-                          const isActive = view === n.id;
-                          return (
-                            <button
-                              key={`desktop-extra-${n.id}`}
-                              onClick={() => {
-                                navigateToView(n.id);
-                                setMenuOpen(false);
-                              }}
-                              aria-current={isActive ? 'page' : undefined}
-                              data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
-                              data-nav-tone={getNavTone(n.id)}
-                              style={{ '--item-index': desktopPrimaryNav.length + idx }}
-                              className={`sidebar-nav-item group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
-                                isActive
-                                  ? 'is-active border-purple-200/80 bg-white text-slate-900 shadow-[0_16px_30px_rgba(124,58,237,0.16)]'
-                                  : 'border-transparent text-slate-700 hover:-translate-y-[1px] hover:border-purple-200/80 hover:bg-white/92 hover:text-slate-900 hover:shadow-[0_10px_24px_rgba(148,163,184,0.24)]'
-                              }`}
-                            >
-                              <span className="flex min-w-0 flex-1 items-center gap-3">
-                                <span
-                                  className={`sidebar-nav-icon grid h-10 w-10 place-items-center rounded-xl border transition-all duration-200 ${
-                                    isActive
-                                      ? 'is-active bg-gradient-to-br from-violet-100 to-fuchsia-100 text-purple-700 border-purple-200/90 shadow-sm shadow-purple-200/60'
-                                      : 'bg-white/85 text-purple-600 border-purple-100/80 group-hover:bg-white group-hover:border-purple-200/70'
-                                  }`}
-                                >
-                                  <n.icon size={18} />
-                                </span>
-                                <span className="sidebar-nav-label whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
-                              </span>
-                              <span
-                                className={`sidebar-nav-arrow ml-auto flex h-8 w-8 items-center justify-center rounded-xl border transition-all duration-200 ${
-                                  isActive
-                                    ? 'is-active translate-x-0.5 border-purple-200/80 bg-purple-100/90 text-purple-700 opacity-100 shadow-sm shadow-purple-200/50'
-                                    : 'border-purple-100/70 bg-white/75 text-purple-400 opacity-60 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-purple-600 group-hover:border-purple-200/70'
-                                }`}
-                              >
-                                <ChevronRight size={14} />
-                              </span>
-                              {renderNavBadge(n.id, 'sidebar')}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </nav>
             <div className="sidebar-footer p-3 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
@@ -18439,7 +18293,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="mt-2 text-[10px] font-semibold text-rose-600">{avatarError}</div>
                 )}
               </div>
-              {renderPushControl()}
               <button
                 onClick={onLogout}
                 className="sidebar-logout mt-2.5 w-full flex items-center justify-center gap-1.5 rounded-xl border border-rose-200/75 bg-white/85 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
@@ -18450,7 +18303,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           </div>
         </aside>
       </div>
-      <div className={`desktop-nav-fab hidden md:flex ${desktopNavCollapsed ? 'is-visible' : ''}`} aria-hidden={!desktopNavCollapsed}>
+      <div
+        className={`desktop-nav-fab hidden md:flex ${desktopNavCollapsed ? 'is-visible' : ''}`}
+        aria-hidden={!desktopNavCollapsed}
+        inert={!desktopNavCollapsed}
+      >
         <button
           type="button"
           onClick={() => setDesktopNavCollapsed(false)}
@@ -18463,11 +18320,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         <div className="desktop-nav-fab__divider" aria-hidden="true" />
         <div className="desktop-nav-fab__stack">
           {desktopFabNav.map((n) => {
-            const isMoreButton = n.id === 'more';
             const isLessonButton = n.id === 'lesson';
-            const isActive = isMoreButton
-              ? desktopExtraActive
-              : (isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id);
+            const isActive = isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id;
             const isFeatured = Boolean(n.featured);
             const Icon = n.icon;
             return (
@@ -18475,11 +18329,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 key={`desktop-nav-fab-${n.id}`}
                 type="button"
                 onClick={() => {
-                  if (isMoreButton) {
-                    setDesktopNavCollapsed(false);
-                    setDesktopStudentMoreOpen(true);
-                    return;
-                  }
                   navigateToView(n.id);
                   setMenuOpen(false);
                 }}
@@ -18547,6 +18396,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   type="button"
                   onClick={openLevelProfile}
                   className="level-progress-card student-level-summary-card min-w-0 flex-1 px-2 py-1.5 text-sm font-semibold md:min-w-[255px] md:flex-none md:px-2.5 md:py-2"
+                  data-tour="level-profile-entry"
                   aria-label={`Открыть профиль. Уровень ${currentLevel}. Опыт: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
                   title={`Открыть профиль. Всего опыта: ${totalXpLabel} XP. Монеты Python: ${totalCoinsLabel}.`}
                 >
@@ -19641,6 +19491,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           weeklyPosition={levelProfileState.weeklyPosition}
           onClose={closeLevelProfile}
           onRetry={openLevelProfile}
+          onOpenRating={() => {
+            closeLevelProfile();
+            navigateToView('rating');
+          }}
           getLeagueByXp={getLeagueByXp}
           getLeagueAuraStyle={getLeagueAuraStyle}
           isAbsoluteOrAboveLeague={isAbsoluteOrAboveLeague}
@@ -19658,7 +19512,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             type="button"
             className="absolute inset-0 bg-slate-900/35 backdrop-blur-[1px]"
             onClick={() => setMenuOpen(false)}
-            aria-label="Закрыть профиль"
+            aria-label="Закрыть меню"
           />
           <div className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}>
             <div className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)]">
@@ -19677,7 +19531,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="mt-2 text-xs font-semibold text-rose-600">{avatarError}</div>
                 )}
               </div>
-              {renderPushControl({ mobile: true })}
               {user.role === 'student' && studentMobileMoreNav.length > 0 && (
                 <div className="mt-4 rounded-2xl border border-purple-100/75 bg-white/90 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-purple-700/80">
@@ -19692,6 +19545,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           key={`mobile-more-${item.id}`}
                           type="button"
                           data-tour={item.id === 'rating' ? 'rating-nav' : undefined}
+                          aria-current={isActive ? 'page' : undefined}
                           onClick={() => {
                             navigateToView(item.id);
                             setMenuOpen(false);
@@ -19737,6 +19591,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     type="button"
                     data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                     data-nav-tone={getNavTone(n.id)}
+                    aria-current={isActive ? 'page' : undefined}
                     onClick={() => {
                       if (isMoreButton) {
                         setMenuOpen(true);

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, BookOpen, Check, Gift, Megaphone, Paperclip, X } from 'lucide-react';
+import { Bell, BookOpen, Check, Gift, Megaphone, MessageSquare, Paperclip, X } from 'lucide-react';
 import { api, resolveAuthenticatedUploadsUrl, withStoredAuthToken } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { getNotificationsWsUrl } from '../utils/runtimeUrls';
@@ -262,6 +262,8 @@ const NotificationCard = ({
 const StudentNotificationsCenter = ({
   user,
   onOpenMockExam,
+  chatUnreadCount = 0,
+  onOpenChat,
   onStudentCoinsChange,
   onGiftCoinsClaim,
   theme = 'light',
@@ -331,6 +333,15 @@ const StudentNotificationsCenter = ({
     () => notifications.filter((item) => !item?.seen).length,
     [notifications]
   );
+  const safeChatUnreadCount = Math.max(0, Math.floor(Number(chatUnreadCount) || 0));
+  const attentionCount = unreadCount + safeChatUnreadCount;
+  const notificationButtonLabel = attentionCount > 0
+    ? `Открыть центр уведомлений. Новых уведомлений: ${unreadCount}. Непрочитанных сообщений: ${safeChatUnreadCount}.`
+    : 'Открыть центр уведомлений';
+  const panelSummary = [
+    unreadCount > 0 ? `Новых уведомлений: ${unreadCount}` : '',
+    safeChatUnreadCount > 0 ? `Непрочитанных сообщений: ${safeChatUnreadCount}` : '',
+  ].filter(Boolean).join(' · ') || 'Все уведомления просмотрены';
 
   useEffect(() => {
     panelOpenRef.current = panelOpen;
@@ -652,6 +663,13 @@ const StudentNotificationsCenter = ({
     onOpenMockExam(mockExamId);
   }, [markNotificationSeen, onOpenMockExam]);
 
+  const handleOpenChat = useCallback(() => {
+    if (typeof onOpenChat !== 'function') return;
+    panelOpenRef.current = false;
+    setPanelOpen(false);
+    onOpenChat();
+  }, [onOpenChat]);
+
   const closeFeaturedNotification = useCallback(() => {
     const current = featuredNotificationRef.current || featuredNotification;
     if (current?.gift?.coins > 0 && !current?.gift?.claimed) {
@@ -676,13 +694,13 @@ const StudentNotificationsCenter = ({
             ? 'border-fuchsia-300/20 bg-slate-950/85 text-fuchsia-100 hover:bg-slate-900'
             : 'border-purple-200/70 bg-white text-purple-700 hover:bg-purple-50'
         }`}
-        aria-label="Открыть уведомления"
-        title="Уведомления"
+        aria-label={notificationButtonLabel}
+        title="Уведомления и сообщения"
       >
         <Bell size={18} />
-        {unreadCount > 0 && (
+        {attentionCount > 0 && (
           <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-rose-500 px-1.5 py-0.5 text-center text-[10px] font-bold leading-none text-white shadow-sm">
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {attentionCount > 99 ? '99+' : attentionCount}
           </span>
         )}
       </button>
@@ -695,13 +713,13 @@ const StudentNotificationsCenter = ({
             ? 'border-fuchsia-300/20 bg-slate-950/88 text-fuchsia-100 hover:bg-slate-900'
             : 'border-purple-200/80 bg-white text-purple-700 hover:bg-purple-50'
         }`}
-        aria-label="Открыть уведомления"
-        title="Уведомления"
+        aria-label={notificationButtonLabel}
+        title="Уведомления и сообщения"
       >
         <Bell size={20} />
-        {unreadCount > 0 && (
+        {attentionCount > 0 && (
           <span className="absolute -right-1 -top-1 min-w-[20px] rounded-full bg-rose-500 px-1.5 py-0.5 text-center text-[10px] font-bold leading-none text-white shadow-sm">
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {attentionCount > 99 ? '99+' : attentionCount}
           </span>
         )}
       </button>
@@ -862,19 +880,39 @@ const StudentNotificationsCenter = ({
               <div>
                 <div className="text-xl font-bold text-slate-900">Уведомления</div>
                 <div className="mt-1 text-sm text-slate-500">
-                  {unreadCount > 0
-                    ? `Новых: ${unreadCount}`
-                    : 'Все уведомления просмотрены'}
+                  {panelSummary}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setPanelOpen(false)}
-                className="rounded-xl border border-slate-200 bg-white p-2 text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
-                aria-label="Закрыть список уведомлений"
-              >
-                <X size={16} />
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {typeof onOpenChat === 'function' && (
+                  <button
+                    type="button"
+                    onClick={handleOpenChat}
+                    className={`relative inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition ${
+                      isDarkTheme
+                        ? 'border-fuchsia-300/20 bg-white/5 text-fuchsia-100 hover:border-fuchsia-300/35 hover:bg-white/10'
+                        : 'border-purple-200 bg-purple-50 text-purple-700 hover:border-purple-300 hover:bg-purple-100'
+                    }`}
+                    aria-label={safeChatUnreadCount > 0 ? `Открыть чаты. Непрочитанных: ${safeChatUnreadCount}` : 'Открыть чаты'}
+                  >
+                    <MessageSquare size={16} />
+                    <span className="hidden sm:inline">Чаты</span>
+                    {safeChatUnreadCount > 0 && (
+                      <span className="min-w-[18px] rounded-full bg-rose-500 px-1.5 py-0.5 text-center text-[10px] font-bold leading-none text-white shadow-sm">
+                        {safeChatUnreadCount > 99 ? '99+' : safeChatUnreadCount}
+                      </span>
+                    )}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPanelOpen(false)}
+                  className="rounded-xl border border-slate-200 bg-white p-2 text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
+                  aria-label="Закрыть список уведомлений"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             <div className="overflow-y-auto px-4 py-4 sm:px-6">

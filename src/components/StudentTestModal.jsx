@@ -646,6 +646,8 @@ const StudentTestModal = ({
   const questionCodeFocusFullscreenTimerRef = useRef(null);
   const questionCodeCopyResetTimerRef = useRef(null);
   const questionCodeWorkspaceRef = useRef(null);
+  const questionCodeHomeworkStripRef = useRef(null);
+  const questionCodeLevelStripRef = useRef(null);
   const questionCodeAudioRef = useRef(null);
   const questionCodeTaskPanelRef = useRef(null);
   const questionCodeIdePanelRef = useRef(null);
@@ -665,6 +667,23 @@ const StudentTestModal = ({
     : '';
   const activeQuestion = questions[currentIndex];
   const activeQuestionId = activeQuestion ? String(activeQuestion?.id ?? currentIndex) : '';
+  const activeQuestionNumber = questionNumbers[currentIndex] ?? (currentIndex + 1);
+
+  useEffect(() => {
+    if (!questionCodeOpen || !activeQuestionNumber || typeof window === 'undefined') return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      const behavior = prefersReducedStudentMotion() ? 'auto' : 'smooth';
+      [questionCodeHomeworkStripRef.current, questionCodeLevelStripRef.current].forEach((strip) => {
+        strip?.querySelector('[aria-current="step"]')?.scrollIntoView({
+          behavior,
+          block: 'nearest',
+          inline: 'center',
+        });
+      });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeQuestionNumber, questionCodeOpen]);
+
   const closeQuestionTurtleWindow = useCallback((restoreFocus = true) => {
     setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
@@ -2321,6 +2340,9 @@ const StudentTestModal = ({
     }));
     const targetSolvedCount = targetStatus.filter((item) => item.solved).length;
     const homeworkRemainingCount = Math.max(0, targetStatus.length - targetSolvedCount);
+    const homeworkProgressPercent = targetStatus.length > 0
+      ? Math.round((targetSolvedCount / targetStatus.length) * 100)
+      : 0;
     const currentLevelQuestionIndex = levelQuestionNumbers.findIndex((num) => Number(num) === Number(currentQuestionNumber));
     const previousLevelQuestionNumber = currentLevelQuestionIndex > 0
       ? levelQuestionNumbers[currentLevelQuestionIndex - 1]
@@ -2335,6 +2357,9 @@ const StudentTestModal = ({
     const levelSolvedCount = levelQuestionNumbers.reduce((count, questionNumber) => (
       getQuestionStatusByNumber(questionNumber) === 'solved' ? count + 1 : count
     ), 0);
+    const levelProgressPercent = levelQuestionNumbers.length > 0
+      ? Math.round((levelSolvedCount / levelQuestionNumbers.length) * 100)
+      : 0;
     const completionPercent = questions.length > 0
       ? Math.round((solvedQuestionCount / questions.length) * 100)
       : 0;
@@ -3022,9 +3047,12 @@ const StudentTestModal = ({
                     ? `${homeworkRemainingCount} осталось`
                     : 'Весь уровень'}
                 </strong>
+                <span className="student-test-code-focus__nav-progress" aria-hidden="true">
+                  <i style={{ width: `${targetStatus.length > 0 ? homeworkProgressPercent : levelProgressPercent}%` }} />
+                </span>
               </div>
               {targetStatus.length > 0 ? (
-                <div className="student-test-code-focus__homework-strip" aria-label="Вопросы из домашки">
+                <div ref={questionCodeHomeworkStripRef} className="student-test-code-focus__homework-strip" aria-label="Вопросы из домашки">
                   {targetStatus.map((item, index) => {
                     const status = getQuestionStatusByNumber(item.num);
                     const isCurrentTarget = Number(currentQuestionNumber) === Number(item.num);
@@ -3053,8 +3081,11 @@ const StudentTestModal = ({
 
             <div className="student-test-code-focus__level-row">
               <div className="student-test-code-focus__nav-heading">
-                <span>Уровень</span>
+                <span>Все задания</span>
                 <strong>{levelSolvedCount}/{levelQuestionNumbers.length} решено</strong>
+                <span className="student-test-code-focus__nav-progress" aria-hidden="true">
+                  <i style={{ width: `${levelProgressPercent}%` }} />
+                </span>
               </div>
               <div className="student-test-code-focus__level-controls">
                 <button
@@ -3066,7 +3097,7 @@ const StudentTestModal = ({
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <div className="student-test-code-focus__level-strip" aria-label="Все вопросы уровня">
+                <div ref={questionCodeLevelStripRef} className="student-test-code-focus__level-strip" aria-label="Все вопросы уровня">
                   {levelQuestionNumbers.map((num, index) => {
                     const status = getQuestionStatusByNumber(num);
                     const isCurrentLevelQuestion = Number(currentQuestionNumber) === Number(num);
@@ -3084,9 +3115,13 @@ const StudentTestModal = ({
                         style={{ '--student-test-item-index': index }}
                         onClick={() => handleSelectQuestionNumber(num)}
                         aria-current={isCurrentLevelQuestion ? 'step' : undefined}
+                        aria-label={`Вопрос №${num}${status === 'solved' ? ' решён' : ''}${isHomeworkQuestion ? ' · из домашки' : ''}`}
                         title={`Вопрос №${num}${isHomeworkQuestion ? ' из домашки' : ''}`}
                       >
-                        {status === 'solved' ? <Check size={13} strokeWidth={3} /> : num}
+                        <span className="student-test-code-focus__level-number">{num}</span>
+                        {status === 'solved' && (
+                          <Check className="student-test-code-focus__level-check" size={10} strokeWidth={3.2} aria-hidden="true" />
+                        )}
                       </button>
                     );
                   })}
