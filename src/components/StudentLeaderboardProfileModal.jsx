@@ -636,7 +636,7 @@ const StudentLeaderboardProfileModal = ({
                       <button
                         type="button"
                         onClick={onOpenRating}
-                        data-tour="rating-nav"
+                        data-tour="rating-profile-cta"
                         className="student-profile-rating-button inline-flex min-h-9 items-center justify-center gap-2 rounded-full border border-violet-300/30 bg-gradient-to-r from-violet-500/20 to-cyan-500/10 px-3 text-xs font-bold leading-none text-violet-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition hover:-translate-y-0.5 hover:border-violet-200/55 hover:from-violet-500/30 hover:to-cyan-500/18 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300/70"
                         aria-label="Открыть полный рейтинг учеников"
                       >

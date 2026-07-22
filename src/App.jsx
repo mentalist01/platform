@@ -2839,10 +2839,10 @@ const STUDENT_RATING_TOUR_STEPS = [
   {
     id: 'rating-nav',
     title: 'Как вернуться',
-    text: 'Нажми карточку уровня вверху, а затем «Полный рейтинг». На телефоне рейтинг также доступен в «Ещё».',
+    text: 'На компьютере рейтинг находится в компактном блоке под основной навигацией, а на телефоне — в «Ещё». Его также можно открыть через карточку уровня.',
     emotion: 'peeking',
-    target: '[data-tour="level-profile-entry"]',
-    fallback: '[data-tour="nav"]',
+    target: '[data-tour="rating-nav"]',
+    fallback: '[data-tour="level-profile-entry"]',
     view: 'rating',
     menu: 'close'
   },
@@ -14308,9 +14308,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const teacherLessonNavIds = ['call', 'board', 'collab'];
   const studentLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
-  const studentPrimaryNav = user.role === 'student'
+  const studentDesktopMainNav = user.role === 'student'
     ? [
-      ...['review', 'schedule', 'progress', 'python']
+      ...['review', 'schedule', 'progress']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
@@ -14319,6 +14319,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .filter(Boolean)
     ]
     : visibleNav;
+  const studentDesktopToolNav = user.role === 'student'
+    ? ['python', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'rating']
+      .map((id) => visibleNav.find((item) => item.id === id))
+      .filter(Boolean)
+    : [];
   const lessonQuickNavIds = user.role === 'teacher'
     ? teacherLessonNavIds
     : studentLessonNavIds;
@@ -14326,19 +14331,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     .map((id) => visibleNav.find((item) => item.id === id))
     .filter(Boolean);
   const studentDefaultLessonView = lessonQuickNav[0]?.id || 'progress';
-  const studentMobilePrimaryNavIds = ['schedule', 'progress', 'python'];
+  const studentMobilePrimaryNavIds = ['schedule', 'progress', 'notes'];
   const studentMobilePrimaryNav = user.role === 'student'
     ? [
-      ...studentMobilePrimaryNavIds
+      ...['schedule', 'progress']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
+      ...['notes']
+        .map((id) => visibleNav.find((item) => item.id === id))
+        .filter(Boolean),
     ]
     : [];
   const studentMobileMorePreferredIds = [
     ...(studentCanSeeReview ? ['review'] : []),
+    'python',
     ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []),
-    'notes',
     'rating',
   ];
   const studentMobileOverflowNav = user.role === 'student'
@@ -14375,9 +14383,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ]
     : visibleNav;
   const desktopPrimaryNav = user.role === 'student'
-    ? studentPrimaryNav
+    ? studentDesktopMainNav
     : teacherDesktopPrimaryNav;
-  const desktopFabNav = desktopPrimaryNav;
+  const desktopFabNav = user.role === 'student'
+    ? [...studentDesktopMainNav, ...studentDesktopToolNav]
+    : desktopPrimaryNav;
   const mobileNavLabels = {
     schedule: 'График',
     'teacher-calendar': 'Календ.',
@@ -14502,7 +14512,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       if (PLATFORM_CHATS_ENABLED) {
         counts.chat = Math.max(0, Math.floor(Number(studentChatNavUnreadTotal) || 0));
       }
-      counts.more = ['review', 'chat', 'notes', 'rating'].reduce((sum, id) => (
+      counts.more = ['review', 'python', 'chat', 'rating'].reduce((sum, id) => (
         sum + Math.max(0, Math.floor(Number(counts[id]) || 0))
       ), 0);
     }
@@ -18204,9 +18214,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 <ChevronsLeft size={16} />
               </button>
             </div>
-            <nav className="flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav" data-tour="nav">
+            <nav className={`flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav ${user.role === 'student' ? 'sidebar-nav--student' : ''}`} data-tour="nav">
               <div className="sidebar-nav-title mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
-                Навигация
+                {user.role === 'student' ? 'Главное' : 'Навигация'}
               </div>
               <div className="space-y-2.5 sidebar-nav-stack">
                 {desktopPrimaryNav.map((n, idx) => {
@@ -18224,7 +18234,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                       data-nav-tone={getNavTone(n.id)}
                       style={{ '--item-index': idx }}
-                      className={`sidebar-nav-item ${isFeatured ? 'sidebar-nav-item--featured' : ''} group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
+                      className={`sidebar-nav-item ${user.role === 'student' ? 'sidebar-nav-item--primary' : ''} ${isFeatured ? 'sidebar-nav-item--featured' : ''} group relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ease-out ${
                         isActive
                           ? (isFeatured
                             ? 'is-active border-amber-300 bg-gradient-to-br from-amber-100 via-white to-yellow-50 text-slate-950 shadow-[0_18px_36px_rgba(245,158,11,0.28)] ring-1 ring-amber-200/80'
@@ -18277,6 +18287,39 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   );
                 })}
               </div>
+              {user.role === 'student' && studentDesktopToolNav.length > 0 && (
+                <div className="sidebar-secondary-nav" role="group" aria-label="Дополнительные разделы">
+                  <div className="sidebar-secondary-nav__list">
+                    {studentDesktopToolNav.map((n, idx) => {
+                      const isActive = view === n.id;
+                      return (
+                        <button
+                          key={`desktop-tool-${n.id}`}
+                          type="button"
+                          onClick={() => {
+                            navigateToView(n.id);
+                            setMenuOpen(false);
+                          }}
+                          aria-current={isActive ? 'page' : undefined}
+                          data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
+                          data-nav-tone={getNavTone(n.id)}
+                          style={{ '--item-index': desktopPrimaryNav.length + idx }}
+                          className={`sidebar-secondary-nav__item group ${isActive ? 'is-active' : ''}`}
+                        >
+                          <span className="sidebar-secondary-nav__icon">
+                            <n.icon size={15} />
+                          </span>
+                          <span className="sidebar-secondary-nav__label">{n.label}</span>
+                          {renderNavBadge(n.id, 'sidebar')}
+                          <span className="sidebar-secondary-nav__arrow" aria-hidden="true">
+                            <ChevronRight size={13} />
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </nav>
             <div className="sidebar-footer p-3 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
               <div className="sidebar-profile-card rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/75 p-3 shadow-[0_8px_18px_rgba(148,163,184,0.2)]">
@@ -18323,6 +18366,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             const isLessonButton = n.id === 'lesson';
             const isActive = isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id;
             const isFeatured = Boolean(n.featured);
+            const isSecondary = user.role === 'student'
+              && studentDesktopToolNav.some((item) => item.id === n.id);
+            const isFirstSecondary = isSecondary && studentDesktopToolNav[0]?.id === n.id;
             const Icon = n.icon;
             return (
               <button
@@ -18332,7 +18378,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   navigateToView(n.id);
                   setMenuOpen(false);
                 }}
-                className={`desktop-nav-fab__item ${isActive ? 'is-active' : ''} ${isFeatured ? 'desktop-nav-fab__item--featured' : ''}`}
+                className={`desktop-nav-fab__item ${isActive ? 'is-active' : ''} ${isFeatured ? 'desktop-nav-fab__item--featured' : ''} ${isSecondary ? 'desktop-nav-fab__item--secondary' : ''} ${isFirstSecondary ? 'desktop-nav-fab__item--secondary-first' : ''}`}
                 data-nav-tone={getNavTone(n.id)}
                 aria-current={isActive ? 'page' : undefined}
                 data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
