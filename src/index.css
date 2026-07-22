@@ -86304,19 +86304,20 @@ html[data-theme] .student-chat-send-button {
   color: #b45309;
 }
 
-.notes-explorer-shell--workspace-v2 .notes-resource-card--shared-template > td {
+.notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-file-row.notes-resource-card--shared-template > td {
   border-color: #fde68a !important;
-  background: #fffbeb !important;
+  background: linear-gradient(90deg, #fef3c7 0%, #fff7dc 42%, #fffbeb 100%) !important;
 }
 
-.notes-explorer-shell--workspace-v2 .notes-resource-card--shared-template > td:first-child {
-  border-left: 3px solid #f59e0b !important;
+.notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-file-row.notes-resource-card--shared-template > td:first-child {
+  border-left: 4px solid #f59e0b !important;
+  box-shadow: none !important;
 }
 
-.notes-explorer-shell--workspace-v2 .notes-resource-card--shared-template:hover > td,
-.notes-explorer-shell--workspace-v2 .notes-resource-card--shared-template:focus-within > td {
+.notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-file-row.notes-resource-card--shared-template:hover > td,
+.notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-file-row.notes-resource-card--shared-template:focus-within > td {
   border-color: #fbbf24 !important;
-  background: #fff7d6 !important;
+  background: linear-gradient(90deg, #fde68a 0%, #fef3c7 44%, #fff7d6 100%) !important;
 }
 
 .notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson > td {
@@ -86359,15 +86360,20 @@ html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2
   color: #fbbf24 !important;
 }
 
-html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-resource-card--shared-template > td {
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-template > td {
   border-color: #6b542b !important;
-  background: #2b2418 !important;
+  background: linear-gradient(90deg, #392c16 0%, #2f2719 48%, #251f16 100%) !important;
 }
 
-html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-resource-card--shared-template:hover > td,
-html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-resource-card--shared-template:focus-within > td {
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-template > td:first-child {
+  border-left: 4px solid #f59e0b !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-template:hover > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-template:focus-within > td {
   border-color: #94702e !important;
-  background: #382d1b !important;
+  background: linear-gradient(90deg, #493719 0%, #3b2f1c 48%, #302619 100%) !important;
 }
 
 html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson > td {
