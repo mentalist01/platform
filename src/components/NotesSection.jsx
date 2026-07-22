@@ -651,7 +651,10 @@ const NotesSection = ({
       if (!isLessonSharedFolder(folder) || normalizeParentFolderId(folder?.parentFolderId)) return;
       const taskNumber = getNotesTaskNumber(folder?.taskNumber);
       if (!Number.isFinite(taskNumber)) return;
-      sharedRootByTask.set(`${taskNumber}:${String(folder?.category || '')}`, String(folder?.id || '').trim());
+      const sharedRootKey = `${taskNumber}:${String(folder?.category || '')}`;
+      if (!sharedRootByTask.has(sharedRootKey)) {
+        sharedRootByTask.set(sharedRootKey, String(folder?.id || '').trim());
+      }
     });
     let root = 0;
     for (const f of files) {
@@ -2804,12 +2807,27 @@ const NotesSection = ({
     f.category === effectiveCategory
   );
   const templateFiles = taskFiles.filter(isSharedTemplateFile);
+  const lessonSharedRootFolders = normalizedFolders.filter((folder) => (
+    !normalizeParentFolderId(folder?.parentFolderId)
+    && isLessonSharedFolder(folder)
+    && getNotesTaskNumber(folder?.taskNumber) === normalizedCurrentTask
+    && String(folder?.category || '') === String(effectiveCategory)
+  ));
+  const lessonSharedRootFolderIds = new Set(
+    lessonSharedRootFolders.map((folder) => String(folder?.id || '').trim()).filter(Boolean)
+  );
   const activeFolder = currentFolderId ? foldersById.get(currentFolderId) : null;
   const filtered = taskFiles.filter((file) => {
     const fileFolderId = String(file?.folderId || '').trim();
     if (!currentFolderId) return !fileFolderId && !isLessonSharedFile(file);
+    if (lessonSharedRootFolderIds.has(String(currentFolderId)) && isSharedTemplateFile(file)) return false;
     if (fileFolderId === currentFolderId) {
       return !(isCurrentFolderLessonShared && isSharedTemplateFile(file));
+    }
+    if (lessonSharedRootFolderIds.has(String(currentFolderId))) {
+      return isLessonSharedFile(file)
+        && !isSharedTemplateFile(file)
+        && (!fileFolderId || lessonSharedRootFolderIds.has(fileFolderId));
     }
     return !fileFolderId
       && isLessonSharedFile(file)
@@ -2871,7 +2889,9 @@ const NotesSection = ({
       return haystack.includes(normalizedFileSearch);
     })
     : filtered;
-  const currentChildFolders = folderChildrenByParent.get(currentFolderId || '__root__') || [];
+  const currentChildFolders = lessonSharedRootFolderIds.has(String(currentFolderId || ''))
+    ? lessonSharedRootFolders.flatMap((folder) => folderChildrenByParent.get(folder.id) || [])
+    : (folderChildrenByParent.get(currentFolderId || '__root__') || []);
   const visibleFolders = isSearchMode
     ? normalizedFolders.filter((folder) => {
       const haystack = [
@@ -2907,10 +2927,21 @@ const NotesSection = ({
     }
     return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
   });
-  const mainVisibleFolders = sortedVisibleFolders.filter((folder) => (
+  const allMainVisibleFolders = sortedVisibleFolders.filter((folder) => (
     !normalizeParentFolderId(folder?.parentFolderId) && isLessonSharedFolder(folder)
   ));
-  const regularVisibleFolders = sortedVisibleFolders.filter((folder) => !mainVisibleFolders.includes(folder));
+  const mainVisibleFolders = allMainVisibleFolders.length ? [allMainVisibleFolders[0]] : [];
+  const regularVisibleFolders = sortedVisibleFolders.filter((folder) => !allMainVisibleFolders.includes(folder));
+  const sharedLessonFilesCount = taskFiles.filter((file) => {
+    const fileFolderId = String(file?.folderId || '').trim();
+    return isLessonSharedFile(file)
+      && !isSharedTemplateFile(file)
+      && (!fileFolderId || lessonSharedRootFolderIds.has(fileFolderId));
+  }).length;
+  const sharedLessonChildFolderCount = lessonSharedRootFolders.reduce(
+    (count, folder) => count + (folderChildrenByParent.get(folder.id) || []).length,
+    0
+  );
   const visibleExplorerItems = [
     ...mainVisibleFolders.map((folder) => ({ kind: 'folder', section: 'main', id: `folder-${folder.id}`, folder })),
     ...sortedTemplateFiles.map((file) => ({ kind: 'file', section: 'templates', id: `template-${file.id}`, file })),
@@ -2931,8 +2962,11 @@ const NotesSection = ({
     'файла',
     'файлов'
   )}`;
-  const currentFolderFoldersLabel = `${currentChildFolders.length} ${formatRussianCountLabel(
-    currentChildFolders.length,
+  const currentFolderFoldersCount = currentFolderId
+    ? currentChildFolders.length
+    : mainVisibleFolders.length + regularVisibleFolders.length;
+  const currentFolderFoldersLabel = `${currentFolderFoldersCount} ${formatRussianCountLabel(
+    currentFolderFoldersCount,
     'папка',
     'папки',
     'папок'
@@ -3294,9 +3328,14 @@ const NotesSection = ({
                     if (item.kind === 'folder') {
                       const folder = item.folder;
                       const sharedFolder = isLessonSharedFolder(folder);
+                      const sharedRootFolder = sharedFolder && !normalizeParentFolderId(folder?.parentFolderId);
                       const folderDisplayName = sharedFolder ? 'Файлы к уроку' : folder.name;
-                      const folderFileCount = folderCounts.map.get(folder.id) || 0;
-                      const childFolderCount = (folderChildrenByParent.get(folder.id) || []).length;
+                      const folderFileCount = sharedRootFolder
+                        ? sharedLessonFilesCount
+                        : (folderCounts.map.get(folder.id) || 0);
+                      const childFolderCount = sharedRootFolder
+                        ? sharedLessonChildFolderCount
+                        : (folderChildrenByParent.get(folder.id) || []).length;
                       const canDeleteCurrentFolder = canDeleteFolder(folder);
                       const isDropTarget = dragOverFolderId === folder.id;
                       const isSelectedFolder = selectedFolderId === folder.id;
