@@ -1466,9 +1466,9 @@ const ChatMessages = ({
         ))}
       </div>
     ) : messages.length === 0 ? (
-      <div className="flex h-full min-h-[160px] items-center justify-center">
-        <div className="max-w-sm text-center">
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl border border-purple-200/70 bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 text-white shadow-lg shadow-purple-200/60">
+      <div className="student-chat-conversation-empty flex h-full min-h-[160px] items-center justify-center">
+        <div className="student-chat-conversation-empty__card max-w-sm text-center">
+          <div className="student-chat-conversation-empty__icon mx-auto grid h-14 w-14 place-items-center rounded-2xl border border-purple-200/70 bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 text-white shadow-lg shadow-purple-200/60">
             {React.createElement(EmptyIcon, { size: 24 })}
           </div>
           <div className="mt-3 text-base font-extrabold text-slate-900">{emptyTitle}</div>
@@ -2310,6 +2310,7 @@ const StudentChatSection = ({
   pushReady = false,
   onTogglePush = null,
   onOpenDirectChat = null,
+  onNavigateToRating = null,
   openDirectChatRequest = null,
   onOpenDirectChatHandled = null,
   getLeagueByXp,
@@ -3727,7 +3728,7 @@ const StudentChatSection = ({
             <div className="min-w-0">
               <h2 className="student-chat-hero-title truncate text-2xl font-black leading-tight text-white sm:text-3xl">Чаты</h2>
               <p className="student-chat-hero-subtitle truncate text-xs font-semibold text-cyan-50/72 sm:text-sm">
-                Учитель, группа и личные диалоги курса
+                Все сообщения по учёбе в одном месте
               </p>
             </div>
           </div>
@@ -3771,7 +3772,7 @@ const StudentChatSection = ({
                         {Number(tab.badge) > 99 ? '99+' : tab.badge}
                       </span>
                     )}
-                    {tab.onToggleNotifications && (
+                    {tab.onToggleNotifications && active && (
                       <button
                         type="button"
                         className={`student-chat-tab-notify m-1 ml-0 grid h-8 w-8 shrink-0 place-items-center rounded-xl border transition-all ${
@@ -3799,19 +3800,20 @@ const StudentChatSection = ({
               })}
             </div>
 
-            <Button
-              type="button"
-              variant={pushEnabled ? 'secondary' : 'primary'}
-              onClick={() => onTogglePush?.()}
-              disabled={!canTogglePush || (!pushSupported && !pushEnabled)}
-              className="student-chat-push-button h-12 shrink-0 rounded-2xl border-white/16 bg-white/14 px-3 text-white shadow-none hover:bg-white/20"
-              title={pushStatusText}
-            >
-              <PushIcon size={16} />
-              <span className="hidden sm:inline">
-                {pushBusy || pushSyncing ? 'Сохраняем...' : (pushEnabled ? 'Push' : 'Push')}
-              </span>
-            </Button>
+            {(pushSupported || pushEnabled) && (
+              <Button
+                type="button"
+                variant={pushEnabled ? 'secondary' : 'primary'}
+                onClick={() => onTogglePush?.()}
+                disabled={!canTogglePush || (!pushSupported && !pushEnabled)}
+                className="student-chat-push-button h-12 shrink-0 rounded-2xl border-white/16 bg-white/14 px-3 text-white shadow-none hover:bg-white/20"
+                title={pushStatusText}
+                aria-label={pushEnabled ? 'Отключить push-уведомления' : 'Включить push-уведомления'}
+              >
+                <PushIcon size={16} />
+                <span className="sr-only">{pushBusy || pushSyncing ? 'Сохраняем настройки' : pushStatusText}</span>
+              </Button>
+            )}
           </div>
         </div>
       </Card>
@@ -3822,6 +3824,9 @@ const StudentChatSection = ({
             key="teacher-chat"
             headerContent={(
               <div className="student-chat-inline-header">
+                <span className="student-chat-thread-icon student-chat-thread-icon--teacher" aria-hidden="true">
+                  <GraduationCap size={18} />
+                </span>
                 <div className="min-w-0">
                   <div className="student-chat-inline-kicker text-xs font-semibold uppercase tracking-[0.12em] text-purple-600">Диалог</div>
                   <h3 className="student-chat-inline-title text-lg font-bold text-slate-900">Чат с преподавателем</h3>
@@ -3905,6 +3910,9 @@ const StudentChatSection = ({
                 key={`social-chat:${activeSocialChatId || 'group'}`}
                 headerContent={(
                   <div className="student-chat-inline-header">
+                    <span className="student-chat-thread-icon student-chat-thread-icon--group" aria-hidden="true">
+                      <Hash size={18} />
+                    </span>
                     <div className="min-w-0">
                       <div className="student-chat-inline-kicker text-xs font-semibold uppercase tracking-[0.12em] text-sky-600">Группа</div>
                       <h3 className="student-chat-inline-title text-lg font-bold text-slate-900">{socialTitle}</h3>
@@ -3977,9 +3985,14 @@ const StudentChatSection = ({
       {activeTab === 'direct' && (
         <Card className="student-chat-panel flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="student-chat-panel-header mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-600">Личные</div>
-              <h3 className="text-lg font-bold text-slate-900">Чаты с учениками курса</h3>
+            <div className="student-chat-panel-heading">
+              <span className="student-chat-thread-icon student-chat-thread-icon--direct" aria-hidden="true">
+                <UserRound size={18} />
+              </span>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-600">Личные</div>
+                <h3 className="text-lg font-bold text-slate-900">Чаты с учениками курса</h3>
+              </div>
             </div>
             <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
               {directChats.length} диалогов
@@ -3995,8 +4008,21 @@ const StudentChatSection = ({
               Загружаем чаты...
             </div>
           ) : directChats.length === 0 && !hasOpenDirectChat ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-gray-500">
-              Диалогов пока нет. Написать можно из профиля ученика в рейтинге.
+            <div className="student-chat-empty-state">
+              <div className="student-chat-empty-state__card">
+                <span className="student-chat-empty-state__icon" aria-hidden="true">
+                  <UserRound size={26} />
+                </span>
+                <span className="student-chat-empty-state__kicker">Личные сообщения</span>
+                <h3>Здесь появятся ваши диалоги</h3>
+                <p>Откройте профиль ученика в рейтинге и начните разговор. После первого сообщения чат останется в этом списке.</p>
+                {typeof onNavigateToRating === 'function' && (
+                  <button type="button" className="student-chat-empty-state__action" onClick={onNavigateToRating}>
+                    <Users size={16} />
+                    Найти ученика
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="student-direct-layout grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-[280px_1fr]">

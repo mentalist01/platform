@@ -19225,6 +19225,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 pushError={pushError}
                 onTogglePush={handleTogglePush}
                 onOpenDirectChat={handleOpenStudentDirectChat}
+                onNavigateToRating={() => navigateToView('rating')}
                 openDirectChatRequest={pendingDirectChatRequest}
                 onOpenDirectChatHandled={() => setPendingDirectChatRequest(null)}
                 getLeagueByXp={getLeagueByXp}
