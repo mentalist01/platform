@@ -2121,7 +2121,7 @@ const ChatImageViewer = ({ image, onClose }) => {
 
   if (!src) return null;
 
-  return (
+  const viewer = (
     <div
       className="student-chat-image-viewer"
       role="dialog"
@@ -2164,6 +2164,8 @@ const ChatImageViewer = ({ image, onClose }) => {
       />
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(viewer, document.body) : null;
 };
 
 const ChatComposer = ({
