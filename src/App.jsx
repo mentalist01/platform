@@ -305,6 +305,10 @@ const BOARD_LOW_BANDWIDTH_CURSOR_MS = 130;
 const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 16;
 const BOARD_LIVE_STROKE_POINTS_PER_UPDATE = 28;
 const BOARD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const BOARD_IMAGE_COMPRESSION_MIN_BYTES = 512 * 1024;
+const BOARD_IMAGE_UPLOAD_MAX_DIMENSION = 2560;
+const BOARD_IMAGE_UPLOAD_MAX_PIXELS = 6 * 1024 * 1024;
+const BOARD_IMAGE_UPLOAD_WEBP_QUALITY = 0.9;
 const BOARD_MAX_ITEM_COUNT = 2500;
 const BOARD_MAX_TOTAL_BYTES = 12 * 1024 * 1024;
 const BOARD_MAX_STROKE_POINTS = 1400;
@@ -319,6 +323,46 @@ const getBoardPixelRatio = () => (
     ? Math.max(1, Number(window.devicePixelRatio) || 1)
     : 1
 );
+const prepareBoardImageUpload = async (file, image) => {
+  const naturalWidth = Math.max(1, Number(image?.naturalWidth) || Number(image?.width) || 1);
+  const naturalHeight = Math.max(1, Number(image?.naturalHeight) || Number(image?.height) || 1);
+  const pixelCount = naturalWidth * naturalHeight;
+  const scale = Math.min(
+    1,
+    BOARD_IMAGE_UPLOAD_MAX_DIMENSION / Math.max(naturalWidth, naturalHeight),
+    Math.sqrt(BOARD_IMAGE_UPLOAD_MAX_PIXELS / Math.max(1, pixelCount))
+  );
+  const shouldCompress = file?.type !== 'image/gif'
+    && (Number(file?.size) >= BOARD_IMAGE_COMPRESSION_MIN_BYTES || scale < 1);
+  if (!shouldCompress || typeof document === 'undefined') {
+    return { file, naturalWidth, naturalHeight };
+  }
+
+  const width = Math.max(1, Math.round(naturalWidth * scale));
+  const height = Math.max(1, Math.round(naturalHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return { file, naturalWidth, naturalHeight };
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(image, 0, 0, width, height);
+  const blob = await new Promise((resolve) => {
+    canvas.toBlob(resolve, 'image/webp', BOARD_IMAGE_UPLOAD_WEBP_QUALITY);
+  });
+  canvas.width = 1;
+  canvas.height = 1;
+  if (!blob || (scale === 1 && blob.size >= Number(file?.size || 0))) {
+    return { file, naturalWidth, naturalHeight };
+  }
+  const baseName = String(file?.name || 'board-image').replace(/\.[^.]+$/, '') || 'board-image';
+  return {
+    file: new File([blob], `${baseName}.webp`, { type: 'image/webp', lastModified: Date.now() }),
+    naturalWidth: width,
+    naturalHeight: height,
+  };
+};
 const prepareBoardRenderCanvas = (canvas, cssWidth, cssHeight) => {
   if (!canvas) return null;
   const width = Math.max(1, Math.round(Number(cssWidth) || canvas.clientWidth || 1));
@@ -404,6 +448,39 @@ const trimBoardStrokePoints = (points) => {
   }
   return next;
 };
+const normalizeBoardAssetUrl = (value) => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw || raw.length > 2048) return '';
+  try {
+    const url = new URL(raw, 'https://board-assets.local');
+    return /^\/uploads\/board-asset-[a-f0-9]{64}\.(?:png|jpe?g|webp|gif)$/i.test(url.pathname)
+      ? url.pathname
+      : '';
+  } catch {
+    return '';
+  }
+};
+const getBoardImageStoredSource = (item) => {
+  if (!item || item.type !== 'image') return '';
+  return normalizeBoardAssetUrl(item.assetUrl)
+    || (typeof item.dataUrl === 'string' ? item.dataUrl : '');
+};
+const getBoardImageSource = (item) => {
+  const source = getBoardImageStoredSource(item);
+  if (!source || source.startsWith('data:')) return source;
+  return resolveAuthenticatedUploadsUrl(source);
+};
+const prepareBoardImageElement = (image, source) => {
+  if (!image || !source || source.startsWith('data:') || typeof window === 'undefined') return;
+  try {
+    const url = new URL(source, window.location.href);
+    if (url.origin !== window.location.origin) {
+      image.crossOrigin = url.searchParams.has('_auth') ? 'anonymous' : 'use-credentials';
+    }
+  } catch {
+    // A relative same-origin URL does not require CORS configuration.
+  }
+};
 const compactBoardLiveStrokePoints = (points, maxPoints = BOARD_LIVE_STROKE_POINTS_PER_UPDATE) => {
   const source = Array.isArray(points)
     ? points.map((point) => normalizeBoardStoredPoint(point))
@@ -482,12 +559,16 @@ const normalizeBoardStoredItem = (rawValue) => {
     };
   }
   if (base.type === 'image') {
+    const assetUrl = normalizeBoardAssetUrl(source.assetUrl || source.imageUrl);
     const dataUrl = typeof source.dataUrl === 'string' ? source.dataUrl : '';
-    if (!dataUrl) return null;
+    if (!assetUrl && !dataUrl) return null;
     return {
       ...base,
       type: 'image',
-      dataUrl,
+      ...(assetUrl ? {
+        assetUrl,
+        assetId: typeof source.assetId === 'string' ? source.assetId.slice(0, 120) : '',
+      } : { dataUrl }),
       x: Number(source.x) || 0,
       y: Number(source.y) || 0,
       width: Math.max(1, Number(source.width) || 0),
@@ -525,7 +606,11 @@ const estimateBoardItemBytes = (item) => {
   if (item.type === 'shape') return sharedBytes + 72;
   if (item.type === 'text') return sharedBytes + 56 + String(item.text || '').length * 2;
   if (item.type === 'image') {
-    return sharedBytes + 64 + String(item.dataUrl || '').length;
+    return sharedBytes
+      + 64
+      + String(item.assetUrl || '').length
+      + String(item.assetId || '').length
+      + String(item.dataUrl || '').length;
   }
   return sharedBytes;
 };
@@ -9329,9 +9414,9 @@ const BoardSection = ({
     linkedBoardObjectRef.current = '';
   }, [roomId]);
 
-  const releaseCachedBoardImage = useCallback((dataUrl) => {
-    if (!dataUrl) return;
-    const entry = imageCacheRef.current.get(dataUrl);
+  const releaseCachedBoardImage = useCallback((source) => {
+    if (!source) return;
+    const entry = imageCacheRef.current.get(source);
     if (entry?.img) {
       entry.img.onload = null;
       entry.img.onerror = null;
@@ -9341,30 +9426,32 @@ const BoardSection = ({
         // Ignore cache release failures; the entry will still be dropped from the map.
       }
     }
-    imageCacheRef.current.delete(dataUrl);
+    imageCacheRef.current.delete(source);
   }, []);
 
   const clearCachedBoardImages = useCallback(() => {
-    Array.from(imageCacheRef.current.keys()).forEach((dataUrl) => {
-      releaseCachedBoardImage(dataUrl);
+    Array.from(imageCacheRef.current.keys()).forEach((source) => {
+      releaseCachedBoardImage(source);
     });
   }, [releaseCachedBoardImage]);
 
   const trackBoardImageInsert = useCallback((item) => {
-    if (item?.type !== 'image' || !item.dataUrl) return;
-    const nextCount = Number(boardImageUsageRef.current.get(item.dataUrl) || 0) + 1;
-    boardImageUsageRef.current.set(item.dataUrl, nextCount);
+    const source = getBoardImageSource(item);
+    if (!source) return;
+    const nextCount = Number(boardImageUsageRef.current.get(source) || 0) + 1;
+    boardImageUsageRef.current.set(source, nextCount);
   }, []);
 
   const trackBoardImageRemoval = useCallback((item) => {
-    if (item?.type !== 'image' || !item.dataUrl) return;
-    const currentCount = Number(boardImageUsageRef.current.get(item.dataUrl) || 0);
+    const source = getBoardImageSource(item);
+    if (!source) return;
+    const currentCount = Number(boardImageUsageRef.current.get(source) || 0);
     if (currentCount <= 1) {
-      boardImageUsageRef.current.delete(item.dataUrl);
-      releaseCachedBoardImage(item.dataUrl);
+      boardImageUsageRef.current.delete(source);
+      releaseCachedBoardImage(source);
       return;
     }
-    boardImageUsageRef.current.set(item.dataUrl, currentCount - 1);
+    boardImageUsageRef.current.set(source, currentCount - 1);
   }, [releaseCachedBoardImage]);
 
   const resetBoardData = useCallback(() => {
@@ -10271,17 +10358,19 @@ const BoardSection = ({
     const padding = BOARD_EXPORT_PADDING;
     const width = Math.max(1, bounds.maxX - bounds.minX + padding * 2);
     const height = Math.max(1, bounds.maxY - bounds.minY + padding * 2);
-    const imageItems = boardItems.filter((item) => item?.type === 'image' && item.dataUrl);
+    const imageItems = boardItems.filter((item) => getBoardImageSource(item));
     const imageMap = new Map();
     await Promise.all(imageItems.map(async (item) => {
-      if (!item?.dataUrl || imageMap.has(item.dataUrl)) return;
+      const source = getBoardImageSource(item);
+      if (!source || imageMap.has(source)) return;
       const img = await new Promise((resolve) => {
         const image = new Image();
+        prepareBoardImageElement(image, source);
         image.onload = () => resolve(image);
         image.onerror = () => resolve(null);
-        image.src = item.dataUrl;
+        image.src = source;
       });
-      if (img) imageMap.set(item.dataUrl, img);
+      if (img) imageMap.set(source, img);
     }));
 
     const hasVectorItems = boardItems.some((item) => ['stroke', 'line', 'arrow', 'shape', 'text'].includes(item?.type));
@@ -10290,7 +10379,7 @@ const BoardSection = ({
       : BOARD_EXPORT_BASE_SCALE;
 
     const preferredScale = imageItems.reduce((maxScale, item) => {
-      const img = imageMap.get(item.dataUrl);
+      const img = imageMap.get(getBoardImageSource(item));
       if (!img) return maxScale;
       const itemWidth = Math.max(1, Number(item.width) || 1);
       const itemHeight = Math.max(1, Number(item.height) || 1);
@@ -10338,7 +10427,7 @@ const BoardSection = ({
       if (item.type === 'shape') drawShape(ctx, item);
       if (item.type === 'text') drawTextItem(ctx, item);
       if (item.type === 'image') {
-        const img = imageMap.get(item.dataUrl);
+        const img = imageMap.get(getBoardImageSource(item));
         if (!img) return;
         drawBoardImage(ctx, img, item);
       }
@@ -10490,7 +10579,7 @@ const BoardSection = ({
   const applyImageCropPreset = (id, targetAspect) => {
     const item = boardItemsRef.current.find((entry) => entry?.id === id && entry.type === 'image');
     if (!item) return;
-    const cacheEntry = imageCacheRef.current.get(item.dataUrl);
+    const cacheEntry = imageCacheRef.current.get(getBoardImageSource(item));
     const naturalWidth = Math.max(1, Number(item.naturalWidth) || Number(cacheEntry?.img?.naturalWidth) || Number(item.width) || 1);
     const naturalHeight = Math.max(1, Number(item.naturalHeight) || Number(cacheEntry?.img?.naturalHeight) || Number(item.height) || 1);
     const naturalAspect = naturalWidth / naturalHeight;
@@ -10519,17 +10608,19 @@ const BoardSection = ({
   };
 
   const downloadBoardImage = async (item) => {
-    if (!item?.dataUrl || typeof document === 'undefined') return;
+    const source = getBoardImageSource(item);
+    if (!source || typeof document === 'undefined') return;
     const image = await new Promise((resolve) => {
-      const cached = imageCacheRef.current.get(item.dataUrl);
+      const cached = imageCacheRef.current.get(source);
       if (cached?.loaded && cached.img) {
         resolve(cached.img);
         return;
       }
       const nextImage = new Image();
+      prepareBoardImageElement(nextImage, source);
       nextImage.onload = () => resolve(nextImage);
       nextImage.onerror = () => resolve(null);
-      nextImage.src = item.dataUrl;
+      nextImage.src = source;
     });
     if (!image) {
       showImageNotice('Не удалось скачать изображение');
@@ -11307,20 +11398,21 @@ const BoardSection = ({
     ctx.restore();
   };
 
-  const getCachedImage = (dataUrl) => {
-    if (!dataUrl) return null;
-    const cached = imageCacheRef.current.get(dataUrl);
+  const getCachedImage = (source) => {
+    if (!source) return null;
+    const cached = imageCacheRef.current.get(source);
     if (cached) return cached;
     const img = new Image();
     const entry = { img, loaded: false };
-    imageCacheRef.current.set(dataUrl, entry);
+    imageCacheRef.current.set(source, entry);
+    prepareBoardImageElement(img, source);
     img.onload = () => {
       entry.loaded = true;
       scheduleBoardRenderRef.current?.();
       scheduleMinimapRenderRef.current?.(0);
       scheduleBoardSceneRenderRef.current?.({ mode: 'full' });
     };
-    img.src = dataUrl;
+    img.src = source;
     return entry;
   };
 
@@ -11347,7 +11439,7 @@ const BoardSection = ({
       return;
     }
     if (item.type === 'image') {
-      const cacheEntry = getCachedImage(item.dataUrl);
+      const cacheEntry = getCachedImage(getBoardImageSource(item));
       if (!cacheEntry?.img || !cacheEntry.loaded) return;
       const img = cacheEntry.img;
       drawBoardImage(ctx, img, item);
@@ -12088,7 +12180,7 @@ const BoardSection = ({
   }, [roomId, wsUrl, localName, localColor, isTeacher, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender]);
 
   useEffect(() => {
-    const handlePaste = (event) => {
+    const handlePaste = async (event) => {
       if (!roomId || !yItemsRef.current) return;
       if (!shouldHandleBoardImagePaste(event)) return;
       const clipboardItems = event.clipboardData?.items || [];
@@ -12102,62 +12194,81 @@ const BoardSection = ({
       }
       event.preventDefault();
       setPasteError('');
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = String(reader.result || '');
+      const docInstance = docRef.current;
+      const objectUrl = URL.createObjectURL(file);
+      try {
         const img = new Image();
-        img.onload = () => {
-          const scale = getBoardPasteScale(img.width, img.height);
-          const widthPx = Math.max(1, img.width * scale);
-          const heightPx = Math.max(1, img.height * scale);
-          const pointer = getBoardPastePoint();
-          const x = pointer.x - widthPx / 2;
-          const y = pointer.y - heightPx / 2;
-          const entry = {
-            id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random()}`,
-            type: 'image',
-            dataUrl,
-            x,
-            y,
-            width: widthPx,
-            height: heightPx,
-            naturalWidth: Math.max(1, Number(img.naturalWidth) || Number(img.width) || 1),
-            naturalHeight: Math.max(1, Number(img.naturalHeight) || Number(img.height) || 1),
-            authorId: userId,
-          };
-          const capacity = ensureBoardCanAddItems([entry]);
-          if (!capacity.ok) {
-            setPasteError(capacity.error);
-            return;
-          }
-          imageCacheRef.current.set(dataUrl, { img, loaded: true });
-          const docInstance = docRef.current;
-          if (docInstance && yItemsRef.current) {
-            setPasteError('');
-            docInstance.transact(() => {
-              yItemsRef.current?.push([entry]);
-            }, localOriginRef.current);
-            if (toolRef.current === 'move' || toolRef.current === 'select') {
-              setSelectedImageId(entry.id);
-              if (toolRef.current === 'select') {
-                setSelectedIds([entry.id]);
-                setSelectionBox({ x, y, width: widthPx, height: heightPx });
-              }
-            }
-            lastPointerRef.current = { x: pointer.x, y: pointer.y };
-          }
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = () => reject(new Error('Не удалось прочитать изображение'));
+          img.src = objectUrl;
+        });
+        const prepared = await prepareBoardImageUpload(file, img);
+        const initialCapacity = ensureBoardCanAddItems([{
+          type: 'image',
+          assetId: '0'.repeat(36),
+          assetUrl: `/uploads/board-asset-${'0'.repeat(64)}.webp`,
+        }]);
+        if (!initialCapacity.ok) {
+          setPasteError(initialCapacity.error);
+          return;
+        }
+        const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId);
+        const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
+        if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');
+        if (!docInstance || docRef.current !== docInstance || !yItemsRef.current) return;
+
+        const naturalWidth = Math.max(1, Number(prepared.naturalWidth) || 1);
+        const naturalHeight = Math.max(1, Number(prepared.naturalHeight) || 1);
+        const scale = getBoardPasteScale(naturalWidth, naturalHeight);
+        const widthPx = Math.max(1, naturalWidth * scale);
+        const heightPx = Math.max(1, naturalHeight * scale);
+        const pointer = getBoardPastePoint();
+        const x = pointer.x - widthPx / 2;
+        const y = pointer.y - heightPx / 2;
+        const entry = {
+          id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random()}`,
+          type: 'image',
+          assetId: String(uploaded.id),
+          assetUrl,
+          x,
+          y,
+          width: widthPx,
+          height: heightPx,
+          naturalWidth,
+          naturalHeight,
+          authorId: userId,
         };
-        img.src = dataUrl;
-      };
-      reader.readAsDataURL(file);
+        const capacity = ensureBoardCanAddItems([entry]);
+        if (!capacity.ok) {
+          setPasteError(capacity.error);
+          return;
+        }
+        setPasteError('');
+        docInstance.transact(() => {
+          yItemsRef.current?.push([entry]);
+        }, localOriginRef.current);
+        if (toolRef.current === 'move' || toolRef.current === 'select') {
+          setSelectedImageId(entry.id);
+          if (toolRef.current === 'select') {
+            setSelectedIds([entry.id]);
+            setSelectionBox({ x, y, width: widthPx, height: heightPx });
+          }
+        }
+        lastPointerRef.current = { x: pointer.x, y: pointer.y };
+      } catch (error) {
+        setPasteError(error?.message || 'Не удалось загрузить изображение');
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
 
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [roomId, userId, ensureBoardCanAddItems]);
+  }, [effectiveStudentId, roomId, userId, ensureBoardCanAddItems]);
 
   const schedulePreviewUpdate = () => {
     if (!awarenessRef.current) return;

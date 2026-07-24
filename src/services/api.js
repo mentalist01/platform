@@ -1808,6 +1808,14 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  uploadBoardAsset: async (file, studentId) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (studentId) form.append('studentId', String(studentId));
+    const res = await apiFetch('/api/board-assets', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   deleteFile: async (id) => {
     const res = await apiFetch(`/api/files/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));

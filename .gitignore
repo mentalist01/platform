@@ -25,6 +25,7 @@ server/data/task-titles.json
 server/data/mock-exams.json
 server/data/_codex_upload_test.txt
 server/data/broadcast-notifications.json
+server/data/board-assets.json
 server/data/recovered-access-codes.json
 server/data/signup-chats.json
 server/data/student-chats.json

@@ -75,6 +75,13 @@ import {
   buildStudentSearchQuery,
   matchStudentSearchCandidate,
 } from './studentSearch.js';
+import {
+  buildBoardAssetStorageName,
+  detectBoardAssetMimeType,
+  getBoardAssetHash,
+  normalizeBoardAssetEntries,
+  normalizeBoardAssetEntry,
+} from './boardAssets.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -215,6 +222,7 @@ const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
 const pushFile = path.join(dataDir, 'push.json');
+const boardAssetsFile = path.join(dataDir, 'board-assets.json');
 const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENABLED, false);
 const JSON_STORAGE_BACKUPS_ENABLED = parseEnabledEnv(process.env.JSON_STORAGE_BACKUPS_ENABLED, true);
@@ -224,6 +232,16 @@ const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_LESSON_SHARED_TASK_BYTES = 500 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_LESSON_SHARED_UPLOAD_FILE_BYTES = 500 * 1024 * 1024;
+const BOARD_ASSET_MAX_FILE_BYTES = (() => {
+  const raw = Number(process.env.BOARD_ASSET_MAX_FILE_BYTES);
+  if (Number.isFinite(raw) && raw >= 1024 * 1024) return Math.floor(raw);
+  return 10 * 1024 * 1024;
+})();
+const BOARD_ASSET_MAX_TOTAL_BYTES_PER_STUDENT = (() => {
+  const raw = Number(process.env.BOARD_ASSET_MAX_TOTAL_BYTES_PER_STUDENT);
+  if (Number.isFinite(raw) && raw >= BOARD_ASSET_MAX_FILE_BYTES) return Math.floor(raw);
+  return 256 * 1024 * 1024;
+})();
 const MAX_FOLDER_BYTES = 96 * 1024 * 1024;
 const MAX_SHARED_FOLDER_BYTES = 500 * 1024 * 1024;
 const LESSON_SHARED_SCOPE = 'lesson-files';
@@ -242,6 +260,11 @@ const AUTH_SESSION_TTL_MS = (() => {
 })();
 const AUTH_SESSION_SWEEP_MS = 10 * 60 * 1000;
 const AUTH_SESSION_PERSIST_DEBOUNCE_MS = 5000;
+const AUTH_SESSION_PERSIST_MIN_EXTENSION_MS = (() => {
+  const raw = Number(process.env.AUTH_SESSION_PERSIST_MIN_EXTENSION_MS);
+  if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.floor(raw);
+  return 15 * 60 * 1000;
+})();
 const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
 const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
@@ -809,7 +832,7 @@ const BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED = parseEnabledEnv(
 const BOARD_COLLAB_SNAPSHOT_WRITE_DEBOUNCE_MS = (() => {
   const raw = Number(process.env.BOARD_COLLAB_SNAPSHOT_WRITE_DEBOUNCE_MS);
   if (Number.isFinite(raw) && raw >= 250) return Math.floor(raw);
-  return 2500;
+  return 10000;
 })();
 if (isProduction && dataDir === defaultDataDir) {
   console.warn('[storage] PLATFORM_DATA_DIR is not set. Data can be lost after a clean deploy.');
@@ -835,6 +858,7 @@ const rawCollabPersistence = (LeveldbPersistence && isCollabPersistenceEnabled)
   : null;
 const collabDocsPersistenceBypassUntil = new Map();
 const boardSnapshotWriteTimers = new Map();
+const boardSnapshotHashes = new Map();
 const normalizeCollabDocName = (value) => {
   if (typeof value !== 'string') return '';
   return value.trim();
@@ -932,6 +956,25 @@ const writeFileAtomic = (filePath, contents, encoding) => {
     try {
       fs.unlinkSync(tempPath);
     } catch {}
+    throw error;
+  }
+};
+const writeFileAtomicAsync = async (filePath, contents, encoding) => {
+  ensureDirectoryForFile(filePath);
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`
+  );
+  try {
+    await fs.promises.writeFile(tempPath, contents, encoding);
+    await fs.promises.rename(tempPath, filePath);
+    return true;
+  } catch (error) {
+    try {
+      await fs.promises.unlink(tempPath);
+    } catch {
+      // The temporary file may not exist if the initial write failed.
+    }
     throw error;
   }
 };
@@ -1130,6 +1173,7 @@ const loadBoardDocSnapshot = (docName, ydoc) => {
       const raw = fs.readFileSync(filePath);
       if (!raw || raw.length === 0) continue;
       Y.applyUpdate(ydoc, new Uint8Array(raw));
+      boardSnapshotHashes.set(normalizeCollabDocName(docName), getJsonStorageHash(raw));
       return true;
     } catch (error) {
       console.warn('[board] snapshot load failed:', error?.message || error);
@@ -1146,7 +1190,13 @@ const flushBoardDocSnapshot = (docName, ydoc) => {
   clearBoardSnapshotWriteTimer(normalized);
   try {
     const stateUpdate = Y.encodeStateAsUpdate(ydoc);
-    writeFileAtomic(filePath, Buffer.from(stateUpdate));
+    const contents = Buffer.from(stateUpdate);
+    const stateHash = getJsonStorageHash(contents);
+    if (boardSnapshotHashes.get(normalized) === stateHash && fs.existsSync(filePath)) {
+      return true;
+    }
+    writeFileAtomic(filePath, contents);
+    boardSnapshotHashes.set(normalized, stateHash);
     legacyPaths.forEach((legacyPath) => {
       try {
         if (fs.existsSync(legacyPath)) fs.unlinkSync(legacyPath);
@@ -1173,6 +1223,7 @@ const clearBoardDocSnapshot = (docName) => {
   const normalized = normalizeCollabDocName(docName);
   if (!normalized) return false;
   clearBoardSnapshotWriteTimer(normalized);
+  boardSnapshotHashes.delete(normalized);
   const filePaths = getBoardSnapshotFilePaths(normalized);
   if (filePaths.length === 0) return false;
   let cleared = false;
@@ -1508,6 +1559,25 @@ const readProgressDb = () => {
   } catch {
     return {};
   }
+};
+
+let boardAssetsDbCache = null;
+const readBoardAssetsDb = () => {
+  if (Array.isArray(boardAssetsDbCache)) return boardAssetsDbCache;
+  try {
+    const raw = fs.readFileSync(boardAssetsFile, 'utf8');
+    boardAssetsDbCache = normalizeBoardAssetEntries(JSON.parse(raw));
+  } catch {
+    boardAssetsDbCache = [];
+  }
+  return boardAssetsDbCache;
+};
+
+const writeBoardAssetsDb = (value) => {
+  const normalized = normalizeBoardAssetEntries(value);
+  writeJsonFileAtomic(boardAssetsFile, normalized);
+  boardAssetsDbCache = normalized;
+  return normalized;
 };
 
 const readBroadcastNotificationsDb = () => {
@@ -5349,6 +5419,9 @@ const persistAuthSessions = () => {
   try {
     const payload = Array.from(authSessions.values()).map((session) => serializeAuthSessionForStorage(session));
     writeAuthSessionsDb(payload);
+    authSessions.forEach((session) => {
+      session.persistedExpiresAtMs = session.expiresAtMs;
+    });
   } catch (error) {
     console.error('[auth] failed to persist sessions:', error);
   }
@@ -5403,6 +5476,7 @@ const normalizeStoredAuthSession = (entry) => {
     user,
     createdAtMs: Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : Date.now(),
     expiresAtMs: Math.floor(expiresAtMs),
+    persistedExpiresAtMs: Math.floor(expiresAtMs),
   };
 };
 
@@ -5559,8 +5633,12 @@ const createAuthSession = (user) => {
 
 const touchAuthSession = (session) => {
   if (!session) return;
-  session.expiresAtMs = Date.now() + AUTH_SESSION_TTL_MS;
-  schedulePersistAuthSessions();
+  const nextExpiresAtMs = Date.now() + AUTH_SESSION_TTL_MS;
+  session.expiresAtMs = nextExpiresAtMs;
+  const persistedExpiresAtMs = Number(session.persistedExpiresAtMs) || 0;
+  if (nextExpiresAtMs - persistedExpiresAtMs >= AUTH_SESSION_PERSIST_MIN_EXTENSION_MS) {
+    schedulePersistAuthSessions();
+  }
 };
 
 const getAuthSession = (token) => {
@@ -15370,6 +15448,10 @@ const upload = multer({
   storage,
   limits: { fileSize: MAX_LESSON_SHARED_UPLOAD_FILE_BYTES },
 });
+const boardAssetUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: BOARD_ASSET_MAX_FILE_BYTES },
+});
 
 const handleUploadRequest = (req, res) => {
   const token = getAuthTokenFromRequest(req);
@@ -15390,11 +15472,27 @@ const handleUploadRequest = (req, res) => {
   const filePath = path.join(uploadsDir, safeName);
   if (!fs.existsSync(filePath)) return res.status(404).send('Файл не найден');
 
-  const ownedFile = readFilesDb().find((entry) => entry?.storageName === safeName);
+  const isBoardAsset = safeName.startsWith('board-asset-');
+  const ownedFile = isBoardAsset
+    ? null
+    : readFilesDb().find((entry) => entry?.storageName === safeName);
+  const boardAssetGrants = isBoardAsset
+    ? readBoardAssetsDb().filter((entry) => entry.storageName === safeName)
+    : [];
+  const boardAsset = boardAssetGrants.find((entry) => {
+    const student = findStudentById(entry.studentId, { allowDeleted: true });
+    return Boolean(student && canAccessStudentByRole(req.auth, student, { allowDeleted: true }));
+  }) || null;
+  if (isBoardAsset && !boardAsset) {
+    return res.status(404).send('Файл не найден');
+  }
   let ownerStudentId = '';
   let ownerTeacherId = '';
   const ownerIsLessonShared = Boolean(ownedFile && isLessonSharedFile(ownedFile));
-  if (ownedFile) {
+  if (boardAsset) {
+    ownerStudentId = boardAsset.studentId;
+    ownerTeacherId = normalizeTeacherId(boardAsset.teacherId);
+  } else if (ownedFile) {
     if (ownerIsLessonShared) {
       ownerTeacherId = normalizeTeacherId(ownedFile.teacherId);
       if (!ownerTeacherId || !canReadLessonSharedByTeacher(req.auth, ownerTeacherId)) {
@@ -15453,6 +15551,10 @@ const handleUploadRequest = (req, res) => {
 
   if (hasForcedDownloadFlag(req.query.download)) {
     res.attachment(getUploadDownloadName(ownedFile, safeName));
+  }
+
+  if (boardAsset) {
+    res.setHeader('Cache-Control', 'private, no-cache');
   }
 
   return res.sendFile(filePath);
@@ -24396,6 +24498,73 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
+app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file?.buffer?.length) return res.status(400).json({ error: 'Изображение не найдено' });
+    const requestedStudentId = typeof req.body?.studentId === 'string' ? req.body.studentId.trim() : '';
+    const effectiveStudentId = requestedStudentId || (isStudentRole(req.auth) ? req.auth.id : '');
+    if (!effectiveStudentId) return res.status(400).json({ error: 'studentId required' });
+    const student = ensureStudentAccess(req, res, effectiveStudentId);
+    if (!student) return;
+
+    const mimeType = detectBoardAssetMimeType(req.file.buffer);
+    if (!mimeType) {
+      return res.status(415).json({ error: 'Поддерживаются изображения PNG, JPEG, WebP и GIF' });
+    }
+
+    const hash = getBoardAssetHash(req.file.buffer);
+    const storageName = buildBoardAssetStorageName(hash, mimeType);
+    if (!storageName) return res.status(400).json({ error: 'Некорректное изображение' });
+
+    let entries = readBoardAssetsDb();
+    let entry = entries.find((item) => item.studentId === student.id && item.hash === hash) || null;
+    let created = false;
+    if (!entry) {
+      const countedStorageNames = new Set();
+      const currentTotal = entries.reduce((sum, item) => {
+        if (item.studentId !== student.id || countedStorageNames.has(item.storageName)) return sum;
+        countedStorageNames.add(item.storageName);
+        return sum + Math.max(0, Number(item.sizeBytes) || 0);
+      }, 0);
+      if (currentTotal + req.file.size > BOARD_ASSET_MAX_TOTAL_BYTES_PER_STUDENT) {
+        return res.status(413).json({ error: 'Для доски исчерпан лимит хранения изображений' });
+      }
+    }
+
+    const filePath = path.join(uploadsDir, storageName);
+    if (!fs.existsSync(filePath)) {
+      await writeFileAtomicAsync(filePath, req.file.buffer);
+    }
+
+    if (!entry) {
+      const createdAt = new Date().toISOString();
+      entry = normalizeBoardAssetEntry({
+        id: crypto.randomUUID(),
+        studentId: student.id,
+        teacherId: normalizeTeacherId(student.teacherId),
+        storageName,
+        mimeType,
+        hash,
+        sizeBytes: req.file.size,
+        createdAt,
+      });
+      entries = writeBoardAssetsDb([entry, ...readBoardAssetsDb()]);
+      entry = entries.find((item) => item.id === entry.id) || entry;
+      created = true;
+    }
+
+    return res.status(created ? 201 : 200).json({
+      id: entry.id,
+      url: `/uploads/${entry.storageName}`,
+      storageName: entry.storageName,
+      mimeType: entry.mimeType,
+      sizeBytes: entry.sizeBytes,
+      hash: entry.hash,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 app.post('/api/test-files', upload.single('file'), (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
