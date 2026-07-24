@@ -1385,10 +1385,12 @@ if (collabPersistence && typeof yWsUtils?.setPersistence === 'function') {
 }
 process.on('exit', flushLoadedBoardDocSnapshots);
 process.on('SIGINT', () => {
+  flushPendingStudentUsage();
   flushLoadedBoardDocSnapshots();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
+  flushPendingStudentUsage();
   flushLoadedBoardDocSnapshots();
   process.exit(0);
 });
@@ -1578,6 +1580,21 @@ const writeBoardAssetsDb = (value) => {
   writeJsonFileAtomic(boardAssetsFile, normalized);
   boardAssetsDbCache = normalized;
   return normalized;
+};
+
+const BOARD_ASSET_STUDENT_ACCESS_CACHE_MS = 5000;
+let boardAssetStudentAccessCache = { expiresAtMs: 0, byId: new Map() };
+const findBoardAssetStudentById = (studentId) => {
+  const id = String(studentId || '').trim();
+  if (!id) return null;
+  const now = Date.now();
+  if (now >= boardAssetStudentAccessCache.expiresAtMs) {
+    boardAssetStudentAccessCache = {
+      expiresAtMs: now + BOARD_ASSET_STUDENT_ACCESS_CACHE_MS,
+      byId: new Map(readStudentsDb().map((student) => [String(student?.id || ''), student])),
+    };
+  }
+  return boardAssetStudentAccessCache.byId.get(id) || null;
 };
 
 const readBroadcastNotificationsDb = () => {
@@ -2578,18 +2595,69 @@ const purgeScheduleRequestsForTeachers = (teacherIds = []) => {
   }
 };
 
+let usageDbCache = null;
 const readUsageDb = () => {
+  if (usageDbCache && typeof usageDbCache === 'object' && !Array.isArray(usageDbCache)) {
+    return usageDbCache;
+  }
   try {
     const raw = fs.readFileSync(usageFile, 'utf8');
     const data = JSON.parse(raw);
-    return data && typeof data === 'object' ? data : {};
+    usageDbCache = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
   } catch {
-    return {};
+    usageDbCache = {};
   }
+  return usageDbCache;
 };
 
 const writeUsageDb = (data) => {
   writeJsonFileAtomic(usageFile, data);
+  usageDbCache = data;
+};
+
+const STUDENT_USAGE_WRITE_DEBOUNCE_MS = 5000;
+const pendingStudentUsageBytes = new Map();
+let studentUsagePersistTimer = null;
+const getPendingStudentUsageKey = (studentId, monthKey) => `${studentId}:${monthKey}`;
+const getPendingStudentUsageBytes = (studentId, monthKey) => (
+  Number(pendingStudentUsageBytes.get(getPendingStudentUsageKey(studentId, monthKey))) || 0
+);
+const flushPendingStudentUsage = () => {
+  if (studentUsagePersistTimer) {
+    clearTimeout(studentUsagePersistTimer);
+    studentUsagePersistTimer = null;
+  }
+  if (pendingStudentUsageBytes.size === 0) return;
+  const pending = Array.from(pendingStudentUsageBytes.entries());
+  pendingStudentUsageBytes.clear();
+  try {
+    const db = { ...readUsageDb() };
+    for (const [key, bytes] of pending) {
+      const separatorIndex = key.lastIndexOf(':');
+      const studentId = key.slice(0, separatorIndex);
+      const monthKey = key.slice(separatorIndex + 1);
+      if (!studentId || !monthKey || !Number.isFinite(bytes) || bytes <= 0) continue;
+      const studentEntry = db[studentId] && typeof db[studentId] === 'object'
+        ? { ...db[studentId] }
+        : {};
+      studentEntry[monthKey] = (Number(studentEntry[monthKey]) || 0) + bytes;
+      db[studentId] = studentEntry;
+    }
+    writeUsageDb(db);
+  } catch (error) {
+    for (const [key, bytes] of pending) {
+      pendingStudentUsageBytes.set(key, (Number(pendingStudentUsageBytes.get(key)) || 0) + bytes);
+    }
+    console.error('[usage] failed to persist traffic counters:', error);
+  }
+};
+const schedulePendingStudentUsageFlush = () => {
+  if (studentUsagePersistTimer) return;
+  studentUsagePersistTimer = setTimeout(() => {
+    studentUsagePersistTimer = null;
+    flushPendingStudentUsage();
+  }, STUDENT_USAGE_WRITE_DEBOUNCE_MS);
+  if (typeof studentUsagePersistTimer.unref === 'function') studentUsagePersistTimer.unref();
 };
 
 const normalizePushSubscription = (value) => {
@@ -3080,6 +3148,9 @@ const hardDeleteStudentData = (studentIds = []) => {
     if (usageDb[id]) {
       delete usageDb[id];
       usageChanged = true;
+    }
+    for (const key of pendingStudentUsageBytes.keys()) {
+      if (key.startsWith(`${id}:`)) pendingStudentUsageBytes.delete(key);
     }
   });
   if (usageChanged) writeUsageDb(usageDb);
@@ -5290,7 +5361,8 @@ const getMonthKey = (date = new Date()) => {
 const getStudentUsage = (studentId) => {
   const monthKey = getMonthKey();
   const db = readUsageDb();
-  const used = Number(db?.[studentId]?.[monthKey]) || 0;
+  const stored = Number(db?.[studentId]?.[monthKey]) || 0;
+  const used = stored + getPendingStudentUsageBytes(studentId, monthKey);
   const limit = STUDENT_TRAFFIC_LIMIT_BYTES;
   const enabled = Number.isFinite(limit) && limit > 0;
   const remaining = enabled ? Math.max(0, limit - used) : null;
@@ -5300,13 +5372,11 @@ const getStudentUsage = (studentId) => {
 const addStudentUsage = (studentId, bytes) => {
   if (!studentId || !Number.isFinite(bytes) || bytes <= 0) return;
   const monthKey = getMonthKey();
-  const db = readUsageDb();
-  const studentEntry = db[studentId] && typeof db[studentId] === 'object' ? db[studentId] : {};
-  const used = Number(studentEntry[monthKey]) || 0;
-  studentEntry[monthKey] = used + bytes;
-  db[studentId] = studentEntry;
-  writeUsageDb(db);
-  return studentEntry[monthKey];
+  const key = getPendingStudentUsageKey(studentId, monthKey);
+  const nextPending = (Number(pendingStudentUsageBytes.get(key)) || 0) + bytes;
+  pendingStudentUsageBytes.set(key, nextPending);
+  schedulePendingStudentUsageFlush();
+  return nextPending;
 };
 
 const getRangeSize = (rangeHeader, totalSize) => {
@@ -15479,8 +15549,10 @@ const handleUploadRequest = (req, res) => {
   const boardAssetGrants = isBoardAsset
     ? readBoardAssetsDb().filter((entry) => entry.storageName === safeName)
     : [];
+  let boardAssetStudent = null;
   const boardAsset = boardAssetGrants.find((entry) => {
-    const student = findStudentById(entry.studentId, { allowDeleted: true });
+    const student = findBoardAssetStudentById(entry.studentId);
+    if (student) boardAssetStudent = student;
     return Boolean(student && canAccessStudentByRole(req.auth, student, { allowDeleted: true }));
   }) || null;
   if (isBoardAsset && !boardAsset) {
@@ -15532,7 +15604,9 @@ const handleUploadRequest = (req, res) => {
     return req.auth.id;
   })();
   if (usageStudentId) {
-    const student = findStudentById(usageStudentId);
+    const student = boardAssetStudent?.id === usageStudentId
+      ? boardAssetStudent
+      : findStudentById(usageStudentId);
     if (!student) return res.status(404).send('Ученик не найден');
     const requestSize = getRangeSize(req.headers.range, stat.size);
     const usage = getStudentUsage(usageStudentId);
@@ -15554,7 +15628,7 @@ const handleUploadRequest = (req, res) => {
   }
 
   if (boardAsset) {
-    res.setHeader('Cache-Control', 'private, no-cache');
+    res.setHeader('Cache-Control', 'private, max-age=3600, immutable');
   }
 
   return res.sendFile(filePath);
