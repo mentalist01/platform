@@ -1310,7 +1310,7 @@ const ScheduleSection = ({
             <Calendar size={18} />
             <div>
               <strong>Ближайших занятий пока нет</strong>
-              <span>Если расписание изменилось, преподаватель обновит его сам.</span>
+              <span>{role === 'teacher' ? 'Проверьте синхронизацию с Google Calendar.' : 'Если расписание изменилось, преподаватель обновит его сам.'}</span>
             </div>
           </div>
         ) : (
@@ -1934,7 +1934,7 @@ const ScheduleSection = ({
 
   useEffect(() => {
     const occurrenceKey = String(selectedLessonDetail?.key || '').trim();
-    if (!occurrenceKey || role !== 'student' || !effectiveStudentId) {
+    if (!occurrenceKey || !['student', 'teacher'].includes(role) || !effectiveStudentId) {
       setLessonDetailLoading(false);
       return undefined;
     }
@@ -3255,27 +3255,25 @@ const ScheduleSection = ({
       )}
 
       {(role === 'teacher' || role === 'student') && (
-        <Card className={`schedule-shell__lessons-card ${role === 'student' ? 'student-today-schedule-card space-y-3' : 'space-y-4 border-sky-200/70 bg-gradient-to-br from-white via-sky-50/50 to-indigo-50/40'}`}>
-          <div className={`flex flex-wrap items-start justify-between gap-3 ${role === 'student' ? 'student-today-schedule-card__header' : ''}`}>
+        <Card className="schedule-shell__lessons-card student-today-schedule-card space-y-3">
+          <div className="student-today-schedule-card__header flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <span className={`schedule-shell__lessons-icon inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${role === 'student' ? 'student-today-schedule-card__icon' : 'border border-sky-200 bg-white text-sky-600 shadow-sm'}`}>
+              <span className="schedule-shell__lessons-icon student-today-schedule-card__icon inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl">
                 <Calendar size={19} />
               </span>
               <div className="min-w-0 space-y-0.5">
-                {role === 'student' && (
-                  <div className="student-today-schedule-card__eyebrow">Ближайшие занятия</div>
-                )}
+                <div className="student-today-schedule-card__eyebrow">Ближайшие занятия</div>
                 <div className="text-lg font-bold text-slate-900">
-                  {role === 'teacher' ? 'График занятий ученика' : 'Расписание недели'}
+                  Расписание недели
                 </div>
                 <p className="text-xs text-slate-500">
                   {role === 'teacher'
-                    ? `Берём текущую неделю из Google Calendar по названию события${selectedStudent ? `: ${getStudentLabel(selectedStudent)}` : ' выбранного ученика'}.`
+                    ? `${selectedStudent ? `${getStudentLabel(selectedStudent)} · ` : ''}${studentWeekRangeLabel}${studentOverdueUnpaidCount > 0 ? ` · не оплачено: ${studentOverdueUnpaidCount}` : ''}`
                     : `${studentWeekRangeLabel}${studentOverdueUnpaidCount > 0 ? ` · не оплачено: ${studentOverdueUnpaidCount}` : ''}`}
                 </p>
               </div>
             </div>
-            <div className={`flex flex-wrap items-center gap-2 ${role === 'student' ? 'student-today-schedule-card__actions' : ''}`}>
+            <div className="student-today-schedule-card__actions flex flex-wrap items-center gap-2">
               {role === 'teacher' && effectiveStudentId && (
                 <button
                   type="button"
@@ -3319,9 +3317,9 @@ const ScheduleSection = ({
                 </>
               )}
               <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
-                {role === 'student'
-                  ? (studentOverdueUnpaidCount > 0 ? `Не оплачено: ${studentOverdueUnpaidCount}` : getLessonCountLabel(studentVisibleSchedule.length))
-                  : `Слотов: ${sortedSchedule.length}`}
+                {studentOverdueUnpaidCount > 0
+                  ? `Не оплачено: ${studentOverdueUnpaidCount}`
+                  : getLessonCountLabel(studentVisibleSchedule.length)}
               </span>
             </div>
           </div>
@@ -3350,6 +3348,12 @@ const ScheduleSection = ({
                 </>
               ) : (
                 <>
+              {renderStudentWeekSchedule()}
+              <details className="rounded-2xl border border-slate-200/80 bg-white/75 p-3">
+                <summary className="cursor-pointer select-none text-sm font-bold text-slate-700">
+                  Управление расписанием
+                </summary>
+                <div className="mt-3 space-y-4">
               <div className="schedule-shell__support-grid">
               {role === 'student' && (
                 <div className="schedule-shell__reminder-card rounded-2xl border border-sky-200/80 bg-white/90 p-3">
@@ -3633,6 +3637,8 @@ const ScheduleSection = ({
                   })}
                 </div>
               )}
+                </div>
+              </details>
                 </>
               )}
             </div>

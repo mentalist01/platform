@@ -77,6 +77,10 @@ import {
   normalizeAssignedMockExamMode,
 } from './utils/mockExamMode';
 import { normalizeTurtleScene, parseTurtleSceneJson, serializeTurtleScene } from './utils/turtleScene';
+import {
+  normalizeTeacherStudentId,
+  resolveTeacherStudentSelection,
+} from './utils/teacherStudentSelection';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
   isPushFeatureSupported,
@@ -14062,7 +14066,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? (normalizeStoredOpenTask(storedLocation?.openTask)
         || (storedView === 'python' ? fallbackPythonOpenTask : null))
     : null;
-  const storedActiveStudentId = storedLocation?.activeStudentId ? String(storedLocation.activeStudentId) : null;
+  const storedActiveStudentId = normalizeTeacherStudentId(storedLocation?.activeStudentId);
   const shouldPreferReviewHome = user.role === 'student' && studentCanSeeReview && !normalizedUrlRequestedView && !restoredOpenTask;
   const initialView = (normalizedUrlRequestedView && allowedViews.includes(normalizedUrlRequestedView))
     ? normalizedUrlRequestedView
@@ -14230,11 +14234,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const studentsOwnerTeacherIdRef = useRef('');
   const studentsSyncStateRef = useRef({ teacherId: '', lastSuccessAt: 0, inFlight: null });
   const storedActiveStudentIdRef = useRef(storedActiveStudentId);
-  storedActiveStudentIdRef.current = storedActiveStudentId;
   const [deletedStudents, setDeletedStudents] = useState([]);
   const [deletedStudentsLoading, setDeletedStudentsLoading] = useState(false);
   const [deletedStudentsError, setDeletedStudentsError] = useState('');
-  const [activeStudentId, setActiveStudentId] = useState(null);
+  const [activeStudentId, setActiveStudentId] = useState(() => (
+    user.role === 'teacher' ? storedActiveStudentId : null
+  ));
+  const handleSelectStudent = useCallback((studentId) => {
+    const normalizedStudentId = normalizeTeacherStudentId(studentId);
+    storedActiveStudentIdRef.current = normalizedStudentId;
+    setActiveStudentId(normalizedStudentId);
+  }, []);
   const [teachers, setTeachers] = useState([]);
   const [teachersLoading, setTeachersLoading] = useState(false);
   const [teachersError, setTeachersError] = useState('');
@@ -14370,8 +14380,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   useEffect(() => {
     if (user.role !== 'teacher') return;
-    updateUserLocation(user, { activeStudentId: activeStudentId || null });
-  }, [activeStudentId, user]);
+    const normalizedStudentId = normalizeTeacherStudentId(activeStudentId);
+    storedActiveStudentIdRef.current = normalizedStudentId;
+    updateUserLocation(user, { activeStudentId: normalizedStudentId });
+  }, [activeStudentId, user.id, user.role]);
 
   useEffect(() => {
     if (user.role === 'student') return;
@@ -15880,10 +15892,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       const payload = parseNativePushLaunchUrl(launchUrl);
       if (!payload) return;
 
-      if (user.role === 'teacher' && payload.studentId) {
-        setActiveStudentId(payload.studentId);
-      }
-
       const requestedView = String(payload.view || '').trim();
       const isTeacherCommsPushView = requestedView === 'signup-chats'
         || requestedView === 'student-chats'
@@ -16239,14 +16247,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         studentsSyncStateRef.current.lastSuccessAt = Date.now();
         setStudents(data);
         setStudentsError('');
-        setActiveStudentId((current) => {
-          if (data.some((student) => student.id === current)) return current;
-          const storedStudentId = storedActiveStudentIdRef.current;
-          if (storedStudentId && data.some((student) => String(student.id) === storedStudentId)) {
-            return storedStudentId;
-          }
-          return data[0]?.id || null;
-        });
+        setActiveStudentId((current) => resolveTeacherStudentSelection({
+          currentId: current,
+          storedId: storedActiveStudentIdRef.current,
+          students: data,
+        }));
         return data;
       })
       .catch((err) => {
@@ -16964,7 +16969,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const handleStudentCreated = (student) => {
     if (!student) return;
     setStudents((prev) => [student, ...prev]);
-    setActiveStudentId(student.id);
+    setActiveStudentId((current) => current || normalizeTeacherStudentId(student.id));
   };
 
   const handleStudentDeleted = (payload) => {
@@ -18985,7 +18990,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentId={user.id}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               onOpenTask={user.role === 'student' ? handleOpenTask : null}
               onOpenMockGoal={user.role === 'student' ? handleOpenMockGoal : null}
@@ -19031,7 +19036,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               theme={theme}
               activeStudentId={activeStudentId}
               students={studentsWithNicknames}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               getStudentLabel={getStudentLabel}
               onOpenTask={handleOpenTask}
             />
@@ -19041,7 +19046,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teacherId={user.id}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
               getStudentLabel={getStudentLabel}
               pushSupported={teacherSignupNotifySupported}
@@ -19079,7 +19084,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onOpenLesson={(lesson) => handleGlobalOpenLesson(lesson?.key)}
               onTaskTitleUpdate={handleTaskTitleUpdate}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
@@ -19169,7 +19174,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               }}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               getStudentLabel={getStudentLabel}
               onOpenDirectChat={PLATFORM_CHATS_ENABLED ? handleOpenStudentDirectChat : undefined}
@@ -19188,7 +19193,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
@@ -19228,7 +19233,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               tasks={tasksWithTitles}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               openSaveToNotesToken={collabSaveToNotesToken}
             />
@@ -19242,7 +19247,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               onRequestStudentsRefresh={refreshStudentsForPicker}
               studentsLoading={studentsLoading}
               uiMode={callUiMode}
@@ -19284,7 +19289,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               tasks={tasksWithTitles}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               theme={theme}
             />
@@ -19296,7 +19301,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentId={user.id}
               students={studentsWithNicknames}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               initialLocation={requestedNotesLocation}
               initialLocationKey={notesLocationRequestKey}
@@ -19360,7 +19365,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               deletedStudentsError={deletedStudentsError}
               tasks={tasksWithTitles}
               activeStudentId={activeStudentId}
-              onSelectStudent={setActiveStudentId}
+              onSelectStudent={handleSelectStudent}
               onStudentCreated={handleStudentCreated}
               onStudentDeleted={handleStudentDeleted}
               onStudentRestored={handleStudentRestored}
@@ -19478,7 +19483,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   deletedStudentsError={deletedStudentsError}
                   tasks={tasksWithTitles}
                   activeStudentId={activeStudentId}
-                  onSelectStudent={setActiveStudentId}
+                  onSelectStudent={handleSelectStudent}
                   onStudentCreated={handleStudentCreated}
                   onStudentDeleted={handleStudentDeleted}
                   onStudentRestored={handleStudentRestored}

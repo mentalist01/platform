@@ -22274,18 +22274,14 @@ app.get('/api/student-schedule', async (req, res) => {
       {
         force: false,
         persist: !isStudentRole(req.auth),
-        rangeMode: isStudentRole(req.auth)
-          ? GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING
-          : GOOGLE_CALENDAR_SYNC_RANGE_CURRENT_WEEK,
+        rangeMode: GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING,
       }
     );
     schedule = Array.isArray(syncResult?.schedule) ? syncResult.schedule : schedule;
   } catch {
     schedule = data.schedule || [];
   }
-  const responseSchedule = isStudentRole(req.auth)
-    ? await buildStudentSchedulePaymentResponse(student, schedule)
-    : schedule;
+  const responseSchedule = await buildStudentSchedulePaymentResponse(student, schedule);
   res.json(responseSchedule);
 });
 
@@ -23355,7 +23351,7 @@ app.post('/api/student-schedule/google-sync', async (req, res) => {
   try {
     const syncResult = await syncStudentScheduleFromGoogleCalendar(student, req.auth, {
       force: true,
-      rangeMode: GOOGLE_CALENDAR_SYNC_RANGE_CURRENT_WEEK,
+      rangeMode: GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING,
     });
     if (syncResult.skippedReason === 'calendar-disabled') {
       return res.status(409).json({
@@ -23373,7 +23369,7 @@ app.post('/api/student-schedule/google-sync', async (req, res) => {
       weekStart: syncResult.weekStart,
       weekEnd: syncResult.weekEnd,
       settings: syncResult.settings,
-      schedule: syncResult.schedule,
+      schedule: await buildStudentSchedulePaymentResponse(student, syncResult.schedule),
     });
   } catch (error) {
     return res.status(502).json({
