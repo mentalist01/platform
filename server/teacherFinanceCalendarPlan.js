@@ -1,3 +1,5 @@
+import { isCurrentStudent } from '../src/utils/studentStudyStatus.js';
+
 const DEFAULT_DURATION_MINUTES = 60;
 const MIN_DURATION_MINUTES = 15;
 const MAX_DURATION_MINUTES = 360;
@@ -11,15 +13,6 @@ const WEEKDAY_ORDER_BY_KEY = {
   saturday: 6,
   sunday: 7,
 };
-
-const GRADUATE_GRADES = new Set([
-  'graduate',
-  'graduates',
-  'alumni',
-  'alumnus',
-  'выпускник',
-  'выпускники',
-]);
 
 const roundToTwoDecimals = (value) => {
   const number = Number(value);
@@ -189,12 +182,6 @@ export const expandTeacherFinanceMonthOccurrences = ({
     || left.studentId.localeCompare(right.studentId, 'ru')
     || left.occurrenceKey.localeCompare(right.occurrenceKey, 'ru')
   ));
-};
-
-const isCurrentStudent = (student) => {
-  if (!student || typeof student !== 'object' || student.deletedAt) return false;
-  const grade = String(student?.grade ?? '').trim().toLowerCase();
-  return !GRADUATE_GRADES.has(grade);
 };
 
 const isTrial = (occurrence) => (

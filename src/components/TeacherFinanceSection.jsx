@@ -16,6 +16,7 @@ import {
   calculateTeacherIncomeScenario,
   countCurrentTeacherStudents,
 } from '../utils/teacherFinanceCalculations';
+import { isCurrentStudent } from '../utils/studentStudyStatus';
 import { Button, Card } from './ui';
 
 const formatMoney = (value) => {
@@ -303,7 +304,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
 
   const studentRows = useMemo(() => (
     (Array.isArray(snapshot?.students) ? snapshot.students : [])
-      .filter((student) => !student.deletedAt)
+      .filter(isCurrentStudent)
       .map((student) => {
         const commissionDraft = commissionDrafts[student.id] ?? '';
         return {

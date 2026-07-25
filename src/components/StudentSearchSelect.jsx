@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { isCurrentStudent } from '../utils/studentStudyStatus';
 
 const normalizeSearchText = (value) => String(value || '').trim().toLowerCase();
 
@@ -22,18 +23,9 @@ const getStudentDisplayLabel = (student) => {
   );
 };
 
-const isGraduateStudent = (student) => {
-  const grade = String(student?.grade || student?.studentGrade || student?.className || student?.class || '').trim().toLowerCase();
-  return Boolean(student?.isGraduate)
-    || grade === 'graduate'
-    || grade === 'graduates'
-    || grade === 'выпускник'
-    || grade === 'выпускники';
-};
-
 const normalizeStudents = (students, { includeGraduates = false } = {}) => (
   (Array.isArray(students) ? students : [])
-    .filter((student) => includeGraduates || !isGraduateStudent(student))
+    .filter((student) => includeGraduates || isCurrentStudent(student))
     .map((student) => {
       const id = String(student?.id || student?.studentId || '').trim();
       if (!id) return null;

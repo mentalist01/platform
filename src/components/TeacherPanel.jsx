@@ -23,11 +23,23 @@ import {
   normalizeQuestionInsertMode,
   resolveQuestionInsertIndex,
 } from '../utils/questionInsertion';
+import {
+  STUDENT_STUDY_STATUS_ACTIVE,
+  STUDENT_STUDY_STATUS_INACTIVE,
+  isCurrentStudent,
+  isInactiveStudent,
+  normalizeStudentStudyStatus,
+} from '../utils/studentStudyStatus';
 
 const STUDENT_GRADE_OPTIONS = [
   { value: '11', label: '11 класс' },
   { value: '10', label: '10 класс' },
   { value: 'graduate', label: 'Выпускники' },
+];
+
+const STUDENT_STUDY_STATUS_OPTIONS = [
+  { value: STUDENT_STUDY_STATUS_ACTIVE, label: 'Сейчас учится' },
+  { value: STUDENT_STUDY_STATUS_INACTIVE, label: 'Не учится' },
 ];
 
 const QUESTION_LABEL_COLOR_PRESETS = [
@@ -212,6 +224,7 @@ const TeacherPanel = ({
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentGrade, setNewStudentGrade] = useState('11');
   const [newStudentEgeScore, setNewStudentEgeScore] = useState('');
+  const [studentStudyFilter, setStudentStudyFilter] = useState(STUDENT_STUDY_STATUS_ACTIVE);
   const [studentActionLoading, setStudentActionLoading] = useState(false);
   const [studentActionError, setStudentActionError] = useState('');
   const [lastIssuedCode, setLastIssuedCode] = useState(null);
@@ -227,6 +240,7 @@ const TeacherPanel = ({
   const [editStudentNickname, setEditStudentNickname] = useState('');
   const [editStudentGrade, setEditStudentGrade] = useState('11');
   const [editStudentEgeScore, setEditStudentEgeScore] = useState('');
+  const [editStudentStudyStatus, setEditStudentStudyStatus] = useState(STUDENT_STUDY_STATUS_ACTIVE);
   const [editStudentLeaderboardAlias, setEditStudentLeaderboardAlias] = useState('');
   const [editStudentLeaderboardAliasInitial, setEditStudentLeaderboardAliasInitial] = useState('');
   const [editStudentCoinsGrant, setEditStudentCoinsGrant] = useState('');
@@ -1075,11 +1089,16 @@ const TeacherPanel = ({
   };
 
   const studentsList = students || [];
+  const currentStudentsList = studentsList.filter(isCurrentStudent);
+  const inactiveStudentsList = studentsList.filter(isInactiveStudent);
+  const visibleStudentsList = studentStudyFilter === STUDENT_STUDY_STATUS_INACTIVE
+    ? inactiveStudentsList
+    : currentStudentsList;
   const deletedStudentsList = deletedStudents || [];
   const tasksList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const selectedTaskInfo = tasksList.find((taskItem) => Number(taskItem?.number) === Number(selectedTask)) || null;
   const selectedLevelInfo = Object.values(LEVELS).find((levelItem) => levelItem.id === selectedLevel) || null;
-  const activeStudent = studentsList.find((student) => String(student?.id || '') === String(activeStudentId || '')) || null;
+  const activeStudent = currentStudentsList.find((student) => String(student?.id || '') === String(activeStudentId || '')) || null;
   const selectedTaskDisplay = getTaskDisplayNumber(selectedTaskInfo || { number: selectedTask });
   const selectedTaskTitle = selectedTaskInfo?.title || 'Выберите задание';
   const selectedLevelLabel = selectedLevelInfo?.label || selectedLevel;
@@ -2020,10 +2039,14 @@ const TeacherPanel = ({
     try {
       const created = await api.createStudent(name, teacherId, {
         grade,
+        studyStatus: STUDENT_STUDY_STATUS_ACTIVE,
         informaticsEgeScore: egeScore,
       });
       const { code, ...rest } = created || {};
-      if (rest?.id) onStudentCreated?.(rest);
+      if (rest?.id) {
+        onStudentCreated?.(rest);
+        if (isInactiveStudent(rest)) setStudentStudyFilter(STUDENT_STUDY_STATUS_INACTIVE);
+      }
       if (code) {
         setLastIssuedCode({ name: rest?.name || name, code });
         setIsStudentsExpanded(true);
@@ -2199,6 +2222,7 @@ const TeacherPanel = ({
     setEditStudentCommissionAmount(commissionAmount);
     setEditStudentCommissionAmountInitial(commissionAmount);
     setEditStudentGrade(normalizeStudentGradeValue(student.grade));
+    setEditStudentStudyStatus(normalizeStudentStudyStatus(student.studyStatus, student.grade));
     setEditStudentEgeScore(
       typeof student.informaticsEgeScore === 'number'
         ? String(student.informaticsEgeScore)
@@ -2221,6 +2245,7 @@ const TeacherPanel = ({
     setEditStudentCommissionAmountInitial('');
     setEditStudentGrade('11');
     setEditStudentEgeScore('');
+    setEditStudentStudyStatus(STUDENT_STUDY_STATUS_ACTIVE);
     setEditStudentLeaderboardAlias('');
     setEditStudentLeaderboardAliasInitial('');
     setEditStudentCoinsGrant('');
@@ -2286,12 +2311,18 @@ const TeacherPanel = ({
         name: nextName,
         nickname: editStudentNickname,
         grade: nextGrade,
+        studyStatus: editStudentStudyStatus,
         informaticsEgeScore: egeScore,
       };
       if (aliasChanged) payload.leaderboardAlias = nextAlias;
       if (rawCoinsGrant) payload.coinsGrant = Number(rawCoinsGrant);
       const res = await api.updateStudent(student.id, payload);
       onStudentUpdated?.({ ...student, ...res });
+      setStudentStudyFilter(
+        isCurrentStudent({ ...student, ...res })
+          ? STUDENT_STUDY_STATUS_ACTIVE
+          : STUDENT_STUDY_STATUS_INACTIVE
+      );
       if (nextLessonPrice !== initialLessonPrice || nextCommissionAmount !== initialCommissionAmount) {
         await saveStudentFinanceProfile(student.id, nextLessonPrice, nextCommissionAmount);
       }
@@ -2372,7 +2403,7 @@ const TeacherPanel = ({
           <div className="teacher-panel-hero__stats" aria-label="Сводка панели учителя">
             <div className="teacher-panel-stat">
               <span>Ученики</span>
-              <strong>{studentsList.length}</strong>
+              <strong>{currentStudentsList.length}</strong>
               <small>{activeStudentLabel}</small>
             </div>
             <div className="teacher-panel-stat">
@@ -2674,7 +2705,7 @@ const TeacherPanel = ({
           <div>
             <h3 className="text-lg font-bold text-gray-800">Ученики</h3>
             <p className="text-xs text-gray-500">
-              {`Всего: ${studentsList.length} • Конспекты: ${formatStorageBytes(totalNotesUsageBytes)}`}
+              {`Сейчас учатся: ${currentStudentsList.length} • Не учатся: ${inactiveStudentsList.length} • Конспекты: ${formatStorageBytes(totalNotesUsageBytes)}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -2768,14 +2799,40 @@ const TeacherPanel = ({
           </div>
         )}
 
+        <div className="mb-3 inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1" aria-label="Фильтр учеников по статусу обучения">
+          {STUDENT_STUDY_STATUS_OPTIONS.map((option) => {
+            const selected = studentStudyFilter === option.value;
+            const count = option.value === STUDENT_STUDY_STATUS_ACTIVE
+              ? currentStudentsList.length
+              : inactiveStudentsList.length;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setStudentStudyFilter(option.value)}
+                aria-pressed={selected}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  selected ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-600 hover:bg-white'
+                }`}
+              >
+                {`${option.label} (${count})`}
+              </button>
+            );
+          })}
+        </div>
 
         <div className="space-y-2">
           {studentsLoading ? (
             <div className="text-sm text-gray-500">Загрузка списка...</div>
-          ) : studentsList.length === 0 ? (
-            <div className="text-sm text-gray-400">Пока нет учеников. Создайте первого.</div>
+          ) : visibleStudentsList.length === 0 ? (
+            <div className="text-sm text-gray-400">
+              {studentStudyFilter === STUDENT_STUDY_STATUS_ACTIVE
+                ? 'Сейчас у вас нет учеников, которые продолжают обучение.'
+                : 'В списке «Не учатся» пока никого нет.'}
+            </div>
           ) : (
-            studentsList.map((student) => {
+            visibleStudentsList.map((student) => {
+              const studentIsCurrent = isCurrentStudent(student);
               const studentXpTotal = normalizeXpTotal(student?.xpTotal);
               const studentCoinsTotal = Math.max(0, Math.floor(Number(student?.coinsTotal) || 0));
               const studentNotesUsageBytes = normalizeStorageBytes(student?.notesUsageBytes);
@@ -2824,11 +2881,13 @@ const TeacherPanel = ({
               return (
                 <div
                   key={student.id}
-                  onClick={() => onSelectStudent?.(student.id)}
-                  className={`teacher-student-card p-3 rounded-xl border flex items-start justify-between gap-3 cursor-pointer transition-all ${
-                    activeStudentId === student.id
+                  onClick={studentIsCurrent ? () => onSelectStudent?.(student.id) : undefined}
+                  className={`teacher-student-card p-3 rounded-xl border flex items-start justify-between gap-3 transition-all ${
+                    studentIsCurrent ? 'cursor-pointer' : 'cursor-default bg-slate-50/80'
+                  } ${
+                    studentIsCurrent && activeStudentId === student.id
                       ? 'teacher-student-card--active border-purple-300 bg-purple-50'
-                      : 'border-gray-200 bg-white hover:border-purple-200'
+                      : `border-gray-200 ${studentIsCurrent ? 'bg-white hover:border-purple-200' : ''}`
                   }`}
                 >
                   <div className="min-w-0 flex-1">
@@ -2967,7 +3026,12 @@ const TeacherPanel = ({
                               <button
                                 key={option.value}
                                 type="button"
-                                onClick={() => setEditStudentGrade(option.value)}
+                                onClick={() => {
+                                  setEditStudentGrade(option.value);
+                                  if (option.value === 'graduate') {
+                                    setEditStudentStudyStatus(STUDENT_STUDY_STATUS_INACTIVE);
+                                  }
+                                }}
                                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                                   isActive
                                     ? 'bg-purple-600 text-white shadow-sm'
@@ -2978,6 +3042,34 @@ const TeacherPanel = ({
                               </button>
                             );
                           })}
+                        </div>
+                        <div className="space-y-1">
+                          <span className="block text-[11px] font-semibold text-gray-500">Статус обучения</span>
+                          <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
+                            {STUDENT_STUDY_STATUS_OPTIONS.map((option) => {
+                              const selected = editStudentStudyStatus === option.value;
+                              const disabled = option.value === STUDENT_STUDY_STATUS_ACTIVE
+                                && normalizeStudentGradeValue(editStudentGrade) === 'graduate';
+                              return (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  disabled={disabled}
+                                  onClick={() => setEditStudentStudyStatus(option.value)}
+                                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                                    selected
+                                      ? 'bg-purple-600 text-white shadow-sm'
+                                      : 'text-gray-600 hover:bg-white'
+                                  }`}
+                                >
+                                  {option.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {normalizeStudentGradeValue(editStudentGrade) === 'graduate' && (
+                            <p className="text-[10px] text-gray-400">Выпускники автоматически относятся к тем, кто больше не учится.</p>
+                          )}
                         </div>
                         {normalizeStudentGradeValue(editStudentGrade) === 'graduate' && (
                           <input
@@ -3065,6 +3157,16 @@ const TeacherPanel = ({
                             data-tone="grade"
                           >
                             {studentGradeLabel}
+                          </span>
+                          <span
+                            className={`teacher-student-card__pill inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                              studentIsCurrent
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : 'border-slate-200 bg-slate-100 text-slate-600'
+                            }`}
+                            data-tone="study-status"
+                          >
+                            {studentIsCurrent ? 'Сейчас учится' : 'Не учится'}
                           </span>
                           {studentLessonPrice > 0 && (
                             <span
@@ -3177,7 +3279,7 @@ const TeacherPanel = ({
                       </>
                     ) : (
                       <>
-                        {activeStudentId === student.id && (
+                        {studentIsCurrent && activeStudentId === student.id && (
                           <span className="text-xs font-semibold text-purple-600">Активный</span>
                         )}
                         <button
@@ -3187,24 +3289,28 @@ const TeacherPanel = ({
                         >
                           Изменить
                         </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleResetStudentCode(student); }}
-                          className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 disabled:opacity-50"
-                          title="Сбросить код"
-                          disabled={resettingStudentId === student.id}
-                          type="button"
-                        >
-                          <RefreshCcw size={16} />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleResetStudentBoard(student); }}
-                          className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-                          title="Очистить совместную доску"
-                          disabled={resettingBoardStudentId === student.id}
-                          type="button"
-                        >
-                          {resettingBoardStudentId === student.id ? '...' : 'Сбросить доску'}
-                        </button>
+                        {studentIsCurrent && (
+                          <>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleResetStudentCode(student); }}
+                              className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                              title="Сбросить код"
+                              disabled={resettingStudentId === student.id}
+                              type="button"
+                            >
+                              <RefreshCcw size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleResetStudentBoard(student); }}
+                              className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                              title="Очистить совместную доску"
+                              disabled={resettingBoardStudentId === student.id}
+                              type="button"
+                            >
+                              {resettingBoardStudentId === student.id ? '...' : 'Сбросить доску'}
+                            </button>
+                          </>
+                        )}
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDeleteStudent(student); }}
                           className="p-2 rounded-lg text-red-500 hover:bg-red-50"

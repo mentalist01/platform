@@ -81,6 +81,7 @@ import {
   normalizeTeacherStudentId,
   resolveTeacherStudentSelection,
 } from './utils/teacherStudentSelection';
+import { isCurrentStudent, normalizeStudentStudyStatus } from './utils/studentStudyStatus';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
   isPushFeatureSupported,
@@ -2765,6 +2766,7 @@ const sanitizeAuthUserPayload = (value) => {
     safe.grade = rawGrade === 'graduate' || rawGrade === 'graduates' || rawGrade === 'выпускник' || rawGrade === 'выпускники'
       ? 'graduate'
       : (Number(value.grade) === 10 ? 10 : 11);
+    safe.studyStatus = normalizeStudentStudyStatus(value.studyStatus, safe.grade);
     const avatarDataUrl = typeof value.avatarDataUrl === 'string' ? value.avatarDataUrl.trim() : '';
     if (avatarDataUrl) safe.avatarDataUrl = avatarDataUrl;
   }
@@ -14283,6 +14285,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     () => students,
     [students]
   );
+  const currentStudentsWithNicknames = useMemo(
+    () => studentsWithNicknames.filter(isCurrentStudent),
+    [studentsWithNicknames]
+  );
+  useEffect(() => {
+    if (user.role !== 'teacher') return;
+    setActiveStudentId((current) => resolveTeacherStudentSelection({
+      currentId: current,
+      storedId: storedActiveStudentIdRef.current,
+      students: currentStudentsWithNicknames,
+    }));
+  }, [currentStudentsWithNicknames, user.role]);
   const tasksWithTitles = useMemo(
     () => applyTaskTitles(MOCK_TASKS, taskTitles),
     [taskTitles]
@@ -16250,7 +16264,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         setActiveStudentId((current) => resolveTeacherStudentSelection({
           currentId: current,
           storedId: storedActiveStudentIdRef.current,
-          students: data,
+          students: data.filter(isCurrentStudent),
         }));
         return data;
       })
@@ -16969,7 +16983,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const handleStudentCreated = (student) => {
     if (!student) return;
     setStudents((prev) => [student, ...prev]);
-    setActiveStudentId((current) => current || normalizeTeacherStudentId(student.id));
+    if (isCurrentStudent(student)) {
+      setActiveStudentId((current) => current || normalizeTeacherStudentId(student.id));
+    }
   };
 
   const handleStudentDeleted = (payload) => {
@@ -16977,7 +16993,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (!student?.id) return;
     setStudents((prev) => {
       const next = prev.filter((s) => s.id !== student.id);
-      setActiveStudentId((current) => (current === student.id ? (next[0]?.id || null) : current));
+      const nextCurrentStudentId = next.find(isCurrentStudent)?.id || null;
+      setActiveStudentId((current) => (current === student.id ? nextCurrentStudentId : current));
       return next;
     });
     setDeletedStudents((prev) => {
@@ -16990,7 +17007,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (!student?.id) return;
     setDeletedStudents((prev) => prev.filter((item) => item.id !== student.id));
     setStudents((prev) => [student, ...prev.filter((item) => item.id !== student.id)]);
-    setActiveStudentId((current) => current || student.id);
+    if (isCurrentStudent(student)) {
+      setActiveStudentId((current) => current || student.id);
+    }
   };
 
   const handleStudentUpdated = (student) => {
@@ -18988,7 +19007,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               role={user.role}
               showHeader={user.role !== 'student'}
               studentId={user.id}
-              students={studentsWithNicknames}
+              students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
@@ -19044,7 +19063,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           {view === 'teacher-calendar' && user.role === 'teacher' && (
             <TeacherCalendarSection
               teacherId={user.id}
-              students={studentsWithNicknames}
+              students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
@@ -19077,7 +19096,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onThemeToggle={onThemeToggle}
               role={user.role}
               studentId={user.id}
-              students={studentsWithNicknames}
+              students={currentStudentsWithNicknames}
               tasks={tasksWithTitles}
               weeklyRecapTasks={weeklyRecapTasks}
               solvedRefreshKey={goalRefreshTick}
@@ -19191,7 +19210,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               role={user.role}
               studentId={user.id}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
-              students={studentsWithNicknames}
+              students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
@@ -19231,7 +19250,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               theme={theme}
               withStudentId={withStudentId}
               tasks={tasksWithTitles}
-              students={studentsWithNicknames}
+              students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
@@ -19245,7 +19264,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               userName={user.name}
               userAvatarDataUrl={user.avatarDataUrl}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
-              students={studentsWithNicknames}
+              students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               onRequestStudentsRefresh={refreshStudentsForPicker}
@@ -19263,13 +19282,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <>
               <TeacherLessonStartPrompt
                 teacherId={user.id}
-                students={studentsWithNicknames}
+                students={currentStudentsWithNicknames}
                 getStudentLabel={getStudentLabel}
                 onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
               />
               <TeacherLessonEndPrompt
                 teacherId={user.id}
-                students={studentsWithNicknames}
+                students={currentStudentsWithNicknames}
                 getStudentLabel={getStudentLabel}
               />
             </>
@@ -19287,7 +19306,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               userName={user.name}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               tasks={tasksWithTitles}
-              students={studentsWithNicknames}
+              students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
@@ -19299,7 +19318,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               theme={theme}
               role={user.role}
               studentId={user.id}
-              students={studentsWithNicknames}
+              students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}

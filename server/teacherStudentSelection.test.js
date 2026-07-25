@@ -45,3 +45,15 @@ test('normalizes identifiers and returns null for an empty roster', () => {
     students: [],
   }), null);
 });
+
+test('never restores or selects a student who no longer studies', () => {
+  assert.equal(resolveTeacherStudentSelection({
+    currentId: 'former',
+    storedId: 'graduate',
+    students: [
+      { id: 'former', grade: 11, studyStatus: 'inactive' },
+      { id: 'graduate', grade: 'graduate' },
+      { id: 'current', grade: 11 },
+    ],
+  }), 'current');
+});

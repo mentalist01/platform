@@ -82,6 +82,12 @@ import {
   normalizeBoardAssetEntries,
   normalizeBoardAssetEntry,
 } from './boardAssets.js';
+import {
+  STUDENT_STUDY_STATUS_ACTIVE,
+  isCurrentStudent,
+  normalizeStudentStudyStatus,
+  parseStudentStudyStatus,
+} from '../src/utils/studentStudyStatus.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -2368,6 +2374,8 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
       displayName,
       deletedAt: typeof student?.deletedAt === 'string' && student.deletedAt.trim() ? student.deletedAt.trim() : '',
       createdAt: typeof student?.createdAt === 'string' ? student.createdAt : '',
+      grade: normalizeStudentGrade(student?.grade),
+      studyStatus: normalizeStudentStudyStatus(student?.studyStatus, student?.grade),
       profile,
       record,
       metrics,
@@ -2385,7 +2393,7 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
     const record = student.record || getDefaultTeacherFinanceStudentRecord();
     const metrics = student.metrics || calculateTeacherFinanceStudentMetrics(record);
     acc.studentsCount += 1;
-    if (!student.deletedAt) acc.activeStudentsCount += 1;
+    if (isCurrentStudent(student)) acc.activeStudentsCount += 1;
     if (metrics.hasActivity) acc.studentsWithActivityCount += 1;
     if (metrics.outstanding > 0) acc.studentsWithDebtCount += 1;
     acc.plannedLessons = roundTeacherFinanceNumber(acc.plannedLessons + roundTeacherFinanceNumber(record.plannedLessons));
@@ -4816,7 +4824,7 @@ const getActiveStudentIdsForTeacher = (teacherId) => {
   const id = String(teacherId || '').trim();
   if (!id) return [];
   return readStudentsDb()
-    .filter((student) => isActiveStudent(student) && String(student.teacherId || '').trim() === id)
+    .filter((student) => isCurrentStudent(student) && String(student.teacherId || '').trim() === id)
     .map((student) => String(student.id || '').trim())
     .filter(Boolean);
 };
@@ -5518,6 +5526,7 @@ const buildSessionUser = (user) => {
   if (role === 'student') {
     payload.teacherId = user.teacherId ? String(user.teacherId) : null;
     payload.grade = normalizeStudentGrade(user.grade);
+    payload.studyStatus = normalizeStudentStudyStatus(user.studyStatus, payload.grade);
     const avatarDataUrl = normalizeStudentAvatarDataUrl(user.avatarDataUrl);
     if (avatarDataUrl) payload.avatarDataUrl = avatarDataUrl;
   }
@@ -5624,6 +5633,7 @@ const resolveSessionUser = (sessionUser) => {
       role: 'student',
       teacherId: student.teacherId || null,
       grade: normalizeStudentGrade(student.grade),
+      studyStatus: normalizeStudentStudyStatus(student.studyStatus, student.grade),
       avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student.id)?.avatarDataUrl),
     };
   }
@@ -5970,7 +5980,7 @@ const resolveSignupTeacher = (requestedTeacherId = '') => {
 
   if (teachers.length === 1) return teachers[0];
 
-  const activeStudents = readStudentsDb().filter((student) => student && !student.deletedAt);
+  const activeStudents = readStudentsDb().filter(isCurrentStudent);
   const studentsByTeacherId = activeStudents.reduce((acc, student) => {
     const teacherId = typeof student.teacherId === 'string' ? student.teacherId.trim() : '';
     if (!teacherId) return acc;
@@ -6865,7 +6875,7 @@ const wasStudentPresentForBroadcastNotification = (student, entry) => {
 
 const getBroadcastNotificationRecipientStudents = (entry) => {
   const students = readStudentsDb()
-    .filter(isActiveStudent)
+    .filter(isCurrentStudent)
     .filter((student) => wasStudentPresentForBroadcastNotification(student, entry));
   if (!entry || typeof entry !== 'object') return [];
   if (entry.audienceKind === 'all-students') return students;
@@ -6878,7 +6888,7 @@ const wasBroadcastNotificationCreatedAfterStudentJoined = (auth, entry) => {
   const studentId = String(auth?.id || '').trim();
   if (!studentId) return false;
 
-  const student = readStudentsDb().find((item) => String(item?.id || '').trim() === studentId && isActiveStudent(item));
+  const student = readStudentsDb().find((item) => String(item?.id || '').trim() === studentId && isCurrentStudent(item));
   if (!student) return false;
   return wasStudentPresentForBroadcastNotification(student, entry);
 };
@@ -7441,7 +7451,7 @@ const getGoogleCalendarStudentMatchCandidates = (title, students = []) => {
   if (!normalizedTitle) return [];
   return Array.from(new Set(
     (Array.isArray(students) ? students : [])
-      .filter((student) => student && !student.deletedAt)
+      .filter(isCurrentStudent)
       .flatMap((student) => (
         getGoogleCalendarStudentMatchNames(student).map((name) => ({ student, name }))
       ))
@@ -7805,7 +7815,7 @@ const getTeacherScheduleEntries = (teacherId, options = {}) => {
   const includeDeletedStudents = Boolean(options.includeDeletedStudents);
   const students = readStudentsDb().filter((student) => {
     if (!student || String(student.teacherId || '').trim() !== normalizedTeacherId) return false;
-    if (!includeDeletedStudents && student.deletedAt) return false;
+    if (!includeDeletedStudents && !isCurrentStudent(student)) return false;
     return true;
   });
   const entries = [];
@@ -15704,6 +15714,7 @@ app.post('/api/login', (req, res) => {
     role: 'student',
     teacherId: student.teacherId || null,
     grade: normalizeStudentGrade(student.grade),
+    studyStatus: normalizeStudentStudyStatus(student.studyStatus, student.grade),
     avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student.id)?.avatarDataUrl),
   });
   return respondWithSession(res, session);
@@ -17555,7 +17566,7 @@ app.patch('/api/student-chat/messages/:messageId/pin', (req, res) => {
 app.get('/api/student-chats', (req, res) => {
   if (!isStaffRole(req.auth)) return forbid(res);
   const students = readStudentsDb()
-    .filter(isActiveStudent)
+    .filter(isCurrentStudent)
     .filter((student) => {
       if (!isTeacherRole(req.auth)) return true;
       return student.teacherId === req.auth.id;
@@ -18026,7 +18037,7 @@ app.get('/api/teacher-social-group-chat', (req, res) => {
   if (changed) writeStudentSocialChatsDb(db);
 
   const students = readStudentsDb()
-    .filter((entry) => isActiveStudent(entry) && String(entry.teacherId || '').trim() === teacher.id)
+    .filter((entry) => isCurrentStudent(entry) && String(entry.teacherId || '').trim() === teacher.id)
     .sort((left, right) => getStudentDisplayName(left).localeCompare(getStudentDisplayName(right), 'ru'))
     .map((student) => buildStudentPeerProfile(student, { exposeStudentNicknames: true }));
   const page = buildStudentChatMessagesPage(chat.messages, req.query);
@@ -18342,7 +18353,7 @@ app.get('/api/student-social-chats', (req, res) => {
   const settings = getStudentSocialChatSettings(teacherId, db);
   const notificationSettings = getStudentChatNotificationSettings(student.id, db);
   const classmates = readStudentsDb()
-    .filter((entry) => isActiveStudent(entry) && String(entry.teacherId || '').trim() === teacherId)
+    .filter((entry) => isCurrentStudent(entry) && String(entry.teacherId || '').trim() === teacherId)
     .sort((left, right) => getStudentPrimaryDisplayName(left).localeCompare(getStudentPrimaryDisplayName(right), 'ru'));
   const peers = classmates
     .filter((entry) => entry.id !== student.id)
@@ -19305,6 +19316,7 @@ app.get('/api/students', (req, res) => {
     return {
       ...rest,
       grade,
+      studyStatus: normalizeStudentStudyStatus(rest.studyStatus, grade),
       informaticsEgeScore: grade === STUDENT_GRADE_GRADUATE
         ? normalizeStudentInformaticsEgeScore(rest.informaticsEgeScore)
         : null,
@@ -19950,7 +19962,7 @@ app.post('/api/students/altar/upgrade', (req, res) => {
 });
 
 app.post('/api/students', (req, res) => {
-  const { name, teacherId, grade, informaticsEgeScore } = req.body || {};
+  const { name, teacherId, grade, informaticsEgeScore, studyStatus } = req.body || {};
   if (isStudentRole(req.auth)) return forbid(res);
   const studentName = normalizeStudentName(name);
   if (!studentName) return res.status(400).json({ error: 'Введите имя ученика' });
@@ -19962,6 +19974,15 @@ app.post('/api/students', (req, res) => {
     return res.status(400).json({ error: 'Класс должен быть 10, 11 или выпускники' });
   }
   const studentGrade = parsedStudentGrade || DEFAULT_STUDENT_GRADE;
+  const hasStudyStatus = Object.prototype.hasOwnProperty.call(req.body || {}, 'studyStatus');
+  const parsedStudyStatus = parseStudentStudyStatus(studyStatus);
+  if (hasStudyStatus && parsedStudyStatus === null) {
+    return res.status(400).json({ error: 'Статус обучения должен быть «учится» или «не учится»' });
+  }
+  const studentStudyStatus = normalizeStudentStudyStatus(
+    parsedStudyStatus || STUDENT_STUDY_STATUS_ACTIVE,
+    studentGrade
+  );
   const studentInformaticsEgeScore = parseStudentInformaticsEgeScore(informaticsEgeScore);
   if (typeof studentInformaticsEgeScore === 'undefined') {
     return res.status(400).json({ error: 'Балл ЕГЭ должен быть целым числом от 0 до 100' });
@@ -19987,6 +20008,7 @@ app.post('/api/students', (req, res) => {
     teacherId: resolvedTeacherId,
     nickname: '',
     grade: studentGrade,
+    studyStatus: studentStudyStatus,
     informaticsEgeScore: studentGrade === STUDENT_GRADE_GRADUATE ? studentInformaticsEgeScore : null,
     codeHash: hashCode(plainCode),
     codeHint: getCodeHint(plainCode),
@@ -20003,6 +20025,7 @@ app.post('/api/students', (req, res) => {
     name: entry.name,
     nickname: entry.nickname || '',
     grade: normalizeStudentGrade(entry.grade),
+    studyStatus: normalizeStudentStudyStatus(entry.studyStatus, entry.grade),
     informaticsEgeScore: normalizeStudentGrade(entry.grade) === STUDENT_GRADE_GRADUATE
       ? normalizeStudentInformaticsEgeScore(entry.informaticsEgeScore)
       : null,
@@ -20071,6 +20094,7 @@ app.post('/api/students/:id/restore', (req, res) => {
     name: restored.name,
     nickname: restored.nickname || '',
     grade: normalizeStudentGrade(restored.grade),
+    studyStatus: normalizeStudentStudyStatus(restored.studyStatus, restored.grade),
     informaticsEgeScore: normalizeStudentGrade(restored.grade) === STUDENT_GRADE_GRADUATE
       ? normalizeStudentInformaticsEgeScore(restored.informaticsEgeScore)
       : null,
@@ -20209,15 +20233,16 @@ app.post('/api/teachers/:id/reset-code', (req, res) => {
 app.patch('/api/students/:id', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
-  const { name, nickname, grade, informaticsEgeScore, leaderboardAlias, coinsGrant } = req.body || {};
+  const { name, nickname, grade, informaticsEgeScore, leaderboardAlias, coinsGrant, studyStatus } = req.body || {};
   const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, 'name');
   const hasNickname = Object.prototype.hasOwnProperty.call(req.body || {}, 'nickname');
   const hasGrade = Object.prototype.hasOwnProperty.call(req.body || {}, 'grade');
   const hasInformaticsEgeScore = Object.prototype.hasOwnProperty.call(req.body || {}, 'informaticsEgeScore');
   const hasLeaderboardAlias = Object.prototype.hasOwnProperty.call(req.body || {}, 'leaderboardAlias');
   const hasCoinsGrant = Object.prototype.hasOwnProperty.call(req.body || {}, 'coinsGrant');
+  const hasStudyStatus = Object.prototype.hasOwnProperty.call(req.body || {}, 'studyStatus');
 
-  if (!hasName && !hasNickname && !hasGrade && !hasInformaticsEgeScore && !hasLeaderboardAlias && !hasCoinsGrant) {
+  if (!hasName && !hasNickname && !hasGrade && !hasInformaticsEgeScore && !hasLeaderboardAlias && !hasCoinsGrant && !hasStudyStatus) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
 
@@ -20241,6 +20266,14 @@ app.patch('/api/students/:id', (req, res) => {
     studentGrade = parseStudentGrade(grade);
     if (studentGrade === null) {
       return res.status(400).json({ error: 'Класс должен быть 10, 11 или выпускники' });
+    }
+  }
+
+  let studentStudyStatus = null;
+  if (hasStudyStatus) {
+    studentStudyStatus = parseStudentStudyStatus(studyStatus);
+    if (studentStudyStatus === null) {
+      return res.status(400).json({ error: 'Статус обучения должен быть «учится» или «не учится»' });
     }
   }
 
@@ -20290,6 +20323,10 @@ app.patch('/api/students/:id', (req, res) => {
   if (hasNickname) updated.nickname = studentNickname;
   if (hasGrade) updated.grade = studentGrade;
   const nextGrade = normalizeStudentGrade(updated.grade);
+  updated.studyStatus = normalizeStudentStudyStatus(
+    hasStudyStatus ? studentStudyStatus : updated.studyStatus,
+    nextGrade
+  );
   if (nextGrade !== STUDENT_GRADE_GRADUATE) {
     updated.informaticsEgeScore = null;
   } else if (hasInformaticsEgeScore) {
@@ -20320,6 +20357,7 @@ app.patch('/api/students/:id', (req, res) => {
     name: updated.name,
     nickname: updated.nickname || '',
     grade: normalizeStudentGrade(updated.grade),
+    studyStatus: normalizeStudentStudyStatus(updated.studyStatus, updated.grade),
     informaticsEgeScore: normalizeStudentGrade(updated.grade) === STUDENT_GRADE_GRADUATE
       ? normalizeStudentInformaticsEgeScore(updated.informaticsEgeScore)
       : null,
@@ -21617,7 +21655,9 @@ app.get('/api/teacher-solved-events', (req, res) => {
   const teacher = ensureTeacherAccess(req, res, teacherId);
   if (!teacher) return;
   const testsDb = getTestsDbWithPythonInfiniteTraining();
-  const students = readStudentsDb().filter((s) => s.teacherId === teacher.id && !s.deletedAt);
+  const students = readStudentsDb().filter((student) => (
+    student.teacherId === teacher.id && isCurrentStudent(student)
+  ));
   const readIds = getTeacherSolvedEventReadIdSet(teacher, students.length);
   const readBeforeMs = getTeacherSolvedEventsReadBeforeMs(teacher);
   const sinceMs = since ? Date.parse(String(since)) : null;

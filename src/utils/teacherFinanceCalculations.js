@@ -1,22 +1,12 @@
+import { isCurrentStudent } from './studentStudyStatus.js';
+
 export const TEACHER_FINANCE_WEEKS_PER_MONTH = 52 / 12;
 const MAX_STUDENT_COUNT = 9999;
 const MAX_HOURLY_RATE = 1_000_000;
 const MAX_LESSONS_PER_WEEK = 14;
 const MAX_WORKING_DAYS_PER_WEEK = 7;
-const GRADUATE_GRADES = new Set([
-  'graduate',
-  'graduates',
-  'alumni',
-  'alumnus',
-  'выпускник',
-  'выпускники',
-]);
-
 export const countCurrentTeacherStudents = (students) => (
-  (Array.isArray(students) ? students : []).filter((student) => {
-    const grade = String(student?.grade ?? '').trim().toLowerCase();
-    return !student?.deletedAt && !GRADUATE_GRADES.has(grade);
-  }).length
+  (Array.isArray(students) ? students : []).filter(isCurrentStudent).length
 );
 
 const roundToTwoDecimals = (value) => {

@@ -114,15 +114,17 @@ test('expansion normalizes durations, skips invalid entries and deliberately kee
   assert.equal(result[0].occurrenceKey, result[1].occurrenceKey);
 });
 
-test('summary keeps earned graduate and deleted lessons but filters their remaining lessons', () => {
+test('summary keeps earned inactive, graduate and deleted lessons but filters their remaining lessons', () => {
   const students = [
     { id: 'active', grade: 11, lessonPrice: 2000 },
     { id: 'unpriced', grade: 10, lessonPrice: 0 },
     { id: 'graduate', grade: 'graduate', lessonPrice: 3000 },
+    { id: 'former', grade: 11, studyStatus: 'inactive', lessonPrice: 3500 },
     { id: 'deleted', grade: 11, deletedAt: '2026-07-10T00:00:00.000Z', lessonPrice: 4000 },
   ];
   const completedOccurrences = [
     occurrence({ studentId: 'graduate', dayKey: '2026-07-01', lessonPrice: 3000 }),
+    occurrence({ studentId: 'former', dayKey: '2026-07-02', lessonPrice: 3500 }),
     occurrence({ studentId: 'deleted', dayKey: '2026-07-02', lessonPrice: 4000 }),
   ];
   const activeRemaining = occurrence({
@@ -139,6 +141,7 @@ test('summary keeps earned graduate and deleted lessons but filters their remain
       { ...activeRemaining },
       occurrence({ studentId: 'unpriced', dayKey: '2026-07-20', durationMinutes: 30 }),
       occurrence({ studentId: 'graduate', dayKey: '2026-07-21', lessonPrice: 3000 }),
+      occurrence({ studentId: 'former', dayKey: '2026-07-22', lessonPrice: 3500 }),
       occurrence({ studentId: 'deleted', dayKey: '2026-07-22', lessonPrice: 4000 }),
     ],
   });
@@ -146,15 +149,15 @@ test('summary keeps earned graduate and deleted lessons but filters their remain
   assert.deepEqual(result, {
     month: '2026-07',
     activeStudentCount: 2,
-    actual: { revenue: 7000, lessonCount: 2, hours: 2, workingDayCount: 2 },
+    actual: { revenue: 10500, lessonCount: 3, hours: 3, workingDayCount: 2 },
     remaining: { revenue: 2000, lessonCount: 2, hours: 2, workingDayCount: 1 },
-    total: { revenue: 9000, lessonCount: 4, hours: 4, workingDayCount: 3 },
-    completionPercent: 50,
-    averageHoursPerWorkingDay: 1.33,
+    total: { revenue: 12500, lessonCount: 5, hours: 5, workingDayCount: 3 },
+    completionPercent: 60,
+    averageHoursPerWorkingDay: 1.67,
     unpricedLessonCount: 1,
     unpricedStudentCount: 1,
-    pricedLessonCount: 3,
-    studentCount: 4,
+    pricedLessonCount: 4,
+    studentCount: 5,
   });
 });
 

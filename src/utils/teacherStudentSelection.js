@@ -8,7 +8,7 @@ export const resolveTeacherStudentSelection = ({
   storedId,
   students,
 } = {}) => {
-  const list = Array.isArray(students) ? students : [];
+  const list = (Array.isArray(students) ? students : []).filter(isCurrentStudent);
   const availableIds = new Set(
     list
       .map((student) => normalizeTeacherStudentId(student?.id))
@@ -24,3 +24,4 @@ export const resolveTeacherStudentSelection = ({
   }
   return normalizeTeacherStudentId(list[0]?.id);
 };
+import { isCurrentStudent } from './studentStudyStatus.js';

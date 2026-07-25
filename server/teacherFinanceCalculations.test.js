@@ -8,9 +8,10 @@ import {
   countCurrentTeacherStudents,
 } from '../src/utils/teacherFinanceCalculations.js';
 
-test('current student count excludes graduates and deleted students', () => {
+test('current student count excludes inactive, graduate and deleted students', () => {
   assert.equal(countCurrentTeacherStudents([
     { id: 'active-11', grade: 11, deletedAt: null },
+    { id: 'former-11', grade: 11, studyStatus: 'inactive' },
     { id: 'active-10', grade: '10' },
     { id: 'graduate-en', grade: 'graduate' },
     { id: 'graduate-ru', grade: 'Выпускник' },
