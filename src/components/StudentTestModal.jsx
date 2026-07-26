@@ -619,6 +619,7 @@ const StudentTestModal = ({
   const questionCodeByIdRef = useRef({});
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
   const [questionCodePreviewOpen, setQuestionCodePreviewOpen] = useState(false);
+  const questionCodePanelRef = useRef(null);
   const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
   const [questionCodeClosing, setQuestionCodeClosing] = useState(false);
   const [questionCodeWorkspacePrefs, setQuestionCodeWorkspacePrefs] = useState(readStudentCodeWorkspacePrefs);
@@ -2757,7 +2758,15 @@ const StudentTestModal = ({
     const handleToggleQuestionCodePreview = () => {
       const nextOpen = !questionCodePreviewOpen;
       setQuestionCodePreviewOpen(nextOpen);
-      if (nextOpen && currentId) loadQuestionCode(currentId);
+      if (nextOpen && currentId) {
+        loadQuestionCode(currentId);
+        window.requestAnimationFrame(() => {
+          questionCodePanelRef.current?.scrollIntoView({
+            behavior: prefersReducedStudentMotion() ? 'auto' : 'smooth',
+            block: 'start',
+          });
+        });
+      }
     };
 
     const handleCloseQuestionCodeFocus = () => {
@@ -3614,6 +3623,19 @@ const StudentTestModal = ({
               <div className="student-test-question-panel__toolbar-actions">
                 <button
                   type="button"
+                  className={`student-test-code-preview-trigger ${questionCodePreviewOpen ? 'is-active' : ''}`}
+                  onClick={handleToggleQuestionCodePreview}
+                  aria-expanded={questionCodePreviewOpen}
+                  aria-controls="student-test-saved-code-preview"
+                  aria-label={questionCodePreviewOpen ? 'Скрыть код решения' : 'Показать код решения'}
+                  title={questionCodePreviewOpen ? 'Скрыть код' : 'Показать код'}
+                >
+                  <FileCode2 size={16} aria-hidden="true" />
+                  <span>{questionCodePreviewOpen ? 'Скрыть код' : 'Показать код'}</span>
+                  <ChevronDown size={15} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
                   className="student-test-code-primary-trigger"
                   onClick={handleOpenQuestionCodeFocus}
                 >
@@ -3999,53 +4021,57 @@ const StudentTestModal = ({
                   />
                 )
               )}
-            {computedChecked && (
-              <div className={`student-test-result-feedback text-sm ${computedCorrect ? 'is-correct text-green-600' : 'is-wrong text-red-600'}`}>
-                {computedCorrect ? 'Верно!' : 'Неверно'}
-              </div>
-            )}
-            <details className="student-test-history rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5">
-              <summary className="student-test-history-summary flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-gray-700">
-                <span className="inline-flex min-w-0 items-center gap-2">
-                  <History size={15} className="student-test-history-icon text-purple-500" />
-                  <span>История ответов</span>
-                </span>
-                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs text-gray-500">
-                  {answerHistoryLoading ? '...' : answerHistory.length}
-                </span>
-              </summary>
-              <div className="mt-3 space-y-2">
-                {answerHistoryLoading ? (
-                  <div className="text-xs text-gray-500">Загрузка...</div>
-                ) : answerHistoryLatestFirst.length > 0 ? (
-                  answerHistoryLatestFirst.map((entry, idx) => {
-                    const timeLabel = formatAnswerHistoryTime(entry.submittedAt);
-                    return (
-                      <div
-                        key={entry.id || `${entry.submittedAt}-${idx}`}
-                        className="student-test-history-entry rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs"
-                        style={{ '--student-test-item-index': idx }}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className={`font-bold ${entry.correct ? 'text-green-600' : 'text-red-600'}`}>
-                            {entry.correct ? 'Верно' : 'Неверно'}
-                          </span>
-                          {timeLabel && <span className="text-gray-400">{timeLabel}</span>}
+            <div className="student-test-answer-meta">
+              {computedChecked && (
+                <div className={`student-test-result-feedback text-sm ${computedCorrect ? 'is-correct text-green-600' : 'is-wrong text-red-600'}`}>
+                  {computedCorrect ? 'Верно!' : 'Неверно'}
+                </div>
+              )}
+              <details className="student-test-history">
+                <summary className="student-test-history-summary" aria-label="История ответов" title="История ответов">
+                  <span className="student-test-history-summary__label">
+                    <History size={14} className="student-test-history-icon" />
+                    <span>История</span>
+                  </span>
+                  <span className="student-test-history-summary__count">
+                    {answerHistoryLoading ? '...' : answerHistory.length}
+                  </span>
+                  <ChevronDown size={14} className="student-test-history-summary__chevron" aria-hidden="true" />
+                </summary>
+                <div className="student-test-history__content space-y-2">
+                  {answerHistoryLoading ? (
+                    <div className="text-xs text-gray-500">Загрузка...</div>
+                  ) : answerHistoryLatestFirst.length > 0 ? (
+                    answerHistoryLatestFirst.map((entry, idx) => {
+                      const timeLabel = formatAnswerHistoryTime(entry.submittedAt);
+                      return (
+                        <div
+                          key={entry.id || `${entry.submittedAt}-${idx}`}
+                          className="student-test-history-entry rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs"
+                          style={{ '--student-test-item-index': idx }}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className={`font-bold ${entry.correct ? 'text-green-600' : 'text-red-600'}`}>
+                              {entry.correct ? 'Верно' : 'Неверно'}
+                            </span>
+                            {timeLabel && <span className="text-gray-400">{timeLabel}</span>}
+                          </div>
+                          <div className="mt-1 break-words font-mono text-[11px] leading-5 text-gray-700">
+                            {formatAnswerHistoryValues(entry.answers)}
+                          </div>
                         </div>
-                        <div className="mt-1 break-words font-mono text-[11px] leading-5 text-gray-700">
-                          {formatAnswerHistoryValues(entry.answers)}
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="text-xs text-gray-500">Попыток пока нет</div>
-                )}
-              </div>
-            </details>
+                      );
+                    })
+                  ) : (
+                    <div className="text-xs text-gray-500">Попыток пока нет</div>
+                  )}
+                </div>
+              </details>
+            </div>
             </section>
 
-            <div className="student-test-code-panel student-test-panel-enter">
+            {questionCodePreviewOpen && (
+              <div ref={questionCodePanelRef} className="student-test-code-panel student-test-panel-enter">
               <div className={`student-test-code-launch-card ${questionCodePreviewOpen ? 'is-preview-open' : ''}`}>
                 <div className="student-test-code-launch-card__main">
                   <span className="student-test-code-launch-card__icon" aria-hidden="true">
@@ -4143,7 +4169,8 @@ const StudentTestModal = ({
                   </div>
                 )}
               </div>
-            </div>
+              </div>
+            )}
           </div>
           </div>
 
