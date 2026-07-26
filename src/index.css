@@ -972,6 +972,16 @@ html[data-theme='dark'] .teacher-finance-simple__calendar-plan-warning {
   color: #fcd34d !important;
 }
 
+html[data-theme='dark'] .teacher-finance-simple__unpriced-student {
+  border-color: rgba(245, 158, 11, 0.34) !important;
+  background: rgba(15, 23, 42, 0.72) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__unpriced-lesson {
+  border-color: rgba(100, 116, 139, 0.5) !important;
+  background: rgba(30, 41, 59, 0.7) !important;
+}
+
 html[data-theme='dark'] .teacher-finance-simple__calendar-plan-progress {
   background: rgba(51, 65, 85, 0.78) !important;
 }

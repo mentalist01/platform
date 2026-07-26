@@ -249,6 +249,24 @@ const finishAccumulator = (accumulator) => ({
   workingDayCount: accumulator.workingDays.size,
 });
 
+const getUnpricedLessonStudentName = (occurrence, student) => (
+  String(
+    student?.nickname
+    || student?.name
+    || occurrence?.studentName
+    || occurrence?.entry?.studentName
+    || 'Ученик'
+  ).trim() || 'Ученик'
+);
+
+const getUnpricedLessonSubject = (occurrence) => String(
+  occurrence?.subject
+  || occurrence?.subjectLabel
+  || occurrence?.entry?.subject
+  || occurrence?.entry?.subjectLabel
+  || ''
+).trim();
+
 export const summarizeTeacherFinanceCalendarPlan = ({
   monthKey,
   students = [],
@@ -268,10 +286,11 @@ export const summarizeTeacherFinanceCalendarPlan = ({
   const seenOccurrenceKeys = new Set();
   const includedStudentIds = new Set();
   const unpricedStudentIds = new Set();
+  const unpricedLessons = [];
   let unpricedLessonCount = 0;
   let pricedLessonCount = 0;
 
-  const addOccurrence = (rawOccurrence, targetAccumulator, requireCurrentStudent) => {
+  const addOccurrence = (rawOccurrence, targetAccumulator, requireCurrentStudent, status) => {
     if (isTrial(rawOccurrence) || isCancelled(rawOccurrence) || isCancelled(rawOccurrence?.entry)) return;
     const occurrence = normalizeOccurrence(rawOccurrence);
     if (!occurrence || !month || !occurrence.dayKey.startsWith(`${month}-`)) return;
@@ -285,6 +304,16 @@ export const summarizeTeacherFinanceCalendarPlan = ({
     } else {
       unpricedLessonCount += 1;
       unpricedStudentIds.add(occurrence.studentId);
+      unpricedLessons.push({
+        occurrenceKey: occurrence.occurrenceKey,
+        studentId: occurrence.studentId,
+        studentName: getUnpricedLessonStudentName(rawOccurrence, student),
+        subject: getUnpricedLessonSubject(rawOccurrence),
+        dayKey: occurrence.dayKey,
+        time: occurrence.time,
+        durationMinutes: occurrence.durationMinutes,
+        status,
+      });
     }
     includedStudentIds.add(occurrence.studentId);
     addToAccumulator(targetAccumulator, occurrence, lessonPrice);
@@ -292,11 +321,18 @@ export const summarizeTeacherFinanceCalendarPlan = ({
   };
 
   (Array.isArray(completedOccurrences) ? completedOccurrences : []).forEach((occurrence) => {
-    addOccurrence(occurrence, actualAccumulator, false);
+    addOccurrence(occurrence, actualAccumulator, false, 'completed');
   });
   (Array.isArray(remainingOccurrences) ? remainingOccurrences : []).forEach((occurrence) => {
-    addOccurrence(occurrence, remainingAccumulator, true);
+    addOccurrence(occurrence, remainingAccumulator, true, 'remaining');
   });
+
+  unpricedLessons.sort((left, right) => (
+    left.dayKey.localeCompare(right.dayKey, 'ru')
+    || left.time.localeCompare(right.time, 'ru')
+    || left.studentName.localeCompare(right.studentName, 'ru', { sensitivity: 'base', numeric: true })
+    || left.occurrenceKey.localeCompare(right.occurrenceKey, 'ru')
+  ));
 
   const actual = finishAccumulator(actualAccumulator);
   const remaining = finishAccumulator(remainingAccumulator);
@@ -318,6 +354,7 @@ export const summarizeTeacherFinanceCalendarPlan = ({
     averageHoursPerWorkingDay,
     unpricedLessonCount,
     unpricedStudentCount: unpricedStudentIds.size,
+    unpricedLessons,
     pricedLessonCount,
     studentCount: includedStudentIds.size,
   };

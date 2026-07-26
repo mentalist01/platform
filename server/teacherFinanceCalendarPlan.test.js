@@ -117,7 +117,7 @@ test('expansion normalizes durations, skips invalid entries and deliberately kee
 test('summary keeps earned inactive, graduate and deleted lessons but filters their remaining lessons', () => {
   const students = [
     { id: 'active', grade: 11, lessonPrice: 2000 },
-    { id: 'unpriced', grade: 10, lessonPrice: 0 },
+    { id: 'unpriced', name: 'Без ставки', grade: 10, lessonPrice: 0 },
     { id: 'graduate', grade: 'graduate', lessonPrice: 3000 },
     { id: 'former', grade: 11, studyStatus: 'inactive', lessonPrice: 3500 },
     { id: 'deleted', grade: 11, deletedAt: '2026-07-10T00:00:00.000Z', lessonPrice: 4000 },
@@ -139,7 +139,12 @@ test('summary keeps earned inactive, graduate and deleted lessons but filters th
     remainingOccurrences: [
       activeRemaining,
       { ...activeRemaining },
-      occurrence({ studentId: 'unpriced', dayKey: '2026-07-20', durationMinutes: 30 }),
+      occurrence({
+        studentId: 'unpriced',
+        dayKey: '2026-07-20',
+        durationMinutes: 30,
+        entry: { subject: 'Разбор варианта' },
+      }),
       occurrence({ studentId: 'graduate', dayKey: '2026-07-21', lessonPrice: 3000 }),
       occurrence({ studentId: 'former', dayKey: '2026-07-22', lessonPrice: 3500 }),
       occurrence({ studentId: 'deleted', dayKey: '2026-07-22', lessonPrice: 4000 }),
@@ -156,6 +161,16 @@ test('summary keeps earned inactive, graduate and deleted lessons but filters th
     averageHoursPerWorkingDay: 1.67,
     unpricedLessonCount: 1,
     unpricedStudentCount: 1,
+    unpricedLessons: [{
+      occurrenceKey: 'unpriced:2026-07-20:10:00:30',
+      studentId: 'unpriced',
+      studentName: 'Без ставки',
+      subject: 'Разбор варианта',
+      dayKey: '2026-07-20',
+      time: '10:00',
+      durationMinutes: 30,
+      status: 'remaining',
+    }],
     pricedLessonCount: 4,
     studentCount: 5,
   });

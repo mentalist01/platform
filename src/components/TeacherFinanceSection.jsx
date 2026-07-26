@@ -208,6 +208,55 @@ const formatCalendarWeekRange = (startDayKey, endDayKey) => {
   return `${startDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })} — ${endDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
 };
 
+const formatCalendarPlanLessonDate = (dayKey) => {
+  const match = String(dayKey || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return 'Дата не указана';
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(date.getTime())) return 'Дата не указана';
+  return date.toLocaleDateString('ru-RU', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'long',
+  });
+};
+
+const normalizeCalendarPlanUnpricedLessons = (value) => (
+  (Array.isArray(value) ? value : [])
+    .map((lesson, index) => {
+      const studentId = String(lesson?.studentId || '').trim();
+      const dayKey = String(lesson?.dayKey || '').trim();
+      if (!studentId || !dayKey) return null;
+      return {
+        occurrenceKey: String(lesson?.occurrenceKey || '').trim()
+          || `${studentId}:${dayKey}:${lesson?.time || ''}:${index}`,
+        studentId,
+        studentName: String(lesson?.studentName || '').trim() || 'Ученик',
+        subject: String(lesson?.subject || '').trim(),
+        dayKey,
+        time: String(lesson?.time || '').trim(),
+        durationMinutes: Math.max(0, Math.round(Number(lesson?.durationMinutes) || 0)),
+        status: lesson?.status === 'completed' ? 'completed' : 'remaining',
+      };
+    })
+    .filter(Boolean)
+);
+
+const groupCalendarPlanUnpricedLessons = (lessons) => {
+  const groupsByStudentId = new Map();
+  lessons.forEach((lesson) => {
+    const current = groupsByStudentId.get(lesson.studentId) || {
+      studentId: lesson.studentId,
+      studentName: lesson.studentName,
+      lessons: [],
+    };
+    current.lessons.push(lesson);
+    groupsByStudentId.set(lesson.studentId, current);
+  });
+  return Array.from(groupsByStudentId.values()).sort((left, right) => (
+    left.studentName.localeCompare(right.studentName, 'ru', { sensitivity: 'base', numeric: true })
+  ));
+};
+
 const getStudentProfitability = (student, commissionDraft) => {
   const profitability = student?.profitability && typeof student.profitability === 'object'
     ? student.profitability
@@ -262,8 +311,11 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
   const [snapshot, setSnapshot] = useState(null);
   const [commissionDrafts, setCommissionDrafts] = useState({});
   const [commissionBaselines, setCommissionBaselines] = useState({});
+  const [lessonPriceDrafts, setLessonPriceDrafts] = useState({});
+  const [lessonPriceErrors, setLessonPriceErrors] = useState({});
   const [loading, setLoading] = useState(true);
   const [savingStudentId, setSavingStudentId] = useState('');
+  const [savingLessonPriceStudentId, setSavingLessonPriceStudentId] = useState('');
   const [error, setError] = useState('');
   const [calculatorStudents, setCalculatorStudents] = useState('');
   const [calculatorLessonsPerWeek, setCalculatorLessonsPerWeek] = useState('1');
@@ -273,12 +325,20 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
   const applySnapshot = (data) => {
     const nextSnapshot = data && typeof data === 'object' ? data : {};
     const drafts = {};
+    const priceDrafts = {};
     (Array.isArray(nextSnapshot.students) ? nextSnapshot.students : []).forEach((student) => {
       drafts[student.id] = toInputValue(student?.profile?.commissionAmount);
+      const recordPrice = Number(student?.record?.lessonPrice);
+      const profilePrice = Number(student?.profile?.lessonPrice);
+      priceDrafts[student.id] = toInputValue(
+        Number.isFinite(recordPrice) && recordPrice > 0 ? recordPrice : profilePrice
+      );
     });
     setSnapshot(nextSnapshot);
     setCommissionDrafts(drafts);
     setCommissionBaselines(drafts);
+    setLessonPriceDrafts(priceDrafts);
+    setLessonPriceErrors({});
   };
 
   useEffect(() => {
@@ -410,6 +470,9 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
     0,
     Math.floor(Number(rawCalendarPlan.unpricedStudentCount) || 0)
   );
+  const calendarPlanUnpricedStudentGroups = groupCalendarPlanUnpricedLessons(
+    normalizeCalendarPlanUnpricedLessons(rawCalendarPlan.unpricedLessons)
+  );
   const calendarPlanMonthName = formatMonthLabel(calendarPlanMonthKey)
     .replace(/\s+\d{4}$/u, '')
     .toLowerCase();
@@ -434,6 +497,46 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
       [studentId]: normalizeNumberInput(value),
     }));
     setError('');
+  };
+
+  const handleLessonPriceChange = (studentId, value) => {
+    setLessonPriceDrafts((current) => ({
+      ...current,
+      [studentId]: normalizeNumberInput(value),
+    }));
+    setLessonPriceErrors((current) => ({ ...current, [studentId]: '' }));
+  };
+
+  const handleSaveLessonPrice = async (studentId) => {
+    const lessonPrice = parseAmount(lessonPriceDrafts[studentId]);
+    if (lessonPrice <= 0) {
+      setLessonPriceErrors((current) => ({
+        ...current,
+        [studentId]: 'Укажите стоимость больше нуля.',
+      }));
+      return;
+    }
+    setSavingLessonPriceStudentId(studentId);
+    setLessonPriceErrors((current) => ({ ...current, [studentId]: '' }));
+    try {
+      const data = await api.updateTeacherFinanceStudent(
+        studentId,
+        {
+          month: calendarPlanMonthKey || snapshot?.month || new Date().toISOString().slice(0, 7),
+          lessonPrice,
+        },
+        teacherId
+      );
+      applySnapshot(data);
+      setError('');
+    } catch (err) {
+      setLessonPriceErrors((current) => ({
+        ...current,
+        [studentId]: err?.message || String(err),
+      }));
+    } finally {
+      setSavingLessonPriceStudentId('');
+    }
   };
 
   const handleSave = async (student) => {
@@ -614,8 +717,117 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
           )}
 
           {calendarPlanUnpricedLessonCount > 0 ? (
-            <div className="teacher-finance-simple__calendar-plan-warning mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
-              В сумму не вошло {formatLessonCount(calendarPlanUnpricedLessonCount)} без указанной стоимости. Стоимость не заполнена: {formatStudentCount(calendarPlanUnpricedStudentCount)}. Итог показан как минимальный.
+            <div className="teacher-finance-simple__calendar-plan-warning mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                <div>
+                  <div className="text-xs font-black">
+                    В сумму не вошло {formatLessonCount(calendarPlanUnpricedLessonCount)} без указанной стоимости.
+                  </div>
+                  <p className="mt-1 text-[11px] font-semibold leading-relaxed text-amber-700">
+                    Стоимость не заполнена для {formatStudentCount(calendarPlanUnpricedStudentCount)}. Итог показан как минимальный.
+                  </p>
+                </div>
+                <span className="w-fit shrink-0 rounded-full border border-amber-300 bg-white/70 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.1em] text-amber-700">
+                  Нужна стоимость
+                </span>
+              </div>
+
+              {calendarPlanUnpricedStudentGroups.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {calendarPlanUnpricedStudentGroups.map((group) => {
+                    const savingLessonPrice = savingLessonPriceStudentId === group.studentId;
+                    const lessonPriceError = lessonPriceErrors[group.studentId] || '';
+                    return (
+                      <div
+                        key={group.studentId}
+                        className="teacher-finance-simple__unpriced-student rounded-xl border border-amber-200 bg-white/75 p-3"
+                      >
+                        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,auto)] xl:items-end">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-black text-slate-950">{group.studentName}</div>
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-amber-700">
+                                {formatLessonCount(group.lessons.length)}
+                              </span>
+                            </div>
+                            <div className="mt-2 grid gap-1.5 md:grid-cols-2">
+                              {group.lessons.map((lesson) => {
+                                const normalizedSubject = lesson.subject.toLocaleLowerCase('ru-RU');
+                                const normalizedStudentName = group.studentName.toLocaleLowerCase('ru-RU');
+                                const lessonTitle = lesson.subject && normalizedSubject !== normalizedStudentName
+                                  ? lesson.subject
+                                  : 'Занятие';
+                                return (
+                                  <div
+                                    key={lesson.occurrenceKey}
+                                    className="teacher-finance-simple__unpriced-lesson rounded-lg border border-amber-100 bg-amber-50/65 px-2.5 py-2"
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className="text-[11px] font-black text-slate-900">{lessonTitle}</span>
+                                      <span className={`text-[9px] font-black uppercase tracking-[0.08em] ${
+                                        lesson.status === 'completed' ? 'text-emerald-700' : 'text-sky-700'
+                                      }`}>
+                                        {lesson.status === 'completed' ? 'Проведено' : 'По плану'}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-semibold text-slate-500">
+                                      <span className="inline-flex items-center gap-1">
+                                        <CalendarDays size={11} />
+                                        {formatCalendarPlanLessonDate(lesson.dayKey)}
+                                      </span>
+                                      {lesson.time ? <span>{lesson.time}</span> : null}
+                                      {lesson.durationMinutes > 0 ? <span>{lesson.durationMinutes} мин</span> : null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end xl:min-w-[420px]">
+                            <label className="min-w-0 flex-1">
+                              <span className="mb-1 block text-[9px] font-black uppercase tracking-[0.1em] text-amber-700">
+                                Стоимость занятия
+                              </span>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={lessonPriceDrafts[group.studentId] ?? ''}
+                                  onChange={(event) => handleLessonPriceChange(group.studentId, event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault();
+                                      handleSaveLessonPrice(group.studentId);
+                                    }
+                                  }}
+                                  placeholder="Например, 2 000"
+                                  aria-label={`Стоимость занятия для ${group.studentName}`}
+                                  aria-invalid={Boolean(lessonPriceError)}
+                                  className="teacher-finance-simple__input w-full rounded-xl border border-amber-200 bg-white py-2.5 pl-3 pr-9 text-sm font-bold text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                                />
+                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₽</span>
+                              </div>
+                            </label>
+                            <Button
+                              type="button"
+                              onClick={() => handleSaveLessonPrice(group.studentId)}
+                              disabled={savingLessonPrice}
+                              className="shrink-0 sm:min-w-48"
+                            >
+                              <CircleDollarSign size={15} />
+                              {savingLessonPrice ? 'Сохраняю…' : 'Указать стоимость'}
+                            </Button>
+                          </div>
+                        </div>
+                        {lessonPriceError ? (
+                          <p className="mt-2 text-[11px] font-bold text-rose-600" role="alert">{lessonPriceError}</p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           ) : null}
 

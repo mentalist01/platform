@@ -12999,6 +12999,13 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
   } catch {
     scheduleEntries = getTeacherScheduleEntries(normalizedTeacherId, { includeDeletedStudents: true });
   }
+  const scheduleEntriesBySourceId = new Map();
+  scheduleEntries.forEach((entry) => {
+    const sourceEntryId = String(entry?.id || entry?.externalEventId || '').trim();
+    if (sourceEntryId && !scheduleEntriesBySourceId.has(sourceEntryId)) {
+      scheduleEntriesBySourceId.set(sourceEntryId, entry);
+    }
+  });
 
   const currentLedger = normalizeTeacherFinanceLessonLedger(currentEntry.lessonLedger);
   const nextLedger = { ...currentLedger };
@@ -13191,6 +13198,7 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
       dayKey: occurrence.dayKey,
       time: occurrence.time,
       durationMinutes: occurrence.durationMinutes,
+      subject: String(occurrence?.entry?.subject || '').trim(),
       lessonPrice: roundTeacherFinanceNumber(lessonPrice),
       trial: Boolean(paymentState.trial),
     });
@@ -13262,6 +13270,7 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
       completedOccurrences: Object.entries(nextLedger).map(([occurrenceKey, entry]) => ({
         ...entry,
         occurrenceKey,
+        entry: scheduleEntriesBySourceId.get(entry.sourceEntryId) || null,
       })),
       remainingOccurrences: Array.from(remainingCalendarOccurrencesByKey.values()),
     }),
