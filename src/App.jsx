@@ -14152,6 +14152,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [_HOMEWORK_POPUP_ENTRY, setHomeworkPopupEntry] = useState(null);
   const [homeworkPopupOpen, setHomeworkPopupOpen] = useState(false);
   const [paceForecastPopupOpen, setPaceForecastPopupOpen] = useState(false);
+  const paceForecastTriggerRef = useRef(null);
+  const paceForecastDialogRef = useRef(null);
   const [studentIntroTourActive, setStudentIntroTourActive] = useState(false);
   const [studentRatingTourActive, setStudentRatingTourActive] = useState(false);
   const [solvedByTask, setSolvedByTask] = useState({});
@@ -16590,6 +16592,44 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (user.role !== 'student') return;
     setPaceForecastPopupOpen(true);
   }, [user.role]);
+  const handlePaceForecastDialogKeyDown = useCallback((event) => {
+    if (event.key !== 'Tab') return;
+    const focusableElements = Array.from(event.currentTarget.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    if (!focusableElements.length) return;
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    if (event.shiftKey && (document.activeElement === firstElement || document.activeElement === event.currentTarget)) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!paceForecastPopupOpen) return undefined;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusFrame = window.requestAnimationFrame(() => {
+      paceForecastDialogRef.current?.focus({ preventScroll: true });
+    });
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') closePaceForecastPopup();
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = previousBodyOverflow;
+      window.requestAnimationFrame(() => {
+        paceForecastTriggerRef.current?.focus({ preventScroll: true });
+      });
+    };
+  }, [closePaceForecastPopup, paceForecastPopupOpen]);
+
   const handleOpenProgressFromForecast = useCallback(() => {
     closePaceForecastPopup();
     navigateToView('progress');
@@ -17304,17 +17344,27 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [testingForecast.averagePerDay, testingForecast.remaining]);
   const shouldShowEgeDeadlineHint = testingForecast.total > 0 && testingForecast.remaining > 0;
   const paceBadgeState = useMemo(() => {
-    if (!shouldShowEgeDeadlineHint) {
+    if (testingForecast.total <= 0) {
+      return {
+        level: 'neutral',
+        title: 'Пока нет заданий для расчёта темпа.'
+      };
+    }
+    if (testingForecast.remaining <= 0) {
       return {
         level: 'ok',
-        className: 'border-emerald-200 text-emerald-600',
-        title: `В среднем ${averageSolvedPerDayLabel} задания/день за ${solvedPerDayStats.periodDays || 0} дн.`
+        title: 'Все доступные задания выполнены.'
+      };
+    }
+    if (!hasForecastDuration) {
+      return {
+        level: 'warn',
+        title: 'Пока недостаточно решений для точного прогноза.'
       };
     }
     if (egeDeadlineStats.isOnTrack) {
       return {
         level: 'ok',
-        className: 'border-emerald-200 text-emerald-600',
         title: `Вы успеваете к дедлайну. Запас: +${egeDeadlineStats.bufferPerDayLabel} задания/день.`
       };
     }
@@ -17325,16 +17375,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (isDanger) {
       return {
         level: 'danger',
-        className: 'border-rose-200 text-rose-600',
         title: `Сильное отставание: нужно добавить +${egeDeadlineStats.extraPerDayLabel} задания/день.`
       };
     }
     return {
       level: 'warn',
-      className: 'border-amber-200 text-amber-600',
       title: `Небольшое отставание: нужно добавить +${egeDeadlineStats.extraPerDayLabel} задания/день.`
     };
-  }, [averageSolvedPerDayLabel, egeDeadlineStats, shouldShowEgeDeadlineHint, solvedPerDayStats.periodDays]);
+  }, [egeDeadlineStats, hasForecastDuration, testingForecast.remaining, testingForecast.total]);
 
   const refreshGoalState = async () => {
     if (user.role !== 'student') return;
@@ -18088,161 +18136,158 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       )}
       {user.role === 'student' && !studentTourActive && paceForecastPopupOpen && (
         <div
-          className="fixed inset-0 z-[1250] flex items-center justify-center overflow-y-auto bg-black/40 px-2 pt-[max(env(safe-area-inset-top),0.75rem)] pb-[max(env(safe-area-inset-bottom),0.75rem)] backdrop-blur-[2px] sm:px-4 sm:py-4"
+          className="pace-forecast-overlay"
           onClick={closePaceForecastPopup}
         >
-          <div
-            className="w-full max-w-[560px] max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white via-white to-rose-50/40 px-4 py-4 shadow-2xl sm:max-h-[88vh] sm:px-6 sm:py-5"
+          <section
+            id="pace-forecast-dialog"
+            ref={paceForecastDialogRef}
+            className={`pace-forecast-dialog pace-forecast-dialog--${paceBadgeState.level}`}
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={handlePaceForecastDialogKeyDown}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pace-forecast-title"
+            aria-describedby="pace-forecast-description"
+            tabIndex={-1}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
-                  Прогноз подготовки
-                </div>
-                <div className="mt-2 text-base font-bold text-slate-900 sm:text-xl">Когда прорешаем все задания</div>
-                <div className="mt-1 text-xs text-slate-500">Расчёт по текущему темпу решений</div>
+            <header className="pace-forecast-header">
+              <div className="pace-forecast-header__icon" aria-hidden="true">
+                <BarChart2 size={19} />
+              </div>
+              <div className="pace-forecast-header__copy">
+                <div className="pace-forecast-header__eyebrow">Прогноз подготовки</div>
+                <h2 id="pace-forecast-title">Темп и срок подготовки</h2>
+                <p id="pace-forecast-description">
+                  {solvedPerDayStats.periodDays > 0
+                    ? `По решениям за последние ${formatDaysText(solvedPerDayStats.periodDays)}`
+                    : 'По текущей активности в заданиях'}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={closePaceForecastPopup}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-500 hover:bg-slate-50"
-                aria-label="Закрыть"
+                className="pace-forecast-close"
+                aria-label="Закрыть прогноз"
               >
-                <X size={14} />
+                <X size={17} />
               </button>
-            </div>
+            </header>
 
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-white/90 px-3 py-3">
-              <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[11px]">
-                <span>Прогресс</span>
-                <span>{`${testingCompletionPercent}%`}</span>
-              </div>
-              <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-purple-500 to-fuchsia-500 transition-all duration-500"
-                  style={{ width: `${testingCompletionPercent}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-3 gap-1.5 text-center sm:gap-2">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500 sm:text-[10px]">Всего</div>
-                <div className="mt-1 text-[15px] font-bold text-slate-900 sm:text-base">{testingForecast.total}</div>
-              </div>
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-emerald-600 sm:text-[10px]">Решено</div>
-                <div className="mt-1 text-[15px] font-bold text-emerald-700 sm:text-base">{testingForecast.solved}</div>
-              </div>
-              <div className="rounded-xl border border-purple-200 bg-purple-50 px-2 py-2.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-purple-600 sm:text-[10px]">Осталось</div>
-                <div className="mt-1 text-[15px] font-bold text-purple-700 sm:text-base">{testingForecast.remaining}</div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-900">
-              {hasForecastDuration ? (
-                <div className="space-y-2">
-                  <div className="text-[13px] font-semibold text-rose-700 sm:text-sm">
-                    При таком темпе подготовимся к ЕГЭ полностью примерно через
+            <div className="pace-forecast-body">
+              <section className="pace-forecast-overview" aria-label="Прогресс по заданиям">
+                <div className="pace-forecast-overview__top">
+                  <div>
+                    <span>Выполнено</span>
+                    <strong>{`${testingForecast.solved} из ${testingForecast.total} заданий`}</strong>
                   </div>
-                  <div className="rounded-xl border border-rose-300 bg-white px-3 py-3 text-center">
-                    <div className="text-[30px] font-extrabold leading-none text-rose-700 sm:text-4xl">
-                      {testingForecastDurationText}
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-rose-500">
-                      <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1">
-                        {`до ${testingForecastFinishDateLabel}`}
-                      </span>
-                      <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1">
-                        {`≈ ${formatDaysText(testingForecast.daysToFinish)}`}
-                      </span>
-                    </div>
+                  <strong className="pace-forecast-overview__percent">{`${testingCompletionPercent}%`}</strong>
+                </div>
+                <div
+                  className="pace-forecast-progress-track"
+                  role="progressbar"
+                  aria-label="Выполнено заданий"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow={testingCompletionPercent}
+                >
+                  <div
+                    className="pace-forecast-progress-fill"
+                    style={{ width: `${testingCompletionPercent}%` }}
+                  />
+                </div>
+                <div className="pace-forecast-stats" role="list">
+                  <div role="listitem">
+                    <span>Всего</span>
+                    <strong>{testingForecast.total}</strong>
+                  </div>
+                  <div role="listitem">
+                    <span>Решено</span>
+                    <strong>{testingForecast.solved}</strong>
+                  </div>
+                  <div role="listitem">
+                    <span>Осталось</span>
+                    <strong>{testingForecast.remaining}</strong>
                   </div>
                 </div>
-              ) : (
-                <div className="text-sm font-semibold text-rose-700">{testingForecastText}</div>
+              </section>
+
+              <section className="pace-forecast-result" aria-label="Прогноз завершения">
+                <div className="pace-forecast-result__kicker">
+                  <Calendar size={15} aria-hidden="true" />
+                  <span>Прогноз завершения</span>
+                </div>
+                {hasForecastDuration ? (
+                  <>
+                    <div className="pace-forecast-result__duration">{testingForecastDurationText}</div>
+                    <p>
+                      Если сохранять темп, текущий список будет завершён
+                      {' '}<strong>{`примерно к ${testingForecastFinishDateLabel}`}</strong>.
+                    </p>
+                    <div className="pace-forecast-result__meta">
+                      <span>{`≈ ${formatDaysText(testingForecast.daysToFinish)}`}</span>
+                      <span>{`${averageSolvedPerDayLabel} задания/день`}</span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="pace-forecast-result__empty">{testingForecastText}</p>
+                )}
+              </section>
+
+              {shouldShowEgeDeadlineHint && (
+                <section className={`pace-forecast-goal pace-forecast-goal--${egeDeadlineStats.isOnTrack ? 'ok' : 'warn'}`}>
+                  <div className="pace-forecast-goal__header">
+                    <div className="pace-forecast-goal__icon" aria-hidden="true">
+                      <Target size={17} />
+                    </div>
+                    <div className="pace-forecast-goal__title">
+                      <span>Цель подготовки</span>
+                      <strong>{`До ${egeDeadlineStats.deadlineLabel}`}</strong>
+                    </div>
+                    <span className="pace-forecast-goal__status">
+                      {egeDeadlineStats.isOnTrack
+                        ? <CheckCircle size={14} aria-hidden="true" />
+                        : <AlertTriangle size={14} aria-hidden="true" />}
+                      {egeDeadlineStats.isOnTrack ? 'Успеваете' : 'Нужно ускориться'}
+                    </span>
+                  </div>
+                  <div className="pace-forecast-goal__metrics">
+                    <div>
+                      <span>Ваш темп</span>
+                      <strong>{averageSolvedPerDayLabel}<small>/день</small></strong>
+                    </div>
+                    <div>
+                      <span>Для цели достаточно</span>
+                      <strong>{egeDeadlineStats.requiredPerDayLabel}<small>/день</small></strong>
+                    </div>
+                  </div>
+                  <p className="pace-forecast-goal__summary">
+                    {egeDeadlineStats.isOnTrack
+                      ? `Текущего темпа достаточно. Запас — ${egeDeadlineStats.bufferPerDayLabel} задания/день.`
+                      : `Чтобы успеть, добавьте ${egeDeadlineStats.extraPerDayLabel} задания/день.`}
+                  </p>
+                </section>
               )}
             </div>
 
-            <div className="mt-3 text-[11px] text-slate-500 sm:text-xs">
-              {`Текущий темп: ${averageSolvedPerDayLabel} задания/день.`}
-              {solvedPerDayStats.periodDays > 0 ? ` Период расчёта: ${formatDaysText(solvedPerDayStats.periodDays)}.` : ''}
-            </div>
-            {shouldShowEgeDeadlineHint && (
-              <div className={`mt-3 rounded-xl border px-3 py-2.5 ${
-                egeDeadlineStats.isOnTrack
-                  ? 'border-emerald-200 bg-emerald-50/80'
-                  : 'border-amber-200 bg-amber-50/80'
-              }`}>
-                <div className="flex items-center justify-between gap-2">
-                  <div className={`text-[11px] font-semibold ${
-                    egeDeadlineStats.isOnTrack ? 'text-emerald-700' : 'text-amber-700'
-                  }`}>
-                    {`Цель: успеть до ${egeDeadlineStats.deadlineLabel}`}
-                  </div>
-                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                    egeDeadlineStats.isOnTrack
-                      ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
-                      : 'border-amber-300 bg-amber-100 text-amber-700'
-                  }`}>
-                    {egeDeadlineStats.isOnTrack ? 'Успеваешь' : 'Нужно ускориться'}
-                  </span>
-                </div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-center">
-                  <div className={`rounded-lg border px-2 py-1.5 ${
-                    egeDeadlineStats.isOnTrack
-                      ? 'border-emerald-200 bg-white/80'
-                      : 'border-amber-200 bg-white/80'
-                  }`}>
-                    <div className={`text-[10px] uppercase tracking-wide ${
-                      egeDeadlineStats.isOnTrack ? 'text-emerald-600' : 'text-amber-600'
-                    }`}>Нужно в день</div>
-                    <div className={`mt-0.5 text-sm font-extrabold ${
-                      egeDeadlineStats.isOnTrack ? 'text-emerald-800' : 'text-amber-800'
-                    }`}>{`${egeDeadlineStats.requiredPerDayLabel}`}</div>
-                  </div>
-                  <div className={`rounded-lg border px-2 py-1.5 ${
-                    egeDeadlineStats.isOnTrack
-                      ? 'border-emerald-200 bg-white/80'
-                      : 'border-amber-200 bg-white/80'
-                  }`}>
-                    <div className={`text-[10px] uppercase tracking-wide ${
-                      egeDeadlineStats.isOnTrack ? 'text-emerald-600' : 'text-amber-600'
-                    }`}>Осталось дней</div>
-                    <div className={`mt-0.5 text-sm font-extrabold ${
-                      egeDeadlineStats.isOnTrack ? 'text-emerald-800' : 'text-amber-800'
-                    }`}>{egeDeadlineStats.daysAvailable}</div>
-                  </div>
-                </div>
-                <div className={`mt-2 text-sm font-extrabold ${
-                  egeDeadlineStats.isOnTrack ? 'text-emerald-900' : 'text-amber-900'
-                }`}>
-                  {egeDeadlineStats.isOnTrack
-                    ? `Запас по темпу: +${egeDeadlineStats.bufferPerDayLabel} задания/день.`
-                    : `Нужно добавить: +${egeDeadlineStats.extraPerDayLabel} задания/день.`}
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <footer className="pace-forecast-actions">
               <button
                 type="button"
                 onClick={handleOpenProgressFromForecast}
-                className="rounded-xl bg-purple-600 px-3 py-3 text-sm font-semibold text-white shadow-sm hover:bg-purple-700"
+                className="pace-forecast-action pace-forecast-action--primary"
               >
-                Перейти к тестам
+                <span>Перейти к тестам</span>
+                <ChevronRight size={17} aria-hidden="true" />
               </button>
               <button
                 type="button"
                 onClick={closePaceForecastPopup}
-                className="rounded-xl border border-purple-200 bg-white px-3 py-3 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+                className="pace-forecast-action pace-forecast-action--secondary"
               >
                 Закрыть
               </button>
-            </div>
-          </div>
+            </footer>
+          </section>
         </div>
       )}
       <StudentTour
@@ -18677,17 +18722,29 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     onOpenProgressSection={handleGlobalOpenProgressSection}
                   />
                   <button
+                    ref={paceForecastTriggerRef}
                     type="button"
                     onClick={openPaceForecastPopup}
-                    className={`flex items-center justify-center gap-1 rounded-full border bg-white px-2.5 py-1.5 text-[13px] font-semibold shadow-sm transition hover:bg-slate-50 active:scale-[0.99] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 md:gap-2 md:px-3.5 md:py-2 md:text-sm ${paceBadgeState.className}`}
-                    aria-label={`Среднее в день: ${averageSolvedPerDayLabel}`}
+                    className={`pace-forecast-trigger pace-forecast-trigger--${paceBadgeState.level}`}
+                    aria-label={`Темп — ${averageSolvedPerDayLabel} задания в день. ${paceBadgeState.title} Открыть прогноз.`}
+                    aria-haspopup="dialog"
+                    aria-expanded={paceForecastPopupOpen}
+                    aria-controls="pace-forecast-dialog"
                     title={`${paceBadgeState.title} Нажмите, чтобы открыть прогноз.`}
                   >
-                    {paceBadgeState.level === 'ok' && <CheckCircle size={14} />}
-                    {paceBadgeState.level === 'warn' && <AlertTriangle size={14} />}
-                    {paceBadgeState.level === 'danger' && <AlertCircle size={14} />}
-                    <span className="text-gray-900 whitespace-nowrap">{averageSolvedPerDayLabel}</span>
-                    <span className="hidden whitespace-nowrap text-[11px] font-semibold text-gray-500 sm:inline">/день</span>
+                    <span className="pace-forecast-trigger__icon" aria-hidden="true">
+                      {paceBadgeState.level === 'ok' && <CheckCircle size={15} />}
+                      {paceBadgeState.level === 'warn' && <AlertTriangle size={15} />}
+                      {paceBadgeState.level === 'danger' && <AlertCircle size={15} />}
+                      {paceBadgeState.level === 'neutral' && <BarChart2 size={15} />}
+                    </span>
+                    <span className="pace-forecast-trigger__copy">
+                      <span className="pace-forecast-trigger__label">Темп</span>
+                      <span className="pace-forecast-trigger__value">
+                        {averageSolvedPerDayLabel}<small>/день</small>
+                      </span>
+                    </span>
+                    <ChevronRight className="pace-forecast-trigger__chevron" size={14} aria-hidden="true" />
                   </button>
                   <div className="relative group shrink-0">
                     <div
