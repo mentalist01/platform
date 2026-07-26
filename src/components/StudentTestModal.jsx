@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -10,6 +10,7 @@ import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPas
 import { normalizeTurtleScene, parseTurtleSceneJson } from '../utils/turtleScene';
 import HEADLESS_TURTLE_SOURCE from '../python/headless_turtle.py?raw';
 import { Button } from './ui';
+import StudentTestWindowTour from './StudentTestWindowTour';
 import TurtleCanvas from './TurtleCanvas';
 
 const STUDENT_TEST_ANSWER_DRAFT_PREFIX = 'student-test-answer-draft-v1';
@@ -32,6 +33,56 @@ const STUDENT_CODE_FOCUS_FULLSCREEN_DELAY_MS = 120;
 const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
 const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
 const STUDENT_CODE_COPY_FEEDBACK_MS = 1800;
+
+const STUDENT_TEST_WINDOW_TOUR_STEPS = [
+  {
+    target: '[data-student-test-tour="question-navigation"]',
+    title: 'Цвет номера показывает статус',
+    text: 'Фиолетовый отмечает текущий вопрос, отдельный цвет появляется у сохранённого черновика, а после проверки номер показывает правильный или ошибочный ответ.',
+    accent: '#6366f1',
+  },
+  {
+    target: '[data-student-test-tour="condition-media"]',
+    fallback: '[data-student-test-tour="condition"]',
+    title: 'Условие можно открыть крупнее',
+    text: 'Нажмите на изображение задания, чтобы рассмотреть его в полноэкранном режиме.',
+    accent: '#a855f7',
+  },
+  {
+    target: '[data-student-test-tour="code-tools"]',
+    fallback: '[data-student-test-tour="condition"]',
+    title: 'Один код в двух режимах',
+    text: '«Показать код» и «Решать в коде» открывают один и тот же solution.py. Вставленный или изменённый код сохраняется автоматически: правки под заданием сразу появятся в большом редакторе, и наоборот.',
+    accent: '#0ea5e9',
+  },
+  {
+    target: '[data-student-test-tour="teacher-help"]',
+    fallback: '[data-student-test-tour="condition"]',
+    title: 'Не нужно пересказывать условие',
+    text: 'При отправке вопроса учитель автоматически получит текущее условие и сохранённый код. Вам останется описать трудность, а ответ придёт в раздел «Чаты».',
+    accent: '#ec4899',
+  },
+  {
+    target: '[data-student-test-tour="answer"]',
+    title: 'Черновик ответа не потеряется',
+    text: 'Введённый ответ сохраняется автоматически. В заданиях с большой таблицей можно вставить весь список целиком — значения сами распределятся по ячейкам.',
+    accent: '#10b981',
+  },
+  {
+    target: '[data-student-test-tour="history"]',
+    fallback: '[data-student-test-tour="answer"]',
+    title: 'История хранит все попытки',
+    text: 'Здесь можно посмотреть отправленные ранее ответы, результат каждой проверки и время попытки.',
+    accent: '#f59e0b',
+  },
+  {
+    target: '[data-student-test-tour="replay"]',
+    fallback: '[data-student-test-tour="header"]',
+    title: 'Обучение можно открыть снова',
+    text: 'Кнопка с академической шапочкой в заголовке повторно запускает эти подсказки в любой момент.',
+    accent: '#06b6d4',
+  },
+];
 
 const writeStudentCodeToClipboard = async (value) => {
   const code = String(value ?? '');
@@ -631,6 +682,7 @@ const StudentTestModal = ({
   const [questionRunStateById, setQuestionRunStateById] = useState({});
   const [questionTurtleWindowQuestionId, setQuestionTurtleWindowQuestionId] = useState('');
   const [questionTurtleWindowFullscreen, setQuestionTurtleWindowFullscreen] = useState(false);
+  const [studentTestTourRestartToken, setStudentTestTourRestartToken] = useState(0);
   const autoStartRef = useRef(false);
   const [autoStartFailed, setAutoStartFailed] = useState(false);
   const questionRunnerWorkerRef = useRef(null);
@@ -3456,8 +3508,8 @@ const StudentTestModal = ({
 
     const modal = (
       <div className={studentTestBackdropClassName}>
-        <div className={studentTestWorkspaceClassName} data-level={level}>
-          <header className="student-test-header shrink-0">
+        <div className={studentTestWorkspaceClassName} data-level={level} data-student-test-tour="workspace">
+          <header className="student-test-header shrink-0" data-student-test-tour="header">
             <div className="flex min-w-0 items-center gap-3">
               <div className="student-test-header-icon hidden sm:flex">
                 <ListChecks size={20} />
@@ -3488,13 +3540,23 @@ const StudentTestModal = ({
                   <div className="student-test-progress-fill" style={{ width: `${completionPercent}%` }} />
                 </div>
               </div>
+              <button
+                type="button"
+                className="student-test-tour-replay"
+                onClick={() => setStudentTestTourRestartToken((current) => current + 1)}
+                data-student-test-tour="replay"
+                aria-label="Показать обучение по окну задания"
+                title="Обучение по окну"
+              >
+                <GraduationCap size={18} aria-hidden="true" />
+              </button>
               <button onClick={requestCloseStudentTest} className="student-test-close" type="button" aria-label="Закрыть">
                 <X size={19}/>
               </button>
             </div>
           </header>
 
-          <div className="student-test-navigation shrink-0">
+          <div className="student-test-navigation shrink-0" data-student-test-tour="question-navigation">
             <div className="flex items-center justify-between gap-3">
               <span className="student-test-question-caption">
                 {targetNumbers.length > 0
@@ -3573,6 +3635,7 @@ const StudentTestModal = ({
             onClick={handleNextQuestion}
             disabled={currentIndex >= questions.length - 1}
             className={`student-test-side-nav student-test-side-nav--next is-${nextQuestionSideNavState}`}
+            data-student-test-tour="side-navigation"
             aria-label={`Следующее задание. ${nextQuestionSideNavLabel}`}
             title={nextQuestionSideNavLabel}
           >
@@ -3610,7 +3673,7 @@ const StudentTestModal = ({
               </div>
             )}
 
-            <section className="student-test-question-panel student-test-panel-enter">
+            <section className="student-test-question-panel student-test-panel-enter" data-student-test-tour="condition">
             <div className="student-test-question-panel__toolbar">
               {currentQuestionLabel ? (
                 <span
@@ -3620,11 +3683,12 @@ const StudentTestModal = ({
                   <span className="truncate">{currentQuestionLabel.text}</span>
                 </span>
               ) : <span aria-hidden="true" />}
-              <div className="student-test-question-panel__toolbar-actions">
+              <div className="student-test-question-panel__toolbar-actions" data-student-test-tour="code-tools">
                 <button
                   type="button"
                   className={`student-test-code-preview-trigger ${questionCodePreviewOpen ? 'is-active' : ''}`}
                   onClick={handleToggleQuestionCodePreview}
+                  data-student-test-tour="code-preview"
                   aria-expanded={questionCodePreviewOpen}
                   aria-controls="student-test-saved-code-preview"
                   aria-label={questionCodePreviewOpen ? 'Скрыть код решения' : 'Показать код решения'}
@@ -3638,6 +3702,7 @@ const StudentTestModal = ({
                   type="button"
                   className="student-test-code-primary-trigger"
                   onClick={handleOpenQuestionCodeFocus}
+                  data-student-test-tour="code-workspace"
                 >
                   <Code2 size={16} aria-hidden="true" />
                   <span>Решать в коде</span>
@@ -3648,6 +3713,7 @@ const StudentTestModal = ({
                   type="button"
                   className="student-test-help-trigger"
                   onClick={handleOpenStudentHelp}
+                  data-student-test-tour="teacher-help"
                 >
                   <CircleHelp size={16} aria-hidden="true" />
                   <span>Спросить учителя</span>
@@ -3680,6 +3746,7 @@ const StudentTestModal = ({
                     <div
                       key={imageKey}
                       className={`student-test-screenshot ${imageState.loaded ? 'is-loaded' : 'is-loading'} border rounded-2xl overflow-hidden max-h-[42vh] sm:max-h-[55vh] md:max-h-[65vh]`}
+                      data-student-test-tour="condition-media"
                       style={{
                         '--student-test-item-index': imageIndex,
                         '--student-test-image-aspect': aspectRatio,
@@ -3759,7 +3826,7 @@ const StudentTestModal = ({
             )}
             </section>
 
-            <section className={`student-test-answer-panel student-test-panel-enter space-y-3 ${
+            <section data-student-test-tour="answer" className={`student-test-answer-panel student-test-panel-enter space-y-3 ${
               computedChecked
                 ? (computedCorrect ? 'student-test-answer-panel--correct' : 'student-test-answer-panel--wrong')
                 : 'student-test-answer-panel--pending'
@@ -4027,7 +4094,7 @@ const StudentTestModal = ({
                   {computedCorrect ? 'Верно!' : 'Неверно'}
                 </div>
               )}
-              <details className="student-test-history">
+              <details className="student-test-history" data-student-test-tour="history">
                 <summary className="student-test-history-summary" aria-label="История ответов" title="История ответов">
                   <span className="student-test-history-summary__label">
                     <History size={14} className="student-test-history-icon" />
@@ -4188,6 +4255,7 @@ const StudentTestModal = ({
                 handleNext();
               }} 
               disabled={!computedChecked && !isAnswerReady} 
+              data-student-test-tour="check"
               className={`student-test-primary-action h-11 flex-1 sm:flex-none sm:min-w-56 ${
                 computedChecked
                   ? (computedCorrect ? 'is-correct' : 'is-wrong')
@@ -4204,6 +4272,19 @@ const StudentTestModal = ({
           </footer>
         </div>
         {codeFocusOverlay}
+        <StudentTestWindowTour
+          studentId={studentId}
+          enabled={
+            stage === 'testing'
+            && Boolean(activeQuestion)
+            && !studentTestClosing
+            && !questionCodeOpen
+            && !studentHelpOpen
+            && !expandedImage
+          }
+          steps={STUDENT_TEST_WINDOW_TOUR_STEPS}
+          restartToken={studentTestTourRestartToken}
+        />
         {studentHelpOpen && (
           <div
             className={`student-help-modal${studentHelpClosing ? ' is-closing' : ' is-open'}`}
