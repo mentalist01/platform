@@ -78,6 +78,11 @@ import {
 } from './utils/mockExamMode';
 import { normalizeTurtleScene, parseTurtleSceneJson, serializeTurtleScene } from './utils/turtleScene';
 import {
+  COLLAB_TASK_FILE_CATEGORY_TESTING,
+  buildTestingRuntimeFiles,
+  normalizeCollabTaskFileCategory,
+} from './utils/collabRuntimeFiles';
+import {
   normalizeTeacherStudentId,
   resolveTeacherStudentSelection,
 } from './utils/teacherStudentSelection';
@@ -3140,6 +3145,10 @@ const CollabSection = ({
   const [taskFilesLoading, setTaskFilesLoading] = useState(false);
   const [taskFilesLoaded, setTaskFilesLoaded] = useState(false);
   const [taskFilesError, setTaskFilesError] = useState('');
+  const [testingTaskFiles, setTestingTaskFiles] = useState([]);
+  const [testingTaskFilesLoading, setTestingTaskFilesLoading] = useState(false);
+  const [testingTaskFilesLoaded, setTestingTaskFilesLoaded] = useState(false);
+  const [testingTaskFilesError, setTestingTaskFilesError] = useState('');
   const [taskFileUploadBusy, setTaskFileUploadBusy] = useState(false);
   const [selectedTaskFileIds, setSelectedTaskFileIds] = useState([]);
   const [taskFilesPanelOpen, setTaskFilesPanelOpen] = useState(false);
@@ -3277,15 +3286,33 @@ const CollabSection = ({
     if (normalizedTask === GAME_THEORY_TASK) return [19, 20, 21];
     return [normalizedTask];
   }, [runTaskNumber]);
+  const activeTaskFiles = runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
+    ? testingTaskFiles
+    : taskFiles;
+  const activeTaskFilesLoading = runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
+    ? testingTaskFilesLoading
+    : taskFilesLoading;
+  const activeTaskFilesLoaded = runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
+    ? testingTaskFilesLoaded
+    : taskFilesLoaded;
+  const activeTaskFilesError = runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
+    ? testingTaskFilesError
+    : taskFilesError;
   const filteredTaskFiles = useMemo(() => {
     if (!runTaskCategory || !runTaskNumbers.length) return [];
-    return (Array.isArray(taskFiles) ? taskFiles : [])
+    return (Array.isArray(activeTaskFiles) ? activeTaskFiles : [])
       .filter((file) => {
         const taskNumber = Number(file?.taskNumber);
         return runTaskNumbers.includes(taskNumber) && file?.category === runTaskCategory;
       })
-      .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'ru'));
-  }, [taskFiles, runTaskCategory, runTaskNumbers]);
+      .sort((a, b) => {
+        const levelDiff = String(a?.levelLabel || '').localeCompare(String(b?.levelLabel || ''), 'ru');
+        if (levelDiff !== 0) return levelDiff;
+        const questionDiff = (Number(a?.questionNumber) || 0) - (Number(b?.questionNumber) || 0);
+        if (questionDiff !== 0) return questionDiff;
+        return String(a?.name || '').localeCompare(String(b?.name || ''), 'ru');
+      });
+  }, [activeTaskFiles, runTaskCategory, runTaskNumbers]);
   const normalizedTaskFilesSearch = useMemo(
     () => String(taskFilesSearch || '').trim().toLowerCase(),
     [taskFilesSearch]
@@ -3297,6 +3324,8 @@ const CollabSection = ({
         file?.name,
         file?.folderName,
         file?.originalName,
+        file?.levelLabel,
+        file?.questionLabel,
       ]
         .filter(Boolean)
         .join(' ')
@@ -4162,6 +4191,30 @@ const CollabSection = ({
   }, [taskOptions, runTaskNumber]);
 
   useEffect(() => {
+    let cancelled = false;
+    setTestingTaskFilesLoading(true);
+    setTestingTaskFilesLoaded(false);
+    api.getTests()
+      .then((data) => {
+        if (cancelled) return;
+        setTestingTaskFiles(buildTestingRuntimeFiles(data));
+        setTestingTaskFilesError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setTestingTaskFiles([]);
+        setTestingTaskFilesError(err?.message || 'Не удалось загрузить файлы из тестирований.');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setTestingTaskFilesLoading(false);
+          setTestingTaskFilesLoaded(true);
+        }
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     if (!effectiveStudentId) {
       setTaskFiles([]);
       setTaskFilesError('');
@@ -4194,13 +4247,13 @@ const CollabSection = ({
   }, [effectiveStudentId]);
 
   useEffect(() => {
-    if (!taskFilesLoaded) return;
+    if (!activeTaskFilesLoaded) return;
     const availableIds = new Set(filteredTaskFiles.map((file) => file.id));
     setSelectedTaskFileIds((prev) => {
       const next = prev.filter((id) => availableIds.has(id));
       return areStringArraysEqual(prev, next) ? prev : next;
     });
-  }, [filteredTaskFiles, taskFilesLoaded]);
+  }, [activeTaskFilesLoaded, filteredTaskFiles]);
 
   useEffect(() => {
     if (!notesPdfFolders.length) {
@@ -5615,7 +5668,7 @@ const CollabSection = ({
       const rawCategory = typeof runMap.get('taskFilesCategory') === 'string'
         ? runMap.get('taskFilesCategory')
         : String(runMap.get('taskFilesCategory') ?? '');
-      const nextTaskCategory = rawCategory === 'home' ? 'home' : 'class';
+      const nextTaskCategory = normalizeCollabTaskFileCategory(rawCategory);
       if (runTaskCategoryRef.current !== nextTaskCategory) {
         shouldSuppressTaskFilesSync = true;
         runTaskCategoryRef.current = nextTaskCategory;
@@ -5744,7 +5797,7 @@ const CollabSection = ({
         setRunTaskNumber(String(payload.taskFilesTaskNumber || ''));
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesCategory')) {
-        setRunTaskCategory(payload.taskFilesCategory === 'home' ? 'home' : 'class');
+        setRunTaskCategory(normalizeCollabTaskFileCategory(payload.taskFilesCategory));
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesSelectedIds')) {
         const nextSelectedIds = normalizeSharedTaskFileIds(payload.taskFilesSelectedIds);
@@ -5833,7 +5886,7 @@ const CollabSection = ({
         runMap.set('taskFilesTaskNumber', String(payload.taskFilesTaskNumber || ''));
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesCategory')) {
-        runMap.set('taskFilesCategory', payload.taskFilesCategory === 'home' ? 'home' : 'class');
+        runMap.set('taskFilesCategory', normalizeCollabTaskFileCategory(payload.taskFilesCategory));
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'taskFilesSelectedIds')) {
         runMap.set('taskFilesSelectedIds', normalizeSharedTaskFileIds(payload.taskFilesSelectedIds));
@@ -7941,6 +7994,7 @@ const CollabSection = ({
               >
                 <option value="class">На уроке</option>
                 <option value="home">Домашка</option>
+                <option value={COLLAB_TASK_FILE_CATEGORY_TESTING}>Тестирования (Успеваемость)</option>
               </select>
               <div className="flex items-center gap-1">
                 <input
@@ -7953,25 +8007,27 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={() => taskFileInputRef.current?.click()}
-                  disabled={!effectiveStudentId || taskFileUploadBusy}
+                  disabled={!effectiveStudentId || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING}
                   className={`collab-task-files-upload inline-flex w-full items-center justify-center gap-1 rounded-xl border transition ${
                     isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                   } ${
-                    !effectiveStudentId || taskFileUploadBusy
+                    !effectiveStudentId || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
                       ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                       : (isFullscreenDark
                         ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
                         : 'border-purple-200 bg-white text-purple-700 hover:border-purple-300 hover:bg-purple-50')
                   }`}
                 >
-                  <Upload size={13} />
-                  {taskFileUploadBusy ? 'Загрузка...' : 'Загрузить файл'}
+                  {runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING ? <FileText size={13} /> : <Upload size={13} />}
+                  {runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
+                    ? 'Файлы из задач'
+                    : (taskFileUploadBusy ? 'Загрузка...' : 'Загрузить файл')}
                 </button>
               </div>
             </div>
-            {taskFilesError && (
+            {activeTaskFilesError && (
               <div className={`text-[11px] ${isFullscreenDark ? 'text-rose-300' : 'text-rose-600'}`}>
-                {taskFilesError}
+                {activeTaskFilesError}
               </div>
             )}
             <div className={`flex flex-col ${isSplitCollabLayout ? 'gap-1' : 'gap-2'} md:flex-row md:items-center`}>
@@ -8060,11 +8116,11 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={handleToggleSelectAllTaskFiles}
-                  disabled={taskFilesLoading || !visibleTaskFiles.length}
+                  disabled={activeTaskFilesLoading || !visibleTaskFiles.length}
                   className={`collab-task-files-select-all inline-flex items-center rounded-xl border transition ${
                     isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
                   } ${
-                    taskFilesLoading || !visibleTaskFiles.length
+                    activeTaskFilesLoading || !visibleTaskFiles.length
                       ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                       : (isFullscreenDark
                         ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
@@ -8088,7 +8144,7 @@ const CollabSection = ({
               }`}
               style={{ maxHeight: `${taskFilesListHeight}px` }}
             >
-              {taskFilesLoading ? (
+              {activeTaskFilesLoading ? (
                 <div className={`collab-task-files-empty px-2 py-1.5 text-[11px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
                   Загружаем файлы...
                 </div>
@@ -8119,7 +8175,19 @@ const CollabSection = ({
                             onChange={() => handleToggleTaskFile(file.id)}
                             className="collab-task-files-checkbox mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
                           />
-                          <span className="min-w-0 flex-1 truncate" title={runtimePath}>{displayRuntimePath}</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate" title={runtimePath}>{displayRuntimePath}</span>
+                            {file?.sourceKind === COLLAB_TASK_FILE_CATEGORY_TESTING && (
+                              <span className={`mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] ${
+                                isFullscreenDark ? 'text-slate-400' : 'text-gray-500'
+                              }`}>
+                                <span className="truncate">{`${file.levelLabel} · ${file.questionLabel}`}</span>
+                                <code className={`shrink-0 rounded px-1 py-px ${
+                                  isFullscreenDark ? 'bg-slate-800 text-cyan-200' : 'bg-purple-100 text-purple-700'
+                                }`}>{`open("${file.name}")`}</code>
+                              </span>
+                            )}
+                          </span>
                         </label>
                       );
                     })
@@ -8128,7 +8196,9 @@ const CollabSection = ({
               )}
             </div>
             <div className={`collab-task-files-note text-[10px] ${isFullscreenDark ? 'text-slate-400' : 'text-gray-500'}`}>
-              Выбранные файлы доступны по пути из списка. Если имя уникально, можно открыть просто файл, иначе используйте путь с подпапкой. <code>test.txt</code> доступен всегда и редактируется во вкладке выше.
+              {runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
+                ? <>Выберите файл нужной задачи. При выборе одного файла сохраняется его исходное имя: например, <code>open("17.txt")</code>.</>
+                : <>Выбранные файлы доступны по пути из списка. Если имя уникально, можно открыть просто файл, иначе используйте путь с подпапкой. <code>test.txt</code> доступен всегда и редактируется во вкладке выше.</>}
             </div>
           </>
           )}
