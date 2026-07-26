@@ -14293,12 +14293,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   );
   useEffect(() => {
     if (user.role !== 'teacher') return;
+    const normalizedTeacherId = String(user.id || '').trim();
+    const studentsSyncState = studentsSyncStateRef.current;
+    const rosterLoaded = studentsSyncState.teacherId === normalizedTeacherId
+      && studentsSyncState.lastSuccessAt > 0;
     setActiveStudentId((current) => resolveTeacherStudentSelection({
       currentId: current,
       storedId: storedActiveStudentIdRef.current,
       students: currentStudentsWithNicknames,
+      rosterLoaded,
     }));
-  }, [currentStudentsWithNicknames, user.role]);
+  }, [currentStudentsWithNicknames, user.id, user.role]);
   const tasksWithTitles = useMemo(
     () => applyTaskTitles(MOCK_TASKS, taskTitles),
     [taskTitles]

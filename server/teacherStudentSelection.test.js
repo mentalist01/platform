@@ -37,6 +37,21 @@ test('restores the saved student before falling back to the first roster entry',
   }), 'student-a');
 });
 
+test('does not discard the saved student before the roster has loaded', () => {
+  assert.equal(resolveTeacherStudentSelection({
+    currentId: 'student-b',
+    storedId: 'student-b',
+    students: [],
+    rosterLoaded: false,
+  }), 'student-b');
+  assert.equal(resolveTeacherStudentSelection({
+    currentId: null,
+    storedId: 'student-b',
+    students: [],
+    rosterLoaded: false,
+  }), 'student-b');
+});
+
 test('normalizes identifiers and returns null for an empty roster', () => {
   assert.equal(normalizeTeacherStudentId(' student-b '), 'student-b');
   assert.equal(resolveTeacherStudentSelection({
