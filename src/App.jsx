@@ -55,6 +55,7 @@ import StudentWeeklyRecap from './components/StudentWeeklyRecap';
 import SignupGuestChat from './components/SignupGuestChat';
 import TeacherCalendarSection from './components/TeacherCalendarSection';
 import TeacherFinanceSection from './components/TeacherFinanceSection';
+import HomeworkStatsPage from './components/HomeworkStatsPage';
 import TeacherLessonEndPrompt from './components/TeacherLessonEndPrompt';
 import TeacherLessonStartPrompt from './components/TeacherLessonStartPrompt';
 import TeacherPanel from './components/TeacherPanel';
@@ -14159,7 +14160,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const initialTeacherSignupChatId = user.role === 'teacher' && initialTeacherCommsTab === 'signup-chats'
     ? initialTeacherChatId
     : '';
-  const initialProgressSection = ['progress', 'homeworks', 'notes', 'mocks'].includes(storedLocation?.progressSection)
+  const initialProgressSection = ['progress', 'notes', 'mocks'].includes(storedLocation?.progressSection)
     ? storedLocation.progressSection
     : 'progress';
   const initialMockExamId = normalizeMockExamId(storedLocation?.mockExamId);
@@ -14314,10 +14315,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [activeStudentId, setActiveStudentId] = useState(() => (
     user.role === 'teacher' ? storedActiveStudentId : null
   ));
+  const [homeworkStatsStudentId, setHomeworkStatsStudentId] = useState(null);
   const handleSelectStudent = useCallback((studentId) => {
     const normalizedStudentId = normalizeTeacherStudentId(studentId);
     storedActiveStudentIdRef.current = normalizedStudentId;
     setActiveStudentId(normalizedStudentId);
+  }, []);
+  const handleOpenHomeworkStats = useCallback((student) => {
+    const studentId = normalizeTeacherStudentId(student?.id);
+    if (studentId) setHomeworkStatsStudentId(studentId);
+  }, []);
+  const handleCloseHomeworkStats = useCallback(() => {
+    setHomeworkStatsStudentId(null);
   }, []);
   const [teachers, setTeachers] = useState([]);
   const [teachersLoading, setTeachersLoading] = useState(false);
@@ -14360,6 +14369,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const currentStudentsWithNicknames = useMemo(
     () => studentsWithNicknames.filter(isCurrentStudent),
     [studentsWithNicknames]
+  );
+  const homeworkStatsStudent = useMemo(
+    () => studentsWithNicknames.find((student) => (
+      String(student?.id || '') === String(homeworkStatsStudentId || '')
+    )) || null,
+    [homeworkStatsStudentId, studentsWithNicknames]
   );
   useEffect(() => {
     if (user.role !== 'teacher') return;
@@ -17207,7 +17222,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const handleGlobalOpenProgressSection = useCallback((requestedSection = 'progress') => {
     if (user.role !== 'student') return;
-    const nextSection = ['progress', 'homeworks', 'notes', 'mocks'].includes(String(requestedSection || '').trim())
+    const nextSection = ['progress', 'notes', 'mocks'].includes(String(requestedSection || '').trim())
       ? String(requestedSection).trim()
       : 'progress';
     setPendingOpenTask(null);
@@ -19253,6 +19268,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onTaskTitleUpdate={handleTaskTitleUpdate}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
+              onOpenHomeworkStats={() => handleOpenHomeworkStats(
+                user.role === 'student'
+                  ? user
+                  : currentStudentsWithNicknames.find((student) => (
+                      String(student?.id || '') === String(activeStudentId || '')
+                    ))
+              )}
               studentsLoading={studentsLoading}
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
@@ -19952,6 +19974,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           </div>
         </nav>
+        {homeworkStatsStudentId && typeof document !== 'undefined'
+          ? createPortal(
+              <HomeworkStatsPage
+                studentId={homeworkStatsStudentId}
+                student={user.role === 'student' ? user : homeworkStatsStudent}
+                role={user.role}
+                theme={theme}
+                onClose={handleCloseHomeworkStats}
+              />,
+              document.body
+            )
+          : null}
       </div>
     </div>
   );

@@ -35,7 +35,6 @@ import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
 import RandomMockGenerator from './RandomMockGenerator';
-import HomeworkStatsSection from './HomeworkStatsSection';
 import ProgressReviewModal from './ProgressReviewModal';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
@@ -577,6 +576,7 @@ const ProgressSection = ({
   onTaskTitleUpdate,
   activeStudentId,
   onSelectStudent,
+  onOpenHomeworkStats,
   studentsLoading,
   openTask,
   onOpenTaskHandled,
@@ -632,10 +632,10 @@ const ProgressSection = ({
   const [mobileLevelPopupClosing, setMobileLevelPopupClosing] = useState(false);
   const [forceInitialLevelLaunch, setForceInitialLevelLaunch] = useState(false);
   const [section, setSection] = useState(() => (
-    ['progress', 'homeworks', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
+    ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
   ));
   const requestedSectionRef = useRef(
-    ['progress', 'homeworks', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
+    ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
   );
   const [studentData, setStudentData] = useState(() => normalizeProgressSectionStudentData(null));
   const [dataError, setDataError] = useState('');
@@ -1478,7 +1478,7 @@ const ProgressSection = ({
   }, [section, effectiveStudentId]);
 
   useEffect(() => {
-    requestedSectionRef.current = ['progress', 'homeworks', 'notes', 'mocks'].includes(initialSection)
+    requestedSectionRef.current = ['progress', 'notes', 'mocks'].includes(initialSection)
       ? initialSection
       : 'progress';
   }, [initialSection]);
@@ -1622,13 +1622,11 @@ const ProgressSection = ({
     : '0';
   const sectionTabs = [
     { id: 'progress', label: 'Тестирования', icon: BarChart2 },
-    { id: 'homeworks', label: 'Домашние работы', icon: ListChecks },
     { id: 'notes', label: 'Заметки учителя', icon: FileText },
     { id: 'mocks', label: 'Пробники', icon: BookOpen }
   ];
   const sectionShortLabels = {
     progress: 'Тесты',
-    homeworks: 'Домашки',
     notes: 'Заметки',
     mocks: 'Пробники'
   };
@@ -3671,31 +3669,45 @@ const ProgressSection = ({
         </div>
       </div>
 
-      <div className={`progress-section-tabs grid w-full grid-cols-2 gap-1.5 rounded-2xl border border-slate-200 bg-white/85 p-1.5 sm:grid-cols-4 md:inline-flex md:w-fit md:flex-wrap md:gap-2 md:p-2 ${isStudentProgressSection ? 'progress-section-tabs--compact' : ''}`}>
-        {sectionTabs.map((item) => {
-          const Icon = item.icon;
-          const active = section === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setSection(item.id)}
-              className={`progress-section-tab progress-section-tab--${item.id} ${active ? 'is-active' : ''} relative inline-flex min-w-0 items-center justify-center gap-1.5 md:gap-2 rounded-xl border px-2 py-2 md:px-4 md:py-2 text-[11px] sm:text-xs md:text-sm font-semibold transition-all ${
-                active
-                  ? 'border-purple-600 bg-purple-600 text-white shadow-md shadow-purple-200'
-                  : 'border-transparent bg-white text-slate-600 hover:border-purple-200 hover:text-purple-700'
-              }`}
-            >
-              <Icon size={14} />
-              <span className="truncate sm:hidden">{sectionShortLabels[item.id] || item.label}</span>
-              <span className="hidden sm:inline truncate">{item.label}</span>
-              {role === 'student' && item.id === 'mocks' && Number(mockNavNewCount) > 0 && (
-                <span className="progress-section-tab-new-badge">
-                  {Number(mockNavNewCount) > 99 ? '99+' : mockNavNewCount}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className={`progress-section-tabs grid w-full grid-cols-3 gap-1.5 rounded-2xl border border-slate-200 bg-white/85 p-1.5 md:inline-flex md:w-fit md:flex-wrap md:gap-2 md:p-2 ${isStudentProgressSection ? 'progress-section-tabs--compact' : ''}`}>
+          {sectionTabs.map((item) => {
+            const Icon = item.icon;
+            const active = section === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setSection(item.id)}
+                className={`progress-section-tab progress-section-tab--${item.id} ${active ? 'is-active' : ''} relative inline-flex min-w-0 items-center justify-center gap-1.5 md:gap-2 rounded-xl border px-2 py-2 md:px-4 md:py-2 text-[11px] sm:text-xs md:text-sm font-semibold transition-all ${
+                  active
+                    ? 'border-purple-600 bg-purple-600 text-white shadow-md shadow-purple-200'
+                    : 'border-transparent bg-white text-slate-600 hover:border-purple-200 hover:text-purple-700'
+                }`}
+              >
+                <Icon size={14} />
+                <span className="truncate sm:hidden">{sectionShortLabels[item.id] || item.label}</span>
+                <span className="hidden sm:inline truncate">{item.label}</span>
+                {role === 'student' && item.id === 'mocks' && Number(mockNavNewCount) > 0 && (
+                  <span className="progress-section-tab-new-badge">
+                    {Number(mockNavNewCount) > 99 ? '99+' : mockNavNewCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <div className="w-full rounded-2xl border border-slate-200 bg-white/85 p-1.5 sm:w-auto md:p-2">
+          <button
+            type="button"
+            onClick={onOpenHomeworkStats}
+            disabled={!effectiveStudentId || typeof onOpenHomeworkStats !== 'function'}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-500 bg-orange-500 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-orange-200/70 transition-[background-color,border-color,transform] duration-150 ease-out hover:border-orange-600 hover:bg-orange-600 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 motion-reduce:transition-none sm:w-auto md:px-5 md:text-sm"
+            title={effectiveStudentId ? 'Открыть статистику по ДЗ' : 'Сначала выберите ученика'}
+          >
+            <ListChecks size={14} />
+            Статистика по ДЗ
+          </button>
+        </div>
       </div>
 
       {(dataError || testsDbError) && (
@@ -4156,18 +4168,6 @@ const ProgressSection = ({
             />
           )}
         </>
-      )}
-
-      {section === 'homeworks' && (
-        <HomeworkStatsSection
-          homeworks={studentData.homeworks}
-          studentData={studentData}
-          testsDb={testsDb}
-          mockExams={mockExams}
-          mockAttemptsByExam={mockAttemptsByExam}
-          role={role}
-          theme={theme}
-        />
       )}
 
       {section === 'notes' && (

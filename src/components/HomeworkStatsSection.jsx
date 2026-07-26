@@ -308,7 +308,7 @@ const HomeworkStatsSection = ({
                 : 'border-indigo-200 bg-white/80 text-indigo-600'
             }`}>
               <BarChart3 size={13} />
-              Аналитика домашних работ
+              Статистика по ДЗ
             </div>
             <h3 className={`mt-3 text-xl font-black md:text-2xl ${dark ? 'text-white' : 'text-slate-950'}`}>
               От первой домашки до текущей
