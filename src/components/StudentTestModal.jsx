@@ -16,6 +16,7 @@ const STUDENT_TEST_ANSWER_DRAFT_PREFIX = 'student-test-answer-draft-v1';
 const STUDENT_HELP_DRAFT_PREFIX = 'student-help-draft-v1';
 const STUDENT_HELP_CHANNEL_PREF_KEY = 'student-help-channel-v1';
 const STUDENT_CODE_WORKSPACE_PREFS_KEY = 'student-code-workspace-prefs-v1';
+const STUDENT_CODE_LAYOUT_PREF_VERSION = 2;
 const STUDENT_CODE_LAYOUT_STACKED = 'stacked';
 const STUDENT_CODE_LAYOUT_SIDE = 'side';
 const STUDENT_CODE_FONT_SIZE_MIN = 12;
@@ -327,25 +328,28 @@ const readStudentCodeWorkspacePrefs = () => {
   if (!canUseStudentTestDraftStorage()) {
     return {
       fontSize: STUDENT_CODE_FONT_SIZE_DEFAULT,
-      layout: STUDENT_CODE_LAYOUT_STACKED,
+      layout: STUDENT_CODE_LAYOUT_SIDE,
       focusMusicEnabled: false,
       focusMusicVolume: STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT,
     };
   }
   try {
     const parsed = JSON.parse(window.localStorage.getItem(STUDENT_CODE_WORKSPACE_PREFS_KEY) || 'null');
+    const storedLayout = parsed?.layout === STUDENT_CODE_LAYOUT_STACKED
+      ? STUDENT_CODE_LAYOUT_STACKED
+      : STUDENT_CODE_LAYOUT_SIDE;
     return {
       fontSize: clampStudentCodeFontSize(parsed?.fontSize),
-      layout: parsed?.layout === STUDENT_CODE_LAYOUT_SIDE
-        ? STUDENT_CODE_LAYOUT_SIDE
-        : STUDENT_CODE_LAYOUT_STACKED,
+      layout: Number(parsed?.layoutPrefVersion) >= STUDENT_CODE_LAYOUT_PREF_VERSION
+        ? storedLayout
+        : STUDENT_CODE_LAYOUT_SIDE,
       focusMusicEnabled: parsed?.focusMusicEnabled === true,
       focusMusicVolume: clampStudentCodeFocusMusicVolume(parsed?.focusMusicVolume),
     };
   } catch {
     return {
       fontSize: STUDENT_CODE_FONT_SIZE_DEFAULT,
-      layout: STUDENT_CODE_LAYOUT_STACKED,
+      layout: STUDENT_CODE_LAYOUT_SIDE,
       focusMusicEnabled: false,
       focusMusicVolume: STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT,
     };
@@ -1731,6 +1735,7 @@ const StudentTestModal = ({
     window.localStorage.setItem(STUDENT_CODE_WORKSPACE_PREFS_KEY, JSON.stringify({
       fontSize: questionCodeFontSize,
       layout: questionCodeLayout,
+      layoutPrefVersion: STUDENT_CODE_LAYOUT_PREF_VERSION,
       focusMusicEnabled: questionCodeFocusMusicEnabled,
       focusMusicVolume: questionCodeFocusMusicVolume,
     }));
@@ -3606,15 +3611,26 @@ const StudentTestModal = ({
                   <span className="truncate">{currentQuestionLabel.text}</span>
                 </span>
               ) : <span aria-hidden="true" />}
-              <button
-                ref={studentHelpTriggerRef}
-                type="button"
-                className="student-test-help-trigger"
-                onClick={handleOpenStudentHelp}
-              >
-                <CircleHelp size={16} aria-hidden="true" />
-                <span>Спросить учителя</span>
-              </button>
+              <div className="student-test-question-panel__toolbar-actions">
+                <button
+                  type="button"
+                  className="student-test-code-primary-trigger"
+                  onClick={handleOpenQuestionCodeFocus}
+                >
+                  <Code2 size={16} aria-hidden="true" />
+                  <span>Решать в коде</span>
+                  <Maximize2 size={15} aria-hidden="true" />
+                </button>
+                <button
+                  ref={studentHelpTriggerRef}
+                  type="button"
+                  className="student-test-help-trigger"
+                  onClick={handleOpenStudentHelp}
+                >
+                  <CircleHelp size={16} aria-hidden="true" />
+                  <span>Спросить учителя</span>
+                </button>
+              </div>
             </div>
             {screenshots.length > 0 && (
               <div className="space-y-2.5 md:space-y-3 mb-5 md:mb-6">

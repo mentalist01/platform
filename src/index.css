@@ -56971,6 +56971,44 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   margin-bottom: 14px;
 }
 
+.student-test-question-panel__toolbar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.student-test-code-primary-trigger {
+  display: inline-flex;
+  min-height: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid rgba(124, 58, 237, 0.24);
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  box-shadow: 0 8px 20px rgba(124, 58, 237, 0.24);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+.student-test-code-primary-trigger:hover {
+  transform: translateY(-1px);
+  border-color: rgba(124, 58, 237, 0.44);
+  box-shadow: 0 11px 24px rgba(124, 58, 237, 0.32);
+  filter: saturate(1.05);
+}
+
+.student-test-code-primary-trigger:focus-visible {
+  outline: 3px solid rgba(139, 92, 246, 0.24);
+  outline-offset: 2px;
+}
+
 .student-test-help-trigger {
   display: inline-flex;
   min-height: 36px;
@@ -62378,6 +62416,15 @@ html[data-theme='dark'] .student-test-code-focus__music-error {
   .student-test-question-panel__toolbar {
     align-items: flex-start;
     margin-bottom: 11px;
+  }
+
+  .student-test-question-panel__toolbar-actions {
+    gap: 6px;
+  }
+
+  .student-test-code-primary-trigger {
+    min-height: 34px;
+    padding: 7px 9px;
   }
 
   .student-test-help-trigger {
