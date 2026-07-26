@@ -17178,10 +17178,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     });
   };
 
-  const handleNotesLocationChange = (location) => {
+  const handleNotesLocationChange = useCallback((location) => {
     setRequestedNotesLocation(location);
     updateUserLocation(user, { notesLocation: location });
-  };
+  }, [user]);
 
   const handleGlobalOpenNotes = useCallback((location) => {
     if (user.role !== 'student') return;

@@ -208,6 +208,34 @@ const formatRussianCountLabel = (count, one, few, many) => {
   return many;
 };
 
+const CodeCopyButton = ({
+  copied = false,
+  disabled = false,
+  onCopy,
+  className = '',
+  compact = false,
+}) => (
+  <Button
+    variant="secondary"
+    type="button"
+    onClick={(event) => {
+      event.stopPropagation();
+      onCopy?.();
+    }}
+    disabled={disabled}
+    className={`notes-code-copy-button ${copied ? 'is-copied' : ''} ${compact ? 'is-compact' : ''} ${className}`}
+    title={copied ? 'Код скопирован' : 'Скопировать код'}
+    aria-label={copied ? 'Код скопирован' : 'Скопировать код'}
+  >
+    {copied ? (
+      <Check size={14} strokeWidth={2.6} />
+    ) : (
+      <Copy size={14} strokeWidth={2.3} />
+    )}
+    {!compact && <span>{copied ? 'Скопировано' : 'Скопировать код'}</span>}
+  </Button>
+);
+
 const NotesSection = ({
   theme = '',
   role,
@@ -287,7 +315,7 @@ const NotesSection = ({
   const [pyRunOutput, setPyRunOutput] = useState('');
   const [pyRunError, setPyRunError] = useState('');
   const [pyRunLoading, setPyRunLoading] = useState(false);
-  const [copiedCheatsheetId, setCopiedCheatsheetId] = useState(null);
+  const [codeCopyFeedback, setCodeCopyFeedback] = useState(null);
   const [solutionHoverPreview, setSolutionHoverPreview] = useState(null);
   const [showPyCreator, setShowPyCreator] = useState(false);
   const [pyDraftName, setPyDraftName] = useState('');
@@ -421,22 +449,33 @@ const NotesSection = ({
     document.body.removeChild(textarea);
     return copied;
   };
-  const handleCopyCheatsheetCode = async (fileId, code) => {
+  const showCodeCopyFeedback = (fileId, status, message) => {
     const key = String(fileId || '').trim();
-    const text = String(code || '');
-    if (!key || !text.trim()) return;
+    clearCopyFeedbackTimer();
+    setCodeCopyFeedback({ fileId: key, status, message });
+    copyFeedbackTimerRef.current = setTimeout(() => {
+      copyFeedbackTimerRef.current = null;
+      setCodeCopyFeedback((current) => (current?.fileId === key ? null : current));
+    }, 1800);
+  };
+  const handleCopyCode = async (file, suppliedCode) => {
+    const key = String(file?.id || '').trim();
+    if (!key) return;
     try {
+      const loadedCode = suppliedCode === undefined
+        ? await loadPyFileContent(file)
+        : suppliedCode;
+      const text = String(loadedCode ?? '');
+      if (!text.trim()) {
+        showCodeCopyFeedback(key, 'error', 'В файле нет кода');
+        return;
+      }
       const copied = await writeTextToClipboard(text);
       if (!copied) throw new Error('copy failed');
-      setCopiedCheatsheetId(key);
-      clearCopyFeedbackTimer();
-      copyFeedbackTimerRef.current = setTimeout(() => {
-        copyFeedbackTimerRef.current = null;
-        setCopiedCheatsheetId((current) => (current === key ? null : current));
-      }, 1600);
+      showCodeCopyFeedback(key, 'success', 'Код скопирован');
     } catch (err) {
       console.error(err);
-      alert('Не удалось скопировать код.');
+      showCodeCopyFeedback(key, 'error', 'Не удалось скопировать код');
     }
   };
   const triggerFavoriteMotion = (fileId, motion) => {
@@ -988,6 +1027,8 @@ const NotesSection = ({
     setPyDraftError('');
     setPyDraftSaving(false);
     setSolutionHoverPreview(null);
+    clearCopyFeedbackTimer();
+    setCodeCopyFeedback(null);
     setShowMobileFolderTools(false);
   }, [currentTask, currentCategory]);
 
@@ -3624,7 +3665,8 @@ const NotesSection = ({
                     const inlineCodePreview = isMemoryCodeCard
                       ? getCodeInlinePreviewText(inlineCodeSource, pyLoadingId === f.id)
                       : '';
-                    const cheatsheetSourceCode = isCheatsheet && hasLoadedPyContent ? String(pyContent[f.id] ?? '') : '';
+                    const loadedSourceCode = hasLoadedPyContent ? String(pyContent[f.id] ?? '') : '';
+                    const cheatsheetSourceCode = isCheatsheet ? loadedSourceCode : '';
                     const contentMatchQuery = String(
                       contentSearchFocus?.fileId === String(f.id) ? contentSearchFocus?.query : ''
                     ).trim();
@@ -3636,15 +3678,15 @@ const NotesSection = ({
                       : textPreviewBaseUrl;
                     const cheatsheetSourceLines = cheatsheetSourceCode ? cheatsheetSourceCode.split(/\r?\n/) : [];
                     const cheatsheetLineCount = cheatsheetSourceLines.length;
-                    const canCopyCheatsheetCode = Boolean(
-                      isCheatsheet
-                        && !isEditingCurrentPy
+                    const canCopyLoadedCode = Boolean(
+                      !isEditingCurrentPy
                         && pyLoadingId !== f.id
                         && !pyError[f.id]
-                        && cheatsheetSourceCode.trim()
+                        && loadedSourceCode.trim()
                     );
                     const previewElementId = `notes-preview-${String(f.id).replace(/[^A-Za-z0-9_-]/g, '-')}`;
-                    const isCheatsheetCopied = copiedCheatsheetId === String(f.id);
+                    const isCodeCopied = codeCopyFeedback?.status === 'success'
+                      && codeCopyFeedback?.fileId === String(f.id);
                     const cheatsheetMetaTitle = [
                       solutionTaskLabel,
                       sourceLabel,
@@ -3692,6 +3734,10 @@ const NotesSection = ({
                           style={{ '--notes-row-index': Math.min(itemIndex, 12) }}
                           draggable={renamingId !== f.id && manageable}
                           onDragStart={(e) => {
+                            if (e.target.closest?.('.notes-code-selectable')) {
+                              e.preventDefault();
+                              return;
+                            }
                             if (!manageable) return;
                             handleDragStartFile(e, f);
                           }}
@@ -3723,6 +3769,10 @@ const NotesSection = ({
                             if (isSolutionBundle) setSolutionHoverPreview(null);
                           }}
                           onClick={(e) => {
+                            const selection = typeof window !== 'undefined' ? window.getSelection?.() : null;
+                            if (e.target.closest?.('.notes-code-selectable') && selection && !selection.isCollapsed) {
+                              return;
+                            }
                             setSelectedFolderId(null);
                             setPressingFolderId(null);
                             if (e.ctrlKey || e.metaKey) {
@@ -3822,7 +3872,10 @@ const NotesSection = ({
                                           )}
                                         </div>
                                         {inlineCodePreview && (
-                                          <span className="notes-code-inline-preview">
+                                          <span
+                                            className="notes-code-inline-preview notes-code-selectable"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
                                             <Code2 size={12} strokeWidth={2.3} />
                                             <span>{inlineCodePreview}</span>
                                           </span>
@@ -3860,7 +3913,10 @@ const NotesSection = ({
                                           )}
                                         </div>
                                         {inlineCodePreview && (
-                                          <span className="notes-code-inline-preview">
+                                          <span
+                                            className="notes-code-inline-preview notes-code-selectable"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
                                             <Code2 size={12} strokeWidth={2.3} />
                                             <span>{inlineCodePreview}</span>
                                           </span>
@@ -3989,6 +4045,15 @@ const NotesSection = ({
                                     <Sparkles size={16} />
                                   </button>
                                 </div>
+                              )}
+                              {isPyFile(f.name) && (
+                                <CodeCopyButton
+                                  copied={isCodeCopied}
+                                  disabled={pyLoadingId === f.id || isEditingCurrentPy}
+                                  onCopy={() => handleCopyCode(f, hasLoadedPyContent ? loadedSourceCode : undefined)}
+                                  className="notes-explorer-code-copy-btn"
+                                  compact
+                                />
                               )}
                               {isPreviewable && (
                                 <button
@@ -4305,6 +4370,12 @@ const NotesSection = ({
                                             <span className="notes-solution-pane__pill">
                                               Python
                                             </span>
+                                            <CodeCopyButton
+                                              copied={isCodeCopied}
+                                              disabled={!canCopyLoadedCode}
+                                              onCopy={() => handleCopyCode(f, loadedSourceCode)}
+                                              className="notes-solution-pane__button"
+                                            />
                                             <Button
                                               variant="secondary"
                                               onClick={(e) => {
@@ -4348,20 +4419,20 @@ const NotesSection = ({
                                         ) : (
                                           <>
                                             {pyLoadingId === f.id && (
-                                              <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                                              <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
                                             )}
                                             {pyLoadingId !== f.id && pyError[f.id] && (
-                                              <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
+                                              <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
                                             )}
                                             {pyLoadingId !== f.id && !pyError[f.id] && (
                                               pyContent[f.id]
                                                 ? (
-                                                  <pre className="notes-python-code language-python m-0 p-4 text-sm leading-6">
+                                                  <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm leading-6">
                                                     <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
                                                   </pre>
                                                 )
                                                 : (
-                                                  <pre className="notes-python-code language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
+                                                  <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
                                                 )
                                             )}
                                           </>
@@ -4432,24 +4503,12 @@ const NotesSection = ({
                                         </div>
                                       ) : (
                                         <div className="notes-cheatsheet-card__actions">
-                                          <Button
-                                            variant="secondary"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleCopyCheatsheetCode(f.id, cheatsheetSourceCode);
-                                            }}
-                                            disabled={!canCopyCheatsheetCode}
-                                            className={`notes-cheatsheet-card__button notes-cheatsheet-card__action-button notes-cheatsheet-card__copy ${isCheatsheetCopied ? 'is-copied' : ''}`}
-                                            title={isCheatsheetCopied ? 'Скопировано' : 'Скопировать код'}
-                                            aria-label={isCheatsheetCopied ? 'Скопировано' : 'Скопировать код'}
-                                          >
-                                            {isCheatsheetCopied ? (
-                                              <Check size={14} strokeWidth={2.5} />
-                                            ) : (
-                                              <Copy size={14} strokeWidth={2.3} />
-                                            )}
-                                            <span>{isCheatsheetCopied ? 'Скопировано' : 'Копировать'}</span>
-                                          </Button>
+                                          <CodeCopyButton
+                                            copied={isCodeCopied}
+                                            disabled={!canCopyLoadedCode}
+                                            onCopy={() => handleCopyCode(f, cheatsheetSourceCode)}
+                                            className="notes-cheatsheet-card__button notes-cheatsheet-card__action-button notes-cheatsheet-card__copy"
+                                          />
                                           <Button
                                             variant="secondary"
                                             onClick={(e) => {
@@ -4507,15 +4566,15 @@ const NotesSection = ({
                                       ) : (
                                         <>
                                           {pyLoadingId === f.id && (
-                                            <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                                            <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
                                           )}
                                           {pyLoadingId !== f.id && pyError[f.id] && (
-                                            <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
+                                            <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
                                           )}
                                           {pyLoadingId !== f.id && !pyError[f.id] && (
                                             cheatsheetSourceCode.trim()
                                               ? (
-                                                <pre className="notes-python-code notes-python-code--numbered language-python m-0 p-4 text-sm leading-6">
+                                                <pre className="notes-python-code notes-python-code--numbered notes-code-selectable language-python m-0 p-4 text-sm leading-6">
                                                   <code>
                                                     {getHighlightedPythonLines(cheatsheetSourceCode, highlightPython).map((lineHtml, index) => {
                                                       const rawLine = cheatsheetSourceLines[index] || '';
@@ -4535,7 +4594,7 @@ const NotesSection = ({
                                                 </pre>
                                               )
                                               : (
-                                                <pre className="notes-python-code language-python m-0 p-4 text-sm"><code># Пустая шпаргалка</code></pre>
+                                                <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm"><code># Пустая шпаргалка</code></pre>
                                               )
                                           )}
                                         </>
@@ -4543,24 +4602,37 @@ const NotesSection = ({
                                     </div>
                                   </section>
                                 ) : (
-                                  <div className="max-h-[55vh] overflow-auto rounded-xl">
-                                    {pyLoadingId === f.id && (
-                                      <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
-                                    )}
-                                    {pyLoadingId !== f.id && pyError[f.id] && (
-                                      <pre className="notes-python-code language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
-                                    )}
-                                    {pyLoadingId !== f.id && !pyError[f.id] && (
-                                      pyContent[f.id]
-                                        ? (
-                                          <pre className="notes-python-code language-python m-0 p-4 text-sm">
-                                            <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
-                                          </pre>
-                                        )
-                                        : (
-                                          <pre className="notes-python-code language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
-                                        )
-                                    )}
+                                  <div className="notes-code-preview-card">
+                                    <div className="notes-code-preview-toolbar">
+                                      <span className="notes-code-preview-language">
+                                        <PythonLogoIcon size={16} colored />
+                                        Python
+                                      </span>
+                                      <CodeCopyButton
+                                        copied={isCodeCopied}
+                                        disabled={!canCopyLoadedCode}
+                                        onCopy={() => handleCopyCode(f, loadedSourceCode)}
+                                      />
+                                    </div>
+                                    <div className="max-h-[55vh] overflow-auto">
+                                      {pyLoadingId === f.id && (
+                                        <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm"><code>Загрузка...</code></pre>
+                                      )}
+                                      {pyLoadingId !== f.id && pyError[f.id] && (
+                                        <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm"><code>{pyError[f.id]}</code></pre>
+                                      )}
+                                      {pyLoadingId !== f.id && !pyError[f.id] && (
+                                        pyContent[f.id]
+                                          ? (
+                                            <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm">
+                                              <code dangerouslySetInnerHTML={{ __html: highlightPython(pyContent[f.id]) }} />
+                                            </pre>
+                                          )
+                                          : (
+                                            <pre className="notes-python-code notes-code-selectable language-python m-0 p-4 text-sm"><code># Пустой файл</code></pre>
+                                          )
+                                      )}
+                                    </div>
                                   </div>
                                 )}
                                 {!isSolutionBundle && !isCheatsheet && editingPyId === f.id && pyEditError && (
@@ -4681,6 +4753,21 @@ const NotesSection = ({
             </div>
             <pre className="notes-solution-hover-preview__code">{solutionHoverCode}</pre>
           </div>
+        </div>,
+        document.body
+      )}
+      {codeCopyFeedback && typeof document !== 'undefined' && createPortal(
+        <div
+          className={`notes-code-copy-toast ${codeCopyFeedback.status === 'error' ? 'is-error' : 'is-success'}`}
+          role="status"
+          aria-live="polite"
+        >
+          {codeCopyFeedback.status === 'error' ? (
+            <X size={17} strokeWidth={2.5} aria-hidden="true" />
+          ) : (
+            <Check size={17} strokeWidth={2.7} aria-hidden="true" />
+          )}
+          <span>{codeCopyFeedback.message}</span>
         </div>,
         document.body
       )}
