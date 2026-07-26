@@ -19,6 +19,12 @@ import {
 } from '../src/data/pythonInfiniteTrainingTasks.js';
 import { getLevelFromXp } from '../src/utils/leveling.js';
 import {
+  LESSON_SHARED_SCOPE,
+  LESSON_SHARE_MODE_COMMON,
+  LESSON_SHARE_MODE_PRIVATE,
+  normalizeNotesLessonShareMode as normalizeLessonShareMode,
+} from '../src/utils/notesSharing.js';
+import {
   buildWeeklyTaskPracticeMilestones,
   buildWeeklyTaskPracticeStats,
   normalizeWeeklyTaskPracticeMilestones,
@@ -250,7 +256,6 @@ const BOARD_ASSET_MAX_TOTAL_BYTES_PER_STUDENT = (() => {
 })();
 const MAX_FOLDER_BYTES = 96 * 1024 * 1024;
 const MAX_SHARED_FOLDER_BYTES = 500 * 1024 * 1024;
-const LESSON_SHARED_SCOPE = 'lesson-files';
 const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
 const LESSON_SHARED_STUDENT_ID_PREFIX = 'lesson-shared';
 const JSON_BODY_LIMIT = '20mb';
@@ -22765,11 +22770,17 @@ const getStudentSearchTaskTitle = (taskNumber, taskTitles, testsDb) => {
 
 const getStudentSearchFileTargetFolderId = (file, taskNumber) => {
   const storedFolderId = String(file?.folderId || '').trim();
-  if (storedFolderId) return storedFolderId;
+  if (storedFolderId) {
+    if (isLessonSharedFile(file) && Number.isFinite(taskNumber)) {
+      const teacherId = normalizeTeacherId(file?.teacherId)
+        || extractTeacherIdFromLessonSharedStudentId(file?.studentId);
+      const sharedRootFolderId = teacherId ? buildLessonSharedFolderId(teacherId, taskNumber) : '';
+      if (sharedRootFolderId && storedFolderId === sharedRootFolderId) return null;
+    }
+    return storedFolderId;
+  }
   if (!isLessonSharedFile(file) || !Number.isFinite(taskNumber)) return null;
-  const teacherId = normalizeTeacherId(file?.teacherId)
-    || extractTeacherIdFromLessonSharedStudentId(file?.studentId);
-  return teacherId ? buildLessonSharedFolderId(teacherId, taskNumber) : null;
+  return null;
 };
 
 const getStudentSearchFileKind = (file) => {
@@ -25177,6 +25188,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
       teacherId: studentTeacherId,
       sharedScope: LESSON_SHARED_SCOPE,
       isLessonShared: true,
+      lessonShareMode: LESSON_SHARE_MODE_COMMON,
     } : {}),
   };
 
@@ -25230,6 +25242,7 @@ app.patch('/api/files/:id', (req, res) => {
   const hasContentField = Object.prototype.hasOwnProperty.call(req.body || {}, 'content');
   const hasMemoryField = Object.prototype.hasOwnProperty.call(req.body || {}, 'memory');
   const hasLessonSharedField = Object.prototype.hasOwnProperty.call(req.body || {}, 'lessonShared');
+  const hasLessonShareModeField = Object.prototype.hasOwnProperty.call(req.body || {}, 'lessonShareMode');
   const content = hasContentField ? req.body.content : undefined;
 
   const db = readFilesDb();
@@ -25251,8 +25264,14 @@ app.patch('/api/files/:id', (req, res) => {
   let lessonActivityAt = '';
   let lessonActivitySource = '';
 
-  if (hasLessonSharedField) {
-    const nextLessonShared = Boolean(req.body.lessonShared);
+  if (hasLessonSharedField || hasLessonShareModeField) {
+    const requestedShareMode = hasLessonShareModeField
+      ? normalizeLessonShareMode(req.body.lessonShareMode)
+      : (req.body.lessonShared ? LESSON_SHARE_MODE_COMMON : LESSON_SHARE_MODE_PRIVATE);
+    if (!requestedShareMode) {
+      return res.status(400).json({ error: 'Некорректный режим общего доступа' });
+    }
+    const nextLessonShared = requestedShareMode !== LESSON_SHARE_MODE_PRIVATE;
     const currentlyLessonShared = isLessonSharedFile(updated);
     if (nextLessonShared) {
       if (!ownerTeacherId || !canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) return forbid(res);
@@ -25278,6 +25297,7 @@ app.patch('/api/files/:id', (req, res) => {
       updated.teacherId = ownerTeacherId;
       updated.sharedScope = LESSON_SHARED_SCOPE;
       updated.isLessonShared = true;
+      updated.lessonShareMode = requestedShareMode;
       updated.notesShared = true;
       updated.folderId = null;
       updated.folderName = null;
@@ -25313,6 +25333,7 @@ app.patch('/api/files/:id', (req, res) => {
       updated.folderName = originalFolder ? originalFolder.name : null;
       updated.isLessonShared = false;
       delete updated.sharedScope;
+      delete updated.lessonShareMode;
       delete updated.teacherId;
       delete updated.notesShared;
       delete updated.originalStudentId;
@@ -25374,6 +25395,7 @@ app.patch('/api/files/:id', (req, res) => {
       updated.teacherId = ownerTeacherId;
       updated.sharedScope = LESSON_SHARED_SCOPE;
       updated.isLessonShared = true;
+      updated.lessonShareMode = LESSON_SHARE_MODE_COMMON;
     } else {
       const folders = readFoldersDb();
       const foldersById = buildFoldersMapById(folders);
@@ -25421,6 +25443,7 @@ app.patch('/api/files/:id', (req, res) => {
         updated.teacherId = ownerTeacherId;
         updated.sharedScope = LESSON_SHARED_SCOPE;
         updated.isLessonShared = true;
+        updated.lessonShareMode = LESSON_SHARE_MODE_COMMON;
       } else {
         updated.folderId = folderRef.id;
         updated.folderName = folderRef.name;

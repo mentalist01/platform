@@ -86431,6 +86431,26 @@ html[data-theme] .student-chat-send-button {
   color: #b45309;
 }
 
+.notes-explorer-shell--workspace-v2 .notes-library-group-label.is-shared {
+  color: #0369a1;
+}
+
+.notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-file-row.notes-resource-card--shared-common > td {
+  border-color: #bae6fd !important;
+  background: linear-gradient(90deg, #f0f9ff 0%, #f7fcff 46%, #ffffff 100%) !important;
+}
+
+.notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-file-row.notes-resource-card--shared-common > td:first-child {
+  border-left: 4px solid #0ea5e9 !important;
+  box-shadow: none !important;
+}
+
+.notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-file-row.notes-resource-card--shared-common:hover > td,
+.notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-file-row.notes-resource-card--shared-common:focus-within > td {
+  border-color: #7dd3fc !important;
+  background: linear-gradient(90deg, #e0f2fe 0%, #f0f9ff 48%, #f8fdff 100%) !important;
+}
+
 .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-explorer-file-row.notes-resource-card--shared-template > td {
   border-color: #fde68a !important;
   background: linear-gradient(90deg, #fef3c7 0%, #fff7dc 42%, #fffbeb 100%) !important;
@@ -86479,12 +86499,63 @@ html[data-theme] .student-chat-send-button {
   white-space: nowrap;
 }
 
+.notes-explorer-shell--workspace-v2 .notes-explorer-share-mode-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-template-btn {
+  color: #78716c !important;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.notes-explorer-shell--workspace-v2 .notes-explorer-template-btn:hover:not(:disabled),
+.notes-explorer-shell--workspace-v2 .notes-explorer-template-btn.is-active {
+  border-color: rgba(245, 158, 11, 0.42) !important;
+  background: linear-gradient(145deg, #fef3c7, #fffbeb) !important;
+  color: #b45309 !important;
+  box-shadow: 0 10px 22px rgba(217, 119, 6, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.notes-explorer-shell .notes-shared-row-badge.is-template {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: linear-gradient(135deg, rgba(254, 243, 199, 0.98), rgba(255, 251, 235, 0.9));
+  color: #b45309;
+  box-shadow: 0 8px 18px rgba(217, 119, 6, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
 html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-label--main {
   color: #c4b5fd !important;
 }
 
 html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-label.is-templates {
   color: #fbbf24 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-library-group-label.is-shared {
+  color: #7dd3fc !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-common > td {
+  border-color: #245b7a !important;
+  background: linear-gradient(90deg, #10283c 0%, #112337 48%, #111d2e 100%) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-common > td:first-child {
+  border-left: 4px solid #38bdf8 !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-common:hover > td,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-common:focus-within > td {
+  border-color: #347da2 !important;
+  background: linear-gradient(90deg, #15334b 0%, #142c42 48%, #122438 100%) !important;
 }
 
 html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-template > td {
@@ -86501,6 +86572,21 @@ html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2
 html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card.notes-explorer-file-row.notes-resource-card--shared-template:focus-within > td {
   border-color: #94702e !important;
   background: linear-gradient(90deg, #493719 0%, #3b2f1c 48%, #302619 100%) !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-template-btn.is-active,
+html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card .notes-explorer-template-btn:hover:not(:disabled) {
+  border-color: #6b542b !important;
+  background: #2b2315 !important;
+  color: #fbbf24 !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell .notes-shared-row-badge.is-template {
+  border-color: #6b542b !important;
+  background: #2b2315 !important;
+  color: #fbbf24 !important;
+  box-shadow: none !important;
 }
 
 html[data-theme='dark'] .notes-explorer-shell.notes-explorer-shell--workspace-v2 .notes-resource-card--system-lesson > td {

@@ -16,6 +16,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Sparkles,
   Star,
   Trash2,
   Upload,
@@ -29,6 +30,16 @@ import StudentSearchSelect from './StudentSearchSelect';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
+import {
+  LESSON_SHARED_SCOPE,
+  LESSON_SHARE_MODE_COMMON,
+  LESSON_SHARE_MODE_PRIVATE,
+  LESSON_SHARE_MODE_TEMPLATE,
+  getNotesLessonShareMode,
+  isNotesCommonSharedFile,
+  isNotesLessonSharedFile,
+  isNotesSharedTemplateFile,
+} from '../utils/notesSharing';
 import { PythonLogoIcon } from './Identity';
 import { Button, Card } from './ui';
 
@@ -50,6 +61,10 @@ const ROOT_FOLDER_LABEL = 'Материалы задания';
 const NOTES_PREVIEW_CLOSE_MS = 200;
 const NOTES_FOLDER_CREATOR_ID = 'notes-folder-creator-panel';
 const NOTES_PYTHON_CREATOR_ID = 'notes-python-creator-panel';
+const isLessonSharedFile = isNotesLessonSharedFile;
+const isSharedTemplateFile = isNotesSharedTemplateFile;
+const isCommonLessonSharedFile = isNotesCommonSharedFile;
+const getLessonShareMode = getNotesLessonShareMode;
 const NOTES_VIEW_TRANSITION_ENTRY_ANIMATIONS = new Set([
   'notesMotionViewIn',
   'notesMotionHeroIn',
@@ -478,7 +493,6 @@ const NotesSection = ({
 
   const taskOptions = MOCK_TASKS;
   const normalizedCurrentTask = normalizeTaskNumber(currentTask);
-  const LESSON_SHARED_SCOPE = 'lesson-files';
   const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
   const getNotesTaskNumber = (value) => normalizeTaskNumber(value);
   const getNotesTaskNumbers = (value) => {
@@ -487,9 +501,6 @@ const NotesSection = ({
     if (normalized === GAME_THEORY_TASK) return [19, 20, 21];
     return [normalized];
   };
-  const isLessonSharedFile = (entry) => (
-    entry?.sharedScope === LESSON_SHARED_SCOPE || entry?.isLessonShared === true
-  );
   const isLessonSharedFolder = (entry) => {
     if (!entry || typeof entry !== 'object') return false;
     if (entry.isLessonShared === true) return true;
@@ -506,9 +517,6 @@ const NotesSection = ({
     const kindRaw = String(memory?.kind || '').trim();
     return isPythonFileName(file?.name) && (sourceRaw === 'notes-cheatsheet' || kindRaw === 'cheatsheet');
   };
-  const isSharedTemplateFile = (file) => (
-    isLessonSharedFile(file) && (isCheatsheetFile(file) || isSavedSolutionBundleFile(file))
-  );
   const isImportantFile = (file) => (
     !isLessonSharedFile(file) && isFileMemoryPinned(file?.memory)
   );
@@ -2002,23 +2010,31 @@ const NotesSection = ({
     }
   };
 
-  const toggleLessonSharedFile = async (file) => {
+  const updateLessonShareMode = async (file, nextMode) => {
     if (role !== 'teacher' || !file?.id || !canManageFile(file)) return;
     const fileId = String(file.id);
-    const currentShared = isLessonSharedFile(file);
-    if (currentShared) {
+    const currentMode = getLessonShareMode(file);
+    const normalizedNextMode = [
+      LESSON_SHARE_MODE_PRIVATE,
+      LESSON_SHARE_MODE_COMMON,
+      LESSON_SHARE_MODE_TEMPLATE,
+    ].includes(nextMode) ? nextMode : LESSON_SHARE_MODE_PRIVATE;
+    if (currentMode === normalizedNextMode) return;
+    const currentShared = currentMode !== LESSON_SHARE_MODE_PRIVATE;
+    const nextShared = normalizedNextMode !== LESSON_SHARE_MODE_PRIVATE;
+    if (!nextShared && currentShared) {
       const originalStudent = studentsList.find((student) => (
         String(student?.id || student?.studentId || '') === String(file?.originalStudentId || '')
       ));
       const originalStudentName = String(
         originalStudent?.name || originalStudent?.displayName || originalStudent?.username || ''
       ).trim();
-      const sharedSectionName = isSharedTemplateFile(file) ? '«Шаблонов»' : '«Файлов к уроку»';
+      const sharedSectionName = isSharedTemplateFile(file) ? 'раздела «Шаблоны»' : 'раздела «Общее»';
       const destination = originalStudentName
         ? ` и вернётся в материалы ученика «${originalStudentName}»`
         : ' и вернётся в исходные материалы';
       const confirmed = window.confirm(
-        `Убрать общий доступ к «${getSavedSolutionTitle(file, file?.memory)}»?\n\n`
+        `Вернуть «${getSavedSolutionTitle(file, file?.memory)}» в личные материалы?\n\n`
         + `Файл исчезнет из ${sharedSectionName} у всех учеников${destination}. Сам файл не удалится.`
       );
       if (!confirmed) return;
@@ -2026,23 +2042,48 @@ const NotesSection = ({
     captureFileRowRects();
     favoriteFlightIdsRef.current.add(fileId);
     setFavoriteFlightTick((tick) => tick + 1);
-    triggerFavoriteMotion(fileId, currentShared ? 'removing' : 'adding');
+    triggerFavoriteMotion(fileId, nextShared ? 'adding' : 'removing');
     setFiles((prev) => prev.map((entry) => (
       entry.id === file.id
-        ? {
-          ...entry,
-          isLessonShared: !currentShared,
-          sharedScope: currentShared ? undefined : LESSON_SHARED_SCOPE,
-          memory: {
-            ...(entry.memory || {}),
-            isPinned: !currentShared,
-            pinnedAt: currentShared ? '' : ((entry.memory || {}).pinnedAt || new Date().toISOString()),
-          },
-        }
+        ? (() => {
+          const nextEntry = {
+            ...entry,
+            memory: {
+              ...(entry.memory || {}),
+              isPinned: nextShared,
+              pinnedAt: nextShared ? ((entry.memory || {}).pinnedAt || new Date().toISOString()) : '',
+            },
+          };
+          if (nextShared) {
+            if (!currentShared) {
+              nextEntry.originalStudentId = entry.studentId || null;
+              nextEntry.originalFolderId = entry.folderId || null;
+              nextEntry.originalFolderName = entry.folderName || null;
+            }
+            nextEntry.isLessonShared = true;
+            nextEntry.sharedScope = LESSON_SHARED_SCOPE;
+            nextEntry.lessonShareMode = normalizedNextMode;
+            nextEntry.notesShared = true;
+            nextEntry.folderId = null;
+            nextEntry.folderName = null;
+          } else {
+            nextEntry.studentId = entry.originalStudentId || entry.studentId;
+            nextEntry.folderId = entry.originalFolderId || null;
+            nextEntry.folderName = entry.originalFolderName || null;
+            nextEntry.isLessonShared = false;
+            delete nextEntry.sharedScope;
+            delete nextEntry.lessonShareMode;
+            delete nextEntry.notesShared;
+            delete nextEntry.originalStudentId;
+            delete nextEntry.originalFolderId;
+            delete nextEntry.originalFolderName;
+          }
+          return nextEntry;
+        })()
         : entry
     )));
     try {
-      const updated = await api.updateFileLessonShared(file.id, !currentShared);
+      const updated = await api.updateFileLessonShareMode(file.id, normalizedNextMode);
       setFiles((prev) => prev.map((entry) => (
         entry.id === updated.id ? { ...entry, ...updated } : entry
       )));
@@ -2051,12 +2092,28 @@ const NotesSection = ({
       captureFileRowRects();
       favoriteFlightIdsRef.current.add(fileId);
       setFavoriteFlightTick((tick) => tick + 1);
-      triggerFavoriteMotion(fileId, currentShared ? 'adding' : 'removing');
+      triggerFavoriteMotion(fileId, nextShared ? 'removing' : 'adding');
       setFiles((prev) => prev.map((entry) => (
         entry.id === file.id ? file : entry
       )));
-      alert(err?.message || 'Не удалось изменить общий доступ');
+      alert(err?.message || 'Не удалось изменить тип материала');
     }
+  };
+
+  const toggleLessonSharedFile = (file) => {
+    const currentMode = getLessonShareMode(file);
+    const nextMode = currentMode === LESSON_SHARE_MODE_COMMON
+      ? LESSON_SHARE_MODE_PRIVATE
+      : LESSON_SHARE_MODE_COMMON;
+    return updateLessonShareMode(file, nextMode);
+  };
+
+  const toggleLessonTemplateFile = (file) => {
+    const currentMode = getLessonShareMode(file);
+    const nextMode = currentMode === LESSON_SHARE_MODE_TEMPLATE
+      ? LESSON_SHARE_MODE_PRIVATE
+      : LESSON_SHARE_MODE_TEMPLATE;
+    return updateLessonShareMode(file, nextMode);
   };
 
   const toggleSimplePreview = (file, expandedMap, setExpandedMap) => {
@@ -2130,19 +2187,20 @@ const NotesSection = ({
     if (!file) return;
     if (getNotesTaskNumber(file?.taskNumber) !== normalizedCurrentTask) return;
     if (String(file?.category || '') !== String(currentCategory)) return;
-    const isTemplate = isSharedTemplateFile(file);
     const storedFolderId = String(file?.folderId || '').trim();
-    const sharedRootFolder = !storedFolderId && isLessonSharedFile(file)
-      ? folders.find((folder) => (
-        isLessonSharedFolder(folder)
-        && !normalizeParentFolderId(folder?.parentFolderId)
-        && getNotesTaskNumber(folder?.taskNumber) === normalizedCurrentTask
-        && String(folder?.category || '') === String(currentCategory)
-      ))
+    const storedFolder = storedFolderId
+      ? folders.find((folder) => String(folder?.id || '').trim() === storedFolderId)
       : null;
-    const expectedFolderId = isTemplate
+    const belongsToSharedRoot = Boolean(
+      isLessonSharedFile(file)
+      && (
+        !storedFolderId
+        || (isLessonSharedFolder(storedFolder) && !normalizeParentFolderId(storedFolder?.parentFolderId))
+      )
+    );
+    const expectedFolderId = belongsToSharedRoot
       ? ''
-      : (storedFolderId || String(sharedRootFolder?.id || '').trim());
+      : storedFolderId;
     const activeFolderId = String(currentFolderId || '').trim();
     if (expectedFolderId !== activeFolderId) {
       if (expectedFolderId && folders.some((folder) => String(folder?.id || '').trim() === expectedFolderId)) {
@@ -2816,22 +2874,28 @@ const NotesSection = ({
   const lessonSharedRootFolderIds = new Set(
     lessonSharedRootFolders.map((folder) => String(folder?.id || '').trim()).filter(Boolean)
   );
+  const isRootLessonSharedFile = (file) => {
+    if (!isLessonSharedFile(file)) return false;
+    const fileFolderId = String(file?.folderId || '').trim();
+    return !fileFolderId || lessonSharedRootFolderIds.has(fileFolderId);
+  };
+  const commonFiles = taskFiles.filter((file) => (
+    isCommonLessonSharedFile(file) && isRootLessonSharedFile(file)
+  ));
   const activeFolder = currentFolderId ? foldersById.get(currentFolderId) : null;
   const filtered = taskFiles.filter((file) => {
     const fileFolderId = String(file?.folderId || '').trim();
     if (!currentFolderId) return !fileFolderId && !isLessonSharedFile(file);
     if (lessonSharedRootFolderIds.has(String(currentFolderId)) && isSharedTemplateFile(file)) return false;
     if (fileFolderId === currentFolderId) {
-      return !(isCurrentFolderLessonShared && isSharedTemplateFile(file));
+      return !(isCurrentFolderLessonShared && isRootLessonSharedFile(file));
     }
     if (lessonSharedRootFolderIds.has(String(currentFolderId))) {
-      return isLessonSharedFile(file)
-        && !isSharedTemplateFile(file)
-        && (!fileFolderId || lessonSharedRootFolderIds.has(fileFolderId));
+      return false;
     }
     return !fileFolderId
       && isLessonSharedFile(file)
-      && !isSharedTemplateFile(file)
+      && !isRootLessonSharedFile(file)
       && isLessonSharedFolder(activeFolder);
   });
   const uploadBlockedByRole = !canUploadToCurrentFolder;
@@ -2913,8 +2977,17 @@ const NotesSection = ({
   const visibleTemplateFiles = isSearchMode
     ? visibleFiles.filter(isSharedTemplateFile)
     : (!currentFolderId ? templateFiles : []);
-  const visibleRegularFiles = visibleFiles.filter((file) => !isSharedTemplateFile(file));
+  const visibleCommonFiles = isSearchMode
+    ? visibleFiles.filter((file) => isCommonLessonSharedFile(file) && isRootLessonSharedFile(file))
+    : (!currentFolderId ? commonFiles : []);
+  const visibleRegularFiles = visibleFiles.filter((file) => (
+    !isSharedTemplateFile(file)
+    && !(isCommonLessonSharedFile(file) && isRootLessonSharedFile(file))
+  ));
   const sortedTemplateFiles = [...visibleTemplateFiles].sort((left, right) => (
+    String(left?.name || '').localeCompare(String(right?.name || ''), 'ru')
+  ));
+  const sortedCommonFiles = [...visibleCommonFiles].sort((left, right) => (
     String(left?.name || '').localeCompare(String(right?.name || ''), 'ru')
   ));
   const sortedVisibleFiles = [...visibleRegularFiles].sort((left, right) => {
@@ -2930,20 +3003,23 @@ const NotesSection = ({
   const allMainVisibleFolders = sortedVisibleFolders.filter((folder) => (
     !normalizeParentFolderId(folder?.parentFolderId) && isLessonSharedFolder(folder)
   ));
-  const mainVisibleFolders = allMainVisibleFolders.length ? [allMainVisibleFolders[0]] : [];
-  const regularVisibleFolders = sortedVisibleFolders.filter((folder) => !allMainVisibleFolders.includes(folder));
-  const sharedLessonFilesCount = taskFiles.filter((file) => {
-    const fileFolderId = String(file?.folderId || '').trim();
-    return isLessonSharedFile(file)
-      && !isSharedTemplateFile(file)
-      && (!fileFolderId || lessonSharedRootFolderIds.has(fileFolderId));
-  }).length;
   const sharedLessonChildFolderCount = lessonSharedRootFolders.reduce(
     (count, folder) => count + (folderChildrenByParent.get(folder.id) || []).length,
     0
   );
+  const mainVisibleFolders = allMainVisibleFolders.length && sharedLessonChildFolderCount > 0
+    ? [allMainVisibleFolders[0]]
+    : [];
+  const regularVisibleFolders = sortedVisibleFolders.filter((folder) => !allMainVisibleFolders.includes(folder));
+  const sharedLessonFilesCount = taskFiles.filter((file) => {
+    const fileFolderId = String(file?.folderId || '').trim();
+    return isLessonSharedFile(file)
+      && !isRootLessonSharedFile(file)
+      && Boolean(fileFolderId);
+  }).length;
   const visibleExplorerItems = [
     ...mainVisibleFolders.map((folder) => ({ kind: 'folder', section: 'main', id: `folder-${folder.id}`, folder })),
+    ...sortedCommonFiles.map((file) => ({ kind: 'file', section: 'shared', id: `shared-${file.id}`, file })),
     ...sortedTemplateFiles.map((file) => ({ kind: 'file', section: 'templates', id: `template-${file.id}`, file })),
     ...regularVisibleFolders.map((folder) => ({ kind: 'folder', section: 'folders', id: `folder-${folder.id}`, folder })),
     ...sortedVisibleFiles.map((file) => ({
@@ -2954,8 +3030,9 @@ const NotesSection = ({
     })),
   ];
   const mainSectionItemsCount = mainVisibleFolders.length;
+  const sharedSectionItemsCount = sortedCommonFiles.length;
   const foldersSectionItemsCount = regularVisibleFolders.length;
-  const currentFolderFilesCount = filtered.length + (!currentFolderId ? templateFiles.length : 0);
+  const currentFolderFilesCount = filtered.length + (!currentFolderId ? templateFiles.length + commonFiles.length : 0);
   const currentFolderFilesLabel = `${currentFolderFilesCount} ${formatRussianCountLabel(
     currentFolderFilesCount,
     'файл',
@@ -3311,6 +3388,7 @@ const NotesSection = ({
                     const showSectionHeader = itemIndex === 0 || previousExplorerItem?.section !== item.section;
                     const sectionLabel = {
                       main: 'Главное',
+                      shared: 'Общее',
                       templates: 'Шаблоны',
                       folders: 'Папки',
                       important: 'Важное',
@@ -3318,6 +3396,8 @@ const NotesSection = ({
                     }[item.section] || 'Материалы';
                     const sectionCount = item.section === 'main'
                       ? mainSectionItemsCount
+                      : item.section === 'shared'
+                        ? sharedSectionItemsCount
                       : item.section === 'templates'
                         ? sortedTemplateFiles.length
                         : item.section === 'folders'
@@ -3515,6 +3595,7 @@ const NotesSection = ({
                     const memorySnapshotUrl = hasBoardSnapshot ? getMemorySnapshotUrl(f) : '';
                     const isSharedFile = isLessonSharedFile(f);
                     const isSharedTemplate = isSharedTemplateFile(f);
+                    const isCommonShared = isSharedFile && !isSharedTemplate;
                     const isCheatsheet = isCheatsheetFile(f);
                     const isSolutionBundle = isPyFile(f.name) && !isCheatsheet && (sourceRaw === 'collab-code' || hasBoardSnapshot);
                     const isMemoryCodeCard = isSolutionBundle || isCheatsheet;
@@ -3536,7 +3617,8 @@ const NotesSection = ({
                     const favoriteMotion = favoriteMotionIds[f.id] || '';
                     const showFavoriteBadge = isPinned || favoriteMotion === 'removing';
                     const showFavoriteButton = !isSharedFile;
-                    const canToggleTeacherShared = role === 'teacher' && manageable && (!isSharedFile || f?.notesShared || f?.originalStudentId);
+                    const canToggleTeacherShared = role === 'teacher' && manageable;
+                    const canReturnSharedFileToPersonal = !isSharedFile || Boolean(f?.notesShared || f?.originalStudentId);
                     const hasLoadedPyContent = Object.prototype.hasOwnProperty.call(pyContent, f.id);
                     const inlineCodeSource = hasLoadedPyContent ? pyContent[f.id] : (memory?.codePreview || '');
                     const inlineCodePreview = isMemoryCodeCard
@@ -3574,9 +3656,11 @@ const NotesSection = ({
                         {showSectionHeader && (
                           <tr className="notes-library-group-row">
                             <td colSpan={3}>
-                              <span className={`notes-library-group-label ${item.section === 'important' ? 'is-favorite' : ''} ${item.section === 'templates' ? 'is-templates' : ''}`}>
+                              <span className={`notes-library-group-label ${item.section === 'important' ? 'is-favorite' : ''} ${item.section === 'shared' ? 'is-shared' : ''} ${item.section === 'templates' ? 'is-templates' : ''}`}>
                                 {item.section === 'templates'
-                                  ? <Code2 size={14} aria-hidden="true" />
+                                  ? <Sparkles size={14} aria-hidden="true" />
+                                  : item.section === 'shared'
+                                    ? <Users size={14} aria-hidden="true" />
                                   : item.section === 'important'
                                     ? <Star size={14} fill="currentColor" aria-hidden="true" />
                                     : <FileText size={14} aria-hidden="true" />}
@@ -3588,7 +3672,7 @@ const NotesSection = ({
                         )}
                         <tr
                           ref={(node) => setFileRowRef(f.id, node)}
-                          className={`notes-explorer-file-row notes-resource-card ${isPinned ? 'notes-resource-card--favorite' : ''} ${isSharedTemplate ? 'notes-resource-card--shared-template' : ''} ${isSolutionBundle ? 'notes-resource-card--solution' : ''} ${isCheatsheet ? 'notes-resource-card--cheatsheet' : ''} border-t border-slate-100 ${
+                          className={`notes-explorer-file-row notes-resource-card ${isPinned ? 'notes-resource-card--favorite' : ''} ${isCommonShared ? 'notes-resource-card--shared-common' : ''} ${isSharedTemplate ? 'notes-resource-card--shared-template' : ''} ${isSolutionBundle ? 'notes-resource-card--solution' : ''} ${isCheatsheet ? 'notes-resource-card--cheatsheet' : ''} border-t border-slate-100 ${
                             isSelected ? 'is-selected' : ''
                           } ${
                             isPreviewPresent ? 'is-preview-open' : ''
@@ -3729,9 +3813,11 @@ const NotesSection = ({
                                             </span>
                                           )}
                                           {isSharedFile && (
-                                            <span className="notes-shared-row-badge">
-                                              <Users size={12} strokeWidth={2.2} />
-                                              Общее
+                                            <span className={`notes-shared-row-badge ${isSharedTemplate ? 'is-template' : ''}`}>
+                                              {isSharedTemplate
+                                                ? <Sparkles size={12} strokeWidth={2.2} />
+                                                : <Users size={12} strokeWidth={2.2} />}
+                                              {isSharedTemplate ? 'Шаблон' : 'Общее'}
                                             </span>
                                           )}
                                         </div>
@@ -3765,9 +3851,11 @@ const NotesSection = ({
                                             </span>
                                           )}
                                           {isSharedFile && (
-                                            <span className="notes-shared-row-badge">
-                                              <Users size={12} strokeWidth={2.2} />
-                                              Общее
+                                            <span className={`notes-shared-row-badge ${isSharedTemplate ? 'is-template' : ''}`}>
+                                              {isSharedTemplate
+                                                ? <Sparkles size={12} strokeWidth={2.2} />
+                                                : <Users size={12} strokeWidth={2.2} />}
+                                              {isSharedTemplate ? 'Шаблон' : 'Общее'}
                                             </span>
                                           )}
                                         </div>
@@ -3789,9 +3877,11 @@ const NotesSection = ({
                                     {!isSolutionBundle && !isCheatsheet && (isSharedFile || sourceLabel || runLabel || hasBoardSnapshot) && (
                                       <span className="mt-1 flex flex-wrap gap-1">
                                         {isSharedFile && (
-                                          <span className="notes-shared-row-badge">
-                                            <Users size={12} strokeWidth={2.2} />
-                                            Общее
+                                          <span className={`notes-shared-row-badge ${isSharedTemplate ? 'is-template' : ''}`}>
+                                            {isSharedTemplate
+                                              ? <Sparkles size={12} strokeWidth={2.2} />
+                                              : <Users size={12} strokeWidth={2.2} />}
+                                            {isSharedTemplate ? 'Шаблон' : 'Общее'}
                                           </span>
                                         )}
                                         {sourceLabel && (
@@ -3861,25 +3951,44 @@ const NotesSection = ({
                                 </button>
                               )}
                               {canToggleTeacherShared && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleLessonSharedFile(f);
-                                  }}
-                                  className={`notes-explorer-file-action-btn notes-explorer-share-btn rounded-md p-1.5 ${isSharedFile ? 'is-active' : ''} ${
-                                    isSharedTemplate
-                                      ? 'notes-explorer-share-btn--labeled'
-                                      : ''
-                                  }`}
-                                  title={isSharedFile ? 'Убрать общий доступ' : 'Сделать общим для всех учеников'}
-                                  aria-pressed={isSharedFile}
-                                  type="button"
-                                >
-                                  <Users size={16} />
-                                  {isSharedTemplate && (
-                                    <span>Убрать общий</span>
-                                  )}
-                                </button>
+                                <div className="notes-explorer-share-mode-actions" role="group" aria-label="Тип материала">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleLessonSharedFile(f);
+                                    }}
+                                    className={`notes-explorer-file-action-btn notes-explorer-share-btn rounded-md p-1.5 ${isCommonShared ? 'is-active' : ''}`}
+                                    title={isCommonShared
+                                      ? 'Вернуть в личные материалы'
+                                      : (isSharedTemplate ? 'Перенести в «Общее»' : 'Сделать общим для всех учеников')}
+                                    aria-label={isCommonShared
+                                      ? 'Вернуть в личные материалы'
+                                      : (isSharedTemplate ? 'Перенести в Общее' : 'Сделать общим для всех учеников')}
+                                    aria-pressed={isCommonShared}
+                                    disabled={isCommonShared && !canReturnSharedFileToPersonal}
+                                    type="button"
+                                  >
+                                    <Users size={16} />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleLessonTemplateFile(f);
+                                    }}
+                                    className={`notes-explorer-file-action-btn notes-explorer-template-btn rounded-md p-1.5 ${isSharedTemplate ? 'is-active' : ''}`}
+                                    title={isSharedTemplate
+                                      ? 'Вернуть в личные материалы'
+                                      : (isCommonShared ? 'Перенести в «Шаблоны»' : 'Сделать шаблоном')}
+                                    aria-label={isSharedTemplate
+                                      ? 'Вернуть в личные материалы'
+                                      : (isCommonShared ? 'Перенести в Шаблоны' : 'Сделать шаблоном')}
+                                    aria-pressed={isSharedTemplate}
+                                    disabled={isSharedTemplate && !canReturnSharedFileToPersonal}
+                                    type="button"
+                                  >
+                                    <Sparkles size={16} />
+                                  </button>
+                                </div>
                               )}
                               {isPreviewable && (
                                 <button

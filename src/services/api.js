@@ -1866,6 +1866,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  updateFileLessonShareMode: async (id, lessonShareMode) => {
+    const res = await apiFetch(`/api/files/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lessonShareMode: String(lessonShareMode || '').trim() }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
   uploadFileMemorySnapshot,
 };
 
