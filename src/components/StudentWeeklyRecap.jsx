@@ -605,16 +605,21 @@ const StudentWeeklyRecap = ({
           type="button"
           className="student-weekly-recap-trigger"
           onClick={() => openModal()}
+          data-recap-state={summary ? (summary.isEmpty ? 'empty' : 'ready') : 'available'}
           aria-expanded={open}
           aria-haspopup="dialog"
           aria-controls={panelId}
+          title={`Открыть итоги за ${formatWeekLabel(week)}`}
         >
           <span className="student-weekly-recap-trigger__icon" aria-hidden="true">
-            <Sparkles size={17} />
+            <CalendarDays size={17} />
           </span>
           <span className="student-weekly-recap-trigger__copy">
             <strong>Итоги недели</strong>
-            <small>{summary ? compactSummary : 'Завершённая неделя'}</small>
+            <span className="student-weekly-recap-trigger__meta">
+              <span className="student-weekly-recap-trigger__status" aria-hidden="true" />
+              <small>{summary ? compactSummary : formatWeekLabel(week)}</small>
+            </span>
           </span>
           {summary && !summary.isEmpty && (
             <span className="student-weekly-recap-trigger__xp">

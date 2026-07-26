@@ -14439,6 +14439,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
     ? nav.filter((item) => item.id !== 'call')
     : nav;
+  const studentSearchAvailableViews = useMemo(() => (
+    user.role === 'student'
+      ? [
+        'schedule',
+        'progress',
+        ...(studentCanSeeReview ? ['review'] : []),
+        'python',
+        'rating',
+        'collab',
+        'board',
+        ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []),
+        'notes',
+        'lesson',
+      ]
+      : []
+  ), [studentCanSeeReview, user.role]);
   const studentLessonNavIds = STUDENT_CALL_SECTION_ENABLED
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
@@ -18651,6 +18667,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     theme={theme}
                     tasks={tasksWithTitles}
                     pythonTasks={PYTHON_TASKS}
+                    availableViews={studentSearchAvailableViews}
                     onNavigate={navigateToView}
                     onOpenTask={handleOpenTask}
                     onOpenMock={handleOpenMockGoal}

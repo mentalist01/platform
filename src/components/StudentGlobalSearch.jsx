@@ -18,17 +18,24 @@ import {
   ListChecks,
   LoaderCircle,
   PlayCircle,
+  RefreshCcw,
   Search,
   Sparkles,
   Trophy,
   X,
 } from 'lucide-react';
 import { api } from '../services/api';
+import {
+  normalizeStudentSearchText as normalizeSearchText,
+  rankStudentSearch,
+} from './studentGlobalSearchRanking.js';
 
 const SEARCH_CACHE_TTL_MS = 60_000;
 const CONTENT_SEARCH_CACHE_TTL_MS = 45_000;
 const CONTENT_SEARCH_CACHE_MAX_ENTRIES = 80;
+const CONTENT_SEARCH_MIN_QUERY_LENGTH = 3;
 const MAX_RESULTS = 30;
+const SEARCH_PANEL_EXIT_MS = 180;
 const searchCache = new Map();
 const contentSearchCache = new Map();
 const LESSON_SHARED_SCOPE = 'lesson-files';
@@ -46,11 +53,17 @@ const VIEW_COMMANDS = [
     id: 'join-lesson',
     view: 'lesson',
     targetKind: 'join-lesson',
-    title: 'Открыть комнату урока',
-    description: 'Созвон, общая доска и совместный код — всё занятие в одном месте.',
-    cta: 'Присоединиться',
-    keywords: 'урок занятие подключиться подключение комната созвон войти на урок',
-    intents: ['урок', 'занятие', 'подключиться', 'подключение', 'комната урока', 'созвон'],
+    title: 'Подключиться к уроку',
+    description: 'Войти в комнату: звонок, общая доска и совместный код.',
+    cta: 'Войти в урок',
+    keywords: 'урок онлайн урок занятие подключиться подключение комната созвон созвониться звонок звонка видеозвонок позвонить войти зайти преподаватель учитель',
+    intents: [
+      'урок', 'занятие', 'подключиться', 'подключение', 'комната урока', 'созвон',
+      'звонок', 'звонка', 'видеозвонок', 'позвонить', 'звонок с учителем',
+      'войти на урок', 'войти в урок', 'зайти на урок', 'перейти к уроку', 'открыть урок',
+      'начать урок', 'войти в звонок', 'присоединиться к звонку', 'учитель звонит', 'в комнату урока',
+      'созвониться', 'подключение к уроку', 'онлайн урок',
+    ],
     icon: PlayCircle,
   },
   {
@@ -61,8 +74,8 @@ const VIEW_COMMANDS = [
     title: 'Перейти к тестированию',
     description: 'Открыть задания и продолжить практику с сохранённого места.',
     cta: 'Открыть тесты',
-    keywords: 'тестирование тесты тест практика задания решать задачи',
-    intents: ['тестирование', 'тесты', 'тест', 'решать тесты'],
+    keywords: 'тестирование тесты тест практика задание задания задача задачи домашка решать',
+    intents: ['тестирование', 'тесты', 'тест', 'решать тесты', 'решать задания', 'порешать', 'практика', 'тренировка'],
     icon: ListChecks,
   },
   {
@@ -74,7 +87,7 @@ const VIEW_COMMANDS = [
     description: 'Комментарии преподавателя по заданиям: что исправить и на чём сосредоточиться.',
     cta: 'Смотреть заметки',
     keywords: 'заметки учителя комментарии преподавателя советы учителя обратная связь по заданиям',
-    intents: ['заметки учителя', 'комментарии учителя', 'советы учителя', 'заметки преподавателя'],
+    intents: ['заметки учителя', 'комментарии учителя', 'комментарий учителя', 'советы учителя', 'заметки преподавателя', 'обратная связь', 'что исправить'],
     icon: FileText,
   },
   {
@@ -86,7 +99,7 @@ const VIEW_COMMANDS = [
     description: 'Доступные варианты, незавершённые попытки и результаты пробных экзаменов.',
     cta: 'Открыть пробники',
     keywords: 'пробники пробник пробные экзамены варианты баллы результаты попытки',
-    intents: ['пробники', 'пробник', 'пробные экзамены', 'пробный экзамен'],
+    intents: ['пробники', 'пробник', 'пробные экзамены', 'пробный экзамен', 'вариант егэ', 'экзамен', 'баллы за пробник'],
     icon: Trophy,
   },
   {
@@ -96,7 +109,7 @@ const VIEW_COMMANDS = [
     description: 'Ближайшие занятия, темы уроков и история встреч.',
     cta: 'Открыть расписание',
     keywords: 'календарь график расписание сегодня ближайшие занятия',
-    intents: ['расписание', 'календарь', 'сегодня'],
+    intents: ['расписание', 'календарь', 'сегодня', 'график', 'когда урок', 'во сколько урок', 'следующий урок', 'ближайший урок', 'мои занятия'],
     icon: CalendarDays,
   },
   {
@@ -107,9 +120,19 @@ const VIEW_COMMANDS = [
     title: 'Успеваемость и задания',
     description: 'Прогресс по заданиям, точность и следующая цель.',
     cta: 'Смотреть прогресс',
-    keywords: 'успеваемость прогресс практика задания домашняя работа',
-    intents: ['успеваемость', 'прогресс', 'задания'],
+    keywords: 'успеваемость прогресс практика задание задания задача задачи домашняя работа домашка дз результаты',
+    intents: ['успеваемость', 'прогресс', 'задание', 'задания', 'домашнее задание', 'домашка', 'дз', 'что задано', 'мои задания', 'результаты', 'статистика', 'сколько решил'],
     icon: LayoutGrid,
+  },
+  {
+    id: 'review',
+    view: 'review',
+    title: 'Повторение ошибок',
+    description: 'Вернуться к сложным заданиям, исправить ошибки и закрепить темы.',
+    cta: 'Открыть повторение',
+    keywords: 'повторение повторить ошибки работа над ошибками закрепить сложные задания',
+    intents: ['повторение', 'повторить', 'ошибки', 'работа над ошибками', 'закрепить тему', 'сложные задания', 'разобрать ошибки'],
+    icon: RefreshCcw,
   },
   {
     id: 'python',
@@ -118,7 +141,7 @@ const VIEW_COMMANDS = [
     description: 'Темы Python, практика и сохранённые решения.',
     cta: 'Открыть Python',
     keywords: 'python питон программирование код обучение',
-    intents: ['python', 'питон', 'изучение python'],
+    intents: ['python', 'питон', 'пайтон', 'изучение python', 'учить python', 'курс python', 'задачи python', 'программирование'],
     icon: Code2,
   },
   {
@@ -128,7 +151,7 @@ const VIEW_COMMANDS = [
     description: 'Материалы уроков, шпаргалки, файлы и сохранённый код.',
     cta: 'Открыть конспекты',
     keywords: 'конспекты конспект заметки файлы материалы шпаргалки',
-    intents: ['конспекты', 'конспект', 'шпаргалки', 'материалы'],
+    intents: ['конспекты', 'конспект', 'шпаргалки', 'шпора', 'материалы', 'файлы', 'папка', 'теория', 'записи с урока'],
     icon: BookOpen,
   },
   {
@@ -138,7 +161,7 @@ const VIEW_COMMANDS = [
     description: 'Лига, уровень и место среди учеников.',
     cta: 'Открыть рейтинг',
     keywords: 'рейтинг лига уровень место прогресс xp',
-    intents: ['рейтинг', 'лига'],
+    intents: ['рейтинг', 'лига', 'место в рейтинге', 'таблица лидеров', 'топ учеников'],
     icon: Trophy,
   },
   {
@@ -147,8 +170,8 @@ const VIEW_COMMANDS = [
     title: 'Совместный код',
     description: 'Общий редактор кода для работы вместе с учителем.',
     cta: 'Открыть редактор',
-    keywords: 'совместный код редактор программа писать код',
-    intents: ['совместный код', 'редактор кода'],
+    keywords: 'совместный код редактор программа писать код программировать ide',
+    intents: ['совместный код', 'редактор кода', 'открыть код', 'перейти в код', 'кодить', 'писать код', 'написать код', 'редактор', 'ide'],
     icon: Code2,
   },
   {
@@ -158,7 +181,7 @@ const VIEW_COMMANDS = [
     description: 'Схемы, объяснения и общие записи с урока.',
     cta: 'Открыть доску',
     keywords: 'доска рисование схема урок',
-    intents: ['доска'],
+    intents: ['доска', 'открыть доску', 'перейти на доску', 'рисовать', 'схема', 'записи с доски', 'whiteboard', 'вайтборд'],
     icon: LayoutGrid,
   },
   {
@@ -168,13 +191,13 @@ const VIEW_COMMANDS = [
     description: 'Задать вопрос и продолжить разговор с преподавателем.',
     cta: 'Открыть чат',
     keywords: 'чат сообщения помощь вопрос учителю',
-    intents: ['чат', 'сообщения'],
+    intents: ['чат', 'сообщения', 'сообщение', 'переписка', 'личка', 'написать учителю', 'спросить учителя', 'задать вопрос', 'вопрос учителю'],
     icon: Sparkles,
   },
 ];
 
 const GROUPS = [
-  { id: 'commands', label: 'Действия и разделы' },
+  { id: 'commands', label: 'Основные действия' },
   { id: 'tasks', label: 'Задания' },
   { id: 'lessons', label: 'Занятия' },
   { id: 'mocks', label: 'Пробники' },
@@ -189,15 +212,9 @@ const PRESENTATION_TIERS = new Set(['hero', 'feature', 'compact']);
 const getPresentationTier = (item) => {
   const explicitTier = String(item?.presentationTier || '').trim().toLowerCase();
   if (PRESENTATION_TIERS.has(explicitTier)) return explicitTier;
-  if (['commands', 'tasks', 'lessons', 'mocks'].includes(item?.group)) return 'feature';
+  if (item?.group === 'commands') return 'feature';
   return 'compact';
 };
-
-const normalizeSearchText = (value) => String(value ?? '')
-  .toLocaleLowerCase('ru-RU')
-  .replace(/ё/g, 'е')
-  .replace(/\s+/g, ' ')
-  .trim();
 
 const isRecord = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
@@ -312,6 +329,7 @@ const buildServerSearchItems = (results, query) => asArray(results).map((result,
     Icon: getServerResultIcon(result),
     timestamp: parseTimestamp(result?.timestamp),
     serverScore: Number(result?.score) || 0,
+    serverResult: true,
     presentationTier: ['tasks', 'lessons', 'mocks'].includes(group) ? 'feature' : 'compact',
     searchText: createSearchText(
       result?.title,
@@ -319,13 +337,12 @@ const buildServerSearchItems = (results, query) => asArray(results).map((result,
       result?.snippet,
       result?.sourceLabel,
       result?.kind,
-      query
     ),
     target,
   };
 }).filter((item) => item.target && item.title);
 
-const buildSearchItems = ({ tasks, pythonTasks, remoteData, studentId }) => {
+const buildSearchItems = ({ tasks, pythonTasks, remoteData, studentId, availableViews }) => {
   const items = [];
   const allTasks = [
     ...asArray(tasks).map((task) => ({ task, python: false })),
@@ -333,26 +350,31 @@ const buildSearchItems = ({ tasks, pythonTasks, remoteData, studentId }) => {
   ];
   const taskTitleByNumber = new Map();
 
-  VIEW_COMMANDS.forEach((command, index) => {
-    items.push({
-      id: `command:${command.id || command.view}`,
-      group: 'commands',
-      title: command.title,
-      subtitle: 'Перейти в раздел',
-      description: command.description,
-      cta: command.cta,
-      intentPhrases: command.intents,
-      sourceLabel: command.targetKind ? 'Быстрое действие' : 'Раздел',
-      Icon: command.icon,
-      timestamp: Number.MAX_SAFE_INTEGER - index,
-      searchText: createSearchText(command.title, command.description, command.keywords, command.intents, command.view),
-      target: {
-        kind: command.targetKind || 'navigate',
-        view: command.view,
-        progressSection: command.progressSection,
-      },
+  const availableViewSet = new Set(
+    asArray(availableViews).map((view) => String(view || '').trim()).filter(Boolean)
+  );
+  VIEW_COMMANDS
+    .filter((command) => !availableViewSet.size || availableViewSet.has(command.view))
+    .forEach((command, index) => {
+      items.push({
+        id: `command:${command.id || command.view}`,
+        group: 'commands',
+        title: command.title,
+        subtitle: 'Перейти в раздел',
+        description: command.description,
+        cta: command.cta,
+        intentPhrases: command.intents,
+        sourceLabel: command.targetKind ? 'Быстрое действие' : 'Раздел',
+        Icon: command.icon,
+        timestamp: Number.MAX_SAFE_INTEGER - index,
+        searchText: createSearchText(command.title, command.description, command.cta, command.keywords, command.intents, command.view),
+        target: {
+          kind: command.targetKind || 'navigate',
+          view: command.view,
+          progressSection: command.progressSection,
+        },
+      });
     });
-  });
 
   allTasks.forEach(({ task, python }, index) => {
     const taskNumber = getTaskNumber(task);
@@ -561,39 +583,12 @@ const buildSearchItems = ({ tasks, pythonTasks, remoteData, studentId }) => {
   return items;
 };
 
-const getResultScore = (item, normalizedQuery) => {
-  const tokens = normalizedQuery.split(' ').filter(Boolean);
-  if (!tokens.length || !tokens.every((token) => item.searchText.includes(token))) return -1;
-  const title = normalizeSearchText(item.title);
-  const subtitle = normalizeSearchText(item.subtitle);
-  let score = 100;
-  if (title === normalizedQuery) score += 1000;
-  else if (title.startsWith(normalizedQuery)) score += 700;
-  else if (title.includes(normalizedQuery)) score += 450;
-  if (subtitle.includes(normalizedQuery)) score += 180;
-  if (item.group === 'commands') score += 80;
-  if (Number.isFinite(Number(item.serverScore))) {
-    score += Math.min(520, Math.max(0, Number(item.serverScore)) * 0.32);
-  }
-  score += Math.min(50, tokens.reduce((sum, token) => sum + (title.includes(token) ? 10 : 0), 0));
-  return score;
-};
-
-const getIntentMatchStrength = (item, normalizedQuery) => {
-  if (!normalizedQuery || item?.group !== 'commands') return 0;
-  return asArray(item?.intentPhrases).reduce((score, phrase) => {
-    const normalizedPhrase = normalizeSearchText(phrase);
-    if (!normalizedPhrase || !normalizedQuery.includes(normalizedPhrase)) return score;
-    const exactBonus = normalizedQuery === normalizedPhrase ? 1000 : 0;
-    return Math.max(score, 100 + exactBonus + normalizedPhrase.length);
-  }, 0);
-};
-
 const StudentGlobalSearch = ({
   studentId,
   theme = 'light',
   tasks = [],
   pythonTasks = [],
+  availableViews = [],
   onNavigate,
   onOpenTask,
   onOpenMock,
@@ -604,15 +599,25 @@ const StudentGlobalSearch = ({
 }) => {
   const normalizedStudentId = String(studentId || '').trim();
   const isDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
-  const dialogTitleId = useId();
+  const panelId = useId();
+  const panelTitleId = useId();
   const listboxId = useId();
+  const triggerRef = useRef(null);
+  const panelRef = useRef(null);
   const inputRef = useRef(null);
+  const listboxRef = useRef(null);
   const requestIdRef = useRef(0);
   const contentRequestIdRef = useRef(0);
+  const closeTimerRef = useRef(null);
+  const focusOnOpenRef = useRef(false);
   const [open, setOpen] = useState(false);
+  const [panelMounted, setPanelMounted] = useState(false);
+  const [panelMotion, setPanelMotion] = useState('closed');
+  const [panelPlacement, setPanelPlacement] = useState('bottom');
+  const [panelStyle, setPanelStyle] = useState(null);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeResultId, setActiveResultId] = useState('');
   const [remoteData, setRemoteData] = useState(EMPTY_REMOTE_DATA);
   const [loadState, setLoadState] = useState({ studentId: '', loading: false, error: '' });
   const [contentSearchState, setContentSearchState] = useState({
@@ -625,11 +630,47 @@ const StudentGlobalSearch = ({
     skippedFiles: 0,
   });
 
+  const openPalette = useCallback(() => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    focusOnOpenRef.current = true;
+    setPanelMounted(true);
+    setPanelMotion('entering');
+    setOpen(true);
+  }, []);
+
+  const focusNextControlAfterTrigger = useCallback(() => {
+    if (typeof document === 'undefined' || !triggerRef.current) return;
+    const focusableElements = Array.from(document.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter((element) => (
+      !panelRef.current?.contains(element)
+      && element.getClientRects().length > 0
+      && element.getAttribute('aria-hidden') !== 'true'
+    ));
+    const triggerIndex = focusableElements.indexOf(triggerRef.current);
+    focusableElements[triggerIndex + 1]?.focus({ preventScroll: true });
+  }, []);
+
   const closePalette = useCallback(() => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
     setOpen(false);
-    setQuery('');
-    setDebouncedQuery('');
-    setActiveIndex(0);
+    setPanelMotion('closing');
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setPanelMounted(false);
+      setPanelMotion('closed');
+      setPanelStyle(null);
+      setQuery('');
+      setDebouncedQuery('');
+      setActiveResultId('');
+    }, SEARCH_PANEL_EXIT_MS);
+  }, []);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
   }, []);
 
   const loadRemoteData = useCallback(async () => {
@@ -676,17 +717,92 @@ const StudentGlobalSearch = ({
         && String(event.key || '').toLowerCase() === 'k';
       if (shortcutPressed) {
         event.preventDefault();
-        setOpen((current) => !current);
+        if (open) {
+          closePalette();
+          window.requestAnimationFrame(() => triggerRef.current?.focus());
+        } else {
+          openPalette();
+        }
         return;
       }
       if (open && event.key === 'Escape') {
         event.preventDefault();
         closePalette();
+        window.requestAnimationFrame(() => triggerRef.current?.focus());
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [closePalette, open, openPalette]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleDocumentMouseDown = (event) => {
+      const target = event.target;
+      if (!triggerRef.current?.contains(target) && !panelRef.current?.contains(target)) {
+        closePalette();
+      }
+    };
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+    return () => document.removeEventListener('mousedown', handleDocumentMouseDown);
   }, [closePalette, open]);
+
+  useEffect(() => {
+    if (!open || typeof window === 'undefined') return undefined;
+
+    const updatePanelPosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      const margin = 12;
+      const gap = 8;
+      const width = Math.max(0, Math.min(640, viewportWidth - margin * 2));
+      const left = Math.max(
+        margin,
+        Math.min(rect.right - width, viewportWidth - margin - width)
+      );
+      const availableBelow = Math.max(0, viewportHeight - rect.bottom - gap - margin);
+      const availableAbove = Math.max(0, rect.top - gap - margin);
+      const openAbove = availableBelow < 280 && availableAbove > availableBelow;
+      const availableHeight = openAbove ? availableAbove : availableBelow;
+      const maxHeight = Math.min(
+        520,
+        Math.max(160, Math.min(availableHeight, viewportHeight * 0.62))
+      );
+
+      setPanelPlacement(openAbove ? 'top' : 'bottom');
+      setPanelStyle({
+        left: `${left}px`,
+        width: `${width}px`,
+        maxHeight: `${maxHeight}px`,
+        ...(openAbove
+          ? { bottom: `${viewportHeight - rect.top + gap}px`, top: 'auto' }
+          : { top: `${rect.bottom + gap}px`, bottom: 'auto' }),
+      });
+    };
+
+    updatePanelPosition();
+    window.addEventListener('resize', updatePanelPosition);
+    window.addEventListener('scroll', updatePanelPosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePanelPosition);
+      window.removeEventListener('scroll', updatePanelPosition, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !panelMounted || !panelStyle) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      setPanelMotion('open');
+      if (focusOnOpenRef.current) {
+        focusOnOpenRef.current = false;
+        inputRef.current?.focus({ preventScroll: true });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, panelMounted, panelStyle]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -699,7 +815,7 @@ const StudentGlobalSearch = ({
     const normalizedContentQuery = normalizeSearchText(rawQuery);
     const requestId = contentRequestIdRef.current + 1;
     contentRequestIdRef.current = requestId;
-    if (!open || !normalizedStudentId || normalizedContentQuery.length < 2) {
+    if (!open || !normalizedStudentId || normalizedContentQuery.length < CONTENT_SEARCH_MIN_QUERY_LENGTH) {
       setContentSearchState({
         studentId: normalizedStudentId,
         query: normalizedContentQuery,
@@ -776,35 +892,29 @@ const StudentGlobalSearch = ({
     const loadTimer = window.setTimeout(() => {
       void loadRemoteData();
     }, 0);
-    const previouslyFocused = document.activeElement;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
     return () => {
       window.clearTimeout(loadTimer);
-      window.cancelAnimationFrame(frame);
-      document.body.style.overflow = previousOverflow;
-      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus({ preventScroll: true });
     };
   }, [loadRemoteData, open]);
 
   const effectiveRemoteData = remoteData.studentId === normalizedStudentId
     ? remoteData
     : EMPTY_REMOTE_DATA;
-  const normalizedQuery = normalizeSearchText(debouncedQuery);
+  const normalizedQuery = normalizeSearchText(query);
   const baseItems = useMemo(() => buildSearchItems({
     tasks,
     pythonTasks,
     remoteData: effectiveRemoteData,
     studentId: normalizedStudentId,
-  }), [effectiveRemoteData, normalizedStudentId, pythonTasks, tasks]);
+    availableViews,
+  }), [availableViews, effectiveRemoteData, normalizedStudentId, pythonTasks, tasks]);
   const effectiveContentResults = contentSearchState.studentId === normalizedStudentId
     && contentSearchState.query === normalizedQuery
     ? contentSearchState.results
     : [];
   const contentItems = useMemo(
-    () => buildServerSearchItems(effectiveContentResults, debouncedQuery),
-    [debouncedQuery, effectiveContentResults]
+    () => buildServerSearchItems(effectiveContentResults, query),
+    [effectiveContentResults, query]
   );
   const allItems = useMemo(() => {
     const byId = new Map(baseItems.map((item) => [item.id, item]));
@@ -828,44 +938,30 @@ const StudentGlobalSearch = ({
       const taskSuggestions = allItems.filter((item) => item.group === 'tasks').slice(0, 6);
       return [...commands, ...recent, ...taskSuggestions].slice(0, MAX_RESULTS);
     }
-    const scoredResults = allItems
-      .map((item) => ({ item, score: getResultScore(item, normalizedQuery) }))
-      .filter((entry) => entry.score >= 0)
-      .sort((left, right) => (
-        (right.score - left.score)
-        || (right.item.timestamp - left.item.timestamp)
-        || left.item.title.localeCompare(right.item.title, 'ru')
-      ));
-    const intentHeroes = allItems
-      .map((item) => ({ item, strength: getIntentMatchStrength(item, normalizedQuery) }))
-      .filter((entry) => entry.strength > 0)
-      .sort((left, right) => (
-        (right.strength - left.strength)
-        || (right.item.timestamp - left.item.timestamp)
-      ))
-      .slice(0, 2)
-      .map(({ item }) => ({ ...item, presentationTier: 'hero' }));
-    const heroIds = new Set(intentHeroes.map((item) => item.id));
-    const regularResults = scoredResults
-      .map((entry) => entry.item)
-      .filter((item) => !heroIds.has(item.id))
-      .slice(0, Math.max(0, MAX_RESULTS - intentHeroes.length));
-    return [...intentHeroes, ...regularResults];
-  }, [allItems, normalizedQuery]);
+    return rankStudentSearch({
+      query: normalizedQuery,
+      actionItems: baseItems.filter((item) => item.group === 'commands'),
+      materialItems: allItems.filter((item) => item.group !== 'commands'),
+      actionLimit: 5,
+      materialLimit: 25,
+    }).ordered;
+  }, [allItems, baseItems, normalizedQuery]);
 
   const visibleResults = useMemo(() => [...selectedItems].sort((left, right) => {
     const groupDiff = (GROUP_ORDER.get(left.group) ?? 99) - (GROUP_ORDER.get(right.group) ?? 99);
     if (groupDiff) return groupDiff;
     return selectedItems.indexOf(left) - selectedItems.indexOf(right);
   }), [selectedItems]);
-  const safeActiveIndex = visibleResults.length
-    ? Math.min(Math.max(0, activeIndex), visibleResults.length - 1)
-    : 0;
+  const selectedResultIndex = activeResultId
+    ? visibleResults.findIndex((item) => item.id === activeResultId)
+    : -1;
+  const safeActiveIndex = selectedResultIndex >= 0 ? selectedResultIndex : 0;
 
   const activateResult = useCallback((result) => {
     const target = result?.target;
     if (!target) return;
     closePalette();
+    triggerRef.current?.focus({ preventScroll: true });
     if (target.kind === 'navigate') onNavigate?.(target.view, target);
     if (target.kind === 'join-lesson') {
       if (onJoinLesson) onJoinLesson();
@@ -884,16 +980,26 @@ const StudentGlobalSearch = ({
   }, [closePalette, onJoinLesson, onNavigate, onOpenLesson, onOpenMock, onOpenNotes, onOpenProgressSection, onOpenTask]);
 
   const handleInputKeyDown = (event) => {
+    if (event.key === 'Tab' && event.shiftKey) {
+      event.preventDefault();
+      closePalette();
+      triggerRef.current?.focus({ preventScroll: true });
+      return;
+    }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setActiveIndex((current) => visibleResults.length ? (current + 1) % visibleResults.length : 0);
+      if (visibleResults.length) {
+        const nextIndex = (safeActiveIndex + 1) % visibleResults.length;
+        setActiveResultId(visibleResults[nextIndex].id);
+      }
       return;
     }
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setActiveIndex((current) => visibleResults.length
-        ? (current - 1 + visibleResults.length) % visibleResults.length
-        : 0);
+      if (visibleResults.length) {
+        const nextIndex = (safeActiveIndex - 1 + visibleResults.length) % visibleResults.length;
+        setActiveResultId(visibleResults[nextIndex].id);
+      }
       return;
     }
     if (event.key === 'Enter' && visibleResults[safeActiveIndex]) {
@@ -903,9 +1009,12 @@ const StudentGlobalSearch = ({
   };
 
   const isMetadataLoading = loadState.studentId === normalizedStudentId && loadState.loading;
-  const isContentLoading = contentSearchState.studentId === normalizedStudentId
+  const isWaitingForContentSearch = open
+    && normalizedQuery.length >= CONTENT_SEARCH_MIN_QUERY_LENGTH
+    && normalizeSearchText(debouncedQuery) !== normalizedQuery;
+  const isContentLoading = isWaitingForContentSearch || (contentSearchState.studentId === normalizedStudentId
     && contentSearchState.query === normalizedQuery
-    && contentSearchState.loading;
+    && contentSearchState.loading);
   const isLoading = isMetadataLoading || isContentLoading;
   const metadataLoadError = loadState.studentId === normalizedStudentId ? loadState.error : '';
   const contentLoadError = contentSearchState.studentId === normalizedStudentId
@@ -922,58 +1031,58 @@ const StudentGlobalSearch = ({
     : 0;
   const activeOptionId = visibleResults.length ? `${listboxId}-option-${safeActiveIndex}` : undefined;
 
-  const palette = open && typeof document !== 'undefined' ? createPortal(
-    <div
-      className={`fixed inset-0 z-[1400] flex items-start justify-center px-3 pb-6 pt-[max(4.5rem,10vh)] backdrop-blur-md sm:px-6 ${
-        isDarkTheme ? 'bg-slate-950/65' : 'bg-slate-900/25'
-      }`}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) closePalette();
+  useEffect(() => {
+    if (!open || !activeOptionId) return;
+    const activeOption = listboxRef.current?.querySelector(`[id="${activeOptionId}"]`);
+    activeOption?.scrollIntoView({ block: 'nearest' });
+  }, [activeOptionId, open]);
+
+  const palette = panelMounted && typeof document !== 'undefined' ? createPortal(
+    <section
+      ref={panelRef}
+      onBlur={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (nextTarget && (event.currentTarget.contains(nextTarget) || nextTarget === triggerRef.current)) return;
+        window.requestAnimationFrame(() => {
+          const activeElement = document.activeElement;
+          if (panelRef.current?.contains(activeElement) || activeElement === triggerRef.current) return;
+          closePalette();
+        });
       }}
+      id={panelId}
+      aria-labelledby={panelTitleId}
+      aria-hidden={!open}
+      data-motion={panelMotion}
+      data-placement={panelPlacement}
+      style={panelStyle || { visibility: 'hidden' }}
+      className={`student-global-search-popover fixed z-[1400] flex flex-col overflow-hidden rounded-[1.4rem] border ring-1 ring-violet-400/15 ${
+        isDarkTheme
+          ? 'border-white/15 bg-slate-950/[0.94] text-slate-100 shadow-[0_28px_80px_rgba(2,6,23,0.66)] backdrop-blur-2xl'
+          : 'border-white/90 bg-white/[0.92] text-slate-900 shadow-[0_28px_80px_rgba(64,45,120,0.2)] backdrop-blur-2xl'
+      }`}
     >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={dialogTitleId}
-        className={`flex max-h-[min(760px,82vh)] w-full max-w-3xl flex-col overflow-hidden rounded-[1.75rem] border ring-1 ring-violet-400/20 ${
-          isDarkTheme
-            ? 'border-white/15 bg-slate-950/95 text-slate-100 shadow-[0_32px_100px_rgba(2,6,23,0.72)]'
-            : 'border-white/90 bg-white/95 text-slate-900 shadow-[0_32px_100px_rgba(64,45,120,0.22)]'
-        }`}
-      >
-        <div className={`border-b bg-gradient-to-r from-violet-500/10 via-transparent to-cyan-500/10 p-3 sm:p-4 ${
-          isDarkTheme ? 'border-white/10' : 'border-slate-200/80'
-        }`}>
-          <div className="mb-2 flex items-center justify-between gap-3 px-1">
-            <div>
-              <h2 id={dialogTitleId} className={`text-sm font-extrabold tracking-tight sm:text-base ${isDarkTheme ? 'text-white' : 'text-slate-950'}`}>
-                Найти на платформе
-              </h2>
-              <p className={`mt-0.5 text-[11px] font-medium ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                Задания, занятия, конспекты, код и пробники
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={closePalette}
-              className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${
-                isDarkTheme
-                  ? 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white'
-                  : 'border-slate-200 bg-white/80 text-slate-500 shadow-sm hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700'
-              }`}
-              aria-label="Закрыть поиск"
-            >
-              <X size={17} />
-            </button>
-          </div>
-          <label className={`flex items-center gap-3 rounded-2xl border px-3.5 py-3 shadow-inner transition focus-within:border-violet-400/55 focus-within:ring-4 focus-within:ring-violet-500/10 ${
+      <div className="pointer-events-none absolute -right-12 -top-20 h-44 w-44 rounded-full bg-violet-500/15 blur-3xl" aria-hidden="true" />
+      <div className="pointer-events-none absolute -left-16 top-10 h-36 w-36 rounded-full bg-cyan-400/10 blur-3xl" aria-hidden="true" />
+      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/70 to-transparent" aria-hidden="true" />
+      <div className={`relative z-[1] border-b bg-gradient-to-r from-violet-500/[0.08] via-transparent to-cyan-500/[0.07] p-2.5 sm:p-3 ${
+        isDarkTheme ? 'border-white/10' : 'border-slate-200/75'
+      }`}>
+        <h2 id={panelTitleId} className="sr-only">Найти на платформе</h2>
+        <div className="flex items-center gap-2">
+          <label className={`student-global-search-field flex min-w-0 flex-1 items-center gap-2 rounded-[1rem] border p-1.5 pr-2 transition-all duration-200 focus-within:border-violet-400/55 focus-within:ring-4 focus-within:ring-violet-500/10 ${
             isDarkTheme
-              ? 'border-violet-300/25 bg-white/[0.07] focus-within:bg-white/[0.09]'
-              : 'border-violet-200/80 bg-white/90 shadow-violet-100/40 focus-within:bg-white'
+              ? 'border-white/10 bg-white/[0.055] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] focus-within:bg-white/[0.08]'
+              : 'border-violet-200/70 bg-white/80 shadow-[0_8px_24px_rgba(91,33,182,0.06),inset_0_1px_0_rgba(255,255,255,0.8)] focus-within:bg-white'
           }`}>
-            {isLoading
-              ? <LoaderCircle className={`shrink-0 animate-spin ${isDarkTheme ? 'text-violet-300' : 'text-violet-600'}`} size={20} />
-              : <Search className={`shrink-0 ${isDarkTheme ? 'text-violet-300' : 'text-violet-600'}`} size={20} />}
+            <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${
+              isDarkTheme
+                ? 'border-violet-300/20 bg-gradient-to-br from-violet-500/25 to-cyan-400/10 text-violet-200'
+                : 'border-violet-200/80 bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-600 shadow-sm'
+            }`}>
+              {isLoading
+                ? <LoaderCircle className="animate-spin" size={16} />
+                : <Search size={16} />}
+            </span>
             <span className="sr-only">Поиск по платформе</span>
             <input
               ref={inputRef}
@@ -986,26 +1095,26 @@ const StudentGlobalSearch = ({
               value={query}
               onChange={(event) => {
                 setQuery(event.target.value);
-                setActiveIndex(0);
+                setActiveResultId('');
               }}
               onKeyDown={handleInputKeyDown}
-              placeholder="Например: Черепаха, циклы, урок 19 июля…"
-              className={`min-w-0 flex-1 bg-transparent text-base font-semibold outline-none ${
+              placeholder="Например: урок, доска, задание 19, Черепаха…"
+              className={`student-global-search-input min-w-0 flex-1 border-0 bg-transparent text-sm font-semibold outline-none sm:text-[15px] ${
                 isDarkTheme
                   ? 'text-white caret-violet-300 placeholder:text-slate-500'
                   : 'text-slate-950 caret-violet-600 placeholder:text-slate-400'
               }`}
             />
-            {query ? (
+            {query && (
               <button
                 type="button"
                 onClick={() => {
                   setQuery('');
                   setDebouncedQuery('');
-                  setActiveIndex(0);
+                  setActiveResultId('');
                   inputRef.current?.focus();
                 }}
-                className={`rounded-lg p-1 transition ${
+                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition ${
                   isDarkTheme
                     ? 'text-slate-400 hover:bg-white/10 hover:text-white'
                     : 'text-slate-400 hover:bg-violet-100 hover:text-violet-700'
@@ -1014,24 +1123,39 @@ const StudentGlobalSearch = ({
               >
                 <X size={16} />
               </button>
-            ) : (
-              <kbd className={`hidden rounded-lg border px-2 py-1 text-[10px] font-bold sm:inline-flex ${
-                isDarkTheme
-                  ? 'border-white/10 bg-white/5 text-slate-400'
-                  : 'border-slate-200 bg-slate-50 text-slate-500 shadow-sm'
-              }`}>
-                Ctrl K
-              </kbd>
             )}
           </label>
+          <button
+            type="button"
+            onClick={() => {
+              closePalette();
+              window.requestAnimationFrame(() => triggerRef.current?.focus());
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Tab' || event.shiftKey) return;
+              event.preventDefault();
+              closePalette();
+              focusNextControlAfterTrigger();
+            }}
+            className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-transparent transition-all duration-200 hover:rotate-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${
+              isDarkTheme
+                ? 'bg-white/[0.04] text-slate-400 hover:bg-white/10 hover:text-white'
+                : 'bg-white/55 text-slate-400 hover:bg-violet-100 hover:text-violet-700'
+            }`}
+            aria-label="Закрыть поиск"
+          >
+            <X size={17} />
+          </button>
         </div>
+      </div>
 
         <div
+          ref={listboxRef}
           id={listboxId}
           role="listbox"
           aria-label="Результаты поиска"
           aria-busy={isLoading}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2 sm:px-3 sm:py-3"
+          className="relative z-[1] min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-1.5 sm:px-2.5 sm:py-2"
         >
           {visibleResults.length ? GROUPS.map((group) => {
             const groupItems = visibleResults
@@ -1039,14 +1163,16 @@ const StudentGlobalSearch = ({
               .filter((entry) => entry.item.group === group.id);
             if (!groupItems.length) return null;
             return (
-              <div key={group.id} className="mb-3 last:mb-0">
-                <div className={`sticky top-0 z-[1] flex items-center justify-between px-2 py-1.5 backdrop-blur-sm ${
+              <div key={group.id} className="mb-2 last:mb-0">
+                <div className={`sticky top-0 z-[1] flex items-center justify-between px-2 py-1 backdrop-blur-sm ${
                   isDarkTheme ? 'bg-slate-950/95' : 'bg-white/95'
                 }`}>
                   <h3 className={`text-[10px] font-extrabold uppercase tracking-[0.14em] ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
                     {group.label}
                   </h3>
-                  <span className={`text-[10px] font-bold ${isDarkTheme ? 'text-slate-600' : 'text-slate-400'}`}>{groupItems.length}</span>
+                  <span className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[9px] font-extrabold ${
+                    isDarkTheme ? 'bg-white/5 text-slate-500' : 'bg-violet-50 text-violet-500'
+                  }`}>{groupItems.length}</span>
                 </div>
                 <div className="space-y-1">
                   {groupItems.map(({ item, index }) => {
@@ -1056,26 +1182,26 @@ const StudentGlobalSearch = ({
                     const isHero = presentationTier === 'hero';
                     const isCompact = presentationTier === 'compact';
                     const layoutClass = isHero
-                      ? 'min-h-[104px] items-start gap-3.5 px-4 py-4 sm:items-center sm:gap-4 sm:px-5'
-                      : (isCompact ? 'gap-2.5 px-2.5 py-2' : 'gap-3 px-3 py-2.5');
+                      ? 'min-h-[64px] items-center gap-3 px-3 py-2.5'
+                      : (isCompact ? 'gap-2.5 px-2.5 py-1.5' : 'gap-3 px-3 py-2');
                     const surfaceClass = isHero
                       ? (active
                         ? (isDarkTheme
-                          ? 'border-violet-300/55 bg-gradient-to-r from-violet-500/30 via-fuchsia-500/15 to-cyan-500/15 shadow-[0_18px_44px_rgba(76,29,149,0.30)]'
-                          : 'border-violet-300 bg-gradient-to-r from-violet-100 via-white to-cyan-50 shadow-[0_18px_44px_rgba(109,40,217,0.16)]')
+                          ? 'border-violet-300/45 bg-gradient-to-r from-violet-500/25 via-fuchsia-500/10 to-cyan-500/10 shadow-[0_12px_32px_rgba(76,29,149,0.22)]'
+                          : 'border-violet-300/80 bg-gradient-to-r from-violet-100/90 via-white/90 to-cyan-50/80 shadow-[0_12px_32px_rgba(109,40,217,0.12)]')
                         : (isDarkTheme
-                          ? 'border-violet-400/30 bg-gradient-to-r from-violet-500/20 via-fuchsia-500/10 to-cyan-500/10 shadow-[0_14px_36px_rgba(76,29,149,0.20)] hover:border-violet-300/50 hover:from-violet-500/25'
-                          : 'border-violet-200/90 bg-gradient-to-r from-violet-50 via-white to-cyan-50/80 shadow-[0_14px_36px_rgba(109,40,217,0.11)] hover:border-violet-300 hover:from-violet-100/80'))
+                          ? 'border-violet-400/20 bg-gradient-to-r from-violet-500/14 via-fuchsia-500/[0.06] to-cyan-500/[0.06] hover:border-violet-300/40 hover:from-violet-500/20'
+                          : 'border-violet-200/70 bg-gradient-to-r from-violet-50/90 via-white/75 to-cyan-50/65 shadow-[0_6px_20px_rgba(109,40,217,0.06)] hover:border-violet-300/80 hover:from-violet-100/70'))
                       : (active
                         ? (isDarkTheme
-                          ? 'border-violet-400/35 bg-gradient-to-r from-violet-500/20 to-cyan-500/10 shadow-[0_10px_28px_rgba(76,29,149,0.18)]'
-                          : 'border-violet-300/70 bg-gradient-to-r from-violet-100/90 to-cyan-50/80 shadow-[0_10px_28px_rgba(109,40,217,0.10)]')
+                          ? 'border-violet-400/30 bg-gradient-to-r from-violet-500/18 to-cyan-500/[0.08] shadow-[0_8px_24px_rgba(76,29,149,0.15)]'
+                          : 'border-violet-300/65 bg-gradient-to-r from-violet-100/80 to-cyan-50/70 shadow-[0_8px_24px_rgba(109,40,217,0.08)]')
                         : (isDarkTheme
                           ? 'border-transparent bg-transparent hover:border-white/10 hover:bg-white/[0.055]'
                           : 'border-transparent bg-transparent hover:border-slate-200 hover:bg-slate-50/90'));
                     const iconSizeClass = isHero
-                      ? 'h-12 w-12 rounded-2xl sm:h-14 sm:w-14'
-                      : (isCompact ? 'h-8 w-8 rounded-lg' : 'h-10 w-10 rounded-xl');
+                      ? 'h-10 w-10 rounded-xl'
+                      : (isCompact ? 'h-8 w-8 rounded-lg' : 'h-9 w-9 rounded-xl');
                     const iconToneClass = isHero
                       ? (isDarkTheme
                         ? 'border-violet-300/35 bg-gradient-to-br from-violet-400/30 to-cyan-400/15 text-violet-100 shadow-[0_8px_24px_rgba(124,58,237,0.24)]'
@@ -1095,55 +1221,39 @@ const StudentGlobalSearch = ({
                         role="option"
                         data-presentation-tier={presentationTier}
                         aria-selected={active}
-                        onMouseMove={() => setActiveIndex(index)}
-                        onFocus={() => setActiveIndex(index)}
+                        tabIndex={-1}
+                        style={{ '--search-result-index': Math.min(index, 8) }}
+                        onMouseEnter={() => setActiveResultId(item.id)}
+                        onMouseDown={(event) => event.preventDefault()}
                         onClick={() => activateResult(item)}
-                        className={`group flex w-full rounded-2xl border text-left transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${layoutClass} ${surfaceClass}`}
+                        className={`student-global-search-result group flex w-full rounded-xl border text-left transition duration-200 ${layoutClass} ${surfaceClass}`}
                       >
                         <span className={`inline-flex shrink-0 items-center justify-center border transition ${iconSizeClass} ${iconToneClass}`}>
-                          <Icon size={isHero ? 24 : (isCompact ? 15 : 18)} />
+                          <Icon size={isHero ? 19 : (isCompact ? 15 : 17)} />
                         </span>
                         <span className="min-w-0 flex-1">
-                          {isHero && (
-                            <span className={`mb-1 block text-[9px] font-extrabold uppercase tracking-[0.16em] ${
-                              isDarkTheme ? 'text-violet-300' : 'text-violet-600'
-                            }`}>
-                              {item.sourceLabel || 'Быстрое действие'}
-                            </span>
-                          )}
                           <span className="flex min-w-0 items-center gap-2">
-                            <span className={`${isHero ? 'text-base sm:text-lg' : (isCompact ? 'text-[13px]' : 'text-sm')} min-w-0 truncate font-bold ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{item.title}</span>
-                            {!isHero && <span className={`hidden shrink-0 rounded-md border px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide sm:inline-flex ${
+                            <span className={`${isHero ? 'text-[15px]' : (isCompact ? 'text-[13px]' : 'text-sm')} min-w-0 truncate font-bold ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{item.title}</span>
+                            <span className={`hidden shrink-0 rounded-md border px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide sm:inline-flex ${
                               isDarkTheme
                                 ? 'border-white/10 bg-white/5 text-slate-500'
                                 : 'border-slate-200 bg-white/80 text-slate-500'
                             }`}>
-                              {item.sourceLabel}
-                            </span>}
+                              {item.sourceLabel || (isHero ? 'Быстрое действие' : '')}
+                            </span>
                           </span>
-                          {(isHero ? (item.description || item.subtitle) : (item.subtitle || item.excerpt)) && (
-                            <span className={`${isHero ? 'mt-1 line-clamp-2 max-w-xl text-xs leading-relaxed sm:text-[13px]' : 'mt-0.5 block truncate text-xs'} font-medium ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                              {isHero
-                                ? (item.description || item.subtitle)
+                          {(item.description || item.subtitle || item.excerpt) && (
+                            <span className={`mt-0.5 block truncate text-xs font-medium ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                              {item.group === 'commands'
+                                ? (item.description || item.subtitle || item.excerpt)
                                 : [item.subtitle, item.excerpt].filter(Boolean).join(' — ')}
                             </span>
                           )}
                         </span>
-                        {isHero ? (
-                          <span className={`mt-0.5 hidden shrink-0 items-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-extrabold sm:inline-flex ${
-                            isDarkTheme
-                              ? 'border-violet-300/25 bg-violet-400/15 text-violet-200'
-                              : 'border-violet-200 bg-white/85 text-violet-700 shadow-sm'
-                          }`}>
-                            {item.cta || 'Открыть'}
-                            <ChevronRight className="transition-transform group-hover:translate-x-0.5" size={15} />
-                          </span>
-                        ) : (
-                          <ChevronRight className={`shrink-0 transition ${active
-                            ? `translate-x-0 ${isDarkTheme ? 'text-violet-300' : 'text-violet-600'}`
-                            : `-translate-x-1 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 ${isDarkTheme ? 'text-slate-600' : 'text-slate-400'}`
-                          }`} size={isCompact ? 15 : 17} />
-                        )}
+                        <ChevronRight className={`shrink-0 transition ${active
+                          ? `translate-x-0 ${isDarkTheme ? 'text-violet-300' : 'text-violet-600'}`
+                          : `-translate-x-1 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 ${isDarkTheme ? 'text-slate-600' : 'text-slate-400'}`
+                        }`} size={isCompact ? 15 : 17} />
                       </button>
                     );
                   })}
@@ -1151,7 +1261,7 @@ const StudentGlobalSearch = ({
               </div>
             );
           }) : (
-            <div className="flex min-h-56 flex-col items-center justify-center px-6 text-center">
+            <div className="flex min-h-40 flex-col items-center justify-center px-6 py-6 text-center">
               <span className={`mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl border ${
                 isDarkTheme
                   ? 'border-white/10 bg-white/5 text-slate-500'
@@ -1161,13 +1271,13 @@ const StudentGlobalSearch = ({
               </span>
               <p className={`text-sm font-bold ${isDarkTheme ? 'text-slate-200' : 'text-slate-800'}`}>Ничего не нашлось</p>
               <p className="mt-1 max-w-sm text-xs font-medium leading-relaxed text-slate-500">
-                Попробуйте номер задания, тему урока, название файла или фрагмент сохранённого кода.
+                Попробуйте «урок», «доска», номер задания, тему или фрагмент сохранённого кода.
               </p>
             </div>
           )}
         </div>
 
-        <footer className={`flex min-h-11 items-center justify-between gap-3 border-t px-4 py-2 text-[10px] font-semibold ${
+        <footer className={`relative z-[1] flex min-h-10 items-center justify-between gap-3 border-t px-3 py-2 text-[10px] font-semibold ${
           isDarkTheme
             ? 'border-white/10 bg-white/[0.025] text-slate-500'
             : 'border-slate-200/80 bg-slate-50/70 text-slate-500'
@@ -1185,34 +1295,45 @@ const StudentGlobalSearch = ({
             <span><kbd className={`rounded border px-1.5 py-0.5 ${isDarkTheme ? 'border-white/10' : 'border-slate-200 bg-white'}`}>Esc</kbd> закрыть</span>
           </span>
         </footer>
-      </section>
-    </div>,
+    </section>,
     document.body
   ) : null;
 
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
+        onClick={() => {
+          if (open) closePalette();
+          else openPalette();
+        }}
         aria-expanded={open}
-        className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 ${
+        aria-controls={open ? panelId : undefined}
+        className={`student-global-search-trigger group relative isolate inline-flex h-10 items-center gap-2 overflow-hidden rounded-[0.95rem] border px-2.5 text-xs font-extrabold transition-all duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 sm:px-3 ${
           isDarkTheme
-            ? 'border-slate-700/70 bg-slate-900/90 text-slate-100 shadow-[0_8px_22px_rgba(15,23,42,0.2)] hover:border-violet-400/60 hover:bg-slate-900 hover:shadow-[0_12px_28px_rgba(76,29,149,0.2)]'
-            : 'border-violet-200/80 bg-white/85 text-slate-700 shadow-[0_8px_22px_rgba(76,29,149,0.10)] backdrop-blur-sm hover:border-violet-300 hover:bg-white hover:text-violet-800 hover:shadow-[0_12px_28px_rgba(76,29,149,0.16)]'
+            ? `${open ? 'border-violet-300/55 bg-gradient-to-r from-violet-500/22 to-cyan-500/10' : 'border-white/10 bg-slate-900/75'} text-slate-100 shadow-[0_10px_28px_rgba(2,6,23,0.26)] backdrop-blur-xl hover:border-violet-400/55 hover:shadow-[0_14px_34px_rgba(76,29,149,0.22)]`
+            : `${open ? 'border-violet-300/90 bg-gradient-to-r from-violet-100/90 via-white/90 to-cyan-50/80 text-violet-800' : 'border-violet-200/70 bg-white/70 text-slate-700'} shadow-[0_10px_28px_rgba(76,29,149,0.10)] backdrop-blur-xl hover:border-violet-300 hover:bg-white/90 hover:text-violet-800 hover:shadow-[0_14px_34px_rgba(76,29,149,0.16)]`
         }`}
         title="Глобальный поиск (Ctrl/⌘ K)"
       >
-        <Search size={16} className={isDarkTheme ? 'text-violet-300' : 'text-violet-600'} />
-        <span>Поиск</span>
-        <kbd className={`hidden rounded-md border px-1.5 py-0.5 text-[9px] font-extrabold sm:inline-flex ${
+        <span className="student-global-search-trigger__shine pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 -skew-x-12 bg-gradient-to-r from-transparent via-white/45 to-transparent opacity-0" aria-hidden="true" />
+        <span className={`relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[0.65rem] border transition-transform duration-200 group-hover:-rotate-6 group-hover:scale-105 ${
+          open ? '-rotate-6 scale-105' : ''
+        } ${
           isDarkTheme
-            ? 'border-white/10 bg-white/5 text-slate-400'
-            : 'border-slate-200 bg-slate-50 text-slate-500'
+            ? 'border-violet-300/20 bg-gradient-to-br from-violet-400/25 to-cyan-400/10 text-violet-200'
+            : 'border-violet-200/80 bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-600 shadow-sm'
         }`}>
-          Ctrl K
-        </kbd>
+          <Search size={14} strokeWidth={2.4} />
+          <span className={`absolute right-1 top-1 h-1 w-1 rounded-full transition ${
+            open ? 'scale-125 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'bg-violet-400/70'
+          }`} aria-hidden="true" />
+        </span>
+        <span className="relative">Поиск</span>
+        <span className={`relative hidden text-[9px] font-bold tracking-wide sm:inline ${
+          isDarkTheme ? 'text-slate-500' : 'text-slate-400'
+        }`} aria-hidden="true">Ctrl K</span>
       </button>
       {palette}
     </>
