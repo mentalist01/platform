@@ -3696,12 +3696,12 @@ const ProgressSection = ({
             );
           })}
         </div>
-        <div className="w-full rounded-2xl border border-slate-200 bg-white/85 p-1.5 sm:w-auto md:p-2">
+        <div className="progress-section-tabs w-full rounded-2xl border border-slate-200 bg-white/85 p-1.5 sm:w-auto md:p-2">
           <button
             type="button"
             onClick={onOpenHomeworkStats}
             disabled={!effectiveStudentId || typeof onOpenHomeworkStats !== 'function'}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-500 bg-orange-500 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-orange-200/70 transition-[background-color,border-color,transform] duration-150 ease-out hover:border-orange-600 hover:bg-orange-600 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 motion-reduce:transition-none sm:w-auto md:px-5 md:text-sm"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-sky-200 bg-slate-50/70 px-4 py-2 text-xs font-semibold text-sky-700 transition-colors duration-150 ease-out hover:border-sky-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none sm:w-auto md:px-5 md:text-sm"
             title={effectiveStudentId ? 'Открыть статистику по ДЗ' : 'Сначала выберите ученика'}
           >
             <ListChecks size={14} />
