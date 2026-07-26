@@ -94,6 +94,7 @@ import {
   normalizeStudentStudyStatus,
   parseStudentStudyStatus,
 } from '../src/utils/studentStudyStatus.js';
+import { snapshotHomeworkGoalTargets } from '../src/utils/homeworkStats.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -11648,10 +11649,12 @@ const normalizeGoals = (goals, testsDb = null) => {
     if (goalType === GOAL_TYPE_MOCK) {
       const mockExamId = String(goal.mockExamId || '').trim();
       if (!mockExamId) return;
+      const targetTaskKeys = uniqueStrings(goal.targetTaskKeys).slice(0, 200);
       result.push({
         type: GOAL_TYPE_MOCK,
         mockExamId,
         mode: normalizeMockAttemptMode(goal?.mode, MOCK_ATTEMPT_MODE_TIMER),
+        ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
       });
       return;
     }
@@ -11673,7 +11676,15 @@ const normalizeGoals = (goals, testsDb = null) => {
         ));
     const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
     const targets = filterTargetsByCount(targetsRaw, totalCount);
-    result.push({ type: GOAL_TYPE_TASK, taskNumber: taskNum, levelId, includeAll, targetQuestions: targets });
+    const targetQuestionIds = uniqueStrings(goal.targetQuestionIds).slice(0, 200);
+    result.push({
+      type: GOAL_TYPE_TASK,
+      taskNumber: taskNum,
+      levelId,
+      includeAll,
+      targetQuestions: targets,
+      ...(targetQuestionIds.length > 0 ? { targetQuestionIds } : {}),
+    });
   });
   return result;
 };
@@ -24347,6 +24358,11 @@ app.patch('/api/student-next-lesson', (req, res) => {
       targetQuestions: normalizedTargets
     }];
   }
+  normalizedGoals = snapshotHomeworkGoalTargets({
+    goals: normalizedGoals,
+    testsDb,
+    mockExams: readMockExamsDb(),
+  });
 
   const newEntryId = crypto.randomUUID();
   const newEntry = {
@@ -24478,6 +24494,11 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
       ? [{ type: GOAL_TYPE_TASK, taskNumber: normalizedTaskNumber, levelId: normalizedLevelId, includeAll: false, targetQuestions: normalizedTargets }]
       : [];
   }
+  normalizedGoals = snapshotHomeworkGoalTargets({
+    goals: normalizedGoals,
+    testsDb,
+    mockExams: readMockExamsDb(),
+  });
 
   const updatedEntry = {
     ...existing,

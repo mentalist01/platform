@@ -14159,7 +14159,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const initialTeacherSignupChatId = user.role === 'teacher' && initialTeacherCommsTab === 'signup-chats'
     ? initialTeacherChatId
     : '';
-  const initialProgressSection = ['progress', 'notes', 'mocks'].includes(storedLocation?.progressSection)
+  const initialProgressSection = ['progress', 'homeworks', 'notes', 'mocks'].includes(storedLocation?.progressSection)
     ? storedLocation.progressSection
     : 'progress';
   const initialMockExamId = normalizeMockExamId(storedLocation?.mockExamId);
@@ -17207,7 +17207,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const handleGlobalOpenProgressSection = useCallback((requestedSection = 'progress') => {
     if (user.role !== 'student') return;
-    const nextSection = ['progress', 'notes', 'mocks'].includes(String(requestedSection || '').trim())
+    const nextSection = ['progress', 'homeworks', 'notes', 'mocks'].includes(String(requestedSection || '').trim())
       ? String(requestedSection).trim()
       : 'progress';
     setPendingOpenTask(null);

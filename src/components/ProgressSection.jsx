@@ -35,6 +35,7 @@ import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
 import RandomMockGenerator from './RandomMockGenerator';
+import HomeworkStatsSection from './HomeworkStatsSection';
 import ProgressReviewModal from './ProgressReviewModal';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
@@ -631,10 +632,10 @@ const ProgressSection = ({
   const [mobileLevelPopupClosing, setMobileLevelPopupClosing] = useState(false);
   const [forceInitialLevelLaunch, setForceInitialLevelLaunch] = useState(false);
   const [section, setSection] = useState(() => (
-    ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
+    ['progress', 'homeworks', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
   ));
   const requestedSectionRef = useRef(
-    ['progress', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
+    ['progress', 'homeworks', 'notes', 'mocks'].includes(initialSection) ? initialSection : 'progress'
   );
   const [studentData, setStudentData] = useState(() => normalizeProgressSectionStudentData(null));
   const [dataError, setDataError] = useState('');
@@ -1477,7 +1478,7 @@ const ProgressSection = ({
   }, [section, effectiveStudentId]);
 
   useEffect(() => {
-    requestedSectionRef.current = ['progress', 'notes', 'mocks'].includes(initialSection)
+    requestedSectionRef.current = ['progress', 'homeworks', 'notes', 'mocks'].includes(initialSection)
       ? initialSection
       : 'progress';
   }, [initialSection]);
@@ -1621,11 +1622,13 @@ const ProgressSection = ({
     : '0';
   const sectionTabs = [
     { id: 'progress', label: 'Тестирования', icon: BarChart2 },
+    { id: 'homeworks', label: 'Домашние работы', icon: ListChecks },
     { id: 'notes', label: 'Заметки учителя', icon: FileText },
     { id: 'mocks', label: 'Пробники', icon: BookOpen }
   ];
   const sectionShortLabels = {
     progress: 'Тесты',
+    homeworks: 'Домашки',
     notes: 'Заметки',
     mocks: 'Пробники'
   };
@@ -3668,7 +3671,7 @@ const ProgressSection = ({
         </div>
       </div>
 
-      <div className={`progress-section-tabs grid w-full grid-cols-3 gap-1.5 rounded-2xl border border-slate-200 bg-white/85 p-1.5 md:inline-flex md:w-fit md:flex-wrap md:gap-2 md:p-2 ${isStudentProgressSection ? 'progress-section-tabs--compact' : ''}`}>
+      <div className={`progress-section-tabs grid w-full grid-cols-2 gap-1.5 rounded-2xl border border-slate-200 bg-white/85 p-1.5 sm:grid-cols-4 md:inline-flex md:w-fit md:flex-wrap md:gap-2 md:p-2 ${isStudentProgressSection ? 'progress-section-tabs--compact' : ''}`}>
         {sectionTabs.map((item) => {
           const Icon = item.icon;
           const active = section === item.id;
@@ -4153,6 +4156,18 @@ const ProgressSection = ({
             />
           )}
         </>
+      )}
+
+      {section === 'homeworks' && (
+        <HomeworkStatsSection
+          homeworks={studentData.homeworks}
+          studentData={studentData}
+          testsDb={testsDb}
+          mockExams={mockExams}
+          mockAttemptsByExam={mockAttemptsByExam}
+          role={role}
+          theme={theme}
+        />
       )}
 
       {section === 'notes' && (
