@@ -87855,3 +87855,735 @@ html[data-theme='dark'] .pace-forecast-action--secondary:hover {
     transition-duration: 1ms !important;
   }
 }
+
+/* Student code workspace v2: one cohesive IDE surface with functional dividers. */
+html:not([data-theme='dark']) .student-test-code-focus {
+  --code-focus-surface: #eef1ff;
+  --code-focus-panel: #ffffff;
+  --code-focus-panel-muted: #f7f8ff;
+  --code-focus-editor: #ffffff;
+  --code-focus-border: #c9d3e7;
+  --code-focus-border-strong: #9baaca;
+  --code-focus-divider: #bac7dc;
+  --code-focus-text: #172033;
+  --code-focus-muted: #68758a;
+  --code-focus-subtle: #f1ebff;
+  --code-focus-subtle-2: #eaf6ff;
+  --code-focus-purple-soft: #f2ebff;
+  --code-focus-blue-soft: #e8f6ff;
+  --code-focus-mint-soft: #eafbf4;
+  --code-focus-task-border: #c8b6ff;
+  --code-focus-ide-border: #a8d8f3;
+  --code-focus-answer-border: #79d8b3;
+  --code-focus-terminal: #0f1728;
+  --code-focus-terminal-head: #17243b;
+  --code-focus-terminal-border: #304767;
+  --code-focus-terminal-text: #dbeafe;
+  --code-focus-shadow: 0 18px 54px rgba(15, 23, 42, 0.16);
+}
+
+html[data-theme='dark'] .student-test-code-focus {
+  --code-focus-surface: #0c1525;
+  --code-focus-panel: #121d2e;
+  --code-focus-panel-muted: #101a2b;
+  --code-focus-editor: #111827;
+  --code-focus-border: #2c394b;
+  --code-focus-border-strong: #46566d;
+  --code-focus-divider: #39485d;
+  --code-focus-text: #e7edf7;
+  --code-focus-muted: #94a3b8;
+  --code-focus-subtle: #241d3d;
+  --code-focus-subtle-2: #10243b;
+  --code-focus-purple-soft: #251d3e;
+  --code-focus-blue-soft: #112a43;
+  --code-focus-mint-soft: #102d29;
+  --code-focus-task-border: #5c488a;
+  --code-focus-ide-border: #315f7c;
+  --code-focus-answer-border: #286f59;
+  --code-focus-terminal: #080f1d;
+  --code-focus-terminal-head: #0e1b2e;
+  --code-focus-terminal-border: #2d4260;
+  --code-focus-terminal-text: #dbeafe;
+  --code-focus-shadow: 0 22px 64px rgba(0, 0, 0, 0.42);
+}
+
+html .student-test-code-focus {
+  padding: 8px;
+}
+
+html .student-test-code-focus .student-test-code-focus__scrim {
+  background: color-mix(in srgb, var(--code-focus-bg) 90%, transparent);
+  backdrop-filter: blur(10px) saturate(104%);
+  -webkit-backdrop-filter: blur(10px) saturate(104%);
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace {
+  width: calc(100vw - 16px);
+  max-width: none;
+  height: calc(100dvh - 16px);
+  border: 1px solid var(--code-focus-border);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--code-focus-accent) 13%, transparent), transparent 30%),
+    radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--code-focus-accent-2) 12%, transparent), transparent 32%),
+    var(--code-focus-surface);
+  box-shadow: var(--code-focus-shadow);
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace.is-side-by-side {
+  width: calc(100vw - 16px);
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace.is-focus-fullscreen,
+html .student-test-code-focus .student-test-code-focus__workspace:fullscreen {
+  width: 100vw;
+  height: 100dvh;
+  border: 0;
+  border-radius: 0;
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace::before {
+  right: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 22px 22px 0 0;
+  background: linear-gradient(90deg, var(--code-focus-accent), var(--code-focus-accent-2) 52%, var(--code-focus-accent-strong));
+  box-shadow: none;
+  opacity: 0.88;
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace::after {
+  display: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__header {
+  min-height: 60px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--code-focus-divider);
+  background: linear-gradient(90deg, var(--code-focus-panel) 52%, color-mix(in srgb, var(--code-focus-blue-soft) 56%, var(--code-focus-panel)));
+}
+
+html .student-test-code-focus .student-test-code-focus__title {
+  gap: 11px;
+}
+
+html .student-test-code-focus .student-test-code-focus__title-icon {
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
+  border-color: color-mix(in srgb, var(--code-focus-accent-2) 28%, var(--code-focus-border));
+  border-radius: 13px;
+  color: var(--code-focus-accent-2);
+  background: var(--code-focus-subtle-2);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--code-focus-accent-2) 13%, transparent);
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace:hover .student-test-code-focus__title-icon {
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--code-focus-accent-2) 13%, transparent);
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+html .student-test-code-focus .student-test-code-focus__title h3 {
+  margin-top: 1px;
+  font-size: 17px;
+  letter-spacing: -0.015em;
+}
+
+html .student-test-code-focus .student-test-code-focus__header-actions {
+  flex-wrap: nowrap;
+  gap: 7px;
+}
+
+html .student-test-code-focus .student-test-code-focus__focus-tools {
+  gap: 5px;
+}
+
+html .student-test-code-focus .student-test-code-focus__focus-button,
+html .student-test-code-focus .student-test-code-focus__volume {
+  min-height: 34px;
+  border-radius: 11px;
+  box-shadow: none;
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__focus-button {
+  padding: 0 11px;
+}
+
+html .student-test-code-focus .student-test-code-focus__focus-button:hover,
+html .student-test-code-focus .student-test-code-focus__volume:has(input:not(:disabled)):hover {
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__save-state {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--code-focus-accent-strong) 18%, var(--code-focus-border));
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--code-focus-muted);
+  background: color-mix(in srgb, var(--code-focus-panel) 88%, var(--code-focus-subtle));
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__save-state::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  margin-right: 7px;
+  border-radius: 999px;
+  background: var(--code-focus-accent-strong);
+  content: '';
+}
+
+html .student-test-code-focus .student-test-code-focus__close {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+  border-radius: 11px;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__navigator {
+  grid-template-columns: minmax(250px, 0.46fr) minmax(500px, 1fr);
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--code-focus-divider);
+  background: linear-gradient(110deg, var(--code-focus-purple-soft), var(--code-focus-blue-soft));
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-row,
+html .student-test-code-focus .student-test-code-focus__level-row {
+  min-height: 50px;
+  gap: 8px;
+  padding: 5px 8px;
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: 0 6px 16px rgba(53, 42, 104, 0.075), inset 0 1px 0 rgba(255, 255, 255, 0.66);
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-row {
+  border: 1px solid color-mix(in srgb, var(--code-focus-accent) 28%, var(--code-focus-task-border));
+  background: color-mix(in srgb, var(--code-focus-panel) 74%, var(--code-focus-purple-soft));
+}
+
+html .student-test-code-focus .student-test-code-focus__level-row {
+  border: 1px solid color-mix(in srgb, var(--code-focus-accent-2) 26%, var(--code-focus-ide-border));
+  background: color-mix(in srgb, var(--code-focus-panel) 75%, var(--code-focus-blue-soft));
+}
+
+html .student-test-code-focus .student-test-code-focus__nav-heading {
+  min-width: 76px;
+  gap: 2px;
+  padding-left: 0;
+}
+
+html .student-test-code-focus .student-test-code-focus__nav-heading span {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+html .student-test-code-focus .student-test-code-focus__nav-progress {
+  height: 2px;
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-strip,
+html .student-test-code-focus .student-test-code-focus__level-strip {
+  gap: 5px;
+  padding: 3px 8px;
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-chip,
+html .student-test-code-focus .student-test-code-focus__level-dot,
+html .student-test-code-focus .student-test-code-focus__nav-arrow {
+  box-shadow: none;
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-chip:hover,
+html .student-test-code-focus .student-test-code-focus__level-dot:hover,
+html .student-test-code-focus .student-test-code-focus__nav-arrow:hover:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__level-dot,
+html .student-test-code-focus .student-test-code-focus__nav-arrow {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+html .student-test-code-focus .student-test-code-focus__body {
+  gap: 12px;
+  padding: 12px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--code-focus-purple-soft) 42%, transparent), color-mix(in srgb, var(--code-focus-blue-soft) 44%, transparent));
+}
+
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side {
+  grid-template-columns: minmax(360px, 0.82fr) minmax(0, 1.38fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+html .student-test-code-focus .student-test-code-focus__task,
+html .student-test-code-focus .student-test-code-focus__ide {
+  border: 1px solid var(--code-focus-border);
+  border-radius: 18px;
+  background: var(--code-focus-panel);
+  box-shadow: 0 14px 34px rgba(39, 45, 89, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  animation: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__task:hover,
+html .student-test-code-focus .student-test-code-focus__ide:hover {
+  box-shadow: 0 14px 34px rgba(39, 45, 89, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__task {
+  gap: 8px;
+  padding: 9px;
+  border-color: var(--code-focus-task-border);
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--code-focus-panel) 90%, var(--code-focus-purple-soft)), var(--code-focus-purple-soft));
+}
+
+html .student-test-code-focus .student-test-code-focus__ide {
+  border-color: var(--code-focus-ide-border);
+}
+
+html .student-test-code-focus .student-test-code-focus__body:not(.is-side-by-side) .student-test-code-focus__task {
+  border-bottom: 1px solid var(--code-focus-task-border);
+}
+
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__task {
+  border-right: 1px solid var(--code-focus-task-border);
+}
+
+html .student-test-code-focus .student-test-code-focus__task-head {
+  min-height: 24px;
+}
+
+html .student-test-code-focus .student-test-code-focus__task-meta {
+  border-radius: 6px;
+  padding: 3px 7px;
+  color: var(--code-focus-accent);
+  background: color-mix(in srgb, var(--code-focus-panel) 76%, var(--code-focus-purple-soft));
+}
+
+html .student-test-code-focus .student-test-code-focus__image-button {
+  border: 0;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__image-button:hover {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__files a {
+  min-height: 28px;
+  border-radius: 8px;
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__ide-topbar {
+  min-height: 48px;
+  padding: 0 9px;
+  border-bottom: 1px solid var(--code-focus-divider);
+  background: linear-gradient(90deg, var(--code-focus-blue-soft), color-mix(in srgb, var(--code-focus-panel) 82%, var(--code-focus-blue-soft)));
+}
+
+html .student-test-code-focus .student-test-code-focus__window-dots {
+  display: flex;
+}
+
+html .student-test-code-focus .student-test-code-focus__tab {
+  align-self: center;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--code-focus-accent-2) 22%, var(--code-focus-border));
+  border-bottom: 2px solid var(--code-focus-accent-2);
+  border-radius: 10px 10px 7px 7px;
+  padding: 0 11px;
+  color: var(--code-focus-text);
+  background: var(--code-focus-panel);
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.05);
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__tab:hover {
+  border-color: var(--code-focus-accent-2);
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__tools {
+  gap: 5px;
+}
+
+html .student-test-code-focus .student-test-code-focus__control-group,
+html .student-test-code-focus .student-test-code-focus__tool-button {
+  min-height: 34px;
+  border-radius: 10px;
+  box-shadow: none;
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__control-group:hover,
+html .student-test-code-focus .student-test-code-focus__tool-button:hover:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__tool-button.is-layout,
+html .student-test-code-focus .student-test-code-focus__tool-button.is-run {
+  box-shadow: none;
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__font-button {
+  height: 24px;
+}
+
+html .student-test-code-focus .student-test-code-focus__activity {
+  display: flex;
+  border-right: 1px solid var(--code-focus-divider);
+  background: color-mix(in srgb, var(--code-focus-blue-soft) 78%, var(--code-focus-panel));
+}
+
+html .student-test-code-focus .student-test-code-focus__ide-grid {
+  grid-template-columns: 46px minmax(0, 1fr) minmax(300px, 0.42fr);
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--code-focus-divider);
+}
+
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__ide-grid {
+  grid-template-columns: 46px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(170px, 0.4fr);
+}
+
+html .student-test-code-focus .student-test-code-focus__editor-pane {
+  border-right: 1px solid var(--code-focus-divider);
+  background: var(--code-focus-editor);
+}
+
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__editor-pane {
+  grid-column: 2;
+  grid-row: 1;
+  border-right: 0;
+  border-bottom: 1px solid var(--code-focus-divider);
+}
+
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__console-pane {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+html .student-test-code-focus .student-test-code-focus__console-head {
+  min-height: 38px;
+  padding: 0 11px;
+  border-bottom: 1px solid var(--code-focus-terminal-border);
+  color: #c7dcff;
+  background: var(--code-focus-terminal-head);
+}
+
+html .student-test-code-focus .student-test-code-focus__console-pane {
+  background: var(--code-focus-terminal);
+}
+
+html .student-test-code-focus .student-test-code-focus__terminal-output {
+  padding: 11px 12px;
+  line-height: 1.58;
+  color: var(--code-focus-terminal-text);
+  background: var(--code-focus-terminal);
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-card {
+  min-height: 58px;
+  grid-template-columns: minmax(118px, auto) minmax(190px, 1fr) auto;
+  gap: 10px;
+  border-top: 2px solid var(--code-focus-answer-border);
+  border-left: 0;
+  padding: 8px 110px 8px 10px;
+  background: linear-gradient(90deg, var(--code-focus-mint-soft), color-mix(in srgb, var(--code-focus-panel) 82%, var(--code-focus-blue-soft)));
+  box-shadow: 0 -7px 22px rgba(15, 118, 110, 0.07);
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-card.is-correct {
+  border-left: 0;
+  border-top-color: #10b981;
+  background: linear-gradient(90deg, color-mix(in srgb, #10b981 9%, var(--code-focus-panel)), var(--code-focus-panel) 72%);
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-card.is-wrong {
+  border-left: 0;
+  border-top-color: #ef4444;
+  background: linear-gradient(90deg, color-mix(in srgb, #ef4444 8%, var(--code-focus-panel)), var(--code-focus-panel) 72%);
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-head {
+  justify-content: flex-start;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-head span {
+  font-size: 12px;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-head strong {
+  padding: 3px 7px;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-body input,
+html .student-test-code-focus .student-test-code-focus__answer-actions button {
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-actions button {
+  padding: 0 12px;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-actions button:hover:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace.is-focus-fullscreen .student-test-code-focus__answer-card,
+html .student-test-code-focus .student-test-code-focus__workspace:fullscreen .student-test-code-focus__answer-card {
+  padding-right: 8px;
+}
+
+@media (max-width: 1100px) {
+  html .student-test-code-focus .student-test-code-focus__navigator {
+    grid-template-columns: minmax(220px, 0.38fr) minmax(420px, 1fr);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side {
+    grid-template-columns: minmax(280px, 0.68fr) minmax(0, 1.32fr);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__answer-head strong {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  html .student-test-code-focus {
+    padding: 0;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__workspace,
+  html .student-test-code-focus .student-test-code-focus__workspace.is-side-by-side {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__header {
+    flex-wrap: nowrap;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__header-actions {
+    width: auto;
+    justify-content: flex-end;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__focus-tools {
+    flex: 0 1 auto;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__navigator {
+    grid-template-columns: minmax(200px, 0.38fr) minmax(380px, 1fr);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__homework-row {
+    border-right: 1px solid var(--code-focus-divider);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__body,
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(150px, 30vh) minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__task {
+    border-right: 0;
+    border-bottom: 1px solid var(--code-focus-task-border);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__ide-grid,
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__ide-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(230px, 1fr) minmax(135px, 0.34fr);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__editor-pane,
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__editor-pane {
+    grid-column: 1;
+    grid-row: 1;
+    border-right: 0;
+    border-bottom: 1px solid var(--code-focus-divider);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__console-pane,
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__console-pane {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__answer-card {
+    grid-template-columns: minmax(96px, auto) minmax(170px, 1fr) auto;
+    align-items: center;
+  }
+}
+
+@media (max-width: 700px) {
+  html .student-test-code-focus .student-test-code-focus__navigator {
+    grid-template-columns: 1fr;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__homework-row {
+    border-right: 0;
+    border-bottom: 1px solid var(--code-focus-divider);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__nav-heading {
+    min-width: 68px;
+  }
+}
+
+@media (max-width: 639px) {
+  html .student-test-code-focus .student-test-code-focus__header {
+    min-height: 48px;
+    align-items: center;
+    padding: calc(5px + env(safe-area-inset-top)) 7px 5px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__title-icon {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+    border-radius: 8px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__title h3 {
+    font-size: 14px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__focus-button span {
+    display: none;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__focus-button {
+    width: 30px;
+    min-height: 30px;
+    flex: 0 0 30px;
+    padding: 0;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__navigator {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__homework-row,
+  html .student-test-code-focus .student-test-code-focus__level-row {
+    min-height: 43px;
+    gap: 5px;
+    padding: 4px 6px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__body,
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side {
+    grid-template-rows: minmax(128px, 27vh) minmax(0, 1fr);
+    gap: 6px;
+    padding: 6px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__task,
+  html .student-test-code-focus .student-test-code-focus__ide {
+    border-radius: 14px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__ide-topbar {
+    min-height: 40px;
+    flex-wrap: nowrap;
+    gap: 5px;
+    padding: 0 6px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__tab {
+    display: none;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__tools {
+    width: 100%;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__control-group {
+    flex: 1 1 118px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__tool-button {
+    flex: 1 1 auto;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__ide-grid,
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__ide-grid {
+    grid-template-rows: minmax(210px, 1fr) minmax(120px, 0.32fr);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__answer-card {
+    min-height: 78px;
+    grid-template-areas:
+      "head actions"
+      "body body";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 8px;
+    padding: 5px 46px 5px 6px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__answer-head {
+    grid-area: head;
+    align-items: center;
+    flex-direction: row;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__answer-body {
+    grid-area: body;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__answer-actions {
+    grid-area: actions;
+    align-items: center;
+    flex-direction: row;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__answer-result {
+    display: none;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__answer-actions button {
+    width: auto;
+    min-height: 32px;
+  }
+}

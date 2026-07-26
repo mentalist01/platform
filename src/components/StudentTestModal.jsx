@@ -3336,9 +3336,9 @@ const StudentTestModal = ({
                     <div className="student-test-code-focus__answer-head">
                       <span>
                         {computedChecked && computedCorrect ? <Check size={15} /> : <ListChecks size={15} />}
-                        Ответ на задание
+                        Ответ
                       </span>
-                      <strong>{codeFocusAnswerStatusLabel}</strong>
+                      {computedChecked && <strong>{codeFocusAnswerStatusLabel}</strong>}
                     </div>
                     <div className="student-test-code-focus__answer-body">
                       {answerCount > 1 ? (
@@ -3377,7 +3377,7 @@ const StudentTestModal = ({
                           onClick={handleCheckCurrentQuestion}
                           disabled={!isAnswerReady}
                         >
-                          Проверить задание
+                          Проверить
                         </button>
                       ) : computedCorrect ? (
                         <button type="button" disabled>
