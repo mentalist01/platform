@@ -4592,7 +4592,7 @@ const NotesSection = ({
                                     )}
                                     <iframe
                                       title={f.name}
-                                      src={textPreviewUrl}
+                                      src={getFileUrl(f)}
                                       className="w-full"
                                       style={{ height: pdfPreviewHeight }}
                                     />
