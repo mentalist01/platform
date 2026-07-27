@@ -48,6 +48,8 @@ const CALENDAR_TRIAL_EVENT_COLOR = '#f59e0b';
 
 const CALENDAR_START_HOUR = 0;
 const CALENDAR_END_HOUR = 24;
+const CALENDAR_DEFAULT_SCROLL_HOUR = 9;
+const CALENDAR_DEFAULT_SCROLL_LEAD_MINUTES = 30;
 const MIN_CALENDAR_HOUR_HEIGHT = 24;
 const MAX_CALENDAR_HOUR_HEIGHT = 56;
 const CALENDAR_VIEWPORT_RESERVED_PX = 276;
@@ -869,6 +871,7 @@ const TeacherCalendarSection = ({
   const browserAlarmObjectUrlRef = useRef('');
   const quickCreateClickSuppressedUntilRef = useRef(0);
   const timelineViewportRef = useRef(null);
+  const calendarGridRef = useRef(null);
   const timelineDefaultScrollAppliedRef = useRef(false);
   const calendarSyncAutoRefreshBusyRef = useRef(false);
 
@@ -1057,7 +1060,26 @@ const TeacherCalendarSection = ({
       secondRafId = window.requestAnimationFrame(() => {
         const maxScrollTop = Math.max(0, Math.floor((element.scrollHeight || 0) - (element.clientHeight || 0)));
         if (maxScrollTop <= 0) return;
-        element.scrollTop = maxScrollTop;
+        const gridElement = calendarGridRef.current;
+        const gridOffsetTop = gridElement
+          ? Math.max(
+              0,
+              Math.floor(
+                gridElement.getBoundingClientRect().top
+                - element.getBoundingClientRect().top
+                + element.scrollTop
+              )
+            )
+          : 0;
+        const defaultHourOffset = Math.max(
+          0,
+          (
+            CALENDAR_DEFAULT_SCROLL_HOUR
+            - CALENDAR_START_HOUR
+            - (CALENDAR_DEFAULT_SCROLL_LEAD_MINUTES / 60)
+          ) * hourHeight
+        );
+        element.scrollTop = Math.min(maxScrollTop, gridOffsetTop + defaultHourOffset);
         timelineDefaultScrollAppliedRef.current = true;
       });
     });
@@ -1066,7 +1088,7 @@ const TeacherCalendarSection = ({
       if (firstRafId) window.cancelAnimationFrame(firstRafId);
       if (secondRafId) window.cancelAnimationFrame(secondRafId);
     };
-  }, [calendarHeight, loading, timelineViewportHeight]);
+  }, [calendarHeight, hourHeight, loading, timelineViewportHeight]);
 
   const studentNameById = useMemo(() => {
     const list = Array.isArray(students) ? students : [];
@@ -4619,6 +4641,7 @@ const TeacherCalendarSection = ({
                         </div>
                       )}
                       <div
+                        ref={calendarGridRef}
                         className="grid"
                         style={{ gridTemplateColumns: `78px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
                       >
