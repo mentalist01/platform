@@ -1,13 +1,74 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, Copy, Download, History, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileCode2, History, ListChecks, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
+import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
 import { Button } from './ui';
 
 const TEACHER_CODE_COPY_FEEDBACK_MS = 1800;
+
+const ReviewAnswerFields = ({
+  values = [],
+  answerCount = 1,
+  answerLabels = [],
+  variant = 'student',
+}) => {
+  const safeCount = Math.max(1, Number(answerCount) || 1);
+  const safeValues = Array.from(
+    { length: safeCount },
+    (_, index) => String(values?.[index] ?? '')
+  );
+  const inputClassName = `teacher-test-review-answer-input is-${variant} w-full rounded-xl border px-3 py-2.5 text-sm`;
+  const renderField = (index, label) => (
+    <input
+      key={`${variant}-answer-${index}`}
+      type="text"
+      value={safeValues[index] || '—'}
+      readOnly
+      aria-label={`${variant === 'correct' ? 'Правильный ответ' : 'Ответ ученика'} ${label}`}
+      className={inputClassName}
+    />
+  );
+
+  if (safeCount === 20) {
+    return (
+      <div className="grid grid-cols-[26px_1fr_1fr] gap-1.5 md:grid-cols-[32px_1fr_1fr] md:gap-2">
+        <div aria-hidden="true" />
+        <div className="px-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">Ответ 1</div>
+        <div className="px-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">Ответ 2</div>
+        {Array.from({ length: 10 }, (_, rowIndex) => (
+          <React.Fragment key={`${variant}-answer-row-${rowIndex}`}>
+            <div className="flex items-center justify-center text-xs font-bold text-gray-500">
+              {rowIndex + 1}
+            </div>
+            {renderField(rowIndex, `${rowIndex + 1}.1`)}
+            {renderField(rowIndex + 10, `${rowIndex + 1}.2`)}
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  }
+
+  if (safeCount > 1) {
+    return (
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {safeValues.map((_, index) => (
+          <label key={`${variant}-answer-wrap-${index}`} className="space-y-1">
+            <span className="block text-xs font-semibold text-gray-500">
+              Ответ {answerLabels[index] || index + 1}
+            </span>
+            {renderField(index, answerLabels[index] || index + 1)}
+          </label>
+        ))}
+      </div>
+    );
+  }
+
+  return renderField(0, 1);
+};
 
 const writeTeacherCodeToClipboard = async (value) => {
   const code = String(value ?? '');
@@ -44,12 +105,14 @@ const ProgressReviewModal = ({
   testDb,
   LEVELS,
   GAME_THEORY_TASK,
+  getTaskDisplayNumber,
   getAnswerCountForTask,
   getExpectedAnswers,
   withStudentId,
 }) => {
   const monacoTheme = resolveMonacoColorTheme(theme);
-  const levelOptions = Object.values(LEVELS);
+  const taskNumber = task?.number;
+  const levelOptions = React.useMemo(() => Object.values(LEVELS || {}), [LEVELS]);
   const [levelId, setLevelId] = useState(levelOptions[0]?.id || 'basic');
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -62,7 +125,11 @@ const ProgressReviewModal = ({
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
   const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
+  const [questionCodePreviewOpen, setQuestionCodePreviewOpen] = useState(false);
+  const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
+  const [expandedImage, setExpandedImage] = useState(null);
   const questionCodeCopyResetTimerRef = React.useRef(null);
+  const questionCodeRequestScopeRef = React.useRef('');
 
   const getQuestionCodeEntry = (questionId) => {
     const key = String(questionId ?? '').trim();
@@ -103,15 +170,18 @@ const ProgressReviewModal = ({
   };
 
   const loadQuestionCode = async (questionId, force = false) => {
-    if (!studentId || !task?.number || !levelId) return;
+    if (!studentId || !taskNumber || !levelId) return;
     const key = String(questionId ?? '').trim();
     if (!key) return;
     if (questionCodeLoadingById?.[key]) return;
     const cached = getQuestionCodeEntry(key);
     if (cached.loaded && !force) return;
+    const requestScope = `${studentId}:${taskNumber}:${levelId}`;
+    questionCodeRequestScopeRef.current = requestScope;
     setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: true }));
     try {
-      const payload = await api.getQuestionCode(studentId, task.number, levelId, key);
+      const payload = await api.getQuestionCode(studentId, taskNumber, levelId, key);
+      if (questionCodeRequestScopeRef.current !== requestScope) return;
       setQuestionCodeEntry(key, {
         code: typeof payload?.code === 'string' ? payload.code : '',
         input: typeof payload?.input === 'string' ? payload.input : '',
@@ -124,9 +194,12 @@ const ProgressReviewModal = ({
         return next;
       });
     } catch (err) {
+      if (questionCodeRequestScopeRef.current !== requestScope) return;
       setQuestionCodeError(key, err?.message || err);
     } finally {
-      setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: false }));
+      if (questionCodeRequestScopeRef.current === requestScope) {
+        setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: false }));
+      }
     }
   };
 
@@ -160,18 +233,21 @@ const ProgressReviewModal = ({
   };
 
   useEffect(() => {
-    if (!task) return;
+    if (!taskNumber) return;
     const available = levelOptions.filter((lvl) => {
-      const list = testDb?.[task.number]?.[lvl.id];
+      const list = testDb?.[taskNumber]?.[lvl.id];
       return Array.isArray(list) && list.length > 0;
     });
     const nextLevel = available[0]?.id || levelOptions[0]?.id || 'basic';
     setLevelId(nextLevel);
-  }, [task?.number, testDb]);
+  }, [levelOptions, taskNumber, testDb]);
 
   useEffect(() => {
-    if (!task || !levelId) return;
-    const qs = testDb?.[task.number]?.[levelId] || [];
+    if (!taskNumber || !levelId) return undefined;
+    let active = true;
+    const requestScope = `${studentId || ''}:${taskNumber}:${levelId}`;
+    questionCodeRequestScopeRef.current = requestScope;
+    const qs = testDb?.[taskNumber]?.[levelId] || [];
     setQuestions(Array.isArray(qs) ? qs : []);
     setCurrentIndex(0);
     setSolvedIds(new Set());
@@ -181,9 +257,13 @@ const ProgressReviewModal = ({
     setQuestionCodeById({});
     setQuestionCodeLoadingById({});
     setQuestionCodeErrorById({});
+    setQuestionCodePreviewOpen(false);
+    setQuestionImageStateByKey({});
+    setExpandedImage(null);
     if (studentId) {
-      api.getSolvedQuestions(studentId, task.number, levelId, { includeCode: true })
+      api.getSolvedQuestions(studentId, taskNumber, levelId, { includeCode: true })
         .then((payload) => {
+          if (!active) return;
           if (Array.isArray(payload)) {
             setSolvedIds(new Set(payload.map((id) => String(id))));
             setAnswerById({});
@@ -194,16 +274,30 @@ const ProgressReviewModal = ({
             setAnswerById(codeById);
           }
         })
-        .catch((err) => console.error(err));
+        .catch((err) => {
+          if (active) console.error(err);
+        });
       setAnswerHistoryLoading(true);
-      api.getAnswerHistory(studentId, task.number, levelId)
-        .then((payload) => setAnswerHistoryById(normalizeAnswerHistoryPayload(payload)))
-        .catch((err) => setAnswerHistoryError(String(err?.message || err || 'Не удалось загрузить историю ответов')))
-        .finally(() => setAnswerHistoryLoading(false));
+      api.getAnswerHistory(studentId, taskNumber, levelId)
+        .then((payload) => {
+          if (active) setAnswerHistoryById(normalizeAnswerHistoryPayload(payload));
+        })
+        .catch((err) => {
+          if (active) setAnswerHistoryError(String(err?.message || err || 'Не удалось загрузить историю ответов'));
+        })
+        .finally(() => {
+          if (active) setAnswerHistoryLoading(false);
+        });
     } else {
       setAnswerHistoryLoading(false);
     }
-  }, [task?.number, levelId, testDb, studentId]);
+    return () => {
+      active = false;
+      if (questionCodeRequestScopeRef.current === requestScope) {
+        questionCodeRequestScopeRef.current = '';
+      }
+    };
+  }, [taskNumber, levelId, testDb, studentId]);
 
   useEffect(() => {
     document.body.classList.add('overflow-hidden');
@@ -211,7 +305,22 @@ const ProgressReviewModal = ({
   }, []);
 
   useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      if (expandedImage) {
+        setExpandedImage(null);
+        return;
+      }
+      onClose?.();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [expandedImage, onClose]);
+
+  useEffect(() => {
     setQuestionCodeCopyState('idle');
+    setQuestionCodePreviewOpen(false);
+    setExpandedImage(null);
     if (questionCodeCopyResetTimerRef.current) {
       clearTimeout(questionCodeCopyResetTimerRef.current);
       questionCodeCopyResetTimerRef.current = null;
@@ -222,15 +331,15 @@ const ProgressReviewModal = ({
         questionCodeCopyResetTimerRef.current = null;
       }
     };
-  }, [currentIndex, levelId, studentId, task?.number]);
+  }, [currentIndex, levelId, studentId, taskNumber]);
 
   useEffect(() => {
-    if (!studentId || !task?.number || !levelId) return;
+    if (!studentId || !taskNumber || !levelId) return;
     const current = questions[currentIndex];
     const currentId = String(current?.id ?? currentIndex).trim();
     if (!currentId) return;
     loadQuestionCode(currentId);
-  }, [studentId, task?.number, levelId, questions, currentIndex]);
+  }, [studentId, taskNumber, levelId, questions, currentIndex]);
 
   if (!task) return null;
 
@@ -262,26 +371,66 @@ const ProgressReviewModal = ({
   };
 
   const hasQuestions = Array.isArray(questions) && questions.length > 0;
+  const taskDisplayNumber = typeof getTaskDisplayNumber === 'function'
+    ? getTaskDisplayNumber(task)
+    : task?.number;
   const currentQuestion = hasQuestions ? questions[currentIndex] : null;
   const currentId = String(currentQuestion?.id ?? currentIndex);
   const isSolved = solvedIds.has(currentId);
-  const answerCount = getAnswerCountForTask(task?.number);
+  const answerCount = Math.max(1, Number(getAnswerCountForTask(task?.number)) || 1);
   const answerLabels = buildAnswerLabels(answerCount);
+  const activeLevel = levelOptions.find((level) => level.id === levelId) || levelOptions[0] || null;
+  const currentQuestionLabel = normalizeQuestionLabel(currentQuestion?.label);
   const answerHistory = Array.isArray(answerHistoryById?.[currentId])
     ? answerHistoryById[currentId]
     : [];
   const answerHistoryLatestFirst = answerHistory.slice().reverse();
+  const latestAttempt = answerHistory[answerHistory.length - 1] || null;
   const storedAnswers = parseStoredAnswers(answerById?.[currentId]);
-  const expectedAnswers = currentQuestion ? getExpectedAnswers(currentQuestion, answerCount) : Array.from({ length: answerCount }, () => '');
-  const hasStoredAnswer = Array.isArray(storedAnswers) && storedAnswers.some((val) => String(val ?? '').trim());
-  const showingCorrectFallback = !hasStoredAnswer;
-  const answerValues = showingCorrectFallback
-    ? expectedAnswers
-    : (storedAnswers || Array.from({ length: answerCount }, () => ''));
+  const normalizeAnswerValues = (values) => Array.from(
+    { length: answerCount },
+    (_, index) => String(values?.[index] ?? '')
+  );
+  const expectedAnswers = normalizeAnswerValues(
+    currentQuestion ? getExpectedAnswers(currentQuestion, answerCount) : []
+  );
+  const latestAttemptAnswers = Array.isArray(latestAttempt?.answers)
+    ? normalizeAnswerValues(latestAttempt.answers)
+    : null;
+  const studentAnswerValues = latestAttemptAnswers
+    || (Array.isArray(storedAnswers) ? normalizeAnswerValues(storedAnswers) : normalizeAnswerValues([]));
+  const hasStudentAnswer = studentAnswerValues.some((value) => value.trim());
+  const studentAnswerStatus = latestAttempt
+    ? (latestAttempt.correct ? 'correct' : 'wrong')
+    : (isSolved ? 'correct' : 'empty');
+  const studentAnswerStatusLabel = latestAttempt
+    ? (latestAttempt.correct ? 'Последняя попытка верная' : 'Последняя попытка неверная')
+    : (isSolved ? 'Решено' : 'Нет ответа');
   const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
     .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
   const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
-    .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
+    .map((file) => {
+      const rawUrl = file?.url || (file?.storageName ? `/uploads/${file.storageName}` : '');
+      return { ...file, url: withStudentId(rawUrl, studentId) };
+    });
+  const solvedQuestionCount = questions.reduce((count, question, index) => (
+    solvedIds.has(String(question?.id ?? index)) ? count + 1 : count
+  ), 0);
+  const completionPercent = questions.length > 0
+    ? Math.round((solvedQuestionCount / questions.length) * 100)
+    : 0;
+  const getQuestionState = (question, index) => {
+    const questionId = String(question?.id ?? index);
+    if (solvedIds.has(questionId)) return 'solved';
+    if (Array.isArray(answerHistoryById?.[questionId]) && answerHistoryById[questionId].length > 0) return 'wrong';
+    return 'pending';
+  };
+  const previousQuestionState = currentIndex > 0
+    ? getQuestionState(questions[currentIndex - 1], currentIndex - 1)
+    : 'pending';
+  const nextQuestionState = currentIndex < questions.length - 1
+    ? getQuestionState(questions[currentIndex + 1], currentIndex + 1)
+    : 'pending';
   const questionCodeEntry = getQuestionCodeEntry(currentId);
   const questionCodeLoading = Boolean(questionCodeLoadingById?.[currentId]);
   const questionCodeError = questionCodeErrorById?.[currentId] || '';
@@ -343,63 +492,96 @@ const ProgressReviewModal = ({
   };
 
   const modal = (
-    <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4 backdrop-blur-sm">
-    <div className="surface-card modal-card rounded-3xl w-full max-w-5xl max-h-[90vh] p-6 md:p-8 shadow-2xl relative flex flex-col overflow-hidden">
-        <div className="flex flex-col gap-4 mb-4">
-          <div className="flex justify-between items-start">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-purple-600">Задание</div>
-              <div className="text-lg font-bold text-gray-900">{task.title}</div>
+    <>
+      <div className="student-test-modal-backdrop fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-0 sm:p-3 md:p-5">
+        <div className="student-test-workspace student-test-workspace--animated modal-card relative flex h-[100dvh] w-full max-w-6xl flex-col overflow-hidden sm:h-auto sm:max-h-[94dvh]">
+        <header className="student-test-header shrink-0">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="student-test-header-icon hidden sm:flex">
+              <ListChecks size={20} />
             </div>
-            <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                {activeLevel && (
+                  <span className={`rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase sm:text-[11px] ${activeLevel.color || 'bg-purple-100 text-purple-700'}`}>
+                    {activeLevel.label}
+                  </span>
+                )}
+                <span className="student-test-xp-badge">Просмотр ученика</span>
+              </div>
+              <h2 className="student-test-title mt-1.5 truncate">
+                Задание {taskDisplayNumber}: {task.title}
+              </h2>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <div className="student-test-progress-summary hidden sm:block">
+              <div className="flex items-center justify-between gap-4 text-xs">
+                <span>Выполнено</span>
+                <strong>{solvedQuestionCount}/{questions.length}</strong>
+              </div>
+              <div className="student-test-progress-track mt-1.5">
+                <div className="student-test-progress-fill" style={{ width: `${completionPercent}%` }} />
+              </div>
+            </div>
+            <button onClick={onClose} className="student-test-close" type="button" aria-label="Закрыть">
+              <X size={19} />
+            </button>
+          </div>
+        </header>
+
+        <div className="student-test-navigation shrink-0">
+          <div className="teacher-test-review-levels">
+            {levelOptions.map((levelOption) => {
+              const levelQuestions = testDb?.[task.number]?.[levelOption.id];
+              const questionCount = Array.isArray(levelQuestions) ? levelQuestions.length : 0;
+              const active = levelOption.id === levelId;
+              return (
+                <button
+                  key={levelOption.id}
+                  type="button"
+                  onClick={() => setLevelId(levelOption.id)}
+                  disabled={questionCount === 0}
+                  className={`teacher-test-review-level-button ${active ? 'is-active' : ''}`}
+                  aria-pressed={active}
+                >
+                  <span>{levelOption.label}</span>
+                  <small>{questionCount}</small>
+                </button>
+              );
+            })}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {levelOptions.map((lvl) => (
-              <button
-                key={lvl.id}
-                type="button"
-                onClick={() => setLevelId(lvl.id)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-                  levelId === lvl.id
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'
-                }`}
-              >
-                {lvl.label}
-              </button>
-            ))}
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="student-test-question-caption">
+              {hasQuestions ? `Вопрос ${currentIndex + 1} из ${questions.length}` : 'Вопросов пока нет'}
+            </span>
+            <span className="student-test-mobile-progress sm:hidden">
+              {solvedQuestionCount}/{questions.length} решено
+            </span>
           </div>
 
           {hasQuestions && (
-            <div className="flex flex-wrap gap-2">
-              {questions.map((q, idx) => {
-                const qId = String(q?.id ?? idx);
-                const solved = solvedIds.has(qId);
-                const attempted = Array.isArray(answerHistoryById?.[qId]) && answerHistoryById[qId].length > 0;
-                const isCurrent = idx === currentIndex;
-                let btnClass = "w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all border-2 ";
-
-                if (isCurrent && solved) {
-                  btnClass += "border-green-400 ring-2 ring-green-100 bg-green-100 text-green-700";
-                } else if (isCurrent) {
-                  btnClass += "border-purple-600 ring-2 ring-purple-200 bg-purple-600 text-white shadow-sm";
-                } else if (solved) {
-                  btnClass += "border-green-200 bg-green-100 text-green-600";
-                } else if (attempted) {
-                  btnClass += "border-amber-200 bg-amber-100 text-amber-700";
-                } else {
-                  btnClass += "border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200";
-                }
-
-              return (
+            <div className="student-test-question-list mt-2 flex gap-2 overflow-x-auto">
+              {questions.map((question, index) => {
+                const questionId = String(question?.id ?? index);
+                const state = getQuestionState(question, index);
+                const current = index === currentIndex;
+                const stateClass = state === 'solved' ? 'is-correct' : (state === 'wrong' ? 'is-wrong' : '');
+                const title = state === 'solved'
+                  ? `Вопрос №${index + 1} решён`
+                  : (state === 'wrong' ? `Вопрос №${index + 1}: были неверные попытки` : `Вопрос №${index + 1}`);
+                return (
                   <button
-                    key={qId}
-                    onClick={() => setCurrentIndex(idx)}
-                    className={btnClass}
-                    title={solved ? 'Решено' : (attempted ? 'Были попытки' : 'Не решено')}
+                    key={questionId}
+                    type="button"
+                    onClick={() => setCurrentIndex(index)}
+                    className={`student-test-question-button ${current ? 'is-current' : ''} ${stateClass}`}
+                    style={{ '--student-test-item-index': index }}
+                    title={title}
+                    aria-current={current ? 'step' : undefined}
                   >
-                    {idx + 1}
+                    {state === 'solved' ? <Check size={14} strokeWidth={3} /> : index + 1}
                   </button>
                 );
               })}
@@ -407,219 +589,364 @@ const ProgressReviewModal = ({
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-1">
-          {!hasQuestions && (
-            <div className="text-center text-gray-500 py-10">Для этого уровня пока нет задач.</div>
-          )}
+        <button
+          type="button"
+          onClick={() => setCurrentIndex((index) => Math.max(0, index - 1))}
+          disabled={!hasQuestions || currentIndex === 0}
+          className={`student-test-side-nav student-test-side-nav--prev is-${previousQuestionState}`}
+          aria-label="Предыдущее задание"
+        >
+          <span className="student-test-side-nav__glow" aria-hidden="true" />
+          <span className="student-test-side-nav__sheen" aria-hidden="true" />
+          <ChevronLeft size={24} strokeWidth={2.5} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setCurrentIndex((index) => Math.min(questions.length - 1, index + 1))}
+          disabled={!hasQuestions || currentIndex >= questions.length - 1}
+          className={`student-test-side-nav student-test-side-nav--next is-${nextQuestionState}`}
+          aria-label="Следующее задание"
+        >
+          <span className="student-test-side-nav__glow" aria-hidden="true" />
+          <span className="student-test-side-nav__sheen" aria-hidden="true" />
+          <ChevronRight size={24} strokeWidth={2.5} />
+        </button>
 
-          {hasQuestions && (
-            <>
-              {screenshots.length > 0 && (
-                <div className="space-y-3 mb-6">
-                  {screenshots.map((img) => (
-                    <div
-                      key={img.id || img.url}
-                      className="border rounded-2xl overflow-hidden bg-gray-900/5"
-                      style={{ maxHeight: '65vh' }}
-                    >
-                      <img
-                        src={img.url}
-                        alt={img.name || 'Скриншот'}
-                        className="w-full object-contain"
-                        style={{ maxHeight: '65vh' }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {extraFiles.length > 0 && (
-                <div className="mb-6">
-                  <p className="text-xs font-bold text-gray-400 uppercase mb-2">Доп. файлы</p>
-                  <div className="space-y-2">
-                    {extraFiles.map((file) => (
-                      <a
-                        key={file.id || file.url}
-                        href={buildDownloadUrl(file.url)}
-                        download={file?.name || undefined}
-                        className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white/90 text-sm text-gray-700 shadow-sm hover:border-purple-300 hover:bg-purple-50"
+        <div className="student-test-scroll flex-1 overflow-y-auto">
+          <div key={`${levelId}:${currentId}`} className="student-test-content student-test-content--question-enter mx-auto w-full max-w-5xl">
+            {!hasQuestions ? (
+              <section className="student-test-question-panel student-test-panel-enter py-10 text-center text-gray-500">
+                Для этого уровня пока нет задач.
+              </section>
+            ) : (
+              <>
+                <section className="student-test-question-panel student-test-panel-enter">
+                  <div className="student-test-question-panel__toolbar">
+                    {currentQuestionLabel ? (
+                      <span
+                        className="inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm"
+                        style={getQuestionLabelStyle(currentQuestionLabel)}
                       >
-                        <span className="truncate">{file.name}</span>
-                        <Download size={16} className="text-purple-600" />
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {currentQuestion?.question && (
-                <p className="text-lg font-medium text-gray-900 mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
-              )}
-
-              <div className="space-y-3 mb-6">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-gray-400 uppercase">Ответ ученика</label>
-                  {isSolved && <span className="text-xs font-semibold text-emerald-600">Решено</span>}
-                </div>
-                {answerCount > 1 ? (
-                  answerCount === 20 ? (
-                    <div className="grid grid-cols-[26px_1fr_1fr] md:grid-cols-[32px_1fr_1fr] gap-1.5 md:gap-2">
-                      <div aria-hidden="true" />
-                      <div className="px-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">Ответ 1</div>
-                      <div className="px-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">Ответ 2</div>
-                      {Array.from({ length: 10 }).map((_, rowIdx) => (
-                        <React.Fragment key={`answer-row-${rowIdx}`}>
-                          <div className="flex items-center justify-center text-xs font-bold text-gray-500">
-                            {rowIdx + 1}
-                          </div>
-                          <div className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-sm text-gray-700 md:px-3">
-                            {answerValues[rowIdx] || '—'}
-                          </div>
-                          <div className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-sm text-gray-700 md:px-3">
-                            {answerValues[rowIdx + 10] || '—'}
-                          </div>
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {Array.from({ length: answerCount }).map((_, idx) => (
-                        <div key={`answer-${idx}`} className="space-y-1">
-                          <div className="text-xs font-semibold text-gray-500">Ответ {answerLabels[idx]}</div>
-                          <div className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-sm text-gray-700">
-                            {answerValues[idx] ? answerValues[idx] : '—'}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                ) : (
-                  <div className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-sm text-gray-700">
-                    {answerValues[0] ? answerValues[0] : '—'}
-                  </div>
-                )}
-                {!hasStoredAnswer && (
-                  <div className="text-xs text-gray-500">
-                    {isSolved ? 'Ответ ученика не сохранён.' : 'Ученик ещё не решил эту задачу.'}
-                  </div>
-                )}
-                {showingCorrectFallback && (
-                  <div className="text-xs text-purple-600">
-                    Показан правильный ответ из базы.
-                  </div>
-                )}
-              </div>
-
-              <details
-                className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3"
-                open={answerHistory.length > 0}
-              >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-gray-700">
-                  <span className="inline-flex min-w-0 items-center gap-2">
-                    <History size={16} className="text-purple-500" />
-                    <span>История ответов ученика</span>
-                  </span>
-                  <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs text-gray-500">
-                    {answerHistoryLoading ? '...' : answerHistory.length}
-                  </span>
-                </summary>
-                <div className="mt-3 space-y-2">
-                  {answerHistoryLoading ? (
-                    <div className="text-xs text-gray-500">Загрузка...</div>
-                  ) : answerHistoryError ? (
-                    <div className="text-xs text-red-500">{answerHistoryError}</div>
-                  ) : answerHistoryLatestFirst.length > 0 ? (
-                    answerHistoryLatestFirst.map((entry, idx) => {
-                      const timeLabel = formatAnswerHistoryTime(entry.submittedAt);
-                      return (
-                        <div
-                          key={entry.id || `${entry.submittedAt}-${idx}`}
-                          className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className={`font-bold ${entry.correct ? 'text-green-600' : 'text-red-600'}`}>
-                              {entry.correct ? 'Верно' : 'Неверно'}
-                            </span>
-                            {timeLabel && <span className="text-gray-400">{timeLabel}</span>}
-                          </div>
-                          <div className="mt-1 break-words font-mono text-[11px] leading-5 text-gray-700">
-                            {formatAnswerHistoryValues(entry.answers)}
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="text-xs text-gray-500">Попыток пока нет</div>
-                  )}
-                </div>
-              </details>
-
-              <div className="space-y-3 mb-6">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="block shrink-0 text-xs font-bold text-gray-400 uppercase">Код ученика</label>
-                  <div className="flex min-w-0 items-center justify-end gap-2">
-                    <span className="truncate text-xs text-gray-500">
-                      {questionCodeUpdatedAtLabel ? `Сохранено: ${questionCodeUpdatedAtLabel}` : 'Код не сохранён'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleCopyQuestionCode}
-                      disabled={questionCodeLoading || !questionCodeEntry.code}
-                      className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                        questionCodeCopyState === 'copied'
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                          : (questionCodeCopyState === 'error'
-                              ? 'border-red-200 bg-red-50 text-red-600'
-                              : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700')
-                      }`}
-                      aria-label={questionCodeCopyState === 'copied' ? 'Код ученика скопирован' : 'Скопировать код ученика'}
-                      title={questionCodeCopyState === 'copied' ? 'Скопировано' : 'Скопировать код'}
-                    >
-                      {questionCodeCopyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
-                      <span aria-live="polite">
-                        {questionCodeCopyState === 'copied' ? 'Скопировано' : (questionCodeCopyState === 'error' ? 'Не удалось' : 'Копировать')}
+                        <span className="truncate">{currentQuestionLabel.text}</span>
                       </span>
-                    </button>
+                    ) : <span aria-hidden="true" />}
+                    <div className="student-test-question-panel__toolbar-actions">
+                      <button
+                        type="button"
+                        className={`student-test-code-preview-trigger ${questionCodePreviewOpen ? 'is-active' : ''}`}
+                        onClick={() => setQuestionCodePreviewOpen((open) => !open)}
+                        aria-expanded={questionCodePreviewOpen}
+                        aria-controls="teacher-test-student-code-preview"
+                      >
+                        <FileCode2 size={16} aria-hidden="true" />
+                        <span>{questionCodePreviewOpen ? 'Скрыть код' : 'Код ученика'}</span>
+                        <ChevronDown size={15} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-                {questionCodeLoading ? (
-                  <div className="text-sm text-gray-500">Загрузка кода...</div>
-                ) : (
-                  <div className="rounded-2xl overflow-hidden border border-gray-800">
-                    <Editor
-                      height="240px"
-                      language="python"
-                      theme={monacoTheme}
-                      beforeMount={ensureMonacoColorTheme}
-                      value={questionCodeEntry.code || '# Код не сохранён'}
-                      options={codeEditorOptions}
-                      loading={<div className="p-4 text-sm text-gray-400">Загрузка редактора...</div>}
-                    />
+
+                  {screenshots.length > 0 && (
+                    <div className="mb-5 space-y-2.5 md:mb-6 md:space-y-3">
+                      {screenshots.map((image, imageIndex) => {
+                        const imageKey = String(image.id || image.storageName || image.url || imageIndex);
+                        const imageState = questionImageStateByKey[imageKey] || {};
+                        const storedWidth = Number(image.width);
+                        const storedHeight = Number(image.height);
+                        const aspectRatio = storedWidth > 0 && storedHeight > 0
+                          ? Math.max(1.6, Math.min(5.8, storedWidth / storedHeight))
+                          : 3.8;
+                        return (
+                          <div
+                            key={imageKey}
+                            className={`student-test-screenshot ${imageState.loaded ? 'is-loaded' : 'is-loading'} max-h-[42vh] overflow-hidden rounded-2xl border sm:max-h-[55vh] md:max-h-[65vh]`}
+                            style={{
+                              '--student-test-item-index': imageIndex,
+                              '--student-test-image-aspect': imageState.aspectRatio || aspectRatio,
+                            }}
+                            aria-busy={!imageState.loaded}
+                          >
+                            <div className="student-test-screenshot__loader" aria-hidden={Boolean(imageState.loaded)}>
+                              <RefreshCcw size={18} aria-hidden="true" />
+                              <span>Загрузка изображения задания…</span>
+                            </div>
+                            <img
+                              src={image.url}
+                              alt={image.name || 'Скриншот'}
+                              className="w-full cursor-zoom-in object-contain"
+                              onLoad={(event) => {
+                                const width = Number(event.currentTarget.naturalWidth);
+                                const height = Number(event.currentTarget.naturalHeight);
+                                setQuestionImageStateByKey((previous) => ({
+                                  ...previous,
+                                  [imageKey]: {
+                                    loaded: true,
+                                    aspectRatio: width > 0 && height > 0
+                                      ? Math.max(1.6, Math.min(5.8, width / height))
+                                      : aspectRatio,
+                                  },
+                                }));
+                              }}
+                              onError={() => setQuestionImageStateByKey((previous) => ({
+                                ...previous,
+                                [imageKey]: { ...(previous?.[imageKey] || {}), loaded: true },
+                              }))}
+                              onClick={() => setExpandedImage(image)}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {extraFiles.length > 0 && (
+                    <div className="mb-5 md:mb-6">
+                      <p className="mb-2 text-xs font-bold uppercase text-gray-400">Доп. файлы</p>
+                      <div className="space-y-2">
+                        {extraFiles.map((file, fileIndex) => (
+                          <a
+                            key={file.id || file.url}
+                            href={buildDownloadUrl(file.url)}
+                            download={file?.name || undefined}
+                            style={{ '--student-test-item-index': fileIndex }}
+                            className="student-test-file flex items-center justify-between gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
+                          >
+                            <span className="truncate">{file.name}</span>
+                            <Download size={16} className="text-purple-600" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {isSolved && (
+                    <div className="student-test-solved-label mb-2 text-xs font-semibold uppercase tracking-wide text-green-600">
+                      Решено учеником
+                    </div>
+                  )}
+                  {!isSolved && answerHistory.length > 0 && (
+                    <div className="student-test-solved-label mb-2 text-xs font-semibold uppercase tracking-wide text-amber-600">
+                      Есть попытки решения
+                    </div>
+                  )}
+                  {currentQuestion?.question && (
+                    <p className="student-test-question-text mb-5 whitespace-pre-wrap text-[15px] font-medium leading-relaxed text-gray-900 md:mb-6 md:text-lg">
+                      {currentQuestion.question}
+                    </p>
+                  )}
+                </section>
+
+                <section className={`student-test-answer-panel student-test-panel-enter space-y-4 ${
+                  isSolved
+                    ? 'student-test-answer-panel--correct'
+                    : (answerHistory.length > 0 ? 'student-test-answer-panel--wrong' : 'student-test-answer-panel--pending')
+                }`}>
+                  <div className="teacher-test-review-answer-grid">
+                    <article className={`teacher-test-review-answer-card is-student is-${studentAnswerStatus}`}>
+                      <div className="teacher-test-review-answer-card__header">
+                        <div>
+                          <span className="teacher-test-review-answer-card__eyebrow">Ответ ученика</span>
+                          <strong>Последний введённый ответ</strong>
+                        </div>
+                        <span className={`teacher-test-review-answer-status is-${studentAnswerStatus}`}>
+                          {studentAnswerStatusLabel}
+                        </span>
+                      </div>
+                      <ReviewAnswerFields
+                        values={studentAnswerValues}
+                        answerCount={answerCount}
+                        answerLabels={answerLabels}
+                        variant={studentAnswerStatus === 'wrong' ? 'wrong' : 'student'}
+                      />
+                      {!hasStudentAnswer && (
+                        <p className="teacher-test-review-answer-card__hint">Ученик ещё не вводил ответ на этот вопрос.</p>
+                      )}
+                    </article>
+
+                    <article className="teacher-test-review-answer-card is-correct">
+                      <div className="teacher-test-review-answer-card__header">
+                        <div>
+                          <span className="teacher-test-review-answer-card__eyebrow">Правильный ответ</span>
+                          <strong>Ответ из базы заданий</strong>
+                        </div>
+                        <span className="teacher-test-review-answer-status is-correct">Эталон</span>
+                      </div>
+                      <ReviewAnswerFields
+                        values={expectedAnswers}
+                        answerCount={answerCount}
+                        answerLabels={answerLabels}
+                        variant="correct"
+                      />
+                    </article>
                   </div>
+
+                  <div className="student-test-answer-meta">
+                    <details
+                      key={`${levelId}:${currentId}:history`}
+                      className="student-test-history"
+                      open={answerHistory.length > 0}
+                    >
+                      <summary className="student-test-history-summary" aria-label="История ответов ученика">
+                        <span className="student-test-history-summary__label">
+                          <History size={14} className="student-test-history-icon" />
+                          <span>История ответов ученика</span>
+                        </span>
+                        <span className="student-test-history-summary__count">
+                          {answerHistoryLoading ? '...' : answerHistory.length}
+                        </span>
+                        <ChevronDown size={14} className="student-test-history-summary__chevron" aria-hidden="true" />
+                      </summary>
+                      <div className="student-test-history__content space-y-2">
+                        {answerHistoryLoading ? (
+                          <div className="text-xs text-gray-500">Загрузка…</div>
+                        ) : answerHistoryError ? (
+                          <div className="text-xs text-red-500">{answerHistoryError}</div>
+                        ) : answerHistoryLatestFirst.length > 0 ? (
+                          answerHistoryLatestFirst.map((entry, index) => {
+                            const timeLabel = formatAnswerHistoryTime(entry.submittedAt);
+                            return (
+                              <div
+                                key={entry.id || `${entry.submittedAt}-${index}`}
+                                className="student-test-history-entry rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs"
+                                style={{ '--student-test-item-index': index }}
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className={`font-bold ${entry.correct ? 'text-green-600' : 'text-red-600'}`}>
+                                    {entry.correct ? 'Верно' : 'Неверно'}
+                                  </span>
+                                  {timeLabel && <span className="text-gray-400">{timeLabel}</span>}
+                                </div>
+                                <div className="mt-1 break-words font-mono text-[11px] leading-5 text-gray-700">
+                                  {formatAnswerHistoryValues(entry.answers)}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-xs text-gray-500">Попыток пока нет</div>
+                        )}
+                      </div>
+                    </details>
+                  </div>
+                </section>
+
+                {questionCodePreviewOpen && (
+                  <section className="student-test-code-panel student-test-panel-enter">
+                    <div className="student-test-code-launch-card is-preview-open">
+                      <div className="student-test-code-launch-card__main">
+                        <span className="student-test-code-launch-card__icon" aria-hidden="true">
+                          <FileCode2 size={18} />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="student-test-code-launch-card__title">Код ученика</div>
+                          <div className="student-test-code-launch-card__meta">
+                            {questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Код для вопроса не сохранён'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="student-test-code-launch-card__actions">
+                        <button
+                          type="button"
+                          onClick={handleCopyQuestionCode}
+                          disabled={questionCodeLoading || !questionCodeEntry.code}
+                          className={`student-test-code-launch-card__preview-toggle ${questionCodeCopyState === 'copied' ? 'is-copied' : ''}`}
+                        >
+                          {questionCodeCopyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
+                          <span>{questionCodeCopyState === 'copied' ? 'Скопировано' : (questionCodeCopyState === 'error' ? 'Не удалось' : 'Копировать')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuestionCodePreviewOpen(false)}
+                          className="student-test-code-launch-card__preview-toggle"
+                        >
+                          <span>Скрыть код</span>
+                          <ChevronDown size={15} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div id="teacher-test-student-code-preview" className="student-test-code-preview">
+                        {questionCodeLoading ? (
+                          <div className="student-test-code-preview__message" role="status">
+                            <RefreshCcw size={16} className="animate-spin" />
+                            Загружаем сохранённый код…
+                          </div>
+                        ) : questionCodeError ? (
+                          <div className="student-test-code-preview__message is-error" role="alert">
+                            <span>{questionCodeError}</span>
+                            <button type="button" onClick={() => loadQuestionCode(currentId, true)}>Повторить</button>
+                          </div>
+                        ) : (
+                          <div className="student-test-code-preview__editor">
+                            <Editor
+                              height="clamp(300px, 42dvh, 480px)"
+                              language="python"
+                              theme={monacoTheme}
+                              beforeMount={ensureMonacoColorTheme}
+                              value={questionCodeEntry.code || '# Код не сохранён'}
+                              options={codeEditorOptions}
+                              loading={<div className="student-test-code-preview__message">Загрузка редактора…</div>}
+                            />
+                          </div>
+                        )}
+                        <div className="teacher-test-review-stdin">
+                          <strong>Ввод (stdin)</strong>
+                          <pre>{questionCodeEntry.input || '—'}</pre>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
                 )}
-                <div className="rounded-xl border p-2 bg-gray-50">
-                  <div className="text-xs font-semibold text-gray-600 mb-2">Ввод (stdin)</div>
-                  <pre className="text-xs bg-white border rounded-lg p-2 overflow-auto max-h-[140px] whitespace-pre-wrap break-words text-gray-800">{questionCodeEntry.input || '—'}</pre>
-                </div>
-                {questionCodeError && <div className="text-xs text-red-500">{questionCodeError}</div>}
-              </div>
-            </>
-          )}
+              </>
+            )}
+          </div>
         </div>
 
-        <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
-          <div className="text-sm text-gray-500">
-            Решено: {Array.from(solvedIds).length}/{questions.length}
-          </div>
-          <div className="flex items-center gap-2">
+          <footer className="student-test-footer shrink-0">
+            <div className="teacher-test-review-footer-summary mr-auto">
+              Решено: <strong>{solvedQuestionCount}/{questions.length}</strong>
+            </div>
             <Button variant="secondary" onClick={onClose}>Закрыть</Button>
-            <Button onClick={() => setCurrentIndex((prev) => Math.min(prev + 1, Math.max(questions.length - 1, 0)))} disabled={!hasQuestions || currentIndex >= questions.length - 1}>
-              Дальше
+            <Button
+              onClick={() => {
+                if (!hasQuestions || currentIndex >= questions.length - 1) {
+                  onClose();
+                  return;
+                }
+                setCurrentIndex((index) => index + 1);
+              }}
+              disabled={!hasQuestions}
+              className="student-test-primary-action is-ready"
+            >
+              {currentIndex >= questions.length - 1 ? 'Закрыть просмотр' : 'Следующее задание'}
             </Button>
-          </div>
+          </footer>
         </div>
       </div>
-    </div>
+
+      {expandedImage && (
+        <div
+          className="student-test-image-lightbox fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setExpandedImage(null);
+          }}
+        >
+          <div className="relative max-h-[95vh] max-w-[95vw]">
+            <img
+              src={expandedImage.url}
+              alt={expandedImage.name || 'Скриншот'}
+              className="student-test-image-lightbox__image h-full w-full rounded-2xl object-contain shadow-2xl"
+              style={{ maxHeight: '95vh' }}
+            />
+            <button
+              type="button"
+              onClick={() => setExpandedImage(null)}
+              className="absolute right-3 top-3 rounded-full bg-white/90 p-2 hover:bg-white"
+              aria-label="Закрыть изображение"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 
   return typeof document !== 'undefined' ? createPortal(modal, document.body) : null;

@@ -2430,14 +2430,14 @@ const ScheduleSection = ({
       onOpenTask?.(goalView.taskNumber, goalView.levelId, goalView.targetNumbers);
     };
 
-    if (role === 'student' && isNextSection) {
+    if (isNextSection) {
       const primaryGoal = firstPendingGoal || goalViews[0] || null;
       const orderedGoalViews = primaryGoal
         ? [primaryGoal, ...goalViews.filter((goalView) => goalView !== primaryGoal)]
         : [];
       const dayPlanEnabled = Boolean(entry?.dayPlan?.enabled);
 
-      const renderStudentGoalBlock = (goalView, goalIndex) => {
+      const renderCurrentGoalBlock = (goalView, goalIndex) => {
         if (!goalView) return null;
         const progressPercent = Math.max(0, Math.min(100, Number(goalView.progressPercent) || 0));
         const remaining = goalView.totalCount > 0
@@ -2598,6 +2598,29 @@ const ScheduleSection = ({
                   {goalsSummary.totalCount > 0 ? `${goalsSummary.progressPercent}%` : '—'}
                 </span>
               </div>
+              {role === 'teacher' && (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startEditHomework(entry)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-purple-200 hover:text-purple-700"
+                  >
+                    <Pencil size={13} />
+                    Редактировать
+                  </button>
+                  {entry.id && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteHomework(entry)}
+                      disabled={deletingId === entry.id}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/80 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100 disabled:opacity-60"
+                    >
+                      <Trash2 size={13} />
+                      {deletingId === entry.id ? 'Удаление...' : 'Удалить'}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </header>
 
@@ -2634,7 +2657,7 @@ const ScheduleSection = ({
           <div className={`relative grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)] ${dayPlanEnabled ? 'mt-2' : 'mt-4'}`}>
             <section className="student-today-homework__goal-panel rounded-[20px] border border-purple-200/80 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/60 p-4">
               {orderedGoalViews.length > 0 ? (
-                orderedGoalViews.map((goalView, goalIndex) => renderStudentGoalBlock(goalView, goalIndex))
+                orderedGoalViews.map((goalView, goalIndex) => renderCurrentGoalBlock(goalView, goalIndex))
               ) : (
                 <p className="text-sm text-slate-500">Учитель пока не добавил учебные цели.</p>
               )}
@@ -2658,7 +2681,7 @@ const ScheduleSection = ({
                     const isCompleted = Boolean(item.completedAt);
                     const busyKey = `${entry?.id || ''}:${item.id || ''}`;
                     const isBusy = Boolean(homeworkChecklistBusy[busyKey]);
-                    const canToggle = Boolean(entry?.id) && Boolean(item.id);
+                    const canToggle = role === 'student' && Boolean(entry?.id) && Boolean(item.id);
                     return (
                       <div key={item.id || `${item.text}-${index}`} className={`student-today-homework__check-row flex items-start gap-2.5 rounded-xl border px-2.5 py-2 ${isCompleted ? 'student-today-homework__check-row--complete border-emerald-100 bg-emerald-50/80' : 'border-slate-200/80 bg-white'}`}>
                         <button
@@ -2667,6 +2690,7 @@ const ScheduleSection = ({
                           disabled={!canToggle || isBusy}
                           aria-label={isCompleted ? `Отметить как невыполненное: ${item.text}` : `Отметить как выполненное: ${item.text}`}
                           aria-pressed={isCompleted}
+                          title={canToggle ? (isCompleted ? 'Вернуть в работу' : 'Отметить выполненным') : 'Отмечает ученик'}
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-sm font-black transition ${
                             isCompleted
                               ? 'border-emerald-500 bg-emerald-500 text-white'
@@ -4263,24 +4287,7 @@ const ScheduleSection = ({
         ) : (
           <div className="space-y-4 md:space-y-6">
             <div ref={nextHomeworkFlyRef}>
-              {role === 'student' ? (
-                renderHomeworkEntryCard(nextHomeworkEntry, 'next')
-              ) : (
-                <Card className="space-y-2.5 md:space-y-3 border-purple-200/80 bg-gradient-to-br from-purple-50/70 via-white to-fuchsia-50/45 shadow-[0_14px_30px_rgba(147,51,234,0.14)]">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h4 className="inline-flex items-center gap-2 text-sm font-semibold text-purple-700">
-                      <Calendar size={15} />
-                      На следующий урок
-                    </h4>
-                    {nextHomeworkEntry?.issuedAt && (
-                      <span className="rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-[11px] font-semibold text-purple-600">
-                        {formatDate(nextHomeworkEntry.issuedAt)}
-                      </span>
-                    )}
-                  </div>
-                  {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
-                </Card>
-              )}
+              {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
             </div>
 
             {role === 'student' ? (

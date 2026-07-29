@@ -4215,16 +4215,18 @@ const ProgressSection = ({
                   <Card
                     className={`progress-topic-card progress-topic-card--${statusKey} ${val > 0 ? 'progress-topic-card--has-progress' : ''} group relative flex min-h-full flex-col overflow-hidden p-3.5 md:p-4 ${clickable ? 'cursor-pointer' : ''}`}
                     onClick={clickable ? openTopic : undefined}
-                    onKeyDown={role === 'student' && clickable ? (event) => {
+                    onKeyDown={clickable ? (event) => {
                       if (event.target !== event.currentTarget) return;
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
                         openTopic();
                       }
                     } : undefined}
-                    role={role === 'student' && clickable ? 'button' : undefined}
-                    tabIndex={role === 'student' && clickable ? 0 : undefined}
-                    aria-label={role === 'student' && clickable ? `${task.title}. ${statusLabel}. Выполнено ${val}%. ${practiceIndicator.ariaLabel}` : undefined}
+                    role={clickable ? 'button' : undefined}
+                    tabIndex={clickable ? 0 : undefined}
+                    aria-label={clickable
+                      ? `${task.title}. ${statusLabel}. Выполнено ${val}%. ${role === 'teacher' ? 'Открыть ответы ученика' : practiceIndicator.ariaLabel}`
+                      : undefined}
                   >
                     <span className="progress-topic-card__glint" aria-hidden="true" />
                     <div className="progress-topic-card__header flex items-start justify-between gap-2.5">
@@ -4386,6 +4388,7 @@ const ProgressSection = ({
               testDb={testsDb}
               LEVELS={LEVELS}
               GAME_THEORY_TASK={GAME_THEORY_TASK}
+              getTaskDisplayNumber={getTaskDisplayNumber}
               getAnswerCountForTask={getAnswerCountForTask}
               getExpectedAnswers={getExpectedAnswers}
               withStudentId={withStudentId}

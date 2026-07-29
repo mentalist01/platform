@@ -318,8 +318,16 @@ const HomeworkDayPlan = ({
       .filter((item) => !item.completed && !item.unavailable)
       .map((item) => ({ ...item, plannedDate: day.date })));
   const selectedGroups = buildItemGroups(selectedDay?.items, mockExamById);
+  const canOpenGoalView = (view) => (
+    role === 'student'
+    && Boolean(view)
+    && (
+      (view.type === 'mock' && typeof onOpenMockGoal === 'function')
+      || (view.type !== 'mock' && typeof onOpenTask === 'function')
+    )
+  );
   const selectedActionableGroup = selectedGroups.find((group) => (
-    !group.completed && group.actionableItem?.view
+    !group.completed && canOpenGoalView(group.actionableItem?.view)
   )) || null;
   const planCompleted = enrichedDays.every((day) => day.completed);
   const selectedIsRelevant = selectedDay?.date === relevantDay?.date;
@@ -563,7 +571,7 @@ const HomeworkDayPlan = ({
                 && Boolean(group.checklistItem)
                 && typeof onToggleChecklistItem === 'function';
               const textBusy = canToggleText && Boolean(isChecklistItemBusy?.(group.checklistItem));
-              const canOpen = Boolean(group.actionableItem?.view) && !group.completed;
+              const canOpen = !group.completed && canOpenGoalView(group.actionableItem?.view);
               const canInteract = canOpen || canToggleText;
               const useFullWidth = selectedGroups.length === 1
                 || group.targets.length > 5
