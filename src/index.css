@@ -71930,6 +71930,7 @@ html[data-theme='dark'] .student-today-overview {
   border-radius: 12px;
   background: #fff;
   color: #64748b;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   text-align: left;
   box-shadow: none;
   scroll-snap-align: center;
@@ -71974,9 +71975,9 @@ html[data-theme='dark'] .student-today-overview {
   justify-content: space-between;
   gap: 5px;
   color: #7c869a;
-  font-size: 10.5px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
+  font-size: 9.5px;
+  font-weight: 750;
+  letter-spacing: 0.065em;
   line-height: 1.2;
   text-transform: uppercase;
 }
@@ -71989,8 +71990,8 @@ html[data-theme='dark'] .student-today-overview {
 .student-homework-day-plan__day > strong {
   margin-top: 4px;
   color: #273449;
-  font-size: 13px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 800;
   line-height: 1.15;
   text-transform: capitalize;
 }
@@ -72002,9 +72003,9 @@ html[data-theme='dark'] .student-today-overview {
   gap: 4px;
   margin-top: 3px;
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 9.5px;
   font-variant-numeric: tabular-nums;
-  font-weight: 750;
+  font-weight: 650;
   line-height: 1.2;
 }
 
