@@ -261,20 +261,25 @@ const HomeworkDayPlan = ({
   )) || null;
   const relevantDay = (todayDay?.remainingCount > 0 ? todayDay : null)
     || oldestOverdueDay
-    || todayDay
     || nextPendingDay
+    || todayDay
     || enrichedDays[enrichedDays.length - 1]
     || null;
   const entryKey = String(entry?.id || storedPlan?.generatedAt || '');
+  const planVersionKey = String(storedPlan?.generatedAt || storedPlan?.version || (
+    enrichedDays.map((day) => day.id || day.date).join('|')
+  ));
+  const planKey = `${entryKey}:${planVersionKey}`;
   const domEntryKey = entryKey.replace(/[^a-zA-Z0-9_-]/g, '-') || 'homework';
   const [selection, setSelection] = useState(() => ({
-    entryKey,
-    date: relevantDay?.date || '',
+    planKey: '',
+    date: '',
+    manual: false,
   }));
-  const selectedDate = selection.entryKey === entryKey
+  const hasManualSelection = selection.planKey === planKey
+    && selection.manual
     && enrichedDays.some((day) => day.date === selection.date)
-    ? selection.date
-    : relevantDay?.date || '';
+  const selectedDate = hasManualSelection ? selection.date : relevantDay?.date || '';
   const timelineRef = useRef(null);
   const lastTimelineEntryKeyRef = useRef('');
 
@@ -282,8 +287,8 @@ const HomeworkDayPlan = ({
     const timeline = timelineRef.current;
     const activeDay = timeline?.querySelector('[aria-selected="true"]');
     if (!timeline || !activeDay || timeline.scrollWidth <= timeline.clientWidth + 1) return;
-    const isInitialPositioning = lastTimelineEntryKeyRef.current !== entryKey;
-    lastTimelineEntryKeyRef.current = entryKey;
+    const isInitialPositioning = lastTimelineEntryKeyRef.current !== planKey;
+    lastTimelineEntryKeyRef.current = planKey;
     const timelineRect = timeline.getBoundingClientRect();
     const activeRect = activeDay.getBoundingClientRect();
     const targetLeft = timeline.scrollLeft
@@ -302,7 +307,7 @@ const HomeworkDayPlan = ({
     } else {
       timeline.scrollLeft = nextLeft;
     }
-  }, [entryKey, selectedDate]);
+  }, [planKey, selectedDate]);
 
   if (!storedPlan?.enabled || enrichedDays.length === 0) return null;
 
@@ -317,6 +322,10 @@ const HomeworkDayPlan = ({
     !group.completed && group.actionableItem?.view
   )) || null;
   const planCompleted = enrichedDays.every((day) => day.completed);
+  const selectedIsRelevant = selectedDay?.date === relevantDay?.date;
+  const relevantDayBadge = relevantDay?.date === oldestOverdueDay?.date
+    ? 'Сначала'
+    : 'Ближайший';
   const selectedIsToday = selectedDay?.date === todayKey;
   const selectedIsPast = String(selectedDay?.date || '') < todayKey;
   const selectedStatus = selectedDay?.completed
@@ -327,19 +336,19 @@ const HomeworkDayPlan = ({
         ? 'today'
         : 'future';
   const selectedContext = planCompleted
-    ? 'План выполнен'
+    ? 'Всё готово'
     : selectedDay?.completed
-      ? 'План на день выполнен'
+      ? 'День выполнен'
       : selectedIsPast
-        ? 'Что осталось сделать'
+        ? 'Просрочено'
         : selectedIsToday
-          ? 'Что сделать сегодня'
-          : 'Что сделать в этот день';
+          ? 'Сегодня'
+          : 'План на день';
   const selectedTitle = planCompleted
-    ? 'Вся домашняя работа выполнена'
-    : `${selectedIsToday ? 'Сегодня · ' : ''}${formatDayLabel(selectedDay?.date)}`;
+    ? 'Домашняя работа выполнена'
+    : formatDayLabel(selectedDay?.date);
   const selectedRemainingLabel = selectedDay?.completed
-    ? 'Выполнено'
+    ? 'Готово'
     : `Осталось: ${selectedDay?.remainingCount || 0}`;
   const nextDayAfterSelection = enrichedDays.find((day) => (
     String(day.date || '') > String(selectedDay?.date || '') && !day.completed
@@ -390,7 +399,8 @@ const HomeworkDayPlan = ({
     openItem(group.actionableItem);
   };
 
-  const selectDay = (date) => setSelection({ entryKey, date });
+  const selectDay = (date) => setSelection({ planKey, date, manual: true });
+  const selectRelevantDay = () => setSelection({ planKey, date: '', manual: false });
   const handlePrimaryAction = () => {
     if (selectedActionableGroup) {
       openGroup(selectedActionableGroup);
@@ -438,7 +448,7 @@ const HomeworkDayPlan = ({
           <div className="student-homework-day-plan__heading">
             <span>План по дням</span>
             <h3 id={`homework-day-plan-title-${domEntryKey}`}>
-              {role === 'student' ? 'Что делать сегодня' : `${enrichedDays.length} учебных дней`}
+              {role === 'student' ? 'Что делать дальше' : `${enrichedDays.length} учебных дней`}
             </h3>
           </div>
         </div>
@@ -461,7 +471,16 @@ const HomeworkDayPlan = ({
       <div className="student-homework-day-plan__days">
         <div className="student-homework-day-plan__days-heading">
           <strong>Дни плана</strong>
-          <span>Выбери день</span>
+          {!selectedIsRelevant && relevantDay && (
+            <button
+              type="button"
+              className="student-homework-day-plan__return"
+              onClick={selectRelevantDay}
+            >
+              <CalendarDays size={13} />
+              К ближайшему
+            </button>
+          )}
         </div>
         <div
           ref={timelineRef}
@@ -475,6 +494,7 @@ const HomeworkDayPlan = ({
             const isPast = day.date < todayKey;
             const dayStatus = day.completed ? 'complete' : isPast ? 'overdue' : isToday ? 'today' : 'future';
             const dayParts = formatDayParts(day.date);
+            const isRelevant = day.date === relevantDay?.date;
             const statusText = day.completed
               ? `${day.completedCount} из ${day.totalCount} · готово`
               : dayStatus === 'overdue'
@@ -489,7 +509,7 @@ const HomeworkDayPlan = ({
                 aria-selected={active}
                 aria-current={isToday ? 'date' : undefined}
                 aria-controls={dayPanelId}
-                aria-label={`${isToday ? 'Сегодня' : formatDayLabel(day.date)}: ${statusText}`}
+                aria-label={`${isToday ? 'Сегодня' : formatDayLabel(day.date)}: ${statusText}${isRelevant ? '. Рекомендуемый день' : ''}`}
                 tabIndex={active ? 0 : -1}
                 onClick={() => selectDay(day.date)}
                 onKeyDown={(event) => handleDayKeyDown(event, dayIndex)}
@@ -497,6 +517,9 @@ const HomeworkDayPlan = ({
               >
                 <span className="student-homework-day-plan__day-topline">
                   <span>{isToday ? 'Сегодня' : dayParts.weekday}</span>
+                  {isRelevant && !isToday && !planCompleted && (
+                    <span className="student-homework-day-plan__day-recommended">{relevantDayBadge}</span>
+                  )}
                 </span>
                 <strong>{dayParts.date}</strong>
                 <small>
@@ -523,11 +546,11 @@ const HomeworkDayPlan = ({
         >
           <div className="student-homework-day-plan__focus-heading">
             <div className="student-homework-day-plan__focus-copy">
+              <h4>{selectedTitle}</h4>
               <span className="student-homework-day-plan__context">
                 {planCompleted ? <Sparkles size={13} /> : selectedStatus === 'overdue' ? <RotateCcw size={13} /> : <Clock3 size={13} />}
                 {selectedContext}
               </span>
-              <h4>{selectedTitle}</h4>
             </div>
             <span className="student-homework-day-plan__remaining">{selectedRemainingLabel}</span>
           </div>
@@ -542,6 +565,9 @@ const HomeworkDayPlan = ({
               const textBusy = canToggleText && Boolean(isChecklistItemBusy?.(group.checklistItem));
               const canOpen = Boolean(group.actionableItem?.view) && !group.completed;
               const canInteract = canOpen || canToggleText;
+              const useFullWidth = selectedGroups.length === 1
+                || group.targets.length > 5
+                || String(group.title || '').length > 72;
               const groupProgressLabel = group.totalCount > 1
                 ? `Выполнено ${group.completedCount} из ${group.totalCount}.`
                 : group.completed
@@ -549,7 +575,9 @@ const HomeworkDayPlan = ({
                   : 'Не выполнено.';
               const rowClassName = `student-homework-day-plan__group student-homework-day-plan__group--${isTextGroup ? 'text' : 'goal'}${
                 group.completed ? ' student-homework-day-plan__group--complete' : ''
-              }${group.unavailable ? ' student-homework-day-plan__group--unavailable' : ''}`;
+              }${group.unavailable ? ' student-homework-day-plan__group--unavailable' : ''}${
+                useFullWidth ? ' student-homework-day-plan__group--wide' : ''
+              }${canInteract ? ' student-homework-day-plan__group--interactive' : ''}`;
               const rowStyle = {
                 '--student-day-plan-group-delay': `${35 + (Math.min(groupIndex, 4) * 32)}ms`,
               };
@@ -566,7 +594,7 @@ const HomeworkDayPlan = ({
                     <span className="student-homework-day-plan__group-title">
                       <strong>{group.title}</strong>
                       {group.totalCount > 1 && (
-                        <small>{group.completedCount} из {group.totalCount}</small>
+                        <small>{group.completed ? 'Готово' : `${group.completedCount} из ${group.totalCount}`}</small>
                       )}
                     </span>
                     {group.targets.length > 0 && (

@@ -71646,16 +71646,16 @@ html[data-theme='dark'] .student-today-overview {
   position: relative;
   min-width: 0;
   overflow: hidden;
-  padding: 14px;
+  padding: 16px;
   border: 1px solid transparent;
-  border-radius: 18px;
+  border-radius: 20px;
   background:
-    radial-gradient(circle at 100% 0%, rgba(233, 213, 255, 0.34), transparent 34%) padding-box,
-    linear-gradient(180deg, #fdfcff 0%, #faf8ff 52%, #f8fafc 100%) padding-box,
+    radial-gradient(circle at 100% 0%, rgba(216, 180, 254, 0.46), transparent 35%) padding-box,
+    linear-gradient(180deg, #fdfbff 0%, #f8f5ff 56%, #f7f5ff 100%) padding-box,
     linear-gradient(115deg, #a78bfa 0%, #c084fc 48%, #e879f9 100%) border-box;
   box-shadow:
-    0 12px 28px rgba(88, 28, 135, 0.085),
-    0 0 0 1px rgba(139, 92, 246, 0.08),
+    0 18px 38px rgba(88, 28, 135, 0.12),
+    0 0 0 4px rgba(139, 92, 246, 0.055),
     inset 0 1px 0 #fff;
   font-family: "Manrope", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -71702,7 +71702,7 @@ html[data-theme='dark'] .student-today-overview {
   position: relative;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 2px;
+  padding: 0 2px 2px;
 }
 
 .student-homework-day-plan__identity {
@@ -71889,7 +71889,7 @@ html[data-theme='dark'] .student-today-overview {
 
 .student-homework-day-plan__days {
   min-width: 0;
-  margin-top: 10px;
+  margin-top: 14px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -71899,10 +71899,10 @@ html[data-theme='dark'] .student-today-overview {
 
 .student-homework-day-plan__days-heading {
   display: flex;
-  min-height: 18px;
+  min-height: 28px;
   align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 12px;
   padding: 0 2px 7px;
 }
 
@@ -71924,23 +71924,47 @@ html[data-theme='dark'] .student-today-overview {
   line-height: 1.35;
 }
 
+.student-homework-day-plan__return {
+  display: inline-flex;
+  min-height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid #ddd6fe;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #6d28d9;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  box-shadow: 0 3px 10px rgba(124, 58, 237, 0.06);
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.student-homework-day-plan__return:hover {
+  border-color: #a78bfa;
+  background: #fff;
+  transform: translateY(-1px);
+}
+
 .student-homework-day-plan__timeline {
   display: grid;
   min-width: 0;
   max-width: 100%;
-  grid-template-columns: repeat(auto-fit, minmax(118px, 132px));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(174px, 190px));
+  gap: 12px;
   justify-content: start;
 }
 
 .student-homework-day-plan__day {
   position: relative;
   min-width: 0;
-  min-height: 62px;
+  min-height: 88px;
   overflow: hidden;
-  padding: 7px 9px;
+  padding: 12px 14px;
   border: 1px solid #d8e0ea;
-  border-radius: 12px;
+  border-radius: 16px;
   background: #fff;
   color: #64748b;
   font-family: inherit;
@@ -71978,6 +72002,7 @@ html[data-theme='dark'] .student-today-overview {
 
 .student-homework-day-plan__day:focus-visible,
 .student-homework-day-plan__debt:focus-visible,
+.student-homework-day-plan__return:focus-visible,
 .student-homework-day-plan__group:focus-visible,
 .student-homework-day-plan__cta:focus-visible {
   outline: 3px solid rgba(139, 92, 246, 0.28);
@@ -71988,11 +72013,28 @@ html[data-theme='dark'] .student-today-overview {
   justify-content: space-between;
   gap: 5px;
   color: #7c869a;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.25;
   text-transform: uppercase;
+}
+
+.student-homework-day-plan__day-recommended {
+  display: inline-flex;
+  max-width: 76px;
+  align-items: center;
+  padding: 2px 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #6d28d9;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.025em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .student-homework-day-plan__day > strong,
@@ -72001,9 +72043,9 @@ html[data-theme='dark'] .student-today-overview {
 }
 
 .student-homework-day-plan__day > strong {
-  margin-top: 3px;
+  margin-top: 4px;
   color: #273449;
-  font-size: 13px;
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   line-height: 1.3;
@@ -72014,9 +72056,9 @@ html[data-theme='dark'] .student-today-overview {
   max-width: 100%;
   align-items: center;
   gap: 4px;
-  margin-top: 3px;
+  margin-top: 4px;
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1.3;
@@ -72067,13 +72109,14 @@ html[data-theme='dark'] .student-today-overview {
 
 .student-homework-day-plan__day--active {
   border-color: #8b5cf6;
+  border-width: 2px;
   background:
     radial-gradient(circle at 100% 0%, rgba(216, 180, 254, 0.3), transparent 44%),
     linear-gradient(180deg, #fff 0%, #faf5ff 100%);
   color: #7c3aed;
   box-shadow:
-    0 0 0 1px #8b5cf6,
-    0 7px 16px rgba(124, 58, 237, 0.09);
+    0 0 0 2px rgba(139, 92, 246, 0.18),
+    0 9px 20px rgba(124, 58, 237, 0.13);
   transform: translateY(-1px);
 }
 
@@ -72091,8 +72134,8 @@ html[data-theme='dark'] .student-today-overview {
     linear-gradient(180deg, #fff 0%, #faf5ff 100%);
   color: #b45309;
   box-shadow:
-    0 0 0 1px #8b5cf6,
-    0 7px 16px rgba(124, 58, 237, 0.09);
+    0 0 0 2px rgba(139, 92, 246, 0.18),
+    0 9px 20px rgba(124, 58, 237, 0.13);
 }
 
 .student-homework-day-plan__day--complete.student-homework-day-plan__day--active {
@@ -72102,8 +72145,8 @@ html[data-theme='dark'] .student-today-overview {
     linear-gradient(180deg, #fff 0%, #faf5ff 100%);
   color: #047857;
   box-shadow:
-    0 0 0 1px #8b5cf6,
-    0 7px 16px rgba(124, 58, 237, 0.09);
+    0 0 0 2px rgba(139, 92, 246, 0.18),
+    0 9px 20px rgba(124, 58, 237, 0.13);
 }
 
 .student-homework-day-plan__day--active .student-homework-day-plan__day-topline,
@@ -72117,28 +72160,39 @@ html[data-theme='dark'] .student-today-overview {
 
 .student-homework-day-plan__focus {
   position: relative;
-  margin-top: 10px;
-  padding: 14px 2px 0;
-  border: 0;
-  border-top: 1px solid #e2e8f0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid rgba(196, 181, 253, 0.8);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(233, 213, 255, 0.28), transparent 34%),
+    rgba(255, 255, 255, 0.84);
+  box-shadow:
+    0 9px 24px rgba(88, 28, 135, 0.075),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
   animation: studentDayPlanFocusIn 250ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .student-homework-day-plan__focus--overdue {
-  border-top-color: #ead8ae;
-  background: transparent;
+  border-color: #ead8ae;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(253, 230, 138, 0.22), transparent 34%),
+    rgba(255, 255, 255, 0.88);
 }
 
 .student-homework-day-plan__focus--complete {
-  border-top-color: #cfe8de;
-  background: transparent;
+  border-color: #cfe8de;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(167, 243, 208, 0.22), transparent 34%),
+    rgba(255, 255, 255, 0.88);
 }
 
 .student-homework-day-plan__focus-copy {
+  display: flex;
   min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
 }
 
 .student-homework-day-plan__focus-heading {
@@ -72146,14 +72200,22 @@ html[data-theme='dark'] .student-today-overview {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 0 2px 12px;
+  border-bottom: 1px solid rgba(221, 214, 254, 0.8);
 }
 
 .student-homework-day-plan__context {
   display: inline-flex;
+  min-height: 24px;
+  flex: 0 0 auto;
   align-items: center;
   gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid rgba(221, 214, 254, 0.92);
+  border-radius: 999px;
+  background: rgba(245, 243, 255, 0.82);
   color: #7c3aed;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.35;
@@ -72161,15 +72223,19 @@ html[data-theme='dark'] .student-today-overview {
 }
 
 .student-homework-day-plan__focus--overdue .student-homework-day-plan__context {
+  border-color: rgba(251, 191, 36, 0.44);
+  background: rgba(255, 251, 235, 0.9);
   color: #d97706;
 }
 
 .student-homework-day-plan__focus--complete .student-homework-day-plan__context {
+  border-color: rgba(110, 231, 183, 0.48);
+  background: rgba(240, 253, 244, 0.88);
   color: #059669;
 }
 
 .student-homework-day-plan__focus h4 {
-  margin: 3px 0 0;
+  margin: 0;
   color: #172033;
   font-size: 18px;
   font-weight: 800;
@@ -72188,7 +72254,7 @@ html[data-theme='dark'] .student-today-overview {
 
 .student-homework-day-plan__remaining {
   display: inline-flex;
-  min-height: 25px;
+  min-height: 28px;
   flex: 0 0 auto;
   align-items: center;
   padding: 0 9px;
@@ -72210,43 +72276,39 @@ html[data-theme='dark'] .student-today-overview {
 
 .student-homework-day-plan__groups {
   display: grid;
-  overflow: hidden;
-  grid-template-columns: 1fr;
-  gap: 0;
-  margin-top: 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 4px 12px rgba(88, 28, 135, 0.04);
+  overflow: visible;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .student-homework-day-plan__group {
   display: flex;
   width: 100%;
-  min-height: 50px;
+  min-height: 62px;
   align-items: center;
   gap: 10px;
-  padding: 9px 10px;
-  border: 0;
-  border-bottom: 1px solid #e2e8f0;
-  border-radius: 0;
-  background: #fff;
+  padding: 10px 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.92);
   color: #334155;
   text-align: left;
+  box-shadow: 0 4px 12px rgba(88, 28, 135, 0.045);
   animation: studentDayPlanGroupIn 240ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
   animation-delay: var(--student-day-plan-group-delay, 35ms);
   transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease, transform 150ms ease;
 }
 
 button.student-homework-day-plan__group:hover:not(:disabled) {
-  border-color: #e2e8f0;
-  background: #f8fafc;
-  box-shadow: none;
-  transform: none;
-}
-
-.student-homework-day-plan__group:last-child {
-  border-bottom: 0;
+  border-color: #c4b5fd;
+  background: #fff;
+  box-shadow: 0 7px 18px rgba(124, 58, 237, 0.09);
+  transform: translateY(-1px);
 }
 
 .student-homework-day-plan__group:disabled {
@@ -72255,31 +72317,32 @@ button.student-homework-day-plan__group:hover:not(:disabled) {
 }
 
 .student-homework-day-plan__group--complete {
-  border-color: #e2e8f0;
-  background: #fbfefc;
+  border-color: #cfe8de;
+  background: rgba(248, 252, 250, 0.94);
   color: #475569;
 }
 
 .student-homework-day-plan__group--unavailable {
-  background: #f8fafc;
+  border-color: #e2e8f0;
+  background: rgba(248, 250, 252, 0.9);
   color: #94a3b8;
 }
 
-.student-homework-day-plan__group--text {
+.student-homework-day-plan__group--wide {
   grid-column: 1 / -1;
 }
 
 .student-homework-day-plan__group-state {
   display: inline-grid;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   flex: 0 0 auto;
   place-items: center;
   border: 1.5px solid #d8b4fe;
   border-radius: 50%;
   background: #fff;
   color: #7e22ce;
-  box-shadow: none;
+  box-shadow: inset 0 0 0 3px rgba(245, 243, 255, 0.9);
 }
 
 .student-homework-day-plan__group--complete .student-homework-day-plan__group-state {
@@ -72315,11 +72378,16 @@ button.student-homework-day-plan__group:hover:not(:disabled) {
 
 .student-homework-day-plan__group-title small {
   flex: 0 0 auto;
-  color: #64748b;
-  font-size: 12px;
+  color: #7c869a;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1.35;
+}
+
+.student-homework-day-plan__group--complete .student-homework-day-plan__group-title small {
+  color: #059669;
+  font-weight: 800;
 }
 
 .student-homework-day-plan__targets {
@@ -72524,8 +72592,8 @@ html[data-theme='dark'] .student-homework-day-plan {
     linear-gradient(180deg, #171329 0%, #111827 100%) padding-box,
     linear-gradient(115deg, rgba(139, 92, 246, 0.82), rgba(192, 38, 211, 0.58), rgba(99, 102, 241, 0.5)) border-box;
   box-shadow:
-    0 12px 28px rgba(2, 6, 23, 0.3),
-    0 0 0 1px rgba(139, 92, 246, 0.12),
+    0 18px 38px rgba(2, 6, 23, 0.4),
+    0 0 0 4px rgba(139, 92, 246, 0.09),
     inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
@@ -72575,6 +72643,18 @@ html[data-theme='dark'] .student-homework-day-plan__days-heading span {
   color: #94a3b8;
 }
 
+html[data-theme='dark'] .student-homework-day-plan__return {
+  border-color: rgba(139, 92, 246, 0.32);
+  background: rgba(30, 41, 59, 0.72);
+  color: #c4b5fd;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .student-homework-day-plan__return:hover {
+  border-color: #8b5cf6;
+  background: #263449;
+}
+
 html[data-theme='dark'] .student-homework-day-plan__debt {
   border-color: rgba(245, 158, 11, 0.36);
   background: linear-gradient(135deg, rgba(120, 53, 15, 0.38), rgba(69, 26, 3, 0.26));
@@ -72603,6 +72683,11 @@ html[data-theme='dark'] .student-homework-day-plan__day > strong {
   color: #cbd5e1;
 }
 
+html[data-theme='dark'] .student-homework-day-plan__day-recommended {
+  background: rgba(109, 40, 217, 0.34);
+  color: #ddd6fe;
+}
+
 html[data-theme='dark'] .student-homework-day-plan__day--today {
   border-color: #7c6fca;
   background: #1e293b;
@@ -72625,40 +72710,61 @@ html[data-theme='dark'] .student-homework-day-plan__day--active {
   border-color: #8b5cf6;
   background: linear-gradient(180deg, #29203e 0%, #1e293b 100%);
   color: #c4b5fd;
-  box-shadow: 0 0 0 1px #8b5cf6;
+  box-shadow:
+    0 0 0 2px rgba(139, 92, 246, 0.32),
+    0 9px 20px rgba(2, 6, 23, 0.3);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__day--overdue.student-homework-day-plan__day--active {
   border-color: #8b5cf6;
   background: linear-gradient(180deg, #29203e 0%, #1e293b 100%);
-  box-shadow: 0 0 0 1px #8b5cf6;
+  box-shadow:
+    0 0 0 2px rgba(139, 92, 246, 0.32),
+    0 9px 20px rgba(2, 6, 23, 0.3);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__day--complete.student-homework-day-plan__day--active {
   border-color: #8b5cf6;
   background: linear-gradient(180deg, #29203e 0%, #1e293b 100%);
-  box-shadow: 0 0 0 1px #8b5cf6;
+  box-shadow:
+    0 0 0 2px rgba(139, 92, 246, 0.32),
+    0 9px 20px rgba(2, 6, 23, 0.3);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__focus {
-  border-top-color: #334155;
-  background: transparent;
-  box-shadow: none;
+  border-color: #4c3b68;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(124, 58, 237, 0.12), transparent 34%),
+    rgba(15, 23, 42, 0.58);
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.22);
+}
+
+html[data-theme='dark'] .student-homework-day-plan__focus-heading {
+  border-bottom-color: rgba(76, 59, 104, 0.76);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__focus--overdue {
-  border-top-color: #725629;
-  background: transparent;
+  border-color: #725629;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(245, 158, 11, 0.1), transparent 34%),
+    rgba(15, 23, 42, 0.58);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__focus--complete {
-  border-top-color: #315f52;
-  background: transparent;
+  border-color: #315f52;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(16, 185, 129, 0.1), transparent 34%),
+    rgba(15, 23, 42, 0.58);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__context,
 html[data-theme='dark'] .student-homework-day-plan__remaining {
   color: #c4b5fd;
+}
+
+html[data-theme='dark'] .student-homework-day-plan__context {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(76, 29, 149, 0.2);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__remaining {
@@ -72671,24 +72777,32 @@ html[data-theme='dark'] .student-homework-day-plan__focus--overdue .student-home
   color: #fbbf24;
 }
 
+html[data-theme='dark'] .student-homework-day-plan__focus--overdue .student-homework-day-plan__context {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: rgba(120, 53, 15, 0.22);
+}
+
 html[data-theme='dark'] .student-homework-day-plan__focus--overdue .student-homework-day-plan__remaining {
   border-color: rgba(245, 158, 11, 0.36);
   background: rgba(120, 53, 15, 0.28);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__focus--complete .student-homework-day-plan__context {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(6, 78, 59, 0.2);
   color: #6ee7b7;
 }
 
 html[data-theme='dark'] .student-homework-day-plan__groups {
-  border-color: #334155;
-  background: #1e293b;
+  border-color: transparent;
+  background: transparent;
 }
 
 html[data-theme='dark'] .student-homework-day-plan__group {
   border-color: #334155;
   background: #1e293b;
   color: #e2e8f0;
+  box-shadow: 0 5px 14px rgba(2, 6, 23, 0.18);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__group-title small {
@@ -72696,8 +72810,9 @@ html[data-theme='dark'] .student-homework-day-plan__group-title small {
 }
 
 html[data-theme='dark'] button.student-homework-day-plan__group:hover:not(:disabled) {
-  border-color: #334155;
+  border-color: #6d5a91;
   background: #263449;
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.24);
 }
 
 html[data-theme='dark'] .student-homework-day-plan__group-state {
@@ -72755,7 +72870,7 @@ html[data-theme='dark'] .student-homework-day-plan__targets > span.is-unavailabl
   .student-homework-day-plan {
     margin-right: 0;
     margin-left: 0;
-    padding: 12px;
+    padding: 13px;
     border-radius: 18px;
   }
 
@@ -72812,9 +72927,14 @@ html[data-theme='dark'] .student-homework-day-plan__targets > span.is-unavailabl
   }
 
   .student-homework-day-plan__days-heading {
-    padding-right: 10px;
-    padding-bottom: 5px;
-    padding-left: 10px;
+    align-items: flex-end;
+    padding: 0 2px 7px;
+  }
+
+  .student-homework-day-plan__return {
+    min-height: 26px;
+    padding: 3px 8px;
+    font-size: 10px;
   }
 
   .student-homework-day-plan__timeline {
@@ -72832,14 +72952,15 @@ html[data-theme='dark'] .student-homework-day-plan__targets > span.is-unavailabl
   }
 
   .student-homework-day-plan__day {
-    width: 90px;
-    min-width: 90px;
-    min-height: 64px;
+    width: 116px;
+    min-width: 116px;
+    min-height: 78px;
+    padding: 10px 11px;
   }
 
   .student-homework-day-plan__focus {
-    padding: 12px 0 0;
-    border-radius: 0;
+    padding: 12px;
+    border-radius: 14px;
   }
 
   .student-homework-day-plan__focus-copy {
