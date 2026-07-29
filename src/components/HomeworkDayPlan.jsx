@@ -1,5 +1,15 @@
-import { useState } from 'react';
-import { CalendarDays, CheckCircle2, ChevronRight, Clock3, RotateCcw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  AlertTriangle,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
+  Clock3,
+  RotateCcw,
+  Sparkles,
+} from 'lucide-react';
 
 const toDayKey = (value = new Date(), calendarOffsetMinutes = null) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -50,6 +60,7 @@ const resolveItemState = (item, goalViews, checklistItems) => {
     const matched = byId || byIndex || null;
     return {
       completed: matched ? Boolean(matched.completedAt) : Boolean(item?.completedAt),
+      checklistItem: matched,
       view: null,
     };
   }
@@ -103,6 +114,104 @@ const getItemLabel = (item, mockExamById = {}) => {
   return 'Часть домашней работы';
 };
 
+const pluralize = (value, one, few, many) => {
+  const count = Math.abs(Number(value) || 0);
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  if (mod100 >= 11 && mod100 <= 19) return many;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+};
+
+const formatItemCount = (value) => (
+  `${value} ${pluralize(value, 'задание', 'задания', 'заданий')}`
+);
+
+const formatDayParts = (value) => {
+  const date = new Date(`${String(value || '').trim()}T12:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return { weekday: '', date: String(value || '') };
+  }
+  return {
+    weekday: date.toLocaleDateString('ru-RU', { weekday: 'short' }).replace('.', ''),
+    date: date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }).replace(' г.', ''),
+  };
+};
+
+const getItemGroupKey = (item, index) => {
+  if (item?.type === 'task-target') {
+    return `task:${item.sourceGoalIndex}:${item.taskNumber}:${item.levelId || ''}`;
+  }
+  if (item?.type === 'mock-target') {
+    return `mock:${item.sourceGoalIndex}:${item.mockExamId || ''}`;
+  }
+  return `item:${item?.itemId || index}`;
+};
+
+const buildItemGroups = (items, mockExamById) => {
+  const groups = [];
+  const groupByKey = new Map();
+  (Array.isArray(items) ? items : []).forEach((item, index) => {
+    const key = getItemGroupKey(item, index);
+    let group = groupByKey.get(key);
+    if (!group) {
+      group = { key, type: item?.type || 'unknown', items: [] };
+      groupByKey.set(key, group);
+      groups.push(group);
+    }
+    group.items.push(item);
+  });
+  return groups.map((group) => {
+    const pendingItems = group.items.filter((item) => !item.completed && !item.unavailable);
+    const availableItems = group.items.filter((item) => !item.unavailable);
+    const completedCount = availableItems.filter((item) => item.completed).length;
+    const firstItem = group.items[0] || {};
+    const actionableItem = pendingItems.find((item) => item.view)
+      || availableItems.find((item) => item.view)
+      || null;
+    const completed = availableItems.length === 0
+      ? group.items.length > 0
+      : completedCount >= availableItems.length;
+    let title = getItemLabel(firstItem, mockExamById);
+    if (group.type === 'task-target') title = `Задание ${firstItem.taskNumber || ''}`.trim();
+    if (group.type === 'mock-target') {
+      title = mockExamById?.[String(firstItem.mockExamId || '')]?.title || 'Пробник';
+    }
+    const targets = group.items.map((item) => {
+      if (group.type === 'task-target') {
+        const number = item.currentQuestionNumber || item.questionNumber;
+        return {
+          key: item.itemId || item.questionId || number,
+          label: number ? `№${number}` : 'Недоступно',
+          completed: Boolean(item.completed),
+          unavailable: Boolean(item.unavailable),
+        };
+      }
+      if (group.type === 'mock-target') {
+        return {
+          key: item.itemId || item.taskKey,
+          label: item.taskKey ? `№${item.taskKey}` : 'Задание',
+          completed: Boolean(item.completed),
+          unavailable: Boolean(item.unavailable),
+        };
+      }
+      return null;
+    }).filter(Boolean);
+    return {
+      ...group,
+      title,
+      targets,
+      actionableItem,
+      completed,
+      completedCount,
+      totalCount: availableItems.length,
+      unavailable: availableItems.length === 0 && group.items.length > 0,
+      checklistItem: firstItem.checklistItem || null,
+    };
+  });
+};
+
 const HomeworkDayPlan = ({
   entry,
   goalViews = [],
@@ -111,6 +220,8 @@ const HomeworkDayPlan = ({
   role = 'student',
   onOpenTask,
   onOpenMockGoal,
+  onToggleChecklistItem,
+  isChecklistItemBusy,
 }) => {
   const storedPlan = entry?.dayPlan && typeof entry.dayPlan === 'object' ? entry.dayPlan : null;
   const days = Array.isArray(storedPlan?.dayPlan) ? storedPlan.dayPlan : [];
@@ -129,21 +240,33 @@ const HomeworkDayPlan = ({
         ...resolveItemState(item, goalViews, checklistItems),
       };
     });
-    const completedCount = items.filter((item) => item.completed).length;
+    const availableItems = items.filter((item) => !item.unavailable);
+    const completedCount = availableItems.filter((item) => item.completed).length;
+    const remainingCount = availableItems.filter((item) => !item.completed).length;
     return {
       ...day,
       items,
       completedCount,
-      remainingCount: Math.max(0, items.length - completedCount),
-      completed: items.length > 0 && completedCount >= items.length,
+      remainingCount,
+      totalCount: availableItems.length,
+      completed: items.length > 0 && remainingCount === 0,
     };
   });
-  const relevantDay = enrichedDays.find((day) => day.date === todayKey)
-    || [...enrichedDays].reverse().find((day) => String(day.date || '') < todayKey && !day.completed)
-    || enrichedDays.find((day) => String(day.date || '') > todayKey)
+  const todayDay = enrichedDays.find((day) => day.date === todayKey) || null;
+  const oldestOverdueDay = enrichedDays.find((day) => (
+    String(day.date || '') < todayKey && day.remainingCount > 0
+  )) || null;
+  const nextPendingDay = enrichedDays.find((day) => (
+    String(day.date || '') > todayKey && day.remainingCount > 0
+  )) || null;
+  const relevantDay = (todayDay?.remainingCount > 0 ? todayDay : null)
+    || oldestOverdueDay
+    || todayDay
+    || nextPendingDay
     || enrichedDays[enrichedDays.length - 1]
     || null;
   const entryKey = String(entry?.id || storedPlan?.generatedAt || '');
+  const domEntryKey = entryKey.replace(/[^a-zA-Z0-9_-]/g, '-') || 'homework';
   const [selection, setSelection] = useState(() => ({
     entryKey,
     date: relevantDay?.date || '',
@@ -152,17 +275,75 @@ const HomeworkDayPlan = ({
     && enrichedDays.some((day) => day.date === selection.date)
     ? selection.date
     : relevantDay?.date || '';
+  const timelineRef = useRef(null);
+  const lastTimelineEntryKeyRef = useRef('');
+
+  useEffect(() => {
+    const timeline = timelineRef.current;
+    const activeDay = timeline?.querySelector('[aria-selected="true"]');
+    if (!timeline || !activeDay || timeline.scrollWidth <= timeline.clientWidth + 1) return;
+    const isInitialPositioning = lastTimelineEntryKeyRef.current !== entryKey;
+    lastTimelineEntryKeyRef.current = entryKey;
+    const timelineRect = timeline.getBoundingClientRect();
+    const activeRect = activeDay.getBoundingClientRect();
+    const targetLeft = timeline.scrollLeft
+      + (activeRect.left - timelineRect.left)
+      - ((timeline.clientWidth - activeRect.width) / 2);
+    const nextLeft = Math.max(0, Math.min(
+      timeline.scrollWidth - timeline.clientWidth,
+      targetLeft
+    ));
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (typeof timeline.scrollTo === 'function') {
+      timeline.scrollTo({
+        left: nextLeft,
+        behavior: reduceMotion || isInitialPositioning ? 'auto' : 'smooth',
+      });
+    } else {
+      timeline.scrollLeft = nextLeft;
+    }
+  }, [entryKey, selectedDate]);
 
   if (!storedPlan?.enabled || enrichedDays.length === 0) return null;
 
   const selectedDay = enrichedDays.find((day) => day.date === selectedDate) || relevantDay || enrichedDays[0];
   const overdueItems = enrichedDays
     .filter((day) => String(day.date || '') < todayKey)
-    .flatMap((day) => day.items.filter((item) => !item.completed).map((item) => ({ ...item, plannedDate: day.date })));
-  const selectedPending = selectedDay?.items?.filter((item) => !item.completed) || [];
-  const firstActionable = overdueItems.find((item) => item.view)
-    || selectedPending.find((item) => item.view)
-    || null;
+    .flatMap((day) => day.items
+      .filter((item) => !item.completed && !item.unavailable)
+      .map((item) => ({ ...item, plannedDate: day.date })));
+  const selectedGroups = buildItemGroups(selectedDay?.items, mockExamById);
+  const selectedActionableGroup = selectedGroups.find((group) => (
+    !group.completed && group.actionableItem?.view
+  )) || null;
+  const planCompleted = enrichedDays.every((day) => day.completed);
+  const selectedIsToday = selectedDay?.date === todayKey;
+  const selectedIsPast = String(selectedDay?.date || '') < todayKey;
+  const selectedStatus = selectedDay?.completed
+    ? 'complete'
+    : selectedIsPast
+      ? 'overdue'
+      : selectedIsToday
+        ? 'today'
+        : 'future';
+  const selectedContext = planCompleted
+    ? 'План выполнен'
+    : selectedDay?.completed
+      ? 'План на день выполнен'
+      : selectedIsPast
+        ? 'Что осталось сделать'
+        : selectedIsToday
+          ? 'Что сделать сегодня'
+          : 'Что сделать в этот день';
+  const selectedTitle = planCompleted
+    ? 'Вся домашняя работа выполнена'
+    : `${selectedIsToday ? 'Сегодня · ' : ''}${formatDayLabel(selectedDay?.date)}`;
+  const selectedRemainingLabel = selectedDay?.completed
+    ? 'Выполнено'
+    : `Осталось: ${selectedDay?.remainingCount || 0}`;
+  const nextDayAfterSelection = enrichedDays.find((day) => (
+    String(day.date || '') > String(selectedDay?.date || '') && !day.completed
+  )) || enrichedDays.find((day) => day.date !== selectedDay?.date && !day.completed) || null;
 
   const openItem = (item) => {
     if (!item?.view) return;
@@ -183,99 +364,276 @@ const HomeworkDayPlan = ({
     onOpenTask?.(item.view.taskNumber, item.view.levelId, targetNumbers);
   };
 
+  const openGroup = (group) => {
+    if (!group?.actionableItem?.view) return;
+    const actionableItems = group.items.filter((item) => !item.completed && !item.unavailable);
+    const fallbackItems = group.items.filter((item) => !item.unavailable);
+    const scopedItems = actionableItems.length > 0 ? actionableItems : fallbackItems;
+    if (group.type === 'task-target') {
+      const item = group.actionableItem;
+      const targetNumbers = [...new Set(scopedItems
+        .map((entryItem) => Number(entryItem.currentQuestionNumber || entryItem.questionNumber))
+        .filter((number) => Number.isFinite(number) && number > 0))];
+      onOpenTask?.(item.view.taskNumber, item.view.levelId, targetNumbers);
+      return;
+    }
+    if (group.type === 'mock-target') {
+      const item = group.actionableItem;
+      const scopedTaskKeys = [...new Set(scopedItems.map((entryItem) => entryItem.taskKey).filter(Boolean))];
+      onOpenMockGoal?.(item.view.mockExamId, scopedTaskKeys[0] || null, {
+        fromHomework: true,
+        mode: item.view.mode,
+        targetTaskKeys: scopedTaskKeys,
+      });
+      return;
+    }
+    openItem(group.actionableItem);
+  };
+
+  const selectDay = (date) => setSelection({ entryKey, date });
+  const handlePrimaryAction = () => {
+    if (selectedActionableGroup) {
+      openGroup(selectedActionableGroup);
+      return;
+    }
+    if (selectedDay?.completed && nextDayAfterSelection) selectDay(nextDayAfterSelection.date);
+  };
+  const primaryActionLabel = selectedActionableGroup
+    ? selectedStatus === 'overdue'
+      ? 'Закрыть долг'
+      : selectedStatus === 'future'
+        ? 'Начать заранее'
+        : 'Начать по плану'
+    : selectedDay?.completed && nextDayAfterSelection
+      ? 'К следующему дню'
+      : '';
+  const dayPanelId = `homework-day-panel-${domEntryKey}`;
+  const selectedDayIndex = enrichedDays.findIndex((day) => day.date === selectedDay?.date);
+  const selectedDayTabId = `homework-day-tab-${domEntryKey}-${Math.max(0, selectedDayIndex)}`;
+  const handleDayKeyDown = (event, dayIndex) => {
+    const keyActions = {
+      ArrowRight: (dayIndex + 1) % enrichedDays.length,
+      ArrowLeft: (dayIndex - 1 + enrichedDays.length) % enrichedDays.length,
+      Home: 0,
+      End: enrichedDays.length - 1,
+    };
+    const nextDayIndex = keyActions[event.key];
+    if (!Number.isInteger(nextDayIndex)) return;
+    event.preventDefault();
+    selectDay(enrichedDays[nextDayIndex].date);
+    window.requestAnimationFrame(() => {
+      timelineRef.current
+        ?.querySelector(`#homework-day-tab-${domEntryKey}-${nextDayIndex}`)
+        ?.focus();
+    });
+  };
+
   return (
-    <section className="student-homework-day-plan rounded-[20px] border border-indigo-200/80 bg-gradient-to-br from-indigo-50 via-white to-purple-50/70 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-2.5">
-          <span className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/20">
-            <CalendarDays size={17} />
+    <section className="student-homework-day-plan" aria-labelledby={`homework-day-plan-title-${domEntryKey}`}>
+      <header className="student-homework-day-plan__header">
+        <div className="student-homework-day-plan__identity">
+          <span className="student-homework-day-plan__icon" aria-hidden>
+            <CalendarDays size={18} />
           </span>
-          <div>
-            <span className="text-[10px] font-black uppercase tracking-[0.15em] text-indigo-500">План по дням</span>
-            <strong className="mt-0.5 block text-sm text-slate-950">
+          <div className="student-homework-day-plan__heading">
+            <span>План по дням</span>
+            <h3 id={`homework-day-plan-title-${domEntryKey}`}>
               {role === 'student' ? 'Что делать сегодня' : `${enrichedDays.length} учебных дней`}
-            </strong>
+            </h3>
           </div>
         </div>
-        {overdueItems.length > 0 && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-black text-amber-700">
-            <RotateCcw size={12} /> Долг: {overdueItems.length}
-          </span>
-        )}
-      </div>
+      </header>
 
-      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-        {enrichedDays.map((day) => {
-          const active = day.date === selectedDay?.date;
-          const isToday = day.date === todayKey;
-          const isPast = day.date < todayKey;
-          return (
-            <button
-              key={day.id || day.date}
-              type="button"
-              onClick={() => setSelection({ entryKey, date: day.date })}
-              className={`min-w-[94px] shrink-0 rounded-xl border px-3 py-2 text-left transition ${
-                active
-                  ? 'border-indigo-500 bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
-                  : day.completed
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                    : isPast
-                      ? 'border-amber-200 bg-amber-50 text-amber-700'
-                      : 'border-indigo-100 bg-white text-slate-700'
-              }`}
-            >
-              <span className="block text-[9px] font-black uppercase tracking-wide">{isToday ? 'Сегодня' : formatDayLabel(day.date)}</span>
-              <span className="mt-1 flex items-center gap-1 text-[11px] font-black">
-                {day.completed ? <CheckCircle2 size={12} /> : <Clock3 size={12} />}
-                {`${day.completedCount}/${day.items.length}`}
-              </span>
-            </button>
-          );
-        })}
+      {overdueItems.length > 0 && selectedStatus !== 'overdue' && oldestOverdueDay && (
+        <button
+          type="button"
+          className="student-homework-day-plan__debt"
+          onClick={() => selectDay(oldestOverdueDay.date)}
+        >
+          <span className="student-homework-day-plan__debt-icon"><RotateCcw size={15} /></span>
+          <span>
+            <strong>{formatItemCount(overdueItems.length)} осталось с прошлых дней</strong>
+          </span>
+          <span className="student-homework-day-plan__debt-action">Показать <ChevronRight size={14} /></span>
+        </button>
+      )}
+
+      <div className="student-homework-day-plan__days">
+        <div className="student-homework-day-plan__days-heading">
+          <strong>Дни плана</strong>
+          <span>Выбери день</span>
+        </div>
+        <div
+          ref={timelineRef}
+          className="student-homework-day-plan__timeline"
+          role="tablist"
+          aria-label="Дни выполнения домашней работы"
+        >
+          {enrichedDays.map((day, dayIndex) => {
+            const active = day.date === selectedDay?.date;
+            const isToday = day.date === todayKey;
+            const isPast = day.date < todayKey;
+            const dayStatus = day.completed ? 'complete' : isPast ? 'overdue' : isToday ? 'today' : 'future';
+            const dayParts = formatDayParts(day.date);
+            const statusText = day.completed
+              ? `${day.completedCount} из ${day.totalCount} · готово`
+              : dayStatus === 'overdue'
+                ? `Осталось ${day.remainingCount}`
+                : `${day.completedCount} из ${day.totalCount}`;
+            return (
+              <button
+                key={day.id || day.date}
+                id={`homework-day-tab-${domEntryKey}-${dayIndex}`}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-current={isToday ? 'date' : undefined}
+                aria-controls={dayPanelId}
+                aria-label={`${isToday ? 'Сегодня' : formatDayLabel(day.date)}: ${statusText}`}
+                tabIndex={active ? 0 : -1}
+                onClick={() => selectDay(day.date)}
+                onKeyDown={(event) => handleDayKeyDown(event, dayIndex)}
+                className={`student-homework-day-plan__day student-homework-day-plan__day--${dayStatus}${active ? ' student-homework-day-plan__day--active' : ''}`}
+              >
+                <span className="student-homework-day-plan__day-topline">
+                  <span>{isToday ? 'Сегодня' : dayParts.weekday}</span>
+                </span>
+                <strong>{dayParts.date}</strong>
+                <small>
+                  {day.completed
+                    ? <CheckCircle2 size={12} />
+                    : dayStatus === 'overdue'
+                      ? <RotateCcw size={12} />
+                      : <Clock3 size={12} />}
+                  <span>{statusText}</span>
+                </small>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {selectedDay && (
-        <div className="mt-3 rounded-xl border border-indigo-100 bg-white/90 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <strong className="text-xs capitalize text-slate-900">{formatDayLabel(selectedDay.date)}</strong>
-            <span className="text-[10px] font-bold text-slate-500">
-              {selectedDay.completed ? 'План выполнен' : `Осталось: ${selectedDay.remainingCount}`}
-            </span>
-          </div>
-          <div className="mt-2 space-y-1.5">
-            {selectedDay.items.map((item) => (
-              <button
-                key={item.itemId}
-                type="button"
-                disabled={!item.view}
-                onClick={() => openItem(item)}
-                className={`flex min-h-10 w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left ${
-                  item.completed
-                    ? 'border-emerald-100 bg-emerald-50/70 text-emerald-700'
-                    : 'border-slate-200 bg-white text-slate-700'
-                } disabled:cursor-default`}
-              >
-                <span className={`inline-grid h-5 w-5 shrink-0 place-items-center rounded-full border ${
-                  item.completed ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white'
-                }`}>
-                  {item.completed ? <CheckCircle2 size={12} /> : null}
-                </span>
-                <span className={`min-w-0 flex-1 text-xs font-bold ${item.completed ? 'line-through opacity-70' : ''}`}>{getItemLabel(item, mockExamById)}</span>
-                {item.view ? <ChevronRight size={14} className="shrink-0 opacity-50" /> : null}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {role === 'student' && firstActionable && (
-        <button
-          type="button"
-          onClick={() => openItem(firstActionable)}
-          className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs font-black text-white shadow-md shadow-indigo-500/20 hover:bg-indigo-700 sm:w-auto"
+        <div
+          key={`${entryKey}:${selectedDay.date}`}
+          id={dayPanelId}
+          role="tabpanel"
+          aria-labelledby={selectedDayTabId}
+          className={`student-homework-day-plan__focus student-homework-day-plan__focus--${selectedStatus}`}
         >
-          Начать по плану <ChevronRight size={15} />
-        </button>
+          <div className="student-homework-day-plan__focus-heading">
+            <div className="student-homework-day-plan__focus-copy">
+              <span className="student-homework-day-plan__context">
+                {planCompleted ? <Sparkles size={13} /> : selectedStatus === 'overdue' ? <RotateCcw size={13} /> : <Clock3 size={13} />}
+                {selectedContext}
+              </span>
+              <h4>{selectedTitle}</h4>
+            </div>
+            <span className="student-homework-day-plan__remaining">{selectedRemainingLabel}</span>
+          </div>
+
+          <div className="student-homework-day-plan__groups">
+            {selectedGroups.map((group, groupIndex) => {
+              const isTextGroup = group.type === 'text';
+              const canToggleText = isTextGroup
+                && role === 'student'
+                && Boolean(group.checklistItem)
+                && typeof onToggleChecklistItem === 'function';
+              const textBusy = canToggleText && Boolean(isChecklistItemBusy?.(group.checklistItem));
+              const canOpen = Boolean(group.actionableItem?.view) && !group.completed;
+              const canInteract = canOpen || canToggleText;
+              const groupProgressLabel = group.totalCount > 1
+                ? `Выполнено ${group.completedCount} из ${group.totalCount}.`
+                : group.completed
+                  ? 'Выполнено.'
+                  : 'Не выполнено.';
+              const rowClassName = `student-homework-day-plan__group student-homework-day-plan__group--${isTextGroup ? 'text' : 'goal'}${
+                group.completed ? ' student-homework-day-plan__group--complete' : ''
+              }${group.unavailable ? ' student-homework-day-plan__group--unavailable' : ''}`;
+              const rowStyle = {
+                '--student-day-plan-group-delay': `${35 + (Math.min(groupIndex, 4) * 32)}ms`,
+              };
+              const rowContent = (
+                <>
+                  <span className="student-homework-day-plan__group-state" aria-hidden>
+                    {group.unavailable
+                      ? <AlertTriangle size={16} />
+                      : group.completed
+                        ? <Check size={13} strokeWidth={3} />
+                        : null}
+                  </span>
+                  <span className="student-homework-day-plan__group-content">
+                    <span className="student-homework-day-plan__group-title">
+                      <strong>{group.title}</strong>
+                      {group.totalCount > 1 && (
+                        <small>{group.completedCount} из {group.totalCount}</small>
+                      )}
+                    </span>
+                    {group.targets.length > 0 && (
+                      <span className="student-homework-day-plan__targets">
+                        {group.targets.map((target) => (
+                          <span
+                            key={target.key}
+                            className={`${target.completed ? 'is-complete' : ''}${target.unavailable ? ' is-unavailable' : ''}`}
+                            aria-label={`${target.label}: ${target.unavailable ? 'недоступно' : target.completed ? 'выполнено' : 'не выполнено'}`}
+                          >
+                            {target.unavailable
+                              ? <AlertTriangle size={11} />
+                              : target.completed
+                                ? <Check size={11} strokeWidth={3} />
+                                : <Circle size={12} />}
+                            {target.label}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                    {group.unavailable && <small className="student-homework-day-plan__warning">Номер больше недоступен и не мешает завершить день.</small>}
+                  </span>
+                  {canInteract && <ChevronRight size={16} className="student-homework-day-plan__group-arrow" />}
+                </>
+              );
+              if (!canInteract) {
+                return <div key={group.key} className={rowClassName} style={rowStyle}>{rowContent}</div>;
+              }
+              return (
+                <button
+                  key={group.key}
+                  type="button"
+                  className={rowClassName}
+                  style={rowStyle}
+                  disabled={textBusy}
+                  aria-pressed={canToggleText ? group.completed : undefined}
+                  aria-label={canToggleText
+                    ? `${group.completed ? 'Вернуть в работу' : 'Отметить выполненным'}: ${group.title}. ${groupProgressLabel}`
+                    : `Открыть: ${group.title}. ${groupProgressLabel}`}
+                  onClick={() => {
+                    if (canToggleText) {
+                      onToggleChecklistItem(group.checklistItem);
+                    } else {
+                      openGroup(group);
+                    }
+                  }}
+                >
+                  {rowContent}
+                </button>
+              );
+            })}
+          </div>
+
+          {primaryActionLabel && (
+            <button
+              type="button"
+              onClick={handlePrimaryAction}
+              className="student-homework-day-plan__cta student-homework-day-plan__cta--footer"
+            >
+              <span>
+                {primaryActionLabel}
+                <small>{selectedActionableGroup?.title || formatDayLabel(nextDayAfterSelection?.date)}</small>
+              </span>
+              <ChevronRight size={17} />
+            </button>
+          )}
+        </div>
       )}
     </section>
   );

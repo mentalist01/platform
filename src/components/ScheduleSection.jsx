@@ -2435,6 +2435,7 @@ const ScheduleSection = ({
       const orderedGoalViews = primaryGoal
         ? [primaryGoal, ...goalViews.filter((goalView) => goalView !== primaryGoal)]
         : [];
+      const dayPlanEnabled = Boolean(entry?.dayPlan?.enabled);
 
       const renderStudentGoalBlock = (goalView, goalIndex) => {
         if (!goalView) return null;
@@ -2600,7 +2601,7 @@ const ScheduleSection = ({
             </div>
           </header>
 
-          {entry?.dayPlan?.enabled && (
+          {dayPlanEnabled && (
             <div className="relative mt-4">
               <HomeworkDayPlan
                 entry={entry}
@@ -2610,11 +2611,27 @@ const ScheduleSection = ({
                 role={role}
                 onOpenTask={onOpenTask}
                 onOpenMockGoal={onOpenMockGoal}
+                onToggleChecklistItem={(item) => handleToggleHomeworkChecklistItem(entry, item)}
+                isChecklistItemBusy={(item) => Boolean(homeworkChecklistBusy[`${entry?.id || ''}:${item?.id || ''}`])}
               />
             </div>
           )}
 
-          <div className="relative mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)]">
+          {dayPlanEnabled && (
+            <div className="student-today-homework__full-heading relative mt-4 flex items-center gap-2.5 px-1">
+              <span className="inline-grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-purple-200 bg-purple-50 text-purple-700">
+                <ListChecks size={16} />
+              </span>
+              <div>
+                <div className="text-sm font-black text-slate-900">Полная домашка</div>
+                <div className="mt-0.5 text-xs font-semibold text-slate-500">
+                  Все задания целиком — без разбивки по дням
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className={`relative grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)] ${dayPlanEnabled ? 'mt-2' : 'mt-4'}`}>
             <section className="student-today-homework__goal-panel rounded-[20px] border border-purple-200/80 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/60 p-4">
               {orderedGoalViews.length > 0 ? (
                 orderedGoalViews.map((goalView, goalIndex) => renderStudentGoalBlock(goalView, goalIndex))
