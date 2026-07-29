@@ -2618,7 +2618,7 @@ const ScheduleSection = ({
           )}
 
           {dayPlanEnabled && (
-            <div className="student-today-homework__full-heading relative mt-4 flex items-center gap-2.5 px-1">
+            <div className="student-today-homework__full-heading relative mt-7 flex items-center gap-2.5 px-1">
               <span className="inline-grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-purple-200 bg-purple-50 text-purple-700">
                 <ListChecks size={16} />
               </span>

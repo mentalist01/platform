@@ -71647,13 +71647,15 @@ html[data-theme='dark'] .student-today-overview {
   min-width: 0;
   overflow: hidden;
   padding: 14px;
-  border: 1px solid #e4d9ff;
+  border: 1px solid transparent;
   border-radius: 18px;
   background:
-    radial-gradient(circle at 100% 0%, rgba(233, 213, 255, 0.34), transparent 34%),
-    linear-gradient(180deg, #fdfcff 0%, #faf8ff 52%, #f8fafc 100%);
+    radial-gradient(circle at 100% 0%, rgba(233, 213, 255, 0.34), transparent 34%) padding-box,
+    linear-gradient(180deg, #fdfcff 0%, #faf8ff 52%, #f8fafc 100%) padding-box,
+    linear-gradient(115deg, #a78bfa 0%, #c084fc 48%, #e879f9 100%) border-box;
   box-shadow:
-    0 8px 20px rgba(88, 28, 135, 0.055),
+    0 12px 28px rgba(88, 28, 135, 0.085),
+    0 0 0 1px rgba(139, 92, 246, 0.08),
     inset 0 1px 0 #fff;
 }
 
@@ -71913,8 +71915,9 @@ html[data-theme='dark'] .student-today-overview {
   display: grid;
   min-width: 0;
   max-width: 100%;
-  grid-template-columns: repeat(auto-fit, minmax(102px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 132px));
   gap: 8px;
+  justify-content: start;
 }
 
 .student-homework-day-plan__day {
@@ -72495,12 +72498,14 @@ button.student-homework-day-plan__group:hover .student-homework-day-plan__group-
 }
 
 html[data-theme='dark'] .student-homework-day-plan {
-  border-color: #4c3b68;
+  border-color: transparent;
   background:
-    radial-gradient(circle at 100% 0%, rgba(124, 58, 237, 0.16), transparent 35%),
-    linear-gradient(180deg, #171329 0%, #111827 100%);
+    radial-gradient(circle at 100% 0%, rgba(124, 58, 237, 0.16), transparent 35%) padding-box,
+    linear-gradient(180deg, #171329 0%, #111827 100%) padding-box,
+    linear-gradient(115deg, rgba(139, 92, 246, 0.82), rgba(192, 38, 211, 0.58), rgba(99, 102, 241, 0.5)) border-box;
   box-shadow:
-    0 9px 22px rgba(2, 6, 23, 0.22),
+    0 12px 28px rgba(2, 6, 23, 0.3),
+    0 0 0 1px rgba(139, 92, 246, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
