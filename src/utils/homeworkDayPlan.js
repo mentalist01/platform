@@ -575,6 +575,126 @@ const countItemsByKind = (items, kind) => (
   (Array.isArray(items) ? items : []).filter((item) => item.kind === kind).length
 );
 
+const isPendingAvailablePlanItem = (item) => (
+  !item?.completed && !item?.unavailable
+);
+
+const refreshEnrichedDayCounts = (day) => {
+  const items = Array.isArray(day?.items) ? day.items : [];
+  const availableItems = items.filter((item) => !item?.unavailable);
+  const completedCount = availableItems.filter((item) => item?.completed).length;
+  const remainingCount = availableItems.length - completedCount;
+  return {
+    ...day,
+    items,
+    itemCount: items.length,
+    completedCount,
+    remainingCount,
+    totalCount: availableItems.length,
+    completed: items.length > 0 && remainingCount === 0,
+  };
+};
+
+/**
+ * Moves unfinished work from missed plan days into today and the remaining days.
+ * The input is expected to contain items enriched with `completed` and
+ * `unavailable` flags by the caller.
+ */
+export const adaptHomeworkDayPlanForToday = ({ days, todayKey } = {}) => {
+  const normalizedTodayKey = normalizeText(todayKey);
+  const clonedDays = (Array.isArray(days) ? days : []).map((day) => ({
+    ...day,
+    items: (Array.isArray(day?.items) ? day.items : []).map((item) => ({ ...item })),
+    rescheduledOutCount: 0,
+    receivedOverdueCount: 0,
+  }));
+  const emptyMetadata = {
+    movedItemCount: 0,
+    sourceDayCount: 0,
+    targetDayCount: 0,
+  };
+
+  if (!normalizedTodayKey || clonedDays.length === 0) {
+    return {
+      days: clonedDays.map(refreshEnrichedDayCounts),
+      metadata: emptyMetadata,
+    };
+  }
+
+  const targetStates = clonedDays
+    .map((day, index) => ({
+      day,
+      index,
+      pendingCount: (Array.isArray(day?.items) ? day.items : [])
+        .filter(isPendingAvailablePlanItem).length,
+    }))
+    .filter(({ day }) => normalizeText(day?.date) >= normalizedTodayKey)
+    .sort((left, right) => (
+      normalizeText(left.day?.date).localeCompare(normalizeText(right.day?.date))
+      || left.index - right.index
+    ));
+
+  if (targetStates.length === 0) {
+    return {
+      days: clonedDays.map(refreshEnrichedDayCounts),
+      metadata: emptyMetadata,
+    };
+  }
+
+  const sourceStates = clonedDays
+    .map((day, index) => ({ day, index }))
+    .filter(({ day }) => normalizeText(day?.date) < normalizedTodayKey)
+    .sort((left, right) => (
+      normalizeText(left.day?.date).localeCompare(normalizeText(right.day?.date))
+      || left.index - right.index
+    ));
+  const affectedSourceIndexes = new Set();
+  const affectedTargetIndexes = new Set();
+  let movedItemCount = 0;
+
+  sourceStates.forEach(({ day: sourceDay, index: sourceIndex }) => {
+    const retainedItems = [];
+    (Array.isArray(sourceDay.items) ? sourceDay.items : []).forEach((item) => {
+      if (!isPendingAvailablePlanItem(item)) {
+        retainedItems.push(item);
+        return;
+      }
+
+      const target = targetStates.reduce((best, candidate) => {
+        if (!best || candidate.pendingCount < best.pendingCount) return candidate;
+        return best;
+      }, null);
+      if (!target) {
+        retainedItems.push(item);
+        return;
+      }
+
+      target.day.items.push({
+        ...item,
+        movedFromDate: normalizeText(sourceDay?.date),
+        originalPlannedDate: normalizeText(item?.originalPlannedDate)
+          || normalizeText(sourceDay?.date),
+      });
+      target.pendingCount += 1;
+      sourceDay.rescheduledOutCount += 1;
+      target.day.receivedOverdueCount += 1;
+      affectedSourceIndexes.add(sourceIndex);
+      affectedTargetIndexes.add(target.index);
+      movedItemCount += 1;
+    });
+    sourceDay.items = retainedItems;
+  });
+
+  return {
+    days: clonedDays.map(refreshEnrichedDayCounts),
+    metadata: {
+      movedItemCount,
+      sourceDayCount: affectedSourceIndexes.size,
+      targetDayCount: affectedTargetIndexes.size,
+    },
+  };
+};
+
 export const buildHomeworkDayPlan = ({
   homework = null,
   goals,

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   HOMEWORK_DAY_PLAN_VERSION,
+  adaptHomeworkDayPlanForToday,
   buildHomeworkDayPlan,
   buildHomeworkSessionDates,
   normalizeHomeworkDayPlanItems,
@@ -10,6 +11,123 @@ import {
 } from './homeworkDayPlan.js';
 
 const flattenPlanItems = (result) => result.dayPlan.flatMap((day) => day.items);
+
+test('missed unfinished work is redistributed by current load without mutating the plan', () => {
+  const days = [
+    {
+      date: '2026-07-27',
+      items: [
+        { itemId: 'overdue-a', completed: false, unavailable: false },
+        { itemId: 'completed', completed: true, unavailable: false },
+        { itemId: 'unavailable', completed: false, unavailable: true },
+      ],
+    },
+    {
+      date: '2026-07-28',
+      items: [
+        { itemId: 'overdue-b', completed: false, unavailable: false },
+        { itemId: 'overdue-c', completed: false, unavailable: false },
+      ],
+    },
+    {
+      date: '2026-07-29',
+      items: [{ itemId: 'today', completed: false, unavailable: false }],
+    },
+    { date: '2026-07-30', items: [] },
+  ];
+  const originalDays = structuredClone(days);
+
+  const result = adaptHomeworkDayPlanForToday({ days, todayKey: '2026-07-29' });
+
+  assert.deepEqual(days, originalDays);
+  assert.deepEqual(result.metadata, {
+    movedItemCount: 3,
+    sourceDayCount: 2,
+    targetDayCount: 2,
+  });
+  assert.deepEqual(
+    result.days[0].items.map((item) => item.itemId),
+    ['completed', 'unavailable']
+  );
+  assert.equal(result.days[0].rescheduledOutCount, 1);
+  assert.equal(result.days[1].rescheduledOutCount, 2);
+  assert.deepEqual(
+    result.days[2].items.map((item) => item.itemId),
+    ['today', 'overdue-b']
+  );
+  assert.deepEqual(
+    result.days[3].items.map((item) => item.itemId),
+    ['overdue-a', 'overdue-c']
+  );
+  assert.equal(result.days[2].receivedOverdueCount, 1);
+  assert.equal(result.days[3].receivedOverdueCount, 2);
+  assert.deepEqual(
+    result.days.slice(2).flatMap((day) => day.items)
+      .filter((item) => item.itemId.startsWith('overdue'))
+      .map((item) => [item.itemId, item.movedFromDate, item.originalPlannedDate]),
+    [
+      ['overdue-b', '2026-07-28', '2026-07-28'],
+      ['overdue-a', '2026-07-27', '2026-07-27'],
+      ['overdue-c', '2026-07-28', '2026-07-28'],
+    ]
+  );
+});
+
+test('equal target loads prefer the earliest remaining plan day', () => {
+  const result = adaptHomeworkDayPlanForToday({
+    todayKey: '2026-07-29',
+    days: [
+      {
+        date: '2026-07-28',
+        items: [{ itemId: 'missed', completed: false, unavailable: false }],
+      },
+      { date: '2026-07-31', items: [] },
+      { date: '2026-07-29', items: [] },
+    ],
+  });
+
+  assert.deepEqual(result.days[2].items.map((item) => item.itemId), ['missed']);
+  assert.deepEqual(result.days[1].items, []);
+});
+
+test('an existing original date survives a later redistribution', () => {
+  const result = adaptHomeworkDayPlanForToday({
+    todayKey: '2026-07-29',
+    days: [
+      {
+        date: '2026-07-28',
+        items: [{
+          itemId: 'moved-before',
+          completed: false,
+          unavailable: false,
+          movedFromDate: '2026-07-27',
+          originalPlannedDate: '2026-07-25',
+        }],
+      },
+      { date: '2026-07-29', items: [] },
+    ],
+  });
+
+  assert.equal(result.days[1].items[0].movedFromDate, '2026-07-28');
+  assert.equal(result.days[1].items[0].originalPlannedDate, '2026-07-25');
+});
+
+test('without today or future plan days missed work stays in place', () => {
+  const days = [{
+    date: '2026-07-28',
+    items: [{ itemId: 'missed', completed: false, unavailable: false }],
+  }];
+
+  const result = adaptHomeworkDayPlanForToday({ days, todayKey: '2026-07-29' });
+
+  assert.deepEqual(result.metadata, {
+    movedItemCount: 0,
+    sourceDayCount: 0,
+    targetDayCount: 0,
+  });
+  assert.deepEqual(result.days[0].items.map((item) => item.itemId), ['missed']);
+  assert.equal(result.days[0].rescheduledOutCount, 0);
+});
 
 test('normalizes weekday aliases and builds only selected calendar dates', () => {
   assert.deepEqual(

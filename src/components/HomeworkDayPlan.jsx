@@ -10,6 +10,7 @@ import {
   RotateCcw,
   Sparkles,
 } from 'lucide-react';
+import { adaptHomeworkDayPlanForToday } from '../utils/homeworkDayPlan';
 
 const toDayKey = (value = new Date(), calendarOffsetMinutes = null) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -208,6 +209,7 @@ const buildItemGroups = (items, mockExamById) => {
       totalCount: availableItems.length,
       unavailable: availableItems.length === 0 && group.items.length > 0,
       checklistItem: firstItem.checklistItem || null,
+      movedCount: group.items.filter((item) => Boolean(item?.movedFromDate)).length,
     };
   });
 };
@@ -226,7 +228,7 @@ const HomeworkDayPlan = ({
   const storedPlan = entry?.dayPlan && typeof entry.dayPlan === 'object' ? entry.dayPlan : null;
   const days = Array.isArray(storedPlan?.dayPlan) ? storedPlan.dayPlan : [];
   const todayKey = toDayKey(new Date(), storedPlan?.calendarOffsetMinutes);
-  const enrichedDays = days.map((day) => {
+  const sourceEnrichedDays = days.map((day) => {
     const plannedGoals = Array.isArray(day?.goals) ? day.goals : [];
     const items = (Array.isArray(day?.items) ? day.items : []).map((item) => {
       const plannedGoal = plannedGoals.find((goal) => (
@@ -252,6 +254,21 @@ const HomeworkDayPlan = ({
       completed: items.length > 0 && remainingCount === 0,
     };
   });
+  const planAdaptation = adaptHomeworkDayPlanForToday({
+    days: sourceEnrichedDays,
+    todayKey,
+  });
+  const enrichedDays = planAdaptation.days;
+  const adaptationMetadata = planAdaptation.metadata;
+  const adaptationSourceLabel = adaptationMetadata.sourceDayCount === 1
+    ? 'пропущенного дня'
+    : 'пропущенных дней';
+  const adaptationActionLabel = adaptationMetadata.movedItemCount === 1
+    ? 'перенесено'
+    : 'распределены';
+  const adaptationDestinationLabel = adaptationMetadata.movedItemCount === 1
+    ? 'в ближайший оставшийся день'
+    : 'по оставшимся дням';
   const todayDay = enrichedDays.find((day) => day.date === todayKey) || null;
   const oldestOverdueDay = enrichedDays.find((day) => (
     String(day.date || '') < todayKey && day.remainingCount > 0
@@ -329,38 +346,46 @@ const HomeworkDayPlan = ({
   const selectedActionableGroup = selectedGroups.find((group) => (
     !group.completed && canOpenGoalView(group.actionableItem?.view)
   )) || null;
-  const planCompleted = enrichedDays.every((day) => day.completed);
+  const planCompleted = enrichedDays.every((day) => day.remainingCount === 0);
   const selectedIsRelevant = selectedDay?.date === relevantDay?.date;
   const relevantDayBadge = relevantDay?.date === oldestOverdueDay?.date
     ? 'Сначала'
     : 'Ближайший';
   const selectedIsToday = selectedDay?.date === todayKey;
   const selectedIsPast = String(selectedDay?.date || '') < todayKey;
-  const selectedStatus = selectedDay?.completed
-    ? 'complete'
-    : selectedIsPast
-      ? 'overdue'
-      : selectedIsToday
-        ? 'today'
-        : 'future';
+  const selectedWasRescheduled = Number(selectedDay?.rescheduledOutCount) > 0
+    && Number(selectedDay?.remainingCount) === 0;
+  const selectedStatus = selectedWasRescheduled
+    ? 'rescheduled'
+    : selectedDay?.completed
+      ? 'complete'
+      : selectedIsPast
+        ? 'overdue'
+        : selectedIsToday
+          ? 'today'
+          : 'future';
   const selectedContext = planCompleted
     ? 'Всё готово'
-    : selectedDay?.completed
-      ? 'День выполнен'
-      : selectedIsPast
-        ? 'Просрочено'
-        : selectedIsToday
-          ? 'Сегодня'
-          : 'План на день';
+    : selectedWasRescheduled
+      ? 'Перенесено в новый план'
+      : selectedDay?.completed
+        ? 'День выполнен'
+        : selectedIsPast
+          ? 'Просрочено'
+          : selectedIsToday
+            ? 'Сегодня'
+            : 'План на день';
   const selectedTitle = planCompleted
     ? 'Домашняя работа выполнена'
     : formatDayLabel(selectedDay?.date);
-  const selectedRemainingLabel = selectedDay?.completed
-    ? 'Готово'
-    : `Осталось: ${selectedDay?.remainingCount || 0}`;
+  const selectedRemainingLabel = selectedWasRescheduled
+    ? 'План обновлён'
+    : selectedDay?.completed
+      ? 'Готово'
+      : `Осталось: ${selectedDay?.remainingCount || 0}`;
   const nextDayAfterSelection = enrichedDays.find((day) => (
-    String(day.date || '') > String(selectedDay?.date || '') && !day.completed
-  )) || enrichedDays.find((day) => day.date !== selectedDay?.date && !day.completed) || null;
+    String(day.date || '') > String(selectedDay?.date || '') && day.remainingCount > 0
+  )) || enrichedDays.find((day) => day.date !== selectedDay?.date && day.remainingCount > 0) || null;
 
   const openItem = (item) => {
     if (!item?.view) return;
@@ -414,7 +439,7 @@ const HomeworkDayPlan = ({
       openGroup(selectedActionableGroup);
       return;
     }
-    if (selectedDay?.completed && nextDayAfterSelection) selectDay(nextDayAfterSelection.date);
+    if (selectedDay?.remainingCount === 0 && nextDayAfterSelection) selectDay(nextDayAfterSelection.date);
   };
   const primaryActionLabel = selectedActionableGroup
     ? selectedStatus === 'overdue'
@@ -422,7 +447,7 @@ const HomeworkDayPlan = ({
       : selectedStatus === 'future'
         ? 'Начать заранее'
         : 'Начать по плану'
-    : selectedDay?.completed && nextDayAfterSelection
+    : selectedDay?.remainingCount === 0 && nextDayAfterSelection
       ? 'К следующему дню'
       : '';
   const dayPanelId = `homework-day-panel-${domEntryKey}`;
@@ -476,6 +501,20 @@ const HomeworkDayPlan = ({
         </button>
       )}
 
+      {adaptationMetadata.movedItemCount > 0 && (
+        <div className="student-homework-day-plan__adapted" role="status">
+          <span className="student-homework-day-plan__adapted-icon" aria-hidden>
+            <Sparkles size={15} />
+          </span>
+          <span>
+            <strong>План подстроен под пропуск</strong>
+            <small>
+              {formatItemCount(adaptationMetadata.movedItemCount)} из {adaptationSourceLabel} {adaptationActionLabel} {adaptationDestinationLabel}.
+            </small>
+          </span>
+        </div>
+      )}
+
       <div className="student-homework-day-plan__days">
         <div className="student-homework-day-plan__days-heading">
           <strong>Дни плана</strong>
@@ -500,14 +539,25 @@ const HomeworkDayPlan = ({
             const active = day.date === selectedDay?.date;
             const isToday = day.date === todayKey;
             const isPast = day.date < todayKey;
-            const dayStatus = day.completed ? 'complete' : isPast ? 'overdue' : isToday ? 'today' : 'future';
+            const wasRescheduled = Number(day.rescheduledOutCount) > 0 && day.remainingCount === 0;
+            const dayStatus = wasRescheduled
+              ? 'rescheduled'
+              : day.completed
+                ? 'complete'
+                : isPast
+                  ? 'overdue'
+                  : isToday
+                    ? 'today'
+                    : 'future';
             const dayParts = formatDayParts(day.date);
             const isRelevant = day.date === relevantDay?.date;
-            const statusText = day.completed
-              ? `${day.completedCount} из ${day.totalCount} · готово`
-              : dayStatus === 'overdue'
-                ? `Осталось ${day.remainingCount}`
-                : `${day.completedCount} из ${day.totalCount}`;
+            const statusText = wasRescheduled
+              ? `Перенесено ${day.rescheduledOutCount}`
+              : day.completed
+                ? `${day.completedCount} из ${day.totalCount} · готово`
+                : dayStatus === 'overdue'
+                  ? `Осталось ${day.remainingCount}`
+                  : `${day.completedCount} из ${day.totalCount}`;
             return (
               <button
                 key={day.id || day.date}
@@ -531,11 +581,13 @@ const HomeworkDayPlan = ({
                 </span>
                 <strong>{dayParts.date}</strong>
                 <small>
-                  {day.completed
-                    ? <CheckCircle2 size={12} />
-                    : dayStatus === 'overdue'
-                      ? <RotateCcw size={12} />
-                      : <Clock3 size={12} />}
+                  {wasRescheduled
+                    ? <RotateCcw size={12} />
+                    : day.completed
+                      ? <CheckCircle2 size={12} />
+                      : dayStatus === 'overdue'
+                        ? <RotateCcw size={12} />
+                        : <Clock3 size={12} />}
                   <span>{statusText}</span>
                 </small>
               </button>
@@ -556,7 +608,11 @@ const HomeworkDayPlan = ({
             <div className="student-homework-day-plan__focus-copy">
               <h4>{selectedTitle}</h4>
               <span className="student-homework-day-plan__context">
-                {planCompleted ? <Sparkles size={13} /> : selectedStatus === 'overdue' ? <RotateCcw size={13} /> : <Clock3 size={13} />}
+                {planCompleted
+                  ? <Sparkles size={13} />
+                  : selectedStatus === 'overdue' || selectedStatus === 'rescheduled'
+                    ? <RotateCcw size={13} />
+                    : <Clock3 size={13} />}
                 {selectedContext}
               </span>
             </div>
@@ -573,6 +629,9 @@ const HomeworkDayPlan = ({
               const textBusy = canToggleText && Boolean(isChecklistItemBusy?.(group.checklistItem));
               const canOpen = !group.completed && canOpenGoalView(group.actionableItem?.view);
               const canInteract = canOpen || canToggleText;
+              const movedLabel = group.movedCount > 0
+                ? `${group.movedCount} с прошлых дней`
+                : '';
               const useFullWidth = selectedGroups.length === 1
                 || group.targets.length > 5
                 || String(group.title || '').length > 72;
@@ -605,6 +664,12 @@ const HomeworkDayPlan = ({
                         <small>{group.completed ? 'Готово' : `${group.completedCount} из ${group.totalCount}`}</small>
                       )}
                     </span>
+                    {movedLabel && (
+                      <span className="student-homework-day-plan__group-origin">
+                        <RotateCcw size={11} />
+                        {movedLabel}
+                      </span>
+                    )}
                     {group.targets.length > 0 && (
                       <span className="student-homework-day-plan__targets">
                         {group.targets.map((target) => (
@@ -655,6 +720,13 @@ const HomeworkDayPlan = ({
               );
             })}
           </div>
+
+          {selectedGroups.length === 0 && selectedWasRescheduled && (
+            <div className="student-homework-day-plan__rescheduled-empty">
+              <RotateCcw size={15} />
+              Незавершённые задания уже перенесены в оставшиеся дни плана.
+            </div>
+          )}
 
           {primaryActionLabel && (
             <button
