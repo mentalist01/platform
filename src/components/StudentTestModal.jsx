@@ -3563,9 +3563,15 @@ const StudentTestModal = ({
                   ? `Вопрос №${currentQuestionNumber} · ${currentIndex + 1} из ${questions.length}`
                   : `Вопрос ${currentIndex + 1} из ${questions.length}`}
               </span>
-              <span className="student-test-mobile-progress sm:hidden">
-                {solvedQuestionCount}/{questions.length} решено
-              </span>
+              {targetStatus.length > 0 ? (
+                <span className="text-right text-[10px] font-semibold text-purple-600 sm:text-xs">
+                  Цель — решить выбранные задания · {targetSolvedCount}/{targetStatus.length}
+                </span>
+              ) : (
+                <span className="student-test-mobile-progress sm:hidden">
+                  {solvedQuestionCount}/{questions.length} решено
+                </span>
+              )}
             </div>
 
             <div className="student-test-question-list mt-2 flex gap-2 overflow-x-auto">
@@ -3646,15 +3652,6 @@ const StudentTestModal = ({
 
           <div className="student-test-scroll flex-1 overflow-y-auto">
             <div key={`${level}:${currentId}`} className="student-test-content student-test-content--question-enter mx-auto w-full max-w-5xl">
-            {targetStatus.length > 0 && (
-              <div className="student-test-target mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-xs md:px-4 md:py-3">
-                <div className="font-semibold">Цель — решить выбранные задания</div>
-                <div className="text-[11px] text-purple-600">
-                  Выполнено {targetSolvedCount}/{targetStatus.length}
-                </div>
-              </div>
-            )}
-
             <section className="student-test-question-panel student-test-panel-enter" data-student-test-tour="condition">
             <div className="student-test-question-panel__toolbar">
               {currentQuestionLabel ? (
