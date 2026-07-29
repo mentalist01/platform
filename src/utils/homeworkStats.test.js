@@ -187,6 +187,69 @@ test('mock goals expose correct, wrong and untouched tasks', () => {
   assert.equal(entry.goals[0].label, 'Пробник · Вариант 1');
 });
 
+test('mock homework statistics ignore lifetime solutions from an earlier assignment', () => {
+  const [entry] = buildHomeworkStatistics({
+    homeworks: [{
+      id: 'homework-2',
+      issuedAt: '2026-09-05T10:00:00.000Z',
+      goals: [{ type: 'mock', mockExamId: 'exam-1', targetTaskKeys: ['1', '2'] }],
+    }],
+    mockExams: [{
+      id: 'exam-1',
+      title: 'Вариант 1',
+      tasks: { 1: {}, 2: {} },
+    }],
+    mockAttemptsByExam: {
+      'exam-1': {
+        homeworkId: 'homework-2',
+        updatedAt: '2026-09-06T10:00:00.000Z',
+        answers: { 1: 'old answer', 2: 'new answer' },
+        solved: { 1: false, 2: true },
+        solvedEver: { 1: true, 2: true },
+      },
+    },
+    nowMs: Date.parse('2026-09-07T10:00:00.000Z'),
+  });
+
+  assert.equal(entry.percent, 50);
+  assert.deepEqual(
+    entry.goals[0].items.map((item) => item.state),
+    [HOMEWORK_STAT_STATE.WRONG, HOMEWORK_STAT_STATE.CLEAN]
+  );
+});
+
+test('mock homework statistics keep a continued attempt outside the new homework time window', () => {
+  const [entry] = buildHomeworkStatistics({
+    homeworks: [{
+      id: 'homework-2',
+      issuedAt: '2026-09-05T10:00:00.000Z',
+      goals: [{
+        type: 'mock',
+        mockExamId: 'exam-1',
+        targetTaskKeys: ['1', '2'],
+        continuationOfHomeworkId: 'homework-1',
+      }],
+    }],
+    mockExams: [{ id: 'exam-1', title: 'Вариант 1', tasks: { 1: {}, 2: {} } }],
+    mockAttemptsByExam: {
+      'exam-1': {
+        homeworkId: 'homework-1',
+        updatedAt: '2026-09-04T10:00:00.000Z',
+        answers: { 1: '', 2: 'new answer' },
+        solved: { 1: false, 2: true },
+        solvedEver: { 1: true, 2: true },
+      },
+    },
+    nowMs: Date.parse('2026-09-07T10:00:00.000Z'),
+  });
+
+  assert.equal(entry.percent, 50);
+  assert.deepEqual(
+    entry.goals[0].items.map((item) => item.state),
+    [HOMEWORK_STAT_STATE.UNTOUCHED, HOMEWORK_STAT_STATE.CLEAN]
+  );
+});
+
 test('academic year starts in September and summaries include the recent trend', () => {
   assert.deepEqual(getAcademicYearMeta('2026-08-31T12:00:00.000Z'), {
     key: '2025',
@@ -248,4 +311,16 @@ test('snapshotHomeworkGoalTargets freezes task ids and mock task keys at assignm
     testsDb,
   });
   assert.deepEqual(preserved[0].targetQuestionIds, ['historic-question']);
+
+  const partialSnapshot = snapshotHomeworkGoalTargets({
+    goals: [{
+      type: 'task',
+      taskNumber: 1,
+      levelId: 'basic',
+      targetQuestions: [1, 2, 3],
+      targetQuestionIds: ['q-1', '', 'q-3'],
+    }],
+    testsDb,
+  });
+  assert.deepEqual(partialSnapshot[0].targetQuestionIds, ['q-1', '', 'q-3']);
 });

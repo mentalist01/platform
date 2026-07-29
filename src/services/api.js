@@ -951,6 +951,22 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  getTelemostSettings: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.set('studentId', String(studentId));
+    params.set('_ts', String(Date.now()));
+    const res = await apiFetch(`/api/telemost?${params.toString()}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  notifyTelemostJoin: async () => {
+    const res = await apiFetch('/api/telemost/join', {
+      method: 'POST',
+      keepalive: true,
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   resetStudentCode: async (id) => {
     const res = await apiFetch(`/api/students/${id}/reset-code`, { method: 'POST' });
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -1225,6 +1241,32 @@ export const api = {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, ...payload }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getStudentHomeworkDraft: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    params.append('_ts', String(Date.now()));
+    const res = await apiFetch(`/api/homework-composer-draft?${params.toString()}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  saveStudentHomeworkDraft: async (studentId, draft) => {
+    const res = await apiFetch('/api/homework-composer-draft', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, draft }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteStudentHomeworkDraft: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    const res = await apiFetch(`/api/homework-composer-draft?${params.toString()}`, {
+      method: 'DELETE',
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);

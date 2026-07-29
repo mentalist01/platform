@@ -4,6 +4,7 @@ import { BellRing, CalendarDays, Clock3, ExternalLink, PhoneCall, Video, X } fro
 
 import { api } from '../services/api';
 import { normalizeHttpUrl } from '../utils/linkifyText';
+import { normalizeTelemostUrl } from '../utils/telemost';
 
 const LESSON_JOIN_PROMPT_LEAD_MS = 3 * 60 * 1000;
 const LESSON_JOIN_PROMPT_AFTER_START_MS = 12 * 60 * 1000;
@@ -220,10 +221,10 @@ const getLatestLessonFromPayload = (data) => {
   return {};
 };
 
-const findDueLessonPrompt = ({ entries, nextLesson, now, dismissedKeys }) => {
+const findDueLessonPrompt = ({ entries, nextLesson, telemostUrl, now, dismissedKeys }) => {
   const nowMs = now.getTime();
-  const fallbackLessonUrl = normalizeHttpUrl(nextLesson?.lessonLink);
   const fallbackBoardUrl = normalizeHttpUrl(nextLesson?.boardLink);
+  const telemostMeetingUrl = normalizeTelemostUrl(telemostUrl);
   const candidates = [];
 
   (Array.isArray(entries) ? entries : []).forEach((entry) => {
@@ -232,7 +233,6 @@ const findDueLessonPrompt = ({ entries, nextLesson, now, dismissedKeys }) => {
 
     const durationMinutes = getLessonDurationMinutes(entry);
     const excludedDayKeys = normalizeExcludedDayKeys(entry?.excludedDates);
-    const lessonUrl = normalizeHttpUrl(entry?.lessonLink) || fallbackLessonUrl;
     const boardUrl = normalizeHttpUrl(entry?.boardLink) || fallbackBoardUrl;
 
     getEntryCandidateDayKeys(entry, now).forEach((dayKey) => {
@@ -255,7 +255,7 @@ const findDueLessonPrompt = ({ entries, nextLesson, now, dismissedKeys }) => {
         timeLabel: `${formatMinutesAsTime(startMinutes)}-${formatMinutesAsTime(startMinutes + durationMinutes)}`,
         startMs,
         msUntilStart,
-        lessonUrl,
+        telemostUrl: telemostMeetingUrl,
         boardUrl,
       });
     });
@@ -268,6 +268,7 @@ const findDueLessonPrompt = ({ entries, nextLesson, now, dismissedKeys }) => {
 const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson }) => {
   const [scheduleEntries, setScheduleEntries] = useState([]);
   const [nextLesson, setNextLesson] = useState({});
+  const [telemostUrl, setTelemostUrl] = useState('');
   const [now, setNow] = useState(() => new Date());
   const [dismissedKeys, setDismissedKeys] = useState(() => new Set());
 
@@ -300,12 +301,14 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson }) => {
     if (!studentId) {
       setScheduleEntries([]);
       setNextLesson({});
+      setTelemostUrl('');
       return;
     }
 
-    const [scheduleResult, nextLessonResult] = await Promise.allSettled([
+    const [scheduleResult, nextLessonResult, telemostResult] = await Promise.allSettled([
       api.getStudentSchedule(studentId),
       api.getStudentNextLesson(studentId),
+      api.getTelemostSettings(),
     ]);
 
     if (scheduleResult.status === 'fulfilled') {
@@ -313,6 +316,9 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson }) => {
     }
     if (nextLessonResult.status === 'fulfilled') {
       setNextLesson(getLatestLessonFromPayload(nextLessonResult.value));
+    }
+    if (telemostResult.status === 'fulfilled') {
+      setTelemostUrl(normalizeTelemostUrl(telemostResult.value?.telemostUrl));
     }
   }, [studentId]);
 
@@ -348,10 +354,11 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson }) => {
     findDueLessonPrompt({
       entries: scheduleEntries,
       nextLesson,
+      telemostUrl,
       now,
       dismissedKeys,
     })
-  ), [dismissedKeys, nextLesson, now, scheduleEntries]);
+  ), [dismissedKeys, nextLesson, now, scheduleEntries, telemostUrl]);
 
   const closePrompt = useCallback(() => {
     if (activePrompt?.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
@@ -372,6 +379,17 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson }) => {
       window.open(activePrompt.boardUrl, '_blank', 'noopener,noreferrer');
     }
   }, [activePrompt, markPromptOpened, onOpenPlatformLesson]);
+
+  const openTelemostLesson = useCallback(() => {
+    if (!activePrompt?.telemostUrl) return;
+    markPromptOpened();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('telemost-external-open'));
+    }
+    api.notifyTelemostJoin().catch(() => {
+      // Opening the backup conference must not depend on notification delivery.
+    });
+  }, [activePrompt, markPromptOpened]);
 
   if (!activePrompt) return null;
 
@@ -429,12 +447,12 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson }) => {
             Подключиться по платформе
           </button>
 
-          {activePrompt.lessonUrl && (
+          {activePrompt.telemostUrl && (
             <a
-              href={activePrompt.lessonUrl}
+              href={activePrompt.telemostUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={markPromptOpened}
+              onClick={openTelemostLesson}
               className="student-lesson-join-prompt__secondary student-lesson-join-prompt__secondary--telemost"
             >
               <Video size={17} />

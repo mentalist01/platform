@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, Camera, CameraOff, CheckCircle2, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, SendHorizontal, Settings, Signal, Users, X } from 'lucide-react';
+import { AlertCircle, Camera, CameraOff, CheckCircle2, ExternalLink, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, Save, SendHorizontal, Settings, Signal, Trash2, Users, Video, X } from 'lucide-react';
 import { api } from '../services/api';
 import LinkifiedText from './LinkifiedText';
 import StudentSearchSelect from './StudentSearchSelect';
 import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
+import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -1337,6 +1338,12 @@ const CallSection = ({
   const [lessonChatImageName, setLessonChatImageName] = useState('');
   const [lessonChatPreviewImage, setLessonChatPreviewImage] = useState(null);
   const [lessonChatExpanded, setLessonChatExpanded] = useState(false);
+  const [telemostUrl, setTelemostUrl] = useState('');
+  const [telemostInput, setTelemostInput] = useState('');
+  const [telemostLoading, setTelemostLoading] = useState(false);
+  const [telemostSaving, setTelemostSaving] = useState(false);
+  const [telemostError, setTelemostError] = useState('');
+  const [telemostNotice, setTelemostNotice] = useState('');
 
   const wsRef = useRef(null);
   const presenceWsRef = useRef(null);
@@ -1381,6 +1388,7 @@ const CallSection = ({
   const lessonChatListRef = useRef(null);
   const lessonChatImageInputRef = useRef(null);
   const lessonChatPrevCountRef = useRef(0);
+  const telemostStudentIdRef = useRef('');
   const previousStatusRef = useRef(status);
   const micTriggerThresholdRmsRef = useRef(micTriggerThresholdPercentToRmsThreshold(DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT));
   const localCameraTrackRef = useRef(null);
@@ -1484,6 +1492,50 @@ const CallSection = ({
   useEffect(() => {
     onStatusChange?.(status);
   }, [onStatusChange, status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const studentId = String(effectiveStudentId || '').trim();
+    const studentChanged = telemostStudentIdRef.current !== studentId;
+    telemostStudentIdRef.current = studentId;
+    if (studentChanged) {
+      setTelemostError('');
+      setTelemostNotice('');
+    }
+
+    if (!studentId) {
+      setTelemostUrl('');
+      setTelemostInput('');
+      setTelemostLoading(false);
+      return undefined;
+    }
+
+    const studentListUrl = isTeacher ? normalizeTelemostUrl(selectedStudent?.telemostUrl) : '';
+    setTelemostUrl(studentListUrl);
+    setTelemostInput(studentListUrl);
+    setTelemostLoading(true);
+
+    api.getTelemostSettings(isTeacher ? studentId : undefined)
+      .then((payload) => {
+        if (cancelled) return;
+        const nextUrl = normalizeTelemostUrl(payload?.telemostUrl);
+        setTelemostUrl(nextUrl);
+        setTelemostInput(nextUrl);
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        if (!studentListUrl) {
+          setTelemostError(loadError?.message || 'Не удалось загрузить ссылку Телемоста.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTelemostLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveStudentId, isTeacher, selectedStudent?.telemostUrl]);
 
   useEffect(() => {
     if (!showInlineLessonChat) return undefined;
@@ -3751,6 +3803,64 @@ const CallSection = ({
     stopMicTrack(false);
   }, [applyStatus, clearJoinAckTimer, closeAllPeers, resetWsReconnectState, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleExternalCallOpen = () => stopCall();
+    window.addEventListener('telemost-external-open', handleExternalCallOpen);
+    return () => window.removeEventListener('telemost-external-open', handleExternalCallOpen);
+  }, [stopCall]);
+
+  const persistTeacherTelemostUrl = useCallback(async (rawValue) => {
+    if (!isTeacher || !effectiveStudentId || telemostSaving) return;
+    const parsed = parseTelemostUrl(rawValue);
+    if (parsed.error) {
+      setTelemostError(parsed.error);
+      setTelemostNotice('');
+      return;
+    }
+
+    setTelemostSaving(true);
+    setTelemostError('');
+    setTelemostNotice('');
+    try {
+      const updated = await api.updateStudent(effectiveStudentId, {
+        telemostUrl: parsed.url,
+      });
+      const nextUrl = normalizeTelemostUrl(updated?.telemostUrl);
+      setTelemostUrl(nextUrl);
+      setTelemostInput(nextUrl);
+      setTelemostNotice(nextUrl ? 'Резервная ссылка сохранена.' : 'Резервная ссылка удалена.');
+      onRequestStudentsRefresh?.({ force: true });
+    } catch (saveError) {
+      setTelemostError(saveError?.message || 'Не удалось сохранить ссылку Телемоста.');
+    } finally {
+      setTelemostSaving(false);
+    }
+  }, [effectiveStudentId, isTeacher, onRequestStudentsRefresh, telemostSaving]);
+
+  const handleStudentTelemostOpen = useCallback(() => {
+    if (isTeacher || !telemostUrl) return;
+    stopCall();
+    setTelemostError('');
+    setTelemostNotice('Открываем Телемост и сообщаем учителю...');
+    api.notifyTelemostJoin()
+      .then((result) => {
+        setTelemostNotice(
+          result?.delivered
+            ? 'Учителю отправлено уведомление.'
+            : 'Телемост открыт. Если учитель не увидел переход, напишите ему в чат.'
+        );
+      })
+      .catch((notifyError) => {
+        setTelemostNotice('');
+        setTelemostError(notifyError?.message || 'Телемост открыт, но уведомить учителя не удалось.');
+      });
+  }, [isTeacher, stopCall, telemostUrl]);
+
+  const handleTeacherTelemostOpen = useCallback(() => {
+    stopCall();
+  }, [stopCall]);
+
   const startCall = useCallback(async (options = {}) => {
     const isReconnect = Boolean(options?.isReconnect);
     primeAlertSounds();
@@ -5208,6 +5318,80 @@ const CallSection = ({
           menuClassName={isDarkTheme ? 'border-violet-500/20' : ''}
         />
       </div>
+      {effectiveStudentId && (
+        <div className="call-telemost-editor">
+          <div className="call-telemost-editor__head">
+            <span className="call-telemost-editor__icon" aria-hidden="true">
+              <Video size={16} />
+            </span>
+            <div className="min-w-0">
+              <p className="call-telemost-editor__title">Резервный Яндекс Телемост</p>
+              <p className="call-telemost-editor__caption">
+                {telemostUrl ? 'Персональная ссылка ученика настроена' : 'Ссылка пока не настроена'}
+              </p>
+            </div>
+          </div>
+          <form
+            className={`call-telemost-editor__form ${telemostUrl ? 'call-telemost-editor__form--configured' : ''}`}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void persistTeacherTelemostUrl(telemostInput);
+            }}
+          >
+            <input
+              type="text"
+              value={telemostInput}
+              onChange={(event) => {
+                setTelemostInput(event.target.value);
+                setTelemostError('');
+                setTelemostNotice('');
+              }}
+              disabled={telemostLoading || telemostSaving}
+              placeholder="https://telemost.yandex.ru/j/..."
+              aria-label="Ссылка на персональную конференцию ученика в Яндекс Телемосте"
+              className="call-telemost-editor__input"
+              autoComplete="off"
+              inputMode="url"
+            />
+            <button
+              type="submit"
+              className="call-telemost-editor__button call-telemost-editor__button--save"
+              disabled={telemostLoading || telemostSaving}
+              title="Сохранить ссылку"
+            >
+              {telemostSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+              <span>{telemostSaving ? 'Сохраняем' : 'Сохранить'}</span>
+            </button>
+            {telemostUrl && (
+              <>
+                <a
+                  href={telemostUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handleTeacherTelemostOpen}
+                  className="call-telemost-editor__button call-telemost-editor__button--open"
+                  title="Открыть конференцию ученика"
+                >
+                  <ExternalLink size={16} />
+                  <span>Открыть</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => void persistTeacherTelemostUrl('')}
+                  className="call-telemost-editor__button call-telemost-editor__button--remove"
+                  disabled={telemostSaving}
+                  aria-label="Удалить ссылку Телемоста"
+                  title="Удалить ссылку"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </>
+            )}
+          </form>
+          {telemostError && <p className="call-telemost-editor__message" data-tone="error" role="alert">{telemostError}</p>}
+          {!telemostError && telemostNotice && <p className="call-telemost-editor__message" data-tone="success">{telemostNotice}</p>}
+        </div>
+      )}
     </div>
   );
   const errorBoxClass = isDarkTheme
@@ -5735,6 +5919,19 @@ const CallSection = ({
                         {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
                         <span className="call-control-label">{joinButtonLabel}</span>
                       </button>
+                      {!isTeacher && telemostUrl && (
+                        <a
+                          href={telemostUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={handleStudentTelemostOpen}
+                          className={`${prejoinSecondaryActionClass} call-telemost-join-action`}
+                        >
+                          <Video size={18} />
+                          <span className="call-control-label">Войти через Телемост</span>
+                          <ExternalLink size={15} />
+                        </a>
+                      )}
                       {isConnecting && (
                         <button
                           type="button"
@@ -5745,6 +5942,17 @@ const CallSection = ({
                         </button>
                       )}
                     </div>
+                    {!isTeacher && !telemostLoading && !telemostUrl && !telemostError && (
+                      <p className="call-telemost-status" data-tone="muted">
+                        Резервная ссылка Телемоста пока не настроена.
+                      </p>
+                    )}
+                    {!isTeacher && telemostError && (
+                      <p className="call-telemost-status" data-tone="error" role="alert">{telemostError}</p>
+                    )}
+                    {!isTeacher && !telemostError && telemostNotice && (
+                      <p className="call-telemost-status" data-tone="success">{telemostNotice}</p>
+                    )}
 
                     {showInlineLessonChat && (
                       <button

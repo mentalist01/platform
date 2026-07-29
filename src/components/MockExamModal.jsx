@@ -35,7 +35,7 @@ const MOCK_ARTIFACT_SHARD_COUNT = 28;
 const MOCK_ATTEMPT_MODE_CLASSIC = 'classic';
 const MOCK_ATTEMPT_MODE_TIMER = 'timer';
 const MOCK_EXAM_TIMER_DURATION_MS = 235 * 60 * 1000;
-const MOCK_EXAM_ANSWER_DRAFT_PREFIX = 'mock-exam-answer-draft-v1';
+const MOCK_EXAM_ANSWER_DRAFT_PREFIX = 'mock-exam-answer-draft-v2';
 
 const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -44,11 +44,33 @@ const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) =
   return fallback;
 };
 
-const buildMockExamDraftKey = ({ studentId, examId, mode }) => {
+const normalizeMockExamTaskKeys = (taskKeys) => Array.from(new Set(
+  (Array.isArray(taskKeys) ? taskKeys : [])
+    .map((taskKey) => String(taskKey || '').trim())
+    .filter(Boolean)
+));
+
+const buildMockExamDraftAttemptKey = ({ attempt, targetTaskKeys, scoped = false }) => {
+  const attemptIdentity = [
+    attempt?.homeworkId ? `homework:${String(attempt.homeworkId).trim()}` : '',
+    attempt?.homeworkIssuedAt ? `issued:${String(attempt.homeworkIssuedAt).trim()}` : '',
+    attempt?.timerStartedAt ? `timer:${String(attempt.timerStartedAt).trim()}` : '',
+    attempt?.modeLockedAt ? `locked:${String(attempt.modeLockedAt).trim()}` : '',
+  ].find(Boolean) || 'default';
+  const normalizedTaskKeys = normalizeMockExamTaskKeys(targetTaskKeys)
+    .sort((left, right) => left.localeCompare(right, 'ru', { numeric: true }));
+  const scopeIdentity = scoped
+    ? (normalizedTaskKeys.length > 0 ? normalizedTaskKeys.join(',') : 'none')
+    : 'all';
+  return `${attemptIdentity}|scope:${scopeIdentity}`;
+};
+
+const buildMockExamDraftKey = ({ studentId, examId, mode, attemptKey = 'default' }) => {
   const normalizedStudentId = String(studentId || 'anonymous').trim() || 'anonymous';
   const normalizedExamId = String(examId || '').trim() || 'exam';
   const normalizedMode = normalizeMockAttemptMode(mode);
-  return `${MOCK_EXAM_ANSWER_DRAFT_PREFIX}:${normalizedStudentId}:${normalizedExamId}:${normalizedMode}`;
+  const normalizedAttemptKey = String(attemptKey || 'default').trim() || 'default';
+  return `${MOCK_EXAM_ANSWER_DRAFT_PREFIX}:${normalizedStudentId}:${normalizedExamId}:${normalizedMode}:${encodeURIComponent(normalizedAttemptKey)}`;
 };
 
 const canUseMockExamDraftStorage = () => (
@@ -72,21 +94,53 @@ const normalizeMockExamDraftAnswers = (answers) => {
   }, {});
 };
 
-const readMockExamAnswerDraft = ({ studentId, examId, mode }) => {
+const filterMockExamAnswersToTaskKeys = (answers, targetTaskKeys, scoped = false) => {
+  const source = answers && typeof answers === 'object' && !Array.isArray(answers) ? answers : {};
+  if (!scoped) return { ...source };
+  const allowedTaskKeys = new Set(normalizeMockExamTaskKeys(targetTaskKeys));
+  return Object.entries(source).reduce((result, [taskKey, value]) => {
+    const normalizedTaskKey = String(taskKey || '').trim();
+    if (allowedTaskKeys.has(normalizedTaskKey)) result[normalizedTaskKey] = value;
+    return result;
+  }, {});
+};
+
+const readMockExamAnswerDraft = ({
+  studentId,
+  examId,
+  mode,
+  attemptKey,
+  targetTaskKeys,
+  scoped = false,
+}) => {
   if (!canUseMockExamDraftStorage()) return {};
-  const key = buildMockExamDraftKey({ studentId, examId, mode });
+  const key = buildMockExamDraftKey({ studentId, examId, mode, attemptKey });
   try {
     const parsed = JSON.parse(window.localStorage.getItem(key) || 'null');
-    return normalizeMockExamDraftAnswers(parsed?.answers);
+    return filterMockExamAnswersToTaskKeys(
+      normalizeMockExamDraftAnswers(parsed?.answers),
+      targetTaskKeys,
+      scoped
+    );
   } catch {
     return {};
   }
 };
 
-const writeMockExamAnswerDraft = ({ studentId, examId, mode, answers }) => {
+const writeMockExamAnswerDraft = ({
+  studentId,
+  examId,
+  mode,
+  attemptKey,
+  targetTaskKeys,
+  scoped = false,
+  answers,
+}) => {
   if (!canUseMockExamDraftStorage() || !examId) return;
-  const key = buildMockExamDraftKey({ studentId, examId, mode });
-  const normalizedAnswers = normalizeMockExamDraftAnswers(answers);
+  const key = buildMockExamDraftKey({ studentId, examId, mode, attemptKey });
+  const normalizedAnswers = normalizeMockExamDraftAnswers(
+    filterMockExamAnswersToTaskKeys(answers, targetTaskKeys, scoped)
+  );
   if (Object.keys(normalizedAnswers).length === 0) {
     window.localStorage.removeItem(key);
     return;
@@ -96,6 +150,12 @@ const writeMockExamAnswerDraft = ({ studentId, examId, mode, answers }) => {
     updatedAt: new Date().toISOString(),
     answers: normalizedAnswers,
   }));
+};
+
+const clearMockExamAnswerDraft = ({ studentId, examId, mode, attemptKey }) => {
+  if (!canUseMockExamDraftStorage() || !examId) return;
+  const key = buildMockExamDraftKey({ studentId, examId, mode, attemptKey });
+  window.localStorage.removeItem(key);
 };
 
 const mergeMockExamAnswersWithDraft = (attemptAnswers, draftAnswers) => ({
@@ -160,6 +220,7 @@ const MockExamModal = ({
   initialAttempt,
   attemptMode = MOCK_ATTEMPT_MODE_CLASSIC,
   initialTaskNumber = null,
+  targetTaskKeys = null,
   onClose,
   onAttemptSaved,
   onRestartTimerAttempt,
@@ -194,20 +255,48 @@ const MockExamModal = ({
     initialAttempt && typeof initialAttempt === 'object' ? initialAttempt : {}
   ));
   const hasLocalAttemptChangesRef = useRef(false);
+  const skipNextDraftWriteRef = useRef(false);
   const latestInitialAttemptRef = useRef(initialAttempt);
   const autoAdvanceTimerRef = useRef(null);
   const successBurstTimerRef = useRef(null);
   const artifactDropTimerRef = useRef(null);
   const modalCardRef = useRef(null);
+  const normalizedTargetTaskKeys = useMemo(
+    () => normalizeMockExamTaskKeys(targetTaskKeys),
+    [targetTaskKeys]
+  );
+  const hasRequestedTaskScope = Array.isArray(targetTaskKeys);
   const modalTaskNumbers = useMemo(() => {
     const examTasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
     const available = (Array.isArray(MOCK_TASK_NUMBERS) ? MOCK_TASK_NUMBERS : [])
       .filter((taskNumber) => Boolean(examTasks[String(taskNumber)]));
+    const requestedTaskKeys = new Set(normalizedTargetTaskKeys);
+    if (hasRequestedTaskScope) {
+      return available.filter((taskNumber) => requestedTaskKeys.has(String(taskNumber)));
+    }
     return available.length > 0 ? available : (Array.isArray(MOCK_TASK_NUMBERS) ? MOCK_TASK_NUMBERS : []);
-  }, [exam?.tasks, MOCK_TASK_NUMBERS]);
-  const firstTaskNumber = modalTaskNumbers[0] ?? MOCK_TASK_NUMBERS[0];
+  }, [exam?.tasks, hasRequestedTaskScope, MOCK_TASK_NUMBERS, normalizedTargetTaskKeys]);
+  const firstTaskNumber = modalTaskNumbers[0] ?? null;
   const activeAttempt = displayAttempt && typeof displayAttempt === 'object' ? displayAttempt : {};
   const effectiveAttemptMode = normalizeMockAttemptMode(activeAttempt?.mode, normalizeMockAttemptMode(attemptMode));
+  const activeDraftAttemptKey = buildMockExamDraftAttemptKey({
+    attempt: activeAttempt,
+    targetTaskKeys: modalTaskNumbers,
+    scoped: hasRequestedTaskScope,
+  });
+  const clearAnswerDraftForAttempt = (attempt = activeAttempt) => {
+    const draftMode = normalizeMockAttemptMode(attempt?.mode, normalizeMockAttemptMode(attemptMode));
+    clearMockExamAnswerDraft({
+      studentId,
+      examId: exam?.id,
+      mode: draftMode,
+      attemptKey: buildMockExamDraftAttemptKey({
+        attempt,
+        targetTaskKeys: modalTaskNumbers,
+        scoped: hasRequestedTaskScope,
+      }),
+    });
+  };
   const isTimerMode = effectiveAttemptMode === MOCK_ATTEMPT_MODE_TIMER;
   const rewardsDisabled = Boolean(exam?.rewardsDisabled || activeAttempt?.rewardsDisabled);
   const timerPaused = isTimerMode && Boolean(String(activeAttempt?.timerPausedAt || '').trim()) && !String(activeAttempt?.timerFinishedAt || '').trim();
@@ -270,9 +359,25 @@ const MockExamModal = ({
       : {};
     setDisplayAttempt(nextAttempt);
     const nextMode = normalizeMockAttemptMode(nextAttempt?.mode, normalizeMockAttemptMode(attemptMode));
-    setAnswers(mergeMockExamAnswersWithDraft(
-      readAttemptAnswers(nextAttempt),
-      readMockExamAnswerDraft({ studentId, examId: exam?.id, mode: nextMode })
+    const nextDraftAttemptKey = buildMockExamDraftAttemptKey({
+      attempt: nextAttempt,
+      targetTaskKeys: modalTaskNumbers,
+      scoped: hasRequestedTaskScope,
+    });
+    setAnswers(filterMockExamAnswersToTaskKeys(
+      mergeMockExamAnswersWithDraft(
+        readAttemptAnswers(nextAttempt),
+        readMockExamAnswerDraft({
+          studentId,
+          examId: exam?.id,
+          mode: nextMode,
+          attemptKey: nextDraftAttemptKey,
+          targetTaskKeys: modalTaskNumbers,
+          scoped: hasRequestedTaskScope,
+        })
+      ),
+      modalTaskNumbers,
+      hasRequestedTaskScope
     ));
     setSolved(readAttemptSolved(nextAttempt));
     setResults(readAttemptResults(nextAttempt));
@@ -290,31 +395,54 @@ const MockExamModal = ({
       ? modalTaskNumbers.find((taskNumber) => String(taskNumber) === requestedTask)
       : null;
     setSelectedTask(initialTask || firstTaskNumber);
-  }, [attemptMode, exam?.id, studentId, firstTaskNumber, initialTaskNumber, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
+  }, [attemptMode, exam?.id, studentId, firstTaskNumber, hasRequestedTaskScope, initialTaskNumber, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
 
   useEffect(() => {
     if (hasLocalAttemptChangesRef.current) return;
     const nextAttempt = initialAttempt && typeof initialAttempt === 'object' ? initialAttempt : {};
     setDisplayAttempt(nextAttempt);
     const nextMode = normalizeMockAttemptMode(nextAttempt?.mode, normalizeMockAttemptMode(attemptMode));
-    setAnswers(mergeMockExamAnswersWithDraft(
-      readAttemptAnswers(nextAttempt),
-      readMockExamAnswerDraft({ studentId, examId: exam?.id, mode: nextMode })
+    const nextDraftAttemptKey = buildMockExamDraftAttemptKey({
+      attempt: nextAttempt,
+      targetTaskKeys: modalTaskNumbers,
+      scoped: hasRequestedTaskScope,
+    });
+    setAnswers(filterMockExamAnswersToTaskKeys(
+      mergeMockExamAnswersWithDraft(
+        readAttemptAnswers(nextAttempt),
+        readMockExamAnswerDraft({
+          studentId,
+          examId: exam?.id,
+          mode: nextMode,
+          attemptKey: nextDraftAttemptKey,
+          targetTaskKeys: modalTaskNumbers,
+          scoped: hasRequestedTaskScope,
+        })
+      ),
+      modalTaskNumbers,
+      hasRequestedTaskScope
     ));
     setSolved(readAttemptSolved(nextAttempt));
     setResults(readAttemptResults(nextAttempt));
     setSaveError('');
     setSaveStatus('');
-  }, [attemptMode, exam?.id, initialAttempt, readAttemptAnswers, readAttemptResults, readAttemptSolved, studentId]);
+  }, [attemptMode, exam?.id, hasRequestedTaskScope, initialAttempt, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved, studentId]);
 
   useEffect(() => {
+    if (skipNextDraftWriteRef.current) {
+      skipNextDraftWriteRef.current = false;
+      return;
+    }
     writeMockExamAnswerDraft({
       studentId,
       examId: exam?.id,
       mode: effectiveAttemptMode,
+      attemptKey: activeDraftAttemptKey,
+      targetTaskKeys: modalTaskNumbers,
+      scoped: hasRequestedTaskScope,
       answers,
     });
-  }, [answers, effectiveAttemptMode, exam?.id, studentId]);
+  }, [activeDraftAttemptKey, answers, effectiveAttemptMode, exam?.id, hasRequestedTaskScope, modalTaskNumbers, studentId]);
 
   useEffect(() => {
     if (!isTimerMode || timerPaused) return undefined;
@@ -422,7 +550,14 @@ const MockExamModal = ({
     || Object.keys(results || {}).length >= Math.max(1, totalTaskCount)
   );
   const timerInputsLocked = isTimerMode && (timerResultsVisible || timerExpired);
-  const visibleSolved = isTimerMode && !timerResultsVisible ? {} : solved;
+  const visibleSolvedSource = isTimerMode && !timerResultsVisible ? {} : solved;
+  const visibleSolved = modalTaskNumbers.reduce((result, taskNumber) => {
+    const key = String(taskNumber);
+    if (Object.prototype.hasOwnProperty.call(visibleSolvedSource || {}, key)) {
+      result[key] = Boolean(visibleSolvedSource[key]);
+    }
+    return result;
+  }, {});
   const isCurrentTaskAnswered = hasAnswerForTask(selectedTask);
   const isCurrentTaskSolved = Boolean(visibleSolved[taskKey]);
   const allowPartialForTask = answerCount > 1 ? allowsPartialAnswers(selectedTask) : false;
@@ -502,7 +637,15 @@ const MockExamModal = ({
         localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
       });
       if (saved && typeof saved === 'object') {
+        skipNextDraftWriteRef.current = true;
+        clearAnswerDraftForAttempt(activeAttempt);
+        clearAnswerDraftForAttempt(saved);
         setDisplayAttempt(saved);
+        setAnswers(filterMockExamAnswersToTaskKeys(
+          readAttemptAnswers(saved),
+          modalTaskNumbers,
+          hasRequestedTaskScope
+        ));
         const savedSolved = readAttemptSolved(saved);
         const isCorrect = Boolean(savedSolved[taskKey]);
         setSolved(savedSolved);
@@ -576,8 +719,16 @@ const MockExamModal = ({
         localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
       });
       if (saved && typeof saved === 'object') {
+        skipNextDraftWriteRef.current = true;
+        clearAnswerDraftForAttempt(activeAttempt);
+        clearAnswerDraftForAttempt(saved);
         const savedSolved = readAttemptSolved(saved);
         setDisplayAttempt(saved);
+        setAnswers(filterMockExamAnswersToTaskKeys(
+          readAttemptAnswers(saved),
+          modalTaskNumbers,
+          hasRequestedTaskScope
+        ));
         latestInitialAttemptRef.current = saved;
         const nextResults = modalTaskNumbers.reduce((acc, taskNumber) => {
           const key = String(taskNumber);
@@ -630,6 +781,9 @@ const MockExamModal = ({
       if (saved && typeof saved === 'object') {
         onAttemptSaved?.(exam.id, saved);
       }
+      skipNextDraftWriteRef.current = true;
+      clearAnswerDraftForAttempt(activeAttempt);
+      if (saved && typeof saved === 'object') clearAnswerDraftForAttempt(saved);
       onClose?.();
     } catch (err) {
       const message = typeof err?.message === 'string' ? err.message : '';
@@ -670,9 +824,16 @@ const MockExamModal = ({
     try {
       const restarted = await onRestartTimerAttempt?.();
       if (restarted && typeof restarted === 'object') {
+        skipNextDraftWriteRef.current = true;
+        clearAnswerDraftForAttempt(activeAttempt);
+        clearAnswerDraftForAttempt(restarted);
         latestInitialAttemptRef.current = restarted;
         setDisplayAttempt(restarted);
-        setAnswers(readAttemptAnswers(restarted));
+        setAnswers(filterMockExamAnswersToTaskKeys(
+          readAttemptAnswers(restarted),
+          modalTaskNumbers,
+          hasRequestedTaskScope
+        ));
         setSolved(readAttemptSolved(restarted));
         setResults(readAttemptResults(restarted));
         setChestOpeningRewards([]);
@@ -699,9 +860,16 @@ const MockExamModal = ({
     try {
       const continued = await onContinueTimerAttempt?.();
       if (continued && typeof continued === 'object') {
+        skipNextDraftWriteRef.current = true;
+        clearAnswerDraftForAttempt(activeAttempt);
+        clearAnswerDraftForAttempt(continued);
         latestInitialAttemptRef.current = continued;
         setDisplayAttempt(continued);
-        setAnswers(readAttemptAnswers(continued));
+        setAnswers(filterMockExamAnswersToTaskKeys(
+          readAttemptAnswers(continued),
+          modalTaskNumbers,
+          hasRequestedTaskScope
+        ));
         setSolved(readAttemptSolved(continued));
         setResults(readAttemptResults(continued));
         setNowMs(Date.now());
@@ -1086,6 +1254,29 @@ const MockExamModal = ({
           </button>
         </div>
 
+        {totalTaskCount === 0 ? (
+          <div className={`relative flex min-h-0 flex-1 items-center justify-center rounded-[1.75rem] border border-dashed p-6 text-center ${
+            isDarkTheme
+              ? 'border-white/10 bg-white/[0.04] text-slate-200'
+              : 'border-slate-200 bg-white/70 text-slate-700'
+          }`}>
+            <div className="max-w-lg">
+              <CircleAlert className={`mx-auto mb-4 ${isDarkTheme ? 'text-amber-300' : 'text-amber-500'}`} size={34} />
+              <h3 className="text-xl font-display font-bold">Назначенные задания больше недоступны</h3>
+              <p className={`mt-2 text-sm leading-6 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                Похоже, состав пробника изменился после выдачи домашки. Попросите преподавателя обновить задание.
+              </p>
+              <Button
+                variant="secondary"
+                onClick={handleClose}
+                disabled={closing}
+                className={`mt-5 ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
+              >
+                {closing ? 'Закрываем...' : 'Закрыть'}
+              </Button>
+            </div>
+          </div>
+        ) : (
         <div className="mock-exam-modal-card__workspace relative grid min-h-0 flex-1 gap-3 lg:grid-cols-[18.5rem_minmax(0,1fr)] xl:gap-4">
           <aside className="mock-exam-modal-card__sidebar hidden min-h-0 flex-col gap-3 lg:flex">
             <div
@@ -1467,6 +1658,7 @@ const MockExamModal = ({
             )}
           </section>
         </div>
+        )}
       </div>
 
       {finishConfirmOpen && (

@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
+import MockExamAnalysisModal from './MockExamAnalysisModal';
 import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
@@ -71,6 +72,27 @@ const getMockExamTaskKeys = (exam) => {
     .map((taskKey) => String(taskKey || '').trim())
     .filter(Boolean)
     .sort(compareMockTaskKeys);
+};
+
+const getScopedMockExamTaskKeys = (exam, attempt) => {
+  const availableTaskKeys = getMockExamTaskKeys(exam);
+  const availableTaskKeySet = new Set(availableTaskKeys);
+  const attemptTargetTaskKeys = Array.from(new Set(
+    (Array.isArray(attempt?.targetTaskKeys) ? attempt.targetTaskKeys : [])
+      .map((taskKey) => String(taskKey || '').trim())
+      .filter(Boolean)
+  ));
+  const listedTargetTaskKeys = Array.from(new Set(
+    (Array.isArray(exam?.requiredTargetTaskKeys) ? exam.requiredTargetTaskKeys : [])
+      .map((taskKey) => String(taskKey || '').trim())
+      .filter(Boolean)
+  ));
+  const requestedTaskKeys = attemptTargetTaskKeys.length > 0
+    ? attemptTargetTaskKeys
+    : (String(attempt?.homeworkId || '').trim() ? [] : listedTargetTaskKeys);
+  return requestedTaskKeys.length > 0
+    ? requestedTaskKeys.filter((taskKey) => availableTaskKeySet.has(taskKey)).sort(compareMockTaskKeys)
+    : availableTaskKeys;
 };
 
 const hasMockAnswerValue = (value, answerCount = 1) => {
@@ -589,6 +611,7 @@ const ProgressSection = ({
   onTaskStateChange,
   onStreakSaved,
   onMockAttemptSaved,
+  onAssignMockReview,
   onXpGain,
   MOCK_TASKS,
   isMockExamAccessible,
@@ -619,6 +642,7 @@ const ProgressSection = ({
   getSecondaryScoreFromPrimary,
   MOCK_TASK_NUMBERS,
   getMockAnswerCountForTask,
+  getStudentLabel,
 }) => {
   const taskList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const [activeTask, setActiveTask] = useState(null);
@@ -654,9 +678,13 @@ const ProgressSection = ({
   const [continuingMockTimerExamId, setContinuingMockTimerExamId] = useState(null);
   const [hoveredMockTaskPoint, setHoveredMockTaskPoint] = useState(null);
   const [mockEditorExam, setMockEditorExam] = useState(null);
+  const [mockAnalysisExam, setMockAnalysisExam] = useState(null);
+  const [mockAnalysisAttempt, setMockAnalysisAttempt] = useState(null);
+  const [mockAnalysisLoading, setMockAnalysisLoading] = useState(false);
   const [activeMockExam, setActiveMockExam] = useState(null);
   const [activeMockAttempt, setActiveMockAttempt] = useState(null);
   const [activeMockInitialTask, setActiveMockInitialTask] = useState(null);
+  const [activeMockTargetTaskKeys, setActiveMockTargetTaskKeys] = useState(null);
   const [activeMockMode, setActiveMockMode] = useState(MOCK_ATTEMPT_MODE_TIMER);
   const [startingMockExamId, setStartingMockExamId] = useState(null);
   const [mockExamFilter, setMockExamFilter] = useState('all');
@@ -685,6 +713,8 @@ const ProgressSection = ({
   const taskRunnerWorkerRef = useRef(null);
   const taskRunnerPendingRef = useRef(new Map());
   const mockAttemptRequestIdRef = useRef(0);
+  const mockAnalysisRequestIdRef = useRef(0);
+  const mockAttemptsOwnerRef = useRef('');
   const randomMockRequestRef = useRef({ requestId: '', levelId: '' });
   const timerChestFlightTimersRef = useRef([]);
   const studentsList = students || [];
@@ -801,7 +831,7 @@ const ProgressSection = ({
       const storedSolvedMap = attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {};
       const timerResultsVisible = attemptMode !== MOCK_ATTEMPT_MODE_TIMER || Boolean(String(attempt?.timerFinishedAt || '').trim());
       const solvedMap = timerResultsVisible ? storedSolvedMap : {};
-      const taskStats = getMockExamTaskKeys(exam).map((taskKey) => {
+      const taskStats = getScopedMockExamTaskKeys(exam, attempt).map((taskKey) => {
         const answerCount = getMockAnswerCountForTask(taskKey);
         const attempted = hasMockAnswerValue(answersMap[taskKey], answerCount);
         const solved = Boolean(solvedMap[String(taskKey)]);
@@ -816,7 +846,11 @@ const ProgressSection = ({
       const totalCount = taskStats.length;
       const attemptedCount = taskStats.filter((item) => item.attempted).length;
       const solvedCount = taskStats.filter((item) => item.solved).length;
-      const primary = getPrimaryScoreFromSolved(solvedMap);
+      const scopedSolvedMap = taskStats.reduce((result, taskStat) => {
+        result[taskStat.taskKey] = taskStat.solved;
+        return result;
+      }, {});
+      const primary = getPrimaryScoreFromSolved(scopedSolvedMap);
       const secondary = getSecondaryScoreFromPrimary(primary);
       const progressPercent = totalCount > 0
         ? Math.max(0, Math.min(100, Math.round((solvedCount / totalCount) * 100)))
@@ -1417,16 +1451,22 @@ const ProgressSection = ({
   }, []);
 
   useEffect(() => {
+    const attemptOwnerKey = String(effectiveStudentId || '').trim();
     if (!effectiveStudentId) {
+      mockAttemptsOwnerRef.current = '';
       setMockAttemptsByExam({});
       setMockAttemptsLoading(false);
       return;
     }
     const accessibleMockExams = studentVisibleMockExams || [];
     if (accessibleMockExams.length === 0) {
+      mockAttemptsOwnerRef.current = attemptOwnerKey;
       setMockAttemptsByExam({});
       setMockAttemptsLoading(false);
       return;
+    }
+    if (mockAttemptsOwnerRef.current !== attemptOwnerKey) {
+      setMockAttemptsByExam({});
     }
     let cancelled = false;
     setMockAttemptsLoading(true);
@@ -1444,6 +1484,7 @@ const ProgressSection = ({
             map[exam.id] = attempt;
           }
         });
+        mockAttemptsOwnerRef.current = attemptOwnerKey;
         setMockAttemptsByExam(map);
       })
       .finally(() => {
@@ -1464,6 +1505,20 @@ const ProgressSection = ({
       setActiveLevel(null);
       setActiveQuestionIndex(null);
       setForceInitialLevelLaunch(false);
+    }
+    const sectionChangedAwayFromMocks = section !== 'mocks';
+    if (studentChanged || sectionChangedAwayFromMocks) {
+      mockAnalysisRequestIdRef.current += 1;
+      setMockAnalysisExam(null);
+      setMockAnalysisAttempt(null);
+      setMockAnalysisLoading(false);
+      mockAttemptRequestIdRef.current += 1;
+      setActiveMockExam(null);
+      setActiveMockAttempt(null);
+      setActiveMockInitialTask(null);
+      setActiveMockTargetTaskKeys(null);
+      setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
+      setStartingMockExamId(null);
     }
     setMobileLevelPickerTaskId(null);
     setOpenTaskCodeNumber(null);
@@ -1530,7 +1585,12 @@ const ProgressSection = ({
       || (mockExams || []).find((exam) => String(exam?.id) === targetId);
     if (!targetExam) return;
 
-    handleOpenMockExam(targetExam, { initialTaskNumber: openMockRequest.initialTaskNumber || null });
+    handleOpenMockExam(targetExam, {
+      initialTaskNumber: openMockRequest.initialTaskNumber || null,
+      targetTaskKeys: openMockRequest.targetTaskKeys,
+      assignedMode: openMockRequest.mode,
+      forceStart: openMockRequest.fromHomework === true,
+    });
     onOpenMockExamHandled?.();
   }, [
     role,
@@ -2207,6 +2267,7 @@ const ProgressSection = ({
         setActiveMockExam(null);
         setActiveMockAttempt(null);
         setActiveMockInitialTask(null);
+        setActiveMockTargetTaskKeys(null);
         setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
         setStartingMockExamId(null);
       }
@@ -2218,14 +2279,36 @@ const ProgressSection = ({
 
   const handleOpenMockExam = async (exam, options = {}) => {
     if (!exam) return;
-    const cachedAttempt = mockAttemptsByExam?.[exam.id];
-    const cachedStats = exam?.id ? studentMockOverview?.examStatsById?.[exam.id] || null : null;
-    const assignedMode = getAssignedMockExamMode(exam, cachedAttempt);
+    const attemptOwnerKey = String(effectiveStudentId || '').trim();
+    const cacheBelongsToStudent = mockAttemptsOwnerRef.current === attemptOwnerKey;
+    const cachedAttempt = cacheBelongsToStudent ? mockAttemptsByExam?.[exam.id] : null;
+    const cachedStats = cacheBelongsToStudent && exam?.id
+      ? studentMockOverview?.examStatsById?.[exam.id] || null
+      : null;
+    const hasExplicitTargetTaskScope = Array.isArray(options?.targetTaskKeys)
+      && options.targetTaskKeys.some((taskKey) => String(taskKey || '').trim());
+    const requestedTargetTaskKeysSource = hasExplicitTargetTaskScope
+      ? options.targetTaskKeys
+      : (role === 'student' && Array.isArray(exam?.requiredTargetTaskKeys)
+          ? exam.requiredTargetTaskKeys
+          : null);
+    const requestedTargetTaskKeys = Array.isArray(requestedTargetTaskKeysSource)
+      ? Array.from(new Set(requestedTargetTaskKeysSource
+          .map((taskKey) => String(taskKey || '').trim())
+          .filter(Boolean)))
+      : [];
+    const examTaskKeySet = new Set(Object.keys(
+      exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {}
+    ));
+    const forceHomeworkStart = role === 'student' && options?.forceStart === true;
+    const assignedMode = options?.assignedMode
+      ? normalizeMockAttemptMode(options.assignedMode, getAssignedMockExamMode(exam, cachedAttempt))
+      : getAssignedMockExamMode(exam, cachedAttempt);
     const cachedMode = normalizeMockAttemptMode(
       cachedStats?.attemptMode || cachedAttempt?.mode,
       assignedMode
     );
-    const modeLocked = Boolean(
+    const modeLocked = !forceHomeworkStart && Boolean(
       cachedStats?.isModeLocked
       || cachedAttempt?.modeLockedAt
       || cachedAttempt?.timerStartedAt
@@ -2239,11 +2322,10 @@ const ProgressSection = ({
     setActiveMockMode(resolvedMode);
     setActiveMockExam(exam);
     setActiveMockInitialTask(options?.initialTaskNumber || null);
-    setActiveMockAttempt(
-      modeLocked && cachedAttempt && typeof cachedAttempt === 'object'
-        ? cachedAttempt
-        : null
-    );
+    setActiveMockTargetTaskKeys(hasExplicitTargetTaskScope
+      ? requestedTargetTaskKeys
+      : (requestedTargetTaskKeys.length > 0 ? requestedTargetTaskKeys : null));
+    setActiveMockAttempt(null);
     if (!effectiveStudentId) {
       setStartingMockExamId(null);
       return;
@@ -2255,11 +2337,61 @@ const ProgressSection = ({
     }
     setMockExamsError('');
     try {
-      const shouldStartAttempt = role === 'student' && !modeLocked;
-      const fetchedAttempt = shouldStartAttempt
-        ? await api.startMockAttempt(mockAttemptStudentId, exam.id)
-        : await api.getMockAttempt(mockAttemptStudentId, exam.id);
+      const shouldStartAttempt = role === 'student' && (forceHomeworkStart || !modeLocked);
+      let fetchedAttempt = await api.getMockAttempt(mockAttemptStudentId, exam.id);
+      if (shouldStartAttempt) {
+        const freshServerTargetTaskKeys = Array.from(new Set(
+          (Array.isArray(fetchedAttempt?.targetTaskKeys) ? fetchedAttempt.targetTaskKeys : [])
+            .map((taskKey) => String(taskKey || '').trim())
+            .filter(Boolean)
+        ));
+        const explicitServerIntersection = hasExplicitTargetTaskScope && freshServerTargetTaskKeys.length > 0
+          ? requestedTargetTaskKeys.filter((taskKey) => freshServerTargetTaskKeys.includes(taskKey))
+          : [];
+        const freshEffectiveTargetTaskKeys = hasExplicitTargetTaskScope
+          ? (freshServerTargetTaskKeys.length > 0
+              ? explicitServerIntersection
+              : requestedTargetTaskKeys)
+          : freshServerTargetTaskKeys;
+        const freshScopeUnavailable = (
+          hasExplicitTargetTaskScope
+          && freshServerTargetTaskKeys.length > 0
+          && explicitServerIntersection.length === 0
+        ) || (
+          freshEffectiveTargetTaskKeys.length > 0
+          && !freshEffectiveTargetTaskKeys.some((taskKey) => examTaskKeySet.has(taskKey))
+        );
+        const fetchedAttemptHasAnswers = Object.values(
+          fetchedAttempt?.answers && typeof fetchedAttempt.answers === 'object'
+            ? fetchedAttempt.answers
+            : {}
+        ).some((value) => (
+          Array.isArray(value)
+            ? value.some((entry) => String(entry ?? '').trim())
+            : Boolean(String(value ?? '').trim())
+        ));
+        const fetchedAttemptIsLocked = Boolean(
+          fetchedAttempt?.modeLockedAt
+          || fetchedAttempt?.timerStartedAt
+          || fetchedAttempt?.timerFinishedAt
+          || fetchedAttemptHasAnswers
+          || hasMockSolvedState(fetchedAttempt)
+        );
+        if (!freshScopeUnavailable && !fetchedAttemptIsLocked) {
+          fetchedAttempt = await api.startMockAttempt(mockAttemptStudentId, exam.id, {
+            mode: normalizeMockAttemptMode(fetchedAttempt?.requiredMode, assignedMode),
+          });
+        }
+      }
+      const fetchedTargetTaskKeys = Array.from(new Set(
+        (Array.isArray(fetchedAttempt?.targetTaskKeys) ? fetchedAttempt.targetTaskKeys : [])
+          .map((taskKey) => String(taskKey || '').trim())
+          .filter(Boolean)
+      ));
+      const fetchedScopeUnavailable = fetchedTargetTaskKeys.length > 0
+        && !fetchedTargetTaskKeys.some((taskKey) => examTaskKeySet.has(taskKey));
       const shouldResumeTimer = role === 'student'
+        && !fetchedScopeUnavailable
         && isMockTimerAttemptPaused(fetchedAttempt)
         && !isMockTimerAttemptEnded(fetchedAttempt);
       const attempt = shouldResumeTimer
@@ -2268,8 +2400,26 @@ const ProgressSection = ({
       if (mockAttemptRequestIdRef.current !== requestId) return;
       setActiveMockAttempt(attempt && typeof attempt === 'object' ? attempt : {});
       setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, resolvedMode));
+      const attemptTargetTaskKeys = Array.from(new Set(
+        (Array.isArray(attempt?.targetTaskKeys) ? attempt.targetTaskKeys : [])
+          .map((taskKey) => String(taskKey || '').trim())
+          .filter(Boolean)
+      ));
+      const explicitServerIntersection = hasExplicitTargetTaskScope && attemptTargetTaskKeys.length > 0
+        ? requestedTargetTaskKeys.filter((taskKey) => attemptTargetTaskKeys.includes(taskKey))
+        : [];
+      const resolvedTargetTaskKeys = hasExplicitTargetTaskScope
+        ? (attemptTargetTaskKeys.length > 0
+            ? explicitServerIntersection
+            : requestedTargetTaskKeys)
+        : attemptTargetTaskKeys;
+      setActiveMockTargetTaskKeys(hasExplicitTargetTaskScope
+        ? resolvedTargetTaskKeys
+        : (resolvedTargetTaskKeys.length > 0 ? resolvedTargetTaskKeys : null));
+      const previousCacheOwner = mockAttemptsOwnerRef.current;
+      mockAttemptsOwnerRef.current = attemptOwnerKey;
       setMockAttemptsByExam((prev) => ({
-        ...prev,
+        ...(previousCacheOwner === attemptOwnerKey ? prev : {}),
         [exam.id]: attempt && typeof attempt === 'object' ? attempt : {}
       }));
     } catch (err) {
@@ -2279,6 +2429,7 @@ const ProgressSection = ({
         setActiveMockExam(null);
         setActiveMockAttempt(null);
         setActiveMockInitialTask(null);
+        setActiveMockTargetTaskKeys(null);
         setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
         throw err;
       }
@@ -2349,8 +2500,11 @@ const ProgressSection = ({
     try {
       const attempt = await api.restoreMockTimerRewards(effectiveStudentId, examId);
       const normalizedAttempt = attempt && typeof attempt === 'object' ? attempt : {};
+      const attemptOwnerKey = String(effectiveStudentId || '').trim();
+      const previousCacheOwner = mockAttemptsOwnerRef.current;
+      mockAttemptsOwnerRef.current = attemptOwnerKey;
       setMockAttemptsByExam((prev) => ({
-        ...(prev || {}),
+        ...(previousCacheOwner === attemptOwnerKey ? (prev || {}) : {}),
         [examId]: normalizedAttempt,
       }));
       setActiveMockAttempt((current) => (
@@ -2378,8 +2532,11 @@ const ProgressSection = ({
     try {
       const attempt = await api.continueMockTimerAttempt(effectiveStudentId, examId);
       const normalizedAttempt = attempt && typeof attempt === 'object' ? attempt : {};
+      const attemptOwnerKey = String(effectiveStudentId || '').trim();
+      const previousCacheOwner = mockAttemptsOwnerRef.current;
+      mockAttemptsOwnerRef.current = attemptOwnerKey;
       setMockAttemptsByExam((prev) => ({
-        ...(prev || {}),
+        ...(previousCacheOwner === attemptOwnerKey ? (prev || {}) : {}),
         [examId]: normalizedAttempt,
       }));
       setActiveMockAttempt((current) => (
@@ -2690,6 +2847,48 @@ const ProgressSection = ({
       || null;
     if (!targetExam) return;
     handleOpenMockExam(targetExam, { initialTaskNumber: taskStat.taskKey });
+  };
+
+  const handleOpenMockAnalysis = async (exam) => {
+    if (!exam || !effectiveStudentId || !isMockExamAccessible(exam, effectiveStudentId)) return;
+    const requestId = mockAnalysisRequestIdRef.current + 1;
+    mockAnalysisRequestIdRef.current = requestId;
+    const attemptOwnerKey = String(effectiveStudentId || '').trim();
+    const cachedAttempt = mockAttemptsOwnerRef.current === attemptOwnerKey
+      ? mockAttemptsByExam?.[exam.id]
+      : null;
+    setMockAnalysisExam(exam);
+    setMockAnalysisAttempt(cachedAttempt && typeof cachedAttempt === 'object' ? cachedAttempt : null);
+    if (cachedAttempt && typeof cachedAttempt === 'object') {
+      setMockAnalysisLoading(false);
+      return;
+    }
+    setMockAnalysisLoading(true);
+    try {
+      const attempt = await api.getMockAttempt(mockAttemptStudentId, exam.id);
+      if (mockAnalysisRequestIdRef.current !== requestId) return;
+      const normalizedAttempt = attempt && typeof attempt === 'object' ? attempt : {};
+      setMockAnalysisAttempt(normalizedAttempt);
+      const previousCacheOwner = mockAttemptsOwnerRef.current;
+      mockAttemptsOwnerRef.current = attemptOwnerKey;
+      setMockAttemptsByExam((previous) => ({
+        ...(previousCacheOwner === attemptOwnerKey ? previous : {}),
+        [exam.id]: normalizedAttempt,
+      }));
+    } catch (error) {
+      if (mockAnalysisRequestIdRef.current !== requestId) return;
+      setMockAnalysisAttempt({});
+      setMockExamsError(error?.message || 'Не удалось загрузить разбор пробника.');
+    } finally {
+      if (mockAnalysisRequestIdRef.current === requestId) setMockAnalysisLoading(false);
+    }
+  };
+
+  const closeMockAnalysis = () => {
+    mockAnalysisRequestIdRef.current += 1;
+    setMockAnalysisExam(null);
+    setMockAnalysisAttempt(null);
+    setMockAnalysisLoading(false);
   };
 
   const renderStudentMockCard = (exam, examRow = null) => {
@@ -3051,6 +3250,17 @@ const ProgressSection = ({
               <ChevronRight className="mock-start-button__arrow" size={17} />
             </Button>
 
+            {examStats.hasStarted && (!isTimerMode || timerAttemptFinished) && (
+              <button
+                type="button"
+                onClick={() => handleOpenMockAnalysis(exam)}
+                className="mock-exam-sheet__teacher-action"
+              >
+                <BarChart2 size={14} />
+                <span>Глубокий разбор</span>
+              </button>
+            )}
+
             {(canTeacherContinueTimerAttempt || canTeacherRestoreTimerRewards) && (
               <div className="mock-exam-sheet__teacher-actions">
                 {canTeacherContinueTimerAttempt && (
@@ -3276,6 +3486,10 @@ const ProgressSection = ({
     const filledTaskCount = getMockExamTaskKeys(exam).length;
     const totalMockTasks = Array.isArray(MOCK_TASK_NUMBERS) ? MOCK_TASK_NUMBERS.length : 0;
     const isDuplicating = String(duplicatingMockExamId || '') === String(exam.id);
+    const canAnalyzeStudent = Boolean(
+      effectiveStudentId
+      && isMockExamAccessible(exam, effectiveStudentId)
+    );
 
     return (
       <div key={exam.id} className="mock-teacher-card rounded-[26px] border p-3 md:p-4 flex flex-col gap-3">
@@ -3316,6 +3530,16 @@ const ProgressSection = ({
               <Copy size={16} />
               {isDuplicating ? 'Копируем...' : 'Дублировать'}
             </Button>
+            {canAnalyzeStudent && (
+              <Button
+                variant="secondary"
+                onClick={() => handleOpenMockAnalysis(exam)}
+                className="w-full sm:w-auto"
+              >
+                <BarChart2 size={16} />
+                Разбор ученика
+              </Button>
+            )}
             <button
               type="button"
               onClick={() => handleDeleteMockExamDefinition(exam.id)}
@@ -4992,12 +5216,59 @@ const ProgressSection = ({
             />
           )}
 
+          {mockAnalysisExam && !mockAnalysisLoading && mockAnalysisAttempt !== null && (
+            <MockExamAnalysisModal
+              open
+              exam={mockAnalysisExam}
+              attempt={mockAnalysisAttempt}
+              targetTaskKeys={Array.isArray(mockAnalysisAttempt?.targetTaskKeys)
+                && mockAnalysisAttempt.targetTaskKeys.length > 0
+                ? mockAnalysisAttempt.targetTaskKeys
+                : (String(mockAnalysisAttempt?.homeworkId || '').trim()
+                    ? []
+                    : mockAnalysisExam?.requiredTargetTaskKeys)}
+              studentLabel={role === 'student'
+                ? 'Ваш результат'
+                : (typeof getStudentLabel === 'function'
+                    ? getStudentLabel(studentsList.find((student) => String(student?.id || '') === String(effectiveStudentId || '')))
+                    : '')}
+              taskCatalog={taskList}
+              getAnswerCountForTask={getMockAnswerCountForTask}
+              getExpectedAnswers={getExpectedAnswers}
+              getPrimaryScoreFromSolved={getPrimaryScoreFromSolved}
+              getSecondaryScoreFromPrimary={getSecondaryScoreFromPrimary}
+              revealUnansweredAnswers={role === 'teacher'}
+              onOpenTask={role === 'student'
+                ? (taskKey) => {
+                    const targetExam = mockAnalysisExam;
+                    closeMockAnalysis();
+                    handleOpenMockExam(targetExam, { initialTaskNumber: taskKey });
+                  }
+                : null}
+              onAssignReview={role === 'teacher' && typeof onAssignMockReview === 'function'
+                ? (taskKeys, analysis) => {
+                    onAssignMockReview({
+                      studentId: effectiveStudentId,
+                      mockExamId: mockAnalysisExam.id,
+                      mockExamTitle: mockAnalysisExam.title,
+                      mode: MOCK_ATTEMPT_MODE_CLASSIC,
+                      targetTaskKeys: taskKeys,
+                      analysis,
+                    });
+                    closeMockAnalysis();
+                  }
+                : null}
+              onClose={closeMockAnalysis}
+            />
+          )}
+
           {activeMockExam && activeMockAttempt !== null && (
             <MockExamModal
               exam={activeMockExam}
               studentId={effectiveStudentId}
               initialAttempt={activeMockAttempt}
               initialTaskNumber={activeMockInitialTask}
+              targetTaskKeys={activeMockTargetTaskKeys}
               attemptMode={activeMockMode}
               theme={theme}
               MOCK_TASK_NUMBERS={MOCK_TASK_NUMBERS}
@@ -5010,7 +5281,13 @@ const ProgressSection = ({
               onAttemptSaved={(examId, attempt, meta) => {
                 setActiveMockAttempt(attempt);
                 setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, activeMockMode));
-                setMockAttemptsByExam((prev) => ({ ...prev, [examId]: attempt }));
+                const attemptOwnerKey = String(effectiveStudentId || '').trim();
+                const previousCacheOwner = mockAttemptsOwnerRef.current;
+                mockAttemptsOwnerRef.current = attemptOwnerKey;
+                setMockAttemptsByExam((prev) => ({
+                  ...(previousCacheOwner === attemptOwnerKey ? prev : {}),
+                  [examId]: attempt,
+                }));
                 const timerChestsGained = Math.max(0, Math.floor(Number(attempt?.timerChestsGained) || 0));
                 if (timerChestsGained > 0) {
                   triggerTimerChestFlight(timerChestsGained, meta?.sourceRect);
@@ -5036,8 +5313,11 @@ const ProgressSection = ({
                   if (mockAttemptRequestIdRef.current !== requestId) return null;
                   setActiveMockAttempt(attempt && typeof attempt === 'object' ? attempt : {});
                   setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, MOCK_ATTEMPT_MODE_TIMER));
+                  const attemptOwnerKey = String(effectiveStudentId || '').trim();
+                  const previousCacheOwner = mockAttemptsOwnerRef.current;
+                  mockAttemptsOwnerRef.current = attemptOwnerKey;
                   setMockAttemptsByExam((prev) => ({
-                    ...prev,
+                    ...(previousCacheOwner === attemptOwnerKey ? prev : {}),
                     [activeMockExam.id]: attempt && typeof attempt === 'object' ? attempt : {},
                   }));
                   onMockAttemptSaved?.(activeMockExam.id, attempt);
@@ -5055,7 +5335,8 @@ const ProgressSection = ({
                 setActiveMockExam(null);
                 setActiveMockAttempt(null);
                 setActiveMockInitialTask(null);
-        setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
+                setActiveMockTargetTaskKeys(null);
+                setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
                 setStartingMockExamId(null);
               }}
             />

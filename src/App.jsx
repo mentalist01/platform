@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
-  Camera, MousePointer2, Code2, MoreHorizontal, MessageSquare, Users, Wallet,
+  Camera, MousePointer2, Code2, ExternalLink, MoreHorizontal, MessageSquare, Users, Video, Wallet,
   Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp, Target,
   ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect
 } from 'lucide-react';  
@@ -88,6 +88,8 @@ import {
   resolveTeacherStudentSelection,
 } from './utils/teacherStudentSelection';
 import { isCurrentStudent, normalizeStudentStudyStatus } from './utils/studentStudyStatus';
+import { resolveHomeworkTaskTargetDescriptors } from './utils/homeworkComposer';
+import { normalizeTelemostUrl } from './utils/telemost';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
   isPushFeatureSupported,
@@ -984,9 +986,23 @@ const getMockExamTaskKeys = (exam) => {
     });
 };
 
-const getMockGoalProgress = (exam, attempt) => {
-  const taskKeys = getMockExamTaskKeys(exam);
-  const solvedMap = attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {};
+const getMockGoalProgress = (exam, attempt, targetTaskKeys = []) => {
+  const availableTaskKeys = getMockExamTaskKeys(exam);
+  const availableTaskKeySet = new Set(availableTaskKeys);
+  const requestedTaskKeys = Array.from(new Set(
+    (Array.isArray(targetTaskKeys) ? targetTaskKeys : [])
+      .map((taskKey) => String(taskKey || '').trim())
+      .filter(Boolean)
+  ));
+  const taskKeys = requestedTaskKeys.length > 0
+    ? requestedTaskKeys.filter((taskKey) => availableTaskKeySet.has(taskKey))
+    : availableTaskKeys;
+  const attemptMode = normalizeAssignedMockExamMode(attempt?.mode);
+  const resultsAreHidden = attemptMode === MOCK_EXAM_MODE_TIMER
+    && !String(attempt?.timerFinishedAt || '').trim();
+  const solvedMap = !resultsAreHidden && attempt?.solved && typeof attempt.solved === 'object'
+    ? attempt.solved
+    : {};
   const taskStatus = taskKeys.map((taskKey) => {
     const taskNumber = Number(taskKey);
     const label = formatTaskNumber(taskNumber);
@@ -14213,6 +14229,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [pendingOpenMockExamId, setPendingOpenMockExamId] = useState(
     () => (user.role === 'student' ? initialMockExamId : null)
   );
+  const [pendingHomeworkPrefill, setPendingHomeworkPrefill] = useState(null);
   const [pendingDirectChatRequest, setPendingDirectChatRequest] = useState(null);
   const [pendingLessonCapsuleKey, setPendingLessonCapsuleKey] = useState('');
   const [goalState, setGoalState] = useState(null);
@@ -14287,6 +14304,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   );
   const [teacherSolvedNotifs, setTeacherSolvedNotifs] = useState([]);
   const [teacherSignupNotifs, setTeacherSignupNotifs] = useState([]);
+  const [telemostJoinAlerts, setTelemostJoinAlerts] = useState([]);
+  const telemostJoinAlertTimersRef = useRef(new Map());
   const [teacherStudentChatsUnreadTotal, setTeacherStudentChatsUnreadTotal] = useState(0);
   const [studentChatNavUnreadTotal, setStudentChatNavUnreadTotal] = useState(0);
   const [incomingMessageSoundPulse, setIncomingMessageSoundPulse] = useState(0);
@@ -14707,7 +14726,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         : 0))
     : 0;
   const chatLiveWsUrl = useMemo(() => (
-    PLATFORM_CHATS_ENABLED && user?.role ? withStoredAuthToken(getNotificationsWsUrl()) : ''
+    user?.role ? withStoredAuthToken(getNotificationsWsUrl()) : ''
   ), [user?.id, user?.role]);
 
   const registerIncomingMessageSoundCandidates = useCallback((scope, candidates = []) => {
@@ -14749,6 +14768,48 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   }, []);
 
+  const dismissTelemostJoinAlert = useCallback((studentId) => {
+    const normalizedStudentId = String(studentId || '').trim();
+    if (!normalizedStudentId) return;
+    const timerId = telemostJoinAlertTimersRef.current.get(normalizedStudentId);
+    if (timerId && typeof window !== 'undefined') {
+      window.clearTimeout(timerId);
+    }
+    telemostJoinAlertTimersRef.current.delete(normalizedStudentId);
+    setTelemostJoinAlerts((current) => (
+      current.filter((item) => item.studentId !== normalizedStudentId)
+    ));
+  }, []);
+
+  const enqueueTelemostJoinAlert = useCallback((payload) => {
+    if (user?.role !== 'teacher') return;
+    const studentId = String(payload?.studentId || '').trim();
+    const telemostUrl = normalizeTelemostUrl(payload?.telemostUrl);
+    if (!studentId || !telemostUrl) return;
+
+    const requestedAt = String(payload?.requestedAt || '').trim() || new Date().toISOString();
+    const alert = {
+      requestId: String(payload?.requestId || '').trim() || `${studentId}:${requestedAt}`,
+      studentId,
+      studentName: String(payload?.studentName || '').trim() || 'Ученик',
+      telemostUrl,
+      requestedAt,
+    };
+    setTelemostJoinAlerts((current) => (
+      [alert, ...current.filter((item) => item.studentId !== studentId)].slice(0, 4)
+    ));
+
+    if (typeof window !== 'undefined') {
+      const existingTimerId = telemostJoinAlertTimersRef.current.get(studentId);
+      if (existingTimerId) window.clearTimeout(existingTimerId);
+      const timerId = window.setTimeout(() => {
+        telemostJoinAlertTimersRef.current.delete(studentId);
+        setTelemostJoinAlerts((current) => current.filter((item) => item.studentId !== studentId));
+      }, 10 * 60 * 1000);
+      telemostJoinAlertTimersRef.current.set(studentId, timerId);
+    }
+  }, [user?.role]);
+
   const navBadgeCounts = useMemo(() => {
     const counts = {};
     if (user.role === 'student') {
@@ -14777,6 +14838,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     incomingMessageSoundSeenRef.current = new Map();
     incomingMessageSoundReadyScopesRef.current = new Set();
     setIncomingMessageSoundPulse(0);
+    telemostJoinAlertTimersRef.current.forEach((timerId) => {
+      if (typeof window !== 'undefined') window.clearTimeout(timerId);
+    });
+    telemostJoinAlertTimersRef.current.clear();
+    setTelemostJoinAlerts([]);
+    return () => {
+      telemostJoinAlertTimersRef.current.forEach((timerId) => {
+        if (typeof window !== 'undefined') window.clearTimeout(timerId);
+      });
+      telemostJoinAlertTimersRef.current.clear();
+    };
   }, [user.id, user.role]);
 
   useEffect(() => {
@@ -14833,7 +14905,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             return;
           }
           const liveType = String(payload?.type || '').trim();
-          if (!liveType.startsWith('student-chat-')) return;
+          if (liveType === 'telemost-join-requested') {
+            enqueueTelemostJoinAlert(payload);
+            const studentId = String(payload?.studentId || '').trim();
+            const requestedAt = String(payload?.requestedAt || '').trim();
+            if (studentId && requestedAt) {
+              registerIncomingMessageSoundCandidates('teacher-telemost', [{
+                key: studentId,
+                unreadCount: 1,
+                lastMessageAt: requestedAt,
+                incoming: true,
+                audible: true,
+                live: true,
+              }]);
+            }
+            return;
+          }
+          if (!PLATFORM_CHATS_ENABLED || !liveType.startsWith('student-chat-')) return;
 
           const senderId = String(payload.senderId || '').trim();
           const currentUserId = String(user?.id || '').trim();
@@ -14894,7 +14982,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       clearReconnectTimer();
       closeCurrentSocket();
     };
-  }, [chatLiveWsUrl, registerIncomingMessageSoundCandidates, user?.id, user?.role]);
+  }, [chatLiveWsUrl, enqueueTelemostJoinAlert, registerIncomingMessageSoundCandidates, user?.id, user?.role]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -17272,14 +17360,34 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   };
 
-  const handleOpenMockGoal = (mockExamId = null, initialTaskNumber = null) => {
+  const handleOpenMockGoal = (mockExamId = null, initialTaskNumber = null, options = {}) => {
     if (user.role !== 'student') return;
     const normalizedMockExamId = normalizeMockExamId(mockExamId);
     const normalizedInitialTaskNumber = String(initialTaskNumber ?? '').trim();
+    const normalizedTargetTaskKeys = Array.from(new Set(
+      (Array.isArray(options?.targetTaskKeys) ? options.targetTaskKeys : [])
+        .map((taskKey) => String(taskKey || '').trim())
+        .filter(Boolean)
+    ));
+    const requestedMode = String(options?.mode || '').trim();
+    const normalizedMode = requestedMode ? normalizeAssignedMockExamMode(requestedMode) : '';
+    const fromHomework = options?.fromHomework === true;
+    const hasScopedRequest = Boolean(
+      normalizedInitialTaskNumber
+      || normalizedTargetTaskKeys.length > 0
+      || normalizedMode
+      || fromHomework
+    );
     setPendingOpenTask(null);
     setPendingOpenMockExamId(normalizedMockExamId
-      ? (normalizedInitialTaskNumber
-        ? { examId: normalizedMockExamId, initialTaskNumber: normalizedInitialTaskNumber }
+      ? (hasScopedRequest
+        ? {
+            examId: normalizedMockExamId,
+            initialTaskNumber: normalizedInitialTaskNumber || null,
+            targetTaskKeys: normalizedTargetTaskKeys,
+            mode: normalizedMode || null,
+            fromHomework,
+          }
         : normalizedMockExamId)
       : null);
     navigateToView('progress');
@@ -17298,6 +17406,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (user.role !== 'student') return;
     updateUserLocation(user, { mockExamId: null });
   };
+
+  const handleAssignMockReview = useCallback((request) => {
+    if (user.role !== 'teacher') return;
+    const targetStudentId = String(request?.studentId || '').trim();
+    const mockExamId = normalizeMockExamId(request?.mockExamId);
+    const targetTaskKeys = Array.from(new Set(
+      (Array.isArray(request?.targetTaskKeys) ? request.targetTaskKeys : [])
+        .map((taskKey) => String(taskKey || '').trim())
+        .filter(Boolean)
+    ));
+    if (!targetStudentId || !mockExamId || targetTaskKeys.length === 0) return;
+    setActiveStudentId(targetStudentId);
+    setPendingHomeworkPrefill({
+      id: `${Date.now()}-${mockExamId}`,
+      studentId: targetStudentId,
+      mockExamId,
+      mockExamTitle: String(request?.mockExamTitle || '').trim(),
+      mode: normalizeAssignedMockExamMode(request?.mode),
+      targetTaskKeys,
+      source: 'mock-analysis',
+    });
+    navigateToView('schedule');
+    setMenuOpen(false);
+  }, [navigateToView, user.role]);
 
   const handleOpenTeacherLessonWorkspace = useCallback((targetView, studentId) => {
     if (user.role !== 'teacher') return;
@@ -17491,7 +17623,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 if (!mockExamId) return null;
                 return {
                   type: GOAL_TYPE_MOCK,
-                  mockExamId
+                  mockExamId,
+                  targetTaskKeys: Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [],
+                  continuationOfHomeworkId: String(goal?.continuationOfHomeworkId || '').trim(),
                 };
               }
               const normalizedTaskNumber = normalizeTaskNumber(goal?.taskNumber);
@@ -17504,6 +17638,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 taskNumber: taskNumberValue,
                 levelId: isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
                 targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
+                targetQuestionIds: Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [],
                 includeAll: Boolean(goal?.includeAll)
               };
             })
@@ -17523,6 +17658,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             taskNumber: normalizedTaskNumber,
             levelId: isPythonGoal ? PYTHON_LEVEL_ID : item.levelId,
             targetQuestions: Array.isArray(item.targetQuestions) ? item.targetQuestions : [],
+            targetQuestionIds: Array.isArray(item.targetQuestionIds) ? item.targetQuestionIds : [],
             includeAll: Boolean(item.includeAll)
           }];
         }
@@ -17589,11 +17725,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         if (goal.type === GOAL_TYPE_MOCK) {
           const mockExamId = normalizeMockExamId(goal.mockExamId);
           const mockExam = mockExamById[mockExamId] || null;
-          const mockProgress = getMockGoalProgress(mockExam, mockAttemptById[mockExamId]);
+          const mockProgress = getMockGoalProgress(mockExam, mockAttemptById[mockExamId], goal?.targetTaskKeys);
           return {
             type: GOAL_TYPE_MOCK,
             mockExamId,
             mockExamTitle: mockExam?.title || 'Пробник',
+            mode: normalizeAssignedMockExamMode(goal?.mode),
+            targetTaskKeys: Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [],
             taskStatus: mockProgress.taskStatus,
             solvedCount: mockProgress.solvedCount,
             totalCount: mockProgress.totalCount,
@@ -17606,21 +17744,28 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         const isPythonGoal = isPythonTaskNumber(taskNumber);
         const levelId = isPythonGoal ? PYTHON_LEVEL_ID : goal.levelId;
         const questionsList = goalTestsDb?.[String(taskNumber)]?.[levelId] || [];
-        const totalCount = questionsList.length;
-        const targetNumbers = goal.includeAll
-          ? (totalCount > 0 ? Array.from({ length: totalCount }, (_, i) => i + 1) : [])
-          : Array.from(new Set(
-              (Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [])
-                .map((val) => Number(val))
-                .filter((val) => Number.isFinite(val) && val > 0)
-            )).sort((a, b) => a - b);
+        const fallbackQuestionNumbers = Array.from(new Set(
+          (Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [])
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value > 0)
+        ));
+        const fallbackQuestionIds = Array.isArray(goal?.targetQuestionIds)
+          ? goal.targetQuestionIds.map((value) => String(value || '').trim())
+          : [];
+        const fallbackTargetDescriptors = fallbackQuestionNumbers.map((questionNumber, index) => ({
+          questionNumber,
+          questionId: fallbackQuestionIds[index] || '',
+        }));
+        const targetDescriptors = goalTestsLoaded && Array.isArray(questionsList) && questionsList.length > 0
+          ? resolveHomeworkTaskTargetDescriptors(goal, questionsList)
+          : fallbackTargetDescriptors;
+        const targetNumbers = targetDescriptors.map((target) => target.questionNumber);
         const solvedSet = solvedMap[`${taskNumber}|${levelId}`] || new Set();
-        const targetStatus = targetNumbers.map((num) => {
-          const question = questionsList[num - 1];
-          const qId = question?.id;
-          const solved = qId ? solvedSet.has(String(qId)) : false;
-          return { num, solved };
-        });
+        const targetStatus = targetDescriptors.map((target) => ({
+          num: target.questionNumber,
+          questionId: target.questionId,
+          solved: target.questionId ? solvedSet.has(String(target.questionId)) : false,
+        }));
         const solvedCount = targetStatus.filter((item) => item.solved).length;
         const completed = targetStatus.length > 0 && targetStatus.every((item) => item.solved);
         const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
@@ -17671,7 +17816,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   useEffect(() => {
     if (user.role !== 'student') return;
     refreshGoalState();
-  }, [user.role, user.id, goalRefreshTick, goalTestsDb, taskTitles]);
+  }, [user.role, user.id, goalRefreshTick, goalTestsDb, goalTestsLoaded, taskTitles]);
 
   useEffect(() => {
     if (user.role !== 'student') return;
@@ -17685,6 +17830,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
   const goalCompletedCount = goalGoals.filter((goal) => goal.completed).length;
   const firstGoal = goalGoals.find((goal) => !goal?.completed) || goalGoals[0] || null;
+  const openHomeworkMockGoal = (goal) => {
+    if (!goal?.mockExamId) return;
+    const firstPendingTask = (goal.taskStatus || []).find((item) => !item?.solved)
+      || goal.taskStatus?.[0]
+      || null;
+    handleOpenMockGoal(
+      goal.mockExamId,
+      firstPendingTask?.taskKey || firstPendingTask?.taskNumber || null,
+      {
+        fromHomework: true,
+        mode: goal.mode,
+        targetTaskKeys: goal.targetTaskKeys,
+      }
+    );
+  };
   const goalSummaryProgressPercent = goalGoals.length > 0
     ? Math.round((goalCompletedCount / goalGoals.length) * 100)
     : 0;
@@ -17949,7 +18109,59 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
-      {user.role === 'teacher' && !isTeacherNotificationsTabOpen && teacherNotifs.length > 0 && (
+      {user.role === 'teacher' && telemostJoinAlerts.length > 0 && (
+        <div className="telemost-join-alerts" role="region" aria-label="Переходы учеников в Телемост">
+          {telemostJoinAlerts.map((alert) => {
+            const requestedDate = new Date(alert.requestedAt);
+            const requestedTime = Number.isFinite(requestedDate.getTime())
+              ? requestedDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+              : '';
+            return (
+              <div key={alert.studentId} className="telemost-join-alert toast-enter" role="alert">
+                <button
+                  type="button"
+                  className="telemost-join-alert__close"
+                  onClick={() => dismissTelemostJoinAlert(alert.studentId)}
+                  aria-label="Закрыть уведомление"
+                >
+                  <X size={17} />
+                </button>
+                <div className="telemost-join-alert__head">
+                  <span className="telemost-join-alert__icon" aria-hidden="true">
+                    <Video size={21} />
+                  </span>
+                  <div>
+                    <p className="telemost-join-alert__kicker">Резервный созвон</p>
+                    <h2>{alert.studentName} ждёт в Телемосте</h2>
+                  </div>
+                </div>
+                <p className="telemost-join-alert__copy">
+                  Ученик ждёт в резервной конференции. Перейдите по его персональной ссылке.
+                </p>
+                <div className="telemost-join-alert__actions">
+                  <a
+                    href={alert.telemostUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new Event('telemost-external-open'));
+                      }
+                      dismissTelemostJoinAlert(alert.studentId);
+                    }}
+                  >
+                    <Video size={17} />
+                    Открыть Телемост
+                    <ExternalLink size={15} />
+                  </a>
+                  {requestedTime && <span>{requestedTime}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {user.role === 'teacher' && telemostJoinAlerts.length === 0 && !isTeacherNotificationsTabOpen && teacherNotifs.length > 0 && (
         <div className="fixed left-2 right-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[1200] sm:left-auto sm:right-4 sm:top-4 sm:w-full sm:max-w-[360px]">
           <div className="surface-panel rounded-2xl px-3 py-3 text-sm text-slate-700 shadow-xl">
             <div className="flex items-start justify-between gap-3">
@@ -18948,7 +19160,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         type="button"
                         onClick={() => {
                           if (firstGoal.type === GOAL_TYPE_MOCK) {
-                            handleOpenMockGoal(firstGoal.mockExamId);
+                            openHomeworkMockGoal(firstGoal);
                           } else {
                             handleOpenTask(firstGoal.taskNumber, firstGoal.levelId, firstGoal.targetNumbers);
                           }
@@ -19033,7 +19245,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               </div>
                               <button
                                 type="button"
-                                onClick={() => handleOpenMockGoal(goal.mockExamId)}
+                                onClick={() => openHomeworkMockGoal(goal)}
                                 className="student-goal-summary__item-action"
                               >
                                 Продолжить <ChevronRight size={14} />
@@ -19155,7 +19367,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   return;
                 }
                 if (firstGoal.type === GOAL_TYPE_MOCK) {
-                  handleOpenMockGoal(firstGoal.mockExamId);
+                  openHomeworkMockGoal(firstGoal);
                 } else {
                   handleOpenTask(firstGoal.taskNumber, firstGoal.levelId, firstGoal.targetNumbers);
                 }
@@ -19180,6 +19392,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               solvedRefreshKey={goalRefreshTick}
               openLessonKey={pendingLessonCapsuleKey}
               onOpenLessonHandled={() => setPendingLessonCapsuleKey('')}
+              homeworkPrefillRequest={pendingHomeworkPrefill}
+              onHomeworkPrefillHandled={() => setPendingHomeworkPrefill(null)}
               progress={progress}
               tasks={tasksWithTitles}
               nextHomeworkFlyRef={scheduleHomeworkFlyRef}
@@ -19305,6 +19519,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   }
                 }
               }}
+              onAssignMockReview={handleAssignMockReview}
               MOCK_TASKS={MOCK_TASKS}
               isMockExamAccessible={isMockExamAccessible}
               mergeRuntimeErrorText={mergeRuntimeErrorText}

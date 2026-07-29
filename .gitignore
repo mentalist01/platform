@@ -23,6 +23,7 @@ server/data/tests.json
 server/data/usage.json
 server/data/task-titles.json
 server/data/mock-exams.json
+server/data/homework-drafts.json
 server/data/_codex_upload_test.txt
 server/data/broadcast-notifications.json
 server/data/board-assets.json

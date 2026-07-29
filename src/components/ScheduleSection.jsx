@@ -4,7 +4,11 @@ import { api, resolveAuthenticatedApiUrl } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
+import TeacherHomeworkComposer from './TeacherHomeworkComposer';
+import HomeworkDayPlan from './HomeworkDayPlan';
 import { Button, Card } from './ui';
+import { buildHomeworkCarryoverDraft, resolveHomeworkTaskTargetDescriptors } from '../utils/homeworkComposer';
+import { normalizeHomeworkComposerDraft } from '../utils/homeworkComposerDraft';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { getStudentUnpaidLessonOccurrences } from '../utils/studentPaymentReminder';
@@ -55,6 +59,7 @@ const SCHEDULE_REQUEST_STATUS_PENDING = 'pending';
 const SCHEDULE_REQUEST_STATUS_APPROVED = 'approved';
 const SCHEDULE_REQUEST_STATUS_REJECTED = 'rejected';
 const HOMEWORK_DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_HOMEWORK_PLAN_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
 const LESSON_HISTORY_PAGE_SIZE = 12;
 
 const resolveHomeworkDueAt = (entry) => {
@@ -553,6 +558,8 @@ const ScheduleSection = ({
   solvedRefreshKey,
   openLessonKey = '',
   onOpenLessonHandled = null,
+  homeworkPrefillRequest = null,
+  onHomeworkPrefillHandled = null,
   progress = {},
   tasks,
   nextHomeworkFlyRef,
@@ -588,12 +595,29 @@ const ScheduleSection = ({
     levelId: 'basic',
     targetInput: '',
     includeAll: false,
+    targetQuestionIds: [],
+    targetSelectionDirty: false,
     mockExamId: '',
     mode: MOCK_ATTEMPT_MODE_TIMER,
   };
+  const createDefaultGoal = (type = GOAL_TYPE_TASK) => ({
+    ...DEFAULT_GOAL,
+    type: type === GOAL_TYPE_MOCK ? GOAL_TYPE_MOCK : GOAL_TYPE_TASK,
+  });
   const [homeworks, setHomeworks] = useState([]);
-  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
-  const [form, setForm] = useState({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt()), daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
+  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], targetQuestionIds: [], goals: [], dayPlan: null });
+  const [form, setForm] = useState({
+    homeWork: DEFAULT_HOMEWORK,
+    lessonLink: '',
+    boardLink: '',
+    dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt()),
+    daysToComplete: 7,
+    goals: [{ ...DEFAULT_GOAL }],
+    dayPlanEnabled: true,
+    dayPlanSessionCount: 3,
+    dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+    issuedAt: '',
+  });
   const [studentProgress, setStudentProgress] = useState({});
   const [loading, setLoading] = useState(false);
   const [refreshingData, setRefreshingData] = useState(false);
@@ -607,6 +631,16 @@ const ScheduleSection = ({
   const [mockExamsError, setMockExamsError] = useState('');
   const [mockAttemptsByExam, setMockAttemptsByExam] = useState({});
   const [editingId, setEditingId] = useState(null);
+  const [homeworkComposerOpen, setHomeworkComposerOpen] = useState(false);
+  const [homeworkComposerPreparing, setHomeworkComposerPreparing] = useState(false);
+  const [homeworkComposerError, setHomeworkComposerError] = useState('');
+  const [homeworkCarryoverSummary, setHomeworkCarryoverSummary] = useState(null);
+  const [homeworkDraft, setHomeworkDraft] = useState(null);
+  const [homeworkDraftLoading, setHomeworkDraftLoading] = useState(false);
+  const [homeworkDraftSaving, setHomeworkDraftSaving] = useState(false);
+  const [homeworkDraftDiscarding, setHomeworkDraftDiscarding] = useState(false);
+  const [homeworkDraftError, setHomeworkDraftError] = useState('');
+  const [homeworkDraftNotice, setHomeworkDraftNotice] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showLessonHistory, setShowLessonHistory] = useState(false);
@@ -651,6 +685,11 @@ const ScheduleSection = ({
   const [homeworkClock, setHomeworkClock] = useState(() => Date.now());
   const lessonTopicsLoadedKeyRef = React.useRef('');
   const googleScheduleAutoSyncKeyRef = React.useRef('');
+  const homeworkComposerRequestRef = React.useRef(0);
+  const homeworkDraftRequestRef = React.useRef(0);
+  const homeworkPrefillHandledRef = React.useRef('');
+  const nextLessonRequestRef = React.useRef(0);
+  const refreshDataRequestRef = React.useRef(0);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const requestStudentId = role === 'teacher' ? effectiveStudentId : '';
@@ -682,43 +721,72 @@ const ScheduleSection = ({
     taskNumber: latest?.taskNumber ?? null,
     levelId: latest?.levelId ?? null,
     targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : [],
+    targetQuestionIds: Array.isArray(latest?.targetQuestionIds) ? latest.targetQuestionIds : [],
     goals: Array.isArray(latest?.goals) ? latest.goals : [],
+    dayPlan: latest?.dayPlan && typeof latest.dayPlan === 'object' ? latest.dayPlan : null,
   });
 
   const loadNextLesson = async () => {
+    const requestId = nextLessonRequestRef.current + 1;
+    nextLessonRequestRef.current = requestId;
     if (!effectiveStudentId) {
       setHomeworks([]);
-      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], goals: [] });
-      setForm({ homeWork: DEFAULT_HOMEWORK, lessonLink: '', boardLink: '', dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt()), daysToComplete: 7, goals: [{ ...DEFAULT_GOAL }] });
+      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], targetQuestionIds: [], goals: [], dayPlan: null });
+      setForm({
+        homeWork: DEFAULT_HOMEWORK,
+        lessonLink: '',
+        boardLink: '',
+        dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt()),
+        daysToComplete: 7,
+        goals: [{ ...DEFAULT_GOAL }],
+        dayPlanEnabled: true,
+        dayPlanSessionCount: 3,
+        dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+        issuedAt: '',
+      });
       setEditingId(null);
       return;
     }
     setLoading(true);
     try {
       const data = await api.getStudentNextLesson(requestStudentId);
+      if (nextLessonRequestRef.current !== requestId) return;
       const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
       const latest = data?.latest && typeof data.latest === 'object' ? data.latest : {};
       const safeData = buildNextLessonData(latest);
       setHomeworks(list);
       setNextLesson(safeData);
-      setEditingId(null);
-      if (role === 'teacher') {
-        setForm({
-          homeWork: DEFAULT_HOMEWORK,
-          lessonLink: safeData.lessonLink || '',
-          boardLink: safeData.boardLink || '',
-          dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(safeData.daysToComplete || 7)),
-          daysToComplete: safeData.daysToComplete || 7,
-          goals: [{ ...DEFAULT_GOAL }]
-        });
-      }
       setError('');
     } catch (err) {
-      setError(err?.message || err);
+      if (nextLessonRequestRef.current === requestId) setError(err?.message || err);
     } finally {
-      setLoading(false);
+      if (nextLessonRequestRef.current === requestId) setLoading(false);
     }
   };
+
+  const loadHomeworkDraft = useCallback(async () => {
+    const requestId = homeworkDraftRequestRef.current + 1;
+    homeworkDraftRequestRef.current = requestId;
+    if (role !== 'teacher' || !effectiveStudentId) {
+      setHomeworkDraft(null);
+      setHomeworkDraftLoading(false);
+      setHomeworkDraftError('');
+      return;
+    }
+    setHomeworkDraftLoading(true);
+    try {
+      const result = await api.getStudentHomeworkDraft(effectiveStudentId);
+      if (homeworkDraftRequestRef.current !== requestId) return;
+      setHomeworkDraft(normalizeHomeworkComposerDraft(result?.draft));
+      setHomeworkDraftError('');
+    } catch (err) {
+      if (homeworkDraftRequestRef.current !== requestId) return;
+      setHomeworkDraft(null);
+      setHomeworkDraftError(err?.message || err);
+    } finally {
+      if (homeworkDraftRequestRef.current === requestId) setHomeworkDraftLoading(false);
+    }
+  }, [effectiveStudentId, role]);
 
   const loadStudentProgress = useCallback(async () => {
     if (!effectiveStudentId) {
@@ -818,8 +886,22 @@ const ScheduleSection = ({
   }, [effectiveStudentId]);
 
   useEffect(() => {
+    loadHomeworkDraft();
+  }, [loadHomeworkDraft]);
+
+  useEffect(() => {
     setHomeworkClock(Date.now());
     setHomeworkChecklistBusy({});
+    homeworkComposerRequestRef.current += 1;
+    refreshDataRequestRef.current += 1;
+    setRefreshingData(false);
+    setHomeworkComposerOpen(false);
+    setHomeworkComposerPreparing(false);
+    setHomeworkComposerError('');
+    setHomeworkCarryoverSummary(null);
+    setHomeworkDraftSaving(false);
+    setHomeworkDraftDiscarding(false);
+    setHomeworkDraftNotice('');
   }, [effectiveStudentId]);
 
   useEffect(() => {
@@ -933,6 +1015,8 @@ const ScheduleSection = ({
 
   const handleRefreshData = useCallback(async () => {
     if (!effectiveStudentId || refreshingData) return;
+    const requestId = refreshDataRequestRef.current + 1;
+    refreshDataRequestRef.current = requestId;
     setRefreshingData(true);
     try {
       const requestParams = role === 'teacher'
@@ -944,6 +1028,7 @@ const ScheduleSection = ({
         role === 'teacher' ? api.getStudentScheduleRequests(requestParams) : Promise.resolve([]),
         api.getStudentData(requestStudentId),
       ]);
+      if (refreshDataRequestRef.current !== requestId) return;
       if (nextLessonResult.status === 'fulfilled') {
         const data = nextLessonResult.value;
         const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
@@ -975,7 +1060,7 @@ const ScheduleSection = ({
         setStudentProgress(nextProgress && typeof nextProgress === 'object' ? nextProgress : {});
       }
     } finally {
-      setRefreshingData(false);
+      if (refreshDataRequestRef.current === requestId) setRefreshingData(false);
     }
   }, [effectiveStudentId, refreshingData, requestStudentId, role]);
 
@@ -1754,6 +1839,8 @@ const ScheduleSection = ({
               type: GOAL_TYPE_MOCK,
               mockExamId,
               mode: normalizeAssignedMockMode(goal?.mode),
+              targetTaskKeys: Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [],
+              continuationOfHomeworkId: String(goal?.continuationOfHomeworkId || '').trim(),
             };
           }
           const normalizedTaskNumber = normalizeTaskNumber(goal?.taskNumber);
@@ -1768,6 +1855,7 @@ const ScheduleSection = ({
             taskNumber: taskNumberValue,
             levelId: isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
             targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
+            targetQuestionIds: Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [],
             includeAll: Boolean(goal?.includeAll)
           };
         })
@@ -1786,6 +1874,7 @@ const ScheduleSection = ({
           : String(entry.taskNumber),
         levelId: isPythonTaskNumber(entryTaskNumber) ? PYTHON_LEVEL_ID : entry.levelId,
         targetQuestions: Array.isArray(entry.targetQuestions) ? entry.targetQuestions : [],
+        targetQuestionIds: Array.isArray(entry.targetQuestionIds) ? entry.targetQuestionIds : [],
         includeAll: Boolean(entry.includeAll)
       }];
     }
@@ -2071,6 +2160,12 @@ const ScheduleSection = ({
       label: 'База заданий',
     },
     {
+      key: 'homework-draft',
+      message: role === 'teacher' ? homeworkDraftError : '',
+      tone: 'amber',
+      label: 'Черновик домашки',
+    },
+    {
       key: 'mock-exams',
       message: mockExamsError,
       tone: 'amber',
@@ -2090,6 +2185,7 @@ const ScheduleSection = ({
     },
   ].filter((entry) => String(entry.message || '').trim())), [
     error,
+    homeworkDraftError,
     mockExamsError,
     role,
     scheduleError,
@@ -2117,7 +2213,12 @@ const ScheduleSection = ({
       const mockExamId = normalizeMockExamId(goal?.mockExamId);
       if (!mockExamId) return null;
       const mockExam = mockExamById[mockExamId] || null;
-      const mockProgress = getMockGoalProgress(mockExam, mockAttemptsByExam?.[mockExamId]);
+      const targetTaskKeys = Array.from(new Set(
+        (Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [])
+          .map((taskKey) => String(taskKey || '').trim())
+          .filter(Boolean)
+      ));
+      const mockProgress = getMockGoalProgress(mockExam, mockAttemptsByExam?.[mockExamId], targetTaskKeys);
       const totalCount = Number(mockProgress.totalCount) || 0;
       const solvedCount = Number(mockProgress.solvedCount) || 0;
       const progressPercent = totalCount > 0
@@ -2125,10 +2226,13 @@ const ScheduleSection = ({
         : 0;
       return {
         viewKey: `mock-${mockExamId}-${goalIndex}`,
+        sourceGoalIndex: goalIndex,
         type: GOAL_TYPE_MOCK,
         mockExamId,
         mode: normalizeAssignedMockMode(goal?.mode),
+        targetTaskKeys,
         heading: `Пробник · ${mockExam?.title || 'Пробник недоступен'}`,
+        targetStatus: Array.isArray(mockProgress.taskStatus) ? mockProgress.taskStatus : [],
         totalCount,
         solvedCount,
         progressPercent,
@@ -2148,22 +2252,15 @@ const ScheduleSection = ({
     const questionsList = taskNumber && levelId
       ? (testsDb?.[String(taskNumber)]?.[levelId] || [])
       : [];
-    const totalCount = questionsList.length;
-    const targetNumbers = goal?.includeAll
-      ? (totalCount > 0 ? Array.from({ length: totalCount }, (_, i) => i + 1) : [])
-      : Array.from(new Set(
-          (Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [])
-            .map((val) => Number(val))
-            .filter((val) => Number.isFinite(val) && val > 0)
-        )).sort((a, b) => a - b);
+    const targetDescriptors = resolveHomeworkTaskTargetDescriptors(goal, questionsList);
+    const targetNumbers = targetDescriptors.map((target) => target.questionNumber);
     const targetsKey = taskNumber && levelId ? `${taskNumber}|${levelId}` : null;
     const solvedSet = targetsKey ? solvedByKey?.[targetsKey] : null;
-    const targetStatus = targetNumbers.map((num) => {
-      const question = questionsList[num - 1];
-      const qId = question?.id;
-      const solved = qId ? solvedSet?.has(String(qId)) : false;
-      return { num, solved };
-    });
+    const targetStatus = targetDescriptors.map((target) => ({
+      num: target.questionNumber,
+      questionId: target.questionId,
+      solved: target.questionId ? solvedSet?.has(String(target.questionId)) : false,
+    }));
     const solvedCount = targetStatus.filter((item) => item.solved).length;
     const progressPercent = targetStatus.length > 0
       ? Math.max(0, Math.min(100, Math.round((solvedCount / targetStatus.length) * 100)))
@@ -2173,6 +2270,7 @@ const ScheduleSection = ({
       : `Задание ${taskDisplay} · ${levelLabel}`;
     return {
       viewKey: `task-${taskNumber}-${levelId}-${goalIndex}`,
+      sourceGoalIndex: goalIndex,
       type: GOAL_TYPE_TASK,
       heading,
       taskNumber,
@@ -2315,7 +2413,18 @@ const ScheduleSection = ({
     const openGoal = (goalView) => {
       if (!goalView) return;
       if (goalView.type === GOAL_TYPE_MOCK) {
-        onOpenMockGoal?.(goalView.mockExamId);
+        const firstPendingTask = (goalView.targetStatus || []).find((item) => !item?.solved)
+          || goalView.targetStatus?.[0]
+          || null;
+        onOpenMockGoal?.(
+          goalView.mockExamId,
+          firstPendingTask?.taskKey || firstPendingTask?.taskNumber || null,
+          {
+            fromHomework: true,
+            mode: goalView.mode,
+            targetTaskKeys: goalView.targetTaskKeys,
+          }
+        );
         return;
       }
       onOpenTask?.(goalView.taskNumber, goalView.levelId, goalView.targetNumbers);
@@ -2333,10 +2442,9 @@ const ScheduleSection = ({
         const remaining = goalView.totalCount > 0
           ? Math.max(goalView.totalCount - goalView.solvedCount, 0)
           : 0;
-        const visibleTargets = Array.isArray(goalView.targetStatus)
-          ? goalView.targetStatus.slice(0, 10)
+        const targetItems = Array.isArray(goalView.targetStatus)
+          ? goalView.targetStatus
           : [];
-        const hiddenTargets = Math.max((goalView.targetStatus?.length || 0) - visibleTargets.length, 0);
         const isCompleted = goalView.totalCount > 0 && remaining === 0;
         const isOpenable = Boolean(
           (goalView.type === GOAL_TYPE_MOCK && onOpenMockGoal)
@@ -2407,23 +2515,21 @@ const ScheduleSection = ({
 
                 <div className="student-today-homework__goal-controls mt-3 flex flex-wrap items-end justify-between gap-3">
                   <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
-                    {visibleTargets.map((item) => (
-                      <span
-                        key={`student-goal-${goalView.viewKey}-${item.num}`}
-                        className={`inline-flex h-7 min-w-7 items-center justify-center rounded-lg border px-2 text-[10px] font-black ${
-                          item.solved
-                            ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
-                            : 'border-purple-200 bg-white text-purple-700'
-                        }`}
-                      >
-                        №{item.num}{item.solved ? ' ✓' : ''}
-                      </span>
-                    ))}
-                    {hiddenTargets > 0 ? (
-                      <span className="inline-flex h-7 items-center rounded-lg border border-slate-200 bg-slate-100 px-2 text-[10px] font-black text-slate-500">
-                        +{hiddenTargets}
-                      </span>
-                    ) : null}
+                    {targetItems.map((item) => {
+                      const itemLabel = item.num ?? item.label ?? item.taskKey;
+                      return (
+                        <span
+                          key={`student-goal-${goalView.viewKey}-${itemLabel}`}
+                          className={`inline-flex h-7 min-w-7 items-center justify-center rounded-lg border px-2 text-[10px] font-black ${
+                            item.solved
+                              ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                              : 'border-purple-200 bg-white text-purple-700'
+                          }`}
+                        >
+                          №{itemLabel}{item.solved ? ' ✓' : ''}
+                        </span>
+                      );
+                    })}
                   </div>
 
                   {isOpenable ? (
@@ -2493,6 +2599,20 @@ const ScheduleSection = ({
               </div>
             </div>
           </header>
+
+          {entry?.dayPlan?.enabled && (
+            <div className="relative mt-4">
+              <HomeworkDayPlan
+                entry={entry}
+                goalViews={goalViews}
+                checklistItems={checklistItems}
+                mockExamById={mockExamById}
+                role={role}
+                onOpenTask={onOpenTask}
+                onOpenMockGoal={onOpenMockGoal}
+              />
+            </div>
+          )}
 
           <div className="relative mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)]">
             <section className="student-today-homework__goal-panel rounded-[20px] border border-purple-200/80 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/60 p-4">
@@ -2814,7 +2934,7 @@ const ScheduleSection = ({
                       {onOpenMockGoal && (
                         <button
                           type="button"
-                          onClick={() => onOpenMockGoal(goalView.mockExamId)}
+                          onClick={() => openGoal(goalView)}
                           className="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700"
                         >
                           Перейти к пробнику
@@ -2828,9 +2948,6 @@ const ScheduleSection = ({
               const remainingCount = goalView.totalCount > 0
                 ? Math.max(goalView.totalCount - goalView.solvedCount, 0)
                 : 0;
-              const visibleTargetStatus = goalView.targetStatus.slice(0, 12);
-              const hiddenTargetCount = Math.max(goalView.targetStatus.length - visibleTargetStatus.length, 0);
-
               return (
                 <div key={goalView.viewKey} className="rounded-xl border border-purple-100/80 bg-white/90 px-3 py-2.5 space-y-2.5">
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2876,7 +2993,7 @@ const ScheduleSection = ({
                   </div>
                   {goalView.targetNumbers.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
-                      {visibleTargetStatus.map((item) => (
+                      {goalView.targetStatus.map((item) => (
                         <span
                           key={`${goalView.viewKey}-${item.num}`}
                           className={`px-2 py-1 rounded-md border text-[11px] font-semibold ${
@@ -2888,11 +3005,6 @@ const ScheduleSection = ({
                           №{item.num}{item.solved ? ' ✓' : ''}
                         </span>
                       ))}
-                      {hiddenTargetCount > 0 && (
-                        <span className="px-2 py-1 rounded-md border border-slate-200 bg-slate-100 text-[11px] font-semibold text-slate-600">
-                          +{hiddenTargetCount}
-                        </span>
-                      )}
                     </div>
                   )}
                 </div>
@@ -3017,42 +3129,386 @@ const ScheduleSection = ({
       boardLink: source?.boardLink || '',
       dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(source?.daysToComplete || 7)),
       daysToComplete: source?.daysToComplete || 7,
-      goals: [{ ...DEFAULT_GOAL }]
+      goals: [{ ...DEFAULT_GOAL }],
+      dayPlanEnabled: true,
+      dayPlanSessionCount: 3,
+      dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+      issuedAt: '',
     });
     setEditingId(null);
   };
 
+  const resolveTaskGoalFormTargets = (goal) => {
+    const taskNumber = normalizeTaskNumber(goal?.taskNumber);
+    const isPythonGoal = Number.isFinite(taskNumber) && isPythonTaskNumber(taskNumber);
+    const levelId = isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic');
+    const questions = Number.isFinite(taskNumber)
+      ? testsDb?.[String(taskNumber)]?.[levelId]
+      : [];
+    const questionList = Array.isArray(questions) ? questions : [];
+    const storedIds = (Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [])
+      .map((value) => String(value || '').trim());
+    if (questionList.length > 0) {
+      const pairs = resolveHomeworkTaskTargetDescriptors(goal, questionList);
+      return {
+        targetQuestions: pairs.map((item) => item.questionNumber),
+        targetQuestionIds: pairs.map((item) => item.questionId),
+      };
+    }
+    const targetQuestions = Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [];
+    return {
+      targetQuestions,
+      targetQuestionIds: storedIds,
+    };
+  };
+
+  const finishCloseHomeworkComposer = () => {
+    homeworkComposerRequestRef.current += 1;
+    setHomeworkComposerOpen(false);
+    setHomeworkComposerPreparing(false);
+    setHomeworkComposerError('');
+    setHomeworkCarryoverSummary(null);
+    resetFormToDefault();
+  };
+
+  const closeHomeworkComposer = async () => {
+    if (saving || homeworkDraftSaving || homeworkDraftDiscarding) return;
+    if (editingId || !homeworkDraft) {
+      finishCloseHomeworkComposer();
+      return;
+    }
+    const targetStudentId = String(effectiveStudentId || '').trim();
+    setHomeworkDraftDiscarding(true);
+    setHomeworkComposerError('');
+    try {
+      await api.deleteStudentHomeworkDraft(targetStudentId);
+      if (targetStudentId !== String(effectiveStudentId || '').trim()) return;
+      setHomeworkDraft(null);
+      setHomeworkDraftError('');
+      setHomeworkDraftNotice('');
+      finishCloseHomeworkComposer();
+    } catch (err) {
+      if (targetStudentId === String(effectiveStudentId || '').trim()) {
+        setHomeworkComposerError(`Не удалось удалить черновик: ${err?.message || err}`);
+      }
+    } finally {
+      if (targetStudentId === String(effectiveStudentId || '').trim()) {
+        setHomeworkDraftDiscarding(false);
+      }
+    }
+  };
+
+  const saveHomeworkComposerDraft = async () => {
+    if (
+      role !== 'teacher'
+      || !effectiveStudentId
+      || editingId
+      || saving
+      || homeworkDraftSaving
+      || homeworkDraftDiscarding
+      || homeworkComposerPreparing
+    ) {
+      return;
+    }
+    const targetStudentId = String(effectiveStudentId || '').trim();
+    setHomeworkDraftSaving(true);
+    setHomeworkComposerError('');
+    try {
+      const result = await api.saveStudentHomeworkDraft(targetStudentId, {
+        form,
+        carryoverSummary: homeworkCarryoverSummary,
+        baseHomeworkId: String(nextHomeworkEntry?.id || '').trim(),
+        baseHomeworkUpdatedAt: String(nextHomeworkEntry?.updatedAt || nextHomeworkEntry?.issuedAt || '').trim(),
+      });
+      if (targetStudentId !== String(effectiveStudentId || '').trim()) return;
+      const savedDraft = normalizeHomeworkComposerDraft(result?.draft);
+      if (!savedDraft) throw new Error('Сервер не вернул сохранённый черновик');
+      setHomeworkDraft(savedDraft);
+      setHomeworkDraftError('');
+      setHomeworkDraftNotice('Черновик сохранён. К нему можно вернуться позже.');
+      finishCloseHomeworkComposer();
+    } catch (err) {
+      if (targetStudentId === String(effectiveStudentId || '').trim()) {
+        setHomeworkComposerError(`Не удалось сохранить черновик: ${err?.message || err}`);
+      }
+    } finally {
+      if (targetStudentId === String(effectiveStudentId || '').trim()) {
+        setHomeworkDraftSaving(false);
+      }
+    }
+  };
+
+  const openNewHomeworkComposer = async (prefill = null) => {
+    if (!effectiveStudentId || role !== 'teacher') return;
+    const normalizedPrefill = prefill && typeof prefill === 'object' && prefill.source === 'mock-analysis'
+      ? {
+          mockExamId: normalizeMockExamId(prefill.mockExamId),
+          mode: normalizeAssignedMockMode(prefill.mode),
+          targetTaskKeys: Array.from(new Set(
+            (Array.isArray(prefill.targetTaskKeys) ? prefill.targetTaskKeys : [])
+              .map((taskKey) => String(taskKey || '').trim())
+              .filter(Boolean)
+          )),
+        }
+      : null;
+    const requestId = homeworkComposerRequestRef.current + 1;
+    homeworkComposerRequestRef.current = requestId;
+    setEditingId(null);
+    setHomeworkCarryoverSummary(null);
+    setHomeworkComposerError('');
+    setError('');
+    setHomeworkComposerOpen(true);
+    setHomeworkComposerPreparing(true);
+    setForm({
+      homeWork: DEFAULT_HOMEWORK,
+      lessonLink: nextLesson?.lessonLink || '',
+      boardLink: nextLesson?.boardLink || '',
+      dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(nextLesson?.daysToComplete || 7)),
+      daysToComplete: nextLesson?.daysToComplete || 7,
+      goals: [createDefaultGoal()],
+      dayPlanEnabled: true,
+      dayPlanSessionCount: 3,
+      dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+      issuedAt: '',
+    });
+
+    const [homeworkResult, studentDataResult, testsResult, mockExamsResult, draftResult] = await Promise.allSettled([
+      api.getStudentNextLesson(requestStudentId),
+      api.getStudentData(requestStudentId),
+      api.getTests(),
+      api.getMockExams(requestStudentId),
+      api.getStudentHomeworkDraft(effectiveStudentId),
+    ]);
+    if (homeworkComposerRequestRef.current !== requestId) return;
+
+    const warnings = [];
+    const freshTests = testsResult.status === 'fulfilled' && testsResult.value && typeof testsResult.value === 'object'
+      ? testsResult.value
+      : (testsDb || {});
+    const freshMockExams = mockExamsResult.status === 'fulfilled' && Array.isArray(mockExamsResult.value)
+      ? mockExamsResult.value
+      : mockExams;
+    const freshStudentData = studentDataResult.status === 'fulfilled' && studentDataResult.value && typeof studentDataResult.value === 'object'
+      ? studentDataResult.value
+      : {};
+
+    if (testsResult.status === 'fulfilled') {
+      setTestsDb(freshTests);
+      setTestsDbError('');
+    } else {
+      warnings.push('Не удалось обновить базу заданий; показана последняя загруженная версия.');
+    }
+    if (mockExamsResult.status === 'fulfilled') {
+      setMockExams(freshMockExams);
+      setMockExamsError('');
+    } else {
+      warnings.push('Не удалось обновить список пробников.');
+    }
+    if (studentDataResult.status === 'rejected') {
+      warnings.push('Не удалось точно проверить, что ученик уже выполнил. Проверьте перенесённые номера.');
+    }
+    const restoredDraft = draftResult.status === 'fulfilled'
+      ? normalizeHomeworkComposerDraft(draftResult.value?.draft)
+      : normalizeHomeworkComposerDraft(homeworkDraft);
+    if (draftResult.status === 'fulfilled') {
+      setHomeworkDraft(restoredDraft);
+      setHomeworkDraftError('');
+    } else {
+      warnings.push('Не удалось обновить черновик с сервера; использована последняя загруженная версия.');
+    }
+
+    let latestHomework = nextHomeworkEntry;
+    let sourceData = nextLesson || {};
+    if (homeworkResult.status === 'fulfilled') {
+      const response = homeworkResult.value || {};
+      const list = Array.isArray(response.homeworks) ? response.homeworks : [];
+      const latest = response.latest && typeof response.latest === 'object' ? response.latest : null;
+      latestHomework = latest || [...list].sort(
+        (left, right) => new Date(right?.issuedAt || 0) - new Date(left?.issuedAt || 0)
+      )[0] || null;
+      sourceData = buildNextLessonData(latestHomework || {});
+      setHomeworks(list);
+      setNextLesson(sourceData);
+      setError('');
+    } else {
+      warnings.push('Не удалось обновить последнюю домашку; использована версия с экрана.');
+    }
+
+    const carryover = buildHomeworkCarryoverDraft({
+      homework: latestHomework,
+      studentData: freshStudentData,
+      testsDb: freshTests,
+      mockExams: freshMockExams,
+    });
+    const restoredDraftForm = restoredDraft?.form || null;
+    let carryoverGoals = restoredDraftForm
+      ? restoredDraftForm.goals.map((goal) => ({
+          ...createDefaultGoal(goal.type),
+          ...goal,
+        }))
+      : carryover.goals.map((goal) => ({
+          ...createDefaultGoal(goal.type),
+          ...goal,
+        }));
+    let carryoverSummary = restoredDraftForm
+      ? restoredDraft.carryoverSummary
+      : { ...carryover.summary };
+    if (normalizedPrefill?.mockExamId && normalizedPrefill.targetTaskKeys.length > 0) {
+      const reviewGoal = {
+        ...createDefaultGoal(GOAL_TYPE_MOCK),
+        type: GOAL_TYPE_MOCK,
+        mockExamId: normalizedPrefill.mockExamId,
+        mode: normalizedPrefill.mode,
+        targetTaskKeys: normalizedPrefill.targetTaskKeys,
+        origin: 'new',
+        carryover: null,
+        continuationOfHomeworkId: '',
+      };
+      const isSameMockGoal = (goal) => (
+        normalizeGoalType(goal) === GOAL_TYPE_MOCK
+        && normalizeMockExamId(goal?.mockExamId) === normalizedPrefill.mockExamId
+      );
+      const matchingMockGoals = carryoverGoals.filter(isSameMockGoal);
+      if (matchingMockGoals.length > 0) {
+        const originalMatchingQuestionCount = matchingMockGoals.reduce((sum, goal) => {
+          const remainingCount = Number(goal?.carryover?.remainingCount);
+          return sum + (Number.isFinite(remainingCount) && remainingCount > 0 ? remainingCount : 0);
+        }, 0);
+        const uniqueCountableCarryoverTaskKeys = Array.from(new Set(
+          matchingMockGoals.flatMap((goal) => {
+            const remainingCount = Number(goal?.carryover?.remainingCount);
+            if (!Number.isFinite(remainingCount) || remainingCount <= 0) return [];
+            return Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [];
+          }).map((taskKey) => String(taskKey || '').trim()).filter(Boolean)
+        ));
+        const mergedTargetTaskKeys = Array.from(new Set([
+          ...matchingMockGoals.flatMap((goal) => (
+            Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : []
+          )),
+          ...normalizedPrefill.targetTaskKeys,
+        ].map((taskKey) => String(taskKey || '').trim()).filter(Boolean)));
+        let reviewGoalInserted = false;
+        carryoverGoals = carryoverGoals.flatMap((goal) => {
+          if (!isSameMockGoal(goal)) return [goal];
+          if (reviewGoalInserted) return [];
+          reviewGoalInserted = true;
+          return [{
+            ...reviewGoal,
+            targetTaskKeys: mergedTargetTaskKeys,
+          }];
+        });
+        if (!restoredDraftForm) {
+          carryoverSummary = {
+            ...carryoverSummary,
+            pendingGoalCount: Math.max(
+              0,
+              (Number(carryoverSummary?.pendingGoalCount) || 0) - matchingMockGoals.length + 1
+            ),
+            pendingQuestionCount: Math.max(
+              0,
+              (Number(carryoverSummary?.pendingQuestionCount) || 0)
+                - originalMatchingQuestionCount
+                + uniqueCountableCarryoverTaskKeys.length
+            ),
+          };
+        }
+      } else {
+        carryoverGoals = [...carryoverGoals, reviewGoal];
+      }
+    }
+    setForm(restoredDraftForm
+      ? {
+          ...restoredDraftForm,
+          goals: carryoverGoals,
+        }
+      : {
+          homeWork: carryover.homeWork,
+          lessonLink: sourceData?.lessonLink || '',
+          boardLink: sourceData?.boardLink || '',
+          dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(sourceData?.daysToComplete || 7)),
+          daysToComplete: sourceData?.daysToComplete || 7,
+          goals: [...carryoverGoals, createDefaultGoal()],
+          dayPlanEnabled: true,
+          dayPlanSessionCount: 3,
+          dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+          issuedAt: '',
+        });
+    setHomeworkCarryoverSummary(carryoverSummary);
+    if (restoredDraftForm && normalizedPrefill?.mockExamId) {
+      warnings.push('Ошибки пробника добавлены в сохранённый черновик.');
+    }
+    setHomeworkComposerError(warnings.join(' '));
+    setHomeworkComposerPreparing(false);
+  };
+
+  useEffect(() => {
+    const requestId = String(homeworkPrefillRequest?.id || '').trim();
+    const targetStudentId = String(homeworkPrefillRequest?.studentId || '').trim();
+    if (
+      role !== 'teacher'
+      || !requestId
+      || !targetStudentId
+      || targetStudentId !== String(effectiveStudentId || '')
+      || homeworkPrefillHandledRef.current === requestId
+    ) {
+      return;
+    }
+    homeworkPrefillHandledRef.current = requestId;
+    openNewHomeworkComposer(homeworkPrefillRequest)
+      .finally(() => onHomeworkPrefillHandled?.());
+  }, [effectiveStudentId, homeworkPrefillRequest, onHomeworkPrefillHandled, role]);
+
   const startEditHomework = (entry) => {
     if (!entry) return;
     const goals = normalizeEntryGoals(entry);
+    const storedDayPlan = entry?.dayPlan && typeof entry.dayPlan === 'object' ? entry.dayPlan : null;
+    homeworkComposerRequestRef.current += 1;
     setEditingId(entry.id || null);
+    setHomeworkCarryoverSummary(null);
+    setHomeworkComposerError('');
+    setHomeworkComposerPreparing(false);
     setForm({
       homeWork: entry.homeWork || '',
       lessonLink: entry.lessonLink || '',
       boardLink: entry.boardLink || '',
       dueAt: toDateTimeLocalValue(resolveHomeworkDueAt(entry)),
       daysToComplete: Number(entry.daysToComplete) || 7,
+      issuedAt: entry.issuedAt || '',
+      dayPlanEnabled: Boolean(storedDayPlan?.enabled && Array.isArray(storedDayPlan?.dayPlan)),
+      dayPlanSessionCount: Math.max(
+        2,
+        Math.min(7, Number(storedDayPlan?.requestedSessionCount) || storedDayPlan?.dayPlan?.length || 3)
+      ),
+      dayPlanWeekdays: Array.isArray(storedDayPlan?.selectedWeekdays)
+        ? storedDayPlan.selectedWeekdays
+        : [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
       goals: goals.length
         ? goals.map((goal) => {
             if (goal.type === GOAL_TYPE_MOCK) {
               return {
-                ...DEFAULT_GOAL,
+                ...createDefaultGoal(GOAL_TYPE_MOCK),
                 type: GOAL_TYPE_MOCK,
                 mockExamId: goal.mockExamId,
                 mode: normalizeAssignedMockMode(goal.mode),
+                targetTaskKeys: Array.isArray(goal.targetTaskKeys) ? goal.targetTaskKeys : [],
+                continuationOfHomeworkId: String(goal?.continuationOfHomeworkId || '').trim(),
               };
             }
+            const resolvedTargets = resolveTaskGoalFormTargets(goal);
             return {
-              ...DEFAULT_GOAL,
+              ...createDefaultGoal(GOAL_TYPE_TASK),
               type: GOAL_TYPE_TASK,
               taskNumber: goal.taskNumber,
               levelId: goal.levelId || 'basic',
               includeAll: goal.includeAll,
-              targetInput: goal.includeAll ? '' : formatTargetInput(goal.targetQuestions)
+              targetInput: goal.includeAll ? '' : formatTargetInput(resolvedTargets.targetQuestions),
+              targetQuestionIds: resolvedTargets.targetQuestionIds,
+              targetSelectionDirty: false,
             };
           })
-        : [{ ...DEFAULT_GOAL }]
+        : [createDefaultGoal()]
     });
+    setHomeworkComposerOpen(true);
   };
 
   const updateGoal = (index, patch) => {
@@ -3064,17 +3520,17 @@ const ScheduleSection = ({
     });
   };
 
-  const addGoalRow = () => {
+  const addGoalRow = (type = GOAL_TYPE_TASK) => {
     setForm((prev) => ({
       ...prev,
-      goals: [...(Array.isArray(prev.goals) ? prev.goals : []), { ...DEFAULT_GOAL }]
+      goals: [...(Array.isArray(prev.goals) ? prev.goals : []), createDefaultGoal(type)]
     }));
   };
 
   const removeGoalRow = (index) => {
     setForm((prev) => {
       const goals = Array.isArray(prev.goals) ? prev.goals.filter((_, i) => i !== index) : [];
-      return { ...prev, goals: goals.length ? goals : [{ ...DEFAULT_GOAL }] };
+      return { ...prev, goals };
     });
   };
 
@@ -3087,16 +3543,25 @@ const ScheduleSection = ({
     }
     setSaving(true);
     try {
+      let goalValidationError = '';
       const goalsPayload = (Array.isArray(form.goals) ? form.goals : [])
         .map((goal) => {
           const goalType = normalizeGoalType(goal);
           if (goalType === GOAL_TYPE_MOCK) {
             const mockExamId = normalizeMockExamId(goal?.mockExamId);
             if (!mockExamId) return null;
+            const targetTaskKeys = Array.from(new Set(
+              (Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [])
+                .map((value) => String(value || '').trim())
+                .filter(Boolean)
+            ));
+            const continuationOfHomeworkId = String(goal?.continuationOfHomeworkId || '').trim();
             return {
               type: GOAL_TYPE_MOCK,
               mockExamId,
               mode: normalizeAssignedMockMode(goal?.mode),
+              ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
+              ...(continuationOfHomeworkId ? { continuationOfHomeworkId } : {}),
             };
           }
           const taskNumber = String(goal?.taskNumber || '').trim();
@@ -3109,22 +3574,56 @@ const ScheduleSection = ({
           const includeAll = Boolean(goal?.includeAll);
           const availableCount = getQuestionsCount(normalizedTaskNumber, levelId);
           const targetQuestions = includeAll ? [] : parseTargetInput(goal?.targetInput, availableCount);
+          if (!includeAll && targetQuestions.length === 0) {
+            goalValidationError = `Для задания ${formatTaskNumber(normalizedTaskNumber) || normalizedTaskNumber} выберите хотя бы один номер или включите «Все номера».`;
+            return null;
+          }
+          const questions = testsDb?.[String(normalizedTaskNumber)]?.[levelId];
+          const questionList = Array.isArray(questions) ? questions : [];
+          const storedTargetQuestionIds = (Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [])
+            .map((questionId) => String(questionId || '').trim());
+          const derivedTargetQuestionIds = (includeAll
+            ? questionList
+            : targetQuestions.map((questionNumber) => questionList[questionNumber - 1]))
+              .map((question) => String(question?.id || '').trim())
+              .filter(Boolean);
+          const expectedIdCount = includeAll ? questionList.length : targetQuestions.length;
+          const hasCompleteDerivedIds = expectedIdCount > 0 && derivedTargetQuestionIds.length === expectedIdCount;
+          const hasCompleteStoredIds = expectedIdCount > 0
+            && storedTargetQuestionIds.length === expectedIdCount
+            && storedTargetQuestionIds.every(Boolean);
+          const targetQuestionIds = hasCompleteDerivedIds
+            ? derivedTargetQuestionIds
+            : (!goal?.targetSelectionDirty && hasCompleteStoredIds ? storedTargetQuestionIds : []);
           return {
             type: GOAL_TYPE_TASK,
             taskNumber: normalizedTaskNumber,
             levelId,
             includeAll,
-            targetQuestions
+            targetQuestions,
+            ...(targetQuestionIds.length > 0 ? { targetQuestionIds } : {}),
           };
         })
         .filter(Boolean);
+      if (goalValidationError) {
+        setError(goalValidationError);
+        return;
+      }
       const payload = {
         homeWork: form.homeWork,
         lessonLink: form.lessonLink,
         boardLink: form.boardLink,
         dueAt: dueAtIso,
         daysToComplete: form.daysToComplete,
-        goals: goalsPayload
+        goals: goalsPayload,
+        dayPlan: form.dayPlanEnabled
+          ? {
+              enabled: true,
+              requestedSessionCount: Math.max(2, Math.min(7, Number(form.dayPlanSessionCount) || 3)),
+              selectedWeekdays: Array.isArray(form.dayPlanWeekdays) ? form.dayPlanWeekdays : [],
+              calendarOffsetMinutes: -new Date().getTimezoneOffset(),
+            }
+          : { enabled: false },
       };
       const updated = editingId
         ? await api.updateStudentHomework(effectiveStudentId, editingId, payload)
@@ -3134,7 +3633,15 @@ const ScheduleSection = ({
       const safeData = buildNextLessonData(latest, form);
       setHomeworks(list);
       setNextLesson(safeData);
+      if (!editingId) {
+        setHomeworkDraft(null);
+        setHomeworkDraftError('');
+        setHomeworkDraftNotice('');
+      }
       resetFormToDefault(safeData);
+      setHomeworkComposerOpen(false);
+      setHomeworkComposerError('');
+      setHomeworkCarryoverSummary(null);
       setError('');
     } catch (err) {
       setError(err?.message || err);
@@ -3657,268 +4164,45 @@ const ScheduleSection = ({
       )}
 
       {role === 'teacher' && (
-        <Card className="space-y-4 border-purple-200/60 bg-gradient-to-br from-white via-white to-purple-50/40">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="space-y-1">
-              <h3 className="text-lg font-bold text-gray-800">
-                {editingId ? 'Редактировать домашку' : 'Обновить данные'}
-              </h3>
-              <p className="text-xs text-slate-500">Заполните домашку, цели и ссылки на ближайшее занятие</p>
+        <Card className="overflow-hidden border-purple-200/70 bg-gradient-to-br from-white via-purple-50/55 to-fuchsia-50/45 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="inline-grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-purple-600 text-white shadow-lg shadow-purple-500/20">
+                <BookOpen size={20} />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-lg font-bold text-gray-900">Домашняя работа</h3>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-500">
+                  Незаконченные номера из последней домашки подставятся сами. Условия заданий можно посмотреть прямо при выборе.
+                </p>
+                {homeworkDraft ? (
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-white/85 px-2.5 py-1 text-[10px] font-black text-purple-700">
+                    <Save size={11} />
+                    Есть сохранённый черновик
+                  </div>
+                ) : null}
+                {homeworkDraftNotice ? (
+                  <p className="mt-2 text-xs font-semibold text-emerald-700">{homeworkDraftNotice}</p>
+                ) : null}
+              </div>
             </div>
-            {editingId && (
-              <button
-                type="button"
-                onClick={() => resetFormToDefault()}
-                className="px-3 py-1 rounded-lg border border-gray-200 bg-white/90 text-xs font-semibold text-gray-600 hover:bg-white"
-              >
-                Отменить
-              </button>
-            )}
-          </div>
-          <textarea
-            value={form.homeWork}
-            onChange={(e) => setForm((prev) => ({ ...prev, homeWork: e.target.value }))}
-            placeholder="Домашка на следующий урок"
-            className="w-full min-h-[120px] resize-none rounded-xl border border-purple-100 bg-white/90 px-4 py-3 shadow-inner shadow-purple-100/40 focus:border-purple-500 outline-none"
-          />
-          <div className="space-y-3">
-            {(Array.isArray(form.goals) ? form.goals : []).map((goal, index) => {
-              const goalType = normalizeGoalType(goal);
-              const isMockGoal = goalType === GOAL_TYPE_MOCK;
-              const hasTask = !isMockGoal && Boolean(goal?.taskNumber);
-              const normalizedGoalTaskNumber = normalizeTaskNumber(goal?.taskNumber);
-              const isPythonGoal = isPythonTaskNumber(normalizedGoalTaskNumber);
-              const effectiveLevelId = isPythonGoal ? PYTHON_LEVEL_ID : goal.levelId;
-              const taskNumberValue = Number.isFinite(normalizedGoalTaskNumber)
-                ? normalizedGoalTaskNumber
-                : goal?.taskNumber;
-              const availableCount = hasTask ? getQuestionsCount(taskNumberValue, effectiveLevelId) : null;
-              const selectedTargetCount = !goal.includeAll
-                ? parseTargetInput(goal?.targetInput, availableCount).length
-                : 0;
-              const selectedMockExam = isMockGoal
-                ? mockExamById[normalizeMockExamId(goal?.mockExamId)]
-                : null;
-              return (
-                <div key={`${index}-${goalType}-${goal?.taskNumber || goal?.mockExamId || 'goal'}`} className="rounded-2xl border border-purple-100/70 bg-white/90 p-3.5 space-y-3 shadow-sm shadow-purple-100/40">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                    <select
-                      value={goalType}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value === GOAL_TYPE_MOCK) {
-                          updateGoal(index, { ...DEFAULT_GOAL, type: GOAL_TYPE_MOCK });
-                          return;
-                        }
-                        updateGoal(index, { ...DEFAULT_GOAL, type: GOAL_TYPE_TASK, levelId: goal.levelId || 'basic' });
-                      }}
-                      className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-                    >
-                      <option value={GOAL_TYPE_TASK}>Задание</option>
-                      <option value={GOAL_TYPE_MOCK}>Пробник</option>
-                    </select>
-                    {isMockGoal ? (
-                      <>
-                        <select
-                          value={goal?.mockExamId || ''}
-                          onChange={(e) => updateGoal(index, { mockExamId: e.target.value })}
-                          className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none md:col-span-2"
-                        >
-                          <option value="">Выберите пробник</option>
-                          {mockExams.map((exam) => (
-                            <option key={exam.id} value={exam.id}>{exam.title}</option>
-                          ))}
-                        </select>
-                        <div
-                          className="flex items-center gap-1 rounded-xl border border-purple-100 bg-purple-50/65 p-1 md:col-span-2"
-                          role="group"
-                          aria-label="Режим прохождения пробника"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => updateGoal(index, { mode: MOCK_ATTEMPT_MODE_TIMER })}
-                            aria-pressed={normalizeAssignedMockMode(goal?.mode) === MOCK_ATTEMPT_MODE_TIMER}
-                            className={`flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition ${
-                              normalizeAssignedMockMode(goal?.mode) === MOCK_ATTEMPT_MODE_TIMER
-                                ? 'bg-white text-orange-600 shadow-sm ring-1 ring-orange-100'
-                                : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
-                            }`}
-                          >
-                            <Clock3 size={14} />
-                            Таймер
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateGoal(index, { mode: MOCK_ATTEMPT_MODE_CLASSIC })}
-                            aria-pressed={normalizeAssignedMockMode(goal?.mode) === MOCK_ATTEMPT_MODE_CLASSIC}
-                            className={`flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition ${
-                              normalizeAssignedMockMode(goal?.mode) === MOCK_ATTEMPT_MODE_CLASSIC
-                                ? 'bg-white text-violet-700 shadow-sm ring-1 ring-violet-100'
-                                : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
-                            }`}
-                          >
-                            <BookOpen size={14} />
-                            Обычный
-                          </button>
-                        </div>
-                        <div className="flex items-center justify-end gap-3">
-                          {(Array.isArray(form.goals) ? form.goals.length : 0) > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeGoalRow(index)}
-                              className="px-2 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500 hover:bg-gray-50"
-                            >
-                              Удалить
-                            </button>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <select
-                          value={goal.taskNumber || ''}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            const valueNum = value ? Number(value) : null;
-                            const nextIsPython = valueNum ? isPythonTaskNumber(valueNum) : false;
-                            updateGoal(index, {
-                              taskNumber: value,
-                              levelId: nextIsPython ? PYTHON_LEVEL_ID : (goal.levelId || 'basic'),
-                              includeAll: value ? goal.includeAll : false,
-                              targetInput: value ? goal.targetInput : ''
-                            });
-                          }}
-                          className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-                        >
-                          <option value="">Выберите задание</option>
-                          <optgroup label="ЕГЭ">
-                            {taskOptions.map((task) => (
-                              <option key={task.id ?? task.number} value={task.number}>
-                                Задание {getTaskDisplayNumber(task)}: {task.title}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="Python">
-                            {pythonTaskOptions.map((task) => (
-                              <option key={task.id ?? task.number} value={task.number}>
-                                {task.displayNumber} · {task.title}
-                              </option>
-                            ))}
-                          </optgroup>
-                        </select>
-                        <select
-                          value={isPythonGoal ? PYTHON_LEVEL_ID : (goal.levelId || 'basic')}
-                          onChange={(e) => updateGoal(index, { levelId: e.target.value })}
-                          disabled={!hasTask || isPythonGoal}
-                          className="px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none disabled:opacity-60"
-                        >
-                          {isPythonGoal ? (
-                            <option value={PYTHON_LEVEL_ID}>Python</option>
-                          ) : (
-                            Object.values(LEVELS).map((lvl) => (
-                              <option key={lvl.id} value={lvl.id}>{lvl.label}</option>
-                            ))
-                          )}
-                        </select>
-                        <div className="flex items-center justify-between gap-3">
-                          <label className={`flex items-center gap-2 text-xs font-semibold ${hasTask ? 'text-gray-600' : 'text-gray-400'}`}>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(goal.includeAll)}
-                              disabled={!hasTask}
-                              onChange={(e) => updateGoal(index, { includeAll: e.target.checked, targetInput: e.target.checked ? '' : goal.targetInput })}
-                            />
-                            Все задания
-                          </label>
-                          {(Array.isArray(form.goals) ? form.goals.length : 0) > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeGoalRow(index)}
-                              className="px-2 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500 hover:bg-gray-50"
-                            >
-                              Удалить
-                            </button>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {isMockGoal ? (
-                      <div className="text-xs text-gray-500">
-                        {mockExamsLoading
-                          ? 'Загружаем пробники...'
-                          : (selectedMockExam
-                              ? `Выбран пробник: ${selectedMockExam.title}`
-                              : (mockExams.length > 0
-                                  ? 'Выберите пробник из списка.'
-                                  : 'Для этого ученика нет доступных пробников.'))}
-                      </div>
-                    ) : (
-                      <>
-                        <input
-                          type="text"
-                          value={goal.targetInput || ''}
-                          onChange={(e) => updateGoal(index, { targetInput: e.target.value })}
-                          placeholder="Номера: 1-12 или 1, 3, 7-10"
-                          disabled={!hasTask || goal.includeAll}
-                          className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none disabled:opacity-60"
-                        />
-                        <div className="text-xs text-gray-400">
-                          {goal.includeAll
-                            ? 'Выбраны все задания этого уровня.'
-                            : (availableCount
-                                ? `Выбрано: ${selectedTargetCount} из ${availableCount}. Поддерживаются диапазоны, например 1-12.`
-                                : 'Можно вводить отдельные номера и диапазоны, например 1, 3, 7-12.')}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            <button
-              type="button"
-              onClick={addGoalRow}
-              className="px-3 py-2 rounded-xl border border-purple-200 bg-white/90 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+            <Button
+              onClick={() => openNewHomeworkComposer()}
+              disabled={homeworkComposerPreparing || homeworkDraftLoading || !effectiveStudentId}
+              className="min-h-12 shrink-0 justify-center px-5 shadow-lg shadow-purple-500/20 sm:min-w-[228px]"
             >
-              + Добавить цель
-            </button>
+              {homeworkComposerPreparing || homeworkDraftLoading
+                ? <RefreshCcw size={17} className="animate-spin" />
+                : homeworkDraft
+                  ? <Save size={17} />
+                  : <ArrowRight size={17} />}
+              {homeworkDraftLoading
+                ? 'Проверяем черновик…'
+                : homeworkComposerPreparing
+                ? (homeworkDraft ? 'Открываем черновик…' : 'Открываем конструктор…')
+                : (homeworkDraft ? 'Продолжить черновик' : 'Задать новую домашку')}
+            </Button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label className="space-y-1">
-              <span className="block text-[11px] font-semibold text-slate-500">Сдать до</span>
-              <input
-                type="datetime-local"
-                value={form.dueAt || ''}
-                onChange={(e) => setForm((prev) => ({ ...prev, dueAt: e.target.value }))}
-                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="block text-[11px] font-semibold text-slate-500">Занятие</span>
-              <input
-                type="url"
-                value={form.lessonLink}
-                onChange={(e) => setForm((prev) => ({ ...prev, lessonLink: e.target.value }))}
-                placeholder="Ссылка на следующее занятие"
-                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="block text-[11px] font-semibold text-slate-500">Онлайн-доска</span>
-              <input
-                type="url"
-                value={form.boardLink}
-                onChange={(e) => setForm((prev) => ({ ...prev, boardLink: e.target.value }))}
-                placeholder="Ссылка на онлайн-доску"
-                className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
-              />
-            </label>
-          </div>
-          <Button onClick={handleSave} disabled={saving} className="md:self-start md:px-5">
-            <Save size={16} /> {saving ? 'Сохранение...' : (editingId ? 'Сохранить изменения' : 'Добавить домашку')}
-          </Button>
         </Card>
       )}
 
@@ -4044,6 +4328,49 @@ const ScheduleSection = ({
           </div>
         )}
       </div>
+
+      {role === 'teacher' && homeworkComposerOpen && (
+        <TeacherHomeworkComposer
+          open={homeworkComposerOpen}
+          editing={Boolean(editingId)}
+          preparing={homeworkComposerPreparing}
+          preparationError={[
+            homeworkComposerError,
+            homeworkComposerOpen ? String(error || '').trim() : '',
+          ].filter(Boolean).join(' ')}
+          saving={saving}
+          draftSaving={homeworkDraftSaving}
+          discarding={homeworkDraftDiscarding}
+          draftRestoredAt={editingId ? '' : homeworkDraft?.updatedAt}
+          studentLabel={selectedStudent ? getStudentLabel(selectedStudent) : ''}
+          form={form}
+          carryoverSummary={homeworkCarryoverSummary}
+          taskOptions={taskOptions}
+          pythonTaskOptions={pythonTaskOptions}
+          mockExams={mockExams}
+          mockExamsLoading={mockExamsLoading}
+          testsDb={testsDb || {}}
+          levels={LEVELS}
+          pythonLevelId={PYTHON_LEVEL_ID}
+          goalTypeTask={GOAL_TYPE_TASK}
+          goalTypeMock={GOAL_TYPE_MOCK}
+          normalizeGoalType={normalizeGoalType}
+          normalizeTaskNumber={normalizeTaskNumber}
+          isPythonTaskNumber={isPythonTaskNumber}
+          getTaskDisplayNumber={getTaskDisplayNumber}
+          formatTaskNumber={formatTaskNumber}
+          getPythonTaskInfo={getPythonTaskInfo}
+          normalizeMockExamId={normalizeMockExamId}
+          parseTargetInput={parseTargetInput}
+          onChangeForm={(patch) => setForm((previous) => ({ ...previous, ...patch }))}
+          onUpdateGoal={updateGoal}
+          onAddGoal={addGoalRow}
+          onRemoveGoal={removeGoalRow}
+          onClose={closeHomeworkComposer}
+          onSaveDraft={saveHomeworkComposerDraft}
+          onSave={handleSave}
+        />
+      )}
 
       <StudentLessonDetailModal
         open={Boolean(selectedLessonDetail)}

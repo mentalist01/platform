@@ -94,7 +94,14 @@ import {
   normalizeStudentStudyStatus,
   parseStudentStudyStatus,
 } from '../src/utils/studentStudyStatus.js';
+import { isMockAttemptForHomework, resolveHomeworkTaskTargetDescriptors } from '../src/utils/homeworkComposer.js';
+import {
+  createHomeworkComposerDraft,
+  normalizeHomeworkComposerDraft,
+} from '../src/utils/homeworkComposerDraft.js';
+import { buildHomeworkDayPlan } from '../src/utils/homeworkDayPlan.js';
 import { snapshotHomeworkGoalTargets } from '../src/utils/homeworkStats.js';
+import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -110,6 +117,7 @@ try {
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5175;
+const telemostJoinRequestStateByStudentId = new Map();
 
 const parseEnabledEnv = (value, defaultValue = false) => {
   const raw = String(value || '').trim().toLowerCase();
@@ -212,6 +220,7 @@ const foldersFile = path.join(dataDir, 'folders.json');
 const studentsFile = path.join(dataDir, 'students.json');
 const teachersFile = path.join(dataDir, 'teachers.json');
 const progressFile = path.join(dataDir, 'progress.json');
+const homeworkDraftsFile = path.join(dataDir, 'homework-drafts.json');
 const testsFile = path.join(dataDir, 'tests.json');
 const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
@@ -1575,6 +1584,52 @@ const readProgressDb = () => {
   }
 };
 
+const normalizeHomeworkDraftsDb = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([ownerId, studentDrafts]) => {
+    const safeOwnerId = String(ownerId || '').trim();
+    if (
+      !safeOwnerId
+      || safeOwnerId === '__proto__'
+      || safeOwnerId === 'constructor'
+      || safeOwnerId === 'prototype'
+      || !studentDrafts
+      || typeof studentDrafts !== 'object'
+      || Array.isArray(studentDrafts)
+    ) {
+      return;
+    }
+    const normalizedStudentDrafts = {};
+    Object.entries(studentDrafts).forEach(([studentId, rawDraft]) => {
+      const safeStudentId = String(studentId || '').trim();
+      if (
+        !safeStudentId
+        || safeStudentId === '__proto__'
+        || safeStudentId === 'constructor'
+        || safeStudentId === 'prototype'
+      ) {
+        return;
+      }
+      const draft = normalizeHomeworkComposerDraft(rawDraft);
+      if (draft) normalizedStudentDrafts[safeStudentId] = draft;
+    });
+    if (Object.keys(normalizedStudentDrafts).length > 0) {
+      normalized[safeOwnerId] = normalizedStudentDrafts;
+    }
+  });
+  return normalized;
+};
+
+const readHomeworkDraftsDb = () => {
+  try {
+    const raw = fs.readFileSync(homeworkDraftsFile, 'utf8');
+    return normalizeHomeworkDraftsDb(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+};
+
 let boardAssetsDbCache = null;
 const readBoardAssetsDb = () => {
   if (Array.isArray(boardAssetsDbCache)) return boardAssetsDbCache;
@@ -1721,6 +1776,12 @@ const writeTaskTitlesDb = (data) => {
 
 const writeProgressDb = (data) => {
   writeJsonFileAtomic(progressFile, data);
+};
+
+const writeHomeworkDraftsDb = (data) => {
+  const normalized = normalizeHomeworkDraftsDb(data);
+  writeJsonFileAtomic(homeworkDraftsFile, normalized);
+  return normalized;
 };
 
 const writeBroadcastNotificationsDb = (data) => {
@@ -3109,6 +3170,42 @@ const purgePushDataForTeachers = (teacherIds = []) => {
 const isStudentDeleted = (student) => Boolean(student?.deletedAt);
 const isActiveStudent = (student) => Boolean(student && !student.deletedAt);
 
+const purgeHomeworkDraftsForStudents = (studentIds = []) => {
+  const ids = new Set((Array.isArray(studentIds) ? studentIds : []).map((id) => String(id || '').trim()).filter(Boolean));
+  if (ids.size === 0) return;
+  const db = readHomeworkDraftsDb();
+  let changed = false;
+  Object.entries(db).forEach(([ownerId, studentDrafts]) => {
+    const nextStudentDrafts = { ...studentDrafts };
+    ids.forEach((studentId) => {
+      if (!Object.prototype.hasOwnProperty.call(nextStudentDrafts, studentId)) return;
+      delete nextStudentDrafts[studentId];
+      changed = true;
+    });
+    if (Object.keys(nextStudentDrafts).length > 0) db[ownerId] = nextStudentDrafts;
+    else if (Object.prototype.hasOwnProperty.call(db, ownerId)) delete db[ownerId];
+  });
+  if (changed) writeHomeworkDraftsDb(db);
+};
+
+const purgeHomeworkDraftsForTeachers = (teacherIds = []) => {
+  const ownerKeys = new Set(
+    (Array.isArray(teacherIds) ? teacherIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+      .map((id) => `teacher:${id}`)
+  );
+  if (ownerKeys.size === 0) return;
+  const db = readHomeworkDraftsDb();
+  let changed = false;
+  ownerKeys.forEach((ownerKey) => {
+    if (!Object.prototype.hasOwnProperty.call(db, ownerKey)) return;
+    delete db[ownerKey];
+    changed = true;
+  });
+  if (changed) writeHomeworkDraftsDb(db);
+};
+
 const hardDeleteStudentData = (studentIds = []) => {
   const ids = Array.isArray(studentIds) ? studentIds.filter(Boolean) : [];
   if (ids.length === 0) return;
@@ -3173,6 +3270,7 @@ const hardDeleteStudentData = (studentIds = []) => {
   purgeStudentTeacherChatsForStudents(ids);
   purgeStudentSocialChatsForStudents(ids);
   purgeScheduleRequestsForStudents(ids);
+  purgeHomeworkDraftsForStudents(ids);
 };
 
 const purgeExpiredDeletedStudents = (students = []) => {
@@ -10761,6 +10859,9 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     : '';
   const rewardsDisabled = meta?.rewardsDisabled === true;
   const timerRewardsDisabled = meta?.timerRewardsDisabled === true;
+  const homeworkId = typeof meta?.homeworkId === 'string' ? meta.homeworkId.trim().slice(0, 200) : '';
+  const homeworkIssuedAt = normalizeMockTimerTimestamp(meta?.homeworkIssuedAt);
+  const targetTaskKeys = uniqueStrings(meta?.targetTaskKeys).slice(0, 200);
   return {
     answers,
     solved,
@@ -10788,7 +10889,34 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     ...(timerChestAwardedMilestones.length > 0 ? { timerChestAwardedTotal: getMockChestsForMilestones(timerChestAwardedMilestones) } : {}),
     ...(timerChestAwardedAt ? { timerChestAwardedAt } : {}),
     ...(timerRewardsDisabled ? { timerRewardsDisabled: true } : {}),
+    ...(homeworkId ? { homeworkId } : {}),
+    ...(homeworkIssuedAt ? { homeworkIssuedAt } : {}),
+    ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
   };
+};
+
+const hideUnfinishedMockTimerResults = (attempt) => {
+  if (!attempt || typeof attempt !== 'object') return attempt;
+  const mode = normalizeMockAttemptMode(attempt?.mode);
+  if (mode !== MOCK_ATTEMPT_MODE_TIMER || normalizeMockTimerTimestamp(attempt?.timerFinishedAt)) {
+    return attempt;
+  }
+  return {
+    ...attempt,
+    solved: {},
+    solvedEver: {},
+  };
+};
+
+const filterMockAttemptAnswersToTaskKeys = (answers, targetTaskKeys = []) => {
+  const allowedKeys = new Set(uniqueStrings(targetTaskKeys));
+  if (allowedKeys.size === 0) return answers;
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return {};
+  return Object.entries(answers).reduce((result, [taskKey, value]) => {
+    const normalizedTaskKey = String(taskKey || '').trim();
+    if (allowedKeys.has(normalizedTaskKey)) result[normalizedTaskKey] = value;
+    return result;
+  }, {});
 };
 
 const isSolvedAnswerValid = (question, rawValue, taskNumber) => {
@@ -11640,6 +11768,14 @@ const normalizeGoalType = (goal) => {
   return GOAL_TYPE_TASK;
 };
 
+const normalizeTargetQuestionIdSnapshot = (values) => {
+  if (!Array.isArray(values)) return [];
+  const snapshot = values
+    .slice(0, 200)
+    .map((value) => String(value || '').trim());
+  return snapshot.some(Boolean) ? snapshot : [];
+};
+
 const normalizeGoals = (goals, testsDb = null) => {
   if (!Array.isArray(goals)) return [];
   const result = [];
@@ -11650,11 +11786,13 @@ const normalizeGoals = (goals, testsDb = null) => {
       const mockExamId = String(goal.mockExamId || '').trim();
       if (!mockExamId) return;
       const targetTaskKeys = uniqueStrings(goal.targetTaskKeys).slice(0, 200);
+      const continuationOfHomeworkId = String(goal.continuationOfHomeworkId || '').trim().slice(0, 200);
       result.push({
         type: GOAL_TYPE_MOCK,
         mockExamId,
         mode: normalizeMockAttemptMode(goal?.mode, MOCK_ATTEMPT_MODE_TIMER),
         ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
+        ...(continuationOfHomeworkId ? { continuationOfHomeworkId } : {}),
       });
       return;
     }
@@ -11676,7 +11814,7 @@ const normalizeGoals = (goals, testsDb = null) => {
         ));
     const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
     const targets = filterTargetsByCount(targetsRaw, totalCount);
-    const targetQuestionIds = uniqueStrings(goal.targetQuestionIds).slice(0, 200);
+    const targetQuestionIds = normalizeTargetQuestionIdSnapshot(goal.targetQuestionIds);
     result.push({
       type: GOAL_TYPE_TASK,
       taskNumber: taskNum,
@@ -11709,7 +11847,15 @@ const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
       ));
   const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
   const targets = filterTargetsByCount(targetsRaw, totalCount);
-  return [{ type: GOAL_TYPE_TASK, taskNumber: taskNum, levelId, includeAll, targetQuestions: targets }];
+  const targetQuestionIds = normalizeTargetQuestionIdSnapshot(entry.targetQuestionIds);
+  return [{
+    type: GOAL_TYPE_TASK,
+    taskNumber: taskNum,
+    levelId,
+    includeAll,
+    targetQuestions: targets,
+    ...(targetQuestionIds.length > 0 ? { targetQuestionIds } : {}),
+  }];
 };
 
 const ensurePushRuntimeConfigured = () => {
@@ -11757,7 +11903,7 @@ const getNormalizedHomeworkGoals = (entry, testsDb = null) => {
   return normalizeGoalsFromLegacy(entry, testsDb);
 };
 
-const getStudentMockHomeworkMode = (studentData, examId, testsDb = null) => {
+const getStudentMockHomeworkAssignment = (studentData, examId, testsDb = null) => {
   const normalizedExamId = String(examId || '').trim();
   if (!normalizedExamId) return null;
   const entries = getStudentHomeworkNavItems(studentData)
@@ -11778,13 +11924,24 @@ const getStudentMockHomeworkMode = (studentData, examId, testsDb = null) => {
         normalizeGoalType(goal) === GOAL_TYPE_MOCK
         && String(goal?.mockExamId || '').trim() === normalizedExamId
       ) {
-        return normalizeAssignedMockExamMode(goal?.mode);
+        const issuedAt = typeof entry?.issuedAt === 'string' ? entry.issuedAt.trim() : '';
+        return {
+          id: String(entry?.id || issuedAt || 'legacy').trim() || 'legacy',
+          issuedAt,
+          mode: normalizeAssignedMockExamMode(goal?.mode),
+          targetTaskKeys: uniqueStrings(goal?.targetTaskKeys).slice(0, 200),
+          continuationOfHomeworkId: String(goal?.continuationOfHomeworkId || '').trim(),
+        };
       }
     }
   }
 
   return null;
 };
+
+const getStudentMockHomeworkMode = (studentData, examId, testsDb = null) => (
+  getStudentMockHomeworkAssignment(studentData, examId, testsDb)?.mode || null
+);
 
 const getRequiredMockExamModeForStudent = (exam, studentData = null, testsDb = null) => {
   const homeworkMode = studentData
@@ -11861,36 +12018,53 @@ const getTaskGoalProgressSnapshot = (goal, studentData, testsDb) => {
   if (!levelId) return { pendingCount: 0, totalCount: 0 };
   const questions = testsDb?.[String(taskNumber)]?.[levelId];
   if (!Array.isArray(questions) || questions.length === 0) return { pendingCount: 0, totalCount: 0 };
-  const targetNumbers = collectGoalTargetNumbers(goal, questions.length);
-  if (targetNumbers.length === 0) return { pendingCount: 0, totalCount: 0 };
+  const storedTargetIds = uniqueStrings(goal?.targetQuestionIds);
+  const availableQuestionIds = new Set(
+    questions.map((question) => String(question?.id ?? '').trim()).filter(Boolean)
+  );
+  const targetQuestionIds = storedTargetIds.length > 0
+    ? storedTargetIds.filter((questionId) => availableQuestionIds.has(questionId))
+    : collectGoalTargetNumbers(goal, questions.length)
+        .map((targetNumber) => String(questions[targetNumber - 1]?.id ?? '').trim())
+        .filter(Boolean);
+  if (targetQuestionIds.length === 0) return { pendingCount: 0, totalCount: 0 };
   const solved = studentData?.solvedByTask?.[String(taskNumber)]?.[levelId]?.solved;
   const solvedSet = new Set(
     (Array.isArray(solved) ? solved : [])
       .map((value) => String(value ?? '').trim())
       .filter(Boolean)
   );
-  let solvedCount = 0;
-  targetNumbers.forEach((targetNumber) => {
-    const question = questions[targetNumber - 1];
-    const questionId = String(question?.id ?? '').trim();
-    if (!questionId) return;
-    if (solvedSet.has(questionId)) solvedCount += 1;
-  });
-  const totalCount = targetNumbers.length;
+  const solvedCount = targetQuestionIds.filter((questionId) => solvedSet.has(questionId)).length;
+  const totalCount = targetQuestionIds.length;
   return {
     totalCount,
     pendingCount: Math.max(totalCount - solvedCount, 0),
   };
 };
 
-const getMockGoalProgressSnapshot = (goal, studentData, mockExamById = {}) => {
+const getMockGoalProgressSnapshot = (goal, studentData, mockExamById = {}, homework = null) => {
   const mockExamId = String(goal?.mockExamId || '').trim();
   if (!mockExamId) return { pendingCount: 0, totalCount: 0 };
   const exam = mockExamById[mockExamId];
   const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
-  const taskKeys = Object.keys(tasks).map((taskKey) => String(taskKey || '').trim()).filter(Boolean);
+  const availableTaskKeys = Object.keys(tasks).map((taskKey) => String(taskKey || '').trim()).filter(Boolean);
+  const requestedTaskKeys = uniqueStrings(goal?.targetTaskKeys);
+  const availableTaskKeySet = new Set(availableTaskKeys);
+  const taskKeys = requestedTaskKeys.length > 0
+    ? requestedTaskKeys.filter((taskKey) => availableTaskKeySet.has(taskKey))
+    : availableTaskKeys;
   if (taskKeys.length === 0) return { pendingCount: 0, totalCount: 0 };
-  const solvedMap = studentData?.mockAttempts?.[mockExamId]?.solved;
+  const storedAttempt = studentData?.mockAttempts?.[mockExamId];
+  const homeworkContext = homework
+    ? { ...homework, continuationOfHomeworkId: goal?.continuationOfHomeworkId }
+    : null;
+  const attempt = homeworkContext && !isMockAttemptForHomework(storedAttempt, homeworkContext)
+    ? null
+    : storedAttempt;
+  const attemptMode = normalizeMockAttemptMode(attempt?.mode);
+  const resultsAreHidden = attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    && !normalizeMockTimerTimestamp(attempt?.timerFinishedAt);
+  const solvedMap = resultsAreHidden ? null : attempt?.solved;
   const solved = solvedMap && typeof solvedMap === 'object' ? solvedMap : {};
   let solvedCount = 0;
   taskKeys.forEach((taskKey) => {
@@ -11918,7 +12092,7 @@ const evaluateLatestHomeworkProgressForStudent = (student, testsDb, mockExamById
   goals.forEach((goal) => {
     const goalType = normalizeGoalType(goal);
     const snapshot = goalType === GOAL_TYPE_MOCK
-      ? getMockGoalProgressSnapshot(goal, studentData, mockExamById)
+      ? getMockGoalProgressSnapshot(goal, studentData, mockExamById, latestHomework)
       : getTaskGoalProgressSnapshot(goal, studentData, testsDb);
     totalCount += Number(snapshot.totalCount) || 0;
     pendingCount += Number(snapshot.pendingCount) || 0;
@@ -15011,6 +15185,10 @@ const serializeMockExamEntry = (exam, options = {}) => {
   safeExam.badges = normalizeMockExamBadges(exam.badges);
   safeExam.access = normalizeMockExamAccess(exam.access, true);
   safeExam.requiredMode = getRequiredMockExamModeForStudent(exam, options.studentData);
+  const homeworkAssignment = options.studentData
+    ? getStudentMockHomeworkAssignment(options.studentData, exam?.id)
+    : null;
+  safeExam.requiredTargetTaskKeys = homeworkAssignment?.targetTaskKeys || [];
   return safeExam;
 };
 
@@ -20232,6 +20410,7 @@ app.delete('/api/teachers/:id', (req, res) => {
 
   purgePushDataForTeachers([id]);
   purgeScheduleRequestsForTeachers([id]);
+  purgeHomeworkDraftsForTeachers([id]);
 
   res.json({ ok: true, removedTeacher: { id: removed.id, name: removed.name } });
 });
@@ -20255,10 +20434,103 @@ app.post('/api/teachers/:id/reset-code', (req, res) => {
   res.json({ id: updated.id, code: plainCode, codeHint: updated.codeHint });
 });
 
+app.get('/api/telemost', (req, res) => {
+  const requestedStudentId = typeof req.query?.studentId === 'string'
+    ? req.query.studentId.trim()
+    : '';
+  const studentId = isStudentRole(req.auth) ? req.auth.id : requestedStudentId;
+  if (!studentId) return res.status(400).json({ error: 'Укажите ученика' });
+
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  return res.json({
+    studentId: student.id,
+    telemostUrl: normalizeTelemostUrl(student.telemostUrl),
+    updatedAt: String(student.telemostUrlUpdatedAt || '').trim(),
+  });
+});
+
+app.post('/api/telemost/join', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+
+  const telemostUrl = normalizeTelemostUrl(student.telemostUrl);
+  if (!telemostUrl) {
+    return res.status(409).json({ error: 'Учитель ещё не настроил резервную ссылку Телемоста.' });
+  }
+
+  const nowMs = Date.now();
+  const previous = telemostJoinRequestStateByStudentId.get(student.id);
+  if (previous && nowMs - previous.timestampMs < 15 * 1000) {
+    return res.json({
+      ok: true,
+      delivered: previous.delivered,
+      deduplicated: true,
+      request: previous.request,
+    });
+  }
+
+  const requestedAt = new Date(nowMs).toISOString();
+  const request = {
+    requestId: crypto.randomUUID(),
+    studentId: student.id,
+    studentName: normalizeStudentName(student.name) || 'Ученик',
+    teacherId: String(student.teacherId || '').trim(),
+    telemostUrl,
+    requestedAt,
+  };
+  const deliveredCount = broadcastTelemostJoinRequested(request);
+  const delivered = deliveredCount > 0;
+  telemostJoinRequestStateByStudentId.set(student.id, {
+    timestampMs: nowMs,
+    delivered,
+    request,
+  });
+
+  const teacherPushKey = request.teacherId ? `teacher:${request.teacherId}` : '';
+  if (teacherPushKey) {
+    sendPushNotificationToUserKey(teacherPushKey, {
+      title: `${request.studentName} ждёт в Телемосте`,
+      body: 'Откройте резервную конференцию для занятия.',
+      icon: '/favicon.ico',
+      badge: '/favicon.ico',
+      tag: `telemost-join-${request.studentId}`,
+      renotify: true,
+      data: {
+        type: 'telemost-join-requested',
+        url: '/',
+        view: 'call',
+        studentId: request.studentId,
+        teacherId: request.teacherId,
+        requestId: request.requestId,
+      },
+    }, { logTarget: teacherPushKey }).catch((error) => {
+      console.error('[push] failed to send Telemost join notification to teacher:', error);
+    });
+  }
+
+  return res.json({
+    ok: true,
+    delivered,
+    deduplicated: false,
+    request,
+  });
+});
+
 app.patch('/api/students/:id', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
-  const { name, nickname, grade, informaticsEgeScore, leaderboardAlias, coinsGrant, studyStatus } = req.body || {};
+  const {
+    name,
+    nickname,
+    grade,
+    informaticsEgeScore,
+    leaderboardAlias,
+    coinsGrant,
+    studyStatus,
+    telemostUrl,
+  } = req.body || {};
   const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, 'name');
   const hasNickname = Object.prototype.hasOwnProperty.call(req.body || {}, 'nickname');
   const hasGrade = Object.prototype.hasOwnProperty.call(req.body || {}, 'grade');
@@ -20266,8 +20538,9 @@ app.patch('/api/students/:id', (req, res) => {
   const hasLeaderboardAlias = Object.prototype.hasOwnProperty.call(req.body || {}, 'leaderboardAlias');
   const hasCoinsGrant = Object.prototype.hasOwnProperty.call(req.body || {}, 'coinsGrant');
   const hasStudyStatus = Object.prototype.hasOwnProperty.call(req.body || {}, 'studyStatus');
+  const hasTelemostUrl = Object.prototype.hasOwnProperty.call(req.body || {}, 'telemostUrl');
 
-  if (!hasName && !hasNickname && !hasGrade && !hasInformaticsEgeScore && !hasLeaderboardAlias && !hasCoinsGrant && !hasStudyStatus) {
+  if (!hasName && !hasNickname && !hasGrade && !hasInformaticsEgeScore && !hasLeaderboardAlias && !hasCoinsGrant && !hasStudyStatus && !hasTelemostUrl) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
 
@@ -20338,6 +20611,15 @@ app.patch('/api/students/:id', (req, res) => {
     studentCoinsGrant = parsedCoinsGrant;
   }
 
+  let studentTelemostUrl = '';
+  if (hasTelemostUrl) {
+    const parsedTelemost = parseTelemostUrl(telemostUrl);
+    if (parsedTelemost.error) {
+      return res.status(400).json({ error: parsedTelemost.error });
+    }
+    studentTelemostUrl = parsedTelemost.url;
+  }
+
   const students = readStudentsDb();
   const idx = students.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Ученик не найден' });
@@ -20347,6 +20629,10 @@ app.patch('/api/students/:id', (req, res) => {
   if (hasName) updated.name = studentName;
   if (hasNickname) updated.nickname = studentNickname;
   if (hasGrade) updated.grade = studentGrade;
+  if (hasTelemostUrl) {
+    updated.telemostUrl = studentTelemostUrl;
+    updated.telemostUrlUpdatedAt = new Date().toISOString();
+  }
   const nextGrade = normalizeStudentGrade(updated.grade);
   updated.studyStatus = normalizeStudentStudyStatus(
     hasStudyStatus ? studentStudyStatus : updated.studyStatus,
@@ -20392,6 +20678,8 @@ app.patch('/api/students/:id', (req, res) => {
     level: getLevelFromXp(updatedXpTotal),
     codeHint: updated.codeHint,
     teacherId: updated.teacherId,
+    telemostUrl: normalizeTelemostUrl(updated.telemostUrl),
+    telemostUrlUpdatedAt: String(updated.telemostUrlUpdatedAt || '').trim(),
     createdAt: updated.createdAt
   });
 });
@@ -20671,15 +20959,25 @@ app.get('/api/mock-exams/attempt', (req, res) => {
   }
   const data = getStudentData(student.id);
   const requiredMode = getRequiredMockExamModeForStudent(exam, data);
+  const homeworkAssignment = getStudentMockHomeworkAssignment(data, exam.id);
   const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {};
   const stored = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
     ? attempts[String(examId)]
     : {};
-  res.json({
-    ...normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, {
-      ...stored,
+  const visibleAttempt = homeworkAssignment && !isMockAttemptForHomework(stored, homeworkAssignment)
+    ? {}
+    : stored;
+  const normalizedVisibleAttempt = normalizeMockAttemptPayload(exam, visibleAttempt.answers, visibleAttempt.updatedAt, {
+      ...visibleAttempt,
       requiredMode,
-    }),
+      ...(homeworkAssignment ? {
+        homeworkId: homeworkAssignment.id,
+        homeworkIssuedAt: homeworkAssignment.issuedAt,
+        targetTaskKeys: homeworkAssignment.targetTaskKeys,
+      } : {}),
+    });
+  res.json({
+    ...hideUnfinishedMockTimerResults(normalizedVisibleAttempt),
     requiredMode,
   });
 });
@@ -20845,10 +21143,23 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const examRewardsDisabled = exam?.rewardsDisabled === true || isPersonalRandomMockExam(exam);
   const data = getStudentData(student.id);
   const requiredMode = getRequiredMockExamModeForStudent(exam, data);
+  const homeworkAssignment = getStudentMockHomeworkAssignment(data, exam.id);
+  const assignmentTargetTaskKeys = uniqueStrings(homeworkAssignment?.targetTaskKeys).slice(0, 200);
   const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? { ...data.mockAttempts } : {};
-  const previousAttempt = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
+  const storedAttempt = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
     ? attempts[String(examId)]
     : {};
+  const startsNewHomeworkAttempt = Boolean(
+    homeworkAssignment && !isMockAttemptForHomework(storedAttempt, homeworkAssignment)
+  );
+  const previousAttempt = startsNewHomeworkAttempt ? {} : storedAttempt;
+  const storedLifetimeSolved = storedAttempt.solvedEver
+    && typeof storedAttempt.solvedEver === 'object'
+    && !Array.isArray(storedAttempt.solvedEver)
+    ? storedAttempt.solvedEver
+    : (storedAttempt.solved && typeof storedAttempt.solved === 'object' && !Array.isArray(storedAttempt.solved)
+        ? storedAttempt.solved
+        : recomputeMockSolvedMap(exam, normalizeMockAttemptAnswers(exam, storedAttempt.answers)));
   const previousAttemptNormalized = normalizeMockAttemptPayload(exam, previousAttempt.answers, previousAttempt.updatedAt, {
     ...previousAttempt,
     requiredMode,
@@ -20867,10 +21178,12 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     || (!previousAttemptWasUnfinishedTimer && previousAttemptNormalized.solved && typeof previousAttemptNormalized.solved === 'object'
       ? previousAttemptNormalized.solved
       : {});
-  const previousSolvedEver = previousAttemptRawSolvedEver
-    || (!previousAttemptWasUnfinishedTimer && previousAttemptNormalized.solvedEver && typeof previousAttemptNormalized.solvedEver === 'object'
-      ? previousAttemptNormalized.solvedEver
-      : previousSolved);
+  const previousSolvedEver = startsNewHomeworkAttempt
+    ? storedLifetimeSolved
+    : (previousAttemptRawSolvedEver
+        || (!previousAttemptWasUnfinishedTimer && previousAttemptNormalized.solvedEver && typeof previousAttemptNormalized.solvedEver === 'object'
+          ? previousAttemptNormalized.solvedEver
+          : previousSolved));
   const previousAttemptStarted = hasMockAttemptStarted(exam, previousAttemptNormalized.answers);
   const previousTimerStartedAt = normalizeMockTimerTimestamp(previousAttempt?.timerStartedAt);
   const previousTimerExpiresAt = normalizeMockTimerTimestamp(previousAttempt?.timerExpiresAt);
@@ -20985,14 +21298,14 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   ) {
     return res.status(409).json({ error: 'Время таймерного режима истекло.' });
   }
-  const previousAwardedMilestones = getPreviouslyAwardedMockCoinMilestones(previousAttempt);
+  const previousAwardedMilestones = getPreviouslyAwardedMockCoinMilestones(storedAttempt);
   const shouldResetTimerChestMilestones = Boolean(
-    normalizeMockTimerTimestamp(previousAttempt?.timerRewardsRestoredAt)
-    && previousAttempt?.timerRewardsDisabled !== true
+    normalizeMockTimerTimestamp(storedAttempt?.timerRewardsRestoredAt)
+    && storedAttempt?.timerRewardsDisabled !== true
   );
   const previousTimerChestMilestones = shouldResetTimerChestMilestones
     ? []
-    : getPreviouslyAwardedMockTimerChestMilestones(previousAttempt);
+    : getPreviouslyAwardedMockTimerChestMilestones(storedAttempt);
   const serverDayKey = savedAt.slice(0, 10);
   const clientDayKey = normalizeDayKey(localDay);
   const resolvedDayKey = (() => {
@@ -21004,16 +21317,31 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     if (diff < -1 || diff > 1) return serverDayKey;
     return clientDayKey;
   })();
-  const rawAnswersForSave = startOnly
-    ? previousAttemptNormalized.answers
-    : mergeMockAttemptAnswers(exam, previousAttemptNormalized.answers, answers, {
-      preservePreviousNonEmpty: isTimerPauseRequest,
-    });
-  const normalizedAttemptBase = normalizeMockAttemptPayload(exam, rawAnswersForSave, savedAt, {
+  const rawAnswersForSave = canRestartTimerAttempt
+    ? normalizeMockAttemptAnswers(exam, {})
+    : (startOnly
+        ? previousAttemptNormalized.answers
+        : mergeMockAttemptAnswers(exam, previousAttemptNormalized.answers, answers, {
+          preservePreviousNonEmpty: isTimerPauseRequest,
+        }));
+  const scopedAnswersForSave = filterMockAttemptAnswersToTaskKeys(rawAnswersForSave, assignmentTargetTaskKeys);
+  const normalizedAttemptBase = normalizeMockAttemptPayload(exam, scopedAnswersForSave, savedAt, {
     ...previousAttempt,
+    ...(startsNewHomeworkAttempt ? {
+      solvedEver: storedLifetimeSolved,
+      coinsAwardedMilestones: previousAwardedMilestones,
+      coinsAwardedAt: storedAttempt?.coinsAwardedAt,
+      timerChestAwardedMilestones: previousTimerChestMilestones,
+      timerChestAwardedAt: storedAttempt?.timerChestAwardedAt,
+    } : {}),
     mode: attemptMode,
     modeLockedAt,
     rewardsDisabled: examRewardsDisabled,
+    ...(homeworkAssignment ? {
+      homeworkId: homeworkAssignment.id,
+      homeworkIssuedAt: homeworkAssignment.issuedAt,
+      targetTaskKeys: assignmentTargetTaskKeys,
+    } : {}),
     ...(canRestartTimerAttempt ? { timerFinishedAt: '' } : {}),
     timerPausedAt,
     timerRemainingMs,
@@ -21031,10 +21359,10 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       ...(examRewardsDisabled ? { rewardsDisabled: true } : {}),
       coinsAwardedMilestones: previousAwardedMilestones,
       coinsAwardedTotal: getMockCoinsForMilestones(previousAwardedMilestones),
-      ...(previousAttempt?.coinsAwardedAt ? { coinsAwardedAt: previousAttempt.coinsAwardedAt } : {}),
+      ...(storedAttempt?.coinsAwardedAt ? { coinsAwardedAt: storedAttempt.coinsAwardedAt } : {}),
       timerChestAwardedMilestones: previousTimerChestMilestones,
       timerChestAwardedTotal: getMockChestsForMilestones(previousTimerChestMilestones),
-      ...(previousAttempt?.timerChestAwardedAt ? { timerChestAwardedAt: previousAttempt.timerChestAwardedAt } : {}),
+      ...(storedAttempt?.timerChestAwardedAt ? { timerChestAwardedAt: storedAttempt.timerChestAwardedAt } : {}),
       ...(timerRewardsDisabled ? { timerRewardsDisabled: true } : {}),
       ...(timerPausedAt ? { timerPausedAt, timerRemainingMs } : {}),
     };
@@ -21044,7 +21372,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       mockAttempts: attempts,
     });
     return res.json({
-      ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
+      ...hideUnfinishedMockTimerResults(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
       requiredMode,
     });
   }
@@ -24217,6 +24545,53 @@ const normalizeHomeworkChecklistItems = (homeworkId, homeWork, existingItems = [
   });
 };
 
+const normalizeHomeworkDayPlanOffset = (value) => {
+  if (value == null || String(value).trim() === '') return 180;
+  const numeric = Math.trunc(Number(value));
+  if (!Number.isFinite(numeric)) return 180;
+  return Math.max(-14 * 60, Math.min(14 * 60, numeric));
+};
+
+const buildStoredHomeworkDayPlan = (config, homework, testsDb = {}) => {
+  if (!config || typeof config !== 'object' || Array.isArray(config) || config.enabled === false) {
+    return null;
+  }
+  const rawSessionCount = Number(config.requestedSessionCount ?? config.sessionCount);
+  const requestedSessionCount = Number.isFinite(rawSessionCount) && rawSessionCount > 0
+    ? Math.min(7, Math.max(2, Math.trunc(rawSessionCount)))
+    : 3;
+  const selectedWeekdays = Array.isArray(config.selectedWeekdays)
+    ? config.selectedWeekdays
+    : (Array.isArray(config.weekdays) ? config.weekdays : []);
+  const calendarOffsetMinutes = normalizeHomeworkDayPlanOffset(config.calendarOffsetMinutes);
+  const planGoals = (Array.isArray(homework?.goals) ? homework.goals : []).map((goal) => {
+    if (normalizeGoalType(goal) === GOAL_TYPE_MOCK) return goal;
+    const taskNumber = Number(goal?.taskNumber);
+    const levelId = isPythonTaskNumber(taskNumber) ? PYTHON_LEVEL_ID : String(goal?.levelId || '').trim();
+    const questions = testsDb?.[String(taskNumber)]?.[levelId];
+    const descriptors = resolveHomeworkTaskTargetDescriptors(goal, Array.isArray(questions) ? questions : []);
+    if (descriptors.length === 0) return goal;
+    return {
+      ...goal,
+      includeAll: false,
+      targetQuestions: descriptors.map((item) => item.questionNumber),
+      targetQuestionIds: descriptors.map((item) => item.questionId || ''),
+    };
+  });
+  const generated = buildHomeworkDayPlan({
+    homework: { ...homework, goals: planGoals },
+    selectedWeekdays,
+    sessionCount: requestedSessionCount,
+    calendarOffsetMinutes,
+  });
+  return {
+    ...generated,
+    enabled: true,
+    calendarOffsetMinutes,
+    generatedAt: new Date().toISOString(),
+  };
+};
+
 const decorateHomeworkEntry = (entry) => {
   if (!entry || typeof entry !== 'object') return entry;
   const id = String(entry.id || entry.issuedAt || 'legacy').trim() || 'legacy';
@@ -24226,6 +24601,83 @@ const decorateHomeworkEntry = (entry) => {
     checklistItems: normalizeHomeworkChecklistItems(id, entry.homeWork, entry.checklistItems),
   };
 };
+
+const getHomeworkDraftOwnerKey = (auth) => {
+  if (!isStaffRole(auth)) return '';
+  const role = String(auth?.role || '').trim();
+  const id = String(auth?.id || '').trim();
+  return role && id ? `${role}:${id}` : '';
+};
+
+const getHomeworkDraftForActor = (auth, studentId) => {
+  const ownerKey = getHomeworkDraftOwnerKey(auth);
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!ownerKey || !normalizedStudentId) return null;
+  return readHomeworkDraftsDb()?.[ownerKey]?.[normalizedStudentId] || null;
+};
+
+const saveHomeworkDraftForActor = (auth, studentId, value) => {
+  const ownerKey = getHomeworkDraftOwnerKey(auth);
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!ownerKey || !normalizedStudentId) return null;
+  const db = readHomeworkDraftsDb();
+  const existingDraft = db?.[ownerKey]?.[normalizedStudentId] || null;
+  const draft = createHomeworkComposerDraft({
+    form: value?.form,
+    carryoverSummary: value?.carryoverSummary,
+    baseHomeworkId: value?.baseHomeworkId,
+    baseHomeworkUpdatedAt: value?.baseHomeworkUpdatedAt,
+    existingDraft,
+  });
+  if (!draft) return null;
+  db[ownerKey] = {
+    ...(db[ownerKey] && typeof db[ownerKey] === 'object' ? db[ownerKey] : {}),
+    [normalizedStudentId]: draft,
+  };
+  writeHomeworkDraftsDb(db);
+  return draft;
+};
+
+const deleteHomeworkDraftForActor = (auth, studentId) => {
+  const ownerKey = getHomeworkDraftOwnerKey(auth);
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!ownerKey || !normalizedStudentId) return false;
+  const db = readHomeworkDraftsDb();
+  if (!db?.[ownerKey]?.[normalizedStudentId]) return false;
+  const nextOwnerDrafts = { ...db[ownerKey] };
+  delete nextOwnerDrafts[normalizedStudentId];
+  if (Object.keys(nextOwnerDrafts).length > 0) db[ownerKey] = nextOwnerDrafts;
+  else delete db[ownerKey];
+  writeHomeworkDraftsDb(db);
+  return true;
+};
+
+app.get('/api/homework-composer-draft', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const student = ensureStudentAccess(req, res, req.query?.studentId);
+  if (!student) return;
+  res.json({ draft: getHomeworkDraftForActor(req.auth, student.id) });
+});
+
+app.put('/api/homework-composer-draft', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const student = ensureStudentAccess(req, res, req.body?.studentId);
+  if (!student) return;
+  const draft = saveHomeworkDraftForActor(req.auth, student.id, req.body?.draft);
+  if (!draft) {
+    return res.status(400).json({ error: 'Некорректный черновик домашней работы' });
+  }
+  res.json({ draft });
+});
+
+app.delete('/api/homework-composer-draft', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const studentId = req.query?.studentId || req.body?.studentId;
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  const deleted = deleteHomeworkDraftForActor(req.auth, student.id);
+  res.json({ deleted, draft: null });
+});
 
 app.get('/api/student-next-lesson', (req, res) => {
   const { studentId } = req.query;
@@ -24239,7 +24691,9 @@ app.get('/api/student-next-lesson', (req, res) => {
   const hasLegacyContent = Boolean(
     legacyNextLesson?.homeWork ||
     legacyNextLesson?.lessonLink ||
-    legacyNextLesson?.boardLink
+    legacyNextLesson?.boardLink ||
+    legacyNextLesson?.taskNumber ||
+    (Array.isArray(legacyNextLesson?.goals) && legacyNextLesson.goals.length > 0)
   );
   const legacyTargets = Array.isArray(legacyNextLesson?.targetQuestions)
     ? legacyNextLesson.targetQuestions
@@ -24262,6 +24716,7 @@ app.get('/api/student-next-lesson', (req, res) => {
       levelId: null,
       targetQuestions: legacyTargets,
       goals: legacyGoals.length ? legacyGoals : normalizeGoalsFromLegacy(legacyNextLesson, testsDb),
+      ...(legacyNextLesson?.dayPlan ? { dayPlan: legacyNextLesson.dayPlan } : {}),
     }]
     : homeworks;
   const withGoals = normalizedHomeworks.map((entry) => {
@@ -24276,7 +24731,7 @@ app.get('/api/student-next-lesson', (req, res) => {
 
 app.patch('/api/student-next-lesson', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
@@ -24292,8 +24747,12 @@ app.patch('/api/student-next-lesson', (req, res) => {
   const daysValue = Number(daysToComplete);
   const fallbackDays = Number.isFinite(daysValue) && daysValue > 0 ? Math.round(daysValue) : 7;
   const normalizedDueAt = payloadDueAt || calculateHomeworkDueAt(issuedAt, fallbackDays);
+  if (Date.parse(normalizedDueAt) < Date.parse(issuedAt)) {
+    return res.status(400).json({ error: 'Срок домашки не может быть раньше даты выдачи' });
+  }
   const normalizedDays = calculateHomeworkDaysToComplete(issuedAt, normalizedDueAt, fallbackDays);
 
+  const testsDb = readTestsDb();
   const existingHomeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
   const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
     ? data.nextLesson
@@ -24301,14 +24760,20 @@ app.patch('/api/student-next-lesson', (req, res) => {
   const hasLegacyContent = Boolean(
     legacyNextLesson?.homeWork ||
     legacyNextLesson?.lessonLink ||
-    legacyNextLesson?.boardLink
+    legacyNextLesson?.boardLink ||
+    legacyNextLesson?.taskNumber ||
+    (Array.isArray(legacyNextLesson?.goals) && legacyNextLesson.goals.length > 0)
   );
   if (existingHomeworks.length === 0 && hasLegacyContent) {
-    const legacyTargets = Array.isArray(legacyNextLesson?.targetQuestions)
-      ? legacyNextLesson.targetQuestions
-          .map((val) => Number(val))
-          .filter((val) => Number.isFinite(val) && val > 0)
-      : [];
+    const normalizedLegacyGoals = normalizeGoals(legacyNextLesson?.goals, testsDb);
+    const legacyGoals = snapshotHomeworkGoalTargets({
+      goals: normalizedLegacyGoals.length > 0
+        ? normalizedLegacyGoals
+        : normalizeGoalsFromLegacy(legacyNextLesson, testsDb),
+      testsDb,
+      mockExams: readMockExamsDb(),
+    });
+    const primaryLegacyTaskGoal = legacyGoals.find((goal) => normalizeGoalType(goal) === GOAL_TYPE_TASK) || null;
     existingHomeworks.push({
       id: 'legacy',
       issuedAt: legacyNextLesson?.issuedAt || new Date().toISOString(),
@@ -24318,14 +24783,19 @@ app.patch('/api/student-next-lesson', (req, res) => {
       lessonLink: legacyNextLesson?.lessonLink || '',
       boardLink: legacyNextLesson?.boardLink || '',
       checklistItems: normalizeHomeworkChecklistItems('legacy', legacyNextLesson?.homeWork, legacyNextLesson?.checklistItems),
-      targetQuestions: legacyTargets,
+      taskNumber: primaryLegacyTaskGoal?.taskNumber ?? null,
+      levelId: primaryLegacyTaskGoal?.levelId ?? null,
+      includeAll: Boolean(primaryLegacyTaskGoal?.includeAll),
+      targetQuestions: Array.isArray(primaryLegacyTaskGoal?.targetQuestions) ? primaryLegacyTaskGoal.targetQuestions : [],
+      targetQuestionIds: Array.isArray(primaryLegacyTaskGoal?.targetQuestionIds) ? primaryLegacyTaskGoal.targetQuestionIds : [],
+      goals: legacyGoals,
+      ...(legacyNextLesson?.dayPlan ? { dayPlan: legacyNextLesson.dayPlan } : {}),
     });
   }
 
   const hasTaskNumber = typeof taskNumber !== 'undefined' && String(taskNumber).trim() !== '';
   let normalizedTaskNumber = null;
   let normalizedLevelId = null;
-  const testsDb = readTestsDb();
   let normalizedTargets = [];
   let normalizedGoals = normalizeGoals(goals, testsDb);
   if (hasTaskNumber) {
@@ -24365,7 +24835,8 @@ app.patch('/api/student-next-lesson', (req, res) => {
   });
 
   const newEntryId = crypto.randomUUID();
-  const newEntry = {
+  const checklistItems = normalizeHomeworkChecklistItems(newEntryId, payloadHomeWork);
+  const newEntryBase = {
     id: newEntryId,
     issuedAt,
     updatedAt: new Date().toISOString(),
@@ -24378,7 +24849,15 @@ app.patch('/api/student-next-lesson', (req, res) => {
     levelId: normalizedLevelId,
     targetQuestions: normalizedTargets,
     goals: normalizedGoals,
-    checklistItems: normalizeHomeworkChecklistItems(newEntryId, payloadHomeWork),
+    checklistItems,
+  };
+  const normalizedDayPlan = buildStoredHomeworkDayPlan(dayPlan, newEntryBase, testsDb);
+  if (normalizedDayPlan?.reason === 'range-too-large') {
+    return res.status(400).json({ error: 'Для авторазбивки выберите срок не дальше одного года' });
+  }
+  const newEntry = {
+    ...newEntryBase,
+    ...(normalizedDayPlan ? { dayPlan: normalizedDayPlan } : {}),
   };
   const updatedHomeworks = [newEntry, ...existingHomeworks];
   const nextLesson = {
@@ -24394,8 +24873,14 @@ app.patch('/api/student-next-lesson', (req, res) => {
     targetQuestions: newEntry.targetQuestions,
     goals: newEntry.goals,
     checklistItems: newEntry.checklistItems,
+    ...(newEntry.dayPlan ? { dayPlan: newEntry.dayPlan } : {}),
   };
   const updated = setStudentData(student.id, { ...data, nextLesson, homeworks: updatedHomeworks });
+  try {
+    deleteHomeworkDraftForActor(req.auth, student.id);
+  } catch (error) {
+    console.error(`[homework-draft] failed to clear assigned draft for student ${student.id}:`, error);
+  }
   notifyStudentAboutNewHomework(student, newEntry).catch((error) => {
     console.error(`[push] post-save "new homework" notify failed for student ${student.id}:`, error);
   });
@@ -24405,11 +24890,50 @@ app.patch('/api/student-next-lesson', (req, res) => {
 app.patch('/api/student-next-lesson/:id', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, daysToComplete, taskNumber, levelId, targetQuestions, goals } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
-  const homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
+  const testsDb = readTestsDb();
+  let homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
+  if (id === 'legacy' && homeworks.length === 0) {
+    const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
+      ? data.nextLesson
+      : null;
+    const hasLegacyContent = Boolean(
+      legacyNextLesson?.homeWork
+      || legacyNextLesson?.lessonLink
+      || legacyNextLesson?.boardLink
+      || legacyNextLesson?.taskNumber
+      || (Array.isArray(legacyNextLesson?.goals) && legacyNextLesson.goals.length > 0)
+    );
+    if (hasLegacyContent) {
+      const normalizedLegacyGoals = normalizeGoals(legacyNextLesson?.goals, testsDb);
+      const legacyGoals = snapshotHomeworkGoalTargets({
+        goals: normalizedLegacyGoals.length > 0
+          ? normalizedLegacyGoals
+          : normalizeGoalsFromLegacy(legacyNextLesson, testsDb),
+        testsDb,
+        mockExams: readMockExamsDb(),
+      });
+      const primaryLegacyTaskGoal = legacyGoals.find((goal) => normalizeGoalType(goal) === GOAL_TYPE_TASK) || null;
+      const legacyIssuedAt = legacyNextLesson?.issuedAt || new Date().toISOString();
+      homeworks = [{
+        ...legacyNextLesson,
+        id: 'legacy',
+        issuedAt: legacyIssuedAt,
+        dueAt: resolveHomeworkDueAt({ ...legacyNextLesson, issuedAt: legacyIssuedAt }),
+        daysToComplete: Number(legacyNextLesson?.daysToComplete) || 7,
+        taskNumber: primaryLegacyTaskGoal?.taskNumber ?? null,
+        levelId: primaryLegacyTaskGoal?.levelId ?? null,
+        includeAll: Boolean(primaryLegacyTaskGoal?.includeAll),
+        targetQuestions: Array.isArray(primaryLegacyTaskGoal?.targetQuestions) ? primaryLegacyTaskGoal.targetQuestions : [],
+        targetQuestionIds: Array.isArray(primaryLegacyTaskGoal?.targetQuestionIds) ? primaryLegacyTaskGoal.targetQuestionIds : [],
+        goals: legacyGoals,
+        checklistItems: normalizeHomeworkChecklistItems('legacy', legacyNextLesson?.homeWork, legacyNextLesson?.checklistItems),
+      }];
+    }
+  }
   const index = homeworks.findIndex((entry) => entry?.id === id);
   if (index === -1) {
     return res.status(404).json({ error: 'Домашка не найдена' });
@@ -24433,6 +24957,9 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     : (hasDaysField
         ? calculateHomeworkDueAt(existing.issuedAt, fallbackDays)
         : (resolveHomeworkDueAt(existing) || calculateHomeworkDueAt(existing.issuedAt, fallbackDays)));
+  if (Date.parse(normalizedDueAt) < Date.parse(existing.issuedAt)) {
+    return res.status(400).json({ error: 'Срок домашки не может быть раньше даты выдачи' });
+  }
   const normalizedDays = calculateHomeworkDaysToComplete(existing.issuedAt, normalizedDueAt, fallbackDays);
 
   const hasGoalsField = Array.isArray(goals);
@@ -24440,7 +24967,6 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   let normalizedTaskNumber = existing.taskNumber ?? null;
   let normalizedLevelId = existing.levelId ?? null;
   let normalizedTargets = Array.isArray(existing.targetQuestions) ? existing.targetQuestions : [];
-  const testsDb = readTestsDb();
   let normalizedGoals = normalizeGoals(existing.goals, testsDb);
   if (hasGoalsField) {
     normalizedGoals = normalizeGoals(goals, testsDb);
@@ -24500,7 +25026,8 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     mockExams: readMockExamsDb(),
   });
 
-  const updatedEntry = {
+  const updatedChecklistItems = normalizeHomeworkChecklistItems(id, payloadHomeWork, existing.checklistItems);
+  const updatedEntryBase = {
     ...existing,
     homeWork: payloadHomeWork,
     lessonLink: payloadLessonLink,
@@ -24512,8 +25039,33 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     levelId: normalizedLevelId,
     targetQuestions: normalizedTargets,
     goals: normalizedGoals,
-    checklistItems: normalizeHomeworkChecklistItems(id, payloadHomeWork, existing.checklistItems),
+    checklistItems: updatedChecklistItems,
   };
+  const hasPlanSourceUpdate = [
+    'homeWork',
+    'dueAt',
+    'daysToComplete',
+    'taskNumber',
+    'levelId',
+    'targetQuestions',
+    'goals',
+  ].some((field) => Object.prototype.hasOwnProperty.call(req.body || {}, field));
+  const existingDayPlan = existing.dayPlan && typeof existing.dayPlan === 'object'
+    ? existing.dayPlan
+    : null;
+  const normalizedDayPlan = typeof dayPlan === 'undefined'
+    ? (existingDayPlan && hasPlanSourceUpdate
+        ? buildStoredHomeworkDayPlan(existingDayPlan, updatedEntryBase, testsDb)
+        : existingDayPlan)
+    : buildStoredHomeworkDayPlan(dayPlan, updatedEntryBase, testsDb);
+  if (normalizedDayPlan?.reason === 'range-too-large') {
+    return res.status(400).json({ error: 'Для авторазбивки выберите срок не дальше одного года' });
+  }
+  const updatedEntry = {
+    ...updatedEntryBase,
+    ...(normalizedDayPlan ? { dayPlan: normalizedDayPlan } : {}),
+  };
+  if (!normalizedDayPlan) delete updatedEntry.dayPlan;
   homeworks[index] = updatedEntry;
 
   const latestEntry = homeworks[0];
@@ -24531,6 +25083,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
         targetQuestions: Array.isArray(latestEntry.targetQuestions) ? latestEntry.targetQuestions : [],
         goals: Array.isArray(latestEntry.goals) ? latestEntry.goals : normalizeGoalsFromLegacy(latestEntry),
         checklistItems: normalizeHomeworkChecklistItems(latestEntry.id, latestEntry.homeWork, latestEntry.checklistItems),
+        ...(latestEntry.dayPlan ? { dayPlan: latestEntry.dayPlan } : {}),
       }
     : (data.nextLesson || { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] });
 
@@ -24642,6 +25195,7 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
         targetQuestions: Array.isArray(latestEntry.targetQuestions) ? latestEntry.targetQuestions : [],
         goals: Array.isArray(latestEntry.goals) ? latestEntry.goals : normalizeGoalsFromLegacy(latestEntry),
         checklistItems: normalizeHomeworkChecklistItems(latestEntry.id, latestEntry.homeWork, latestEntry.checklistItems),
+        ...(latestEntry.dayPlan ? { dayPlan: latestEntry.dayPlan } : {}),
       }
     : { homeWork: '', lessonLink: '', boardLink: '', issuedAt: '', dueAt: '', daysToComplete: 7, taskNumber: null, levelId: null, targetQuestions: [], goals: [], checklistItems: [] };
 
@@ -25771,6 +26325,22 @@ const sendNotificationPayload = (ws, payload) => {
 const cleanupNotificationClient = (ws) => {
   if (!ws) return;
   notificationClientsBySocket.delete(ws);
+};
+
+const broadcastTelemostJoinRequested = (request) => {
+  if (!request?.teacherId || !request?.studentId || !request?.telemostUrl) return 0;
+  let deliveredCount = 0;
+  notificationClientsBySocket.forEach((client) => {
+    if (!client?.auth || !isTeacherRole(client.auth)) return;
+    if (String(client.auth.id || '').trim() !== request.teacherId) return;
+    if (client.ws?.readyState !== WS_OPEN_STATE) return;
+    sendNotificationPayload(client.ws, {
+      type: 'telemost-join-requested',
+      ...request,
+    });
+    deliveredCount += 1;
+  });
+  return deliveredCount;
 };
 
 const broadcastNotificationCreated = (entry) => {

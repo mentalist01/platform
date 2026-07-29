@@ -1,3 +1,5 @@
+import { isMockAttemptForHomework, resolveHomeworkTaskTargetDescriptors } from './homeworkComposer.js';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const HOMEWORK_STAT_STATE = Object.freeze({
@@ -76,18 +78,6 @@ const getHomeworkGoals = (entry) => {
   }];
 };
 
-const getTargetNumbers = (goal, questionCount) => {
-  if (!Number.isFinite(questionCount) || questionCount <= 0) return [];
-  if (goal?.includeAll) {
-    return Array.from({ length: questionCount }, (_, index) => index + 1);
-  }
-  return Array.from(new Set(
-    (Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [])
-      .map((value) => Math.trunc(Number(value)))
-      .filter((value) => Number.isFinite(value) && value > 0 && value <= questionCount)
-  )).sort((left, right) => left - right);
-};
-
 const getStoredTargetQuestionIds = (goal) => (
   Array.from(new Set(
     (Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [])
@@ -95,6 +85,12 @@ const getStoredTargetQuestionIds = (goal) => (
       .filter(Boolean)
   ))
 );
+
+const getStoredTargetQuestionIdSnapshot = (goal) => {
+  const snapshot = (Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [])
+    .map(normalizeText);
+  return snapshot.some(Boolean) ? snapshot : [];
+};
 
 const getTaskTargetDescriptors = (goal, testsDb) => {
   const taskNumber = Number(goal?.taskNumber);
@@ -104,25 +100,7 @@ const getTaskTargetDescriptors = (goal, testsDb) => {
   const questions = testsDb?.[String(taskNumber)]?.[levelId];
   if (!Array.isArray(questions) || questions.length === 0) return [];
 
-  const storedIds = getStoredTargetQuestionIds(goal);
-  if (storedIds.length > 0) {
-    const storedNumbers = (Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [])
-      .map((value) => Math.trunc(Number(value)))
-      .filter((value) => Number.isFinite(value) && value > 0);
-    const numberById = new Map(
-      questions.map((question, index) => [normalizeText(question?.id), index + 1])
-    );
-    return storedIds.map((questionId, index) => ({
-      questionId,
-      questionNumber: storedNumbers[index] || numberById.get(questionId) || index + 1,
-    }));
-  }
-
-  return getTargetNumbers(goal, questions.length)
-    .map((questionNumber) => ({
-      questionId: normalizeText(questions[questionNumber - 1]?.id),
-      questionNumber,
-    }))
+  return resolveHomeworkTaskTargetDescriptors(goal, questions)
     .filter((item) => item.questionId);
 };
 
@@ -318,7 +296,7 @@ export const snapshotHomeworkGoalTargets = ({
       return targetTaskKeys.length > 0 ? { ...goal, targetTaskKeys } : { ...goal };
     }
 
-    const storedQuestionIds = getStoredTargetQuestionIds(goal);
+    const storedQuestionIds = getStoredTargetQuestionIdSnapshot(goal);
     if (storedQuestionIds.length > 0) {
       return { ...goal, targetQuestionIds: storedQuestionIds };
     }
@@ -338,7 +316,7 @@ const buildMockGoal = ({
   windowEndMs,
   checkpointMs,
   dueAtMs,
-  isLatest,
+  homework,
 }) => {
   const mockExamId = normalizeText(goal?.mockExamId);
   if (!mockExamId) return null;
@@ -350,7 +328,14 @@ const buildMockGoal = ({
   const isInsideWindow = activityMs != null
     && (windowStartMs == null || activityMs >= windowStartMs)
     && (windowEndMs == null || activityMs < windowEndMs);
-  const canUseAttempt = Boolean(attempt) && (isInsideWindow || isLatest);
+  const homeworkContext = homework
+    ? { ...homework, continuationOfHomeworkId: goal?.continuationOfHomeworkId }
+    : null;
+  const attemptMatchesHomework = !homeworkContext || isMockAttemptForHomework(attempt, homeworkContext);
+  const hasAssignmentId = Boolean(normalizeText(attempt?.homeworkId));
+  const canUseAttempt = Boolean(attempt)
+    && attemptMatchesHomework
+    && (hasAssignmentId || isInsideWindow);
   const resultAtMs = canUseAttempt ? activityMs : null;
   const answers = canUseAttempt && attempt?.answers && typeof attempt.answers === 'object'
     ? attempt.answers
@@ -361,12 +346,13 @@ const buildMockGoal = ({
   const solvedEver = canUseAttempt && attempt?.solvedEver && typeof attempt.solvedEver === 'object'
     ? attempt.solvedEver
     : solved;
+  const useLifetimeFallback = windowStartMs == null && !hasAssignmentId;
 
   const items = targetKeys.map((taskKey) => {
     const answered = hasAnswerValue(answers?.[taskKey]);
     const solvedNow = Boolean(solved?.[taskKey]);
     const completedEver = Boolean(solvedEver?.[taskKey]);
-    const completed = solvedNow || completedEver;
+    const completed = solvedNow || (useLifetimeFallback && completedEver);
     const hasWrongResult = answered && !solvedNow;
     const state = completed
       ? (hasWrongResult ? HOMEWORK_STAT_STATE.WITH_ERRORS : HOMEWORK_STAT_STATE.CLEAN)
@@ -546,7 +532,7 @@ export const buildHomeworkStatistics = ({
               windowEndMs,
               checkpointMs,
               dueAtMs,
-              isLatest,
+              homework: entry,
             })
           : buildTaskGoal({
               goal,
