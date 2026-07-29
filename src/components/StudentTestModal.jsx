@@ -3647,27 +3647,9 @@ const StudentTestModal = ({
           <div className="student-test-scroll flex-1 overflow-y-auto">
             <div key={`${level}:${currentId}`} className="student-test-content student-test-content--question-enter mx-auto w-full max-w-5xl">
             {targetStatus.length > 0 && (
-              <div className="student-test-target mb-4 rounded-2xl px-3 py-2.5 md:px-4 md:py-3 text-xs">
-                <div className="font-semibold">Цель: решить отмеченные задания</div>
-                <div className="mt-1 text-[11px] md:hidden">
-                  Выполнено {targetSolvedCount}/{targetStatus.length}
-                </div>
-                <div className="hidden md:flex flex-wrap gap-2 mt-2">
-                  {targetStatus.map((item, targetIndex) => (
-                    <span
-                      key={item.num}
-                      style={{ '--student-test-item-index': targetIndex }}
-                      className={`px-2 py-1 rounded-lg border text-xs font-semibold ${
-                        item.solved
-                          ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
-                          : 'border-purple-200 bg-white text-purple-700'
-                      }`}
-                    >
-                      №{item.num}{item.solved ? ' ✓' : ''}
-                    </span>
-                  ))}
-                </div>
-                <div className="hidden md:block mt-2 text-[11px] text-purple-600">
+              <div className="student-test-target mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-xs md:px-4 md:py-3">
+                <div className="font-semibold">Цель — решить выбранные задания</div>
+                <div className="text-[11px] text-purple-600">
                   Выполнено {targetSolvedCount}/{targetStatus.length}
                 </div>
               </div>
