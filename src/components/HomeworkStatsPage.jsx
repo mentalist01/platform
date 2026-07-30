@@ -56,7 +56,7 @@ const HomeworkStatsPage = ({
     Promise.all([
       api.getStudentData(role === 'student' ? null : studentId),
       api.getTests(),
-      api.getMockExams(role === 'student' ? studentId : null),
+      api.getMockExams(role === 'student' ? null : studentId),
     ])
       .then(async ([nextStudentData, nextTestsDb, nextMockExams]) => {
         const safeStudentData = nextStudentData && typeof nextStudentData === 'object'
@@ -64,6 +64,14 @@ const HomeworkStatsPage = ({
           : {};
         const safeMockExams = Array.isArray(nextMockExams) ? nextMockExams : [];
         const relevantMockExamIds = getHomeworkMockExamIds(safeStudentData);
+        const attemptedMockExams = safeStudentData.mockAttempts
+          && typeof safeStudentData.mockAttempts === 'object'
+          ? safeStudentData.mockAttempts
+          : {};
+        Object.keys(attemptedMockExams).forEach((examId) => {
+          const normalizedExamId = String(examId || '').trim();
+          if (normalizedExamId) relevantMockExamIds.add(normalizedExamId);
+        });
         const relevantMockExams = safeMockExams.filter((exam) => (
           relevantMockExamIds.has(String(exam?.id || '').trim())
         ));

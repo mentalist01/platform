@@ -19,6 +19,8 @@ import {
   buildHomeworkStatistics,
   summarizeHomeworkStatistics,
 } from '../utils/homeworkStats';
+import { buildMockExamProgressEntries } from '../utils/mockExamProgress';
+import MockExamProgressChart from './MockExamProgressChart';
 
 const STATE_META = {
   [HOMEWORK_STAT_STATE.CLEAN]: {
@@ -204,13 +206,21 @@ const HomeworkStatsSection = ({
     mockAttemptsByExam,
     nowMs: referenceNowMs,
   }), [homeworks, mockAttemptsByExam, mockExams, referenceNowMs, studentData, testsDb]);
+  const mockExamProgressEntries = useMemo(() => buildMockExamProgressEntries({
+    studentData,
+    mockExams,
+    mockAttemptsByExam,
+  }), [mockAttemptsByExam, mockExams, studentData]);
   const yearOptions = useMemo(() => {
     const byKey = new Map();
     statistics.forEach((entry) => {
       if (entry.academicYear?.key) byKey.set(entry.academicYear.key, entry.academicYear);
     });
+    mockExamProgressEntries.forEach((entry) => {
+      if (entry.academicYear?.key) byKey.set(entry.academicYear.key, entry.academicYear);
+    });
     return Array.from(byKey.values()).sort((left, right) => right.startYear - left.startYear);
-  }, [statistics]);
+  }, [mockExamProgressEntries, statistics]);
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedHomeworkId, setSelectedHomeworkId] = useState('');
   const resolvedSelectedYear = (
@@ -224,6 +234,16 @@ const HomeworkStatsSection = ({
       ? statistics
       : statistics.filter((entry) => entry.academicYear?.key === resolvedSelectedYear)
   ), [resolvedSelectedYear, statistics]);
+  const filteredMockExamProgressEntries = useMemo(() => (
+    resolvedSelectedYear === 'all' || !resolvedSelectedYear
+      ? mockExamProgressEntries
+      : mockExamProgressEntries.filter((entry) => (
+          entry.academicYear?.key === resolvedSelectedYear
+        ))
+  ), [mockExamProgressEntries, resolvedSelectedYear]);
+  const selectedAcademicYear = resolvedSelectedYear === 'all'
+    ? null
+    : yearOptions.find((year) => year.key === resolvedSelectedYear) || null;
   const summary = useMemo(
     () => summarizeHomeworkStatistics(filteredStatistics),
     [filteredStatistics]
@@ -242,8 +262,9 @@ const HomeworkStatsSection = ({
   const estimatedHistory = filteredStatistics.some((entry) => entry.estimated);
   const trendPositive = summary.trend >= 0;
   const TrendIcon = trendPositive ? TrendingUp : TrendingDown;
+  const hasHomeworkHistory = Array.isArray(homeworks) && homeworks.length > 0;
 
-  if (!Array.isArray(homeworks) || homeworks.length === 0) {
+  if (!hasHomeworkHistory && mockExamProgressEntries.length === 0) {
     return (
       <section className={`rounded-[28px] border p-6 text-center shadow-sm ${
         dark
@@ -317,8 +338,12 @@ const HomeworkStatsSection = ({
               dark ? 'text-slate-400' : 'text-slate-500'
             }`}>
               {role === 'teacher'
-                ? 'Каждый столбец — отдельная домашняя работа. Видно, что решено сразу, после ошибок и где ученик остановился.'
-                : 'Каждый столбец — отдельная домашняя работа. Можно увидеть прогресс и темы, которые стоит повторить.'}
+                ? (filteredStatistics.length > 0
+                    ? 'Каждый столбец — отдельная домашняя работа. Видно, что решено сразу, после ошибок и где ученик остановился.'
+                    : 'Здесь видна динамика результатов пробников ученика в течение учебного года.')
+                : (filteredStatistics.length > 0
+                    ? 'Каждый столбец — отдельная домашняя работа. Можно увидеть прогресс и темы, которые стоит повторить.'
+                    : 'Здесь можно увидеть, как меняются твои результаты пробников в течение учебного года.')}
             </p>
           </div>
           <label className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-bold ${
@@ -348,7 +373,8 @@ const HomeworkStatsSection = ({
       </header>
 
       <div className="space-y-4 p-3.5 md:space-y-5 md:p-6">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        {filteredStatistics.length > 0 && (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           <div className={`rounded-2xl border p-3 ${
             dark ? 'border-indigo-800/65 bg-indigo-950/40' : 'border-indigo-100 bg-indigo-50/70'
           }`}>
@@ -414,11 +440,20 @@ const HomeworkStatsSection = ({
               </span>
             </div>
           </div>
-        </div>
+          </div>
+        )}
 
-        <div className={`rounded-[24px] border p-3 md:p-4 ${
-          dark ? 'border-slate-700 bg-slate-900/60' : 'border-slate-200 bg-slate-50/75'
-        }`}>
+        <MockExamProgressChart
+          entries={filteredMockExamProgressEntries}
+          academicYear={selectedAcademicYear}
+          dark={dark}
+          role={role}
+        />
+
+        {filteredStatistics.length > 0 && (
+          <div className={`rounded-[24px] border p-3 md:p-4 ${
+            dark ? 'border-slate-700 bg-slate-900/60' : 'border-slate-200 bg-slate-50/75'
+          }`}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h4 className={`text-sm font-black ${dark ? 'text-white' : 'text-slate-900'}`}>
@@ -537,7 +572,8 @@ const HomeworkStatsSection = ({
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        )}
 
         {selectedHomework && (() => {
           const status = STATUS_META[selectedHomework.status] || STATUS_META['no-data'];
