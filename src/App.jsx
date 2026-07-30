@@ -236,13 +236,13 @@ const LEAGUE_TIERS = [
 const BLANK_LEAGUE = { id: 'blank', label: 'Без лиги', minXp: 0, icon: leagueBlank };
 const COLLAB_COLORS = ['#7c3aed', '#2563eb', '#0ea5e9', '#10b981', '#f97316', '#ef4444'];
 const BOARD_BACKGROUND_COLOR = '#f8f9fa';
-const BOARD_DEFAULT_COLOR = '#5b8def';
+const BOARD_DEFAULT_COLOR = '#8247e5';
 const BOARD_PRESET_COLORS = [
   '#ef3d1f',
   '#ffb800',
   '#00a35c',
+  '#5b8def',
   BOARD_DEFAULT_COLOR,
-  '#8247e5',
   '#cc681f',
   '#ffffff',
 ];
