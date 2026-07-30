@@ -33,6 +33,24 @@ const STUDENT_CODE_FOCUS_FULLSCREEN_DELAY_MS = 120;
 const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
 const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
 const STUDENT_CODE_COPY_FEEDBACK_MS = 1800;
+const MOCK_EXAM_SOURCE_BADGE_COLOR = '#0f766e';
+
+const getStudentQuestionAnswerCount = (question, taskNumber, getAnswerCountForTask) => {
+  const override = Math.trunc(Number(question?.answerCountOverride));
+  if (Number.isFinite(override) && override > 0 && override <= 50) return override;
+  return getAnswerCountForTask(taskNumber);
+};
+
+const getMockExamSourceBadge = (question) => {
+  const source = question?.mockExamSource;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+  const label = String(source.label || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+  if (!label) return null;
+  return {
+    text: label,
+    color: MOCK_EXAM_SOURCE_BADGE_COLOR,
+  };
+};
 
 const STUDENT_TEST_WINDOW_TOUR_STEPS = [
   {
@@ -1998,7 +2016,11 @@ const StudentTestModal = ({
 
   const handleCheck = async (sourceRect = null) => {
     const currentQuestion = questions[currentIndex];
-    const answerCount = getAnswerCountForTask(task?.number);
+    const answerCount = getStudentQuestionAnswerCount(
+      currentQuestion,
+      task?.number,
+      getAnswerCountForTask
+    );
     const submittedAt = new Date().toISOString();
     let submittedAnswerValues = [];
     let fallbackCorrect = false;
@@ -2319,9 +2341,14 @@ const StudentTestModal = ({
     const currentQuestion = questions[currentIndex];
     const currentQuestionNumber = questionNumbers[currentIndex] ?? (currentIndex + 1);
     const currentQuestionLabel = normalizeQuestionLabel(currentQuestion?.label);
+    const currentMockExamSourceBadge = getMockExamSourceBadge(currentQuestion);
     const isChecked = results[currentIndex] !== undefined;
     const isCorrect = results[currentIndex];
-    const answerCount = getAnswerCountForTask(task?.number);
+    const answerCount = getStudentQuestionAnswerCount(
+      currentQuestion,
+      task?.number,
+      getAnswerCountForTask
+    );
     const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
     const currentId = String(currentQuestion?.id ?? currentIndex);
     const isSolved = solvedIds.has(currentId);
@@ -2342,9 +2369,21 @@ const StudentTestModal = ({
           : Array.from({ length: answerCount }, (_, i) => String((Array.isArray(storedAnswer) ? storedAnswer[i] : '') ?? ''))
       )
       : [];
+    const sourceMockTaskNumber = Math.trunc(Number(currentQuestion?.mockExamSource?.taskNumber));
     const answerLabels = Number(task?.number) === GAME_THEORY_TASK && answerCount === 4
       ? ['19', '20.1', '20.2', '21']
-      : Array.from({ length: answerCount }, (_, idx) => String(idx + 1));
+      : (
+          sourceMockTaskNumber === 20 && answerCount === 2
+            ? ['20.1', '20.2']
+            : Array.from(
+                { length: answerCount },
+                (_, idx) => (
+                  answerCount === 1 && [19, 21].includes(sourceMockTaskNumber)
+                    ? String(sourceMockTaskNumber)
+                    : String(idx + 1)
+                )
+              )
+        );
     const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
       .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
     const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
@@ -3212,6 +3251,15 @@ const StudentTestModal = ({
               aria-label="Условие задания"
             >
               <div className="student-test-code-focus__task-head">
+                {currentMockExamSourceBadge && (
+                  <span
+                    className="student-test-code-focus__label"
+                    style={getQuestionLabelStyle(currentMockExamSourceBadge)}
+                    title={currentMockExamSourceBadge.text}
+                  >
+                    {currentMockExamSourceBadge.text}
+                  </span>
+                )}
                 {currentQuestionLabel && (
                   <span
                     className="student-test-code-focus__label"
@@ -3654,14 +3702,26 @@ const StudentTestModal = ({
             <div key={`${level}:${currentId}`} className="student-test-content student-test-content--question-enter mx-auto w-full max-w-5xl">
             <section className="student-test-question-panel student-test-panel-enter" data-student-test-tour="condition">
             <div className="student-test-question-panel__toolbar">
-              {currentQuestionLabel ? (
-                <span
-                  className="inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm"
-                  style={getQuestionLabelStyle(currentQuestionLabel)}
-                >
-                  <span className="truncate">{currentQuestionLabel.text}</span>
-                </span>
-              ) : <span aria-hidden="true" />}
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {currentMockExamSourceBadge && (
+                  <span
+                    className="inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm"
+                    style={getQuestionLabelStyle(currentMockExamSourceBadge)}
+                    title={currentMockExamSourceBadge.text}
+                  >
+                    <span className="truncate">{currentMockExamSourceBadge.text}</span>
+                  </span>
+                )}
+                {currentQuestionLabel && (
+                  <span
+                    className="inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm"
+                    style={getQuestionLabelStyle(currentQuestionLabel)}
+                  >
+                    <span className="truncate">{currentQuestionLabel.text}</span>
+                  </span>
+                )}
+                {!currentMockExamSourceBadge && !currentQuestionLabel && <span aria-hidden="true" />}
+              </div>
               <div className="student-test-question-panel__toolbar-actions" data-student-test-tour="code-tools">
                 <button
                   type="button"

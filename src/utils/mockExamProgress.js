@@ -67,11 +67,28 @@ const hasAnswerValue = (value) => {
   return normalizeText(value).length > 0;
 };
 
+const getTaskMap = (tasks) => {
+  if (tasks && typeof tasks === 'object' && !Array.isArray(tasks)) return tasks;
+  if (!Array.isArray(tasks)) return {};
+  return tasks.reduce((result, task, index) => {
+    const taskKey = normalizeText(
+      task?.taskKey
+      ?? task?.key
+      ?? task?.taskNumber
+      ?? task?.number
+      ?? task?.id
+      ?? index + 1
+    );
+    if (taskKey) result[taskKey] = task;
+    return result;
+  }, {});
+};
+
 const getAttemptScope = (exam, attempt) => {
   const solved = attempt?.solved && typeof attempt.solved === 'object'
     ? attempt.solved
     : {};
-  const examTasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  const examTasks = getTaskMap(exam?.tasks);
   const availableTaskKeys = Object.keys(examTasks).map(normalizeText).filter(Boolean);
   const availableTaskKeySet = new Set(availableTaskKeys);
   const attemptTargetTaskKeys = Array.from(new Set(
@@ -136,10 +153,51 @@ export const buildMockExamProgressEntries = ({
   const attemptByExamId = mockAttemptsByExam && typeof mockAttemptsByExam === 'object'
     ? mockAttemptsByExam
     : {};
+  const frozenResults = Array.isArray(studentData?.mockAttemptResults)
+    ? studentData.mockAttemptResults
+    : [];
+  const frozenAttemptIds = new Set(
+    frozenResults.map((result) => normalizeText(result?.attemptId)).filter(Boolean)
+  );
+
+  const frozenEntries = frozenResults
+    .map((result, index) => {
+      if (!result || typeof result !== 'object') return null;
+      const examId = normalizeText(result.examId);
+      const finishedAtMs = parseDateMs(result.finishedAt);
+      if (finishedAtMs == null) return null;
+      const frozenTasks = getTaskMap(result.tasks);
+      const exam = Object.keys(frozenTasks).length > 0
+        ? { ...(examById[examId] || {}), tasks: frozenTasks }
+        : (examById[examId] || null);
+      const scope = getAttemptScope(exam, result);
+      if (scope.isPartial) return null;
+      const resultId = normalizeText(result.resultId ?? result.id)
+        || `${normalizeText(result.attemptId) || examId || 'result'}-${index}-${finishedAtMs}`;
+      const storedSecondaryScore = clampScore(result.secondaryScore);
+      return {
+        id: `online-result:${resultId}`,
+        examId,
+        attemptId: normalizeText(result.attemptId),
+        source: 'online',
+        mode: normalizeText(result.mode).toLowerCase() || 'classic',
+        title: normalizeText(result.examTitle ?? result.title)
+          || normalizeText(exam?.title)
+          || 'Онлайн-пробник',
+        comment: '',
+        score: storedSecondaryScore ?? getMockSecondaryScoreFromSolved(scope.solvedMap),
+        dateMs: finishedAtMs,
+        date: new Date(finishedAtMs).toISOString(),
+        academicYear: getAcademicYearMeta(finishedAtMs),
+      };
+    })
+    .filter(Boolean);
 
   const onlineEntries = Object.entries(attemptByExamId)
     .map(([rawExamId, attempt]) => {
       if (!attempt || typeof attempt !== 'object') return null;
+      const attemptId = normalizeText(attempt.attemptId);
+      if (attemptId && frozenAttemptIds.has(attemptId)) return null;
       const examId = normalizeText(rawExamId);
       const mode = normalizeText(attempt.mode).toLowerCase() || 'classic';
       const timerFinishedAt = normalizeText(attempt.timerFinishedAt);
@@ -198,7 +256,7 @@ export const buildMockExamProgressEntries = ({
     })
     .filter(Boolean);
 
-  return [...storedEntries, ...onlineEntries]
+  return [...storedEntries, ...frozenEntries, ...onlineEntries]
     .sort((left, right) => (
       left.dateMs - right.dateMs
       || left.source.localeCompare(right.source)

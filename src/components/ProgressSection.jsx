@@ -823,6 +823,10 @@ const ProgressSection = ({
     const examStats = (studentVisibleMockExams || []).map((exam) => {
       const attempt = mockAttemptsByExam?.[exam.id];
       const attemptMode = normalizeMockAttemptMode(attempt?.mode, getAssignedMockExamMode(exam, attempt));
+      const isSubmitted = Boolean(
+        String(attempt?.finishedAt || '').trim()
+        || String(attempt?.status || '').trim().toLowerCase() === 'finished'
+      );
       const timerRemainingMs = attemptMode === MOCK_ATTEMPT_MODE_TIMER
         ? getMockTimerRemainingMs(attempt)
         : null;
@@ -892,10 +896,13 @@ const ProgressSection = ({
         attemptedPercent,
         hasStarted,
         isCompleted,
+        isSubmitted,
         canRestartTimerAttempt,
         updatedAt: typeof attempt?.updatedAt === 'string' ? attempt.updatedAt : '',
         updatedLabel: formatMockUpdatedAt(attempt?.updatedAt),
-        actionLabel: isEndedTimerAttempt ? 'Открыть' : (isCompleted ? 'Повторить' : hasStarted ? 'Продолжить' : 'Начать'),
+        actionLabel: isSubmitted || isEndedTimerAttempt
+          ? 'Открыть результат'
+          : (isCompleted ? 'Повторить' : hasStarted ? 'Продолжить' : 'Начать'),
         taskStats,
       };
     });
@@ -909,7 +916,7 @@ const ProgressSection = ({
     const startedExams = playableExamStats.filter((examStat) => examStat.hasStarted);
     const completedExams = playableExamStats.filter((examStat) => examStat.isCompleted);
     const inProgressExams = playableExamStats
-      .filter((examStat) => examStat.hasStarted && !examStat.isCompleted)
+      .filter((examStat) => examStat.hasStarted && !examStat.isCompleted && !examStat.isSubmitted)
       .sort((left, right) => {
         if (left.progressPercent !== right.progressPercent) return right.progressPercent - left.progressPercent;
         if (left.solvedCount !== right.solvedCount) return right.solvedCount - left.solvedCount;
@@ -1418,7 +1425,7 @@ const ProgressSection = ({
 
   useEffect(() => {
     let cancelled = false;
-    api.getTests()
+    api.getTests(role === 'student' ? null : effectiveStudentId)
       .then((data) => {
         if (cancelled) return;
         setTestsDb(data && typeof data === 'object' ? data : {});
@@ -1430,7 +1437,7 @@ const ProgressSection = ({
         setTestsDbError(err?.message || err);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [effectiveStudentId, role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2604,6 +2611,7 @@ const ProgressSection = ({
         attemptedPercent: 0,
         hasStarted: false,
         isCompleted: false,
+        isSubmitted: false,
         canRestartTimerAttempt: false,
         actionLabel: 'Начать',
         updatedLabel: '',
@@ -2620,6 +2628,11 @@ const ProgressSection = ({
       );
       const selectedMode = modeLocked ? lockedMode : assignedMode;
       const isTimerMode = selectedMode === MOCK_ATTEMPT_MODE_TIMER;
+      const isSubmitted = Boolean(
+        stats.isSubmitted
+        || String(attempt?.finishedAt || '').trim()
+        || String(attempt?.status || '').trim().toLowerCase() === 'finished'
+      );
       const canRestartTimerAttempt = Boolean(isTimerMode && (stats.canRestartTimerAttempt || isMockTimerAttemptEnded(attempt)));
       const timerRewardsDisabled = Boolean(
         exam?.rewardsDisabled
@@ -2658,7 +2671,7 @@ const ProgressSection = ({
       let smartRank = 50;
       if (isFocus) {
         smartRank = 0;
-      } else if (stats.hasStarted && !stats.isCompleted) {
+      } else if (stats.hasStarted && !stats.isCompleted && !isSubmitted) {
         smartRank = 10;
       } else if (!stats.hasStarted && hasExamTasks) {
         smartRank = 25;
@@ -2679,6 +2692,7 @@ const ProgressSection = ({
         modeLocked,
         selectedMode,
         isTimerMode,
+        isSubmitted,
         canRestartTimerAttempt,
         timerRewardsDisabled,
         scoreValue: rewardInfo.scoreValue,
@@ -2925,6 +2939,7 @@ const ProgressSection = ({
       progressPercent: 0,
       hasStarted: false,
       isCompleted: false,
+      isSubmitted: false,
       canRestartTimerAttempt: false,
       actionLabel: 'Начать',
       updatedLabel: '',
@@ -2938,6 +2953,12 @@ const ProgressSection = ({
     const modeLocked = Boolean(examRow?.modeLocked || examStats.isModeLocked);
     const selectedMode = examRow?.selectedMode || (modeLocked ? lockedMode : assignedMode);
     const isTimerMode = Boolean(examRow?.isTimerMode ?? (selectedMode === MOCK_ATTEMPT_MODE_TIMER));
+    const isSubmitted = Boolean(
+      examRow?.isSubmitted
+      || examStats.isSubmitted
+      || String(attempt?.finishedAt || '').trim()
+      || String(attempt?.status || '').trim().toLowerCase() === 'finished'
+    );
     const timerResultsHidden = Boolean(
       isTimerMode
       && normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
@@ -2960,7 +2981,7 @@ const ProgressSection = ({
       ? 'mock-student-card--focus'
       : isBestExam
         ? 'mock-student-card--best'
-        : examStats.isCompleted
+        : isSubmitted || examStats.isCompleted
           ? 'mock-student-card--done'
           : '';
     const numericSecondaryScore = Number(examStats.secondary);
@@ -2987,11 +3008,11 @@ const ProgressSection = ({
     const timerRemainingLabel = isTimerMode && examStats.timerRemainingMs !== null
       ? formatMockTimerDuration(examStats.timerRemainingMs)
       : formatMockTimerDuration(MOCK_EXAM_TIMER_DURATION_MS);
-    const actionLabel = canRestartTimerAttempt ? 'Открыть' : examStats.actionLabel;
+    const actionLabel = canRestartTimerAttempt || isSubmitted ? 'Открыть результат' : examStats.actionLabel;
     const isStartingThisMock = String(startingMockExamId || '') === String(exam.id || '');
     const actionButtonStateClass = !hasExamTasks
       ? 'mock-start-button--soon'
-      : canRestartTimerAttempt
+      : canRestartTimerAttempt || isSubmitted
         ? 'mock-start-button--open'
         : examStats.isCompleted
           ? 'mock-start-button--repeat'
@@ -3009,11 +3030,13 @@ const ProgressSection = ({
       ? 'Скоро'
       : canRestartTimerAttempt
         ? 'Открыть результат'
-        : examStats.isCompleted
-          ? 'Повторить пробник'
-          : nextOpenTaskLabel
-            ? `${examStats.hasStarted ? 'Продолжить' : 'Начать'} с №${nextOpenTaskLabel}`
-            : actionLabel;
+        : isSubmitted
+          ? 'Открыть результат'
+          : examStats.isCompleted
+            ? 'Повторить пробник'
+            : nextOpenTaskLabel
+              ? `${examStats.hasStarted ? 'Продолжить' : 'Начать'} с №${nextOpenTaskLabel}`
+              : actionLabel;
     const attemptHasTimerMarkers = Boolean(
       normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
       || String(attempt?.timerStartedAt || '').trim()
@@ -3028,6 +3051,7 @@ const ProgressSection = ({
       && hasExamTasks
       && normalizeMockAttemptMode(attempt?.mode) === MOCK_ATTEMPT_MODE_TIMER
       && String(attempt?.timerFinishedAt || '').trim()
+      && !isSubmitted
       && finishedTimerRemainingMs > 0
     );
     const canTeacherRestoreTimerRewards = Boolean(
@@ -3048,26 +3072,30 @@ const ProgressSection = ({
     const examTitleId = `mock-exam-sheet-title-${String(exam.id || 'item').replace(/[^a-zA-Z0-9_-]/g, '-')}`;
     const cardVisualState = !hasExamTasks
       ? 'empty'
-      : examStats.isCompleted
+      : isSubmitted
         ? 'done'
-        : isFocusExam
-          ? 'focus'
-          : isBestExam
-            ? 'best'
-            : examStats.hasStarted
-              ? 'progress'
-              : 'new';
+        : examStats.isCompleted
+          ? 'done'
+          : isFocusExam
+            ? 'focus'
+            : isBestExam
+              ? 'best'
+              : examStats.hasStarted
+                ? 'progress'
+                : 'new';
     const stateLabel = !hasExamTasks
       ? 'Скоро'
-      : examStats.isCompleted
-        ? 'Готово'
-        : isFocusExam
-          ? 'Фокус'
-          : isBestExam
-            ? 'Лучший'
-            : examStats.hasStarted
-              ? 'В работе'
-              : 'Новый';
+      : isSubmitted
+        ? 'Завершён'
+        : examStats.isCompleted
+          ? 'Готово'
+          : isFocusExam
+            ? 'Фокус'
+            : isBestExam
+              ? 'Лучший'
+              : examStats.hasStarted
+                ? 'В работе'
+                : 'Новый';
     const timerAttemptFinished = Boolean(
       isTimerMode
       && String(attempt?.timerFinishedAt || '').trim()
@@ -3084,7 +3112,7 @@ const ProgressSection = ({
     );
     const isFinalScore = Boolean(
       hasVisibleScore
-      && (timerAttemptFinished || examStats.isCompleted)
+      && (isSubmitted || timerAttemptFinished || examStats.isCompleted)
     );
     const scoreHeroState = !hasExamTasks
       ? 'empty'
@@ -3120,7 +3148,7 @@ const ProgressSection = ({
       : `${scoreHeroLabel}: ${scoreEmptyLabel}. ${scoreHeroCaption}.`;
     const launchButtonLabel = !hasExamTasks
       ? 'Скоро'
-      : canRestartTimerAttempt
+      : canRestartTimerAttempt || isSubmitted
         ? 'Открыть'
         : examStats.isCompleted
           ? 'Повторить'
@@ -3130,12 +3158,15 @@ const ProgressSection = ({
     const launchButtonDisplayLabel = (
       hasExamTasks
       && !canRestartTimerAttempt
+      && !isSubmitted
       && !examStats.isCompleted
       && nextOpenTaskLabel
     )
       ? `${examStats.hasStarted ? 'Продолжить' : 'Начать'} с №${nextOpenTaskLabel}`
       : launchButtonLabel;
-    const taskMapStatusLabel = examStats.isCompleted
+    const taskMapStatusLabel = isSubmitted
+      ? 'Результат сохранён'
+      : examStats.isCompleted
       ? 'Все готово'
       : nextOpenTaskLabel
         ? `Дальше №${nextOpenTaskLabel}`
@@ -5307,6 +5338,21 @@ const ProgressSection = ({
                     ...prev,
                     mockTimerChestsTotal: Math.max(0, Math.floor(Number(attempt.timerChestsTotal) || 0)),
                   }));
+                }
+                const attemptFinished = Boolean(
+                  String(attempt?.finishedAt || '').trim()
+                  || String(attempt?.status || '').trim().toLowerCase() === 'finished'
+                );
+                if (attemptFinished) {
+                  api.getTests(role === 'student' ? null : effectiveStudentId)
+                    .then((data) => {
+                      setTestsDb(data && typeof data === 'object' ? data : {});
+                      setTestsDbError('');
+                    })
+                    .catch((err) => setTestsDbError(err?.message || err));
+                  api.getStudentData(role === 'student' ? null : effectiveStudentId)
+                    .then((data) => setStudentData(normalizeProgressSectionStudentData(data)))
+                    .catch(() => {});
                 }
                 onMockAttemptSaved?.(examId, attempt, meta);
               }}

@@ -52,6 +52,7 @@ const normalizeMockExamTaskKeys = (taskKeys) => Array.from(new Set(
 
 const buildMockExamDraftAttemptKey = ({ attempt, targetTaskKeys, scoped = false }) => {
   const attemptIdentity = [
+    attempt?.attemptId ? `attempt:${String(attempt.attemptId).trim()}` : '',
     attempt?.homeworkId ? `homework:${String(attempt.homeworkId).trim()}` : '',
     attempt?.homeworkIssuedAt ? `issued:${String(attempt.homeworkIssuedAt).trim()}` : '',
     attempt?.timerStartedAt ? `timer:${String(attempt.timerStartedAt).trim()}` : '',
@@ -544,12 +545,17 @@ const MockExamModal = ({
   const primaryBadge = examBadges[0] || null;
   const secondaryBadges = examBadges.slice(1);
   const totalTaskCount = modalTaskNumbers.length;
+  const attemptFinished = Boolean(
+    String(activeAttempt?.finishedAt || '').trim()
+    || String(activeAttempt?.status || '').trim().toLowerCase() === 'finished'
+  );
   const timerAttemptFinished = isTimerAttemptFinished(activeAttempt);
   const timerResultsVisible = isTimerMode && (
     timerAttemptFinished
     || Object.keys(results || {}).length >= Math.max(1, totalTaskCount)
   );
   const timerInputsLocked = isTimerMode && (timerResultsVisible || timerExpired);
+  const inputsLocked = attemptFinished || timerInputsLocked;
   const visibleSolvedSource = isTimerMode && !timerResultsVisible ? {} : solved;
   const visibleSolved = modalTaskNumbers.reduce((result, taskNumber) => {
     const key = String(taskNumber);
@@ -587,12 +593,28 @@ const MockExamModal = ({
   const nextUnsolvedTask = isTimerMode && !timerResultsVisible
     ? getNextUnansweredTask(selectedTask)
     : getNextUnsolvedTask(visibleSolved, selectedTask);
-  const canCheck = Boolean(currentQuestion && studentId && isAnswerReady && !checking && !timerExpired && !isTimerMode);
-  const canFinishTimerExam = Boolean(isTimerMode && currentQuestion && studentId && !checking && !closing && !restartingTimer && !timerResultsVisible);
+  const canCheck = Boolean(
+    currentQuestion
+    && studentId
+    && isAnswerReady
+    && !checking
+    && !timerExpired
+    && !isTimerMode
+    && !attemptFinished
+  );
+  const canFinishExam = Boolean(
+    currentQuestion
+    && studentId
+    && !checking
+    && !closing
+    && !restartingTimer
+    && !attemptFinished
+    && (!isTimerMode || !timerResultsVisible)
+  );
 
   useEffect(() => {
-    if (!canFinishTimerExam) setFinishConfirmOpen(false);
-  }, [canFinishTimerExam]);
+    if (!canFinishExam) setFinishConfirmOpen(false);
+  }, [canFinishExam]);
 
   const handlePrevTask = () => {
     if (isFirstTask) return;
@@ -610,7 +632,7 @@ const MockExamModal = ({
   };
 
   const handleCheck = async (event) => {
-    if (!currentQuestion || !studentId || !isAnswerReady || checking || timerExpired || isTimerMode) return;
+    if (!currentQuestion || !studentId || !isAnswerReady || checking || timerExpired || isTimerMode || attemptFinished) return;
     const buttonRect = event?.currentTarget?.getBoundingClientRect?.();
     const sourceRect = (
       buttonRect
@@ -683,14 +705,14 @@ const MockExamModal = ({
     }
   };
 
-  const handleRequestFinishTimerExam = () => {
-    if (!canFinishTimerExam) return;
+  const handleRequestFinishExam = () => {
+    if (!canFinishExam) return;
     setSaveError('');
     setFinishConfirmOpen(true);
   };
 
-  const handleFinishTimerExam = async (event) => {
-    if (!canFinishTimerExam) return;
+  const handleFinishExam = async (event) => {
+    if (!canFinishExam) return;
     const buttonRect = event?.currentTarget?.getBoundingClientRect?.();
     const sourceRect = (
       buttonRect
@@ -715,7 +737,8 @@ const MockExamModal = ({
       const saved = await api.saveMockAttempt(studentId, exam.id, {
         answers,
         mode: effectiveAttemptMode,
-        finishTimerExam: true,
+        finishAttempt: true,
+        ...(isTimerMode ? { finishTimerExam: true } : {}),
         localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
       });
       if (saved && typeof saved === 'object') {
@@ -746,13 +769,13 @@ const MockExamModal = ({
         }
         const savedSecondaryScore = getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(savedSolved));
         const timerChestsGained = Math.max(0, Math.floor(Number(saved?.timerChestsGained) || 0));
-          setSaveStatus(
-            saved?.timerRewardsDisabled
-              ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Награды таймера отключены.`
-              : (timerChestsGained > 0
-            ? `Экзамен завершён. Баллы: ${savedSecondaryScore}. Получено сундуков: ${timerChestsGained}. Они ждут в рейтинге.`
-            : `Экзамен завершён. Баллы: ${savedSecondaryScore}.`)
-          );
+        setSaveStatus(
+          saved?.timerRewardsDisabled
+            ? `Пробник завершён и заморожен. Баллы: ${savedSecondaryScore}. Награды таймера отключены.`
+            : (timerChestsGained > 0
+              ? `Пробник завершён и заморожен. Баллы: ${savedSecondaryScore}. Получено сундуков: ${timerChestsGained}. Они ждут в рейтинге.`
+              : `Пробник завершён и заморожен. Баллы: ${savedSecondaryScore}.`)
+        );
         onAttemptSaved?.(exam.id, saved, { sourceRect });
       }
     } catch (err) {
@@ -805,6 +828,7 @@ const MockExamModal = ({
   const shouldShowContinueTimerExam = Boolean(
     isTimerMode
     && timerAttemptFinished
+    && !attemptFinished
     && typeof onContinueTimerAttempt === 'function'
   );
   const canContinueTimerExam = Boolean(
@@ -1138,8 +1162,8 @@ const MockExamModal = ({
         ) : (
           <Button
             type="button"
-            onClick={handleRequestFinishTimerExam}
-            disabled={!canFinishTimerExam}
+            onClick={handleRequestFinishExam}
+            disabled={!canFinishExam}
             className="min-h-[3.15rem] w-full rounded-2xl text-sm shadow-[0_18px_34px_rgba(225,29,72,0.28)]"
             style={{
               background: 'linear-gradient(135deg, #e11d48, #c026d3 58%, #7c3aed)',
@@ -1540,7 +1564,7 @@ const MockExamModal = ({
                               key={idx}
                               type="text"
                               value={currentAnswers[idx] ?? ''}
-                              disabled={timerInputsLocked}
+                              disabled={inputsLocked}
                               onKeyDown={handleAnswerKeyDown}
                               onChange={(e) => {
                                 const value = e.target.value;
@@ -1570,7 +1594,7 @@ const MockExamModal = ({
                         <input
                           type="text"
                           value={singleAnswer}
-                          disabled={timerInputsLocked}
+                          disabled={inputsLocked}
                           onKeyDown={handleAnswerKeyDown}
                           onChange={(e) => {
                             hasLocalAttemptChangesRef.current = true;
@@ -1638,6 +1662,19 @@ const MockExamModal = ({
                       >
                         {checking ? 'Проверяем...' : 'Проверить'}
                       </Button>
+                      <Button
+                        type="button"
+                        onClick={handleRequestFinishExam}
+                        disabled={!canFinishExam}
+                        className="w-full sm:w-auto xl:min-w-[9rem]"
+                        style={{
+                          background: 'linear-gradient(135deg, #e11d48, #f97316)',
+                          color: '#fff',
+                        }}
+                      >
+                        <Flame size={16} />
+                        {attemptFinished ? 'Пробник завершён' : 'Завершить пробник'}
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -1688,10 +1725,10 @@ const MockExamModal = ({
               </div>
               <div className="min-w-0">
                 <h2 id="mock-finish-confirm-title" className="text-lg font-black">
-                  Завершить экзамен?
+                  Завершить пробник?
                 </h2>
                 <p className={`mt-1 text-sm leading-6 ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
-                  После завершения ответы проверятся, таймер остановится, а продолжить этот запуск уже не получится.
+                  После завершения результат заморозится, а нерешённые задания попадут в ваше «Тестирование» с меткой этого пробника.
                 </p>
               </div>
             </div>
@@ -1706,20 +1743,20 @@ const MockExamModal = ({
                 <div className="mt-1 text-base font-black">{`${answeredCount}/${totalTaskCount}`}</div>
               </div>
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-widest opacity-60">Таймер</div>
-                <div className="mt-1 text-base font-black">{timerLabel}</div>
+                <div className="text-[11px] font-bold uppercase tracking-widest opacity-60">
+                  {isTimerMode ? 'Таймер' : 'Режим'}
+                </div>
+                <div className="mt-1 text-base font-black">{isTimerMode ? timerLabel : 'Обычный'}</div>
               </div>
             </div>
 
-            {answeredCount < totalTaskCount && (
-              <div className={`mt-3 rounded-2xl border px-3 py-2 text-sm font-semibold ${
-                isDarkTheme
-                  ? 'border-amber-300/20 bg-amber-300/10 text-amber-100'
-                  : 'border-amber-200 bg-amber-50 text-amber-800'
-              }`}>
-                Есть незаполненные задания. Их результат будет засчитан как неверный.
-              </div>
-            )}
+            <div className={`mt-3 rounded-2xl border px-3 py-2 text-sm font-semibold ${
+              isDarkTheme
+                ? 'border-amber-300/20 bg-amber-300/10 text-amber-100'
+                : 'border-amber-200 bg-amber-50 text-amber-800'
+            }`}>
+              После проверки все незачтённые задания будут добавлены в «Тестирование».
+            </div>
 
             <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Button
@@ -1733,8 +1770,8 @@ const MockExamModal = ({
               </Button>
               <Button
                 type="button"
-                onClick={handleFinishTimerExam}
-                disabled={!canFinishTimerExam}
+                onClick={handleFinishExam}
+                disabled={!canFinishExam}
                 className="min-h-[2.75rem] rounded-2xl shadow-[0_16px_30px_rgba(225,29,72,0.25)]"
                 style={{
                   background: 'linear-gradient(135deg, #e11d48, #f97316)',

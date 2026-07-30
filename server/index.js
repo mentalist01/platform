@@ -51,6 +51,12 @@ import {
   normalizeRandomMockSolvedByTask,
 } from './randomMockExam.js';
 import {
+  finalizeMockExamFollowup,
+  mergeMockExamFollowupQueueIntoTestsDb,
+  normalizeMockExamFollowupHistory,
+  normalizeMockExamFollowupQueue,
+} from './mockExamFollowup.js';
+import {
   expandTeacherFinanceMonthOccurrences,
   summarizeCurrentTeacherStudentsSchedule,
   summarizeTeacherFinanceCalendarPlan,
@@ -3315,6 +3321,13 @@ const getTestsDbWithPythonInfiniteTraining = (testsDb = readTestsDb()) => ({
   ...(testsDb && typeof testsDb === 'object' && !Array.isArray(testsDb) ? testsDb : {}),
   [PYTHON_INFINITE_TRAINING_TASK_KEY]: buildPythonInfiniteTrainingTaskEntry(PYTHON_LEVEL_ID),
 });
+
+const getTestsDbWithStudentMockFollowups = (studentData, testsDb = readTestsDb()) => (
+  mergeMockExamFollowupQueueIntoTestsDb({
+    testsDb: getTestsDbWithPythonInfiniteTraining(testsDb),
+    queue: studentData?.mockTestingQueue,
+  })
+);
 
 const writeTestsDb = (data) => {
   writeJsonFileAtomic(testsFile, data);
@@ -10779,7 +10792,13 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
 
 const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => {
   const answers = normalizeMockAttemptAnswers(exam, rawAnswers);
-  const solved = recomputeMockSolvedMap(exam, answers);
+  const finishedAt = normalizeMockTimerTimestamp(meta?.finishedAt);
+  const storedFinalSolved = meta?.solved && typeof meta.solved === 'object' && !Array.isArray(meta.solved)
+    ? meta.solved
+    : null;
+  const solved = finishedAt && storedFinalSolved
+    ? { ...storedFinalSolved }
+    : recomputeMockSolvedMap(exam, answers);
   const hasTimerMarkers = Boolean(
     normalizeMockTimerTimestamp(meta?.timerStartedAt)
     || normalizeMockTimerTimestamp(meta?.timerExpiresAt)
@@ -10845,6 +10864,10 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     && !Array.isArray(meta.timerContinuedAnswersBackup)
     ? normalizeMockAttemptAnswers(exam, meta.timerContinuedAnswersBackup)
     : null;
+  const attemptId = typeof meta?.attemptId === 'string' && meta.attemptId.trim()
+    ? meta.attemptId.trim().slice(0, 200)
+    : '';
+  const status = finishedAt ? 'finished' : 'active';
   const previousSolvedEver = meta?.solvedEver && typeof meta.solvedEver === 'object' && !Array.isArray(meta.solvedEver)
     ? meta.solvedEver
     : (meta?.solved && typeof meta.solved === 'object' && !Array.isArray(meta.solved) ? meta.solved : {});
@@ -10873,6 +10896,9 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     solved,
     solvedEver,
     mode,
+    ...(attemptId ? { attemptId } : {}),
+    status,
+    ...(finishedAt ? { finishedAt } : {}),
     ...(rewardsDisabled ? { rewardsDisabled: true } : {}),
     ...(modeLockedAt ? { modeLockedAt } : {}),
     ...(timerStartedAt ? { timerStartedAt } : {}),
@@ -10925,8 +10951,14 @@ const filterMockAttemptAnswersToTaskKeys = (answers, targetTaskKeys = []) => {
   }, {});
 };
 
+const getAnswerCountForQuestion = (question, taskNumber) => {
+  const override = Math.trunc(Number(question?.answerCountOverride));
+  if (Number.isFinite(override) && override > 0 && override <= 50) return override;
+  return getAnswerCountForTask(taskNumber);
+};
+
 const isSolvedAnswerValid = (question, rawValue, taskNumber) => {
-  const answerCount = getAnswerCountForTask(taskNumber);
+  const answerCount = getAnswerCountForQuestion(question, taskNumber);
   const expectedAnswers = getExpectedAnswersForQuestion(question, answerCount);
   const providedAnswers = parseSubmittedAnswers(rawValue, answerCount);
   if (answerCount <= 1) {
@@ -11005,9 +11037,10 @@ const appendAnswerHistoryEntry = (levelEntry, questionKey, rawValue, answerCount
 const recomputeProgressFromSolved = (data, testsDb = null) => {
   const baseProgress = { ...(data.progress || {}) };
   const solvedByTask = data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {};
-  const currentTests = testsDb && typeof testsDb === 'object' && !Array.isArray(testsDb)
+  const baseTests = testsDb && typeof testsDb === 'object' && !Array.isArray(testsDb)
     ? testsDb
     : getTestsDbWithPythonInfiniteTraining();
+  const currentTests = getTestsDbWithStudentMockFollowups(data, baseTests);
   Object.entries(solvedByTask).forEach(([taskKey, entry]) => {
     baseProgress[taskKey] = computeTaskProgress(entry || {}, currentTests?.[taskKey]);
   });
@@ -11150,6 +11183,8 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: [],
       mockAttempts: {},
+      mockAttemptResults: [],
+      mockTestingQueue: [],
       randomMockSolvedByTask: {},
       xpTotal: 0,
       coinsTotal: 0,
@@ -11184,6 +11219,8 @@ const getStudentData = (studentId, progressDbOverride = null) => {
     || Object.prototype.hasOwnProperty.call(raw, 'weeklyTaskPracticeMilestones')
     || raw.streak
     || raw.mockAttempts
+    || Object.prototype.hasOwnProperty.call(raw, 'mockAttemptResults')
+    || Object.prototype.hasOwnProperty.call(raw, 'mockTestingQueue')
     || Object.prototype.hasOwnProperty.call(raw, 'randomMockSolvedByTask')
     || Object.prototype.hasOwnProperty.call(raw, 'xpTotal')
     || Object.prototype.hasOwnProperty.call(raw, 'coinsTotal')
@@ -11259,6 +11296,8 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
+      mockAttemptResults: normalizeMockExamFollowupHistory(raw.mockAttemptResults),
+      mockTestingQueue: normalizeMockExamFollowupQueue(raw.mockTestingQueue),
       randomMockSolvedByTask: normalizeRandomMockSolvedByTask(raw.randomMockSolvedByTask),
       xpTotal,
       coinsTotal,
@@ -11299,6 +11338,8 @@ const getStudentData = (studentId, progressDbOverride = null) => {
     nextLesson: { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
     homeworks: [],
     mockAttempts: {},
+    mockAttemptResults: [],
+    mockTestingQueue: [],
     randomMockSolvedByTask: {},
     xpTotal: legacyXp,
     coinsTotal: 0,
@@ -11343,6 +11384,8 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     nextLesson: data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
     mockAttempts: data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {},
+    mockAttemptResults: normalizeMockExamFollowupHistory(data.mockAttemptResults),
+    mockTestingQueue: normalizeMockExamFollowupQueue(data.mockTestingQueue),
     randomMockSolvedByTask: normalizeRandomMockSolvedByTask(data.randomMockSolvedByTask),
     xpTotal: normalizeXpTotal(data.xpTotal),
     coinsTotal: normalizeCoinsTotal(data.coinsTotal),
@@ -15185,6 +15228,33 @@ const sanitizeMockExamForStudent = (exam) => {
   return safe;
 };
 
+const sanitizeStudentDataForClient = (studentData) => {
+  if (!studentData || typeof studentData !== 'object' || Array.isArray(studentData)) return {};
+  const safe = { ...studentData };
+  const queue = normalizeMockExamFollowupQueue(studentData.mockTestingQueue);
+  safe.mockAttemptResults = normalizeMockExamFollowupHistory(studentData.mockAttemptResults)
+    .map((result) => {
+      const resultTasks = result?.tasks && typeof result.tasks === 'object' && !Array.isArray(result.tasks)
+        ? result.tasks
+        : {};
+      const sanitizedTasks = Object.entries(resultTasks).reduce((acc, [taskKey, question]) => {
+        acc[taskKey] = sanitizeStudentQuestion(question);
+        return acc;
+      }, {});
+      const sanitizedResult = {
+        ...result,
+        tasks: sanitizedTasks,
+      };
+      delete sanitizedResult.answers;
+      delete sanitizedResult.examSnapshot;
+      delete sanitizedResult.attemptSnapshot;
+      return sanitizedResult;
+    });
+  safe.mockTestingQueueCount = queue.length;
+  delete safe.mockTestingQueue;
+  return safe;
+};
+
 const serializeMockExamEntry = (exam, options = {}) => {
   if (!exam || typeof exam !== 'object') return exam;
   const safeExam = options.sanitizeForStudent ? sanitizeMockExamForStudent(exam) : { ...exam };
@@ -17352,7 +17422,8 @@ app.post('/api/student-help-requests', async (req, res) => {
   if (!Number.isFinite(taskNumber) || !levelId || !questionId || !isKnownTaskNumber(taskNumber)) {
     return res.status(400).json({ error: 'Не удалось определить текущее задание' });
   }
-  const testsDb = getTestsDbWithPythonInfiniteTraining();
+  const data = getStudentData(student.id);
+  const testsDb = getTestsDbWithStudentMockFollowups(data);
   const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNumber, levelId, questionId);
   if (!taskLevels || !questions || !question) {
     return res.status(400).json({ error: 'Вопрос задания не найден' });
@@ -20713,8 +20784,23 @@ app.post('/api/students/:id/reset-code', (req, res) => {
 
 app.get('/api/tests', (req, res) => {
   const data = readTestsDb();
+  const requestedStudentId = typeof req.query?.studentId === 'string'
+    ? req.query.studentId.trim()
+    : '';
   if (isStudentRole(req.auth)) {
-    return res.json(sanitizeTestsDbForStudent(getTestsDbWithPythonInfiniteTraining(data)));
+    if (requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+    const studentData = getStudentData(req.auth.id);
+    return res.json(sanitizeTestsDbForStudent(
+      getTestsDbWithStudentMockFollowups(studentData, data)
+    ));
+  }
+  if (requestedStudentId) {
+    const student = ensureStudentAccess(req, res, requestedStudentId);
+    if (!student) return;
+    const studentData = getStudentData(student.id);
+    return res.json(sanitizeTestsDbForStudent(
+      getTestsDbWithStudentMockFollowups(studentData, data)
+    ));
   }
   return res.json(data || {});
 });
@@ -21070,6 +21156,14 @@ app.patch('/api/mock-exams/attempt/continue-timer', (req, res) => {
   if (!previousAttempt || Object.keys(previousAttempt).length === 0) {
     return res.status(404).json({ error: 'Попытка пробника не найдена' });
   }
+  if (
+    normalizeMockTimerTimestamp(previousAttempt?.finishedAt)
+    || String(previousAttempt?.status || '').trim().toLowerCase() === 'finished'
+  ) {
+    return res.status(409).json({
+      error: 'Результат уже заморожен. Для продолжения запустите новую попытку.',
+    });
+  }
   const previousAttemptMode = normalizeMockAttemptMode(previousAttempt?.mode);
   const previousTimerFinishedAt = normalizeMockTimerTimestamp(previousAttempt?.timerFinishedAt);
   if (previousAttemptMode !== MOCK_ATTEMPT_MODE_TIMER || !previousTimerFinishedAt) {
@@ -21129,6 +21223,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     localDay,
     mode,
     startOnly,
+    finishAttempt,
     finishTimerExam,
     pauseTimerExam,
     resumeTimerExam,
@@ -21224,9 +21319,27 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     return res.status(409).json({ error: 'Режим пробника уже выбран для этой попытки.' });
   }
   const attemptMode = modeResolution.mode;
-  const isTimerFinishRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && finishTimerExam === true;
+  const isTimerFinishRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    && !startOnly
+    && (finishTimerExam === true || finishAttempt === true);
+  const isAttemptFinishRequest = !startOnly && (
+    finishAttempt === true
+    || isTimerFinishRequest
+  );
   const isTimerPauseRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && pauseTimerExam === true;
   const isTimerResumeRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && resumeTimerExam === true;
+  const previousFinishedAt = normalizeMockTimerTimestamp(previousAttempt?.finishedAt);
+  if (previousFinishedAt && !startOnly) {
+    if (isAttemptFinishRequest) {
+      return res.json({
+        ...normalizeMockAttemptPayload(exam, previousAttempt.answers, previousAttempt.updatedAt, previousAttempt),
+        requiredMode,
+        finalized: true,
+        idempotent: true,
+      });
+    }
+    return res.status(409).json({ error: 'Этот результат пробника уже заморожен.' });
+  }
   if (attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && !isTimerFinishRequest && !isTimerPauseRequest) {
     return res.status(409).json({ error: 'Ответы в режиме таймера проверяются только после завершения экзамена.' });
   }
@@ -21258,6 +21371,15 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   if (requestedTimerRestart && !canRestartTimerAttempt) {
     return res.status(409).json({ error: 'Повторный таймер можно запустить только после завершения времени.' });
   }
+  if (previousFinishedAt && startOnly && !canRestartTimerAttempt) {
+    return res.status(409).json({ error: 'Этот результат пробника заморожен. Запустите новую попытку.' });
+  }
+  const previousAttemptId = typeof previousAttempt?.attemptId === 'string'
+    ? previousAttempt.attemptId.trim().slice(0, 200)
+    : '';
+  const attemptId = canRestartTimerAttempt || startsNewHomeworkAttempt || !previousAttemptId
+    ? crypto.randomUUID()
+    : previousAttemptId;
   const timerRewardsRestoredAt = normalizeMockTimerTimestamp(previousAttempt?.timerRewardsRestoredAt);
   const canRestartWithRestoredTimerRewards = Boolean(canRestartTimerAttempt && timerRewardsRestoredAt);
   const timerRewardsDisabled = (
@@ -21342,13 +21464,14 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     } : {}),
     mode: attemptMode,
     modeLockedAt,
+    attemptId,
     rewardsDisabled: examRewardsDisabled,
     ...(homeworkAssignment ? {
       homeworkId: homeworkAssignment.id,
       homeworkIssuedAt: homeworkAssignment.issuedAt,
       targetTaskKeys: assignmentTargetTaskKeys,
     } : {}),
-    ...(canRestartTimerAttempt ? { timerFinishedAt: '' } : {}),
+    ...(canRestartTimerAttempt ? { timerFinishedAt: '', finishedAt: '', status: 'active' } : {}),
     timerPausedAt,
     timerRemainingMs,
     timerRewardsDisabled,
@@ -21408,6 +21531,9 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     ...normalizedAttemptBase,
     mode: attemptMode,
     modeLockedAt,
+    attemptId,
+    status: isAttemptFinishRequest ? 'finished' : 'active',
+    ...(isAttemptFinishRequest ? { finishedAt: savedAt } : {}),
     ...(isTimerFinishRequest
       ? { timerFinishedAt: savedAt }
       : (normalizedAttemptBase.timerFinishedAt ? { timerFinishedAt: normalizedAttemptBase.timerFinishedAt } : {})),
@@ -21425,6 +21551,36 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     ...(timerRewardsDisabled ? { timerRewardsDisabled: true } : {}),
   };
   attempts[String(examId)] = normalizedAttempt;
+  let mockAttemptResults = normalizeMockExamFollowupHistory(data.mockAttemptResults);
+  let mockTestingQueue = normalizeMockExamFollowupQueue(data.mockTestingQueue);
+  let finalizedMockResult = null;
+  let queuedTestingEntries = [];
+  if (isAttemptFinishRequest) {
+    const followup = finalizeMockExamFollowup({
+      history: mockAttemptResults,
+      queue: mockTestingQueue,
+      exam,
+      attempt: normalizedAttempt,
+      attemptId,
+      finishedAt: savedAt,
+      targetTaskKeys: normalizedAttempt.targetTaskKeys,
+      testsDb: readTestsDb(),
+      solvedByTask: data.solvedByTask,
+    });
+    const primaryScore = getMockPrimaryScoreFromSolved(normalizedAttempt.solved);
+    mockAttemptResults = followup.history.map((entry) => (
+      entry.attemptId === attemptId
+        ? { ...entry, primaryScore, secondaryScore }
+        : entry
+    ));
+    mockTestingQueue = followup.queue;
+    finalizedMockResult = {
+      ...followup.result,
+      primaryScore,
+      secondaryScore,
+    };
+    queuedTestingEntries = followup.queuedEntries;
+  }
   const newlySolvedTaskKeys = Object.entries(normalizedAttempt.solved || {})
     .filter(([, solvedNow]) => Boolean(solvedNow))
     .map(([entryTaskKey]) => entryTaskKey)
@@ -21544,6 +21700,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const updated = setStudentData(student.id, {
     ...data,
     mockAttempts: attempts,
+    mockAttemptResults,
+    mockTestingQueue,
     xpTotal,
     coinsTotal,
     mockTimerChestsTotal: normalizeCoinsTotal(data?.mockTimerChestsTotal) + timerChestsGained,
@@ -21608,6 +21766,13 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   res.json({
     ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
     requiredMode,
+    ...(isAttemptFinishRequest
+      ? {
+          finalized: true,
+          finalizedResultId: finalizedMockResult?.id || attemptId,
+          testingQueueAdded: queuedTestingEntries.length,
+        }
+      : {}),
     xpGained,
     mockSolveXpGained,
     xpTotal: updated.xpTotal,
@@ -21762,7 +21927,8 @@ app.post('/api/progress/solve', async (req, res) => {
   if (!Number.isFinite(taskNum)) {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
-  const testsDb = getTestsDbWithPythonInfiniteTraining();
+  const data = getStudentData(student.id);
+  const testsDb = getTestsDbWithStudentMockFollowups(data);
   const taskKey = String(taskNum);
   const levelKey = String(levelId).trim();
   const qKey = String(questionId).trim();
@@ -21781,9 +21947,8 @@ app.post('/api/progress/solve', async (req, res) => {
   if (!questionEntry) {
     return res.status(400).json({ error: 'Вопрос не найден' });
   }
-  const answerCount = getAnswerCountForTask(taskNum);
+  const answerCount = getAnswerCountForQuestion(questionEntry, taskNum);
   const submittedAt = new Date().toISOString();
-  const data = getStudentData(student.id);
   const solvedByTask = { ...(data.solvedByTask || {}) };
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
   let levelEntry = { ...(taskEntry[levelKey] || {}) };
@@ -22354,7 +22519,8 @@ app.get('/api/progress/solved-answers', (req, res) => {
   if (!Number.isFinite(taskNum)) {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
-  const testsDb = getTestsDbWithPythonInfiniteTraining();
+  const data = getStudentData(student.id);
+  const testsDb = getTestsDbWithStudentMockFollowups(data);
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
   const taskLevels = testsDb?.[taskKey];
@@ -22366,16 +22532,15 @@ app.get('/api/progress/solved-answers', (req, res) => {
     return res.status(400).json({ error: 'Уровень не найден' });
   }
 
-  const data = getStudentData(student.id);
   const levelEntry = data?.solvedByTask?.[taskKey]?.[levelKey] || {};
   const solved = Array.isArray(levelEntry?.solved) ? levelEntry.solved : [];
   const solvedSet = new Set(solved.map((id) => String(id ?? '').trim()).filter(Boolean));
-  const answerCount = getAnswerCountForTask(taskNum);
   const answerById = {};
 
   questions.forEach((question) => {
     const qKey = String(question?.id ?? '').trim();
     if (!qKey || !solvedSet.has(qKey)) return;
+    const answerCount = getAnswerCountForQuestion(question, taskNum);
     const expectedAnswers = getExpectedAnswersForQuestion(question, answerCount).map((value) => String(value ?? ''));
     if (answerCount <= 1) {
       answerById[qKey] = expectedAnswers[0] ?? '';
@@ -22500,12 +22665,12 @@ app.get('/api/progress/question-code', (req, res) => {
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
   const questionKey = String(questionId).trim();
-  const testsDb = getTestsDbWithPythonInfiniteTraining();
+  const data = getStudentData(student.id);
+  const testsDb = getTestsDbWithStudentMockFollowups(data);
   const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNum, levelKey, questionKey);
   if (!taskLevels) return res.status(400).json({ error: 'Задание не найдено' });
   if (!questions) return res.status(400).json({ error: 'Уровень не найден' });
   if (!question) return res.status(400).json({ error: 'Вопрос не найден' });
-  const data = getStudentData(student.id);
   const levelEntry = data?.solvedByTask?.[taskKey]?.[levelKey] || {};
   const byId = levelEntry?._questionCodeById && typeof levelEntry._questionCodeById === 'object'
     ? levelEntry._questionCodeById
@@ -22544,7 +22709,8 @@ app.patch('/api/progress/question-code', (req, res) => {
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
   const questionKey = String(questionId).trim();
-  const testsDb = getTestsDbWithPythonInfiniteTraining();
+  const data = getStudentData(student.id);
+  const testsDb = getTestsDbWithStudentMockFollowups(data);
   const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNum, levelKey, questionKey);
   if (!taskLevels) return res.status(400).json({ error: 'Задание не найдено' });
   if (!questions) return res.status(400).json({ error: 'Уровень не найден' });
@@ -22553,7 +22719,6 @@ app.patch('/api/progress/question-code', (req, res) => {
   const safeInput = typeof input === 'string' ? input.slice(0, 5000) : '';
   const hasPayload = Boolean(safeCode.trim() || safeInput.trim());
 
-  const data = getStudentData(student.id);
   const solvedByTask = { ...(data.solvedByTask || {}) };
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
   const levelEntry = { ...(taskEntry[levelKey] || {}) };
@@ -22602,7 +22767,7 @@ app.get('/api/student-data', (req, res) => {
   if (!student) return;
   const data = getStudentData(student.id);
   const progress = recomputeProgressFromSolved(data);
-  res.json({ ...data, progress });
+  res.json(sanitizeStudentDataForClient({ ...data, progress }));
 });
 
 app.patch('/api/student-notes', (req, res) => {

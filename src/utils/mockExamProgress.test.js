@@ -141,6 +141,95 @@ test('classic attempts appear only after every task has an answer', () => {
   assert.equal(completedEntries[0].score, 7);
 });
 
+test('two frozen attempts of the same exam produce two separate progress points', () => {
+  const entries = buildMockExamProgressEntries({
+    studentData: {
+      mockAttemptResults: [
+        {
+          resultId: 'result-1',
+          attemptId: 'attempt-1',
+          examId: 'exam',
+          examTitle: 'Пробник №1',
+          mode: 'timer',
+          finishedAt: '2026-09-01T12:00:00.000Z',
+          solved: { 1: true, 2: false },
+          tasks: { 1: {}, 2: {} },
+          secondaryScore: 7,
+        },
+        {
+          resultId: 'result-2',
+          attemptId: 'attempt-2',
+          examId: 'exam',
+          examTitle: 'Пробник №1',
+          mode: 'timer',
+          finishedAt: '2026-11-01T12:00:00.000Z',
+          solved: { 1: true, 2: true },
+          tasks: { 1: {}, 2: {} },
+          secondaryScore: 14,
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    entries.map((entry) => [entry.id, entry.score]),
+    [
+      ['online-result:result-1', 7],
+      ['online-result:result-2', 14],
+    ]
+  );
+});
+
+test('a finalized classic attempt is included even when some answers are missing', () => {
+  const entries = buildMockExamProgressEntries({
+    studentData: {
+      mockAttemptResults: [{
+        id: 'classic-result',
+        attemptId: 'classic-attempt',
+        examId: 'exam',
+        title: 'Классический пробник',
+        mode: 'classic',
+        finishedAt: '2026-10-01T12:00:00.000Z',
+        solved: { 1: true, 2: false },
+        targetTaskKeys: [],
+        tasks: { 1: {}, 2: {} },
+      }],
+    },
+  });
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].id, 'online-result:classic-result');
+  assert.equal(entries[0].score, 7);
+});
+
+test('the current attempt is not duplicated when its attemptId is already frozen', () => {
+  const entries = buildMockExamProgressEntries({
+    studentData: {
+      mockAttemptResults: [{
+        resultId: 'frozen',
+        attemptId: 'attempt-1',
+        examId: 'exam',
+        mode: 'timer',
+        finishedAt: '2026-10-01T12:00:00.000Z',
+        solved: { 1: true },
+        tasks: { 1: {} },
+        secondaryScore: 7,
+      }],
+    },
+    mockAttemptsByExam: {
+      exam: {
+        attemptId: 'attempt-1',
+        mode: 'timer',
+        timerFinishedAt: '2026-10-01T12:00:00.000Z',
+        solved: { 1: true },
+      },
+    },
+    mockExams: [{ id: 'exam', tasks: { 1: {} } }],
+  });
+
+  assert.deepEqual(entries.map((entry) => entry.id), ['online-result:frozen']);
+});
+
 test('invalid calendar dates are ignored instead of rolling into another month', () => {
   const entries = buildMockExamProgressEntries({
     studentData: {

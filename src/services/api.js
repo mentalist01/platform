@@ -1027,8 +1027,11 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  getTests: async () => {
-    const res = await apiFetch('/api/tests');
+  getTests: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/tests?${qs}` : '/api/tests');
     if (!res.ok) throw new Error(await parseApiError(res));
     const data = await parseJsonResponse(res);
     return data && typeof data === 'object' ? data : {};
