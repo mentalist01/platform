@@ -12,6 +12,7 @@ import { normalizeHomeworkComposerDraft } from '../utils/homeworkComposerDraft';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { getStudentUnpaidLessonOccurrences } from '../utils/studentPaymentReminder';
+import { buildHomeworkDueAtFromSchedule } from '../utils/homeworkDueAt';
 import {
   MOCK_EXAM_MODE_CLASSIC as MOCK_ATTEMPT_MODE_CLASSIC,
   MOCK_EXAM_MODE_TIMER as MOCK_ATTEMPT_MODE_TIMER,
@@ -72,10 +73,9 @@ const resolveHomeworkDueAt = (entry) => {
   return new Date(issuedAt.getTime() + (normalizedDays * HOMEWORK_DAY_MS));
 };
 
-const buildDefaultHomeworkDueAt = (days = 7) => {
-  const normalizedDays = Number.isFinite(Number(days)) && Number(days) > 0 ? Number(days) : 7;
-  return new Date(Date.now() + (normalizedDays * HOMEWORK_DAY_MS));
-};
+const buildDefaultHomeworkDueAt = (days = 7, scheduleEntries = [], now = new Date()) => (
+  buildHomeworkDueAtFromSchedule(scheduleEntries, { now, fallbackDays: days })
+);
 
 const toDateTimeLocalValue = (value) => {
   const date = value instanceof Date ? value : new Date(value || '');
@@ -3168,7 +3168,10 @@ const ScheduleSection = ({
       homeWork: DEFAULT_HOMEWORK,
       lessonLink: source?.lessonLink || '',
       boardLink: source?.boardLink || '',
-      dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(source?.daysToComplete || 7)),
+      dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(
+        source?.daysToComplete || 7,
+        editableLessonSchedule
+      )),
       daysToComplete: source?.daysToComplete || 7,
       goals: [{ ...DEFAULT_GOAL }],
       dayPlanEnabled: true,
@@ -3304,7 +3307,10 @@ const ScheduleSection = ({
       homeWork: DEFAULT_HOMEWORK,
       lessonLink: nextLesson?.lessonLink || '',
       boardLink: nextLesson?.boardLink || '',
-      dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(nextLesson?.daysToComplete || 7)),
+      dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(
+        nextLesson?.daysToComplete || 7,
+        editableLessonSchedule
+      )),
       daysToComplete: nextLesson?.daysToComplete || 7,
       goals: [createDefaultGoal()],
       dayPlanEnabled: true,
@@ -3313,12 +3319,13 @@ const ScheduleSection = ({
       issuedAt: '',
     });
 
-    const [homeworkResult, studentDataResult, testsResult, mockExamsResult, draftResult] = await Promise.allSettled([
+    const [homeworkResult, studentDataResult, testsResult, mockExamsResult, draftResult, scheduleResult] = await Promise.allSettled([
       api.getStudentNextLesson(requestStudentId),
       api.getStudentData(requestStudentId),
       api.getTests(),
       api.getMockExams(requestStudentId),
       api.getStudentHomeworkDraft(effectiveStudentId),
+      api.getStudentSchedule(requestStudentId),
     ]);
     if (homeworkComposerRequestRef.current !== requestId) return;
 
@@ -3332,6 +3339,12 @@ const ScheduleSection = ({
     const freshStudentData = studentDataResult.status === 'fulfilled' && studentDataResult.value && typeof studentDataResult.value === 'object'
       ? studentDataResult.value
       : {};
+    const freshSchedule = scheduleResult.status === 'fulfilled'
+      ? sortScheduleEntries(Array.isArray(scheduleResult.value) ? scheduleResult.value : [])
+      : lessonSchedule;
+    const freshEditableSchedule = freshSchedule.filter(
+      (entry) => !isPaymentOverdueScheduleEntry(entry)
+    );
 
     if (testsResult.status === 'fulfilled') {
       setTestsDb(freshTests);
@@ -3347,6 +3360,12 @@ const ScheduleSection = ({
     }
     if (studentDataResult.status === 'rejected') {
       warnings.push('Не удалось точно проверить, что ученик уже выполнил. Проверьте перенесённые номера.');
+    }
+    if (scheduleResult.status === 'fulfilled') {
+      setLessonSchedule(freshSchedule);
+      setScheduleError('');
+    } else {
+      warnings.push('Не удалось обновить расписание; дедлайн рассчитан по последней загруженной версии.');
     }
     const restoredDraft = draftResult.status === 'fulfilled'
       ? normalizeHomeworkComposerDraft(draftResult.value?.draft)
@@ -3466,7 +3485,10 @@ const ScheduleSection = ({
           homeWork: carryover.homeWork,
           lessonLink: sourceData?.lessonLink || '',
           boardLink: sourceData?.boardLink || '',
-          dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(sourceData?.daysToComplete || 7)),
+          dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt(
+            sourceData?.daysToComplete || 7,
+            freshEditableSchedule
+          )),
           daysToComplete: sourceData?.daysToComplete || 7,
           goals: [...carryoverGoals, createDefaultGoal()],
           dayPlanEnabled: true,
