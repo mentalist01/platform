@@ -3925,10 +3925,10 @@ const ProgressSection = ({
             type="button"
             onClick={onOpenHomeworkStats}
             disabled={!effectiveStudentId || typeof onOpenHomeworkStats !== 'function'}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-sky-200 bg-slate-50/70 px-4 py-2 text-xs font-semibold text-sky-700 transition-colors duration-150 ease-out hover:border-sky-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none sm:w-auto md:px-5 md:text-sm"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-purple-600 bg-gradient-to-r from-purple-600 via-violet-600 to-fuchsia-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-purple-200/70 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-fuchsia-500 hover:shadow-lg hover:shadow-purple-300/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/70 focus-visible:ring-offset-2 active:translate-y-0 disabled:translate-y-0 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-none disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none motion-reduce:transition-none sm:w-auto md:px-5 md:text-sm"
             title={effectiveStudentId ? 'Открыть статистику по ДЗ' : 'Сначала выберите ученика'}
           >
-            <ListChecks size={14} />
+            <ListChecks size={15} strokeWidth={2.2} />
             Статистика по ДЗ
           </button>
         </div>
