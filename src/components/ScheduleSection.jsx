@@ -7,7 +7,11 @@ import StudentLessonDetailModal from './StudentLessonDetailModal';
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
 import HomeworkDayPlan from './HomeworkDayPlan';
 import { Button, Card } from './ui';
-import { buildHomeworkCarryoverDraft, resolveHomeworkTaskTargetDescriptors } from '../utils/homeworkComposer';
+import {
+  buildHomeworkCarryoverDraft,
+  formatHomeworkQuestionRanges,
+  resolveHomeworkTaskTargetDescriptors,
+} from '../utils/homeworkComposer';
 import { normalizeHomeworkComposerDraft } from '../utils/homeworkComposerDraft';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
@@ -639,6 +643,7 @@ const ScheduleSection = ({
     dayPlanEnabled: true,
     dayPlanSessionCount: 3,
     dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+    dayPlanManualLayout: null,
     issuedAt: '',
   });
   const [studentProgress, setStudentProgress] = useState({});
@@ -760,6 +765,7 @@ const ScheduleSection = ({
         dayPlanEnabled: true,
         dayPlanSessionCount: 3,
         dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+        dayPlanManualLayout: null,
         issuedAt: '',
       });
       setEditingId(null);
@@ -3200,6 +3206,7 @@ const ScheduleSection = ({
       dayPlanEnabled: true,
       dayPlanSessionCount: 3,
       dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+      dayPlanManualLayout: null,
       issuedAt: '',
     });
     setEditingId(null);
@@ -3318,6 +3325,26 @@ const ScheduleSection = ({
           )),
         }
       : null;
+    const normalizedBasketItems = prefill && typeof prefill === 'object' && prefill.source === 'lesson-basket'
+      ? (Array.isArray(prefill.items) ? prefill.items : [])
+          .map((item) => {
+            const taskNumber = normalizeTaskNumber?.(item?.taskNumber) ?? Number(item?.taskNumber);
+            const questionNumber = Math.trunc(Number(item?.questionNumber));
+            const questionId = String(item?.questionId || '').trim();
+            if (!Number.isFinite(Number(taskNumber)) || (!Number.isFinite(questionNumber) && !questionId)) {
+              return null;
+            }
+            return {
+              taskNumber: Number(taskNumber),
+              levelId: isPythonTaskNumber?.(taskNumber)
+                ? PYTHON_LEVEL_ID
+                : (String(item?.levelId || 'basic').trim() || 'basic'),
+              questionNumber: Number.isFinite(questionNumber) && questionNumber > 0 ? questionNumber : null,
+              questionId,
+            };
+          })
+          .filter(Boolean)
+      : [];
     const requestId = homeworkComposerRequestRef.current + 1;
     homeworkComposerRequestRef.current = requestId;
     setEditingId(null);
@@ -3340,6 +3367,7 @@ const ScheduleSection = ({
       dayPlanEnabled: true,
       dayPlanSessionCount: 3,
       dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+      dayPlanManualLayout: null,
       issuedAt: '',
     });
 
@@ -3500,6 +3528,89 @@ const ScheduleSection = ({
         carryoverGoals = [...carryoverGoals, reviewGoal];
       }
     }
+    if (normalizedBasketItems.length > 0) {
+      const groupedBasketItems = normalizedBasketItems.reduce((groups, item) => {
+        const key = `${item.taskNumber}:${item.levelId}`;
+        const bucket = groups.get(key) || [];
+        const identity = item.questionId || `number:${item.questionNumber}`;
+        if (!bucket.some((candidate) => (
+          (candidate.questionId || `number:${candidate.questionNumber}`) === identity
+        ))) {
+          bucket.push(item);
+        }
+        groups.set(key, bucket);
+        return groups;
+      }, new Map());
+
+      groupedBasketItems.forEach((basketItems) => {
+        const sample = basketItems[0];
+        const matchingGoalIndex = carryoverGoals.findIndex((goal) => (
+          normalizeGoalType(goal) === GOAL_TYPE_TASK
+          && String(goal?.origin || 'new').trim().toLowerCase() !== 'carryover'
+          && !goal?.includeAll
+          && Number(normalizeTaskNumber?.(goal?.taskNumber) ?? goal?.taskNumber) === sample.taskNumber
+          && String(goal?.levelId || 'basic') === sample.levelId
+        ));
+        const existingGoal = matchingGoalIndex >= 0 ? carryoverGoals[matchingGoalIndex] : null;
+        const availableCount = Array.isArray(freshTests?.[String(sample.taskNumber)]?.[sample.levelId])
+          ? freshTests[String(sample.taskNumber)][sample.levelId].length
+          : 500;
+        const existingNumbers = existingGoal?.includeAll
+          ? []
+          : Array.from(new Set([
+              ...(Array.isArray(existingGoal?.targetQuestions) ? existingGoal.targetQuestions : []),
+              ...parseTargetInput(existingGoal?.targetInput || '', Math.max(availableCount, 500)),
+            ].map((value) => Math.trunc(Number(value))).filter((value) => value > 0)));
+        const nextNumbers = Array.from(new Set([
+          ...existingNumbers,
+          ...basketItems.map((item) => item.questionNumber).filter((value) => Number.isFinite(value) && value > 0),
+        ])).sort((left, right) => left - right);
+        const questionList = Array.isArray(freshTests?.[String(sample.taskNumber)]?.[sample.levelId])
+          ? freshTests[String(sample.taskNumber)][sample.levelId]
+          : [];
+        const explicitIdByNumber = new Map();
+        (Array.isArray(existingGoal?.targetQuestions) ? existingGoal.targetQuestions : []).forEach((number, index) => {
+          const questionId = String(existingGoal?.targetQuestionIds?.[index] || '').trim();
+          const normalizedNumber = Math.trunc(Number(number));
+          if (normalizedNumber > 0 && questionId) explicitIdByNumber.set(normalizedNumber, questionId);
+        });
+        basketItems.forEach((item) => {
+          if (item.questionNumber && item.questionId) explicitIdByNumber.set(item.questionNumber, item.questionId);
+        });
+        const alignedQuestionIds = nextNumbers.map((questionNumber) => (
+          String(questionList[questionNumber - 1]?.id || '').trim()
+          || explicitIdByNumber.get(questionNumber)
+          || ''
+        ));
+        const nextQuestionIds = alignedQuestionIds.every(Boolean) ? alignedQuestionIds : [];
+        const mergedGoal = {
+          ...createDefaultGoal(GOAL_TYPE_TASK),
+          ...(existingGoal || {}),
+          type: GOAL_TYPE_TASK,
+          taskNumber: sample.taskNumber,
+          levelId: sample.levelId,
+          includeAll: false,
+          targetInput: formatHomeworkQuestionRanges(nextNumbers),
+          targetQuestions: nextNumbers,
+          targetQuestionIds: nextQuestionIds,
+          targetSelectionDirty: nextQuestionIds.length !== nextNumbers.length,
+          origin: 'new',
+          carryover: null,
+          continuationOfHomeworkId: '',
+        };
+        if (matchingGoalIndex >= 0) {
+          carryoverGoals[matchingGoalIndex] = mergedGoal;
+          return;
+        }
+        const emptyGoalIndex = carryoverGoals.findIndex((goal) => (
+          normalizeGoalType(goal) === GOAL_TYPE_TASK
+          && !String(goal?.taskNumber ?? '').trim()
+          && !String(goal?.targetInput || '').trim()
+        ));
+        if (emptyGoalIndex >= 0) carryoverGoals[emptyGoalIndex] = mergedGoal;
+        else carryoverGoals.push(mergedGoal);
+      });
+    }
     setForm(restoredDraftForm
       ? {
           ...restoredDraftForm,
@@ -3519,14 +3630,19 @@ const ScheduleSection = ({
           dayPlanEnabled: true,
           dayPlanSessionCount: 3,
           dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+          dayPlanManualLayout: null,
           issuedAt: '',
         });
     setHomeworkCarryoverSummary(carryoverSummary);
     if (restoredDraftForm && normalizedPrefill?.mockExamId) {
       warnings.push('Ошибки пробника добавлены в сохранённый черновик.');
     }
+    if (normalizedBasketItems.length > 0) {
+      warnings.push(`Из корзины урока добавлено заданий: ${normalizedBasketItems.length}.`);
+    }
     setHomeworkComposerError(warnings.join(' '));
     setHomeworkComposerPreparing(false);
+    return true;
   };
 
   useEffect(() => {
@@ -3543,7 +3659,15 @@ const ScheduleSection = ({
     }
     homeworkPrefillHandledRef.current = requestId;
     openNewHomeworkComposer(homeworkPrefillRequest)
-      .finally(() => onHomeworkPrefillHandled?.());
+      .then((consumed) => onHomeworkPrefillHandled?.({
+        consumed: consumed === true,
+        request: homeworkPrefillRequest,
+      }))
+      .catch((prefillError) => onHomeworkPrefillHandled?.({
+        consumed: false,
+        request: homeworkPrefillRequest,
+        error: prefillError,
+      }));
   }, [effectiveStudentId, homeworkPrefillRequest, onHomeworkPrefillHandled, role]);
 
   const startEditHomework = (entry) => {
@@ -3571,6 +3695,7 @@ const ScheduleSection = ({
       dayPlanWeekdays: Array.isArray(storedDayPlan?.selectedWeekdays)
         ? storedDayPlan.selectedWeekdays
         : [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
+      dayPlanManualLayout: storedDayPlan?.manualLayout || null,
       goals: goals.length
         ? goals.map((goal) => {
             if (goal.type === GOAL_TYPE_MOCK) {
@@ -3712,6 +3837,7 @@ const ScheduleSection = ({
               requestedSessionCount: Math.max(2, Math.min(7, Number(form.dayPlanSessionCount) || 3)),
               selectedWeekdays: Array.isArray(form.dayPlanWeekdays) ? form.dayPlanWeekdays : [],
               calendarOffsetMinutes: -new Date().getTimezoneOffset(),
+              manualLayout: form.dayPlanManualLayout || null,
             }
           : { enabled: false },
       };

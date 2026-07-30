@@ -24589,6 +24589,7 @@ const buildStoredHomeworkDayPlan = (config, homework, testsDb = {}) => {
     selectedWeekdays,
     sessionCount: requestedSessionCount,
     calendarOffsetMinutes,
+    manualLayout: config.manualLayout,
   });
   return {
     ...generated,

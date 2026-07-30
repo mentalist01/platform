@@ -15,7 +15,7 @@ import {
   ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
   Camera, MousePointer2, Code2, ExternalLink, MoreHorizontal, MessageSquare, Users, Video, Wallet,
   Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp, Target,
-  ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect
+  ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect, ListPlus
 } from 'lucide-react';  
 import mascotApproval from './assets/mascot/Approval.png';
 import mascotDisapproval from './assets/mascot/disapproval.png';
@@ -89,6 +89,14 @@ import {
 } from './utils/teacherStudentSelection';
 import { isCurrentStudent, normalizeStudentStudyStatus } from './utils/studentStudyStatus';
 import { resolveHomeworkTaskTargetDescriptors } from './utils/homeworkComposer';
+import {
+  addHomeworkLessonBasketItem,
+  clearHomeworkLessonBasket,
+  getHomeworkLessonBasketItems,
+  hasHomeworkLessonBasketItem,
+  loadHomeworkLessonBaskets,
+  saveHomeworkLessonBaskets,
+} from './utils/homeworkLessonBasket';
 import { normalizeTelemostUrl } from './utils/telemost';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
@@ -14230,6 +14238,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     () => (user.role === 'student' ? initialMockExamId : null)
   );
   const [pendingHomeworkPrefill, setPendingHomeworkPrefill] = useState(null);
+  const [homeworkLessonBaskets, setHomeworkLessonBaskets] = useState(() => (
+    user.role === 'teacher' ? loadHomeworkLessonBaskets(user.id) : null
+  ));
+  const [homeworkLessonBasketNotice, setHomeworkLessonBasketNotice] = useState(null);
   const [pendingDirectChatRequest, setPendingDirectChatRequest] = useState(null);
   const [pendingLessonCapsuleKey, setPendingLessonCapsuleKey] = useState('');
   const [goalState, setGoalState] = useState(null);
@@ -14389,6 +14401,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     () => studentsWithNicknames.filter(isCurrentStudent),
     [studentsWithNicknames]
   );
+  const activeHomeworkLessonBasketItems = useMemo(
+    () => getHomeworkLessonBasketItems(homeworkLessonBaskets, activeStudentId),
+    [activeStudentId, homeworkLessonBaskets]
+  );
+  const activeHomeworkLessonBasketStudent = useMemo(
+    () => currentStudentsWithNicknames.find((student) => (
+      String(student?.id || '') === String(activeStudentId || '')
+    )) || null,
+    [activeStudentId, currentStudentsWithNicknames]
+  );
   const homeworkStatsStudent = useMemo(
     () => studentsWithNicknames.find((student) => (
       String(student?.id || '') === String(homeworkStatsStudentId || '')
@@ -14408,6 +14430,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       rosterLoaded,
     }));
   }, [currentStudentsWithNicknames, user.id, user.role]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return;
+    saveHomeworkLessonBaskets(user.id, homeworkLessonBaskets);
+  }, [homeworkLessonBaskets, user.id, user.role]);
+
+  useEffect(() => {
+    if (!homeworkLessonBasketNotice) return undefined;
+    const timeoutId = setTimeout(() => setHomeworkLessonBasketNotice(null), 2600);
+    return () => clearTimeout(timeoutId);
+  }, [homeworkLessonBasketNotice]);
   const tasksWithTitles = useMemo(
     () => applyTaskTitles(MOCK_TASKS, taskTitles),
     [taskTitles]
@@ -17431,6 +17464,78 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setMenuOpen(false);
   }, [navigateToView, user.role]);
 
+  const handleAddToHomeworkLessonBasket = useCallback((request) => {
+    if (user.role !== 'teacher') return;
+    const targetStudentId = normalizeTeacherStudentId(request?.studentId || activeStudentId);
+    if (!targetStudentId) {
+      setHomeworkLessonBasketNotice({
+        id: Date.now(),
+        tone: 'error',
+        text: 'Сначала выберите ученика.',
+      });
+      return;
+    }
+    const alreadyAdded = hasHomeworkLessonBasketItem(
+      homeworkLessonBaskets,
+      targetStudentId,
+      request
+    );
+    setHomeworkLessonBaskets((current) => (
+      addHomeworkLessonBasketItem(current, targetStudentId, request)
+    ));
+    const questionLabel = Number.isFinite(Number(request?.questionNumber))
+      ? `№${Math.trunc(Number(request.questionNumber))}`
+      : 'Задание';
+    setHomeworkLessonBasketNotice({
+      id: Date.now(),
+      tone: 'success',
+      text: alreadyAdded
+        ? `${questionLabel} уже находится в черновике ДЗ.`
+        : `${questionLabel} добавлен в черновик ДЗ.`,
+    });
+  }, [activeStudentId, homeworkLessonBaskets, user.role]);
+
+  const handleOpenHomeworkLessonBasket = useCallback(() => {
+    if (user.role !== 'teacher') return;
+    const targetStudentId = normalizeTeacherStudentId(activeStudentId);
+    const items = getHomeworkLessonBasketItems(homeworkLessonBaskets, targetStudentId);
+    if (!targetStudentId || items.length === 0) return;
+    setPendingHomeworkPrefill({
+      id: `lesson-basket-${Date.now()}-${targetStudentId}`,
+      source: 'lesson-basket',
+      studentId: targetStudentId,
+      items,
+    });
+    navigateToView('schedule');
+    setMenuOpen(false);
+  }, [activeStudentId, homeworkLessonBaskets, navigateToView, user.role]);
+
+  const handleHomeworkPrefillHandled = useCallback((result = {}) => {
+    const request = result?.request && typeof result.request === 'object'
+      ? result.request
+      : pendingHomeworkPrefill;
+    const isLessonBasketRequest = request?.source === 'lesson-basket';
+    const targetStudentId = normalizeTeacherStudentId(request?.studentId);
+    if (isLessonBasketRequest && result?.consumed === true && targetStudentId) {
+      setHomeworkLessonBaskets((current) => clearHomeworkLessonBasket(current, targetStudentId));
+      setHomeworkLessonBasketNotice({
+        id: Date.now(),
+        tone: 'success',
+        text: 'Задания перенесены в конструктор домашки.',
+      });
+    } else if (isLessonBasketRequest && result?.consumed === false) {
+      const errorText = String(result?.error?.message || result?.error || '').trim();
+      setHomeworkLessonBasketNotice({
+        id: Date.now(),
+        tone: 'error',
+        text: errorText
+          ? `Не удалось открыть корзину: ${errorText}`
+          : 'Не удалось открыть корзину. Задания сохранены.',
+      });
+    }
+    setPendingHomeworkPrefill(null);
+  }, [pendingHomeworkPrefill]);
+
   const handleOpenTeacherLessonWorkspace = useCallback((targetView, studentId) => {
     if (user.role !== 'teacher') return;
     const normalizedStudentId = String(studentId || '').trim();
@@ -18654,6 +18759,44 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           />
         )}
       */}
+      {user.role === 'teacher' && activeStudentId && activeHomeworkLessonBasketItems.length > 0 && (
+        <button
+          type="button"
+          onClick={handleOpenHomeworkLessonBasket}
+          disabled={pendingHomeworkPrefill?.source === 'lesson-basket'}
+          className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] right-3 z-40 inline-flex min-h-12 max-w-[calc(100vw-1.5rem)] items-center gap-3 rounded-2xl border border-purple-300/80 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 px-3.5 py-2.5 text-left text-white shadow-[0_16px_38px_rgba(124,58,237,0.32)] transition hover:-translate-y-0.5 hover:shadow-[0_20px_42px_rgba(124,58,237,0.38)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70 md:bottom-6 md:right-6 md:px-4"
+          aria-label={`Открыть черновик домашки: ${activeHomeworkLessonBasketItems.length} заданий`}
+        >
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/25 bg-white/15 shadow-inner">
+            <ListPlus size={19} aria-hidden="true" />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[10px] font-bold uppercase tracking-[0.14em] text-purple-100">
+              {activeHomeworkLessonBasketStudent
+                ? getStudentLabel(activeHomeworkLessonBasketStudent)
+                : 'Черновик домашки'}
+            </span>
+            <strong className="block truncate text-sm font-black leading-tight">
+              {`В черновике ДЗ: ${activeHomeworkLessonBasketItems.length}`}
+            </strong>
+          </span>
+          <ChevronRight size={18} className="shrink-0" aria-hidden="true" />
+        </button>
+      )}
+      {homeworkLessonBasketNotice && (
+        <div
+          key={homeworkLessonBasketNotice.id}
+          role="status"
+          aria-live="polite"
+          className={`fixed left-1/2 top-[calc(env(safe-area-inset-top)+1rem)] z-[90] w-[min(92vw,430px)] -translate-x-1/2 rounded-2xl border px-4 py-3 text-center text-sm font-bold shadow-2xl backdrop-blur-md ${
+            homeworkLessonBasketNotice.tone === 'error'
+              ? 'border-rose-200 bg-rose-50/95 text-rose-700'
+              : 'border-emerald-200 bg-emerald-50/95 text-emerald-800'
+          }`}
+        >
+          {homeworkLessonBasketNotice.text}
+        </div>
+      )}
       <input
         ref={avatarInputRef}
         type="file"
@@ -19393,7 +19536,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               openLessonKey={pendingLessonCapsuleKey}
               onOpenLessonHandled={() => setPendingLessonCapsuleKey('')}
               homeworkPrefillRequest={pendingHomeworkPrefill}
-              onHomeworkPrefillHandled={() => setPendingHomeworkPrefill(null)}
+              onHomeworkPrefillHandled={handleHomeworkPrefillHandled}
               progress={progress}
               tasks={tasksWithTitles}
               nextHomeworkFlyRef={scheduleHomeworkFlyRef}
@@ -19496,6 +19639,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               sectionJumpToken={progressSectionJumpToken}
               onSectionChange={handleProgressSectionChange}
               mockNavNewCount={studentProgressNavNewTotal}
+              homeworkLessonBasketItems={activeHomeworkLessonBasketItems}
+              onAddToHomeworkLessonBasket={handleAddToHomeworkLessonBasket}
               onTaskStateChange={handleTaskStateChange}
               onStreakSaved={handleStreakSaved}
               onXpGain={handleXpGain}
@@ -19603,6 +19748,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
               onTaskStateChange={handleTaskStateChange}
+              homeworkLessonBasketItems={activeHomeworkLessonBasketItems}
+              onAddToHomeworkLessonBasket={handleAddToHomeworkLessonBasket}
               onStreakSaved={handleStreakSaved}
               onXpGain={handleXpGain}
               PYTHON_TASKS={PYTHON_TASKS}

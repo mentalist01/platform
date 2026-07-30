@@ -8,6 +8,7 @@ import {
   CircleDashed,
   Code2,
   FileText,
+  ListPlus,
   Maximize2,
   PictureInPicture2,
   PlayCircle,
@@ -37,6 +38,7 @@ import {
   THEORY_RECORDING_TYPE,
 } from '../utils/theoryRecording';
 import { getCollabWsUrl } from '../utils/runtimeUrls';
+import { getHomeworkLessonBasketItemKey } from '../utils/homeworkLessonBasket';
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
 const COLLAB_SEED_DELAY_MS = 450;
@@ -226,6 +228,8 @@ const PythonReviewModal = ({
   isGoogleDocEmbedUrl,
   buildGoogleDocFullUrl,
   codeSyncRoomId = '',
+  homeworkLessonBasketItems = [],
+  onAddToHomeworkLessonBasket,
 }) => {
   const monacoTheme = resolveMonacoColorTheme(theme);
   const [questions, setQuestions] = useState([]);
@@ -1499,6 +1503,17 @@ const PythonReviewModal = ({
   const showSubsectionNav = visibleSubsections.length > 1 || subsectionModel.hasCustomSubsections;
   const currentQuestion = questions[currentIndex];
   const currentId = String(currentQuestion?.id ?? '').trim();
+  const currentBasketItem = currentQuestion ? {
+    taskNumber: task?.number,
+    levelId: PYTHON_LEVEL_ID,
+    questionId: currentId,
+    questionNumber: currentIndex + 1,
+    taskTitle: String(task?.title || '').trim(),
+  } : null;
+  const currentBasketItemKey = getHomeworkLessonBasketItemKey(currentBasketItem);
+  const currentQuestionInBasket = Boolean(currentBasketItemKey) && (
+    Array.isArray(homeworkLessonBasketItems) ? homeworkLessonBasketItems : []
+  ).some((item) => getHomeworkLessonBasketItemKey(item) === currentBasketItemKey);
   const isSolved = solvedIds.has(currentId);
   const questionCodeEntry = getQuestionCodeEntry(currentId, questionCodeById);
   const fallbackSolvedCode = typeof solvedCodeById?.[currentId] === 'string' ? solvedCodeById[currentId] : '';
@@ -2070,14 +2085,36 @@ const PythonReviewModal = ({
                       </div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[18px] border transition ${subtleButtonClass}`}
-                    aria-label="Закрыть"
-                  >
-                    <X size={16} />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {typeof onAddToHomeworkLessonBasket === 'function' && (
+                      <button
+                        type="button"
+                        onClick={() => onAddToHomeworkLessonBasket(currentBasketItem)}
+                        disabled={!currentBasketItem || currentQuestionInBasket}
+                        className={`inline-flex h-9 items-center gap-1.5 rounded-[18px] border px-3 text-[11px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 ${
+                          currentQuestionInBasket
+                            ? (isDarkTheme
+                              ? 'cursor-default border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
+                              : 'cursor-default border-emerald-200 bg-emerald-50 text-emerald-700')
+                            : (isDarkTheme
+                              ? 'border-violet-400/25 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20'
+                              : 'border-violet-200 bg-violet-50 text-violet-700 hover:border-violet-300 hover:bg-violet-100')
+                        }`}
+                        title={currentQuestionInBasket ? 'Это задание уже добавлено' : 'Добавить текущую задачу в черновик домашки'}
+                      >
+                        {currentQuestionInBasket ? <CheckCircle2 size={14} aria-hidden="true" /> : <ListPlus size={14} aria-hidden="true" />}
+                        <span className="hidden sm:inline">{currentQuestionInBasket ? 'В черновике ДЗ' : 'В черновик ДЗ'}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[18px] border transition ${subtleButtonClass}`}
+                      aria-label="Закрыть"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-1 grid gap-1 min-[700px]:grid-cols-[minmax(0,1fr)_minmax(180px,220px)]">
                   <div className={`rounded-[18px] border px-2.5 py-1.5 ${mutedStripClass}`}>

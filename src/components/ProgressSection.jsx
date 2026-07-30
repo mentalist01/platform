@@ -608,6 +608,8 @@ const ProgressSection = ({
   sectionJumpToken,
   onSectionChange,
   mockNavNewCount = 0,
+  homeworkLessonBasketItems = [],
+  onAddToHomeworkLessonBasket,
   onTaskStateChange,
   onStreakSaved,
   onMockAttemptSaved,
@@ -4392,6 +4394,11 @@ const ProgressSection = ({
               getAnswerCountForTask={getAnswerCountForTask}
               getExpectedAnswers={getExpectedAnswers}
               withStudentId={withStudentId}
+              homeworkLessonBasketItems={homeworkLessonBasketItems}
+              onAddToHomeworkLessonBasket={(item) => onAddToHomeworkLessonBasket?.({
+                ...item,
+                studentId: effectiveStudentId,
+              })}
             />
           )}
         </>

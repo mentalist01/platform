@@ -47,6 +47,22 @@ const WEEKDAY_ALIASES = Object.freeze({
 
 const normalizeText = (value) => String(value ?? '').trim();
 
+const normalizeLayoutText = (value) => normalizeText(value)
+  .replace(/\s+/g, ' ')
+  .toLowerCase();
+
+const hashLayoutText = (value) => {
+  const normalized = normalizeLayoutText(value);
+  let hash = 2166136261;
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+};
+
+const normalizeLayoutKeyPart = (value) => encodeURIComponent(normalizeText(value));
+
 const isObject = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
 const normalizePositiveInteger = (value, fallback = null) => {
@@ -147,12 +163,14 @@ const buildTextPlanItems = ({ checklistItems, homeWork }) => {
       completedAt: item?.completedAt || null,
       sourceIndex,
     }))
-    .filter((item) => item.text);
+    .filter((item) => item.text)
+    .map((item, layoutSourceIndex) => ({ ...item, layoutSourceIndex }));
 
   if (normalizedChecklist.length > 0) {
     return normalizedChecklist.map((item) => ({
       kind: 'text',
       itemId: `text:checklist:${item.sourceIndex}:${item.id || 'legacy'}`,
+      layoutKey: `text:${item.layoutSourceIndex}:${hashLayoutText(item.text)}`,
       source: 'checklist',
       sourceIndex: item.sourceIndex,
       checklistItemId: item.id,
@@ -168,9 +186,11 @@ const buildTextPlanItems = ({ checklistItems, homeWork }) => {
       sourceIndex,
     }))
     .filter((item) => item.text)
+    .map((item, layoutSourceIndex) => ({ ...item, layoutSourceIndex }))
     .map((item) => ({
       kind: 'text',
       itemId: `text:legacy:${item.sourceIndex}`,
+      layoutKey: `text:${item.layoutSourceIndex}:${hashLayoutText(item.text)}`,
       source: 'legacy-homework-text',
       sourceIndex: item.sourceIndex,
       checklistItemId: '',
@@ -208,6 +228,9 @@ const buildTaskGoalPlanItems = (goal, sourceGoalIndex) => {
     result.push({
       kind: 'task-target',
       itemId: `goal:${sourceGoalIndex}:task:${sourceTargetIndex}:${questionId || questionNumber}`,
+      layoutKey: `goal:${sourceGoalIndex}:task:${questionId
+        ? `id:${normalizeLayoutKeyPart(questionId)}`
+        : `number:${questionNumber ?? sourceTargetIndex}`}`,
       sourceGoalIndex,
       sourceTargetIndex,
       taskNumber,
@@ -222,6 +245,7 @@ const buildTaskGoalPlanItems = (goal, sourceGoalIndex) => {
   return [{
     kind: 'task-goal',
     itemId: `goal:${sourceGoalIndex}:task:whole`,
+    layoutKey: `goal:${sourceGoalIndex}:task:whole`,
     sourceGoalIndex,
     sourceTargetIndex: null,
     taskNumber,
@@ -249,6 +273,7 @@ const buildMockGoalPlanItems = (goal, sourceGoalIndex) => {
     return [{
       kind: 'mock-goal',
       itemId: `goal:${sourceGoalIndex}:mock:whole`,
+      layoutKey: `goal:${sourceGoalIndex}:mock:whole`,
       sourceGoalIndex,
       sourceTargetIndex: null,
       mockExamId: goalBase.mockExamId,
@@ -263,6 +288,7 @@ const buildMockGoalPlanItems = (goal, sourceGoalIndex) => {
     return targetTaskKeys.map((taskKey, sourceTargetIndex) => ({
       kind: 'mock-target',
       itemId: `goal:${sourceGoalIndex}:mock:${sourceTargetIndex}:${taskKey}`,
+      layoutKey: `goal:${sourceGoalIndex}:mock:key:${normalizeLayoutKeyPart(taskKey)}`,
       sourceGoalIndex,
       sourceTargetIndex,
       mockExamId: goalBase.mockExamId,
@@ -274,6 +300,7 @@ const buildMockGoalPlanItems = (goal, sourceGoalIndex) => {
   return [{
     kind: 'mock-goal',
     itemId: `goal:${sourceGoalIndex}:mock:whole`,
+    layoutKey: `goal:${sourceGoalIndex}:mock:whole`,
     sourceGoalIndex,
     sourceTargetIndex: null,
     mockExamId: goalBase.mockExamId,
@@ -307,7 +334,16 @@ export const normalizeHomeworkDayPlanItems = ({
       ? buildMockGoalPlanItems(goal, sourceGoalIndex)
       : buildTaskGoalPlanItems(goal, sourceGoalIndex);
   });
-  return [...textItems, ...goalItems];
+  const layoutKeyCounts = new Map();
+  return [...textItems, ...goalItems].map((item) => {
+    const baseLayoutKey = normalizeText(item?.layoutKey) || normalizeText(item?.itemId);
+    const occurrence = layoutKeyCounts.get(baseLayoutKey) || 0;
+    layoutKeyCounts.set(baseLayoutKey, occurrence + 1);
+    return {
+      ...item,
+      layoutKey: occurrence === 0 ? baseLayoutKey : `${baseLayoutKey}:duplicate:${occurrence}`,
+    };
+  });
 };
 
 const resolvePlanRange = ({
@@ -384,6 +420,82 @@ const pickEvenlySpaced = (values, requestedCount) => {
   return Array.from({ length: count }, (_, index) => (
     list[Math.round((index * (list.length - 1)) / (count - 1))]
   ));
+};
+
+const normalizeManualLayoutItemKeys = (values) => Array.from(new Set(
+  (Array.isArray(values) ? values : [])
+    .map(normalizeText)
+    .filter(Boolean)
+));
+
+/**
+ * Sanitizes a teacher-edited day layout into the representation stored by the
+ * server. When valid item keys are supplied, unknown keys are discarded and
+ * newly-added work is assigned to the currently least-loaded day.
+ */
+export const normalizeHomeworkDayPlanManualLayout = (value, options = {}) => {
+  if (!isObject(value) || Number(value.version) !== HOMEWORK_DAY_PLAN_VERSION) return null;
+
+  const rawDays = Array.isArray(value.days) ? value.days : [];
+  const issuedOrdinal = parseDateOnlyOrdinal(options?.issuedDay);
+  const dueOrdinal = parseDateOnlyOrdinal(options?.dueDay);
+  const rawKnownKeys = Array.isArray(options?.items)
+    ? options.items.map((item) => item?.layoutKey)
+    : (Array.isArray(options?.validItemKeys) ? options.validItemKeys : null);
+  const orderedKnownKeys = rawKnownKeys == null
+    ? null
+    : normalizeManualLayoutItemKeys(rawKnownKeys);
+  const knownKeySet = orderedKnownKeys == null ? null : new Set(orderedKnownKeys);
+  const itemsByDate = new Map();
+
+  rawDays.forEach((day) => {
+    if (!isObject(day)) return;
+    const dateOrdinal = parseDateOnlyOrdinal(day.date);
+    if (dateOrdinal == null) return;
+    if (issuedOrdinal != null && dateOrdinal <= issuedOrdinal) return;
+    if (dueOrdinal != null && dateOrdinal > dueOrdinal) return;
+    const date = formatCalendarDayOrdinal(dateOrdinal);
+    const bucket = itemsByDate.get(date) || [];
+    bucket.push(...normalizeManualLayoutItemKeys(day.itemKeys));
+    itemsByDate.set(date, bucket);
+  });
+
+  const dates = [...itemsByDate.keys()]
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, 7);
+  if (dates.length === 0) return null;
+
+  const seenItemKeys = new Set();
+  const days = dates.map((date) => ({
+    date,
+    itemKeys: itemsByDate.get(date).filter((itemKey) => {
+      if (knownKeySet && !knownKeySet.has(itemKey)) return false;
+      if (seenItemKeys.has(itemKey)) return false;
+      seenItemKeys.add(itemKey);
+      return true;
+    }),
+  }));
+
+  if (orderedKnownKeys) {
+    orderedKnownKeys.forEach((itemKey) => {
+      if (seenItemKeys.has(itemKey)) return;
+      const targetDay = days.reduce((best, candidate) => (
+        !best || candidate.itemKeys.length < best.itemKeys.length ? candidate : best
+      ), null);
+      targetDay?.itemKeys.push(itemKey);
+      seenItemKeys.add(itemKey);
+    });
+  }
+
+  const structurallyKnownKeys = knownKeySet || seenItemKeys;
+  const pinnedItemKeys = normalizeManualLayoutItemKeys(value.pinnedItemKeys)
+    .filter((itemKey) => structurallyKnownKeys.has(itemKey));
+
+  return {
+    version: HOMEWORK_DAY_PLAN_VERSION,
+    days,
+    pinnedItemKeys,
+  };
 };
 
 export const buildHomeworkSessionDates = ({
@@ -463,10 +575,15 @@ const partitionContiguously = (items, count) => {
 };
 
 const toPublicPlanItem = (item) => {
+  const layoutMetadata = {
+    layoutKey: item.layoutKey,
+    ...(item.pinned ? { pinned: true } : {}),
+  };
   if (item.kind === 'text') {
     return {
       type: 'text',
       itemId: item.itemId,
+      ...layoutMetadata,
       source: item.source,
       sourceIndex: item.sourceIndex,
       checklistItemId: item.checklistItemId,
@@ -478,6 +595,7 @@ const toPublicPlanItem = (item) => {
     return {
       type: 'task-target',
       itemId: item.itemId,
+      ...layoutMetadata,
       sourceGoalIndex: item.sourceGoalIndex,
       sourceTargetIndex: item.sourceTargetIndex,
       taskNumber: item.taskNumber,
@@ -490,6 +608,7 @@ const toPublicPlanItem = (item) => {
     return {
       type: 'mock-target',
       itemId: item.itemId,
+      ...layoutMetadata,
       sourceGoalIndex: item.sourceGoalIndex,
       sourceTargetIndex: item.sourceTargetIndex,
       mockExamId: item.mockExamId,
@@ -499,6 +618,7 @@ const toPublicPlanItem = (item) => {
   return {
     type: item.kind,
     itemId: item.itemId,
+    ...layoutMetadata,
     sourceGoalIndex: item.sourceGoalIndex,
     sourceTargetIndex: item.sourceTargetIndex,
     goal: { ...(item.goal || {}) },
@@ -579,6 +699,10 @@ const isPendingAvailablePlanItem = (item) => (
   !item?.completed && !item?.unavailable
 );
 
+const isMovablePendingPlanItem = (item) => (
+  isPendingAvailablePlanItem(item) && !item?.pinned
+);
+
 const refreshEnrichedDayCounts = (day) => {
   const items = Array.isArray(day?.items) ? day.items : [];
   const availableItems = items.filter((item) => !item?.unavailable);
@@ -655,7 +779,7 @@ export const adaptHomeworkDayPlanForToday = ({ days, todayKey } = {}) => {
   sourceStates.forEach(({ day: sourceDay, index: sourceIndex }) => {
     const retainedItems = [];
     (Array.isArray(sourceDay.items) ? sourceDay.items : []).forEach((item) => {
-      if (!isPendingAvailablePlanItem(item)) {
+      if (!isMovablePendingPlanItem(item)) {
         retainedItems.push(item);
         return;
       }
@@ -707,6 +831,7 @@ export const buildHomeworkDayPlan = ({
   selectedWeekdays,
   sessionCount,
   calendarOffsetMinutes = 0,
+  manualLayout,
 } = {}) => {
   const sourceHomework = isObject(homework) ? homework : {};
   const items = normalizeHomeworkDayPlanItems({
@@ -727,9 +852,34 @@ export const buildHomeworkDayPlan = ({
     sessionCount,
     calendarOffsetMinutes,
   });
-  const desiredDateCount = Math.min(dateResult.dates.length, items.length);
-  const planDates = pickEvenlySpaced(dateResult.dates, desiredDateCount);
-  const itemParts = partitionContiguously(items, planDates.length);
+  const effectiveManualLayout = manualLayout === undefined
+    ? (sourceHomework.dayPlanManualLayout
+      ?? sourceHomework.manualLayout
+      ?? sourceHomework.dayPlan?.manualLayout)
+    : manualLayout;
+  const normalizedManualLayout = normalizeHomeworkDayPlanManualLayout(effectiveManualLayout, {
+    issuedDay: dateResult.issuedDay,
+    dueDay: dateResult.dueDay,
+    items,
+  });
+  let planDates;
+  let itemParts;
+  if (normalizedManualLayout) {
+    const itemsByLayoutKey = new Map(items.map((item) => [item.layoutKey, item]));
+    const pinnedItemKeys = new Set(normalizedManualLayout.pinnedItemKeys);
+    planDates = normalizedManualLayout.days.map((day) => day.date);
+    itemParts = normalizedManualLayout.days.map((day) => day.itemKeys
+      .map((itemKey) => itemsByLayoutKey.get(itemKey))
+      .filter(Boolean)
+      .map((item) => ({
+        ...item,
+        ...(pinnedItemKeys.has(item.layoutKey) ? { pinned: true } : {}),
+      })));
+  } else {
+    const desiredDateCount = Math.min(dateResult.dates.length, items.length);
+    planDates = pickEvenlySpaced(dateResult.dates, desiredDateCount);
+    itemParts = partitionContiguously(items, planDates.length);
+  }
   const sourceHomeworkId = normalizeText(sourceHomework?.id);
   const dayPlan = planDates.map((date, index) => {
     const part = itemParts[index] || [];
@@ -758,9 +908,12 @@ export const buildHomeworkDayPlan = ({
         : hasSessionCount
           ? 'sessions'
           : 'due-date';
+  const plannedItemKeys = new Set(itemParts.flatMap((part) => (
+    Array.isArray(part) ? part.map((item) => item.layoutKey) : []
+  )));
   const unplannedItems = plannedItemCount === items.length
     ? []
-    : items.slice(plannedItemCount).map(toPublicPlanItem);
+    : items.filter((item) => !plannedItemKeys.has(item.layoutKey)).map(toPublicPlanItem);
 
   return {
     version: HOMEWORK_DAY_PLAN_VERSION,
@@ -772,6 +925,7 @@ export const buildHomeworkDayPlan = ({
     requestedSessionCount: dateResult.requestedSessionCount,
     fallbackUsed: dateResult.fallbackUsed,
     reason: dateResult.reason,
+    manualLayout: normalizedManualLayout,
     dayPlan,
     unplannedItems,
     summary: {

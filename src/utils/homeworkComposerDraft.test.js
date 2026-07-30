@@ -33,6 +33,14 @@ test('homework composer draft keeps incomplete form values and carryover metadat
       dayPlanEnabled: true,
       dayPlanSessionCount: 4,
       dayPlanWeekdays: [1, 3, 5],
+      dayPlanManualLayout: {
+        version: 1,
+        days: [
+          { date: '2026-07-31', itemKeys: ['task:2:advanced:q-1'] },
+          { date: '2026-08-01', itemKeys: ['task:2:advanced:q-2'] },
+        ],
+        pinnedItemKeys: ['task:2:advanced:q-1'],
+      },
     },
     carryoverSummary: {
       hasSourceHomework: true,
@@ -53,6 +61,14 @@ test('homework composer draft keeps incomplete form values and carryover metadat
   assert.equal(draft.form.goals[0].targetInput, '1-22');
   assert.equal(draft.form.goals[0].carryover.remainingCount, 12);
   assert.deepEqual(draft.form.dayPlanWeekdays, [1, 3, 5]);
+  assert.deepEqual(draft.form.dayPlanManualLayout, {
+    version: 1,
+    days: [
+      { date: '2026-07-31', itemKeys: ['task:2:advanced:q-1'] },
+      { date: '2026-08-01', itemKeys: ['task:2:advanced:q-2'] },
+    ],
+    pinnedItemKeys: ['task:2:advanced:q-1'],
+  });
   assert.equal(draft.carryoverSummary.pendingQuestionCount, 12);
   assert.equal(draft.baseHomeworkId, 'homework-old');
   assert.equal(draft.updatedAt, '2026-07-29T10:00:00.000Z');
@@ -79,6 +95,31 @@ test('homework composer draft rejects unknown versions and invalid roots', () =>
   assert.equal(normalizeHomeworkComposerDraft(null), null);
   assert.equal(normalizeHomeworkComposerDraft({ version: 99, form: {} }), null);
   assert.equal(normalizeHomeworkComposerDraft({ version: 1, form: null }), null);
+});
+
+test('homework composer draft sanitizes manual day-plan layout', () => {
+  const form = normalizeHomeworkComposerDraftForm({
+    goals: [],
+    dayPlanManualLayout: {
+      version: 99,
+      days: [
+        { date: 'bad-date', itemKeys: ['ignored'] },
+        { date: '2026-08-02', itemKeys: ['a', 'a', 'b'] },
+        { date: '2026-08-01', itemKeys: ['b', 'c'] },
+        { date: '2026-08-02', itemKeys: ['d'] },
+      ],
+      pinnedItemKeys: ['a', 'a', '', 'unknown'],
+    },
+  });
+
+  assert.deepEqual(form.dayPlanManualLayout, {
+    version: 1,
+    days: [
+      { date: '2026-08-01', itemKeys: ['c'] },
+      { date: '2026-08-02', itemKeys: ['a', 'b'] },
+    ],
+    pinnedItemKeys: ['a', 'unknown'],
+  });
 });
 
 test('updating a homework composer draft preserves its original creation time', () => {

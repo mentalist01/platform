@@ -6,6 +6,7 @@ import {
   adaptHomeworkDayPlanForToday,
   buildHomeworkDayPlan,
   buildHomeworkSessionDates,
+  normalizeHomeworkDayPlanManualLayout,
   normalizeHomeworkDayPlanItems,
   normalizeHomeworkPlanWeekdays,
 } from './homeworkDayPlan.js';
@@ -129,6 +130,27 @@ test('without today or future plan days missed work stays in place', () => {
   assert.equal(result.days[0].rescheduledOutCount, 0);
 });
 
+test('pinned unfinished work stays on its original plan day while other missed work moves', () => {
+  const result = adaptHomeworkDayPlanForToday({
+    todayKey: '2026-07-29',
+    days: [
+      {
+        date: '2026-07-28',
+        items: [
+          { itemId: 'pinned', pinned: true, completed: false, unavailable: false },
+          { itemId: 'movable', completed: false, unavailable: false },
+        ],
+      },
+      { date: '2026-07-29', items: [] },
+    ],
+  });
+
+  assert.deepEqual(result.days[0].items.map((item) => item.itemId), ['pinned']);
+  assert.deepEqual(result.days[1].items.map((item) => item.itemId), ['movable']);
+  assert.equal(result.days[0].items[0].pinned, true);
+  assert.equal(result.metadata.movedItemCount, 1);
+});
+
 test('normalizes weekday aliases and builds only selected calendar dates', () => {
   assert.deepEqual(
     normalizeHomeworkPlanWeekdays(['friday', 'ср', 3, 'bad']),
@@ -245,6 +267,125 @@ test('mixed concrete targets are balanced without changing their stable source o
   assert.deepEqual(result.dayPlan[1].goals[0].targetQuestionIds, ['q-2', 'q-7', 'q-1']);
   assert.deepEqual(result.dayPlan[2].goals[0].targetTaskKeys, ['10', '2', '1']);
   assert.equal(result.summary.plannedItemCount, result.summary.totalItemCount);
+});
+
+test('manual layout moves items and preserves the teacher-defined order within each day', () => {
+  const goals = [{
+    type: 'task',
+    taskNumber: 1,
+    levelId: 'basic',
+    targetQuestions: [1, 2, 3, 4],
+    targetQuestionIds: ['q-1', 'q-2', 'q-3', 'q-4'],
+  }];
+  const keys = normalizeHomeworkDayPlanItems({ goals }).map((item) => item.layoutKey);
+  const result = buildHomeworkDayPlan({
+    goals,
+    issuedAt: '2026-07-01',
+    dueAt: '2026-07-05',
+    sessionCount: 2,
+    manualLayout: {
+      version: 1,
+      days: [
+        { date: '2026-07-02', itemKeys: [keys[3], keys[0]] },
+        { date: '2026-07-05', itemKeys: [keys[2], keys[1]] },
+      ],
+      pinnedItemKeys: [keys[3]],
+    },
+  });
+
+  assert.deepEqual(
+    result.dayPlan.map((day) => day.items.map((item) => item.questionNumber)),
+    [[4, 1], [3, 2]]
+  );
+  assert.deepEqual(result.manualLayout.days, [
+    { date: '2026-07-02', itemKeys: [keys[3], keys[0]] },
+    { date: '2026-07-05', itemKeys: [keys[2], keys[1]] },
+  ]);
+  assert.equal(result.dayPlan[0].items[0].pinned, true);
+  assert.equal(result.dayPlan[0].items[1].pinned, undefined);
+});
+
+test('manual layout drops unknown and duplicate keys and balances every unplaced item without loss', () => {
+  const goals = [{
+    type: 'mock',
+    mockExamId: 'exam',
+    targetTaskKeys: ['first', 'second', 'third'],
+  }];
+  const keys = normalizeHomeworkDayPlanItems({ goals }).map((item) => item.layoutKey);
+  const result = buildHomeworkDayPlan({
+    goals,
+    issuedAt: '2026-07-01',
+    dueAt: '2026-07-05',
+    manualLayout: {
+      version: 1,
+      days: [
+        { date: '2026-07-02', itemKeys: [keys[0], 'unknown', keys[0]] },
+        { date: '2026-07-04', itemKeys: [keys[1], keys[0]] },
+      ],
+      pinnedItemKeys: ['unknown', keys[2]],
+    },
+  });
+
+  assert.deepEqual(result.manualLayout.days, [
+    { date: '2026-07-02', itemKeys: [keys[0], keys[2]] },
+    { date: '2026-07-04', itemKeys: [keys[1]] },
+  ]);
+  assert.deepEqual(result.manualLayout.pinnedItemKeys, [keys[2]]);
+  assert.deepEqual(
+    flattenPlanItems(result).map((item) => item.taskKey).sort(),
+    ['first', 'second', 'third']
+  );
+  assert.equal(result.summary.unplannedItemCount, 0);
+});
+
+test('manual layout dates are unique, bounded by the homework range, and limited to seven', () => {
+  const itemKeys = ['known'];
+  const result = normalizeHomeworkDayPlanManualLayout({
+    version: 1,
+    days: [
+      { date: '2026-07-01', itemKeys },
+      { date: 'not-a-date', itemKeys },
+      ...Array.from({ length: 9 }, (_, index) => ({
+        date: `2026-07-${String(index + 2).padStart(2, '0')}`,
+        itemKeys: index === 0 ? itemKeys : [],
+      })),
+      { date: '2026-07-02', itemKeys },
+      { date: '2026-07-12', itemKeys },
+    ],
+    pinnedItemKeys: itemKeys,
+  }, {
+    issuedDay: '2026-07-01',
+    dueDay: '2026-07-10',
+    validItemKeys: itemKeys,
+  });
+
+  assert.deepEqual(
+    result.days.map((day) => day.date),
+    ['2026-07-02', '2026-07-03', '2026-07-04', '2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08']
+  );
+  assert.deepEqual(result.days[0].itemKeys, itemKeys);
+  assert.deepEqual(result.pinnedItemKeys, itemKeys);
+});
+
+test('text layout keys stay stable between composer text preview and stored checklist items', () => {
+  const preview = normalizeHomeworkDayPlanItems({
+    homeWork: ' Read notes \n\nWRITE   summary',
+  });
+  const stored = normalizeHomeworkDayPlanItems({
+    checklistItems: [
+      { id: 'server-generated-a', text: 'Read notes' },
+      { id: 'server-generated-b', text: 'WRITE   summary' },
+    ],
+  });
+
+  assert.deepEqual(
+    preview.map((item) => item.layoutKey),
+    stored.map((item) => item.layoutKey)
+  );
+  assert.notDeepEqual(
+    preview.map((item) => item.itemId),
+    stored.map((item) => item.itemId)
+  );
 });
 
 test('uneven work is split into contiguous chunks whose sizes differ by at most one', () => {

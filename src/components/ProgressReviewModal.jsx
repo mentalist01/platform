@@ -1,11 +1,12 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileCode2, History, ListChecks, RefreshCcw, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileCode2, History, ListChecks, ListPlus, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
+import { getHomeworkLessonBasketItemKey } from '../utils/homeworkLessonBasket';
 import { Button } from './ui';
 
 const TEACHER_CODE_COPY_FEEDBACK_MS = 1800;
@@ -109,6 +110,8 @@ const ProgressReviewModal = ({
   getAnswerCountForTask,
   getExpectedAnswers,
   withStudentId,
+  homeworkLessonBasketItems = [],
+  onAddToHomeworkLessonBasket,
 }) => {
   const monacoTheme = resolveMonacoColorTheme(theme);
   const taskNumber = task?.number;
@@ -376,6 +379,17 @@ const ProgressReviewModal = ({
     : task?.number;
   const currentQuestion = hasQuestions ? questions[currentIndex] : null;
   const currentId = String(currentQuestion?.id ?? currentIndex);
+  const currentBasketItem = currentQuestion ? {
+    taskNumber,
+    levelId,
+    questionId: String(currentQuestion?.id ?? '').trim(),
+    questionNumber: currentIndex + 1,
+    taskTitle: String(task?.title || '').trim(),
+  } : null;
+  const currentBasketItemKey = getHomeworkLessonBasketItemKey(currentBasketItem);
+  const currentQuestionInBasket = Boolean(currentBasketItemKey) && (
+    Array.isArray(homeworkLessonBasketItems) ? homeworkLessonBasketItems : []
+  ).some((item) => getHomeworkLessonBasketItemKey(item) === currentBasketItemKey);
   const isSolved = solvedIds.has(currentId);
   const answerCount = Math.max(1, Number(getAnswerCountForTask(task?.number)) || 1);
   const answerLabels = buildAnswerLabels(answerCount);
@@ -631,6 +645,22 @@ const ProgressReviewModal = ({
                       </span>
                     ) : <span aria-hidden="true" />}
                     <div className="student-test-question-panel__toolbar-actions">
+                      {typeof onAddToHomeworkLessonBasket === 'function' && (
+                        <button
+                          type="button"
+                          onClick={() => onAddToHomeworkLessonBasket(currentBasketItem)}
+                          disabled={!currentBasketItem || currentQuestionInBasket}
+                          className={`inline-flex min-h-9 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2 ${
+                            currentQuestionInBasket
+                              ? 'cursor-default border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-purple-200 bg-purple-50 text-purple-700 hover:border-purple-300 hover:bg-purple-100'
+                          }`}
+                          title={currentQuestionInBasket ? 'Это задание уже добавлено' : 'Добавить текущий номер в черновик домашки'}
+                        >
+                          {currentQuestionInBasket ? <Check size={15} aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />}
+                          <span>{currentQuestionInBasket ? 'В черновике ДЗ' : 'В черновик ДЗ'}</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         className={`student-test-code-preview-trigger ${questionCodePreviewOpen ? 'is-active' : ''}`}

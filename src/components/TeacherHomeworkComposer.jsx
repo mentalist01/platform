@@ -13,6 +13,7 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  Pin,
   Plus,
   RotateCcw,
   Save,
@@ -45,6 +46,14 @@ const formatPlanDate = (value) => {
   const date = new Date(`${String(value || '').trim()}T12:00:00`);
   if (Number.isNaN(date.getTime())) return String(value || '');
   return date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }).replace(' г.', '');
+};
+
+const addCalendarDaysToKey = (value, amount) => {
+  const date = new Date(`${String(value || '').trim()}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  date.setDate(date.getDate() + amount);
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
 const describePlanItem = (item) => {
@@ -197,6 +206,7 @@ const TeacherHomeworkComposer = ({
   const [previewIndex, setPreviewIndex] = useState(0);
   const [expandedImage, setExpandedImage] = useState(null);
   const [mobilePane, setMobilePane] = useState('compose');
+  const [manualPlanDate, setManualPlanDate] = useState('');
   const composerBusy = saving || draftSaving || discarding;
   const restoredDraftDate = draftRestoredAt ? new Date(draftRestoredAt) : null;
   const restoredDraftLabel = restoredDraftDate && !Number.isNaN(restoredDraftDate.getTime())
@@ -357,8 +367,103 @@ const TeacherHomeworkComposer = ({
         sessionCount: Math.max(2, Math.min(7, Number(form?.dayPlanSessionCount) || 3)),
         selectedWeekdays: selectedPlanWeekdays,
         calendarOffsetMinutes,
+        manualLayout: form?.dayPlanManualLayout || null,
       })
     : null;
+
+  const getPlanItemLayoutKey = (item) => String(item?.layoutKey || item?.itemId || '').trim();
+  const getEditableManualLayout = () => {
+    if (!dayPlanPreview?.dayPlan?.length) return null;
+    const previewLayout = dayPlanPreview.manualLayout;
+    if (previewLayout?.days?.length) {
+      return {
+        version: 1,
+        days: previewLayout.days.map((day) => ({
+          date: day.date,
+          itemKeys: [...(Array.isArray(day.itemKeys) ? day.itemKeys : [])],
+        })),
+        pinnedItemKeys: [...(Array.isArray(previewLayout.pinnedItemKeys) ? previewLayout.pinnedItemKeys : [])],
+      };
+    }
+    return {
+      version: 1,
+      days: dayPlanPreview.dayPlan.map((day) => ({
+        date: day.date,
+        itemKeys: day.items.map(getPlanItemLayoutKey).filter(Boolean),
+      })),
+      pinnedItemKeys: [],
+    };
+  };
+
+  const updateManualLayout = (updater) => {
+    const current = getEditableManualLayout();
+    if (!current) return;
+    const next = updater(current);
+    if (next?.days?.length) onChangeForm?.({ dayPlanManualLayout: next });
+  };
+
+  const movePlanItem = (itemKey, fromDayIndex, direction) => {
+    const targetDayIndex = fromDayIndex + direction;
+    updateManualLayout((layout) => {
+      if (!layout.days[targetDayIndex]) return layout;
+      layout.days.forEach((day) => {
+        day.itemKeys = day.itemKeys.filter((key) => key !== itemKey);
+      });
+      layout.days[targetDayIndex].itemKeys.push(itemKey);
+      return layout;
+    });
+  };
+
+  const togglePlanItemPinned = (itemKey) => {
+    updateManualLayout((layout) => {
+      const pinned = new Set(layout.pinnedItemKeys);
+      if (pinned.has(itemKey)) pinned.delete(itemKey);
+      else pinned.add(itemKey);
+      layout.pinnedItemKeys = [...pinned];
+      return layout;
+    });
+  };
+
+  const removeManualPlanDay = (dayIndex) => {
+    updateManualLayout((layout) => {
+      if (layout.days.length <= 1) return layout;
+      layout.days.splice(dayIndex, 1);
+      return layout;
+    });
+  };
+
+  const addManualPlanDay = () => {
+    const date = String(manualPlanDate || '').trim();
+    if (!date) return;
+    updateManualLayout((layout) => {
+      if (layout.days.some((day) => day.date === date) || layout.days.length >= 7) return layout;
+      layout.days.push({ date, itemKeys: [] });
+      layout.days.sort((left, right) => left.date.localeCompare(right.date));
+      return layout;
+    });
+    setManualPlanDate('');
+  };
+
+  const rebalanceManualPlan = () => {
+    updateManualLayout((layout) => {
+      const pinned = new Set(layout.pinnedItemKeys);
+      const allKeys = layout.days.flatMap((day) => day.itemKeys);
+      const pinnedDayByKey = new Map();
+      layout.days.forEach((day) => day.itemKeys.forEach((itemKey) => {
+        if (pinned.has(itemKey)) pinnedDayByKey.set(itemKey, day.date);
+      }));
+      layout.days.forEach((day) => {
+        day.itemKeys = allKeys.filter((itemKey) => pinnedDayByKey.get(itemKey) === day.date);
+      });
+      allKeys.filter((itemKey) => !pinned.has(itemKey)).forEach((itemKey) => {
+        const target = layout.days.reduce((best, day) => (
+          !best || day.itemKeys.length < best.itemKeys.length ? day : best
+        ), null);
+        target?.itemKeys.push(itemKey);
+      });
+      return layout;
+    });
+  };
 
   const setActiveGoal = (index, showPreview = false) => {
     setActiveGoalIndex(index);
@@ -952,7 +1057,10 @@ const TeacherHomeworkComposer = ({
                           <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-indigo-600">Количество подходов</span>
                           <select
                             value={Math.max(2, Math.min(7, Number(form?.dayPlanSessionCount) || 3))}
-                            onChange={(event) => onChangeForm?.({ dayPlanSessionCount: Number(event.target.value) })}
+                            onChange={(event) => onChangeForm?.({
+                              dayPlanSessionCount: Number(event.target.value),
+                              dayPlanManualLayout: null,
+                            })}
                             className="min-h-10 w-full rounded-xl border border-indigo-200 bg-white px-3 text-sm font-bold text-slate-800 outline-none focus:border-indigo-400"
                           >
                             {[2, 3, 4, 5, 6, 7].map((count) => (
@@ -974,7 +1082,7 @@ const TeacherHomeworkComposer = ({
                                     const next = selected
                                       ? selectedPlanWeekdays.filter((value) => value !== weekday.value)
                                       : [...selectedPlanWeekdays, weekday.value].sort((left, right) => left - right);
-                                    onChangeForm?.({ dayPlanWeekdays: next });
+                                    onChangeForm?.({ dayPlanWeekdays: next, dayPlanManualLayout: null });
                                   }}
                                   className={`h-10 min-w-10 rounded-xl border px-2 text-xs font-black transition ${
                                     selected
@@ -995,30 +1103,158 @@ const TeacherHomeworkComposer = ({
 
                       {dayPlanPreview?.dayPlan?.length > 0 ? (
                         <div>
-                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-[10px] font-black uppercase tracking-[0.12em] text-indigo-600">Предварительный план</span>
-                            <span className="rounded-full border border-indigo-100 bg-white px-2.5 py-1 text-[10px] font-bold text-indigo-700">
-                              {`${dayPlanPreview.summary.plannedItemCount} пунктов · ${dayPlanPreview.summary.sessionCount} дней`}
-                            </span>
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[10px] font-black uppercase tracking-[0.12em] text-purple-600">План по дням</span>
+                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
+                                  form?.dayPlanManualLayout
+                                    ? 'bg-purple-100 text-purple-700'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {form?.dayPlanManualLayout ? 'Настроен вручную' : 'Авто'}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                                {`${dayPlanPreview.summary.plannedItemCount} пунктов · ${dayPlanPreview.summary.sessionCount} дней`}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {form?.dayPlanManualLayout ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={rebalanceManualPlan}
+                                    className="rounded-lg border border-purple-200 bg-white px-2.5 py-1.5 text-[10px] font-black text-purple-700 transition hover:bg-purple-50"
+                                  >
+                                    Выровнять
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onChangeForm?.({ dayPlanManualLayout: null })}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-black text-slate-600 transition hover:border-purple-200 hover:text-purple-700"
+                                  >
+                                    <RotateCcw size={11} /> Вернуть авто
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const layout = getEditableManualLayout();
+                                    if (layout) onChangeForm?.({ dayPlanManualLayout: layout });
+                                  }}
+                                  className="rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-[10px] font-black text-purple-700 transition hover:bg-purple-50"
+                                >
+                                  Настроить вручную
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                            {dayPlanPreview.dayPlan.map((day) => (
-                              <div key={day.id} className="rounded-xl border border-indigo-100 bg-white/90 p-3 shadow-sm">
+                          <div className="grid gap-2 lg:grid-cols-2">
+                            {dayPlanPreview.dayPlan.map((day, dayIndex) => (
+                              <div key={day.id} className="rounded-xl border border-purple-100 bg-white/95 p-3 shadow-sm">
                                 <div className="flex items-center justify-between gap-2">
-                                  <strong className="text-xs capitalize text-slate-900">{formatPlanDate(day.date)}</strong>
-                                  <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-black text-indigo-700">{day.itemCount}</span>
+                                  <div className="min-w-0">
+                                    <strong className="block truncate text-xs capitalize text-slate-900">{formatPlanDate(day.date)}</strong>
+                                    <span className="text-[9px] font-bold text-slate-400">{day.date}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[9px] font-black text-purple-700">{day.itemCount}</span>
+                                    {form?.dayPlanManualLayout && dayPlanPreview.dayPlan.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => removeManualPlanDay(dayIndex)}
+                                        className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                                        aria-label={`Удалить день ${formatPlanDate(day.date)}`}
+                                        title="Убрать день из плана"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="mt-2 space-y-1">
-                                  {day.items.slice(0, 3).map((item) => (
-                                    <div key={item.itemId} className="truncate text-[10px] font-semibold text-slate-600">• {describePlanItem(item)}</div>
-                                  ))}
-                                  {day.items.length > 3 && (
-                                    <div className="text-[10px] font-bold text-indigo-600">+ ещё {day.items.length - 3}</div>
+                                <div className="mt-2 space-y-1.5">
+                                  {day.items.map((item) => {
+                                    const itemKey = getPlanItemLayoutKey(item);
+                                    return (
+                                      <div key={item.itemId} className="flex min-h-9 items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/70 px-2 py-1.5">
+                                        <span className="min-w-0 flex-1 truncate text-[10px] font-bold text-slate-600">{describePlanItem(item)}</span>
+                                        {form?.dayPlanManualLayout && (
+                                          <div className="flex shrink-0 items-center gap-0.5">
+                                            <button
+                                              type="button"
+                                              onClick={() => togglePlanItemPinned(itemKey)}
+                                              className={`grid h-6 w-6 place-items-center rounded-md transition ${
+                                                item?.pinned
+                                                  ? 'bg-purple-100 text-purple-700'
+                                                  : 'text-slate-400 hover:bg-purple-50 hover:text-purple-600'
+                                              }`}
+                                              aria-pressed={Boolean(item?.pinned)}
+                                              aria-label={item?.pinned ? 'Открепить задание от дня' : 'Закрепить задание за днём'}
+                                              title={item?.pinned ? 'Закреплено: автоперенос не сдвинет' : 'Закрепить за этим днём'}
+                                            >
+                                              <Pin size={11} fill={item?.pinned ? 'currentColor' : 'none'} />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => movePlanItem(itemKey, dayIndex, -1)}
+                                              disabled={dayIndex === 0 || item?.pinned}
+                                              className="grid h-6 w-6 place-items-center rounded-md text-slate-500 transition hover:bg-purple-50 hover:text-purple-700 disabled:cursor-not-allowed disabled:opacity-25"
+                                              aria-label="Перенести в предыдущий день"
+                                            >
+                                              <ArrowLeft size={11} />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => movePlanItem(itemKey, dayIndex, 1)}
+                                              disabled={dayIndex >= dayPlanPreview.dayPlan.length - 1 || item?.pinned}
+                                              className="grid h-6 w-6 place-items-center rounded-md text-slate-500 transition hover:bg-purple-50 hover:text-purple-700 disabled:cursor-not-allowed disabled:opacity-25"
+                                              aria-label="Перенести в следующий день"
+                                            >
+                                              <ArrowRight size={11} />
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {day.items.length === 0 && (
+                                    <div className="rounded-lg border border-dashed border-slate-200 px-2 py-3 text-center text-[10px] font-semibold text-slate-400">
+                                      Свободный день
+                                    </div>
                                   )}
                                 </div>
                               </div>
                             ))}
                           </div>
+                          {form?.dayPlanManualLayout && (
+                            <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-purple-200 bg-white/75 p-2.5">
+                              <label className="min-w-[180px] flex-1">
+                                <span className="mb-1 block text-[9px] font-black uppercase tracking-[0.1em] text-purple-600">Добавить день</span>
+                                <input
+                                  type="date"
+                                  value={manualPlanDate}
+                                  min={addCalendarDaysToKey(dayPlanPreview.issuedDay, 1)}
+                                  max={dayPlanPreview.dueDay || undefined}
+                                  onInput={(event) => setManualPlanDate(event.currentTarget.value)}
+                                  onChange={(event) => setManualPlanDate(event.target.value)}
+                                  className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none focus:border-purple-400"
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={addManualPlanDay}
+                                disabled={!manualPlanDate || dayPlanPreview.dayPlan.length >= 7}
+                                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-purple-600 px-3 text-[10px] font-black text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <Plus size={12} /> Добавить
+                              </button>
+                              <p className="w-full text-[9px] font-semibold leading-relaxed text-slate-500">
+                                Булавка фиксирует номер за выбранным днём: при пропуске платформа не перенесёт его автоматически.
+                              </p>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="rounded-xl border border-dashed border-indigo-200 bg-white/70 px-3 py-4 text-center text-xs font-semibold text-slate-500">

@@ -430,6 +430,8 @@ const PythonSection = ({
   openTask,
   onOpenTaskHandled,
   onTaskStateChange,
+  homeworkLessonBasketItems = [],
+  onAddToHomeworkLessonBasket,
   onStreakSaved,
   onXpGain,
   PYTHON_TASKS,
@@ -2918,6 +2920,11 @@ const PythonSection = ({
           isGoogleDocEmbedUrl={isGoogleDocEmbedUrl}
           buildGoogleDocFullUrl={buildGoogleDocFullUrl}
           codeSyncRoomId={codeSyncRoomId}
+          homeworkLessonBasketItems={homeworkLessonBasketItems}
+          onAddToHomeworkLessonBasket={(item) => onAddToHomeworkLessonBasket?.({
+            ...item,
+            studentId: effectiveStudentId,
+          })}
         />
       )}
     </div>

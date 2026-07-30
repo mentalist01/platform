@@ -6,6 +6,8 @@ const MAX_HOMEWORK_TEXT_LENGTH = 20000;
 const MAX_LINK_LENGTH = 2048;
 const MAX_GOALS = 60;
 const MAX_TARGETS = 500;
+const MAX_DAY_PLAN_DAYS = 7;
+const MAX_DAY_PLAN_ITEM_KEYS = 2000;
 
 const trimString = (value, maxLength = 500) => (
   typeof value === 'string'
@@ -28,6 +30,34 @@ const normalizePositiveIntegerList = (values, maxItems = MAX_TARGETS) => (
       .filter((value) => Number.isFinite(value) && value > 0)
   )).slice(0, maxItems)
 );
+
+const normalizeDraftDayPlanManualLayout = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const claimedItemKeys = new Set();
+  const claimedDates = new Set();
+  const days = (Array.isArray(value.days) ? value.days : [])
+    .map((day) => {
+      const date = trimString(day?.date, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || claimedDates.has(date)) return null;
+      claimedDates.add(date);
+      const itemKeys = normalizeStringList(day?.itemKeys, MAX_DAY_PLAN_ITEM_KEYS, 320)
+        .filter((itemKey) => {
+          if (claimedItemKeys.has(itemKey)) return false;
+          claimedItemKeys.add(itemKey);
+          return true;
+        });
+      return { date, itemKeys };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_DAY_PLAN_DAYS)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  if (days.length === 0) return null;
+  return {
+    version: 1,
+    days,
+    pinnedItemKeys: normalizeStringList(value.pinnedItemKeys, MAX_DAY_PLAN_ITEM_KEYS, 320),
+  };
+};
 
 const normalizeDraftCarryover = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -104,6 +134,7 @@ export const normalizeHomeworkComposerDraftForm = (value) => {
     dayPlanEnabled: value.dayPlanEnabled !== false,
     dayPlanSessionCount,
     dayPlanWeekdays: dayPlanWeekdays.length > 0 ? dayPlanWeekdays : [1, 2, 3, 4, 5, 6, 7],
+    dayPlanManualLayout: normalizeDraftDayPlanManualLayout(value.dayPlanManualLayout),
     issuedAt: trimString(value.issuedAt, 100),
   };
 };
