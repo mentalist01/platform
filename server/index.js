@@ -100,6 +100,12 @@ import {
   normalizeHomeworkComposerDraft,
 } from '../src/utils/homeworkComposerDraft.js';
 import { buildHomeworkDayPlan } from '../src/utils/homeworkDayPlan.js';
+import {
+  HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
+  normalizeHomeworkDueAtMode,
+  resolveNextLessonStart,
+} from '../src/utils/homeworkDueAt.js';
+import { synchronizeHomeworkDueAtWithSchedule } from '../src/utils/homeworkScheduleSync.js';
 import { snapshotHomeworkGoalTargets } from '../src/utils/homeworkStats.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 
@@ -7735,7 +7741,7 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
   const shouldPersist = options.persist !== false;
   const changed = shouldPersist && JSON.stringify(schedule) !== JSON.stringify(currentSchedule);
   if (changed) {
-    setStudentData(studentId, { ...data, schedule });
+    setStudentScheduleWithHomeworkSync(studentId, data, schedule);
     if (options.notify !== false) {
       notifyScheduleSyncUpdate({
         scope: 'student-schedule',
@@ -24288,7 +24294,7 @@ app.patch('/api/student-schedule-requests/:id', async (req, res) => {
         ? draftId
         : crypto.randomUUID();
       schedule.unshift(draftEntry);
-      setStudentData(student.id, { ...data, schedule });
+      setStudentScheduleWithHomeworkSync(student.id, data, schedule);
       notifyScheduleSyncUpdate({
         scope: 'student-schedule',
         action: 'created',
@@ -24322,7 +24328,7 @@ app.patch('/api/student-schedule-requests/:id', async (req, res) => {
         console.warn('[lesson-history] failed to snapshot schedule before approved update:', error?.message || error);
       }
       schedule[slotIndex] = draftEntry;
-      setStudentData(student.id, { ...data, schedule });
+      setStudentScheduleWithHomeworkSync(student.id, data, schedule);
       notifyScheduleSyncUpdate({
         scope: 'student-schedule',
         action: 'updated',
@@ -24344,7 +24350,7 @@ app.patch('/api/student-schedule-requests/:id', async (req, res) => {
       } catch (error) {
         console.warn('[lesson-history] failed to snapshot schedule before approved delete:', error?.message || error);
       }
-      setStudentData(student.id, { ...data, schedule: nextSchedule });
+      setStudentScheduleWithHomeworkSync(student.id, data, nextSchedule);
       notifyScheduleSyncUpdate({
         scope: 'student-schedule',
         action: 'deleted',
@@ -24395,7 +24401,7 @@ app.post('/api/student-schedule', (req, res) => {
   }
   const data = getStudentData(student.id);
   const schedule = [entry, ...(data.schedule || [])];
-  setStudentData(student.id, { ...data, schedule });
+  setStudentScheduleWithHomeworkSync(student.id, data, schedule);
   notifyScheduleSyncUpdate({
     scope: 'student-schedule',
     action: 'created',
@@ -24436,7 +24442,7 @@ app.put('/api/student-schedule/:id', async (req, res) => {
     return res.status(400).json({ error: error || 'Не удалось обновить занятие' });
   }
   schedule[index] = entry;
-  setStudentData(student.id, { ...data, schedule });
+  setStudentScheduleWithHomeworkSync(student.id, data, schedule);
   notifyScheduleSyncUpdate({
     scope: 'student-schedule',
     action: 'updated',
@@ -24465,7 +24471,7 @@ app.delete('/api/student-schedule/:id', async (req, res) => {
     console.warn('[lesson-history] failed to snapshot schedule before delete:', error?.message || error);
   }
   const schedule = (data.schedule || []).filter((item) => item.id !== id);
-  setStudentData(student.id, { ...data, schedule });
+  setStudentScheduleWithHomeworkSync(student.id, data, schedule);
   notifyScheduleSyncUpdate({
     scope: 'student-schedule',
     action: 'deleted',
@@ -24592,6 +24598,24 @@ const buildStoredHomeworkDayPlan = (config, homework, testsDb = {}) => {
   };
 };
 
+function synchronizeStudentHomeworkForSchedule(data, schedule, previousSchedule = data?.schedule) {
+  let testsDb = null;
+  return synchronizeHomeworkDueAtWithSchedule({
+    studentData: data,
+    previousSchedule,
+    schedule,
+    buildDayPlan: (config, homework) => {
+      if (!testsDb) testsDb = readTestsDb();
+      return buildStoredHomeworkDayPlan(config, homework, testsDb);
+    },
+  });
+}
+
+function setStudentScheduleWithHomeworkSync(studentId, data, schedule) {
+  const synchronized = synchronizeStudentHomeworkForSchedule(data, schedule, data?.schedule);
+  return setStudentData(studentId, synchronized.studentData);
+}
+
 const decorateHomeworkEntry = (entry) => {
   if (!entry || typeof entry !== 'object') return entry;
   const id = String(entry.id || entry.issuedAt || 'legacy').trim() || 'legacy';
@@ -24683,7 +24707,14 @@ app.get('/api/student-next-lesson', (req, res) => {
   const { studentId } = req.query;
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
-  const data = getStudentData(student.id);
+  const storedData = getStudentData(student.id);
+  const synchronized = synchronizeStudentHomeworkForSchedule(
+    storedData,
+    Array.isArray(storedData.schedule) ? storedData.schedule : []
+  );
+  const data = synchronized.deadlineChanged || synchronized.homeworkChanged
+    ? setStudentData(student.id, synchronized.studentData)
+    : storedData;
   const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
     ? data.nextLesson
     : { homeWork: '', lessonLink: '', boardLink: '' };
@@ -24731,7 +24762,7 @@ app.get('/api/student-next-lesson', (req, res) => {
 
 app.patch('/api/student-next-lesson', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
@@ -24746,7 +24777,11 @@ app.patch('/api/student-next-lesson', (req, res) => {
   }
   const daysValue = Number(daysToComplete);
   const fallbackDays = Number.isFinite(daysValue) && daysValue > 0 ? Math.round(daysValue) : 7;
-  const normalizedDueAt = payloadDueAt || calculateHomeworkDueAt(issuedAt, fallbackDays);
+  const normalizedDueAtMode = normalizeHomeworkDueAtMode(dueAtMode);
+  const scheduledDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+    ? resolveNextLessonStart(data.schedule, { now: new Date(issuedAt) })?.toISOString() || ''
+    : '';
+  const normalizedDueAt = scheduledDueAt || payloadDueAt || calculateHomeworkDueAt(issuedAt, fallbackDays);
   if (Date.parse(normalizedDueAt) < Date.parse(issuedAt)) {
     return res.status(400).json({ error: 'Срок домашки не может быть раньше даты выдачи' });
   }
@@ -24841,6 +24876,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
     issuedAt,
     updatedAt: new Date().toISOString(),
     dueAt: normalizedDueAt,
+    dueAtMode: normalizedDueAtMode,
     daysToComplete: normalizedDays,
     homeWork: payloadHomeWork,
     lessonLink: payloadLessonLink,
@@ -24867,6 +24903,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
     issuedAt: newEntry.issuedAt,
     updatedAt: newEntry.updatedAt,
     dueAt: newEntry.dueAt,
+    dueAtMode: newEntry.dueAtMode,
     daysToComplete: newEntry.daysToComplete,
     taskNumber: newEntry.taskNumber,
     levelId: newEntry.levelId,
@@ -24890,7 +24927,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
 app.patch('/api/student-next-lesson/:id', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
@@ -24952,11 +24989,17 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   if (hasDueAtValue && !payloadDueAt) {
     return res.status(400).json({ error: 'Некорректный срок домашки' });
   }
-  const normalizedDueAt = hasDueAtField
+  const normalizedDueAtMode = Object.prototype.hasOwnProperty.call(req.body || {}, 'dueAtMode')
+    ? normalizeHomeworkDueAtMode(dueAtMode)
+    : normalizeHomeworkDueAtMode(existing.dueAtMode);
+  const scheduledDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+    ? resolveNextLessonStart(data.schedule)?.toISOString() || ''
+    : '';
+  const normalizedDueAt = scheduledDueAt || (hasDueAtField
     ? (payloadDueAt || calculateHomeworkDueAt(existing.issuedAt, fallbackDays))
     : (hasDaysField
         ? calculateHomeworkDueAt(existing.issuedAt, fallbackDays)
-        : (resolveHomeworkDueAt(existing) || calculateHomeworkDueAt(existing.issuedAt, fallbackDays)));
+        : (resolveHomeworkDueAt(existing) || calculateHomeworkDueAt(existing.issuedAt, fallbackDays))));
   if (Date.parse(normalizedDueAt) < Date.parse(existing.issuedAt)) {
     return res.status(400).json({ error: 'Срок домашки не может быть раньше даты выдачи' });
   }
@@ -25034,6 +25077,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     boardLink: payloadBoardLink,
     updatedAt: new Date().toISOString(),
     dueAt: normalizedDueAt,
+    dueAtMode: normalizedDueAtMode,
     daysToComplete: normalizedDays,
     taskNumber: normalizedTaskNumber,
     levelId: normalizedLevelId,
@@ -25077,6 +25121,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
         issuedAt: latestEntry.issuedAt,
         updatedAt: latestEntry.updatedAt,
         dueAt: resolveHomeworkDueAt(latestEntry),
+        dueAtMode: normalizeHomeworkDueAtMode(latestEntry.dueAtMode),
         daysToComplete: latestEntry.daysToComplete,
         taskNumber: latestEntry.taskNumber ?? null,
         levelId: latestEntry.levelId ?? null,
@@ -25189,6 +25234,7 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
         boardLink: latestEntry.boardLink,
         issuedAt: latestEntry.issuedAt,
         dueAt: resolveHomeworkDueAt(latestEntry),
+        dueAtMode: normalizeHomeworkDueAtMode(latestEntry.dueAtMode),
         daysToComplete: latestEntry.daysToComplete,
         taskNumber: latestEntry.taskNumber ?? null,
         levelId: latestEntry.levelId ?? null,
@@ -25197,7 +25243,7 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
         checklistItems: normalizeHomeworkChecklistItems(latestEntry.id, latestEntry.homeWork, latestEntry.checklistItems),
         ...(latestEntry.dayPlan ? { dayPlan: latestEntry.dayPlan } : {}),
       }
-    : { homeWork: '', lessonLink: '', boardLink: '', issuedAt: '', dueAt: '', daysToComplete: 7, taskNumber: null, levelId: null, targetQuestions: [], goals: [], checklistItems: [] };
+    : { homeWork: '', lessonLink: '', boardLink: '', issuedAt: '', dueAt: '', dueAtMode: 'manual', daysToComplete: 7, taskNumber: null, levelId: null, targetQuestions: [], goals: [], checklistItems: [] };
 
   const updated = setStudentData(student.id, { ...data, nextLesson, homeworks: updatedHomeworks });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });

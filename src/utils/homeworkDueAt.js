@@ -1,6 +1,9 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LOOKAHEAD_WEEKS = 16;
 
+export const HOMEWORK_DUE_AT_MODE_MANUAL = 'manual';
+export const HOMEWORK_DUE_AT_MODE_NEXT_LESSON = 'next-lesson';
+
 const WEEKDAY_ORDER_BY_KEY = Object.freeze({
   monday: 1,
   tuesday: 2,
@@ -70,6 +73,27 @@ const isEntryOnDay = (entry, date, dayKey) => {
   if (weekdayOrder !== getWeekdayOrder(date)) return false;
   const excludedDates = Array.isArray(entry?.excludedDates) ? entry.excludedDates : [];
   return !excludedDates.some((value) => String(value || '').trim() === dayKey);
+};
+
+export const normalizeHomeworkDueAtMode = (value) => (
+  String(value || '').trim().toLowerCase() === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+    ? HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+    : HOMEWORK_DUE_AT_MODE_MANUAL
+);
+
+export const isLessonStartInSchedule = (entries, value) => {
+  const target = value instanceof Date ? new Date(value) : new Date(value || '');
+  if (Number.isNaN(target.getTime())) return false;
+  const targetDayKey = formatDayKey(target);
+  return (Array.isArray(entries) ? entries : []).some((entry) => {
+    if (!entry || typeof entry !== 'object' || !isEntryOnDay(entry, target, targetDayKey)) return false;
+    const time = parseEntryTime(entry.time);
+    return Boolean(
+      time
+      && time.hours === target.getHours()
+      && time.minutes === target.getMinutes()
+    );
+  });
 };
 
 export const resolveNextLessonStart = (

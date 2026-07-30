@@ -12,7 +12,12 @@ import { normalizeHomeworkComposerDraft } from '../utils/homeworkComposerDraft';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { getStudentUnpaidLessonOccurrences } from '../utils/studentPaymentReminder';
-import { buildHomeworkDueAtFromSchedule } from '../utils/homeworkDueAt';
+import {
+  HOMEWORK_DUE_AT_MODE_MANUAL,
+  HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
+  buildHomeworkDueAtFromSchedule,
+  normalizeHomeworkDueAtMode,
+} from '../utils/homeworkDueAt';
 import {
   MOCK_EXAM_MODE_CLASSIC as MOCK_ATTEMPT_MODE_CLASSIC,
   MOCK_EXAM_MODE_TIMER as MOCK_ATTEMPT_MODE_TIMER,
@@ -76,6 +81,23 @@ const resolveHomeworkDueAt = (entry) => {
 const buildDefaultHomeworkDueAt = (days = 7, scheduleEntries = [], now = new Date()) => (
   buildHomeworkDueAtFromSchedule(scheduleEntries, { now, fallbackDays: days })
 );
+
+const buildNextLessonData = (latest, fallback = {}) => ({
+  homeWork: latest?.homeWork || '',
+  lessonLink: latest?.lessonLink || '',
+  boardLink: latest?.boardLink || '',
+  dueAt: latest?.dueAt || fallback.dueAt || '',
+  dueAtMode: normalizeHomeworkDueAtMode(latest?.dueAtMode ?? fallback.dueAtMode),
+  daysToComplete: Number(latest?.daysToComplete) || fallback.daysToComplete || 7,
+  issuedAt: latest?.issuedAt || '',
+  checklistItems: Array.isArray(latest?.checklistItems) ? latest.checklistItems : [],
+  taskNumber: latest?.taskNumber ?? null,
+  levelId: latest?.levelId ?? null,
+  targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : [],
+  targetQuestionIds: Array.isArray(latest?.targetQuestionIds) ? latest.targetQuestionIds : [],
+  goals: Array.isArray(latest?.goals) ? latest.goals : [],
+  dayPlan: latest?.dayPlan && typeof latest.dayPlan === 'object' ? latest.dayPlan : null,
+});
 
 const toDateTimeLocalValue = (value) => {
   const date = value instanceof Date ? value : new Date(value || '');
@@ -605,12 +627,13 @@ const ScheduleSection = ({
     type: type === GOAL_TYPE_MOCK ? GOAL_TYPE_MOCK : GOAL_TYPE_TASK,
   });
   const [homeworks, setHomeworks] = useState([]);
-  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], targetQuestionIds: [], goals: [], dayPlan: null });
+  const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL, daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], targetQuestionIds: [], goals: [], dayPlan: null });
   const [form, setForm] = useState({
     homeWork: DEFAULT_HOMEWORK,
     lessonLink: '',
     boardLink: '',
     dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt()),
+    dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
     daysToComplete: 7,
     goals: [{ ...DEFAULT_GOAL }],
     dayPlanEnabled: true,
@@ -710,35 +733,30 @@ const ScheduleSection = ({
     [mockExams]
   );
 
-  const buildNextLessonData = (latest, fallback = {}) => ({
-    homeWork: latest?.homeWork || '',
-    lessonLink: latest?.lessonLink || '',
-    boardLink: latest?.boardLink || '',
-    dueAt: latest?.dueAt || fallback.dueAt || '',
-    daysToComplete: Number(latest?.daysToComplete) || fallback.daysToComplete || 7,
-    issuedAt: latest?.issuedAt || '',
-    checklistItems: Array.isArray(latest?.checklistItems) ? latest.checklistItems : [],
-    taskNumber: latest?.taskNumber ?? null,
-    levelId: latest?.levelId ?? null,
-    targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : [],
-    targetQuestionIds: Array.isArray(latest?.targetQuestionIds) ? latest.targetQuestionIds : [],
-    goals: Array.isArray(latest?.goals) ? latest.goals : [],
-    dayPlan: latest?.dayPlan && typeof latest.dayPlan === 'object' ? latest.dayPlan : null,
-  });
-
-  const loadNextLesson = async () => {
+  const loadNextLesson = useCallback(async () => {
     const requestId = nextLessonRequestRef.current + 1;
     nextLessonRequestRef.current = requestId;
     if (!effectiveStudentId) {
       setHomeworks([]);
-      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], targetQuestionIds: [], goals: [], dayPlan: null });
+      setNextLesson({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL, daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], targetQuestionIds: [], goals: [], dayPlan: null });
       setForm({
-        homeWork: DEFAULT_HOMEWORK,
+        homeWork: '',
         lessonLink: '',
         boardLink: '',
         dueAt: toDateTimeLocalValue(buildDefaultHomeworkDueAt()),
+        dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
         daysToComplete: 7,
-        goals: [{ ...DEFAULT_GOAL }],
+        goals: [{
+          type: GOAL_TYPE_TASK,
+          taskNumber: '',
+          levelId: 'basic',
+          targetInput: '',
+          includeAll: false,
+          targetQuestionIds: [],
+          targetSelectionDirty: false,
+          mockExamId: '',
+          mode: MOCK_ATTEMPT_MODE_TIMER,
+        }],
         dayPlanEnabled: true,
         dayPlanSessionCount: 3,
         dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
@@ -762,7 +780,7 @@ const ScheduleSection = ({
     } finally {
       if (nextLessonRequestRef.current === requestId) setLoading(false);
     }
-  };
+  }, [GOAL_TYPE_TASK, effectiveStudentId, requestStudentId]);
 
   const loadHomeworkDraft = useCallback(async () => {
     const requestId = homeworkDraftRequestRef.current + 1;
@@ -837,6 +855,7 @@ const ScheduleSection = ({
       const data = await api.syncStudentScheduleFromGoogle(effectiveStudentId);
       const nextSchedule = Array.isArray(data?.schedule) ? data.schedule : [];
       setLessonSchedule(sortScheduleEntries(nextSchedule));
+      await loadNextLesson();
       setScheduleError('');
       if (!silent) {
         const importedCount = Number(data?.importedCount) || 0;
@@ -853,7 +872,7 @@ const ScheduleSection = ({
     } finally {
       setGoogleScheduleSyncing(false);
     }
-  }, [effectiveStudentId, googleScheduleSyncing, role]);
+  }, [effectiveStudentId, googleScheduleSyncing, loadNextLesson, role]);
 
   const loadScheduleRequests = useCallback(async () => {
     if (!effectiveStudentId || role === 'student') {
@@ -883,7 +902,7 @@ const ScheduleSection = ({
 
   useEffect(() => {
     loadNextLesson();
-  }, [effectiveStudentId]);
+  }, [loadNextLesson]);
 
   useEffect(() => {
     loadHomeworkDraft();
@@ -956,6 +975,7 @@ const ScheduleSection = ({
         return;
       }
       loadSchedule();
+      loadNextLesson();
       loadScheduleRequests();
     };
     source.addEventListener('schedule-sync', handleScheduleSync);
@@ -963,7 +983,7 @@ const ScheduleSection = ({
       source.removeEventListener('schedule-sync', handleScheduleSync);
       source.close();
     };
-  }, [effectiveStudentId, loadSchedule, loadScheduleRequests, role]);
+  }, [effectiveStudentId, loadNextLesson, loadSchedule, loadScheduleRequests, role]);
 
   useEffect(() => {
     setScheduleEditingId(null);
@@ -1643,6 +1663,7 @@ const ScheduleSection = ({
         ...prev.filter((item) => item?.id !== savedEntry?.id),
         savedEntry,
       ]));
+      await loadNextLesson();
       resetScheduleForm();
       setScheduleRequestNotice('');
       setScheduleError('');
@@ -1674,6 +1695,7 @@ const ScheduleSection = ({
       }
       await api.deleteScheduleEntry(effectiveStudentId, entry.id);
       setLessonSchedule((prev) => prev.filter((item) => item?.id !== entry.id));
+      await loadNextLesson();
       if (scheduleEditingId === entry.id) {
         resetScheduleForm();
       }
@@ -1695,7 +1717,7 @@ const ScheduleSection = ({
     setScheduleRequestActionBusyId(requestId);
     try {
       await api.resolveStudentScheduleRequest(requestId, action);
-      await Promise.all([loadSchedule(), loadScheduleRequests()]);
+      await Promise.all([loadSchedule(), loadNextLesson(), loadScheduleRequests()]);
       setScheduleRequestNotice(
         action === 'approve'
           ? 'Запрос одобрен, расписание обновлено.'
@@ -3172,6 +3194,7 @@ const ScheduleSection = ({
         source?.daysToComplete || 7,
         editableLessonSchedule
       )),
+      dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
       daysToComplete: source?.daysToComplete || 7,
       goals: [{ ...DEFAULT_GOAL }],
       dayPlanEnabled: true,
@@ -3311,6 +3334,7 @@ const ScheduleSection = ({
         nextLesson?.daysToComplete || 7,
         editableLessonSchedule
       )),
+      dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
       daysToComplete: nextLesson?.daysToComplete || 7,
       goals: [createDefaultGoal()],
       dayPlanEnabled: true,
@@ -3489,6 +3513,7 @@ const ScheduleSection = ({
             sourceData?.daysToComplete || 7,
             freshEditableSchedule
           )),
+          dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
           daysToComplete: sourceData?.daysToComplete || 7,
           goals: [...carryoverGoals, createDefaultGoal()],
           dayPlanEnabled: true,
@@ -3535,6 +3560,7 @@ const ScheduleSection = ({
       lessonLink: entry.lessonLink || '',
       boardLink: entry.boardLink || '',
       dueAt: toDateTimeLocalValue(resolveHomeworkDueAt(entry)),
+      dueAtMode: normalizeHomeworkDueAtMode(entry.dueAtMode),
       daysToComplete: Number(entry.daysToComplete) || 7,
       issuedAt: entry.issuedAt || '',
       dayPlanEnabled: Boolean(storedDayPlan?.enabled && Array.isArray(storedDayPlan?.dayPlan)),
@@ -3677,6 +3703,7 @@ const ScheduleSection = ({
         lessonLink: form.lessonLink,
         boardLink: form.boardLink,
         dueAt: dueAtIso,
+        dueAtMode: normalizeHomeworkDueAtMode(form.dueAtMode),
         daysToComplete: form.daysToComplete,
         goals: goalsPayload,
         dayPlan: form.dayPlanEnabled
@@ -4408,7 +4435,19 @@ const ScheduleSection = ({
           getPythonTaskInfo={getPythonTaskInfo}
           normalizeMockExamId={normalizeMockExamId}
           parseTargetInput={parseTargetInput}
-          onChangeForm={(patch) => setForm((previous) => ({ ...previous, ...patch }))}
+          onChangeForm={(patch) => setForm((previous) => {
+            const nextPatch = { ...(patch || {}) };
+            if (
+              nextPatch.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+              && !Object.prototype.hasOwnProperty.call(nextPatch, 'dueAt')
+            ) {
+              nextPatch.dueAt = toDateTimeLocalValue(buildDefaultHomeworkDueAt(
+                previous.daysToComplete || 7,
+                editableLessonSchedule
+              ));
+            }
+            return { ...previous, ...nextPatch };
+          })}
           onUpdateGoal={updateGoal}
           onAddGoal={addGoalRow}
           onRemoveGoal={removeGoalRow}

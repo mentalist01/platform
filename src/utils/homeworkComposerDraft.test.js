@@ -14,6 +14,7 @@ test('homework composer draft keeps incomplete form values and carryover metadat
       homeWork: '  Прочитать параграф  ',
       lessonLink: ' https://lesson.example ',
       dueAt: '2026-08-02T18:30',
+      dueAtMode: 'next-lesson',
       daysToComplete: 4,
       goals: [{
         type: 'task',
@@ -47,6 +48,7 @@ test('homework composer draft keeps incomplete form values and carryover metadat
 
   assert.equal(draft.version, HOMEWORK_COMPOSER_DRAFT_VERSION);
   assert.equal(draft.form.homeWork, 'Прочитать параграф');
+  assert.equal(draft.form.dueAtMode, 'next-lesson');
   assert.equal(draft.form.goals[0].taskNumber, 2);
   assert.equal(draft.form.goals[0].targetInput, '1-22');
   assert.equal(draft.form.goals[0].carryover.remainingCount, 12);

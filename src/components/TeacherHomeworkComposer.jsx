@@ -25,6 +25,10 @@ import {
 import { resolveAuthenticatedUploadsUrl } from '../services/api';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
 import { buildHomeworkDayPlan } from '../utils/homeworkDayPlan';
+import {
+  HOMEWORK_DUE_AT_MODE_MANUAL,
+  HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
+} from '../utils/homeworkDueAt';
 
 const EMPTY_GOALS = [];
 const HOMEWORK_PLAN_WEEKDAYS = [
@@ -862,17 +866,33 @@ const TeacherHomeworkComposer = ({
                 </section>
 
                 <section className="grid gap-3 sm:grid-cols-3">
-                  <label className="sm:col-span-1">
+                  <div className="sm:col-span-1">
                     <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">
                       <Clock3 size={12} /> Сдать до
                     </span>
                     <input
                       type="datetime-local"
                       value={form?.dueAt || ''}
-                      onChange={(event) => onChangeForm?.({ dueAt: event.target.value })}
+                      onChange={(event) => onChangeForm?.({
+                        dueAt: event.target.value,
+                        dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL,
+                      })}
                       className="min-h-11 w-full rounded-xl border border-slate-200 bg-[rgb(var(--surface))] px-3 text-sm font-semibold text-[rgb(var(--ink))] outline-none focus:border-purple-400"
                     />
-                  </label>
+                    {form?.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON ? (
+                      <span className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
+                        <CalendarDays size={11} /> Автоматически обновляется по ближайшему занятию
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onChangeForm?.({ dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON })}
+                        className="mt-1.5 text-left text-[10px] font-bold text-purple-600 hover:text-purple-800"
+                      >
+                        Использовать ближайшее занятие
+                      </button>
+                    )}
+                  </div>
                   <label>
                     <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">Ссылка на занятие</span>
                     <input

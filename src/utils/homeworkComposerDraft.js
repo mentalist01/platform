@@ -1,3 +1,5 @@
+import { normalizeHomeworkDueAtMode } from './homeworkDueAt.js';
+
 export const HOMEWORK_COMPOSER_DRAFT_VERSION = 1;
 
 const MAX_HOMEWORK_TEXT_LENGTH = 20000;
@@ -91,6 +93,7 @@ export const normalizeHomeworkComposerDraftForm = (value) => {
     lessonLink: trimString(value.lessonLink, MAX_LINK_LENGTH),
     boardLink: trimString(value.boardLink, MAX_LINK_LENGTH),
     dueAt: trimString(value.dueAt, 100),
+    dueAtMode: normalizeHomeworkDueAtMode(value.dueAtMode),
     daysToComplete: Number.isFinite(rawDaysToComplete) && rawDaysToComplete > 0
       ? Math.min(366, rawDaysToComplete)
       : 7,
