@@ -11,8 +11,8 @@ const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
 ];
 const WS_PING_INTERVAL_MS = 15000;
-const AUDIO_MAX_BITRATE = 32000;
-const AUDIO_MIN_BITRATE = 16000;
+const AUDIO_MAX_BITRATE = 48000;
+const AUDIO_MIN_BITRATE = 32000;
 const getPositiveNumberFromEnv = (key, fallback) => {
   const value = typeof import.meta !== 'undefined' ? import.meta.env?.[key] : undefined;
   const parsed = Number(value);
@@ -61,10 +61,9 @@ const SPEAKING_HOLD_MS = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_HOLD_MS', 4
 const SPEAKING_ANALYSER_FFT_SIZE = 1024;
 const PEER_VOLUME_STEP_PERCENT = 10;
 const DEFAULT_PEER_VOLUME = 1;
-const PEER_VOLUME_MAX_PLAYBACK_GAIN = 3;
 const MIN_MIC_SENSITIVITY_PERCENT = 50;
 const MAX_MIC_SENSITIVITY_PERCENT = 200;
-const DEFAULT_MIC_SENSITIVITY_PERCENT = 200;
+const DEFAULT_MIC_SENSITIVITY_PERCENT = 100;
 const MIC_SENSITIVITY_STEP_PERCENT = 10;
 const MIN_MIC_TRIGGER_THRESHOLD_PERCENT = 0;
 const MAX_MIC_TRIGGER_THRESHOLD_PERCENT = 150;
@@ -76,7 +75,7 @@ const MIC_SETTINGS_POPUP_WIDTH = 360;
 const MIC_SETTINGS_POPUP_OFFSET = 10;
 const MIC_SETTINGS_POPUP_MARGIN = 8;
 const MIC_SETTINGS_POPUP_ESTIMATED_HEIGHT = 280;
-const RTC_MIC_SETTINGS_STORAGE_KEY_PREFIX = 'ege_rtc_mic_settings_v3';
+const RTC_MIC_SETTINGS_STORAGE_KEY_PREFIX = 'ege_rtc_mic_settings_v4';
 const RTC_ALERT_SOUND_SOURCES = Object.freeze({
   connected: '/sounds/user_join.mp3',
   disconnected: '/sounds/user_leave.mp3',
@@ -196,22 +195,6 @@ const percentToPeerVolume = (value) => {
 };
 
 const peerVolumeToPercent = (value) => Math.round(normalizePeerVolume(value) * 100);
-const peerVolumeToPlaybackGain = (value) => normalizePeerVolume(value) * PEER_VOLUME_MAX_PLAYBACK_GAIN;
-const disconnectAudioNode = (node) => {
-  try {
-    node?.disconnect?.();
-  } catch {
-    // Media nodes can already be detached while remote streams are replaced.
-  }
-};
-const closeAudioContext = (audioContext) => {
-  try {
-    const closePromise = audioContext?.close?.();
-    closePromise?.catch?.(() => undefined);
-  } catch {
-    // AudioContext may already be closed by the browser during teardown.
-  }
-};
 const clampToRange = (value, min, max) => Math.min(Math.max(value, min), max);
 const rmsToMicLevelPercent = (value) => {
   const rms = Number(value);
@@ -1016,140 +999,16 @@ const RemoteAudioPlayer = ({
   volume = DEFAULT_PEER_VOLUME,
 }) => {
   const audioRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const audioGainNodeRef = useRef(null);
-  const amplifiedPlaybackActiveRef = useRef(false);
-  const effectiveVolumeRef = useRef(DEFAULT_PEER_VOLUME);
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
   const effectiveVolume = normalizePeerVolume(volume);
-  const effectivePlaybackGain = peerVolumeToPlaybackGain(effectiveVolume);
-
-  useEffect(() => {
-    effectiveVolumeRef.current = effectiveVolume;
-  }, [effectiveVolume]);
 
   useEffect(() => {
     const audioNode = audioRef.current;
     if (!audioNode) return undefined;
-    amplifiedPlaybackActiveRef.current = false;
-    audioContextRef.current = null;
-    audioGainNodeRef.current = null;
     audioNode.srcObject = stream || null;
-    audioNode.volume = Math.min(1, peerVolumeToPlaybackGain(effectiveVolumeRef.current));
     audioNode.play?.().catch(() => {});
-    if (!stream) {
-      return () => {
-        audioNode.srcObject = null;
-      };
-    }
-
-    const audioTracks = Array.isArray(stream.getAudioTracks?.()) ? stream.getAudioTracks() : [];
-    const hasAudioTrack = audioTracks.some((track) => track?.readyState === 'live');
-    const AudioContextCtor = typeof window !== 'undefined'
-      ? (window.AudioContext || window.webkitAudioContext)
-      : null;
-    if (!hasAudioTrack || !AudioContextCtor) {
-      return () => {
-        audioNode.srcObject = null;
-      };
-    }
-
-    let audioContext = null;
-    let sourceNode = null;
-    let gainNode = null;
-    let disposed = false;
-
-    const applyDirectPlayback = () => {
-      if (disposed) return;
-      amplifiedPlaybackActiveRef.current = false;
-      audioNode.volume = Math.min(1, peerVolumeToPlaybackGain(effectiveVolumeRef.current));
-      audioNode.play?.().catch(() => {});
-    };
-
-    const applyAmplifiedPlayback = () => {
-      if (disposed || audioContext?.state !== 'running') return false;
-      amplifiedPlaybackActiveRef.current = true;
-      audioNode.volume = 0;
-      return true;
-    };
-
-    try {
-      audioContext = new AudioContextCtor();
-      sourceNode = audioContext.createMediaStreamSource(stream);
-      gainNode = audioContext.createGain();
-      gainNode.gain.value = peerVolumeToPlaybackGain(effectiveVolumeRef.current);
-      sourceNode.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      audioContextRef.current = audioContext;
-      audioGainNodeRef.current = gainNode;
-    } catch {
-      disconnectAudioNode(sourceNode);
-      disconnectAudioNode(gainNode);
-      closeAudioContext(audioContext);
-      audioContextRef.current = null;
-      audioGainNodeRef.current = null;
-      applyDirectPlayback();
-      return () => {
-        audioNode.srcObject = null;
-      };
-    }
-
-    const handleAudioContextStateChange = () => {
-      if (!applyAmplifiedPlayback()) {
-        applyDirectPlayback();
-      }
-    };
-
-    const resumeAmplifiedPlayback = () => {
-      try {
-        const resumePromise = audioContext?.resume?.();
-        if (resumePromise?.then) {
-          resumePromise
-            .then(() => {
-              if (!applyAmplifiedPlayback()) {
-                applyDirectPlayback();
-              }
-            })
-            .catch(() => undefined);
-          return;
-        }
-      } catch {
-        // Some browsers throw while the audio device is changing; direct playback stays active.
-      }
-      if (!applyAmplifiedPlayback()) {
-        applyDirectPlayback();
-      }
-    };
-
-    const hasDocumentListeners = typeof document !== 'undefined' && typeof document.addEventListener === 'function';
-    const userActivationOptions = { capture: true };
-
-    audioContext.addEventListener?.('statechange', handleAudioContextStateChange);
-    if (hasDocumentListeners) {
-      document.addEventListener('pointerdown', resumeAmplifiedPlayback, userActivationOptions);
-      document.addEventListener('keydown', resumeAmplifiedPlayback, userActivationOptions);
-      document.addEventListener('touchstart', resumeAmplifiedPlayback, userActivationOptions);
-    }
-    resumeAmplifiedPlayback();
 
     return () => {
-      disposed = true;
-      audioContext?.removeEventListener?.('statechange', handleAudioContextStateChange);
-      if (hasDocumentListeners) {
-        document.removeEventListener('pointerdown', resumeAmplifiedPlayback, userActivationOptions);
-        document.removeEventListener('keydown', resumeAmplifiedPlayback, userActivationOptions);
-        document.removeEventListener('touchstart', resumeAmplifiedPlayback, userActivationOptions);
-      }
-      if (audioContextRef.current === audioContext) {
-        audioContextRef.current = null;
-      }
-      if (audioGainNodeRef.current === gainNode) {
-        audioGainNodeRef.current = null;
-      }
-      amplifiedPlaybackActiveRef.current = false;
-      disconnectAudioNode(sourceNode);
-      disconnectAudioNode(gainNode);
-      closeAudioContext(audioContext);
       audioNode.srcObject = null;
     };
   }, [stream]);
@@ -1225,18 +1084,8 @@ const RemoteAudioPlayer = ({
   useEffect(() => {
     const audioNode = audioRef.current;
     if (!audioNode) return;
-    const gainNode = audioGainNodeRef.current;
-    if (gainNode) {
-      try {
-        gainNode.gain.setTargetAtTime(effectivePlaybackGain, gainNode.context.currentTime, 0.015);
-      } catch {
-        gainNode.gain.value = effectivePlaybackGain;
-      }
-    }
-    audioNode.volume = amplifiedPlaybackActiveRef.current && audioContextRef.current?.state === 'running'
-      ? 0
-      : Math.min(1, effectivePlaybackGain);
-  }, [effectivePlaybackGain]);
+    audioNode.volume = effectiveVolume;
+  }, [effectiveVolume]);
 
   return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
 };
@@ -1963,7 +1812,7 @@ const CallSection = ({
       encodings[0] = {
         ...(encodings[0] || {}),
         maxBitrate: profile.audioBitrate,
-        dtx: 'enabled',
+        dtx: 'disabled',
         priority: quality === 'poor' ? 'high' : 'medium',
       };
       params.encodings = encodings;
@@ -3139,8 +2988,8 @@ const CallSection = ({
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
-        noiseSuppression: false,
-        autoGainControl: false,
+        noiseSuppression: true,
+        autoGainControl: true,
         channelCount: 1,
       },
       video: false,
