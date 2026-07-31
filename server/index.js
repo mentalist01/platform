@@ -20798,9 +20798,7 @@ app.get('/api/tests', (req, res) => {
     const student = ensureStudentAccess(req, res, requestedStudentId);
     if (!student) return;
     const studentData = getStudentData(student.id);
-    return res.json(sanitizeTestsDbForStudent(
-      getTestsDbWithStudentMockFollowups(studentData, data)
-    ));
+    return res.json(getTestsDbWithStudentMockFollowups(studentData, data));
   }
   return res.json(data || {});
 });
