@@ -170,7 +170,7 @@ const normalizePayload = (type, value) => {
   const source = isPlainObject(value) ? value : {};
   if (type === 'session') {
     return {
-      action: source.action === 'end' ? 'end' : 'start',
+      action: ['start', 'switch', 'end'].includes(source.action) ? source.action : 'start',
       via: ['platform', 'telemost'].includes(source.via) ? source.via : 'platform',
     };
   }
@@ -221,6 +221,12 @@ const normalizePayload = (type, value) => {
 };
 
 const stableSignature = (event) => JSON.stringify([event.type, event.payload]);
+
+const actorEventTypeKey = (event) => JSON.stringify([
+  event.type,
+  event.actor?.role || 'student',
+  event.actor?.id || '',
+]);
 
 export const normalizeLessonReplayEvent = (value, context = {}) => {
   if (!isPlainObject(value)) return null;
@@ -348,8 +354,8 @@ const trimReplayToByteLimit = (replay, maxBytes) => {
 export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => {
   const replay = normalizeLessonReplay(rawReplay);
   const knownIds = new Set(replay.events.map((event) => event.id));
-  const latestSignatureByType = new Map();
-  replay.events.forEach((event) => latestSignatureByType.set(event.type, {
+  const latestSignatureByActorAndType = new Map();
+  replay.events.forEach((event) => latestSignatureByActorAndType.set(actorEventTypeKey(event), {
     signature: stableSignature(event),
     occurredAtMs: Date.parse(event.occurredAt),
   }));
@@ -363,7 +369,8 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
     });
     if (!event || knownIds.has(event.id)) return;
     const signature = stableSignature(event);
-    const previous = latestSignatureByType.get(event.type);
+    const actorTypeKey = actorEventTypeKey(event);
+    const previous = latestSignatureByActorAndType.get(actorTypeKey);
     const occurredAtMs = Date.parse(event.occurredAt);
     if (
       previous
@@ -376,7 +383,7 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
     }
     replay.events.push(event);
     knownIds.add(event.id);
-    latestSignatureByType.set(event.type, { signature, occurredAtMs });
+    latestSignatureByActorAndType.set(actorTypeKey, { signature, occurredAtMs });
     added += 1;
   });
 

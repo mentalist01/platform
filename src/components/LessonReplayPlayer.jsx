@@ -57,7 +57,12 @@ const getEventLabel = (event) => {
   if (event.type === 'code') return 'Изменение совместного кода';
   if (event.type === 'board') return 'Изменение на доске';
   if (event.type === 'run') return 'Запуск программы';
-  if (event.type === 'session') return event.payload?.action === 'end' ? 'Занятие завершено' : 'Занятие началось';
+  if (event.type === 'session') {
+    if (event.payload?.action === 'switch') {
+      return event.payload?.via === 'telemost' ? 'Перешли в Телемост' : 'Вернулись на платформу';
+    }
+    return event.payload?.action === 'end' ? 'Занятие завершено' : 'Занятие началось';
+  }
   return EVENT_LABELS[event.type] || 'Действие';
 };
 

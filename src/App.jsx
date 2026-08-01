@@ -14338,6 +14338,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [teacherStudentChatId, setTeacherStudentChatId] = useState(initialTeacherStudentChatId);
   const [teacherSignupChatId, setTeacherSignupChatId] = useState(initialTeacherSignupChatId);
   const [callSessionStatus, setCallSessionStatus] = useState('idle');
+  const [telemostLessonReplay, setTelemostLessonReplay] = useState(null);
+  const [telemostLessonFinishBusy, setTelemostLessonFinishBusy] = useState(false);
+  const telemostLessonActivityMissesRef = useRef(0);
   const [callAutoStartToken, setCallAutoStartToken] = useState(0);
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -14502,13 +14505,125 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [pushReady, setPushReady] = useState(false);
   const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const isCallSessionActive = callSessionStatus === 'connected' || callSessionStatus === 'connecting';
-  const lessonReplayStudentId = user.role === 'student' ? user.id : activeStudentId;
-  const { recordLessonReplayEvent } = useLessonReplayRecorder({
-    active: callSessionStatus === 'connected',
+  const isTelemostLessonReplayActive = Boolean(
+    telemostLessonReplay?.active
+    && telemostLessonReplay?.studentId
+    && (
+      !telemostLessonReplay.autoFinishAt
+      || Date.parse(telemostLessonReplay.autoFinishAt) > Date.now()
+    )
+  );
+  const lessonReplayStudentId = callSessionStatus === 'connected'
+    ? (user.role === 'student' ? user.id : activeStudentId)
+    : (isTelemostLessonReplayActive
+      ? telemostLessonReplay.studentId
+      : (user.role === 'student' ? user.id : activeStudentId));
+  const lessonReplayMode = callSessionStatus === 'connected'
+    ? 'platform'
+    : (isTelemostLessonReplayActive ? 'telemost' : '');
+  const applyTelemostLessonReplay = useCallback((payload = {}) => {
+    const activity = payload?.activity || payload?.request?.activity || payload;
+    const studentId = String(
+      activity?.studentId || payload?.request?.studentId || payload?.studentId || ''
+    ).trim();
+    if (!studentId) return;
+    telemostLessonActivityMissesRef.current = 0;
+    setTelemostLessonReplay((current) => ({
+      ...(current?.studentId === studentId ? current : {}),
+      ...activity,
+      studentId,
+      occurrenceKey: String(
+        activity?.occurrenceKey || payload?.request?.occurrenceKey || current?.occurrenceKey || ''
+      ).trim(),
+      autoFinishAt: String(
+        activity?.autoFinishAt || payload?.request?.autoFinishAt || current?.autoFinishAt || ''
+      ).trim(),
+      mode: 'telemost',
+      active: activity?.active !== false,
+    }));
+  }, []);
+  const { recordLessonReplayEvent, finishLessonReplayNow } = useLessonReplayRecorder({
+    active: callSessionStatus === 'connected' || isTelemostLessonReplayActive,
     studentId: lessonReplayStudentId,
+    mode: lessonReplayMode || 'platform',
+    occurrenceKey: isTelemostLessonReplayActive ? telemostLessonReplay?.occurrenceKey : '',
     view,
     viewLabel: LESSON_REPLAY_VIEW_LABELS[view] || view,
   });
+  const lessonReplayActivityLookupStudentId = String(
+    telemostLessonReplay?.studentId
+      || (user.role === 'student' ? user.id : activeStudentId)
+      || ''
+  ).trim();
+
+  useEffect(() => {
+    if (!lessonReplayActivityLookupStudentId) return undefined;
+    let cancelled = false;
+    const refreshActivity = async () => {
+      try {
+        const activity = await api.getLessonReplayActivity(lessonReplayActivityLookupStudentId);
+        if (cancelled) return;
+        if (activity?.active && activity?.mode === 'telemost') {
+          applyTelemostLessonReplay(activity);
+          return;
+        }
+        telemostLessonActivityMissesRef.current += 1;
+        if (telemostLessonActivityMissesRef.current >= 2) {
+          setTelemostLessonReplay((current) => (
+            current?.studentId === lessonReplayActivityLookupStudentId ? null : current
+          ));
+        }
+      } catch {
+        // A temporary network issue must not interrupt an otherwise active lesson.
+      }
+    };
+    const initialTimerId = window.setTimeout(refreshActivity, 1200);
+    const intervalId = window.setInterval(refreshActivity, 5000);
+    const handleFocus = () => refreshActivity();
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(initialTimerId);
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [applyTelemostLessonReplay, lessonReplayActivityLookupStudentId]);
+
+  useEffect(() => {
+    const autoFinishAtMs = Date.parse(String(telemostLessonReplay?.autoFinishAt || '').trim());
+    if (!isTelemostLessonReplayActive || !Number.isFinite(autoFinishAtMs)) return undefined;
+    const finishAtCutoff = () => {
+      setTelemostLessonReplay(null);
+      if (callSessionStatus !== 'connected') finishLessonReplayNow();
+    };
+    const delayMs = autoFinishAtMs - Date.now();
+    if (delayMs <= 0) {
+      finishAtCutoff();
+      return undefined;
+    }
+    const timerId = window.setTimeout(finishAtCutoff, Math.min(delayMs, 2_147_000_000));
+    return () => window.clearTimeout(timerId);
+  }, [callSessionStatus, finishLessonReplayNow, isTelemostLessonReplayActive, telemostLessonReplay?.autoFinishAt]);
+
+  useEffect(() => {
+    telemostLessonActivityMissesRef.current = 0;
+    setTelemostLessonReplay(null);
+  }, [user.id, user.role]);
+
+  const handleFinishTelemostLesson = useCallback(async () => {
+    const studentId = String(telemostLessonReplay?.studentId || '').trim();
+    if (!studentId || telemostLessonFinishBusy) return;
+    setTelemostLessonFinishBusy(true);
+    try {
+      await api.finishLessonReplayLesson(studentId, telemostLessonReplay?.occurrenceKey || '');
+      finishLessonReplayNow();
+      setTelemostLessonReplay(null);
+    } catch (error) {
+      console.error('[lesson-replay] failed to finish Telemost lesson:', error);
+    } finally {
+      setTelemostLessonFinishBusy(false);
+    }
+  }, [finishLessonReplayNow, telemostLessonFinishBusy, telemostLessonReplay]);
   const isBoardView = view === 'board';
   const isCallView = view === 'call';
   const isCollabView = view === 'collab';
@@ -14965,6 +15080,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       studentName: String(payload?.studentName || '').trim() || 'Ученик',
       telemostUrl,
       requestedAt,
+      occurrenceKey: String(payload?.occurrenceKey || payload?.activity?.occurrenceKey || '').trim(),
+      autoFinishAt: String(payload?.autoFinishAt || payload?.activity?.autoFinishAt || '').trim(),
+      activity: payload?.activity && typeof payload.activity === 'object' ? payload.activity : null,
     };
     setTelemostJoinAlerts((current) => (
       [alert, ...current.filter((item) => item.studentId !== studentId)].slice(0, 4)
@@ -18383,8 +18501,38 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (studentTourActive) stopGoalFlyAnimation();
   }, [studentTourActive, stopGoalFlyAnimation]);
 
+  const telemostLessonAutoFinishLabel = telemostLessonReplay?.autoFinishAt
+    ? new Date(telemostLessonReplay.autoFinishAt).toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    : '';
+
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
+      {user.role === 'teacher' && isTelemostLessonReplayActive && (
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1350] flex max-w-[calc(100vw-1.5rem)] items-center gap-3 rounded-2xl border border-violet-200/90 bg-white/95 px-3 py-2.5 shadow-[0_16px_42px_rgba(91,33,182,0.22)] backdrop-blur-xl md:bottom-5 md:right-5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white shadow-md shadow-violet-200/70">
+            <Video size={18} />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-black text-slate-800">Урок идёт в Телемосте</p>
+            <p className="truncate text-[10px] font-semibold text-slate-500">
+              {telemostLessonAutoFinishLabel
+                ? `Ход урока записывается до ${telemostLessonAutoFinishLabel}`
+                : 'Ход урока записывается без звука'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleFinishTelemostLesson}
+            disabled={telemostLessonFinishBusy}
+            className="shrink-0 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-[11px] font-extrabold text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 disabled:cursor-wait disabled:opacity-60"
+          >
+            {telemostLessonFinishBusy ? 'Завершаю…' : 'Завершить урок'}
+          </button>
+        </div>
+      )}
       {user.role === 'teacher' && telemostJoinAlerts.length > 0 && (
         <div className="telemost-join-alerts" role="region" aria-label="Переходы учеников в Телемост">
           {telemostJoinAlerts.map((alert) => {
@@ -18420,8 +18568,27 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => {
+                      handleSelectStudent(alert.studentId);
+                      applyTelemostLessonReplay({
+                        ...(alert.activity || {}),
+                        studentId: alert.studentId,
+                        occurrenceKey: alert.occurrenceKey,
+                        autoFinishAt: alert.autoFinishAt,
+                        active: true,
+                        mode: 'telemost',
+                      });
+                      api.acceptTelemostJoin(alert.studentId, alert.requestId)
+                        .then((result) => applyTelemostLessonReplay(result))
+                        .catch(() => {
+                          // The activity poll will reconcile an expired request.
+                        });
                       if (typeof window !== 'undefined') {
-                        window.dispatchEvent(new Event('telemost-external-open'));
+                        window.dispatchEvent(new CustomEvent('telemost-external-open', {
+                          detail: {
+                            studentId: alert.studentId,
+                            occurrenceKey: alert.occurrenceKey,
+                          },
+                        }));
                       }
                       dismissTelemostJoinAlert(alert.studentId);
                     }}
@@ -19988,6 +20155,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               theme={theme}
               autoStartToken={callAutoStartToken}
               onStatusChange={setCallSessionStatus}
+              onTelemostLessonStart={applyTelemostLessonReplay}
               onRequestExpand={() => setCallPanelExpanded(true)}
               onRequestCollapse={() => setCallPanelExpanded(false)}
               onRequestOpenCall={() => navigateToView('call')}
@@ -20012,6 +20180,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <StudentLessonJoinPrompt
               studentId={user.id}
               onOpenPlatformLesson={handleOpenStudentPlatformLesson}
+              onTelemostLessonStart={applyTelemostLessonReplay}
             />
           )}
           {view === 'board' && (

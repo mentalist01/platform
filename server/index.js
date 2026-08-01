@@ -145,8 +145,12 @@ const PORT = process.env.PORT || 5175;
 const telemostJoinRequestStateByStudentId = new Map();
 const activeLessonReplaySessions = new Map();
 const activeLessonReplayOccurrenceByStudentId = new Map();
+const activeTelemostLessonReplayByStudentId = new Map();
 const lessonReplayWriteQueueByOccurrenceKey = new Map();
 const LESSON_REPLAY_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
+const LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS = 20 * 1000;
+const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;
+const TELEMOST_LESSON_DRAIN_MS = 30 * 1000;
 const LESSON_REPLAY_MAX_COMPRESSED_BYTES = LESSON_REPLAY_MAX_FILE_BYTES + 1024 * 1024;
 const lessonReplaySessionSweepInterval = setInterval(() => {
   const nowMs = Date.now();
@@ -20683,8 +20687,11 @@ app.get('/api/telemost', (req, res) => {
   });
 });
 
-app.post('/api/telemost/join', (req, res) => {
+app.post('/api/telemost/join', async (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
+  if (!req.is('application/json')) {
+    return res.status(415).json({ error: 'Ожидался JSON-запрос' });
+  }
   const student = ensureStudentAccess(req, res, req.auth.id);
   if (!student) return;
 
@@ -20701,17 +20708,43 @@ app.post('/api/telemost/join', (req, res) => {
       delivered: previous.delivered,
       deduplicated: true,
       request: previous.request,
+      activity: previous.request.activity || null,
+    });
+  }
+
+  let activity = null;
+  try {
+    activity = await activateTelemostLessonReplay({
+      student,
+      auth: req.auth,
+      nowMs,
+      preferredOccurrenceKey: String(req.body?.occurrenceKey || '').trim(),
+    });
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || 500;
+    if (statusCode >= 500) console.error('[lesson-replay] failed to activate Telemost lesson:', error);
+    return res.status(statusCode).json({
+      error: statusCode >= 500 ? 'Не удалось начать запись хода урока' : error.message,
     });
   }
 
   const requestedAt = new Date(nowMs).toISOString();
+  const requestId = crypto.randomUUID();
+  const telemostActivityEntry = activeTelemostLessonReplayByStudentId.get(student.id);
+  if (telemostActivityEntry) {
+    telemostActivityEntry.requestId = requestId;
+    activity = serializeTelemostLessonReplayActivity(telemostActivityEntry, nowMs);
+  }
   const request = {
-    requestId: crypto.randomUUID(),
+    requestId,
     studentId: student.id,
     studentName: normalizeStudentName(student.name) || 'Ученик',
     teacherId: String(student.teacherId || '').trim(),
     telemostUrl,
     requestedAt,
+    occurrenceKey: activity.occurrenceKey,
+    autoFinishAt: activity.autoFinishAt,
+    activity,
   };
   const deliveredCount = broadcastTelemostJoinRequested(request);
   const delivered = deliveredCount > 0;
@@ -20748,7 +20781,64 @@ app.post('/api/telemost/join', (req, res) => {
     delivered,
     deduplicated: false,
     request,
+    activity,
   });
+});
+
+app.post('/api/telemost/accept', async (req, res) => {
+  if (!isTeacherRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.body?.studentId);
+  if (!student) return;
+  const requestId = String(req.body?.requestId || '').trim();
+  const pending = telemostJoinRequestStateByStudentId.get(student.id);
+  if (
+    !requestId
+    || !pending?.request
+    || pending.request.requestId !== requestId
+    || String(pending.request.teacherId || '').trim() !== String(req.auth.id || '').trim()
+  ) {
+    return res.status(409).json({ error: 'Запрос на переход в Телемост уже устарел' });
+  }
+  try {
+    const activity = await activateTelemostLessonReplay({
+      student,
+      auth: req.auth,
+      nowMs: Date.now(),
+      preferredOccurrenceKey: pending.request.occurrenceKey,
+      requestId,
+    });
+    pending.acceptedAt = new Date().toISOString();
+    pending.request.activity = activity;
+    pending.request.autoFinishAt = activity.autoFinishAt;
+    return res.json({ ok: true, activity });
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || 500;
+    if (statusCode >= 500) console.error('[lesson-replay] failed to accept Telemost lesson:', error);
+    return res.status(statusCode).json({
+      error: statusCode >= 500 ? 'Не удалось продолжить запись хода урока' : error.message,
+    });
+  }
+});
+
+app.post('/api/telemost/activate', async (req, res) => {
+  if (!isTeacherRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.body?.studentId);
+  if (!student) return;
+  try {
+    const activity = await activateTelemostLessonReplay({
+      student,
+      auth: req.auth,
+      nowMs: Date.now(),
+      preferredOccurrenceKey: String(req.body?.occurrenceKey || '').trim(),
+    });
+    return res.json({ ok: true, activity });
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || 500;
+    if (statusCode >= 500) console.error('[lesson-replay] failed to activate Telemost lesson:', error);
+    return res.status(statusCode).json({
+      error: statusCode >= 500 ? 'Не удалось начать запись хода урока' : error.message,
+    });
+  }
 });
 
 app.patch('/api/students/:id', (req, res) => {
@@ -23241,9 +23331,17 @@ const hasActivePlatformLessonCall = (student) => {
   return hasTeacher && hasStudent;
 };
 
-const resolveCurrentLessonReplayOccurrence = async (student, auth, nowMs = Date.now()) => {
+const resolveCurrentLessonReplayOccurrence = async (
+  student,
+  auth,
+  nowMs = Date.now(),
+  options = {}
+) => {
   const studentId = String(student?.id || '').trim();
   if (!studentId) return null;
+  const preferredOccurrenceKey = String(options?.preferredOccurrenceKey || '').trim().slice(0, 760);
+  const preferActive = options?.preferActive === true;
+  const allowFallback = options?.allowFallback !== false;
   const { dayKey } = getLessonReplayZonedParts(nowMs);
   const schedule = await getLessonReplaySchedule(student, auth);
   const occurrences = expandLessonScheduleOccurrences({
@@ -23267,20 +23365,42 @@ const resolveCurrentLessonReplayOccurrence = async (student, auth, nowMs = Date.
       return distance(left) - distance(right) || left.startMs - right.startMs;
     });
 
-  let occurrence = candidates[0] || null;
   const active = activeLessonReplayOccurrenceByStudentId.get(studentId);
-  if (
-    !occurrence
-    && active
+  const activeIsRecent = Boolean(
+    active
     && Number(nowMs) - Number(active.lastSeenAt || 0) < 3 * 60 * 60 * 1000
     && Number(nowMs) >= Number(active.occurrence?.startMs || 0) - 30 * 60 * 1000
     && Number(nowMs) <= Number(active.occurrence?.endMs || 0) + 2 * 60 * 60 * 1000
+  );
+  const historyStore = readLessonHistoryStore();
+  const preferredStored = preferredOccurrenceKey
+    ? normalizeLessonHistoryRecord(historyStore.occurrences?.[preferredOccurrenceKey], {
+      timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
+    })
+    : null;
+  const preferredOccurrence = occurrences.find((entry) => entry.key === preferredOccurrenceKey)
+    || (activeIsRecent && active.occurrence?.key === preferredOccurrenceKey ? active.occurrence : null)
+    || (
+      preferredStored?.studentId === studentId
+      && Number(nowMs) >= Number(preferredStored.startMs || 0) - 30 * 60 * 1000
+      && Number(nowMs) <= Number(preferredStored.endMs || 0) + 2 * 60 * 60 * 1000
+        ? preferredStored
+        : null
+    );
+
+  let occurrence = preferredOccurrence
+    || (preferActive && activeIsRecent ? active.occurrence : null)
+    || candidates[0]
+    || null;
+  if (
+    !occurrence
+    && activeIsRecent
   ) occurrence = active.occurrence;
+  if (!occurrence && !allowFallback) return null;
   if (!occurrence) {
     // A real platform call can be started outside the timetable. Keep it in the
     // same history instead of silently losing the replay.
     const zoned = getLessonReplayZonedParts(nowMs);
-    const historyStore = readLessonHistoryStore();
     occurrence = Object.values(historyStore.occurrences || {})
       .filter((entry) => (
         String(entry?.studentId || '').trim() === studentId
@@ -23311,6 +23431,104 @@ const resolveCurrentLessonReplayOccurrence = async (student, auth, nowMs = Date.
     lastSeenAt: Number(nowMs),
   });
   return persisted;
+};
+
+const serializeTelemostLessonReplayActivity = (entry, nowMs = Date.now()) => {
+  if (!entry?.occurrence?.key) return null;
+  const autoFinishAtMs = Number(entry.autoFinishAtMs || 0);
+  return {
+    active: autoFinishAtMs > Number(nowMs),
+    mode: 'telemost',
+    studentId: String(entry.studentId || '').trim(),
+    occurrenceKey: entry.occurrence.key,
+    occurrence: entry.occurrence,
+    startedAt: String(entry.startedAt || '').trim(),
+    autoFinishAt: Number.isFinite(autoFinishAtMs) && autoFinishAtMs > 0
+      ? new Date(autoFinishAtMs).toISOString()
+      : '',
+    requestId: String(entry.requestId || '').trim(),
+  };
+};
+
+const getTelemostLessonReplayEntry = (studentId, nowMs = Date.now()) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!normalizedStudentId) return null;
+  const entry = activeTelemostLessonReplayByStudentId.get(normalizedStudentId);
+  if (!entry || Number(entry.autoFinishAtMs || 0) <= Number(nowMs)) return null;
+  return entry;
+};
+
+const activateTelemostLessonReplay = async ({
+  student,
+  auth,
+  nowMs = Date.now(),
+  preferredOccurrenceKey = '',
+  requestId = '',
+} = {}) => {
+  const studentId = String(student?.id || '').trim();
+  if (!studentId) {
+    const error = new Error('Ученик не найден');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const current = getTelemostLessonReplayEntry(studentId, nowMs);
+  if (
+    current
+    && (!preferredOccurrenceKey || current.occurrence?.key === preferredOccurrenceKey)
+  ) {
+    current.lastSeenAt = Number(nowMs);
+    if (requestId) current.requestId = String(requestId).trim();
+    return serializeTelemostLessonReplayActivity(current, nowMs);
+  }
+
+  const hasPlatformCall = hasActivePlatformLessonCall(student);
+  const occurrence = await resolveCurrentLessonReplayOccurrence(student, auth, nowMs, {
+    preferredOccurrenceKey,
+    preferActive: true,
+    allowFallback: hasPlatformCall,
+  });
+  if (!occurrence) {
+    const error = new Error('Сейчас нет занятия, к которому можно привязать запись Телемоста');
+    error.statusCode = 409;
+    throw error;
+  }
+  const autoFinishAtMs = Number(occurrence.endMs || 0) + TELEMOST_LESSON_BUFFER_MS;
+  if (!Number.isFinite(autoFinishAtMs) || autoFinishAtMs <= Number(nowMs)) {
+    const error = new Error('Время этого занятия с запасом уже закончилось');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const entry = {
+    studentId,
+    teacherId: String(student.teacherId || '').trim(),
+    occurrence,
+    startedAt: new Date(nowMs).toISOString(),
+    autoFinishAtMs,
+    lastSeenAt: Number(nowMs),
+    requestId: String(requestId || '').trim(),
+  };
+  activeTelemostLessonReplayByStudentId.set(studentId, entry);
+  activeLessonReplayOccurrenceByStudentId.set(studentId, {
+    occurrence,
+    lastSeenAt: Number(nowMs),
+  });
+  return serializeTelemostLessonReplayActivity(entry, nowMs);
+};
+
+const isLessonReplaySessionWritable = (session, student, nowMs = Date.now()) => {
+  if (hasActivePlatformLessonCall(student)) {
+    session.lastPlatformActiveAt = Number(nowMs);
+    return true;
+  }
+  const telemost = getTelemostLessonReplayEntry(student?.id, nowMs);
+  if (telemost && telemost.occurrence?.key === session?.occurrenceKey) return true;
+  return Boolean(
+    session?.via === 'platform'
+    && Number(session.lastPlatformActiveAt || 0) > 0
+    && Number(nowMs) - Number(session.lastPlatformActiveAt) <= LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS
+  );
 };
 
 const serializeLessonReplayForClient = (replay) => {
@@ -24071,16 +24289,133 @@ app.get('/api/student-search', async (req, res) => {
   });
 });
 
+const finishActiveLessonReplaySession = async (session, rawEvents = [], options = {}) => {
+  if (!session?.id || !session?.occurrenceKey) return false;
+  if (session.closing) return false;
+  session.closing = true;
+  const nowMs = Number(options.nowMs) || Date.now();
+  try {
+    await withLessonReplayWriteLock(session.occurrenceKey, () => {
+      const replay = readLessonReplay(session.occurrenceKey);
+      if (!replay) return;
+      const context = {
+        actorRole: session.actorRole,
+        actorId: session.actorId,
+        actorName: session.actorName,
+        nowMs,
+      };
+      const withPending = appendLessonReplayEvents(replay, rawEvents, context).replay;
+      const appended = appendLessonReplayEvents(withPending, [{
+        id: `${session.id}:end`,
+        type: 'session',
+        occurredAt: new Date(nowMs).toISOString(),
+        payload: {
+          action: 'end',
+          via: session.via === 'telemost' ? 'telemost' : 'platform',
+        },
+      }], context);
+      writeLessonReplay(appended.replay);
+    });
+    activeLessonReplaySessions.delete(session.id);
+    return true;
+  } catch (error) {
+    session.closing = false;
+    throw error;
+  }
+};
+
+const finishTelemostLessonReplay = async (studentId, options = {}) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!normalizedStudentId) return { finishedSessions: 0 };
+  const entry = activeTelemostLessonReplayByStudentId.get(normalizedStudentId);
+  const occurrenceKey = String(options.occurrenceKey || entry?.occurrence?.key || '').trim();
+  if (!occurrenceKey) {
+    activeTelemostLessonReplayByStudentId.delete(normalizedStudentId);
+    return { finishedSessions: 0 };
+  }
+  const sessions = Array.from(activeLessonReplaySessions.values()).filter((session) => (
+    session.studentId === normalizedStudentId && session.occurrenceKey === occurrenceKey
+  ));
+  let finishedSessions = 0;
+  for (const session of sessions) {
+    if (await finishActiveLessonReplaySession(session, [], options)) finishedSessions += 1;
+  }
+  activeTelemostLessonReplayByStudentId.delete(normalizedStudentId);
+  const hasOtherStudentSession = Array.from(activeLessonReplaySessions.values())
+    .some((session) => session.studentId === normalizedStudentId && session.expiresAt >= Date.now());
+  if (!hasOtherStudentSession) activeLessonReplayOccurrenceByStudentId.delete(normalizedStudentId);
+  return { finishedSessions, occurrenceKey };
+};
+
+const telemostLessonReplaySweepInterval = setInterval(() => {
+  const nowMs = Date.now();
+  activeTelemostLessonReplayByStudentId.forEach((entry, studentId) => {
+    if (Number(entry?.autoFinishAtMs || 0) + TELEMOST_LESSON_DRAIN_MS > nowMs) return;
+    if (hasActivePlatformLessonCall({ id: studentId, teacherId: entry?.teacherId })) return;
+    void finishTelemostLessonReplay(studentId, { nowMs }).catch((error) => {
+      console.error('[lesson-replay] failed to auto-finish Telemost lesson:', error);
+    });
+  });
+}, 5 * 1000);
+if (typeof telemostLessonReplaySweepInterval.unref === 'function') {
+  telemostLessonReplaySweepInterval.unref();
+}
+
+app.get('/api/lesson-replay/activity', (req, res) => {
+  const student = ensureStudentAccess(req, res, req.query?.studentId);
+  if (!student) return;
+  const nowMs = Date.now();
+  const telemost = getTelemostLessonReplayEntry(student.id, nowMs);
+  if (telemost) return res.json(serializeTelemostLessonReplayActivity(telemost, nowMs));
+  if (hasActivePlatformLessonCall(student)) {
+    const active = activeLessonReplayOccurrenceByStudentId.get(student.id);
+    return res.json({
+      active: true,
+      mode: 'platform',
+      studentId: student.id,
+      occurrenceKey: String(active?.occurrence?.key || '').trim(),
+      occurrence: active?.occurrence || null,
+      autoFinishAt: '',
+    });
+  }
+  return res.json({
+    active: false,
+    mode: '',
+    studentId: student.id,
+    occurrenceKey: '',
+    occurrence: null,
+    autoFinishAt: '',
+  });
+});
+
 app.post('/api/lesson-replay/session', async (req, res) => {
   const student = ensureStudentAccess(req, res, req.body?.studentId);
   if (!student) return;
   if (!isTeacherRole(req.auth) && !isStudentRole(req.auth)) return forbid(res);
-  if (!hasActivePlatformLessonCall(student)) {
-    return res.status(409).json({ error: 'Запись начнётся после подключения учителя и ученика к звонку' });
-  }
   try {
     const nowMs = Date.now();
-    const occurrence = await resolveCurrentLessonReplayOccurrence(student, req.auth, nowMs);
+    const requestedVia = req.body?.via === 'telemost' ? 'telemost' : 'platform';
+    const requestedOccurrenceKey = String(req.body?.occurrenceKey || '').trim();
+    const telemost = getTelemostLessonReplayEntry(student.id, nowMs);
+    if (requestedVia === 'telemost' && !telemost) {
+      return res.status(409).json({ error: 'Запись Телемоста уже не активна' });
+    }
+    if (requestedVia === 'platform' && !hasActivePlatformLessonCall(student)) {
+      return res.status(409).json({ error: 'Запись начнётся после подключения учителя и ученика к звонку' });
+    }
+    if (
+      requestedVia === 'telemost'
+      && requestedOccurrenceKey
+      && requestedOccurrenceKey !== telemost.occurrence?.key
+    ) {
+      return res.status(409).json({ error: 'Это занятие Телемоста уже не активно' });
+    }
+    const occurrence = requestedVia === 'telemost'
+      ? telemost.occurrence
+      : await resolveCurrentLessonReplayOccurrence(student, req.auth, nowMs, {
+        preferredOccurrenceKey: requestedOccurrenceKey,
+        preferActive: true,
+      });
     if (!occurrence) return res.status(409).json({ error: 'Не удалось определить текущее занятие' });
     const actorRole = isTeacherRole(req.auth) ? 'teacher' : 'student';
     const actorId = String(req.auth.id || '').trim();
@@ -24092,14 +24427,32 @@ app.post('/api/lesson-replay/session', async (req, res) => {
         && session.actorId === actorId
         && session.actorRole === actorRole
         && session.expiresAt >= nowMs
+        && !session.closing
       ));
       if (reusable) {
         reusable.expiresAt = nowMs + LESSON_REPLAY_SESSION_TTL_MS;
+        if (requestedVia === 'platform') reusable.lastPlatformActiveAt = nowMs;
         const replay = readLessonReplay(occurrence.key);
+        let nextReplay = replay;
+        if (reusable.via !== requestedVia && replay) {
+          const switched = appendLessonReplayEvents(replay, [{
+            id: `${reusable.id}:switch:${requestedVia}:${nowMs}`,
+            type: 'session',
+            occurredAt: new Date(nowMs).toISOString(),
+            payload: { action: 'switch', via: requestedVia },
+          }], {
+            actorRole: reusable.actorRole,
+            actorId: reusable.actorId,
+            actorName: reusable.actorName,
+            nowMs,
+          });
+          nextReplay = writeLessonReplay(switched.replay).replay;
+          reusable.via = requestedVia;
+        }
         return {
           session: reusable,
-          replay,
-          compressedBytes: getLessonReplaySummary(occurrence.key, replay).bytes,
+          replay: nextReplay,
+          compressedBytes: getLessonReplaySummary(occurrence.key, nextReplay).bytes,
         };
       }
 
@@ -24111,6 +24464,8 @@ app.post('/api/lesson-replay/session', async (req, res) => {
         actorId,
         actorRole,
         actorName,
+        via: requestedVia,
+        lastPlatformActiveAt: requestedVia === 'platform' ? nowMs : 0,
         createdAt: nowMs,
         expiresAt: nowMs + LESSON_REPLAY_SESSION_TTL_MS,
       };
@@ -24123,7 +24478,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
         id: `${sessionId}:start`,
         type: 'session',
         occurredAt: new Date(nowMs).toISOString(),
-        payload: { action: 'start', via: 'platform' },
+        payload: { action: 'start', via: requestedVia },
       }], {
         actorRole: session.actorRole,
         actorId: session.actorId,
@@ -24138,6 +24493,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
       sessionId: result.session.id,
       occurrenceKey: occurrence.key,
       occurrence,
+      via: result.session.via,
       summary: summarizeLessonReplay(result.replay, result.compressedBytes),
     });
   } catch (error) {
@@ -24146,10 +24502,60 @@ app.post('/api/lesson-replay/session', async (req, res) => {
   }
 });
 
+app.post('/api/lesson-replay/switch', async (req, res) => {
+  const sessionId = String(req.body?.sessionId || '').trim();
+  const session = activeLessonReplaySessions.get(sessionId);
+  if (!session) return res.status(410).json({ error: 'Сессия записи завершена' });
+  if (session.closing) return res.status(410).json({ error: 'Сессия записи завершается' });
+  if (
+    session.actorId !== String(req.auth?.id || '').trim()
+    || session.actorRole !== String(req.auth?.role || '').trim()
+  ) return forbid(res);
+  const student = ensureStudentAccess(req, res, session.studentId);
+  if (!student) return;
+  const via = req.body?.via === 'telemost' ? 'telemost' : 'platform';
+  const nowMs = Date.now();
+  if (via === 'telemost') {
+    const telemost = getTelemostLessonReplayEntry(student.id, nowMs);
+    if (!telemost || telemost.occurrence?.key !== session.occurrenceKey) {
+      return res.status(409).json({ error: 'Запись Телемоста уже не активна' });
+    }
+  } else if (!hasActivePlatformLessonCall(student)) {
+    return res.status(409).json({ error: 'Звонок на платформе уже не активен' });
+  }
+  if (session.via === via) return res.json({ ok: true, via, unchanged: true });
+  try {
+    await withLessonReplayWriteLock(session.occurrenceKey, () => {
+      const replay = readLessonReplay(session.occurrenceKey);
+      if (!replay) return;
+      const appended = appendLessonReplayEvents(replay, [{
+        id: `${session.id}:switch:${via}:${nowMs}`,
+        type: 'session',
+        occurredAt: new Date(nowMs).toISOString(),
+        payload: { action: 'switch', via },
+      }], {
+        actorRole: session.actorRole,
+        actorId: session.actorId,
+        actorName: session.actorName,
+        nowMs,
+      });
+      writeLessonReplay(appended.replay);
+    });
+    session.via = via;
+    if (via === 'platform') session.lastPlatformActiveAt = nowMs;
+    session.expiresAt = nowMs + LESSON_REPLAY_SESSION_TTL_MS;
+    return res.json({ ok: true, via });
+  } catch (error) {
+    console.error('[lesson-replay] failed to switch session mode:', error);
+    return res.status(500).json({ error: 'Не удалось переключить режим записи' });
+  }
+});
+
 app.post('/api/lesson-replay/events', async (req, res) => {
   const sessionId = String(req.body?.sessionId || '').trim();
   const session = activeLessonReplaySessions.get(sessionId);
   if (!session) return res.status(410).json({ error: 'Сессия записи завершена' });
+  if (session.closing) return res.status(410).json({ error: 'Сессия записи завершается' });
   if (session.expiresAt < Date.now()) {
     activeLessonReplaySessions.delete(sessionId);
     return res.status(410).json({ error: 'Сессия записи истекла' });
@@ -24160,12 +24566,33 @@ app.post('/api/lesson-replay/events', async (req, res) => {
   ) return forbid(res);
   const student = ensureStudentAccess(req, res, session.studentId);
   if (!student) return;
-  const rawEvents = Array.isArray(req.body?.events) ? req.body.events : [];
-  if (rawEvents.length > LESSON_REPLAY_MAX_BATCH_EVENTS) {
+  const nowMs = Date.now();
+  const writable = isLessonReplaySessionWritable(session, student, nowMs);
+  const expiredTelemost = activeTelemostLessonReplayByStudentId.get(student.id);
+  const canDrainTelemost = Boolean(
+    !writable
+    && expiredTelemost?.occurrence?.key === session.occurrenceKey
+    && nowMs <= Number(expiredTelemost.autoFinishAtMs || 0) + TELEMOST_LESSON_DRAIN_MS
+  );
+  if (!writable && !canDrainTelemost) {
+    activeLessonReplaySessions.delete(sessionId);
+    return res.status(410).json({ error: 'Запись этого урока уже завершена' });
+  }
+  const submittedEvents = Array.isArray(req.body?.events) ? req.body.events : [];
+  const rawEvents = canDrainTelemost
+    ? submittedEvents.filter((event) => {
+      const occurredAtMs = Date.parse(String(event?.occurredAt || '').trim());
+      return Number.isFinite(occurredAtMs) && occurredAtMs < Number(expiredTelemost.autoFinishAtMs || 0);
+    })
+    : submittedEvents;
+  if (submittedEvents.length > LESSON_REPLAY_MAX_BATCH_EVENTS) {
     return res.status(400).json({ error: `За один раз можно сохранить не более ${LESSON_REPLAY_MAX_BATCH_EVENTS} событий` });
   }
   try {
     const result = await withLessonReplayWriteLock(session.occurrenceKey, () => {
+      if (session.closing || activeLessonReplaySessions.get(sessionId) !== session) {
+        return { closed: true };
+      }
       const replay = readLessonReplay(session.occurrenceKey);
       if (!replay || replay.occurrence.studentId !== student.id) {
         const notFoundError = new Error('Запись занятия не найдена');
@@ -24176,10 +24603,23 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         actorRole: session.actorRole,
         actorId: session.actorId,
         actorName: session.actorName,
-        nowMs: Date.now(),
+        nowMs,
       });
-      if (appended.added > 0) {
-        const stored = writeLessonReplay(appended.replay);
+      const finalReplay = canDrainTelemost
+        ? appendLessonReplayEvents(appended.replay, [{
+          id: `${session.id}:end`,
+          type: 'session',
+          occurredAt: new Date(Number(expiredTelemost.autoFinishAtMs || nowMs)).toISOString(),
+          payload: { action: 'end', via: session.via === 'telemost' ? 'telemost' : 'platform' },
+        }], {
+          actorRole: session.actorRole,
+          actorId: session.actorId,
+          actorName: session.actorName,
+          nowMs,
+        })
+        : appended;
+      if (finalReplay.added > 0 || appended.added > 0) {
+        const stored = writeLessonReplay(finalReplay.replay);
         return { appended, replay: stored.replay, compressedBytes: stored.compressedBytes };
       }
       return {
@@ -24188,12 +24628,17 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         compressedBytes: getLessonReplaySummary(session.occurrenceKey, appended.replay).bytes,
       };
     });
+    if (result?.closed) {
+      return res.status(410).json({ error: 'Запись этого урока уже завершена' });
+    }
+    if (canDrainTelemost) activeLessonReplaySessions.delete(sessionId);
     session.expiresAt = Date.now() + LESSON_REPLAY_SESSION_TTL_MS;
     const active = activeLessonReplayOccurrenceByStudentId.get(student.id);
     if (active) active.lastSeenAt = Date.now();
     return res.json({
       ok: true,
       added: result.appended.added,
+      ended: canDrainTelemost,
       summary: summarizeLessonReplay(result.replay, result.compressedBytes),
     });
   } catch (error) {
@@ -24213,38 +24658,65 @@ app.post('/api/lesson-replay/finish', async (req, res) => {
   ) return forbid(res);
   const student = ensureStudentAccess(req, res, session.studentId);
   if (!student) return;
-  const rawEvents = Array.isArray(req.body?.events) ? req.body.events : [];
-  if (rawEvents.length > LESSON_REPLAY_MAX_BATCH_EVENTS) {
+  const submittedEvents = Array.isArray(req.body?.events) ? req.body.events : [];
+  if (submittedEvents.length > LESSON_REPLAY_MAX_BATCH_EVENTS) {
     return res.status(400).json({ error: `За один раз можно сохранить не более ${LESSON_REPLAY_MAX_BATCH_EVENTS} событий` });
   }
+  const nowMs = Date.now();
+  const telemost = activeTelemostLessonReplayByStudentId.get(student.id);
+  const telemostCutoffMs = telemost?.occurrence?.key === session.occurrenceKey
+    ? Number(telemost.autoFinishAtMs || 0)
+    : 0;
+  const shouldApplyTelemostCutoff = Boolean(
+    telemostCutoffMs > 0
+    && nowMs >= telemostCutoffMs
+    && !hasActivePlatformLessonCall(student)
+  );
+  const rawEvents = shouldApplyTelemostCutoff
+    ? submittedEvents.filter((event) => {
+      const occurredAtMs = Date.parse(String(event?.occurredAt || '').trim());
+      return Number.isFinite(occurredAtMs) && occurredAtMs < telemostCutoffMs;
+    })
+    : submittedEvents;
   try {
-    await withLessonReplayWriteLock(session.occurrenceKey, () => {
-      const replay = readLessonReplay(session.occurrenceKey);
-      if (!replay) return;
-      const nowMs = Date.now();
-      const context = {
-        actorRole: session.actorRole,
-        actorId: session.actorId,
-        actorName: session.actorName,
-        nowMs,
-      };
-      const withPending = appendLessonReplayEvents(replay, rawEvents, context).replay;
-      const appended = appendLessonReplayEvents(withPending, [{
-        id: `${sessionId}:end`,
-        type: 'session',
-        occurredAt: new Date(nowMs).toISOString(),
-        payload: { action: 'end', via: 'platform' },
-      }], context);
-      writeLessonReplay(appended.replay);
+    await finishActiveLessonReplaySession(session, rawEvents, {
+      nowMs: shouldApplyTelemostCutoff ? telemostCutoffMs : nowMs,
     });
-    activeLessonReplaySessions.delete(sessionId);
     const hasOtherStudentSession = Array.from(activeLessonReplaySessions.values())
       .some((entry) => entry.studentId === student.id && entry.expiresAt >= Date.now());
-    if (!hasOtherStudentSession) activeLessonReplayOccurrenceByStudentId.delete(student.id);
+    const hasTelemostLesson = Boolean(getTelemostLessonReplayEntry(student.id));
+    if (!hasOtherStudentSession && !hasTelemostLesson) {
+      activeLessonReplayOccurrenceByStudentId.delete(student.id);
+    }
     return res.json({ ok: true });
   } catch (error) {
     console.error('[lesson-replay] failed to finish session:', error);
     return res.status(500).json({ error: 'Не удалось завершить запись действий' });
+  }
+});
+
+app.post('/api/lesson-replay/lesson/finish', async (req, res) => {
+  if (!isTeacherRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.body?.studentId);
+  if (!student) return;
+  const requestedOccurrenceKey = String(req.body?.occurrenceKey || '').trim();
+  const telemost = activeTelemostLessonReplayByStudentId.get(student.id);
+  if (
+    requestedOccurrenceKey
+    && telemost?.occurrence?.key
+    && requestedOccurrenceKey !== telemost.occurrence.key
+  ) {
+    return res.status(409).json({ error: 'Сейчас записывается другое занятие' });
+  }
+  try {
+    const result = await finishTelemostLessonReplay(student.id, {
+      occurrenceKey: requestedOccurrenceKey || telemost?.occurrence?.key,
+      nowMs: Date.now(),
+    });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error('[lesson-replay] failed to finish whole lesson:', error);
+    return res.status(500).json({ error: 'Не удалось завершить запись урока' });
   }
 });
 

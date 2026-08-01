@@ -1106,6 +1106,7 @@ const CallSection = ({
   onRequestCollapse,
   onRequestOpenCall,
   onStatusChange,
+  onTelemostLessonStart,
   theme = 'light',
   autoStartToken = 0,
 }) => {
@@ -3687,13 +3688,29 @@ const CallSection = ({
     }
   }, [effectiveStudentId, isTeacher, onRequestStudentsRefresh, telemostSaving]);
 
+  const signalTelemostLessonStart = useCallback((activity = null) => {
+    if (typeof onTelemostLessonStart !== 'function' || !effectiveStudentId) return;
+    if (activity && typeof activity === 'object') {
+      onTelemostLessonStart(activity);
+      return;
+    }
+    onTelemostLessonStart({
+      active: true,
+      mode: 'telemost',
+      studentId: effectiveStudentId,
+      occurrenceKey: '',
+    });
+  }, [effectiveStudentId, onTelemostLessonStart]);
+
   const handleStudentTelemostOpen = useCallback(() => {
     if (isTeacher || !telemostUrl) return;
+    signalTelemostLessonStart();
     stopCall();
     setTelemostError('');
     setTelemostNotice('Открываем Телемост и сообщаем учителю...');
     api.notifyTelemostJoin()
       .then((result) => {
+        if (result?.activity) signalTelemostLessonStart(result.activity);
         setTelemostNotice(
           result?.delivered
             ? 'Учителю отправлено уведомление.'
@@ -3704,11 +3721,24 @@ const CallSection = ({
         setTelemostNotice('');
         setTelemostError(notifyError?.message || 'Телемост открыт, но уведомить учителя не удалось.');
       });
-  }, [isTeacher, stopCall, telemostUrl]);
+  }, [isTeacher, signalTelemostLessonStart, stopCall, telemostUrl]);
 
   const handleTeacherTelemostOpen = useCallback(() => {
+    if (!isTeacher || !effectiveStudentId || !telemostUrl) return;
+    signalTelemostLessonStart();
     stopCall();
-  }, [stopCall]);
+    setTelemostError('');
+    setTelemostNotice('Открываем Телемост...');
+    api.activateTelemostLesson(effectiveStudentId)
+      .then((result) => {
+        if (result?.activity) signalTelemostLessonStart(result.activity);
+        setTelemostNotice('Телемост открыт. Запись действий урока продолжается.');
+      })
+      .catch((activateError) => {
+        setTelemostNotice('');
+        setTelemostError(activateError?.message || 'Телемост открыт, но продолжить запись урока не удалось.');
+      });
+  }, [effectiveStudentId, isTeacher, signalTelemostLessonStart, stopCall, telemostUrl]);
 
   const startCall = useCallback(async (options = {}) => {
     const isReconnect = Boolean(options?.isReconnect);
@@ -5989,6 +6019,19 @@ const CallSection = ({
                   </button>
                 </div>
                 <div className="call-controls-group call-controls-group--utility">
+                  {!isTeacher && telemostUrl && (
+                    <a
+                      href={telemostUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={handleStudentTelemostOpen}
+                      className={`${compactControlButtonClass} ${neutralControlClass}`}
+                      aria-label="Перейти в Телемост"
+                      title="Перейти в Телемост"
+                    >
+                      <Video size={17} />
+                    </a>
+                  )}
                   {showInlineLessonChat && (
                     <button
                       type="button"

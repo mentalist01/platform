@@ -116,6 +116,75 @@ test('append is idempotent by event id and suppresses identical rapid snapshots'
   assert.equal(second.replay.events.length, 1);
 });
 
+test('rapid snapshot dedupe is scoped to the actor role and id', () => {
+  const event = (id, occurredAtMs) => ({
+    id,
+    type: 'code',
+    occurredAt: new Date(occurredAtMs).toISOString(),
+    payload: { code: 'print(1)' },
+  });
+  const studentContext = {
+    ...eventContext,
+    actorRole: 'student',
+    actorId: 'student-1',
+  };
+  const teacherContext = {
+    ...eventContext,
+    actorRole: 'teacher',
+    actorId: 'teacher-1',
+  };
+  const otherTeacherContext = {
+    ...eventContext,
+    actorRole: 'teacher',
+    actorId: 'teacher-2',
+  };
+
+  const student = appendLessonReplayEvents(
+    createLessonReplay(occurrence, START_MS),
+    [event('student-code', START_MS + 1000)],
+    studentContext
+  );
+  const teacher = appendLessonReplayEvents(
+    student.replay,
+    [event('teacher-code', START_MS + 2000)],
+    teacherContext
+  );
+  const otherTeacher = appendLessonReplayEvents(
+    teacher.replay,
+    [event('other-teacher-code', START_MS + 3000)],
+    otherTeacherContext
+  );
+  const duplicateOtherTeacher = appendLessonReplayEvents(
+    otherTeacher.replay,
+    [event('other-teacher-code-duplicate', START_MS + 4000)],
+    otherTeacherContext
+  );
+
+  assert.equal(student.added, 1);
+  assert.equal(teacher.added, 1);
+  assert.equal(otherTeacher.added, 1);
+  assert.equal(duplicateOtherTeacher.added, 0);
+  assert.deepEqual(
+    duplicateOtherTeacher.replay.events.map((entry) => [entry.actor.role, entry.actor.id]),
+    [
+      ['student', 'student-1'],
+      ['teacher', 'teacher-1'],
+      ['teacher', 'teacher-2'],
+    ]
+  );
+});
+
+test('session events preserve an explicit transport switch action', () => {
+  const event = normalizeLessonReplayEvent({
+    id: 'switch-to-telemost',
+    type: 'session',
+    occurredAt: new Date(START_MS + 1000).toISOString(),
+    payload: { action: 'switch', via: 'telemost' },
+  }, eventContext);
+
+  assert.deepEqual(event.payload, { action: 'switch', via: 'telemost' });
+});
+
 test('sorts events by lesson offset and measures UTF-8 bytes', () => {
   const replay = normalizeLessonReplay({
     occurrence,

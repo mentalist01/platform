@@ -5,6 +5,9 @@ import { api } from '../services/api';
 const FLUSH_INTERVAL_MS = 2400;
 const MAX_QUEUED_EVENTS = 120;
 const STOP_GRACE_MS = 20_000;
+const MODE_SWITCH_RETRY_MS = 1500;
+
+const normalizeRecorderMode = (value) => (value === 'telemost' ? 'telemost' : 'platform');
 
 const createEventId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -26,18 +29,31 @@ const useLessonReplayRecorder = ({
   studentId = '',
   view = '',
   viewLabel = '',
+  mode = 'platform',
+  occurrenceKey = '',
 } = {}) => {
+  const normalizedMode = normalizeRecorderMode(mode);
+  const normalizedOccurrenceKey = String(occurrenceKey || '').trim();
   const sessionRef = useRef(null);
   const sessionGenerationRef = useRef(0);
   const queueRef = useRef([]);
   const flushingRef = useRef(false);
+  const flushPromiseRef = useRef(null);
   const flushTimerRef = useRef(null);
   const stopTimerRef = useRef(null);
   const startRetryTimerRef = useRef(null);
+  const modeSwitchRetryTimerRef = useRef(null);
+  const modeSwitchInFlightRef = useRef('');
+  const syncSessionModeRef = useRef(null);
   const startSessionRef = useRef(null);
   const startInFlightRef = useRef(0);
   const lastEventRef = useRef({ signature: '', at: 0 });
   const enabledRef = useRef(Boolean(active && studentId));
+  const modeRef = useRef(normalizedMode);
+  const occurrenceKeyRef = useRef(normalizedOccurrenceKey);
+
+  modeRef.current = normalizedMode;
+  occurrenceKeyRef.current = normalizedOccurrenceKey;
 
   useEffect(() => {
     if (active && studentId) enabledRef.current = true;
@@ -46,25 +62,47 @@ const useLessonReplayRecorder = ({
 
   const flush = useCallback(async () => {
     const session = sessionRef.current;
-    if (!session?.sessionId || flushingRef.current || queueRef.current.length === 0) return;
+    if (flushingRef.current) return flushPromiseRef.current;
+    if (!session?.sessionId || queueRef.current.length === 0) return null;
     const events = queueRef.current.splice(0, 48);
     flushingRef.current = true;
+    const operation = (async () => {
+      try {
+        const result = await api.appendLessonReplayEvents(session.sessionId, events);
+        if (result?.ended && sessionRef.current?.sessionId === session.sessionId) {
+          sessionRef.current = null;
+          enabledRef.current = false;
+          queueRef.current = [];
+        }
+      } catch (error) {
+        queueRef.current = [...events, ...queueRef.current].slice(0, MAX_QUEUED_EVENTS);
+        const message = String(error?.message || '');
+        if (
+          error?.status === 404
+          || error?.status === 410
+          || /заверш|истек|не найден/iu.test(message)
+        ) {
+          sessionRef.current = null;
+          queueRef.current = [];
+          const lessonEnded = /урок[^.]*заверш|запись[^.]*урок[^.]*заверш/iu.test(message);
+          if (lessonEnded) enabledRef.current = false;
+          else if (enabledRef.current) startSessionRef.current?.();
+        }
+      } finally {
+        flushingRef.current = false;
+        if (queueRef.current.length > 0 && sessionRef.current?.sessionId) {
+          window.clearTimeout(flushTimerRef.current);
+          flushTimerRef.current = window.setTimeout(() => flush(), 800);
+        }
+      }
+    })();
+    flushPromiseRef.current = operation;
     try {
-      await api.appendLessonReplayEvents(session.sessionId, events);
-    } catch (error) {
-      queueRef.current = [...events, ...queueRef.current].slice(0, MAX_QUEUED_EVENTS);
-      const message = String(error?.message || '');
-      if (/завершена|истек|не найдена/i.test(message)) {
-        sessionRef.current = null;
-        startSessionRef.current?.();
-      }
+      await operation;
     } finally {
-      flushingRef.current = false;
-      if (queueRef.current.length > 0 && sessionRef.current?.sessionId) {
-        window.clearTimeout(flushTimerRef.current);
-        flushTimerRef.current = window.setTimeout(() => flush(), 800);
-      }
+      if (flushPromiseRef.current === operation) flushPromiseRef.current = null;
     }
+    return null;
   }, []);
 
   const scheduleFlush = useCallback((delay = FLUSH_INTERVAL_MS) => {
@@ -72,6 +110,47 @@ const useLessonReplayRecorder = ({
     window.clearTimeout(flushTimerRef.current);
     flushTimerRef.current = window.setTimeout(() => flush(), delay);
   }, [flush]);
+
+  const syncSessionMode = useCallback(async () => {
+    const session = sessionRef.current;
+    const nextMode = modeRef.current;
+    if (!session?.sessionId || session.via === nextMode) return null;
+    const switchKey = `${session.sessionId}:${nextMode}`;
+    if (modeSwitchInFlightRef.current === switchKey) return null;
+    modeSwitchInFlightRef.current = switchKey;
+    try {
+      await flush();
+      const result = await api.switchLessonReplaySession(session.sessionId, nextMode);
+      const current = sessionRef.current;
+      if (current?.sessionId === session.sessionId) {
+        sessionRef.current = {
+          ...current,
+          via: nextMode,
+          ...(result?.activity ? { activity: result.activity } : {}),
+        };
+      }
+      return result;
+    } catch {
+      return null;
+    } finally {
+      if (modeSwitchInFlightRef.current === switchKey) modeSwitchInFlightRef.current = '';
+      const current = sessionRef.current;
+      if (
+        enabledRef.current
+        && current?.sessionId
+        && current.via !== modeRef.current
+        && typeof window !== 'undefined'
+      ) {
+        window.clearTimeout(modeSwitchRetryTimerRef.current);
+        modeSwitchRetryTimerRef.current = window.setTimeout(
+          () => syncSessionModeRef.current?.(),
+          MODE_SWITCH_RETRY_MS
+        );
+      }
+    }
+  }, [flush]);
+
+  syncSessionModeRef.current = syncSessionMode;
 
   const finishSession = useCallback(async (session, pendingEvents = null, options = {}) => {
     if (!session?.sessionId) return;
@@ -168,15 +247,34 @@ const useLessonReplayRecorder = ({
         || startInFlightRef.current === generation
       ) return;
       startInFlightRef.current = generation;
-      api.startLessonReplaySession(normalizedStudentId)
+      const requestedMode = modeRef.current;
+      const requestedOccurrenceKey = occurrenceKeyRef.current;
+      api.startLessonReplaySession(normalizedStudentId, {
+        via: requestedMode,
+        occurrenceKey: requestedOccurrenceKey,
+      })
         .then((session) => {
           if (cancelled || sessionGenerationRef.current !== generation) {
             if (session?.sessionId) api.finishLessonReplaySession(session.sessionId).catch(() => null);
             return;
           }
-          sessionRef.current = { ...session, studentId: normalizedStudentId };
+          const sessionMode = normalizeRecorderMode(
+            session?.activity?.mode || session?.mode || session?.via || requestedMode
+          );
+          sessionRef.current = {
+            ...session,
+            studentId: normalizedStudentId,
+            via: sessionMode,
+            occurrenceKey: String(
+              session?.occurrenceKey
+              || session?.activity?.occurrenceKey
+              || requestedOccurrenceKey
+              || ''
+            ).trim(),
+          };
           retryDelayMs = 1500;
           scheduleFlush(0);
+          syncSessionModeRef.current?.();
         })
         .catch(() => {
           if (cancelled || sessionGenerationRef.current !== generation) return;
@@ -200,6 +298,13 @@ const useLessonReplayRecorder = ({
   }, [active, finishSession, scheduleFlush, studentId]);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(modeSwitchRetryTimerRef.current);
+    }
+    if (active && studentId) syncSessionMode();
+  }, [active, normalizedMode, studentId, syncSessionMode]);
+
+  useEffect(() => {
     if (!active || !studentId || !view) return;
     recordEvent('navigation', { view, label: viewLabel }, { immediate: true, dedupeMs: 5000 });
   }, [active, recordEvent, studentId, view, viewLabel]);
@@ -218,11 +323,34 @@ const useLessonReplayRecorder = ({
     return () => window.removeEventListener('pagehide', handlePageHide);
   }, [finishSession]);
 
+  const finishLessonReplayNow = useCallback(async (options = {}) => {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(flushTimerRef.current);
+      window.clearTimeout(stopTimerRef.current);
+      window.clearTimeout(startRetryTimerRef.current);
+      window.clearTimeout(modeSwitchRetryTimerRef.current);
+    }
+    sessionGenerationRef.current += 1;
+    startSessionRef.current = null;
+    modeSwitchInFlightRef.current = '';
+    enabledRef.current = false;
+    const inFlightFlush = flushPromiseRef.current;
+    if (inFlightFlush) await inFlightFlush.catch(() => null);
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    const pending = queueRef.current.splice(0);
+    lastEventRef.current = { signature: '', at: 0 };
+    if (!session?.sessionId) return { ok: true, alreadyFinished: true };
+    await finishSession(session, pending, options);
+    return { ok: true };
+  }, [finishSession]);
+
   useEffect(() => () => {
     if (typeof window !== 'undefined') {
       window.clearTimeout(flushTimerRef.current);
       window.clearTimeout(stopTimerRef.current);
       window.clearTimeout(startRetryTimerRef.current);
+      window.clearTimeout(modeSwitchRetryTimerRef.current);
     }
     const session = sessionRef.current;
     if (session?.sessionId) {
@@ -236,6 +364,7 @@ const useLessonReplayRecorder = ({
   return {
     recordLessonReplayEvent: recordEvent,
     flushLessonReplay: flush,
+    finishLessonReplayNow,
   };
 };
 

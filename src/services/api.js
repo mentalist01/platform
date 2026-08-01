@@ -959,10 +959,37 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  notifyTelemostJoin: async () => {
+  notifyTelemostJoin: async (options = {}) => {
+    const occurrenceKey = String(options?.occurrenceKey || '').trim();
     const res = await apiFetch('/api/telemost/join', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ occurrenceKey }),
       keepalive: true,
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  activateTelemostLesson: async (studentId, occurrenceKey = '') => {
+    const res = await apiFetch('/api/telemost/activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId: String(studentId || '').trim(),
+        occurrenceKey: String(occurrenceKey || '').trim(),
+      }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  acceptTelemostJoin: async (studentId, requestId) => {
+    const res = await apiFetch('/api/telemost/accept', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId: String(studentId || '').trim(),
+        requestId: String(requestId || '').trim(),
+      }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
@@ -1526,13 +1553,51 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  startLessonReplaySession: async (studentId) => {
+  getLessonReplayActivity: async (studentId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.set('studentId', String(studentId));
+    params.set('_ts', String(Date.now()));
+    const res = await apiFetch(`/api/lesson-replay/activity?${params.toString()}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  finishLessonReplayLesson: async (studentId, occurrenceKey = '') => {
+    const res = await apiFetch('/api/lesson-replay/lesson/finish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId: String(studentId || '').trim(),
+        occurrenceKey: String(occurrenceKey || '').trim(),
+      }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  startLessonReplaySession: async (studentId, options = {}) => {
+    const via = options?.via === 'telemost' ? 'telemost' : 'platform';
+    const occurrenceKey = String(options?.occurrenceKey || '').trim();
     const res = await apiFetch('/api/lesson-replay/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ studentId }),
+      body: JSON.stringify({ studentId, via, occurrenceKey }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  switchLessonReplaySession: async (sessionId, via) => {
+    const res = await apiFetch('/api/lesson-replay/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: String(sessionId || '').trim(),
+        via: via === 'telemost' ? 'telemost' : 'platform',
+      }),
+    });
+    if (!res.ok) {
+      const error = new Error(await parseApiError(res));
+      error.status = res.status;
+      throw error;
+    }
     return parseJsonResponse(res);
   },
   appendLessonReplayEvents: async (sessionId, events = [], options = {}) => {
@@ -1542,7 +1607,11 @@ export const api = {
       body: JSON.stringify({ sessionId, events }),
       keepalive: Boolean(options.keepalive),
     });
-    if (!res.ok) throw new Error(await parseApiError(res));
+    if (!res.ok) {
+      const error = new Error(await parseApiError(res));
+      error.status = res.status;
+      throw error;
+    }
     return parseJsonResponse(res);
   },
   finishLessonReplaySession: async (sessionId, options = {}) => {

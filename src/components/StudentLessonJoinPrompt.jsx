@@ -265,7 +265,7 @@ const findDueLessonPrompt = ({ entries, nextLesson, telemostUrl, now, dismissedK
   return candidates[0] || null;
 };
 
-const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson }) => {
+const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson, onTelemostLessonStart }) => {
   const [scheduleEntries, setScheduleEntries] = useState([]);
   const [nextLesson, setNextLesson] = useState({});
   const [telemostUrl, setTelemostUrl] = useState('');
@@ -383,13 +383,27 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson }) => {
   const openTelemostLesson = useCallback(() => {
     if (!activePrompt?.telemostUrl) return;
     markPromptOpened();
+    if (typeof onTelemostLessonStart === 'function') {
+      onTelemostLessonStart({
+        active: true,
+        mode: 'telemost',
+        studentId: String(studentId || '').trim(),
+        occurrenceKey: String(activePrompt.occurrenceKey || '').trim(),
+      });
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('telemost-external-open'));
     }
-    api.notifyTelemostJoin().catch(() => {
-      // Opening the backup conference must not depend on notification delivery.
-    });
-  }, [activePrompt, markPromptOpened]);
+    api.notifyTelemostJoin({ occurrenceKey: activePrompt.occurrenceKey })
+      .then((result) => {
+        if (result?.activity && typeof onTelemostLessonStart === 'function') {
+          onTelemostLessonStart(result.activity);
+        }
+      })
+      .catch(() => {
+        // Opening the backup conference must not depend on notification delivery.
+      });
+  }, [activePrompt, markPromptOpened, onTelemostLessonStart, studentId]);
 
   if (!activePrompt) return null;
 
