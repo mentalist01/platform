@@ -118,6 +118,7 @@ import {
   normalizePushErrorMessage,
 } from './utils/push';
 import { getCollabWsUrl, getNotificationsWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
+import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
 import {
   api,
@@ -1486,6 +1487,20 @@ const markStudentSeenRatingTour = (studentId) => markStudentSeenStoredTour(STUDE
 
 const LAST_LOCATION_KEY = 'ege_last_location_v1';
 const DESKTOP_NAV_COLLAPSED_KEY = 'ege_desktop_nav_collapsed_v1';
+const LESSON_REPLAY_VIEW_LABELS = Object.freeze({
+  call: 'Звонок',
+  board: 'Доска',
+  collab: 'Совместный код',
+  python: 'Задания Python',
+  progress: 'Задания и успеваемость',
+  schedule: 'Расписание и домашняя работа',
+  notes: 'Конспекты',
+  review: 'Итоговое повторение',
+  rating: 'Рейтинг',
+  chat: 'Чат',
+  teacher: 'Ученики',
+  'teacher-calendar': 'Календарь',
+});
 const TEACHER_NOTIF_HISTORY_KEY_PREFIX = 'ege_teacher_notif_history_v1';
 const NOTES_SAVE_DRAFT_STORAGE_KEY_PREFIX = 'ege_notes_save_draft_v1';
 const NOTES_SAVE_DRAFT_CATEGORIES = new Set(['class', 'home']);
@@ -3097,6 +3112,7 @@ const CollabSection = ({
   onSelectStudent,
   studentsLoading,
   openSaveToNotesToken = 0,
+  onLessonReplayEvent = null,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
@@ -3302,6 +3318,40 @@ const CollabSection = ({
   const collabCursorPendingRef = useRef(null);
   const collabCursorLastSyncAtRef = useRef(0);
   const remoteEditorCursorSeenRef = useRef(new Map());
+  const lessonReplayEventRef = useRef(onLessonReplayEvent);
+  const lessonReplayCodeTimerRef = useRef(null);
+  const lessonReplayPendingCodeRef = useRef(null);
+  const lessonReplayLastCodeSignatureRef = useRef('');
+  useEffect(() => {
+    lessonReplayEventRef.current = onLessonReplayEvent;
+  }, [onLessonReplayEvent]);
+  const flushLessonReplayCodeSnapshot = useCallback(() => {
+    if (typeof window !== 'undefined') window.clearTimeout(lessonReplayCodeTimerRef.current);
+    const payload = lessonReplayPendingCodeRef.current;
+    lessonReplayPendingCodeRef.current = null;
+    if (!payload || typeof lessonReplayEventRef.current !== 'function') return;
+    const signature = JSON.stringify(payload);
+    if (signature === lessonReplayLastCodeSignatureRef.current) return;
+    lessonReplayLastCodeSignatureRef.current = signature;
+    lessonReplayEventRef.current('code', payload, { dedupeMs: 10_000 });
+  }, []);
+  const scheduleLessonReplayCodeSnapshot = useCallback((ytext, delayMs = 1400, overrides = {}) => {
+    if (!ytext || typeof window === 'undefined') return;
+    lessonReplayPendingCodeRef.current = {
+      language: 'python',
+      code: ytext.toString(),
+      input: Object.prototype.hasOwnProperty.call(overrides, 'input') ? overrides.input : (runInputRef.current || ''),
+      testFile: Object.prototype.hasOwnProperty.call(overrides, 'testFile') ? overrides.testFile : (testFileTextRef.current || ''),
+      output: Object.prototype.hasOwnProperty.call(overrides, 'output') ? overrides.output : (runOutputRef.current || ''),
+      error: Object.prototype.hasOwnProperty.call(overrides, 'error') ? overrides.error : (runErrorRef.current || ''),
+    };
+    window.clearTimeout(lessonReplayCodeTimerRef.current);
+    lessonReplayCodeTimerRef.current = window.setTimeout(
+      flushLessonReplayCodeSnapshot,
+      Math.max(0, Number(delayMs) || 0)
+    );
+  }, [flushLessonReplayCodeSnapshot]);
+  useEffect(() => () => flushLessonReplayCodeSnapshot(), [flushLessonReplayCodeSnapshot]);
   const setCollabBoardMemorySnapshotRenderer = useCallback((renderer) => {
     collabBoardSnapshotRendererRef.current = typeof renderer === 'function' ? renderer : null;
   }, []);
@@ -6650,6 +6700,8 @@ const CollabSection = ({
 
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
+    const handleReplayCodeChange = () => scheduleLessonReplayCodeSnapshot(ytext);
+    ytext.observe(handleReplayCodeChange);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
     provider.awareness.setLocalStateField('selection', null);
     provider.awareness.setLocalStateField('outputSelection', null);
@@ -6660,7 +6712,22 @@ const CollabSection = ({
 
     const runMap = doc.getMap('collabRun');
     runMapRef.current = runMap;
-    const handleRunMapChange = () => updateRunStateFromMap(runMap);
+    const handleRunMapChange = () => {
+      updateRunStateFromMap(runMap);
+      const replayRunPayload = {
+        status: typeof runMap.get('status') === 'string' ? runMap.get('status') : 'idle',
+        input: typeof runMap.get('input') === 'string' ? runMap.get('input') : String(runMap.get('input') ?? ''),
+        output: typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? ''),
+        error: typeof runMap.get('error') === 'string' ? runMap.get('error') : String(runMap.get('error') ?? ''),
+      };
+      scheduleLessonReplayCodeSnapshot(ytext, 250, replayRunPayload);
+      if (
+        typeof lessonReplayEventRef.current === 'function'
+        && (replayRunPayload.status !== 'idle' || replayRunPayload.output || replayRunPayload.error)
+      ) {
+        lessonReplayEventRef.current('run', replayRunPayload, { dedupeMs: 5000 });
+      }
+    };
     runMap.observe(handleRunMapChange);
     handleRunMapChange();
     taskFilesSyncReadyRef.current = true;
@@ -6670,9 +6737,11 @@ const CollabSection = ({
     const syncTestFileFromDoc = () => {
       const next = normalizeCollabTextFileContent(testFileYText.toString());
       setTestFileText((prev) => (prev === next ? prev : next));
+      scheduleLessonReplayCodeSnapshot(ytext, 1400, { testFile: next });
     };
     testFileYText.observe(syncTestFileFromDoc);
     syncTestFileFromDoc();
+    scheduleLessonReplayCodeSnapshot(ytext, 350);
 
     const handleStatus = (event) => {
       if (event?.status) setStatus(event.status);
@@ -6818,6 +6887,9 @@ const CollabSection = ({
         collabCursorClearTimerRef.current = null;
       }
       testFileYText.unobserve(syncTestFileFromDoc);
+      ytext.unobserve(handleReplayCodeChange);
+      scheduleLessonReplayCodeSnapshot(ytext, 0);
+      flushLessonReplayCodeSnapshot();
       runMap.unobserve(handleRunMapChange);
       binding.destroy();
       provider.destroy();
@@ -6849,6 +6921,8 @@ const CollabSection = ({
     editorMountVersion,
     stopCollabOutputSelectionTracking,
     stopCollabTestFileSelectionTracking,
+    scheduleLessonReplayCodeSnapshot,
+    flushLessonReplayCodeSnapshot,
   ]);
 
   const statusLabel = status === 'connected'
@@ -8498,6 +8572,7 @@ const CollabSection = ({
                     studentsLoading={studentsLoading}
                     theme={theme}
                     onMemorySnapshotRenderer={setCollabBoardMemorySnapshotRenderer}
+                    onLessonReplayEvent={onLessonReplayEvent}
                   />
                 </div>
                 {notesTopPaneResizeHandle}
@@ -9381,6 +9456,7 @@ const BoardSection = ({
   showEmbeddedSummonButton = false,
   theme = THEME_LIGHT,
   onMemorySnapshotRenderer = null,
+  onLessonReplayEvent = null,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
@@ -9505,8 +9581,56 @@ const BoardSection = ({
   const minimapRenderTimerRef = useRef(null);
   const viewportHydratedRef = useRef(false);
   const viewportPersistTimerRef = useRef(null);
+  const lessonReplayEventRef = useRef(onLessonReplayEvent);
+  const lessonReplayBoardTimerRef = useRef(null);
+  const lessonReplayPendingBoardRef = useRef(null);
+  const lessonReplayLastBoardSignatureRef = useRef('');
   const boardRevision = boardSnapshot.revision;
   const boardItemCount = boardSnapshot.itemCount;
+
+  useEffect(() => {
+    lessonReplayEventRef.current = onLessonReplayEvent;
+  }, [onLessonReplayEvent]);
+
+  const flushLessonReplayBoardSnapshot = useCallback(() => {
+    if (typeof window !== 'undefined') window.clearTimeout(lessonReplayBoardTimerRef.current);
+    const payload = lessonReplayPendingBoardRef.current;
+    lessonReplayPendingBoardRef.current = null;
+    if (!payload || typeof lessonReplayEventRef.current !== 'function') return;
+    const signature = JSON.stringify(payload);
+    if (signature === lessonReplayLastBoardSignatureRef.current) return;
+    lessonReplayLastBoardSignatureRef.current = signature;
+    lessonReplayEventRef.current('board', payload, { dedupeMs: 10_000 });
+  }, []);
+
+  const scheduleLessonReplayBoardSnapshot = useCallback((items, delayMs = 1600) => {
+    if (typeof window === 'undefined') return;
+    const compactItems = (Array.isArray(items) ? items : []).slice(0, 1200).map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      if (item.type === 'image') {
+        const safeImage = { ...item };
+        delete safeImage.dataUrl;
+        return safeImage.assetUrl ? safeImage : null;
+      }
+      if (item.type === 'stroke' && Array.isArray(item.points) && item.points.length > 600) {
+        const points = [];
+        const step = (item.points.length - 1) / 599;
+        for (let index = 0; index < 600; index += 1) {
+          points.push(item.points[Math.min(item.points.length - 1, Math.round(index * step))]);
+        }
+        return { ...item, points };
+      }
+      return item;
+    }).filter(Boolean);
+    lessonReplayPendingBoardRef.current = { items: compactItems };
+    window.clearTimeout(lessonReplayBoardTimerRef.current);
+    lessonReplayBoardTimerRef.current = window.setTimeout(
+      flushLessonReplayBoardSnapshot,
+      Math.max(0, Number(delayMs) || 0)
+    );
+  }, [flushLessonReplayBoardSnapshot]);
+
+  useEffect(() => () => flushLessonReplayBoardSnapshot(), [flushLessonReplayBoardSnapshot]);
 
   useEffect(() => {
     setIsMinimapOpen(false);
@@ -12107,6 +12231,7 @@ const BoardSection = ({
           renderPlan: { mode: 'full' },
         };
       commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
+      scheduleLessonReplayBoardSnapshot(nextSnapshot.nextItems);
       scheduleBoardRender();
       const capacityError = getBoardCapacityError(nextSnapshot.nextItems.length, nextSnapshot.nextEstimatedBytes);
       setPasteError((current) => {
@@ -12262,6 +12387,8 @@ const BoardSection = ({
 
     return () => {
       yItems.unobserve(updateItems);
+      scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
+      flushLessonReplayBoardSnapshot();
       undoManager.off('stack-item-added', updateUndoState);
       undoManager.off('stack-item-popped', updateUndoState);
       undoManager.off('stack-item-updated', updateUndoState);
@@ -12282,7 +12409,7 @@ const BoardSection = ({
       awarenessRef.current = null;
       docRef.current = null;
     };
-  }, [roomId, wsUrl, localName, localColor, isTeacher, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender]);
+  }, [roomId, wsUrl, localName, localColor, isTeacher, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
 
   useEffect(() => {
     const handlePaste = async (event) => {
@@ -14375,6 +14502,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [pushReady, setPushReady] = useState(false);
   const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const isCallSessionActive = callSessionStatus === 'connected' || callSessionStatus === 'connecting';
+  const lessonReplayStudentId = user.role === 'student' ? user.id : activeStudentId;
+  const { recordLessonReplayEvent } = useLessonReplayRecorder({
+    active: callSessionStatus === 'connected',
+    studentId: lessonReplayStudentId,
+    view,
+    viewLabel: LESSON_REPLAY_VIEW_LABELS[view] || view,
+  });
   const isBoardView = view === 'board';
   const isCallView = view === 'call';
   const isCollabView = view === 'collab';
@@ -17305,6 +17439,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const handleTaskStateChange = (nextTask) => {
     if (user.role !== 'student') return;
+    if (nextTask && typeof nextTask === 'object') {
+      recordLessonReplayEvent('task', {
+        active: true,
+        taskNumber: nextTask.taskNumber,
+        questionIndex: Number.isFinite(nextTask.questionIndex) ? nextTask.questionIndex : null,
+        questionNumber: Number.isFinite(Number(nextTask.questionNumber))
+          ? Number(nextTask.questionNumber)
+          : null,
+        levelId: nextTask.levelId,
+        label: Number.isFinite(Number(nextTask.taskNumber))
+          ? `Задание ${getTaskDisplayNumber(Number(nextTask.taskNumber))}`
+          : '',
+      }, { dedupeMs: 4000 });
+    } else {
+      recordLessonReplayEvent('task', {
+        active: false,
+        label: 'Список заданий',
+      }, { dedupeMs: 4000 });
+    }
     updateUserLocation(user, { openTask: nextTask });
     if (!nextTask || nextTask.section !== 'python') {
       updateUserLocation(user, { pythonLocation: null });
@@ -19816,6 +19969,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               openSaveToNotesToken={collabSaveToNotesToken}
+              onLessonReplayEvent={recordLessonReplayEvent}
             />
           )}
           {isCallViewAvailable && (
@@ -19872,6 +20026,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               theme={theme}
+              onLessonReplayEvent={recordLessonReplayEvent}
             />
           )}
           {view === 'notes' && (

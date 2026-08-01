@@ -2084,7 +2084,7 @@ const ScheduleSection = ({
   }, [effectiveStudentId, lessonDetailReloadKey, requestStudentId, role, selectedLessonDetail?.key]);
 
   useEffect(() => {
-    if (role !== 'student' || !showLessonHistory || !effectiveStudentId) return undefined;
+    if (!['student', 'teacher'].includes(role) || !showLessonHistory || !effectiveStudentId) return undefined;
     let cancelled = false;
     setLessonHistoryLoading(true);
     setLessonHistoryError('');
@@ -4069,35 +4069,35 @@ const ScheduleSection = ({
                 </button>
               )}
               {role === 'student' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleToggleLessonReminder}
-                    disabled={lessonReminderLoading || lessonReminderSaving || pushSyncing || pushBusy || !pushReady}
-                    className="schedule-shell__student-reminder-compact"
-                    title={lessonReminderError || pushError || lessonReminderStatusText || 'Напоминания о занятиях'}
-                    aria-pressed={Boolean(pushEnabled && lessonReminderEnabled)}
-                  >
-                    {(pushEnabled && lessonReminderEnabled) ? <BellOff size={13} /> : <Bell size={13} />}
-                    {lessonReminderSaving
-                      ? 'Сохраняем...'
-                      : 'Напоминания'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowLessonHistory((value) => !value)}
-                    className={`schedule-shell__student-history-compact${showLessonHistory ? ' is-active' : ''}`}
-                    title="Все прошедшие занятия и их темы"
-                    aria-expanded={showLessonHistory}
-                    aria-controls="student-lesson-history-panel"
-                  >
-                    <History size={13} />
-                    История
-                    {lessonHistoryTotal > 0 && (
-                      <span aria-label={getLessonCountLabel(lessonHistoryTotal)}>{lessonHistoryTotal}</span>
-                    )}
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={handleToggleLessonReminder}
+                  disabled={lessonReminderLoading || lessonReminderSaving || pushSyncing || pushBusy || !pushReady}
+                  className="schedule-shell__student-reminder-compact"
+                  title={lessonReminderError || pushError || lessonReminderStatusText || 'Напоминания о занятиях'}
+                  aria-pressed={Boolean(pushEnabled && lessonReminderEnabled)}
+                >
+                  {(pushEnabled && lessonReminderEnabled) ? <BellOff size={13} /> : <Bell size={13} />}
+                  {lessonReminderSaving
+                    ? 'Сохраняем...'
+                    : 'Напоминания'}
+                </button>
+              )}
+              {['student', 'teacher'].includes(role) && (
+                <button
+                  type="button"
+                  onClick={() => setShowLessonHistory((value) => !value)}
+                  className={`schedule-shell__student-history-compact${showLessonHistory ? ' is-active' : ''}`}
+                  title="Все прошедшие занятия и их темы"
+                  aria-expanded={showLessonHistory}
+                  aria-controls="student-lesson-history-panel"
+                >
+                  <History size={13} />
+                  История
+                  {lessonHistoryTotal > 0 && (
+                    <span aria-label={getLessonCountLabel(lessonHistoryTotal)}>{lessonHistoryTotal}</span>
+                  )}
+                </button>
               )}
               <span className="schedule-shell__lessons-count rounded-full border border-sky-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                 {studentOverdueUnpaidCount > 0
@@ -4132,6 +4132,7 @@ const ScheduleSection = ({
               ) : (
                 <>
               {renderStudentWeekSchedule()}
+              {renderStudentLessonHistory()}
               <details className="rounded-2xl border border-slate-200/80 bg-white/75 p-3">
                 <summary className="cursor-pointer select-none text-sm font-bold text-slate-700">
                   Управление расписанием
@@ -4647,6 +4648,7 @@ const ScheduleSection = ({
         open={Boolean(selectedLessonDetail)}
         lesson={lessonDetailData?.lesson || selectedLessonDetail}
         materials={Array.isArray(lessonDetailData?.materials) ? lessonDetailData.materials : []}
+        replay={lessonDetailData?.replay || null}
         topicText={getLessonTopicDisplayText(lessonDetailData?.lesson?.topic || selectedLessonDetail?.topic)}
         loading={lessonDetailLoading}
         error={lessonDetailError}

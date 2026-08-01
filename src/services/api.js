@@ -1526,6 +1526,35 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  startLessonReplaySession: async (studentId) => {
+    const res = await apiFetch('/api/lesson-replay/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  appendLessonReplayEvents: async (sessionId, events = [], options = {}) => {
+    const res = await apiFetch('/api/lesson-replay/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, events }),
+      keepalive: Boolean(options.keepalive),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  finishLessonReplaySession: async (sessionId, options = {}) => {
+    const res = await apiFetch('/api/lesson-replay/finish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, events: Array.isArray(options.events) ? options.events : [] }),
+      keepalive: Boolean(options.keepalive),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   updateLessonTopic: async (studentId, occurrence = {}, text = '') => {
     const res = await apiFetch('/api/lesson-topics', {
       method: 'PUT',

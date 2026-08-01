@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, CalendarDays, Clock3, Code2, Download, FileText, Image as ImageIcon, Loader2, RefreshCcw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { authenticatedUploadsFetch, resolveAuthenticatedUploadsUrl } from '../services/api';
+import LessonReplayPlayer from './LessonReplayPlayer';
 
 const isPythonFile = (file) => /\.py$/i.test(String(file?.name || '').trim());
 const isImageFile = (file) => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(file?.name || '').trim());
@@ -56,6 +57,7 @@ const StudentLessonDetailModal = ({
   open,
   lesson,
   materials = [],
+  replay = null,
   topicText = '',
   loading = false,
   error = '',
@@ -72,6 +74,11 @@ const StudentLessonDetailModal = ({
     () => (Array.isArray(materials) ? materials.filter((entry) => entry?.id) : []),
     [materials]
   );
+  const hasMeaningfulReplay = useMemo(() => (
+    Boolean(replay?.available)
+    && Array.isArray(replay?.events)
+    && replay.events.some((event) => event?.type && event.type !== 'session')
+  ), [replay]);
   const groupedMaterials = useMemo(() => {
     const groups = new Map();
     normalizedMaterials.forEach((file) => {
@@ -229,6 +236,10 @@ const StudentLessonDetailModal = ({
             <span><BookOpen size={15} /> Тема занятия</span>
             <strong>{topicText || 'Тема не сохранилась'}</strong>
           </section>
+
+          {!loading && !error && hasMeaningfulReplay && (
+            <LessonReplayPlayer key={replay?.occurrence?.key || 'lesson-replay'} replay={replay} />
+          )}
 
           {!loading && !error && normalizedMaterials.length > 0 && (
             <div className="student-lesson-capsule__summary" aria-label="Сводка материалов">
