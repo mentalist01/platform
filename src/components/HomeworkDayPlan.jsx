@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
@@ -11,6 +11,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { adaptHomeworkDayPlanForToday } from '../utils/homeworkDayPlan';
+import {
+  HOMEWORK_ASSIGNMENT_TIER_OPTIONAL,
+  normalizeHomeworkAssignmentTier,
+} from '../utils/homeworkAssignmentTier';
 
 const toDayKey = (value = new Date(), calendarOffsetMinutes = null) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -201,6 +205,7 @@ const buildItemGroups = (items, mockExamById) => {
     }).filter(Boolean);
     return {
       ...group,
+      assignmentTier: normalizeHomeworkAssignmentTier(firstItem?.assignmentTier),
       title,
       targets,
       actionableItem,
@@ -236,6 +241,9 @@ const HomeworkDayPlan = ({
       ));
       return {
         ...item,
+        assignmentTier: normalizeHomeworkAssignmentTier(
+          item?.assignmentTier || plannedGoal?.assignmentTier || item?.goal?.assignmentTier
+        ),
         dayTargetTaskKeys: Array.isArray(plannedGoal?.targetTaskKeys)
           ? plannedGoal.targetTaskKeys
           : [],
@@ -243,15 +251,22 @@ const HomeworkDayPlan = ({
       };
     });
     const availableItems = items.filter((item) => !item.unavailable);
-    const completedCount = availableItems.filter((item) => item.completed).length;
-    const remainingCount = availableItems.filter((item) => !item.completed).length;
+    const requiredItems = availableItems.filter((item) => item.assignmentTier !== HOMEWORK_ASSIGNMENT_TIER_OPTIONAL);
+    const optionalItems = availableItems.filter((item) => item.assignmentTier === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL);
+    const completedCount = requiredItems.filter((item) => item.completed).length;
+    const remainingCount = requiredItems.filter((item) => !item.completed).length;
+    const optionalCompletedCount = optionalItems.filter((item) => item.completed).length;
+    const optionalRemainingCount = optionalItems.filter((item) => !item.completed).length;
     return {
       ...day,
       items,
       completedCount,
       remainingCount,
-      totalCount: availableItems.length,
-      completed: items.length > 0 && remainingCount === 0,
+      totalCount: requiredItems.length,
+      optionalCount: optionalItems.length,
+      optionalCompletedCount,
+      optionalRemainingCount,
+      completed: requiredItems.length > 0 ? remainingCount === 0 : optionalItems.length === 0,
     };
   });
   const planAdaptation = adaptHomeworkDayPlanForToday({
@@ -332,7 +347,11 @@ const HomeworkDayPlan = ({
   const overdueItems = enrichedDays
     .filter((day) => String(day.date || '') < todayKey)
     .flatMap((day) => day.items
-      .filter((item) => !item.completed && !item.unavailable)
+      .filter((item) => (
+        !item.completed
+        && !item.unavailable
+        && item.assignmentTier !== HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+      ))
       .map((item) => ({ ...item, plannedDate: day.date })));
   const selectedGroups = buildItemGroups(selectedDay?.items, mockExamById);
   const canOpenGoalView = (view) => (
@@ -365,7 +384,9 @@ const HomeworkDayPlan = ({
           ? 'today'
           : 'future';
   const selectedContext = planCompleted
-    ? 'Всё готово'
+    ? enrichedDays.some((day) => Number(day.optionalRemainingCount) > 0)
+      ? 'Основное готово · дополнительное можно сделать по желанию'
+      : 'Всё готово'
     : selectedWasRescheduled
       ? 'Перенесено в новый план'
       : selectedDay?.completed
@@ -376,12 +397,16 @@ const HomeworkDayPlan = ({
             ? 'Сегодня'
             : 'План на день';
   const selectedTitle = planCompleted
-    ? 'Домашняя работа выполнена'
+    ? enrichedDays.some((day) => Number(day.optionalRemainingCount) > 0)
+      ? 'Основная часть выполнена'
+      : 'Домашняя работа выполнена'
     : formatDayLabel(selectedDay?.date);
   const selectedRemainingLabel = selectedWasRescheduled
     ? 'План обновлён'
     : selectedDay?.completed
-      ? 'Готово'
+      ? Number(selectedDay?.optionalRemainingCount) > 0
+        ? `+${selectedDay.optionalRemainingCount} дополнительно`
+        : 'Готово'
       : `Осталось: ${selectedDay?.remainingCount || 0}`;
   const nextDayAfterSelection = enrichedDays.find((day) => (
     String(day.date || '') > String(selectedDay?.date || '') && day.remainingCount > 0
@@ -442,7 +467,9 @@ const HomeworkDayPlan = ({
     if (selectedDay?.remainingCount === 0 && nextDayAfterSelection) selectDay(nextDayAfterSelection.date);
   };
   const primaryActionLabel = selectedActionableGroup
-    ? selectedStatus === 'overdue'
+    ? selectedActionableGroup.assignmentTier === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+      ? 'Сделать дополнительно'
+      : selectedStatus === 'overdue'
       ? 'Закрыть долг'
       : selectedStatus === 'future'
         ? 'Начать заранее'
@@ -554,7 +581,9 @@ const HomeworkDayPlan = ({
             const statusText = wasRescheduled
               ? `Перенесено ${day.rescheduledOutCount}`
               : day.completed
-                ? `${day.completedCount} из ${day.totalCount} · готово`
+                ? Number(day.optionalRemainingCount) > 0
+                  ? `Основное готово · +${day.optionalRemainingCount} доп.`
+                  : `${day.completedCount} из ${day.totalCount} · готово`
                 : dayStatus === 'overdue'
                   ? `Осталось ${day.remainingCount}`
                   : `${day.completedCount} из ${day.totalCount}`;
@@ -629,6 +658,9 @@ const HomeworkDayPlan = ({
               const textBusy = canToggleText && Boolean(isChecklistItemBusy?.(group.checklistItem));
               const canOpen = !group.completed && canOpenGoalView(group.actionableItem?.view);
               const canInteract = canOpen || canToggleText;
+              const isOptionalGroup = group.assignmentTier === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL;
+              const showTierHeading = groupIndex === 0
+                || selectedGroups[groupIndex - 1]?.assignmentTier !== group.assignmentTier;
               const movedLabel = group.movedCount > 0
                 ? `${group.movedCount} с прошлых дней`
                 : '';
@@ -644,7 +676,9 @@ const HomeworkDayPlan = ({
                 group.completed ? ' student-homework-day-plan__group--complete' : ''
               }${group.unavailable ? ' student-homework-day-plan__group--unavailable' : ''}${
                 useFullWidth ? ' student-homework-day-plan__group--wide' : ''
-              }${canInteract ? ' student-homework-day-plan__group--interactive' : ''}`;
+              }${canInteract ? ' student-homework-day-plan__group--interactive' : ''}${
+                isOptionalGroup ? ' border-fuchsia-200/80 bg-fuchsia-50/45' : ''
+              }`;
               const rowStyle = {
                 '--student-day-plan-group-delay': `${35 + (Math.min(groupIndex, 4) * 32)}ms`,
               };
@@ -660,6 +694,9 @@ const HomeworkDayPlan = ({
                   <span className="student-homework-day-plan__group-content">
                     <span className="student-homework-day-plan__group-title">
                       <strong>{group.title}</strong>
+                      {isOptionalGroup && (
+                        <small className="text-fuchsia-700">По желанию</small>
+                      )}
                       {group.totalCount > 1 && (
                         <small>{group.completed ? 'Готово' : `${group.completedCount} из ${group.totalCount}`}</small>
                       )}
@@ -693,12 +730,10 @@ const HomeworkDayPlan = ({
                   {canInteract && <ChevronRight size={16} className="student-homework-day-plan__group-arrow" />}
                 </>
               );
-              if (!canInteract) {
-                return <div key={group.key} className={rowClassName} style={rowStyle}>{rowContent}</div>;
-              }
-              return (
+              const renderedRow = !canInteract ? (
+                <div className={rowClassName} style={rowStyle}>{rowContent}</div>
+              ) : (
                 <button
-                  key={group.key}
                   type="button"
                   className={rowClassName}
                   style={rowStyle}
@@ -717,6 +752,17 @@ const HomeworkDayPlan = ({
                 >
                   {rowContent}
                 </button>
+              );
+              return (
+                <Fragment key={group.key}>
+                  {showTierHeading && (
+                    <div className={`col-span-full mt-1 flex items-center gap-2 pt-2 text-[11px] font-black uppercase tracking-[0.12em] ${groupIndex > 0 ? 'border-t pt-3' : ''} ${isOptionalGroup ? 'border-fuchsia-100 text-fuchsia-700' : 'border-purple-100 text-purple-700'}`}>
+                      {isOptionalGroup ? <Sparkles size={13} /> : <CheckCircle2 size={13} />}
+                      {isOptionalGroup ? 'Если останутся силы' : 'Нужно сделать'}
+                    </div>
+                  )}
+                  {renderedRow}
+                </Fragment>
               );
             })}
           </div>

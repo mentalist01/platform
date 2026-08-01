@@ -1,3 +1,8 @@
+import {
+  getHomeworkGoalAssignmentTier,
+  isOptionalHomeworkGoal,
+} from './homeworkAssignmentTier.js';
+
 const normalizeText = (value) => String(value ?? '').trim();
 
 const uniquePositiveIntegers = (values) => (
@@ -190,6 +195,7 @@ const buildPendingTaskGoal = ({ goal, goalIndex, homework, studentData, testsDb 
   if (targetQuestions.length === 0) return null;
   return {
     type: 'task',
+    assignmentTier: getHomeworkGoalAssignmentTier(goal),
     taskNumber: String(taskNumber),
     levelId,
     includeAll: false,
@@ -248,6 +254,7 @@ const buildPendingMockGoal = ({ goal, goalIndex, homework, studentData, mockExam
   if (!unknownProgress && remainingTaskKeys.length === 0) return null;
   return {
     type: 'mock',
+    assignmentTier: getHomeworkGoalAssignmentTier(goal),
     taskNumber: '',
     levelId: 'basic',
     targetInput: '',
@@ -306,7 +313,9 @@ export const buildHomeworkCarryoverDraft = ({
     return result;
   }, {});
   const goals = getHomeworkGoals(homework)
-    .map((goal, goalIndex) => (
+    .map((goal, goalIndex) => ({ goal, goalIndex }))
+    .filter(({ goal }) => !isOptionalHomeworkGoal(goal))
+    .map(({ goal, goalIndex }) => (
       getGoalType(goal) === 'mock'
         ? buildPendingMockGoal({ goal, goalIndex, homework, studentData, mockExamById })
         : buildPendingTaskGoal({ goal, goalIndex, homework, studentData, testsDb })

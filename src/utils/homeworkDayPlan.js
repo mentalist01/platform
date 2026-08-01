@@ -1,3 +1,9 @@
+import {
+  HOMEWORK_ASSIGNMENT_TIER_OPTIONAL,
+  getHomeworkGoalAssignmentTier,
+  normalizeHomeworkAssignmentTier,
+} from './homeworkAssignmentTier.js';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DAYS_TO_COMPLETE = 7;
 const MAX_PLAN_RANGE_DAYS = 366;
@@ -216,6 +222,7 @@ const buildTaskGoalPlanItems = (goal, sourceGoalIndex) => {
   const goalBase = {
     ...goal,
     type: 'task',
+    assignmentTier: getHomeworkGoalAssignmentTier(goal),
     taskNumber,
     levelId,
   };
@@ -233,6 +240,7 @@ const buildTaskGoalPlanItems = (goal, sourceGoalIndex) => {
         : `number:${questionNumber ?? sourceTargetIndex}`}`,
       sourceGoalIndex,
       sourceTargetIndex,
+      assignmentTier: goalBase.assignmentTier,
       taskNumber,
       levelId,
       questionNumber,
@@ -248,6 +256,7 @@ const buildTaskGoalPlanItems = (goal, sourceGoalIndex) => {
     layoutKey: `goal:${sourceGoalIndex}:task:whole`,
     sourceGoalIndex,
     sourceTargetIndex: null,
+    assignmentTier: goalBase.assignmentTier,
     taskNumber,
     levelId,
     goal: {
@@ -266,6 +275,7 @@ const buildMockGoalPlanItems = (goal, sourceGoalIndex) => {
   const goalBase = {
     ...goal,
     type: 'mock',
+    assignmentTier: getHomeworkGoalAssignmentTier(goal),
     mockExamId: normalizeText(goal?.mockExamId),
   };
 
@@ -276,6 +286,7 @@ const buildMockGoalPlanItems = (goal, sourceGoalIndex) => {
       layoutKey: `goal:${sourceGoalIndex}:mock:whole`,
       sourceGoalIndex,
       sourceTargetIndex: null,
+      assignmentTier: goalBase.assignmentTier,
       mockExamId: goalBase.mockExamId,
       goal: {
         ...goalBase,
@@ -291,6 +302,7 @@ const buildMockGoalPlanItems = (goal, sourceGoalIndex) => {
       layoutKey: `goal:${sourceGoalIndex}:mock:key:${normalizeLayoutKeyPart(taskKey)}`,
       sourceGoalIndex,
       sourceTargetIndex,
+      assignmentTier: goalBase.assignmentTier,
       mockExamId: goalBase.mockExamId,
       taskKey,
       goalBase,
@@ -303,6 +315,7 @@ const buildMockGoalPlanItems = (goal, sourceGoalIndex) => {
     layoutKey: `goal:${sourceGoalIndex}:mock:whole`,
     sourceGoalIndex,
     sourceTargetIndex: null,
+    assignmentTier: goalBase.assignmentTier,
     mockExamId: goalBase.mockExamId,
     goal: {
       ...goalBase,
@@ -574,6 +587,33 @@ const partitionContiguously = (items, count) => {
   });
 };
 
+const partitionByAssignmentTier = (items, count) => {
+  const list = Array.isArray(items) ? items : [];
+  const partCount = Math.min(normalizePositiveInteger(count, 0), list.length);
+  if (partCount <= 0) return [];
+  const requiredItems = list.filter((item) => (
+    normalizeHomeworkAssignmentTier(item?.assignmentTier) !== HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+  ));
+  const optionalItems = list.filter((item) => (
+    normalizeHomeworkAssignmentTier(item?.assignmentTier) === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+  ));
+  const desiredSizes = partitionContiguously(list, partCount).map((part) => part.length);
+  const requiredParts = partitionContiguously(requiredItems, partCount);
+  const paddedRequiredParts = Array.from({ length: partCount }, (_, index) => requiredParts[index] || []);
+  let optionalCursor = 0;
+  return paddedRequiredParts.map((requiredPart, index) => {
+    const optionalCount = Math.max(0, desiredSizes[index] - requiredPart.length);
+    const optionalPart = optionalItems.slice(optionalCursor, optionalCursor + optionalCount);
+    optionalCursor += optionalPart.length;
+    return [...requiredPart, ...optionalPart];
+  }).map((part, index, parts) => {
+    if (index !== parts.length - 1 || optionalCursor >= optionalItems.length) return part;
+    const remainder = optionalItems.slice(optionalCursor);
+    optionalCursor = optionalItems.length;
+    return [...part, ...remainder];
+  });
+};
+
 const toPublicPlanItem = (item) => {
   const layoutMetadata = {
     layoutKey: item.layoutKey,
@@ -596,6 +636,7 @@ const toPublicPlanItem = (item) => {
       type: 'task-target',
       itemId: item.itemId,
       ...layoutMetadata,
+      assignmentTier: normalizeHomeworkAssignmentTier(item.assignmentTier),
       sourceGoalIndex: item.sourceGoalIndex,
       sourceTargetIndex: item.sourceTargetIndex,
       taskNumber: item.taskNumber,
@@ -609,6 +650,7 @@ const toPublicPlanItem = (item) => {
       type: 'mock-target',
       itemId: item.itemId,
       ...layoutMetadata,
+      assignmentTier: normalizeHomeworkAssignmentTier(item.assignmentTier),
       sourceGoalIndex: item.sourceGoalIndex,
       sourceTargetIndex: item.sourceTargetIndex,
       mockExamId: item.mockExamId,
@@ -619,6 +661,7 @@ const toPublicPlanItem = (item) => {
     type: item.kind,
     itemId: item.itemId,
     ...layoutMetadata,
+    assignmentTier: normalizeHomeworkAssignmentTier(item.assignmentTier),
     sourceGoalIndex: item.sourceGoalIndex,
     sourceTargetIndex: item.sourceTargetIndex,
     goal: { ...(item.goal || {}) },
@@ -700,22 +743,35 @@ const isPendingAvailablePlanItem = (item) => (
 );
 
 const isMovablePendingPlanItem = (item) => (
-  isPendingAvailablePlanItem(item) && !item?.pinned
+  isPendingAvailablePlanItem(item)
+  && !item?.pinned
+  && normalizeHomeworkAssignmentTier(item?.assignmentTier) !== HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
 );
 
 const refreshEnrichedDayCounts = (day) => {
   const items = Array.isArray(day?.items) ? day.items : [];
   const availableItems = items.filter((item) => !item?.unavailable);
-  const completedCount = availableItems.filter((item) => item?.completed).length;
-  const remainingCount = availableItems.length - completedCount;
+  const requiredItems = availableItems.filter((item) => (
+    normalizeHomeworkAssignmentTier(item?.assignmentTier) !== HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+  ));
+  const optionalItems = availableItems.filter((item) => (
+    normalizeHomeworkAssignmentTier(item?.assignmentTier) === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+  ));
+  const completedCount = requiredItems.filter((item) => item?.completed).length;
+  const remainingCount = requiredItems.length - completedCount;
+  const optionalCompletedCount = optionalItems.filter((item) => item?.completed).length;
+  const optionalRemainingCount = optionalItems.length - optionalCompletedCount;
   return {
     ...day,
     items,
     itemCount: items.length,
     completedCount,
     remainingCount,
-    totalCount: availableItems.length,
-    completed: items.length > 0 && remainingCount === 0,
+    totalCount: requiredItems.length,
+    optionalCount: optionalItems.length,
+    optionalCompletedCount,
+    optionalRemainingCount,
+    completed: requiredItems.length > 0 ? remainingCount === 0 : optionalItems.length === 0,
   };
 };
 
@@ -750,7 +806,10 @@ export const adaptHomeworkDayPlanForToday = ({ days, todayKey } = {}) => {
       day,
       index,
       pendingCount: (Array.isArray(day?.items) ? day.items : [])
-        .filter(isPendingAvailablePlanItem).length,
+        .filter((item) => (
+          isPendingAvailablePlanItem(item)
+          && normalizeHomeworkAssignmentTier(item?.assignmentTier) !== HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+        )).length,
     }))
     .filter(({ day }) => normalizeText(day?.date) >= normalizedTodayKey)
     .sort((left, right) => (
@@ -878,12 +937,15 @@ export const buildHomeworkDayPlan = ({
   } else {
     const desiredDateCount = Math.min(dateResult.dates.length, items.length);
     planDates = pickEvenlySpaced(dateResult.dates, desiredDateCount);
-    itemParts = partitionContiguously(items, planDates.length);
+    itemParts = partitionByAssignmentTier(items, planDates.length);
   }
   const sourceHomeworkId = normalizeText(sourceHomework?.id);
   const dayPlan = planDates.map((date, index) => {
     const part = itemParts[index] || [];
     const publicItems = part.map(toPublicPlanItem);
+    const optionalItemCount = part.filter((item) => (
+      normalizeHomeworkAssignmentTier(item?.assignmentTier) === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+    )).length;
     return {
       id: `${sourceHomeworkId ? `${sourceHomeworkId}:` : ''}day:${date}`,
       date,
@@ -891,6 +953,8 @@ export const buildHomeworkDayPlan = ({
       sessionIndex: index,
       sessionNumber: index + 1,
       itemCount: part.length,
+      requiredItemCount: part.length - optionalItemCount,
+      optionalItemCount,
       items: publicItems,
       checklistItems: publicItems.filter((item) => item.type === 'text'),
       goals: buildGoalChunks(part),
@@ -938,6 +1002,12 @@ export const buildHomeworkDayPlan = ({
       taskTargetCount: countItemsByKind(items, 'task-target'),
       mockTargetCount: countItemsByKind(items, 'mock-target'),
       opaqueGoalCount: countItemsByKind(items, 'task-goal') + countItemsByKind(items, 'mock-goal'),
+      requiredItemCount: items.filter((item) => (
+        normalizeHomeworkAssignmentTier(item?.assignmentTier) !== HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+      )).length,
+      optionalItemCount: items.filter((item) => (
+        normalizeHomeworkAssignmentTier(item?.assignmentTier) === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+      )).length,
     },
   };
 };

@@ -23,6 +23,37 @@ test('formatHomeworkQuestionRanges compacts sorted unique ranges', () => {
   assert.equal(formatHomeworkQuestionRanges([7, 2, 3, 4, 7, 10]), '2-4, 7, 10');
 });
 
+test('carryover never turns unfinished optional work into a required debt', () => {
+  const result = buildHomeworkCarryoverDraft({
+    homework: {
+      id: 'homework-priority',
+      goals: [
+        {
+          type: 'task',
+          assignmentTier: 'required',
+          taskNumber: 1,
+          levelId: 'basic',
+          targetQuestions: [1],
+          targetQuestionIds: ['q-3'],
+        },
+        {
+          type: 'task',
+          assignmentTier: 'optional',
+          taskNumber: 1,
+          levelId: 'basic',
+          targetQuestions: [2],
+          targetQuestionIds: ['q-1'],
+        },
+      ],
+    },
+    testsDb,
+  });
+
+  assert.equal(result.goals.length, 1);
+  assert.equal(result.goals[0].assignmentTier, 'required');
+  assert.equal(result.goals[0].carryover.sourceGoalIndex, 0);
+});
+
 test('carryover keeps only unfinished task questions and remaps stored ids after reorder', () => {
   const result = buildHomeworkCarryoverDraft({
     homework: {

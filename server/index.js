@@ -107,6 +107,10 @@ import {
 } from '../src/utils/homeworkComposerDraft.js';
 import { buildHomeworkDayPlan } from '../src/utils/homeworkDayPlan.js';
 import {
+  isOptionalHomeworkGoal,
+  normalizeHomeworkAssignmentTier,
+} from '../src/utils/homeworkAssignmentTier.js';
+import {
   HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
   normalizeHomeworkDueAtMode,
   resolveNextLessonStart,
@@ -11838,6 +11842,7 @@ const normalizeGoals = (goals, testsDb = null) => {
       const continuationOfHomeworkId = String(goal.continuationOfHomeworkId || '').trim().slice(0, 200);
       result.push({
         type: GOAL_TYPE_MOCK,
+        assignmentTier: normalizeHomeworkAssignmentTier(goal.assignmentTier),
         mockExamId,
         mode: normalizeMockAttemptMode(goal?.mode, MOCK_ATTEMPT_MODE_TIMER),
         ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
@@ -11866,6 +11871,7 @@ const normalizeGoals = (goals, testsDb = null) => {
     const targetQuestionIds = normalizeTargetQuestionIdSnapshot(goal.targetQuestionIds);
     result.push({
       type: GOAL_TYPE_TASK,
+      assignmentTier: normalizeHomeworkAssignmentTier(goal.assignmentTier),
       taskNumber: taskNum,
       levelId,
       includeAll,
@@ -11899,6 +11905,7 @@ const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
   const targetQuestionIds = normalizeTargetQuestionIdSnapshot(entry.targetQuestionIds);
   return [{
     type: GOAL_TYPE_TASK,
+    assignmentTier: normalizeHomeworkAssignmentTier(entry.assignmentTier),
     taskNumber: taskNum,
     levelId,
     includeAll,
@@ -12131,9 +12138,10 @@ const evaluateLatestHomeworkProgressForStudent = (student, testsDb, mockExamById
   const studentData = getStudentData(student.id);
   const latestHomework = getLatestHomeworkEntryForPush(studentData, testsDb);
   if (!latestHomework) return null;
-  const goals = Array.isArray(latestHomework.goals)
+  const goals = (Array.isArray(latestHomework.goals)
     ? latestHomework.goals
-    : getNormalizedHomeworkGoals(latestHomework, testsDb);
+    : getNormalizedHomeworkGoals(latestHomework, testsDb))
+    .filter((goal) => !isOptionalHomeworkGoal(goal));
   if (!Array.isArray(goals) || goals.length === 0) return null;
 
   let totalCount = 0;
@@ -25021,6 +25029,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
   if (normalizedGoals.length === 0 && (normalizedTaskNumber || normalizedLevelId)) {
     normalizedGoals = [{
       type: GOAL_TYPE_TASK,
+      assignmentTier: 'required',
       taskNumber: normalizedTaskNumber,
       levelId: normalizedLevelId,
       includeAll: false,
@@ -25224,7 +25233,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
       }
     }
     normalizedGoals = normalizedTaskNumber && normalizedLevelId
-      ? [{ type: GOAL_TYPE_TASK, taskNumber: normalizedTaskNumber, levelId: normalizedLevelId, includeAll: false, targetQuestions: normalizedTargets }]
+      ? [{ type: GOAL_TYPE_TASK, assignmentTier: 'required', taskNumber: normalizedTaskNumber, levelId: normalizedLevelId, includeAll: false, targetQuestions: normalizedTargets }]
       : [];
   }
   normalizedGoals = snapshotHomeworkGoalTargets({

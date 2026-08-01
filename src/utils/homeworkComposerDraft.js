@@ -1,4 +1,5 @@
 import { normalizeHomeworkDueAtMode } from './homeworkDueAt.js';
+import { normalizeHomeworkAssignmentTier } from './homeworkAssignmentTier.js';
 
 export const HOMEWORK_COMPOSER_DRAFT_VERSION = 1;
 
@@ -91,6 +92,7 @@ const normalizeDraftGoal = (value) => {
 
   return {
     type,
+    assignmentTier: normalizeHomeworkAssignmentTier(value.assignmentTier),
     taskNumber,
     levelId: trimString(value.levelId, 80) || 'basic',
     targetInput: trimString(value.targetInput, 5000),

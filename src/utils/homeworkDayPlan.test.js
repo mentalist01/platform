@@ -586,3 +586,61 @@ test('a selected weekday outside the range falls back to the deadline without lo
   assert.equal(result.summary.plannedItemCount, 2);
   assert.equal(result.summary.unplannedItemCount, 0);
 });
+
+test('automatic plans balance required work first and keep optional work visibly optional', () => {
+  const result = buildHomeworkDayPlan({
+    goals: [
+      {
+        type: 'task',
+        assignmentTier: 'required',
+        taskNumber: 1,
+        levelId: 'basic',
+        targetQuestions: [1, 2, 3, 4, 5, 6],
+      },
+      {
+        type: 'task',
+        assignmentTier: 'optional',
+        taskNumber: 2,
+        levelId: 'basic',
+        targetQuestions: [1, 2, 3],
+      },
+    ],
+    issuedAt: '2026-07-01',
+    dueAt: '2026-07-07',
+    sessionCount: 3,
+  });
+
+  assert.deepEqual(result.dayPlan.map((day) => [day.requiredItemCount, day.optionalItemCount]), [
+    [2, 1],
+    [2, 1],
+    [2, 1],
+  ]);
+  result.dayPlan.forEach((day) => {
+    assert.deepEqual(day.items.map((item) => item.assignmentTier), ['required', 'required', 'optional']);
+    assert.equal(day.goals.at(-1).assignmentTier, 'optional');
+  });
+  assert.equal(result.summary.requiredItemCount, 6);
+  assert.equal(result.summary.optionalItemCount, 3);
+});
+
+test('missed optional work is not rescheduled as debt', () => {
+  const result = adaptHomeworkDayPlanForToday({
+    todayKey: '2026-07-02',
+    days: [
+      {
+        date: '2026-07-01',
+        items: [
+          { itemId: 'required', assignmentTier: 'required', completed: false },
+          { itemId: 'optional', assignmentTier: 'optional', completed: false },
+        ],
+      },
+      { date: '2026-07-02', items: [] },
+    ],
+  });
+
+  assert.equal(result.metadata.movedItemCount, 1);
+  assert.deepEqual(result.days[0].items.map((item) => item.itemId), ['optional']);
+  assert.deepEqual(result.days[1].items.map((item) => item.itemId), ['required']);
+  assert.equal(result.days[0].remainingCount, 0);
+  assert.equal(result.days[0].optionalRemainingCount, 1);
+});

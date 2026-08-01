@@ -90,6 +90,10 @@ import {
 import { isCurrentStudent, normalizeStudentStudyStatus } from './utils/studentStudyStatus';
 import { resolveHomeworkTaskTargetDescriptors } from './utils/homeworkComposer';
 import {
+  getHomeworkGoalAssignmentTier,
+  isOptionalHomeworkGoal,
+} from './utils/homeworkAssignmentTier';
+import {
   addHomeworkLessonBasketItem,
   clearHomeworkLessonBasket,
   getHomeworkLessonBasketItems,
@@ -17728,6 +17732,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 if (!mockExamId) return null;
                 return {
                   type: GOAL_TYPE_MOCK,
+                  assignmentTier: getHomeworkGoalAssignmentTier(goal),
                   mockExamId,
                   targetTaskKeys: Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [],
                   continuationOfHomeworkId: String(goal?.continuationOfHomeworkId || '').trim(),
@@ -17740,6 +17745,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               const isPythonGoal = taskNumberValue ? isPythonTaskNumber(taskNumberValue) : false;
               return {
                 type: GOAL_TYPE_TASK,
+                assignmentTier: getHomeworkGoalAssignmentTier(goal),
                 taskNumber: taskNumberValue,
                 levelId: isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
                 targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
@@ -17760,6 +17766,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           const isPythonGoal = isPythonTaskNumber(normalizedTaskNumber);
           return [{
             type: GOAL_TYPE_TASK,
+            assignmentTier: 'required',
             taskNumber: normalizedTaskNumber,
             levelId: isPythonGoal ? PYTHON_LEVEL_ID : item.levelId,
             targetQuestions: Array.isArray(item.targetQuestions) ? item.targetQuestions : [],
@@ -17833,6 +17840,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           const mockProgress = getMockGoalProgress(mockExam, mockAttemptById[mockExamId], goal?.targetTaskKeys);
           return {
             type: GOAL_TYPE_MOCK,
+            assignmentTier: getHomeworkGoalAssignmentTier(goal),
             mockExamId,
             mockExamTitle: mockExam?.title || 'Пробник',
             mode: normalizeAssignedMockExamMode(goal?.mode),
@@ -17883,6 +17891,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           : (LEVELS[levelId?.toUpperCase()]?.label || levelId);
         return {
           type: GOAL_TYPE_TASK,
+          assignmentTier: getHomeworkGoalAssignmentTier(goal),
           taskNumber,
           levelId,
           levelLabel,
@@ -17907,7 +17916,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         setGoalState(null);
         return;
       }
-      const completed = filteredGoals.length > 0 && filteredGoals.every((goal) => goal.completed);
+      const requiredGoals = filteredGoals.filter((goal) => !isOptionalHomeworkGoal(goal));
+      const completed = requiredGoals.length === 0 || requiredGoals.every((goal) => goal.completed);
       setGoalState({
         entry,
         goals: filteredGoals,
@@ -17933,8 +17943,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [user.role, user.id]);
 
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
-  const goalCompletedCount = goalGoals.filter((goal) => goal.completed).length;
-  const firstGoal = goalGoals.find((goal) => !goal?.completed) || goalGoals[0] || null;
+  const requiredGoalGoals = goalGoals.filter((goal) => !isOptionalHomeworkGoal(goal));
+  const optionalGoalGoals = goalGoals.filter((goal) => isOptionalHomeworkGoal(goal));
+  const orderedGoalGoals = [...requiredGoalGoals, ...optionalGoalGoals];
+  const progressGoalGoals = requiredGoalGoals.length > 0 ? requiredGoalGoals : [];
+  const goalCompletedCount = progressGoalGoals.filter((goal) => goal.completed).length;
+  const firstGoal = requiredGoalGoals.find((goal) => !goal?.completed)
+    || optionalGoalGoals.find((goal) => !goal?.completed)
+    || requiredGoalGoals[0]
+    || optionalGoalGoals[0]
+    || null;
   const openHomeworkMockGoal = (goal) => {
     if (!goal?.mockExamId) return;
     const firstPendingTask = (goal.taskStatus || []).find((item) => !item?.solved)
@@ -17950,8 +17968,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       }
     );
   };
-  const goalSummaryProgressPercent = goalGoals.length > 0
-    ? Math.round((goalCompletedCount / goalGoals.length) * 100)
+  const goalSummaryProgressPercent = progressGoalGoals.length > 0
+    ? Math.round((goalCompletedCount / progressGoalGoals.length) * 100)
     : 0;
   const goalDeadlineLabel = (() => {
     const entry = goalState?.entry;
@@ -19289,7 +19307,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       <div className="student-goal-summary__eyebrow">Домашка</div>
                       <strong className="student-goal-summary__collapsed-title">Цели к следующему уроку</strong>
                       <span className="student-goal-summary__collapsed-meta">
-                        {`${goalDeadlineLabel} · ${goalCompletedCount} из ${goalGoals.length}`}
+                        {`${goalDeadlineLabel} · ${goalCompletedCount} из ${progressGoalGoals.length}`}
                       </span>
                     </div>
                   </div>
@@ -19338,7 +19356,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       </div>
                     </div>
                     <div className="student-goal-summary__header-actions">
-                      <span className="student-goal-summary__count"><strong>{goalCompletedCount}</strong>{` из ${goalGoals.length}`}</span>
+                      <span className="student-goal-summary__count"><strong>{goalCompletedCount}</strong>{` из ${progressGoalGoals.length}`}</span>
                       <button
                         type="button"
                         onClick={() => setGoalCollapsed(true)}
@@ -19355,7 +19373,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
                   <div className="student-goal-summary__overall-progress">
                     <div className="student-goal-summary__overall-copy">
-                      <span>Общий прогресс</span>
+                      <span>{optionalGoalGoals.length > 0 ? 'Обязательная часть' : 'Общий прогресс'}</span>
                       <strong>{`${goalSummaryProgressPercent}%`}</strong>
                     </div>
                     <div
@@ -19371,7 +19389,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   </div>
 
                   <div className="student-goal-summary__list">
-                    {goalGoals.map((goal, index) => {
+                    {orderedGoalGoals.map((goal, index) => {
                       if (goal.type === GOAL_TYPE_MOCK) {
                         const totalCount = Number(goal.totalCount) || 0;
                         const solvedCount = Number(goal.solvedCount) || 0;
@@ -19380,6 +19398,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           <article key={`mock-${goal.mockExamId}-${index}`} className="student-goal-summary__item">
                             <div className="student-goal-summary__item-header">
                               <div className="student-goal-summary__item-copy">
+                                {isOptionalHomeworkGoal(goal) && (
+                                  <div className="mb-1 inline-flex rounded-full bg-fuchsia-100 px-2 py-0.5 text-[9px] font-black text-fuchsia-700">
+                                    Если останутся силы
+                                  </div>
+                                )}
                                 <div className="student-goal-summary__item-label">Пробник</div>
                                 <strong>{goal.mockExamTitle || 'Пробник'}</strong>
                                 <div className="student-goal-summary__item-meta">
@@ -19422,6 +19445,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         <article key={`${goal.taskNumber}-${goal.levelId}-${index}`} className="student-goal-summary__item">
                           <div className="student-goal-summary__item-header">
                             <div className="student-goal-summary__item-copy">
+                              {isOptionalHomeworkGoal(goal) && (
+                                <div className="mb-1 inline-flex rounded-full bg-fuchsia-100 px-2 py-0.5 text-[9px] font-black text-fuchsia-700">
+                                  Если останутся силы
+                                </div>
+                              )}
                               {isPythonGoal ? (
                                 <>
                                   <div className="student-goal-summary__item-label">Python</div>
@@ -19432,7 +19460,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                   <strong>{`Задание ${taskDisplay}`}</strong>
                                   {goal.levelLabel && (
                                     <span className="student-goal-summary__level-pill">
-                                      {goal.levelLabel}
+                                      {isOptionalHomeworkGoal(goal) ? `Уровень: ${goal.levelLabel}` : goal.levelLabel}
                                     </span>
                                   )}
                                 </div>

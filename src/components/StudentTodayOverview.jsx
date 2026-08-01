@@ -9,6 +9,7 @@ import {
   Sparkles,
   Target,
 } from 'lucide-react';
+import { isOptionalHomeworkGoal } from '../utils/homeworkAssignmentTier';
 
 const HOMEWORK_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -114,7 +115,6 @@ const StudentTodayOverview = ({
   studentName,
   homeworkEntry,
   goals = [],
-  completedGoalCount = 0,
   chatUnreadCount = 0,
   onContinueHomework,
   onOpenPractice,
@@ -122,7 +122,12 @@ const StudentTodayOverview = ({
   onOpenLesson,
   onOpenChat,
 }) => {
-  const pendingGoal = goals.find((goal) => !goal?.completed) || goals[0] || null;
+  const requiredGoals = goals.filter((goal) => !isOptionalHomeworkGoal(goal));
+  const optionalGoals = goals.filter((goal) => isOptionalHomeworkGoal(goal));
+  const requiredCompletedCount = requiredGoals.filter((goal) => goal?.completed).length;
+  const pendingRequiredGoal = requiredGoals.find((goal) => !goal?.completed) || null;
+  const pendingOptionalGoal = optionalGoals.find((goal) => !goal?.completed) || null;
+  const pendingGoal = pendingRequiredGoal || pendingOptionalGoal || requiredGoals[0] || optionalGoals[0] || null;
   const deadline = useMemo(() => getDeadlineSummary(homeworkEntry), [homeworkEntry]);
   const dateLabel = useMemo(() => (
     new Date().toLocaleDateString('ru-RU', {
@@ -131,10 +136,18 @@ const StudentTodayOverview = ({
       month: 'long',
     })
   ), []);
-  const hasHomework = Boolean(homeworkEntry && goals.length > 0 && completedGoalCount < goals.length);
+  const hasRequiredHomework = Boolean(
+    homeworkEntry
+    && requiredGoals.length > 0
+    && requiredCompletedCount < requiredGoals.length
+  );
+  const hasOptionalHomework = Boolean(homeworkEntry && pendingOptionalGoal);
+  const hasHomework = hasRequiredHomework || hasOptionalHomework;
   const primaryTitle = hasHomework ? getGoalLabel(pendingGoal) : 'Выберите короткую практику';
-  const primaryHint = hasHomework
-    ? `Выполнено ${completedGoalCount} из ${goals.length} целей`
+  const primaryHint = hasRequiredHomework
+    ? `Обязательная часть: выполнено ${requiredCompletedCount} из ${requiredGoals.length} целей`
+    : hasOptionalHomework
+      ? 'Основная домашка готова — это дополнительное задание по желанию.'
     : 'Начните с одной темы — платформа сохранит место, где вы остановились.';
   const primaryAction = hasHomework ? onContinueHomework : onOpenPractice;
 
@@ -165,7 +178,7 @@ const StudentTodayOverview = ({
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/14 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
                 <Target size={12} />
-                {hasHomework ? 'Главное на сегодня' : 'Практика на сегодня'}
+                {hasRequiredHomework ? 'Главное на сегодня' : hasOptionalHomework ? 'Дополнительно' : 'Практика на сегодня'}
               </span>
               {deadline ? (
                 <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${

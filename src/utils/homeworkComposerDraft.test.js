@@ -91,6 +91,18 @@ test('homework composer draft supports incomplete mock rows without final valida
   assert.deepEqual(form.dayPlanWeekdays, [2, 7]);
 });
 
+test('homework composer draft preserves optional goals and defaults unknown tiers to required', () => {
+  const form = normalizeHomeworkComposerDraftForm({
+    goals: [
+      { type: 'task', taskNumber: 1, assignmentTier: 'optional' },
+      { type: 'mock', mockExamId: 'exam-1', assignmentTier: 'surprise' },
+    ],
+  });
+
+  assert.equal(form.goals[0].assignmentTier, 'optional');
+  assert.equal(form.goals[1].assignmentTier, 'required');
+});
+
 test('homework composer draft rejects unknown versions and invalid roots', () => {
   assert.equal(normalizeHomeworkComposerDraft(null), null);
   assert.equal(normalizeHomeworkComposerDraft({ version: 99, form: {} }), null);

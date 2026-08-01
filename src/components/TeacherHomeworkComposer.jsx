@@ -25,6 +25,10 @@ import {
 
 import { resolveAuthenticatedUploadsUrl } from '../services/api';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
+import {
+  HOMEWORK_ASSIGNMENT_TIER_OPTIONAL,
+  normalizeHomeworkAssignmentTier,
+} from '../utils/homeworkAssignmentTier';
 import { buildHomeworkDayPlan } from '../utils/homeworkDayPlan';
 import {
   HOMEWORK_DUE_AT_MODE_MANUAL,
@@ -310,6 +314,7 @@ const TeacherHomeworkComposer = ({
         .filter(Boolean);
       return {
         type: goalTypeMock,
+        assignmentTier: normalizeHomeworkAssignmentTier(goal?.assignmentTier),
         mockExamId,
         mode: goal?.mode,
         targetTaskKeys: selectedKeys.length > 0 ? selectedKeys : allTaskKeys,
@@ -348,6 +353,7 @@ const TeacherHomeworkComposer = ({
           .filter(Boolean);
     return {
       type: goalTypeTask,
+      assignmentTier: normalizeHomeworkAssignmentTier(goal?.assignmentTier),
       taskNumber: Number(taskNumber),
       levelId,
       includeAll: false,
@@ -514,6 +520,39 @@ const TeacherHomeworkComposer = ({
     onUpdateGoal?.(safeActiveGoalIndex, { includeAll: false, targetInput: '', targetSelectionDirty: true });
   };
 
+  const renderAssignmentTierControl = (goal, index) => {
+    const assignmentTier = normalizeHomeworkAssignmentTier(goal?.assignmentTier);
+    return (
+      <div className="mt-2.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">В домашке</span>
+        <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+          <button
+            type="button"
+            onClick={() => onUpdateGoal?.(index, { assignmentTier: 'required' })}
+            className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition ${
+              assignmentTier !== HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+                ? 'bg-white text-purple-700 shadow-sm ring-1 ring-purple-200'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Нужно сделать
+          </button>
+          <button
+            type="button"
+            onClick={() => onUpdateGoal?.(index, { assignmentTier: HOMEWORK_ASSIGNMENT_TIER_OPTIONAL })}
+            className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition ${
+              assignmentTier === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL
+                ? 'bg-white text-fuchsia-700 shadow-sm ring-1 ring-fuchsia-200'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Если останутся силы
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const renderTaskGoal = (goal, index) => {
     const normalizedTaskNumber = normalizeTaskNumber?.(goal?.taskNumber);
     const taskNumberCandidate = Number(normalizedTaskNumber);
@@ -557,6 +596,11 @@ const TeacherHomeworkComposer = ({
                   Хвост с прошлого ДЗ
                 </span>
               )}
+              {normalizeHomeworkAssignmentTier(goal?.assignmentTier) === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL && (
+                <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-fuchsia-700">
+                  Дополнительно
+                </span>
+              )}
             </div>
             <strong className="mt-1 block text-sm text-[rgb(var(--ink))]">
               {questionCount > 0
@@ -584,6 +628,8 @@ const TeacherHomeworkComposer = ({
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-[9px] font-black uppercase tracking-[0.1em] text-slate-500">Раздел</span>
           <select
             value={goal?.taskNumber || ''}
             onFocus={() => setActiveGoal(index)}
@@ -624,6 +670,9 @@ const TeacherHomeworkComposer = ({
               ))}
             </optgroup>
           </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[9px] font-black uppercase tracking-[0.1em] text-slate-500">Уровень задания</span>
           <select
             value={pythonGoal ? pythonLevelId : (goal?.levelId || 'basic')}
             onFocus={() => setActiveGoal(index)}
@@ -642,6 +691,7 @@ const TeacherHomeworkComposer = ({
               ))
             )}
           </select>
+          </label>
         </div>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
@@ -663,6 +713,7 @@ const TeacherHomeworkComposer = ({
             Все номера
           </label>
         </div>
+        {renderAssignmentTierControl(goal, index)}
       </article>
     );
   };
@@ -690,6 +741,11 @@ const TeacherHomeworkComposer = ({
               {goal?.origin === 'carryover' && (
                 <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-amber-700">
                   Хвост с прошлого ДЗ
+                </span>
+              )}
+              {normalizeHomeworkAssignmentTier(goal?.assignmentTier) === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL && (
+                <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-fuchsia-700">
+                  Дополнительно
                 </span>
               )}
             </div>
@@ -765,6 +821,7 @@ const TeacherHomeworkComposer = ({
             Обычный режим
           </button>
         </div>
+        {renderAssignmentTierControl(goal, index)}
       </article>
     );
   };
@@ -1116,7 +1173,7 @@ const TeacherHomeworkComposer = ({
                                 </span>
                               </div>
                               <p className="mt-1 text-[11px] font-semibold text-slate-500">
-                                {`${dayPlanPreview.summary.plannedItemCount} пунктов · ${dayPlanPreview.summary.sessionCount} дней`}
+                                {`${dayPlanPreview.summary.requiredItemCount} нужно сделать${dayPlanPreview.summary.optionalItemCount > 0 ? ` · ${dayPlanPreview.summary.optionalItemCount} дополнительно` : ''} · ${dayPlanPreview.summary.sessionCount} дней`}
                               </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-1.5">
@@ -1180,6 +1237,11 @@ const TeacherHomeworkComposer = ({
                                     return (
                                       <div key={item.itemId} className="flex min-h-9 items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/70 px-2 py-1.5">
                                         <span className="min-w-0 flex-1 truncate text-[10px] font-bold text-slate-600">{describePlanItem(item)}</span>
+                                        {normalizeHomeworkAssignmentTier(item?.assignmentTier || item?.goal?.assignmentTier) === HOMEWORK_ASSIGNMENT_TIER_OPTIONAL && (
+                                          <span className="shrink-0 rounded-full bg-fuchsia-100 px-1.5 py-0.5 text-[8px] font-black text-fuchsia-700">
+                                            Доп.
+                                          </span>
+                                        )}
                                         {form?.dayPlanManualLayout && (
                                           <div className="flex shrink-0 items-center gap-0.5">
                                             <button

@@ -13,6 +13,11 @@ import {
   resolveHomeworkTaskTargetDescriptors,
 } from '../utils/homeworkComposer';
 import { normalizeHomeworkComposerDraft } from '../utils/homeworkComposerDraft';
+import {
+  getHomeworkGoalAssignmentTier,
+  isOptionalHomeworkGoal,
+  normalizeHomeworkAssignmentTier,
+} from '../utils/homeworkAssignmentTier';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { getStudentUnpaidLessonOccurrences } from '../utils/studentPaymentReminder';
@@ -617,6 +622,7 @@ const ScheduleSection = ({
   const DEFAULT_HOMEWORK = '';
   const DEFAULT_GOAL = {
     type: GOAL_TYPE_TASK,
+    assignmentTier: 'required',
     taskNumber: '',
     levelId: 'basic',
     targetInput: '',
@@ -1865,6 +1871,7 @@ const ScheduleSection = ({
             if (!mockExamId) return null;
             return {
               type: GOAL_TYPE_MOCK,
+              assignmentTier: getHomeworkGoalAssignmentTier(goal),
               mockExamId,
               mode: normalizeAssignedMockMode(goal?.mode),
               targetTaskKeys: Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [],
@@ -1880,6 +1887,7 @@ const ScheduleSection = ({
             : false;
           return {
             type: GOAL_TYPE_TASK,
+            assignmentTier: getHomeworkGoalAssignmentTier(goal),
             taskNumber: taskNumberValue,
             levelId: isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
             targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
@@ -1897,6 +1905,7 @@ const ScheduleSection = ({
       const entryTaskNumber = Number(entry.taskNumber);
       return [{
         type: GOAL_TYPE_TASK,
+        assignmentTier: 'required',
         taskNumber: Number.isFinite(normalizeTaskNumber(entry.taskNumber))
           ? String(normalizeTaskNumber(entry.taskNumber))
           : String(entry.taskNumber),
@@ -2256,6 +2265,7 @@ const ScheduleSection = ({
         viewKey: `mock-${mockExamId}-${goalIndex}`,
         sourceGoalIndex: goalIndex,
         type: GOAL_TYPE_MOCK,
+        assignmentTier: getHomeworkGoalAssignmentTier(goal),
         mockExamId,
         mode: normalizeAssignedMockMode(goal?.mode),
         targetTaskKeys,
@@ -2295,11 +2305,14 @@ const ScheduleSection = ({
       : 0;
     const heading = isPythonGoal
       ? `Python ${pythonTask?.title || (taskNumber ? `тема ${taskNumber}` : 'тема')}`
-      : `Задание ${taskDisplay} · ${levelLabel}`;
+      : isOptionalHomeworkGoal(goal)
+        ? `Задание ${taskDisplay} · уровень: ${levelLabel}`
+        : `Задание ${taskDisplay} · ${levelLabel}`;
     return {
       viewKey: `task-${taskNumber}-${levelId}-${goalIndex}`,
       sourceGoalIndex: goalIndex,
       type: GOAL_TYPE_TASK,
+      assignmentTier: getHomeworkGoalAssignmentTier(goal),
       heading,
       taskNumber,
       levelId,
@@ -2314,11 +2327,14 @@ const ScheduleSection = ({
 
   const summarizeGoalViews = (goalViews) => {
     const list = Array.isArray(goalViews) ? goalViews : [];
-    const totalCount = list.reduce(
+    const requiredGoals = list.filter((item) => !isOptionalHomeworkGoal(item));
+    const optionalGoals = list.filter((item) => isOptionalHomeworkGoal(item));
+    const orderedList = [...requiredGoals, ...optionalGoals];
+    const totalCount = requiredGoals.reduce(
       (sum, item) => sum + (Number(item?.totalCount) > 0 ? Number(item.totalCount) : 0),
       0
     );
-    const solvedCount = list.reduce((sum, item) => {
+    const solvedCount = requiredGoals.reduce((sum, item) => {
       const itemTotal = Number(item?.totalCount) || 0;
       const itemSolved = Number(item?.solvedCount) || 0;
       if (itemTotal <= 0) return sum;
@@ -2328,13 +2344,13 @@ const ScheduleSection = ({
     const progressPercent = totalCount > 0
       ? Math.max(0, Math.min(100, Math.round((solvedCount / totalCount) * 100)))
       : 0;
-    const pendingGoals = list.filter((item) => {
+    const pendingGoals = orderedList.filter((item) => {
       const itemTotal = Number(item?.totalCount) || 0;
       const itemSolved = Number(item?.solvedCount) || 0;
       if (itemTotal <= 0) return true;
       return itemSolved < itemTotal;
     });
-    const completedGoals = list.filter((item) => {
+    const completedGoals = orderedList.filter((item) => {
       const itemTotal = Number(item?.totalCount) || 0;
       const itemSolved = Number(item?.solvedCount) || 0;
       return itemTotal > 0 && itemSolved >= itemTotal;
@@ -2347,6 +2363,16 @@ const ScheduleSection = ({
       pendingGoals,
       completedGoals,
       goalCount: list.length,
+      requiredGoals,
+      optionalGoals,
+      requiredCompleted: requiredGoals.length === 0 || requiredGoals.every((item) => {
+        const itemTotal = Number(item?.totalCount) || 0;
+        return itemTotal > 0 && Number(item?.solvedCount) >= itemTotal;
+      }),
+      optionalCompleted: optionalGoals.length > 0 && optionalGoals.every((item) => {
+        const itemTotal = Number(item?.totalCount) || 0;
+        return itemTotal > 0 && Number(item?.solvedCount) >= itemTotal;
+      }),
     };
   };
 
@@ -2426,8 +2452,14 @@ const ScheduleSection = ({
     const sectionLabel = isNextSection ? 'Следующий урок' : 'Предыдущая домашка';
     const summaryStatus = goalsSummary.goalCount === 0
       ? { label: 'Цели не заданы', tone: 'border-slate-200 bg-white text-slate-600' }
-      : goalsSummary.totalCount > 0 && goalsSummary.remainingCount === 0
-        ? { label: 'Все выполнено', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+      : goalsSummary.requiredGoals.length === 0
+        ? goalsSummary.optionalCompleted
+          ? { label: 'Всё выполнено', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+          : { label: 'Только дополнительно', tone: 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700' }
+        : goalsSummary.requiredCompleted
+          ? goalsSummary.optionalGoals.length > 0 && !goalsSummary.optionalCompleted
+            ? { label: 'Основное выполнено', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+            : { label: 'Всё выполнено', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
         : goalsSummary.solvedCount > 0
           ? { label: 'В процессе', tone: 'border-amber-200 bg-amber-50 text-amber-700' }
           : { label: 'Нужно начать', tone: 'border-purple-200 bg-purple-50 text-purple-700' };
@@ -2459,10 +2491,16 @@ const ScheduleSection = ({
     };
 
     if (isNextSection) {
-      const primaryGoal = firstPendingGoal || goalViews[0] || null;
-      const orderedGoalViews = primaryGoal
-        ? [primaryGoal, ...goalViews.filter((goalView) => goalView !== primaryGoal)]
-        : [];
+      const requiredGoalViews = goalViews.filter((goalView) => !isOptionalHomeworkGoal(goalView));
+      const optionalGoalViews = goalViews.filter((goalView) => isOptionalHomeworkGoal(goalView));
+      const primaryRequiredGoal = requiredGoalViews.find((goalView) => {
+        const total = Number(goalView?.totalCount) || 0;
+        return total <= 0 || Number(goalView?.solvedCount) < total;
+      }) || requiredGoalViews[0] || null;
+      const orderedRequiredGoalViews = primaryRequiredGoal
+        ? [primaryRequiredGoal, ...requiredGoalViews.filter((goalView) => goalView !== primaryRequiredGoal)]
+        : requiredGoalViews;
+      const orderedGoalViews = [...orderedRequiredGoalViews, ...optionalGoalViews];
       const dayPlanEnabled = Boolean(entry?.dayPlan?.enabled);
 
       const renderCurrentGoalBlock = (goalView, goalIndex) => {
@@ -2475,6 +2513,9 @@ const ScheduleSection = ({
           ? goalView.targetStatus
           : [];
         const isCompleted = goalView.totalCount > 0 && remaining === 0;
+        const isOptional = isOptionalHomeworkGoal(goalView);
+        const showTierHeading = goalIndex === 0
+          || isOptionalHomeworkGoal(orderedGoalViews[goalIndex - 1]) !== isOptional;
         const isOpenable = Boolean(
           (goalView.type === GOAL_TYPE_MOCK && onOpenMockGoal)
           || (goalView.type === GOAL_TYPE_TASK && onOpenTask)
@@ -2483,7 +2524,9 @@ const ScheduleSection = ({
           ? 'Посмотреть'
           : goalView.solvedCount > 0
             ? (goalView.type === GOAL_TYPE_MOCK ? 'Продолжить пробник' : 'Продолжить цель')
-            : (goalView.type === GOAL_TYPE_MOCK ? 'Начать пробник' : 'Начать цель');
+            : isOptional
+              ? 'Сделать по желанию'
+              : (goalView.type === GOAL_TYPE_MOCK ? 'Начать пробник' : 'Начать цель');
         const statusLabel = isCompleted
           ? 'Готово'
           : goalView.solvedCount > 0
@@ -2491,9 +2534,15 @@ const ScheduleSection = ({
             : 'Можно начать';
 
         return (
+          <React.Fragment key={`student-homework-goal-${goalView.viewKey}`}>
+            {showTierHeading && (
+              <div className={`${goalIndex > 0 ? 'mt-5 border-t border-purple-100 pt-4' : ''} flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] ${isOptional ? 'text-fuchsia-700' : 'text-purple-700'}`}>
+                {isOptional ? 'Если останутся силы' : 'Нужно сделать'}
+                {isOptional && <span className="normal-case tracking-normal text-slate-400">не влияет на завершение домашки</span>}
+              </div>
+            )}
           <div
-            key={`student-homework-goal-${goalView.viewKey}`}
-            className={`student-today-homework__goal-segment ${goalIndex > 0 ? 'student-today-homework__next-goal mt-5 border-t border-purple-100 pt-5' : ''}`}
+            className={`student-today-homework__goal-segment ${goalIndex > 0 && !showTierHeading ? 'student-today-homework__next-goal mt-5 border-t border-purple-100 pt-5' : showTierHeading && goalIndex > 0 ? 'mt-3' : ''}`}
           >
             <div className="flex items-start gap-3">
               <span className={`student-today-homework__goal-step inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-black ${isCompleted ? 'student-today-homework__goal-step--complete' : ''}`}>
@@ -2506,6 +2555,11 @@ const ScheduleSection = ({
                       <span className="text-[10px] font-black uppercase tracking-[0.14em] text-purple-600">
                         Часть {goalIndex + 1} из {orderedGoalViews.length}
                       </span>
+                      {isOptional && (
+                        <span className="inline-flex rounded-full bg-fuchsia-100 px-2 py-0.5 text-[9px] font-black text-fuchsia-700">
+                          Дополнительно
+                        </span>
+                      )}
                       <span className={`student-today-homework__goal-state inline-flex rounded-full px-2 py-0.5 text-[9px] font-black ${
                         isCompleted
                           ? 'bg-emerald-100 text-emerald-700'
@@ -2583,6 +2637,7 @@ const ScheduleSection = ({
               </div>
             </div>
           </div>
+          </React.Fragment>
         );
       };
 
@@ -3546,6 +3601,7 @@ const ScheduleSection = ({
         const sample = basketItems[0];
         const matchingGoalIndex = carryoverGoals.findIndex((goal) => (
           normalizeGoalType(goal) === GOAL_TYPE_TASK
+          && !isOptionalHomeworkGoal(goal)
           && String(goal?.origin || 'new').trim().toLowerCase() !== 'carryover'
           && !goal?.includeAll
           && Number(normalizeTaskNumber?.(goal?.taskNumber) ?? goal?.taskNumber) === sample.taskNumber
@@ -3702,6 +3758,7 @@ const ScheduleSection = ({
               return {
                 ...createDefaultGoal(GOAL_TYPE_MOCK),
                 type: GOAL_TYPE_MOCK,
+                assignmentTier: getHomeworkGoalAssignmentTier(goal),
                 mockExamId: goal.mockExamId,
                 mode: normalizeAssignedMockMode(goal.mode),
                 targetTaskKeys: Array.isArray(goal.targetTaskKeys) ? goal.targetTaskKeys : [],
@@ -3712,6 +3769,7 @@ const ScheduleSection = ({
             return {
               ...createDefaultGoal(GOAL_TYPE_TASK),
               type: GOAL_TYPE_TASK,
+              assignmentTier: getHomeworkGoalAssignmentTier(goal),
               taskNumber: goal.taskNumber,
               levelId: goal.levelId || 'basic',
               includeAll: goal.includeAll,
@@ -3772,6 +3830,7 @@ const ScheduleSection = ({
             const continuationOfHomeworkId = String(goal?.continuationOfHomeworkId || '').trim();
             return {
               type: GOAL_TYPE_MOCK,
+              assignmentTier: normalizeHomeworkAssignmentTier(goal?.assignmentTier),
               mockExamId,
               mode: normalizeAssignedMockMode(goal?.mode),
               ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
@@ -3811,6 +3870,7 @@ const ScheduleSection = ({
             : (!goal?.targetSelectionDirty && hasCompleteStoredIds ? storedTargetQuestionIds : []);
           return {
             type: GOAL_TYPE_TASK,
+            assignmentTier: normalizeHomeworkAssignmentTier(goal?.assignmentTier),
             taskNumber: normalizedTaskNumber,
             levelId,
             includeAll,
