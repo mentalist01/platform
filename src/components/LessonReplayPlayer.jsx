@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Code2, ListChecks, Pause, PenTool, Play, RotateCcw, VolumeX } from 'lucide-react';
+import { Code2, ListChecks, MonitorUp, Pause, PenTool, Play, RotateCcw, VolumeX } from 'lucide-react';
 
-import { resolveAuthenticatedUploadsUrl } from '../services/api';
+import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import './LessonReplayPlayer.css';
 
 const VIEW_LABELS = {
@@ -26,6 +26,7 @@ const EVENT_LABELS = {
   code: 'Код',
   board: 'Доска',
   run: 'Запуск',
+  screen: 'Демонстрация экрана',
 };
 
 const formatClock = (value) => {
@@ -57,6 +58,11 @@ const getEventLabel = (event) => {
   if (event.type === 'code') return 'Изменение совместного кода';
   if (event.type === 'board') return 'Изменение на доске';
   if (event.type === 'run') return 'Запуск программы';
+  if (event.type === 'screen') {
+    if (event.payload?.active === false) return 'Демонстрация экрана завершена';
+    const owner = event.payload?.sharedByRole === 'teacher' ? 'учителя' : 'ученика';
+    return `Экран ${owner}`;
+  }
   if (event.type === 'session') {
     if (event.payload?.action === 'switch') {
       return event.payload?.via === 'telemost' ? 'Перешли в Телемост' : 'Вернулись на платформу';
@@ -74,11 +80,13 @@ const buildStateAt = (events, positionMs) => {
     code: null,
     board: null,
     run: null,
+    screen: null,
   };
   for (const event of events) {
     if (event.offsetMs > positionMs) break;
     state.current = event;
     if (event.type === 'task' && event.payload?.active === false) state.task = null;
+    else if (event.type === 'screen' && event.payload?.active === false) state.screen = null;
     else if (Object.prototype.hasOwnProperty.call(state, event.type)) state[event.type] = event;
   }
   return state;
@@ -213,6 +221,34 @@ const ReplayCode = ({ event, runEvent }) => {
   );
 };
 
+const ReplayScreen = ({ event, occurrence }) => {
+  const snapshotId = String(event?.payload?.snapshotId || '').trim();
+  const [failedSnapshotId, setFailedSnapshotId] = useState('');
+  const source = snapshotId && occurrence?.studentId && occurrence?.key
+    ? api.getLessonReplaySnapshotUrl(occurrence.studentId, occurrence.key, snapshotId)
+    : '';
+  const failed = failedSnapshotId === snapshotId;
+
+  if (!source || failed) {
+    return (
+      <div className="lesson-replay-player__empty-surface">
+        <MonitorUp size={25} />
+        <span>{failed ? 'Этот снимок экрана уже недоступен' : 'Снимок экрана загружается'}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="lesson-replay-player__screen">
+      <img src={source} alt="Снимок демонстрации экрана" onError={() => setFailedSnapshotId(snapshotId)} />
+      <span>
+        <MonitorUp size={13} />
+        {event.payload?.sharedByRole === 'teacher' ? 'Экран учителя' : 'Экран ученика'}
+      </span>
+    </div>
+  );
+};
+
 const LessonReplayPlayer = ({ replay }) => {
   const events = useMemo(() => (
     (Array.isArray(replay?.events) ? replay.events : [])
@@ -261,18 +297,24 @@ const LessonReplayPlayer = ({ replay }) => {
   const state = useMemo(() => buildStateAt(events, positionMs), [events, positionMs]);
   const currentView = state.navigation?.payload?.view || '';
   const navigationOffsetMs = Number(state.navigation?.offsetMs) || 0;
-  const latestSurfaceEvent = [state.code, state.board, state.run]
+  const latestSurfaceEvent = [state.screen, state.code, state.board, state.run]
     .filter(Boolean)
     .sort((left, right) => right.offsetMs - left.offsetMs)[0] || null;
-  const surfaceEventIsCurrent = latestSurfaceEvent && latestSurfaceEvent.offsetMs >= navigationOffsetMs;
+  const surfaceEventIsCurrent = latestSurfaceEvent && (
+    latestSurfaceEvent.type === 'screen' || latestSurfaceEvent.offsetMs >= navigationOffsetMs
+  );
   const surface = surfaceEventIsCurrent
-    ? (latestSurfaceEvent.type === 'board' ? 'board' : 'code')
+    ? (latestSurfaceEvent.type === 'screen'
+      ? 'screen'
+      : (latestSurfaceEvent.type === 'board' ? 'board' : 'code'))
     : 'context';
   const markers = events.length <= 120
     ? events
     : events.filter((_, index) => index % Math.ceil(events.length / 120) === 0);
   const currentLabel = getEventLabel(state.current);
-  const actorName = state.current?.actor?.name || '';
+  const actorName = state.current?.type === 'screen'
+    ? (state.current?.payload?.sharedByName || state.current?.actor?.name || '')
+    : (state.current?.actor?.name || '');
 
   if (events.length === 0) return null;
 
@@ -297,7 +339,9 @@ const LessonReplayPlayer = ({ replay }) => {
 
       <div className="lesson-replay-player__chapter">
         <div className="lesson-replay-player__chapter-icon">
-          {surface === 'board' ? <PenTool size={17} /> : (surface === 'code' ? <Code2 size={17} /> : <ListChecks size={17} />)}
+          {surface === 'screen'
+            ? <MonitorUp size={17} />
+            : (surface === 'board' ? <PenTool size={17} /> : (surface === 'code' ? <Code2 size={17} /> : <ListChecks size={17} />))}
         </div>
         <div>
           <span>{formatClock(state.current?.offsetMs || 0)}{actorName ? ` · ${actorName}` : ''}</span>
@@ -306,7 +350,9 @@ const LessonReplayPlayer = ({ replay }) => {
       </div>
 
       <div className="lesson-replay-player__stage" data-surface={surface}>
-        {surface === 'board' && state.board ? (
+        {surface === 'screen' && state.screen ? (
+          <ReplayScreen event={state.screen} occurrence={replay?.occurrence} />
+        ) : surface === 'board' && state.board ? (
           <ReplayBoard items={state.board.payload?.items} />
         ) : surface === 'code' && state.code ? (
           <ReplayCode event={state.code} runEvent={state.run} />

@@ -12,6 +12,7 @@ const MAX_BOARD_STROKE_POINTS = 900;
 const MAX_EVENT_ID_CHARS = 160;
 const MAX_BOARD_EVENT_BYTES = 384 * 1024;
 const MAX_NORMALIZED_EVENT_BYTES = 512 * 1024;
+const MAX_SCREEN_SNAPSHOT_ID_CHARS = 80;
 
 const EVENT_TYPES = new Set([
   'session',
@@ -20,6 +21,7 @@ const EVENT_TYPES = new Set([
   'code',
   'board',
   'run',
+  'screen',
 ]);
 
 const isPlainObject = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -217,6 +219,29 @@ const normalizePayload = (type, value) => {
       error: clampText(source.error, MAX_OUTPUT_CHARS),
     };
   }
+  if (type === 'screen') {
+    const active = source.active !== false;
+    const snapshotId = clampText(source.snapshotId, MAX_SCREEN_SNAPSHOT_ID_CHARS)
+      .trim()
+      .replace(/[^0-9a-z_-]/gi, '');
+    return {
+      active,
+      snapshotId,
+      width: Math.round(clampNumber(source.width, 1, 3840, 1280)),
+      height: Math.round(clampNumber(source.height, 1, 2160, 720)),
+      sizeBytes: Math.round(clampNumber(source.sizeBytes, 0, 512 * 1024, 0)),
+      mimeType: ['image/webp', 'image/jpeg'].includes(source.mimeType)
+        ? source.mimeType
+        : 'image/webp',
+      checksum: /^[0-9a-f]{64}$/i.test(String(source.checksum || '').trim())
+        ? String(source.checksum).trim().toLowerCase()
+        : '',
+      sharedByRole: ['teacher', 'student'].includes(source.sharedByRole)
+        ? source.sharedByRole
+        : 'student',
+      sharedByName: clampText(source.sharedByName, 160).trim(),
+    };
+  }
   return {};
 };
 
@@ -243,6 +268,8 @@ export const normalizeLessonReplayEvent = (value, context = {}) => {
     : occurredAtMs;
   if (occurredAtMs < minimumAt || occurredAtMs > maximumAt) return null;
   const id = clampText(value.id, MAX_EVENT_ID_CHARS).trim();
+  const payload = normalizePayload(type, value.payload);
+  if (type === 'screen' && payload.active !== false && !payload.snapshotId) return null;
   const normalized = {
     id: id || `${occurredAtMs}-${Math.random().toString(36).slice(2, 12)}`,
     type,
@@ -255,7 +282,7 @@ export const normalizeLessonReplayEvent = (value, context = {}) => {
       id: clampText(context.actorId, 160).trim(),
       name: clampText(context.actorName, 160).trim(),
     },
-    payload: normalizePayload(type, value.payload),
+    payload,
   };
   if (Buffer.byteLength(JSON.stringify(normalized), 'utf8') > MAX_NORMALIZED_EVENT_BYTES) return null;
   return normalized;

@@ -1561,6 +1561,39 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getLessonReplaySnapshotUrl: (studentId, occurrenceKey, snapshotId) => {
+    const params = new URLSearchParams({
+      studentId: String(studentId || '').trim(),
+      occurrenceKey: String(occurrenceKey || '').trim(),
+    });
+    return resolveAuthenticatedApiUrl(
+      `/api/lesson-replay/snapshot/${encodeURIComponent(String(snapshotId || '').trim())}?${params.toString()}`
+    );
+  },
+  uploadLessonReplaySnapshot: async (sessionId, blob, metadata = {}) => {
+    const mimeType = blob?.type === 'image/jpeg' ? 'image/jpeg' : 'image/webp';
+    const extension = mimeType === 'image/jpeg' ? 'jpg' : 'webp';
+    const formData = new FormData();
+    formData.append('sessionId', String(sessionId || '').trim());
+    formData.append('occurredAt', String(metadata?.occurredAt || new Date().toISOString()));
+    formData.append('width', String(Math.max(1, Math.round(Number(metadata?.width) || 1280))));
+    formData.append('height', String(Math.max(1, Math.round(Number(metadata?.height) || 720))));
+    formData.append('sharedByRole', metadata?.sharedByRole === 'teacher' ? 'teacher' : 'student');
+    formData.append('sharedByName', String(metadata?.sharedByName || '').trim());
+    formData.append('file', blob, `screen-${Date.now()}.${extension}`);
+    const res = await apiFetch('/api/lesson-replay/snapshot', {
+      method: 'POST',
+      body: formData,
+      requestTimeoutMs: 20_000,
+      timeoutErrorMessage: 'Снимок демонстрации не успел сохраниться',
+    });
+    if (!res.ok) {
+      const error = new Error(await parseApiError(res));
+      error.status = res.status;
+      throw error;
+    }
+    return parseJsonResponse(res);
+  },
   finishLessonReplayLesson: async (studentId, occurrenceKey = '') => {
     const res = await apiFetch('/api/lesson-replay/lesson/finish', {
       method: 'POST',

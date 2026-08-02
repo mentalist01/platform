@@ -152,6 +152,16 @@ const LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS = 20 * 1000;
 const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;
 const TELEMOST_LESSON_DRAIN_MS = 30 * 1000;
 const LESSON_REPLAY_MAX_COMPRESSED_BYTES = LESSON_REPLAY_MAX_FILE_BYTES + 1024 * 1024;
+const LESSON_REPLAY_SNAPSHOT_MAX_FILE_BYTES = 256 * 1024;
+const LESSON_REPLAY_SNAPSHOT_MAX_FILES = 200;
+const LESSON_REPLAY_SNAPSHOT_MAX_LESSON_BYTES = 8 * 1024 * 1024;
+const LESSON_REPLAY_SNAPSHOT_MAX_TOTAL_BYTES = (() => {
+  const configured = Number(process.env.LESSON_REPLAY_SNAPSHOT_MAX_TOTAL_BYTES);
+  if (Number.isFinite(configured) && configured >= LESSON_REPLAY_SNAPSHOT_MAX_LESSON_BYTES) {
+    return Math.floor(configured);
+  }
+  return 6 * 1024 * 1024 * 1024;
+})();
 const lessonReplaySessionSweepInterval = setInterval(() => {
   const nowMs = Date.now();
   activeLessonReplaySessions.forEach((session, sessionId) => {
@@ -282,6 +292,7 @@ const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json
 const lessonTopicsFile = path.join(dataDir, 'lesson-topics.json');
 const lessonHistoryFile = path.join(dataDir, 'lesson-history.json');
 const lessonReplaysDir = path.join(dataDir, 'lesson-replays');
+const lessonReplaySnapshotsDir = path.join(dataDir, 'lesson-replay-snapshots');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const paymentNotificationsFile = path.join(dataDir, 'payment-notifications.json');
 const paymentSenderLinksFile = path.join(dataDir, 'payment-sender-links.json');
@@ -876,11 +887,40 @@ fs.mkdirSync(collabDir, { recursive: true });
 fs.mkdirSync(boardSnapshotsDir, { recursive: true });
 fs.mkdirSync(jsonBackupsDir, { recursive: true });
 fs.mkdirSync(lessonReplaysDir, { recursive: true });
+fs.mkdirSync(lessonReplaySnapshotsDir, { recursive: true });
 fs.mkdirSync(studentChatsDir, { recursive: true });
 fs.mkdirSync(studentSocialChatsDir, { recursive: true });
 if (RTC_PRESENCE_FS_ENABLED) {
   fs.mkdirSync(rtcPresenceDir, { recursive: true });
 }
+const getDirectorySizeBytes = (rootDir) => {
+  let total = 0;
+  const pending = [rootDir];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    entries.forEach((entry) => {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(entryPath);
+        return;
+      }
+      if (!entry.isFile()) return;
+      try {
+        total += Math.max(0, Number(fs.statSync(entryPath).size) || 0);
+      } catch {
+        // Ignore a file that disappeared during startup scanning.
+      }
+    });
+  }
+  return total;
+};
+let lessonReplaySnapshotStoredBytes = getDirectorySizeBytes(lessonReplaySnapshotsDir);
 const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 const isCollabPersistenceEnabled = (() => {
   const raw = String(process.env.COLLAB_PERSISTENCE || '').trim().toLowerCase();
@@ -1802,9 +1842,121 @@ const readLessonHistoryStore = () => {
   }
 };
 
-const getLessonReplayFilePath = (occurrenceKey) => {
-  const hash = crypto.createHash('sha256').update(String(occurrenceKey || '')).digest('hex');
-  return path.join(lessonReplaysDir, `${hash}.json.gz`);
+const getLessonReplayOccurrenceHash = (occurrenceKey) => (
+  crypto.createHash('sha256').update(String(occurrenceKey || '')).digest('hex')
+);
+
+const getLessonReplayFilePath = (occurrenceKey) => (
+  path.join(lessonReplaysDir, `${getLessonReplayOccurrenceHash(occurrenceKey)}.json.gz`)
+);
+
+const getLessonReplaySnapshotFolderPath = (occurrenceKey) => (
+  path.join(lessonReplaySnapshotsDir, getLessonReplayOccurrenceHash(occurrenceKey))
+);
+
+const normalizeLessonReplaySnapshotId = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)
+    ? normalized
+    : '';
+};
+
+const getLessonReplaySnapshotExtension = (mimeType) => (
+  String(mimeType || '').trim().toLowerCase() === 'image/jpeg' ? '.jpg' : '.webp'
+);
+
+const getLessonReplaySnapshotPath = (occurrenceKey, snapshotId, mimeType) => {
+  const normalizedId = normalizeLessonReplaySnapshotId(snapshotId);
+  if (!normalizedId) return '';
+  return path.join(
+    getLessonReplaySnapshotFolderPath(occurrenceKey),
+    `${normalizedId}${getLessonReplaySnapshotExtension(mimeType)}`
+  );
+};
+
+const getLessonReplaySnapshotFolderUsage = (occurrenceKey) => {
+  const folderPath = getLessonReplaySnapshotFolderPath(occurrenceKey);
+  let entries = [];
+  try {
+    entries = fs.readdirSync(folderPath, { withFileTypes: true });
+  } catch {
+    return { count: 0, bytes: 0 };
+  }
+  return entries.reduce((usage, entry) => {
+    if (!entry.isFile() || !/\.(?:webp|jpe?g)$/i.test(entry.name)) return usage;
+    try {
+      usage.count += 1;
+      usage.bytes += Math.max(0, Number(fs.statSync(path.join(folderPath, entry.name)).size) || 0);
+    } catch {
+      // Ignore a frame that disappeared while the folder was inspected.
+    }
+    return usage;
+  }, { count: 0, bytes: 0 });
+};
+
+const ensureLessonReplaySnapshotCapacity = (requiredBytes, protectedOccurrenceKey = '') => {
+  const required = Math.max(0, Number(requiredBytes) || 0);
+  if (lessonReplaySnapshotStoredBytes + required <= LESSON_REPLAY_SNAPSHOT_MAX_TOTAL_BYTES) return true;
+  lessonReplaySnapshotStoredBytes = getDirectorySizeBytes(lessonReplaySnapshotsDir);
+  if (lessonReplaySnapshotStoredBytes + required <= LESSON_REPLAY_SNAPSHOT_MAX_TOTAL_BYTES) return true;
+
+  const protectedHashes = new Set([
+    getLessonReplayOccurrenceHash(protectedOccurrenceKey),
+    ...Array.from(activeLessonReplaySessions.values())
+      .map((session) => getLessonReplayOccurrenceHash(session?.occurrenceKey)),
+  ].filter(Boolean));
+  let candidates = [];
+  try {
+    candidates = fs.readdirSync(lessonReplaySnapshotsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^[0-9a-f]{64}$/i.test(entry.name))
+      .map((entry) => {
+        const folderPath = path.resolve(lessonReplaySnapshotsDir, entry.name);
+        try {
+          return {
+            hash: entry.name.toLowerCase(),
+            folderPath,
+            bytes: getDirectorySizeBytes(folderPath),
+            modifiedAt: Number(fs.statSync(folderPath).mtimeMs) || 0,
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.modifiedAt - right.modifiedAt);
+  } catch {
+    return false;
+  }
+
+  const rootPath = `${path.resolve(lessonReplaySnapshotsDir)}${path.sep}`;
+  for (const candidate of candidates) {
+    if (lessonReplaySnapshotStoredBytes + required <= LESSON_REPLAY_SNAPSHOT_MAX_TOTAL_BYTES) break;
+    if (protectedHashes.has(candidate.hash) || !candidate.folderPath.startsWith(rootPath)) continue;
+    try {
+      fs.rmSync(candidate.folderPath, { recursive: true, force: true });
+      lessonReplaySnapshotStoredBytes = Math.max(
+        0,
+        lessonReplaySnapshotStoredBytes - candidate.bytes
+      );
+    } catch (error) {
+      console.warn('[lesson-replay] failed to rotate old screen snapshots:', error?.message || error);
+    }
+  }
+  return lessonReplaySnapshotStoredBytes + required <= LESSON_REPLAY_SNAPSHOT_MAX_TOTAL_BYTES;
+};
+
+const detectLessonReplaySnapshotMimeType = (buffer) => {
+  if (!Buffer.isBuffer(buffer)) return '';
+  const isWebp = buffer.length >= 12
+    && buffer.subarray(0, 4).toString('ascii') === 'RIFF'
+    && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+  if (isWebp) return 'image/webp';
+  const isJpeg = buffer.length >= 4
+    && buffer[0] === 0xff
+    && buffer[1] === 0xd8
+    && buffer[buffer.length - 2] === 0xff
+    && buffer[buffer.length - 1] === 0xd9;
+  return isJpeg ? 'image/jpeg' : '';
 };
 
 const getLessonReplayBackupFilePath = (occurrenceKey) => `${getLessonReplayFilePath(occurrenceKey)}.bak`;
@@ -15971,6 +16123,15 @@ const boardAssetUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: BOARD_ASSET_MAX_FILE_BYTES },
 });
+const lessonReplaySnapshotUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 1,
+    fields: 8,
+    fieldSize: 2048,
+    fileSize: LESSON_REPLAY_SNAPSHOT_MAX_FILE_BYTES,
+  },
+});
 
 const handleUploadRequest = (req, res) => {
   const token = getAuthTokenFromRequest(req);
@@ -24387,6 +24548,177 @@ app.get('/api/lesson-replay/activity', (req, res) => {
     autoFinishAt: '',
   });
 });
+
+app.get('/api/lesson-replay/snapshot/:snapshotId', (req, res) => {
+  const student = ensureStudentAccess(req, res, req.query?.studentId);
+  if (!student) return;
+  const occurrenceKey = String(req.query?.occurrenceKey || '').trim();
+  const snapshotId = normalizeLessonReplaySnapshotId(req.params?.snapshotId);
+  if (!occurrenceKey || occurrenceKey.length > 760 || !snapshotId) {
+    return res.status(400).json({ error: 'Некорректный снимок занятия' });
+  }
+  const replay = readLessonReplay(occurrenceKey);
+  if (!replay || replay.occurrence?.studentId !== student.id) {
+    return res.status(404).json({ error: 'Запись занятия не найдена' });
+  }
+  const snapshotEvent = replay.events.find((event) => (
+    event?.type === 'screen' && event.payload?.snapshotId === snapshotId
+  ));
+  if (!snapshotEvent) return res.status(404).json({ error: 'Снимок не найден' });
+  const filePath = getLessonReplaySnapshotPath(
+    occurrenceKey,
+    snapshotId,
+    snapshotEvent.payload?.mimeType
+  );
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Снимок уже недоступен' });
+  }
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.type(snapshotEvent.payload?.mimeType === 'image/jpeg' ? 'jpeg' : 'webp');
+  return res.sendFile(filePath);
+});
+
+app.post(
+  '/api/lesson-replay/snapshot',
+  (req, res, next) => {
+    lessonReplaySnapshotUpload.single('file')(req, res, (error) => {
+      if (!error) return next();
+      if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: 'Снимок демонстрации слишком большой' });
+      }
+      return res.status(400).json({ error: 'Не удалось прочитать снимок демонстрации' });
+    });
+  },
+  async (req, res) => {
+    const sessionId = String(req.body?.sessionId || '').trim();
+    const session = activeLessonReplaySessions.get(sessionId);
+    if (!session) return res.status(410).json({ error: 'Сессия записи завершена' });
+    if (session.closing) return res.status(410).json({ error: 'Сессия записи завершается' });
+    if (
+      session.actorId !== String(req.auth?.id || '').trim()
+      || session.actorRole !== String(req.auth?.role || '').trim()
+    ) return forbid(res);
+    const student = ensureStudentAccess(req, res, session.studentId);
+    if (!student) return;
+    const nowMs = Date.now();
+    if (session.via !== 'platform' || !isLessonReplaySessionWritable(session, student, nowMs)) {
+      return res.status(410).json({ error: 'Демонстрация этого урока уже завершена' });
+    }
+    const buffer = req.file?.buffer;
+    const mimeType = detectLessonReplaySnapshotMimeType(buffer);
+    if (!mimeType || !Buffer.isBuffer(buffer) || buffer.length === 0) {
+      return res.status(400).json({ error: 'Поддерживаются только снимки WebP и JPEG' });
+    }
+    const width = Math.max(1, Math.min(3840, Math.round(Number(req.body?.width) || 1280)));
+    const height = Math.max(1, Math.min(2160, Math.round(Number(req.body?.height) || 720)));
+    const sharedByRole = session.actorRole === 'student'
+      ? 'student'
+      : (req.body?.sharedByRole === 'teacher' ? 'teacher' : 'student');
+    const sharedByName = String(req.body?.sharedByName || '').replace(/\0/g, '').trim().slice(0, 160);
+    const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
+    const occurredAtMs = Date.parse(String(req.body?.occurredAt || '').trim());
+    const occurredAt = new Date(Number.isFinite(occurredAtMs) ? occurredAtMs : nowMs).toISOString();
+
+    try {
+      const result = await withLessonReplayWriteLock(session.occurrenceKey, () => {
+        if (session.closing || activeLessonReplaySessions.get(sessionId) !== session) {
+          return { closed: true };
+        }
+        const replay = readLessonReplay(session.occurrenceKey);
+        if (!replay || replay.occurrence?.studentId !== student.id) {
+          const notFoundError = new Error('Запись занятия не найдена');
+          notFoundError.statusCode = 404;
+          throw notFoundError;
+        }
+        const latestSnapshot = [...replay.events].reverse().find((event) => event?.type === 'screen');
+        if (
+          latestSnapshot?.payload?.checksum === checksum
+          && latestSnapshot?.payload?.sharedByRole === sharedByRole
+        ) {
+          return { duplicate: true, replay };
+        }
+        const usage = getLessonReplaySnapshotFolderUsage(session.occurrenceKey);
+        if (usage.count >= LESSON_REPLAY_SNAPSHOT_MAX_FILES) {
+          const limitError = new Error('Для этого урока сохранено максимальное количество снимков');
+          limitError.statusCode = 413;
+          throw limitError;
+        }
+        if (usage.bytes + buffer.length > LESSON_REPLAY_SNAPSHOT_MAX_LESSON_BYTES) {
+          const limitError = new Error('Для этого урока достигнут лимит снимков демонстрации');
+          limitError.statusCode = 413;
+          throw limitError;
+        }
+        if (!ensureLessonReplaySnapshotCapacity(buffer.length, session.occurrenceKey)) {
+          const storageError = new Error('Общий лимит снимков демонстрации исчерпан');
+          storageError.statusCode = 507;
+          throw storageError;
+        }
+
+        const snapshotId = crypto.randomUUID();
+        const folderPath = getLessonReplaySnapshotFolderPath(session.occurrenceKey);
+        fs.mkdirSync(folderPath, { recursive: true });
+        const filePath = getLessonReplaySnapshotPath(session.occurrenceKey, snapshotId, mimeType);
+        const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+        let stored = false;
+        try {
+          fs.writeFileSync(tempPath, buffer, { flag: 'wx' });
+          fs.renameSync(tempPath, filePath);
+          stored = true;
+          const appended = appendLessonReplayEvents(replay, [{
+            id: `${session.id}:screen:${snapshotId}`,
+            type: 'screen',
+            occurredAt,
+            payload: {
+              snapshotId,
+              width,
+              height,
+              sizeBytes: buffer.length,
+              mimeType,
+              checksum,
+              sharedByRole,
+              sharedByName,
+            },
+          }], {
+            actorRole: session.actorRole,
+            actorId: session.actorId,
+            actorName: session.actorName,
+            nowMs,
+          });
+          if (appended.added !== 1) throw new Error('Screen snapshot event was rejected');
+          const written = writeLessonReplay(appended.replay);
+          lessonReplaySnapshotStoredBytes += buffer.length;
+          return { replay: written.replay, compressedBytes: written.compressedBytes, snapshotId };
+        } catch (error) {
+          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+          try { if (stored && fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
+          throw error;
+        }
+      });
+      if (result?.closed) return res.status(410).json({ error: 'Запись этого урока уже завершена' });
+      session.expiresAt = Date.now() + LESSON_REPLAY_SESSION_TTL_MS;
+      const active = activeLessonReplayOccurrenceByStudentId.get(student.id);
+      if (active) active.lastSeenAt = Date.now();
+      return res.json({
+        ok: true,
+        duplicate: Boolean(result?.duplicate),
+        snapshotId: result?.snapshotId || '',
+        summary: summarizeLessonReplay(
+          result.replay,
+          result.compressedBytes ?? getLessonReplaySummary(session.occurrenceKey, result.replay).bytes
+        ),
+      });
+    } catch (error) {
+      const statusCode = Number(error?.statusCode) || 500;
+      if (statusCode >= 500) {
+        console.error('[lesson-replay] failed to save screen snapshot:', error);
+      }
+      return res.status(statusCode).json({
+        error: statusCode >= 500 ? 'Не удалось сохранить снимок демонстрации' : error.message,
+      });
+    }
+  }
+);
 
 app.post('/api/lesson-replay/session', async (req, res) => {
   const student = ensureStudentAccess(req, res, req.body?.studentId);

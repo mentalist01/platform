@@ -185,6 +185,43 @@ test('session events preserve an explicit transport switch action', () => {
   assert.deepEqual(event.payload, { action: 'switch', via: 'telemost' });
 });
 
+test('screen snapshots keep only a safe compact reference', () => {
+  const event = normalizeLessonReplayEvent({
+    id: 'screen-frame',
+    type: 'screen',
+    occurredAt: new Date(START_MS + 1000).toISOString(),
+    payload: {
+      snapshotId: 'frame_123-safe',
+      width: 1280,
+      height: 720,
+      sizeBytes: 84_000,
+      mimeType: 'image/webp',
+      dataUrl: `data:image/webp;base64,${'x'.repeat(10_000)}`,
+    },
+  }, eventContext);
+
+  assert.deepEqual(event.payload, {
+    active: true,
+    snapshotId: 'frame_123-safe',
+    width: 1280,
+    height: 720,
+    sizeBytes: 84_000,
+    mimeType: 'image/webp',
+    checksum: '',
+    sharedByRole: 'student',
+    sharedByName: '',
+  });
+  assert.equal(normalizeLessonReplayEvent({
+    type: 'screen',
+    payload: { snapshotId: '../bad' },
+  }, eventContext)?.payload.snapshotId, 'bad');
+  assert.equal(normalizeLessonReplayEvent({ type: 'screen', payload: {} }, eventContext), null);
+  assert.equal(normalizeLessonReplayEvent({
+    type: 'screen',
+    payload: { active: false },
+  }, eventContext)?.payload.active, false);
+});
+
 test('sorts events by lesson offset and measures UTF-8 bytes', () => {
   const replay = normalizeLessonReplay({
     occurrence,

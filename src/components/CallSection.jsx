@@ -102,6 +102,153 @@ const INLINE_PANEL_BOTTOM_GAP_PX = 2;
 const LESSON_CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const LESSON_CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const PREJOIN_SIGNAL_PROBE_TIMEOUT_MS = 3500;
+const LESSON_REPLAY_SCREEN_CAPTURE_INTERVAL_MS = 30_000;
+const LESSON_REPLAY_SCREEN_HEARTBEAT_MS = 90_000;
+const LESSON_REPLAY_SCREEN_CAPTURE_MAX_BYTES = 238 * 1024;
+const LESSON_REPLAY_SCREEN_CAPTURE_MAX_WIDTH = 1280;
+const LESSON_REPLAY_SCREEN_CAPTURE_MAX_HEIGHT = 720;
+
+const canvasToBlob = (canvas, mimeType, quality) => new Promise((resolve) => {
+  canvas.toBlob((blob) => resolve(blob || null), mimeType, quality);
+});
+
+const waitForVideoFrame = (video, timeoutMs = 5000) => new Promise((resolve, reject) => {
+  let settled = false;
+  const finish = (error = null) => {
+    if (settled) return;
+    settled = true;
+    window.clearTimeout(timerId);
+    video.removeEventListener('loadeddata', handleReady);
+    video.removeEventListener('canplay', handleReady);
+    video.removeEventListener('error', handleError);
+    if (error) reject(error);
+    else resolve();
+  };
+  const handleReady = () => {
+    if (video.videoWidth > 0 && video.videoHeight > 0) finish();
+  };
+  const handleError = () => finish(new Error('Screen video frame is unavailable'));
+  const timerId = window.setTimeout(
+    () => finish(new Error('Screen video frame timed out')),
+    timeoutMs
+  );
+  video.addEventListener('loadeddata', handleReady);
+  video.addEventListener('canplay', handleReady);
+  video.addEventListener('error', handleError);
+  handleReady();
+});
+
+const getScreenFrameSource = async (track) => {
+  if (typeof window.ImageCapture === 'function') {
+    try {
+      const bitmap = await new window.ImageCapture(track).grabFrame();
+      if (bitmap?.width > 0 && bitmap?.height > 0) {
+        return {
+          source: bitmap,
+          width: bitmap.width,
+          height: bitmap.height,
+          cleanup: () => bitmap.close?.(),
+        };
+      }
+    } catch {
+      // Fall back to a muted video element below.
+    }
+  }
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = new MediaStream([track]);
+  try {
+    await video.play();
+    await waitForVideoFrame(video);
+    return {
+      source: video,
+      width: video.videoWidth,
+      height: video.videoHeight,
+      cleanup: () => {
+        video.pause();
+        video.srcObject = null;
+      },
+    };
+  } catch (error) {
+    video.pause();
+    video.srcObject = null;
+    throw error;
+  }
+};
+
+const getScreenFrameFingerprint = (canvas) => {
+  const sample = document.createElement('canvas');
+  sample.width = 32;
+  sample.height = 18;
+  const context = sample.getContext('2d', { willReadFrequently: true });
+  if (!context) return [];
+  context.drawImage(canvas, 0, 0, sample.width, sample.height);
+  const data = context.getImageData(0, 0, sample.width, sample.height).data;
+  const result = [];
+  for (let index = 0; index < data.length; index += 4) {
+    result.push(Math.round((data[index] * 0.299) + (data[index + 1] * 0.587) + (data[index + 2] * 0.114)));
+  }
+  return result;
+};
+
+const getFingerprintDifference = (previous, next) => {
+  if (!Array.isArray(previous) || !Array.isArray(next) || previous.length !== next.length || next.length === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const total = next.reduce((sum, value, index) => sum + Math.abs(value - previous[index]), 0);
+  return total / next.length;
+};
+
+const encodeScreenFrame = async (sourceCanvas) => {
+  const attempts = [
+    { maxWidth: 1280, quality: 0.56 },
+    { maxWidth: 1280, quality: 0.42 },
+    { maxWidth: 960, quality: 0.46 },
+    { maxWidth: 800, quality: 0.4 },
+  ];
+  let last = null;
+  for (const attempt of attempts) {
+    const scale = Math.min(1, attempt.maxWidth / sourceCanvas.width);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(sourceCanvas.width * scale));
+    canvas.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) continue;
+    context.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height);
+    let blob = await canvasToBlob(canvas, 'image/webp', attempt.quality);
+    if (!blob || blob.type !== 'image/webp') {
+      blob = await canvasToBlob(canvas, 'image/jpeg', attempt.quality);
+    }
+    if (!blob) continue;
+    last = { blob, width: canvas.width, height: canvas.height };
+    if (blob.size <= LESSON_REPLAY_SCREEN_CAPTURE_MAX_BYTES) return last;
+  }
+  return last?.blob?.size <= 256 * 1024 ? last : null;
+};
+
+const captureScreenTrackFrame = async (track) => {
+  if (!track || track.readyState !== 'live') return null;
+  const frame = await getScreenFrameSource(track);
+  try {
+    const scale = Math.min(
+      1,
+      LESSON_REPLAY_SCREEN_CAPTURE_MAX_WIDTH / frame.width,
+      LESSON_REPLAY_SCREEN_CAPTURE_MAX_HEIGHT / frame.height
+    );
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(frame.width * scale));
+    canvas.height = Math.max(1, Math.round(frame.height * scale));
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) return null;
+    context.drawImage(frame.source, 0, 0, canvas.width, canvas.height);
+    const fingerprint = getScreenFrameFingerprint(canvas);
+    const encoded = await encodeScreenFrame(canvas);
+    return encoded ? { ...encoded, fingerprint } : null;
+  } finally {
+    frame.cleanup?.();
+  }
+};
 
 const stopMediaStreamTracks = (stream) => {
   const tracks = Array.isArray(stream?.getTracks?.()) ? stream.getTracks() : [];
@@ -1107,6 +1254,8 @@ const CallSection = ({
   onRequestOpenCall,
   onStatusChange,
   onTelemostLessonStart,
+  onLessonReplayEvent,
+  onLessonReplayScreenSnapshot,
   theme = 'light',
   autoStartToken = 0,
 }) => {
@@ -1267,6 +1416,7 @@ const CallSection = ({
   const statsTimerRef = useRef(null);
   const lastInboundAudioRef = useRef(new Map());
   const remoteScreenShareStateRef = useRef(new Map());
+  const lessonReplayScreenSourceRef = useRef(null);
   const normalizedUiMode = ['full', 'floating', 'collapsed', 'hidden'].includes(uiMode)
     ? uiMode
     : 'full';
@@ -1936,6 +2086,126 @@ const CallSection = ({
 
     remoteScreenShareStateRef.current = nextStateByPeer;
   }, [playAlertSound, remotePeers]);
+
+  const lessonReplayScreenSource = useMemo(() => {
+    if (!isTeacher || status !== 'connected') return null;
+    const remotePeer = remotePeers.find((peer) => peer?.isScreenSharing && peer?.stream);
+    if (remotePeer) {
+      const liveTracks = getLiveVideoTracks(remotePeer.stream);
+      const explicitTrack = getVideoTrackById(remotePeer.stream, remotePeer.screenTrackId);
+      const track = explicitTrack
+        || liveTracks.find((entry) => inferVideoTrackKind(entry) === 'screen')
+        || liveTracks[0]
+        || null;
+      if (track?.readyState === 'live') {
+        return {
+          track,
+          key: `student:${remotePeer.peerId}:${track.id}`,
+          sharedByRole: 'student',
+          sharedByName: remotePeer.title || 'Ученик',
+        };
+      }
+    }
+    const localTrack = screenSharing ? localScreenTrackRef.current : null;
+    if (localTrack?.readyState === 'live') {
+      return {
+        track: localTrack,
+        key: `teacher:self:${localTrack.id}`,
+        sharedByRole: 'teacher',
+        sharedByName: String(userName || '').trim() || 'Учитель',
+      };
+    }
+    return null;
+  }, [isTeacher, remotePeers, screenSharing, status, userName]);
+
+  useEffect(() => {
+    const previous = lessonReplayScreenSourceRef.current;
+    const next = lessonReplayScreenSource;
+    if (previous?.key && previous.key !== next?.key && typeof onLessonReplayEvent === 'function') {
+      onLessonReplayEvent('screen', {
+        active: false,
+        sharedByRole: previous.sharedByRole,
+        sharedByName: previous.sharedByName,
+      }, { immediate: true, dedupeMs: 2000 });
+    }
+    lessonReplayScreenSourceRef.current = next
+      ? {
+        key: next.key,
+        sharedByRole: next.sharedByRole,
+        sharedByName: next.sharedByName,
+      }
+      : null;
+  }, [lessonReplayScreenSource, onLessonReplayEvent]);
+
+  useEffect(() => () => {
+    const previous = lessonReplayScreenSourceRef.current;
+    if (previous?.key && typeof onLessonReplayEvent === 'function') {
+      onLessonReplayEvent('screen', {
+        active: false,
+        sharedByRole: previous.sharedByRole,
+        sharedByName: previous.sharedByName,
+      }, { immediate: true, dedupeMs: 2000 });
+    }
+    lessonReplayScreenSourceRef.current = null;
+  }, [onLessonReplayEvent]);
+
+  useEffect(() => {
+    const source = lessonReplayScreenSource;
+    if (!source?.track || typeof onLessonReplayScreenSnapshot !== 'function') return undefined;
+    let cancelled = false;
+    let blocked = false;
+    let busy = false;
+    let timerId = null;
+    let lastSavedAt = 0;
+    let lastSavedFingerprint = [];
+
+    const scheduleNext = (delay = LESSON_REPLAY_SCREEN_CAPTURE_INTERVAL_MS) => {
+      if (cancelled || blocked) return;
+      window.clearTimeout(timerId);
+      timerId = window.setTimeout(captureNextFrame, delay);
+    };
+    const captureNextFrame = async () => {
+      if (cancelled || blocked || busy || source.track.readyState !== 'live') return;
+      busy = true;
+      try {
+        const frame = await captureScreenTrackFrame(source.track);
+        if (cancelled || !frame) return;
+        const now = Date.now();
+        const difference = getFingerprintDifference(lastSavedFingerprint, frame.fingerprint);
+        const shouldSave = lastSavedAt === 0
+          || now - lastSavedAt >= LESSON_REPLAY_SCREEN_HEARTBEAT_MS
+          || difference >= 1.5;
+        if (!shouldSave) return;
+        const result = await onLessonReplayScreenSnapshot(frame.blob, {
+          width: frame.width,
+          height: frame.height,
+          occurredAt: new Date(now).toISOString(),
+          sharedByRole: source.sharedByRole,
+          sharedByName: source.sharedByName,
+        });
+        if (cancelled) return;
+        if (result?.disabled) {
+          blocked = true;
+          return;
+        }
+        if (result?.saved) {
+          lastSavedAt = now;
+          lastSavedFingerprint = frame.fingerprint;
+        }
+      } catch {
+        // A missed frame must never interrupt the call or the screen share.
+      } finally {
+        busy = false;
+        scheduleNext();
+      }
+    };
+
+    scheduleNext(2500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
+  }, [lessonReplayScreenSource, onLessonReplayScreenSnapshot]);
 
   const sendWs = useCallback((payload) => {
     const ws = wsRef.current;

@@ -14543,7 +14543,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       active: activity?.active !== false,
     }));
   }, []);
-  const { recordLessonReplayEvent, finishLessonReplayNow } = useLessonReplayRecorder({
+  const {
+    recordLessonReplayEvent,
+    finishLessonReplayNow,
+    uploadLessonReplayScreenSnapshot,
+  } = useLessonReplayRecorder({
     active: callSessionStatus === 'connected' || isTelemostLessonReplayActive,
     studentId: lessonReplayStudentId,
     mode: lessonReplayMode || 'platform',
@@ -20208,6 +20212,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               autoStartToken={callAutoStartToken}
               onStatusChange={setCallSessionStatus}
               onTelemostLessonStart={applyTelemostLessonReplay}
+              onLessonReplayEvent={recordLessonReplayEvent}
+              onLessonReplayScreenSnapshot={uploadLessonReplayScreenSnapshot}
               onRequestExpand={() => setCallPanelExpanded(true)}
               onRequestCollapse={() => setCallPanelExpanded(false)}
               onRequestOpenCall={() => navigateToView('call')}

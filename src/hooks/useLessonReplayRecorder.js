@@ -48,6 +48,7 @@ const useLessonReplayRecorder = ({
   const startSessionRef = useRef(null);
   const startInFlightRef = useRef(0);
   const lastEventRef = useRef({ signature: '', at: 0 });
+  const screenSnapshotDisabledSessionRef = useRef('');
   const enabledRef = useRef(Boolean(active && studentId));
   const modeRef = useRef(normalizedMode);
   const occurrenceKeyRef = useRef(normalizedOccurrenceKey);
@@ -272,6 +273,7 @@ const useLessonReplayRecorder = ({
               || ''
             ).trim(),
           };
+          screenSnapshotDisabledSessionRef.current = '';
           retryDelayMs = 1500;
           scheduleFlush(0);
           syncSessionModeRef.current?.();
@@ -340,6 +342,7 @@ const useLessonReplayRecorder = ({
     sessionRef.current = null;
     const pending = queueRef.current.splice(0);
     lastEventRef.current = { signature: '', at: 0 };
+    screenSnapshotDisabledSessionRef.current = '';
     if (!session?.sessionId) return { ok: true, alreadyFinished: true };
     await finishSession(session, pending, options);
     return { ok: true };
@@ -361,10 +364,39 @@ const useLessonReplayRecorder = ({
     }
   }, [finishSession]);
 
+  const uploadLessonReplayScreenSnapshot = useCallback(async (blob, metadata = {}) => {
+    const session = sessionRef.current;
+    if (
+      !enabledRef.current
+      || !session?.sessionId
+      || !(blob instanceof Blob)
+      || blob.size <= 0
+      || screenSnapshotDisabledSessionRef.current === session.sessionId
+    ) return { saved: false };
+    try {
+      const result = await api.uploadLessonReplaySnapshot(session.sessionId, blob, metadata);
+      return { saved: true, ...result };
+    } catch (error) {
+      const disabled = error?.status === 413 || error?.status === 507;
+      if (disabled) {
+        screenSnapshotDisabledSessionRef.current = session.sessionId;
+      }
+      if (
+        (error?.status === 404 || error?.status === 410)
+        && sessionRef.current?.sessionId === session.sessionId
+      ) {
+        sessionRef.current = null;
+        if (enabledRef.current) startSessionRef.current?.();
+      }
+      return { saved: false, disabled, error };
+    }
+  }, []);
+
   return {
     recordLessonReplayEvent: recordEvent,
     flushLessonReplay: flush,
     finishLessonReplayNow,
+    uploadLessonReplayScreenSnapshot,
   };
 };
 
