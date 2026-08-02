@@ -265,7 +265,9 @@ const NotesSection = ({
   formatBytes,
   PY_IDLE_STDIN_HEADER,
   parseIdleConsoleInput,
-  highlightPython
+  highlightPython,
+  workbookAutoSyncState = null,
+  onStartWorkbookAutoSync = null,
 }) => {
   const [currentTask, setCurrentTask] = useState(null);
   const [transitionTaskNumber, setTransitionTaskNumber] = useState(null);
@@ -275,6 +277,7 @@ const NotesSection = ({
   const [filesError, setFilesError] = useState('');
   const [isRefreshingData, setIsRefreshingData] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [workbookAutoSyncStartingId, setWorkbookAutoSyncStartingId] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [folders, setFolders] = useState([]);
   const [foldersError, setFoldersError] = useState('');
@@ -1698,6 +1701,28 @@ const NotesSection = ({
     document.body.appendChild(link);
     link.click();
     link.remove();
+  };
+
+  const handleStartWorkbookAutoSync = async (file) => {
+    const fileId = String(file?.id || '').trim();
+    if (
+      role !== 'student'
+      || !fileId
+      || typeof onStartWorkbookAutoSync !== 'function'
+      || workbookAutoSyncStartingId
+    ) return;
+    setWorkbookAutoSyncStartingId(fileId);
+    try {
+      await onStartWorkbookAutoSync({
+        sourceFile: file,
+        sourceUrl: getFileUrl(file),
+        studentId: effectiveStudentId,
+        taskNumber: file?.taskNumber,
+        category: file?.category || currentCategory || DEFAULT_NOTES_CATEGORY,
+      });
+    } finally {
+      setWorkbookAutoSyncStartingId('');
+    }
   };
 
   const getPyFileSize = (code) => new Blob([code ?? ''], { type: 'text/x-python' }).size;
@@ -3635,6 +3660,11 @@ const NotesSection = ({
                     const hasBoardSnapshot = Boolean(memory?.boardSnapshot?.url);
                     const memorySnapshotUrl = hasBoardSnapshot ? getMemorySnapshotUrl(f) : '';
                     const isSharedFile = isLessonSharedFile(f);
+                    const isWorkbookAutoSyncActive = Boolean(
+                      workbookAutoSyncState?.active
+                      && String(workbookAutoSyncState?.sourceFileId || '') === String(f.id)
+                    );
+                    const isWorkbookAutoSyncStarting = workbookAutoSyncStartingId === String(f.id);
                     const isSharedTemplate = isSharedTemplateFile(f);
                     const isCommonShared = isSharedFile && !isSharedTemplate;
                     const isCheatsheet = isCheatsheetFile(f);
@@ -4089,6 +4119,29 @@ const NotesSection = ({
                                   type="button"
                                 >
                                   <Download size={16} />
+                                </button>
+                              )}
+                              {role === 'student' && isExcelFile(f.name) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleStartWorkbookAutoSync(f);
+                                  }}
+                                  className={`notes-explorer-file-action-btn !h-9 !w-auto !min-w-[88px] !gap-1.5 !rounded-xl !border !px-3 !py-1.5 !text-xs !font-extrabold !opacity-100 !shadow-sm transition ${
+                                    isWorkbookAutoSyncActive
+                                      ? '!border-emerald-200 !bg-emerald-50 !text-emerald-700'
+                                      : '!border-violet-200 !bg-violet-50 !text-violet-700 hover:!border-violet-300 hover:!bg-violet-100'
+                                  }`}
+                                  disabled={Boolean(workbookAutoSyncStartingId) || isWorkbookAutoSyncActive}
+                                  title={isWorkbookAutoSyncActive
+                                    ? 'Платформа следит за сохранениями этого файла'
+                                    : 'Сохранить рабочую копию и включить автозагрузку'}
+                                  type="button"
+                                >
+                                  {isWorkbookAutoSyncActive
+                                    ? <Check size={15} />
+                                    : <FileSpreadsheet size={15} className={isWorkbookAutoSyncStarting ? 'animate-pulse' : ''} />}
+                                  <span>{isWorkbookAutoSyncActive ? 'Подключён' : 'Решать'}</span>
                                 </button>
                               )}
                               {manageable && (

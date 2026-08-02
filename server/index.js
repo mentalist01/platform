@@ -26970,6 +26970,116 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   res.json(entryWithFolderPath || entry);
 });
 
+app.put('/api/files/:id/content', upload.single('file'), (req, res) => {
+  const removeUploadedFile = () => {
+    if (!req.file?.path) return;
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch {}
+  };
+  if (!req.file) return res.status(400).json({ error: 'Файл не найден' });
+
+  const db = readFilesDb();
+  const idx = db.findIndex((entry) => entry?.id === req.params.id);
+  if (idx === -1) {
+    removeUploadedFile();
+    return res.status(404).json({ error: 'Файл не найден' });
+  }
+  const target = db[idx];
+  if (isLessonSharedFile(target)) {
+    removeUploadedFile();
+    return res.status(403).json({ error: 'Общий исходный файл нельзя перезаписать' });
+  }
+  const student = ensureStudentAccess(req, res, target?.studentId, { allowDeleted: true });
+  if (!student) {
+    removeUploadedFile();
+    return;
+  }
+
+  const fileLimitBytes = getUploadFileLimitBytes(false);
+  if (req.file.size > fileLimitBytes) {
+    removeUploadedFile();
+    return res.status(413).json({ error: getUploadFileLimitError(fileLimitBytes) });
+  }
+  const taskLimitBytes = getTaskLimitBytes(false);
+  const currentTaskTotal = db
+    .filter((entry) => (
+      entry?.id !== target.id
+      && entry?.studentId === target.studentId
+      && entry?.taskNumber === target.taskNumber
+    ))
+    .reduce((sum, entry) => sum + getEntrySizeBytes(entry), 0);
+  if (currentTaskTotal + req.file.size > taskLimitBytes) {
+    removeUploadedFile();
+    return res.status(413).json({ error: getTaskLimitError(taskLimitBytes) });
+  }
+  if (target.folderId) {
+    const folderLimitBytes = getFolderLimitBytes(false);
+    const currentFolderTotal = db
+      .filter((entry) => entry?.id !== target.id && entry?.folderId === target.folderId)
+      .reduce((sum, entry) => sum + getEntrySizeBytes(entry), 0);
+    if (currentFolderTotal + req.file.size > folderLimitBytes) {
+      removeUploadedFile();
+      return res.status(413).json({ error: getFolderLimitError(folderLimitBytes) });
+    }
+  }
+
+  const updatedAt = new Date().toISOString();
+  const source = normalizeFileMemorySource(req.body?.source, 'workbook-auto-sync');
+  const savedBy = getFileMemoryActor(req.auth);
+  const incomingMemory = parseMemoryObject(req.body?.memory);
+  const memory = normalizeFileMemory({
+    ...(target?.memory && typeof target.memory === 'object' ? target.memory : {}),
+    ...incomingMemory,
+    source,
+    savedBy,
+    createdAt: target?.memory?.createdAt || target?.createdAt || updatedAt,
+  }, {
+    taskNumber: target.taskNumber,
+    source,
+    savedBy,
+    createdAt: target.createdAt || updatedAt,
+  });
+  const previousStorageName = target.storageName;
+  const updated = {
+    ...target,
+    name: normalizeFileName(req.file.originalname) || target.name,
+    size: formatSize(req.file.size),
+    sizeBytes: req.file.size,
+    updatedAt,
+    source,
+    savedBy,
+    memory,
+    url: `/uploads/${req.file.filename}`,
+    storageName: req.file.filename,
+    ...(target.category === 'class' ? { lessonSavedAt: updatedAt } : {}),
+  };
+
+  try {
+    db[idx] = updated;
+    writeFilesDb(db);
+  } catch (error) {
+    removeUploadedFile();
+    console.error('[files] failed to replace workbook content:', error);
+    return res.status(500).json({ error: 'Не удалось обновить файл' });
+  }
+  if (previousStorageName && previousStorageName !== updated.storageName) {
+    fs.unlink(path.join(uploadsDir, previousStorageName), () => {});
+  }
+  if (target.category === 'class') {
+    appendLessonNoteActivity({
+      studentId: target.studentId,
+      teacherId: normalizeTeacherId(student.teacherId),
+      taskNumber: target.taskNumber,
+      fileId: target.id,
+      source: 'file-autosync',
+      occurredAt: updatedAt,
+    });
+  }
+  const [entryWithFolderPath] = enrichFilesWithFolderPath([updated], readFoldersDb());
+  return res.json(entryWithFolderPath || updated);
+});
+
 app.delete('/api/files/:id', (req, res) => {
   const { id } = req.params;
   const db = readFilesDb();

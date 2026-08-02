@@ -8,7 +8,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { 
-  BookOpen, BarChart2, LogOut, Download, FileText, CheckCircle, AlertCircle, AlertTriangle,
+  BookOpen, BarChart2, LogOut, Download, FileText, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
@@ -119,6 +119,7 @@ import {
 } from './utils/push';
 import { getCollabWsUrl, getNotificationsWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
+import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
 import {
   api,
@@ -14550,6 +14551,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     view,
     viewLabel: LESSON_REPLAY_VIEW_LABELS[view] || view,
   });
+  const {
+    workbookAutoSyncState,
+    startWorkbookAutoSync,
+    stopWorkbookAutoSync,
+  } = useWorkbookAutoSync();
   const lessonReplayActivityLookupStudentId = String(
     telemostLessonReplay?.studentId
       || (user.role === 'student' ? user.id : activeStudentId)
@@ -18507,6 +18513,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       minute: '2-digit',
     })
     : '';
+  const workbookAutoSyncTimeLabel = workbookAutoSyncState?.lastSyncedAt
+    ? new Date(workbookAutoSyncState.lastSyncedAt).toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+    : '';
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
@@ -18530,6 +18543,45 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             className="shrink-0 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-[11px] font-extrabold text-violet-700 transition hover:border-violet-300 hover:bg-violet-100 disabled:cursor-wait disabled:opacity-60"
           >
             {telemostLessonFinishBusy ? 'Завершаю…' : 'Завершить урок'}
+          </button>
+        </div>
+      )}
+      {user.role === 'student' && workbookAutoSyncState?.status !== 'idle' && (
+        <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1340] flex max-w-[calc(100vw-1.5rem)] items-center gap-3 rounded-2xl border bg-white/95 px-3 py-2.5 shadow-[0_16px_42px_rgba(91,33,182,0.18)] backdrop-blur-xl md:bottom-5 md:right-5 ${
+          workbookAutoSyncState.status === 'error' || workbookAutoSyncState.status === 'unsupported'
+            ? 'border-rose-200'
+            : workbookAutoSyncState.status === 'saved'
+              ? 'border-emerald-200'
+              : 'border-violet-200'
+        }`}>
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white shadow-md ${
+            workbookAutoSyncState.status === 'error' || workbookAutoSyncState.status === 'unsupported'
+              ? 'bg-gradient-to-br from-rose-500 to-red-600 shadow-rose-200/70'
+              : workbookAutoSyncState.status === 'saved'
+                ? 'bg-gradient-to-br from-emerald-400 to-teal-600 shadow-emerald-200/70'
+                : 'bg-gradient-to-br from-fuchsia-500 to-violet-600 shadow-violet-200/70'
+          }`}>
+            <FileSpreadsheet size={18} />
+          </span>
+          <div className="min-w-0 max-w-[320px]">
+            <p className="truncate text-xs font-black text-slate-800">
+              {workbookAutoSyncState.fileName || 'Автосохранение таблицы'}
+            </p>
+            <p className="truncate text-[10px] font-semibold text-slate-500">
+              {workbookAutoSyncState.message}
+              {workbookAutoSyncState.status === 'saved' && workbookAutoSyncTimeLabel
+                ? ` · ${workbookAutoSyncTimeLabel}`
+                : ''}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={stopWorkbookAutoSync}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Остановить автосохранение таблицы"
+            title="Остановить автосохранение"
+          >
+            <X size={16} />
           </button>
         </div>
       )}
@@ -20230,6 +20282,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               PY_IDLE_STDIN_HEADER={PY_IDLE_STDIN_HEADER}
               parseIdleConsoleInput={parseIdleConsoleInput}
               highlightPython={highlightPython}
+              workbookAutoSyncState={workbookAutoSyncState}
+              onStartWorkbookAutoSync={startWorkbookAutoSync}
             />
           )}
           {view === 'chat' && (

@@ -1951,6 +1951,20 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  replaceFileContent: async (id, file, options = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (options?.source) form.append('source', String(options.source));
+    if (options?.memory && typeof options.memory === 'object') {
+      form.append('memory', JSON.stringify(options.memory));
+    }
+    const res = await apiFetch(`/api/files/${encodeURIComponent(id)}/content`, {
+      method: 'PUT',
+      body: form,
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
   uploadBoardAsset: async (file, studentId) => {
     const form = new FormData();
     form.append('file', file);
