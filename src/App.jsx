@@ -120,6 +120,7 @@ import {
 import { getCollabWsUrl, getNotificationsWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
+import useWorkbookHelper from './hooks/useWorkbookHelper';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
 import {
   api,
@@ -14560,6 +14561,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     startWorkbookAutoSync,
     stopWorkbookAutoSync,
   } = useWorkbookAutoSync();
+  const {
+    workbookHelperState,
+    launchWorkbookHelper,
+  } = useWorkbookHelper();
   const lessonReplayActivityLookupStudentId = String(
     telemostLessonReplay?.studentId
       || (user.role === 'student' ? user.id : activeStudentId)
@@ -20290,6 +20295,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               highlightPython={highlightPython}
               workbookAutoSyncState={workbookAutoSyncState}
               onStartWorkbookAutoSync={startWorkbookAutoSync}
+              workbookHelperState={workbookHelperState}
+              onLaunchWorkbookHelper={launchWorkbookHelper}
             />
           )}
           {view === 'chat' && (

@@ -56,6 +56,7 @@ const mergeFolderLists = (lists) => {
   return merged;
 };
 const AUTO_REFRESH_INTERVAL_MS = 5000;
+const WORKBOOK_HELPER_TASK_NUMBERS = new Set([3, 9, 10, 12, 13, 18, 19, 20, 21, 22, 26]);
 const DEFAULT_NOTES_CATEGORY = 'class';
 const ROOT_FOLDER_LABEL = 'Материалы задания';
 const NOTES_PREVIEW_CLOSE_MS = 200;
@@ -268,6 +269,8 @@ const NotesSection = ({
   highlightPython,
   workbookAutoSyncState = null,
   onStartWorkbookAutoSync = null,
+  workbookHelperState = null,
+  onLaunchWorkbookHelper = null,
 }) => {
   const [currentTask, setCurrentTask] = useState(null);
   const [transitionTaskNumber, setTransitionTaskNumber] = useState(null);
@@ -1542,10 +1545,7 @@ const NotesSection = ({
       lower.endsWith('.xlsx') ||
       lower.endsWith('.xlsm') ||
       lower.endsWith('.xlsb') ||
-      lower.endsWith('.xlt') ||
-      lower.endsWith('.xltx') ||
       lower.endsWith('.ods') ||
-      lower.endsWith('.ots') ||
       lower.endsWith('.fods')
     );
   };
@@ -1723,6 +1723,18 @@ const NotesSection = ({
     } finally {
       setWorkbookAutoSyncStartingId('');
     }
+  };
+
+  const handleLaunchWorkbookHelper = async (file) => {
+    const fileId = String(file?.id || '').trim();
+    if (
+      role !== 'student'
+      || !fileId
+      || typeof onLaunchWorkbookHelper !== 'function'
+      || workbookHelperState?.status === 'launching'
+      || workbookHelperState?.status === 'opening'
+    ) return;
+    await onLaunchWorkbookHelper({ sourceFile: file });
   };
 
   const getPyFileSize = (code) => new Blob([code ?? ''], { type: 'text/x-python' }).size;
@@ -3264,23 +3276,59 @@ const NotesSection = ({
           {foldersError && <p className="notes-task-hero__error">{foldersError}</p>}
         </header>
 
+        {role === 'student' && WORKBOOK_HELPER_TASK_NUMBERS.has(normalizedCurrentTask) && (
+          <aside className="mx-3 mt-3 flex flex-col gap-3 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3 sm:items-center">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white shadow-sm shadow-violet-200">
+                <FileSpreadsheet size={20} aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold text-slate-900">Помощник для Excel и LibreOffice</p>
+                <p className="mt-0.5 text-xs font-medium leading-5 text-slate-600">
+                  Скачайте один раз — затем «Решать» сразу откроет таблицу. При первом сохранении помощник спросит название и сам добавит работу в конспекты.
+                </p>
+                {workbookHelperState?.status && workbookHelperState.status !== 'idle' && (
+                  <p className={`mt-1 text-xs font-semibold ${
+                    workbookHelperState.status === 'error' ? 'text-rose-600' : 'text-violet-700'
+                  }`} role={workbookHelperState.status === 'error' ? 'alert' : 'status'}>
+                    {workbookHelperState.message}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-col items-center gap-1">
+              <a
+                href="/downloads/IvanEgeWorkbookHelper.exe"
+                download
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 text-xs font-extrabold text-violet-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50"
+              >
+                <Download size={15} aria-hidden="true" />
+                Скачать для Windows
+              </a>
+              <p className="max-w-[230px] text-center text-[10px] font-medium leading-4 text-slate-500">
+                При первом запуске Windows может попросить подтверждение.
+              </p>
+            </div>
+          </aside>
+        )}
+
         <div
           key={`notes-library-${currentFolderId || 'root'}`}
           onDrop={uploadBlockedByRole ? undefined : handleDrop}
           onDragEnter={uploadBlockedByRole ? undefined : handleDragEnter}
           onDragOver={uploadBlockedByRole ? undefined : handleDragOver}
-        onDragLeave={uploadBlockedByRole ? undefined : handleDragLeave}
-        data-tour="files"
-        className={`notes-explorer-files notes-library transition-all ${
-          isDragging ? 'is-dragging' : ''
-        } ${
-          uploadBlockedByRole
-            ? 'border-slate-200 bg-slate-50/70'
-            : isDragging
-            ? 'border-purple-400 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/40'
-            : 'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/70'
-        }`}
-      >
+          onDragLeave={uploadBlockedByRole ? undefined : handleDragLeave}
+          data-tour="files"
+          className={`notes-explorer-files notes-library transition-all ${
+            isDragging ? 'is-dragging' : ''
+          } ${
+            uploadBlockedByRole
+              ? 'border-slate-200 bg-slate-50/70'
+              : isDragging
+              ? 'border-purple-400 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/40'
+              : 'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/70'
+          }`}
+        >
         <input type="file" ref={fileRef} className="hidden" onChange={handleUpload} multiple disabled={uploadBlockedByRole} />
         <div className="notes-explorer-command-stack">
           <div className="notes-commandbar">
@@ -3665,6 +3713,20 @@ const NotesSection = ({
                       && String(workbookAutoSyncState?.sourceFileId || '') === String(f.id)
                     );
                     const isWorkbookAutoSyncStarting = workbookAutoSyncStartingId === String(f.id);
+                    const isWorkbookHelperCurrent = String(workbookHelperState?.sourceFileId || '') === String(f.id);
+                    const isWorkbookHelperBusy = Boolean(
+                      workbookHelperState?.status === 'launching' || workbookHelperState?.status === 'opening'
+                    );
+                    const isWorkbookHelperOpening = Boolean(
+                      isWorkbookHelperCurrent
+                      && isWorkbookHelperBusy
+                    );
+                    const isWorkbookSolution = Boolean(
+                      f?.workbookSourceFileId
+                      || f?.workbookSolutionKey
+                      || memory?.kind === 'workbook-solution'
+                      || sourceRaw === 'workbook-auto-sync'
+                    );
                     const isSharedTemplate = isSharedTemplateFile(f);
                     const isCommonShared = isSharedFile && !isSharedTemplate;
                     const isCheatsheet = isCheatsheetFile(f);
@@ -4108,7 +4170,7 @@ const NotesSection = ({
                                   />
                                 </button>
                               )}
-                              {!isPyFile(f.name) && (
+                              {!isPyFile(f.name) && !(role === 'student' && isExcelFile(f.name)) && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -4122,27 +4184,46 @@ const NotesSection = ({
                                 </button>
                               )}
                               {role === 'student' && isExcelFile(f.name) && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleStartWorkbookAutoSync(f);
-                                  }}
-                                  className={`notes-explorer-file-action-btn !h-9 !w-auto !min-w-[88px] !gap-1.5 !rounded-xl !border !px-3 !py-1.5 !text-xs !font-extrabold !opacity-100 !shadow-sm transition ${
-                                    isWorkbookAutoSyncActive
-                                      ? '!border-emerald-200 !bg-emerald-50 !text-emerald-700'
-                                      : '!border-violet-200 !bg-violet-50 !text-violet-700 hover:!border-violet-300 hover:!bg-violet-100'
-                                  }`}
-                                  disabled={Boolean(workbookAutoSyncStartingId) || isWorkbookAutoSyncActive}
-                                  title={isWorkbookAutoSyncActive
-                                    ? 'Платформа следит за сохранениями этого файла'
-                                    : 'Сохранить рабочую копию и включить автозагрузку'}
-                                  type="button"
-                                >
-                                  {isWorkbookAutoSyncActive
-                                    ? <Check size={15} />
-                                    : <FileSpreadsheet size={15} className={isWorkbookAutoSyncStarting ? 'animate-pulse' : ''} />}
-                                  <span>{isWorkbookAutoSyncActive ? 'Подключён' : 'Решать'}</span>
-                                </button>
+                                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleLaunchWorkbookHelper(f);
+                                    }}
+                                    className={`notes-explorer-file-action-btn !h-9 !w-auto !min-w-[92px] !gap-1.5 !rounded-xl !border !px-3 !py-1.5 !text-xs !font-extrabold !opacity-100 !shadow-sm transition disabled:!cursor-wait disabled:!opacity-70 ${
+                                      isWorkbookSolution
+                                        ? 'notes-explorer-open-action !min-w-[104px]'
+                                        : '!border-violet-500 !bg-gradient-to-r !from-violet-600 !to-fuchsia-500 !text-white hover:!from-violet-700 hover:!to-fuchsia-600'
+                                    }`}
+                                    disabled={isWorkbookHelperBusy}
+                                    title="Открыть таблицу в Excel или LibreOffice через помощник"
+                                    type="button"
+                                  >
+                                    <FileSpreadsheet size={15} className={isWorkbookHelperOpening ? 'animate-pulse' : ''} />
+                                    <span>{isWorkbookHelperOpening ? 'Открываем…' : (isWorkbookSolution ? 'Продолжить' : 'Решать')}</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleStartWorkbookAutoSync(f);
+                                    }}
+                                    className={`notes-explorer-file-action-btn !h-9 !w-auto !min-w-[104px] !gap-1.5 !rounded-xl !border !px-3 !py-1.5 !text-xs !font-bold !opacity-100 transition ${
+                                      isWorkbookAutoSyncActive
+                                        ? '!border-emerald-200 !bg-emerald-50 !text-emerald-700'
+                                        : '!border-slate-200 !bg-white !text-slate-600 hover:!border-violet-200 hover:!text-violet-700'
+                                    }`}
+                                    disabled={Boolean(workbookAutoSyncStartingId) || isWorkbookAutoSyncActive}
+                                    title={isWorkbookAutoSyncActive
+                                      ? 'Платформа следит за сохранениями этого файла'
+                                      : 'Открыть и отслеживать файл средствами браузера'}
+                                    type="button"
+                                  >
+                                    {isWorkbookAutoSyncActive
+                                      ? <Check size={15} />
+                                      : <Download size={15} className={isWorkbookAutoSyncStarting ? 'animate-pulse' : ''} />}
+                                    <span>{isWorkbookAutoSyncActive ? 'Подключён' : 'Через браузер'}</span>
+                                  </button>
+                                </div>
                               )}
                               {manageable && (
                                 <button

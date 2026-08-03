@@ -164,6 +164,23 @@ export const resolveUploadsUrl = (value) => {
   return raw;
 };
 
+export const getExternalApiOrigin = () => {
+  const configuredBase = getConfiguredApiBaseUrl();
+  if (configuredBase) {
+    try {
+      return new URL(configuredBase).origin;
+    } catch {
+      // Relative API bases already resolve against the active site below.
+    }
+  }
+  if (typeof window === 'undefined') return '';
+  const { protocol, hostname, origin } = window.location;
+  if (import.meta?.env?.DEV) {
+    return `${protocol === 'https:' ? 'https:' : 'http:'}//${hostname}:5175`;
+  }
+  return origin;
+};
+
 const buildDefaultWsUrl = (path) => {
   if (typeof window === 'undefined') return '';
   const { protocol, hostname, port, host } = window.location;

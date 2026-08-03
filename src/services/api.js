@@ -1998,6 +1998,56 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  getWorkbookSolutionContent: async (sourceFileId) => {
+    const normalizedSourceFileId = String(sourceFileId || '').trim();
+    if (!normalizedSourceFileId) throw new Error('Не удалось определить исходную таблицу');
+    const res = await apiFetch(`/api/workbook-solutions/${encodeURIComponent(normalizedSourceFileId)}/content`);
+    if (!res.ok) {
+      const error = new Error(await parseApiError(res));
+      error.status = res.status;
+      throw error;
+    }
+    return {
+      blob: await res.blob(),
+      revision: String(res.headers.get('X-Workbook-Revision') || '').trim(),
+      contentHash: String(res.headers.get('X-Workbook-Content-Hash') || '').trim().toLowerCase(),
+    };
+  },
+  upsertWorkbookSolution: async (sourceFileId, file, options = {}) => {
+    const normalizedSourceFileId = String(sourceFileId || '').trim();
+    if (!normalizedSourceFileId) throw new Error('Не удалось определить исходную таблицу');
+    const form = new FormData();
+    form.append('file', file);
+    if (options?.source) form.append('source', String(options.source));
+    if (options?.revision !== null && typeof options?.revision !== 'undefined') {
+      form.append('revision', String(options.revision));
+    }
+    if (options?.contentHash) form.append('contentHash', String(options.contentHash));
+    if (options?.memory && typeof options.memory === 'object') {
+      form.append('memory', JSON.stringify(options.memory));
+    }
+    const res = await apiFetch(`/api/workbook-solutions/${encodeURIComponent(normalizedSourceFileId)}/content`, {
+      method: 'PUT',
+      body: form,
+    });
+    if (!res.ok) {
+      const error = new Error(await parseApiError(res));
+      error.status = res.status;
+      throw error;
+    }
+    return res.json();
+  },
+  launchWorkbookHelper: async (fileId) => {
+    const normalizedFileId = String(fileId || '').trim();
+    if (!normalizedFileId) throw new Error('Не удалось определить таблицу');
+    const res = await apiFetch('/api/workbook-helper/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: normalizedFileId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   uploadBoardAsset: async (file, studentId) => {
     const form = new FormData();
     form.append('file', file);

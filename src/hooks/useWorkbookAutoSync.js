@@ -1,16 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { api, authenticatedUploadsFetch } from '../services/api';
+import { api } from '../services/api';
 
 const CHECK_INTERVAL_MS = 3000;
 const FILE_STABLE_MS = 1600;
-const SOLVED_FOLDER_NAME = 'Решённые задания';
-
-const normalizeFolderName = (value) => String(value || '')
-  .trim()
-  .toLocaleLowerCase('ru-RU')
-  .replace(/ё/g, 'е');
-
 const getFileFingerprint = (file) => `${Number(file?.lastModified) || 0}:${Number(file?.size) || 0}`;
 
 const getWorkbookExtension = (name) => {
@@ -36,25 +29,6 @@ const getPickerTypes = (name) => {
     description: 'Таблица Excel или LibreOffice',
     accept: { [mime]: [extension] },
   }];
-};
-
-const ensureSolvedFolder = async ({ taskNumber, category, studentId }) => {
-  const findFolder = (items) => (Array.isArray(items) ? items : []).find((folder) => (
-    String(folder?.studentId || '').trim() === String(studentId || '').trim()
-    && !String(folder?.parentFolderId || '').trim()
-    && normalizeFolderName(folder?.name) === normalizeFolderName(SOLVED_FOLDER_NAME)
-  ));
-  const folders = await api.getFolders(taskNumber, category, studentId);
-  const existing = findFolder(folders);
-  if (existing?.id) return existing;
-  try {
-    return await api.createFolder(taskNumber, category, SOLVED_FOLDER_NAME, studentId);
-  } catch (error) {
-    const refreshed = await api.getFolders(taskNumber, category, studentId);
-    const concurrent = findFolder(refreshed);
-    if (concurrent?.id) return concurrent;
-    throw error;
-  }
 };
 
 const buildState = (session, status, message, extra = {}) => ({
@@ -103,36 +77,23 @@ const useWorkbookAutoSync = () => {
         type: localFile.type || session.mimeType || 'application/octet-stream',
         lastModified: localFile.lastModified,
       });
-      let storedFile;
-      if (session.remoteFileId) {
-        storedFile = await api.replaceFileContent(session.remoteFileId, uploadFile, {
-          source: 'workbook-auto-sync',
-          memory: {
-            kind: 'workbook-solution',
-            title: session.solutionTitle,
-            description: 'Автосохранение из Excel или LibreOffice',
-          },
-        });
-      } else {
-        const folder = await ensureSolvedFolder(session);
-        storedFile = await api.uploadFile(
-          uploadFile,
-          session.taskNumber,
-          session.category,
-          folder.id,
-          session.studentId,
-          {
-            source: 'workbook-auto-sync',
-            memory: {
-              kind: 'workbook-solution',
-              title: session.solutionTitle,
-              description: 'Автосохранение из Excel или LibreOffice',
-              tags: ['Таблица', 'Автосохранение'],
-            },
-          }
-        );
-      }
+      const storedFile = await api.upsertWorkbookSolution(session.sourceFileId, uploadFile, {
+        source: 'workbook-auto-sync',
+        revision: session.revision,
+        memory: {
+          kind: 'workbook-solution',
+          title: session.solutionTitle,
+          description: 'Автосохранение из Excel или LibreOffice',
+          tags: ['Таблица', 'Автосохранение'],
+        },
+      });
       if (sessionRef.current !== session) return;
+      const nextRevision = String(storedFile?.workbookRevision ?? '').trim();
+      if (!/^\d+$/.test(nextRevision)) {
+        throw new Error('Сервер не вернул новую ревизию таблицы');
+      }
+      session.revision = nextRevision;
+      session.contentHash = String(storedFile?.workbookContentHash || '').trim().toLowerCase();
       session.remoteFileId = String(storedFile?.id || session.remoteFileId || '').trim();
       session.lastUploadedFingerprint = fingerprint;
       session.pendingFingerprint = '';
@@ -141,6 +102,20 @@ const useWorkbookAutoSync = () => {
       setState(buildState(session, 'saved', 'Сохранено в конспекты'));
     } catch (error) {
       if (sessionRef.current !== session) return;
+      if (Number(error?.status) === 409) {
+        sessionRef.current = null;
+        setState(buildState(
+          null,
+          'error',
+          'На сервере появилась более новая версия. Откройте таблицу заново через «Через браузер» — старая копия не была загружена.',
+          {
+            sourceFileId: session.sourceFileId,
+            fileName: session.localName,
+            conflict: true,
+          }
+        ));
+        return;
+      }
       const message = String(error?.message || '').trim();
       setState(buildState(
         session,
@@ -156,22 +131,15 @@ const useWorkbookAutoSync = () => {
 
   const startWorkbookAutoSync = useCallback(async ({
     sourceFile,
-    sourceUrl,
-    studentId,
-    taskNumber,
-    category,
   } = {}) => {
     if (typeof window === 'undefined' || typeof window.showSaveFilePicker !== 'function') {
       setState(buildState(null, 'unsupported', 'Для быстрого запуска используйте Chrome или Edge.'));
       return { ok: false, unsupported: true };
     }
-    const normalizedTaskNumber = Number(taskNumber);
-    const normalizedStudentId = String(studentId || '').trim();
-    const normalizedCategory = String(category || 'class').trim() || 'class';
+    const normalizedSourceFileId = String(sourceFile?.id || '').trim();
     const sourceName = String(sourceFile?.name || '').trim() || 'Таблица.ods';
-    const normalizedSourceUrl = String(sourceUrl || '').trim();
-    if (!normalizedSourceUrl || !normalizedStudentId || !Number.isFinite(normalizedTaskNumber)) {
-      const error = new Error('Не удалось определить файл или задание');
+    if (!normalizedSourceFileId) {
+      const error = new Error('Не удалось определить исходную таблицу');
       setState(buildState(null, 'error', error.message));
       return { ok: false, error };
     }
@@ -194,16 +162,14 @@ const useWorkbookAutoSync = () => {
     const localName = String(handle?.name || suggestedName).trim() || suggestedName;
     const preparingSession = {
       handle,
-      sourceFileId: String(sourceFile?.id || '').trim(),
+      sourceFileId: normalizedSourceFileId,
       sourceName,
       localName,
       remoteName: localName,
       solutionTitle: localName.replace(/\.[^.]+$/, ''),
-      sourceUrl: normalizedSourceUrl,
-      studentId: normalizedStudentId,
-      taskNumber: normalizedTaskNumber,
-      category: normalizedCategory,
       mimeType: String(sourceFile?.type || '').trim(),
+      revision: '',
+      contentHash: '',
       remoteFileId: '',
       lastSyncedAt: '',
       lastUploadedFingerprint: '',
@@ -214,10 +180,14 @@ const useWorkbookAutoSync = () => {
     sessionRef.current = preparingSession;
     setState(buildState(preparingSession, 'preparing', 'Готовим рабочий файл…'));
     try {
-      const response = await authenticatedUploadsFetch(preparingSession.sourceUrl);
-      if (!response.ok) throw new Error('Не удалось скачать исходный файл');
-      const sourceBlob = await response.blob();
+      const canonical = await api.getWorkbookSolutionContent(preparingSession.sourceFileId);
+      if (!/^\d+$/.test(canonical.revision)) {
+        throw new Error('Сервер не вернул ревизию актуальной таблицы');
+      }
+      const sourceBlob = canonical.blob;
       preparingSession.mimeType = sourceBlob.type || preparingSession.mimeType;
+      preparingSession.revision = canonical.revision;
+      preparingSession.contentHash = canonical.contentHash;
       if (sessionRef.current !== preparingSession) return { ok: false, cancelled: true };
       const writable = await handle.createWritable();
       try {

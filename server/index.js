@@ -97,6 +97,28 @@ import {
   matchStudentSearchCandidate,
 } from './studentSearch.js';
 import {
+  canAccessStudentRecord,
+  resolveStudentAccessId,
+} from './studentAccess.js';
+import {
+  WORKBOOK_HELPER_SESSION_TTL_MS,
+  WORKBOOK_HELPER_SOLUTION_FOLDER,
+  WORKBOOK_HELPER_MAX_TICKETS,
+  WORKBOOK_HELPER_TICKET_TTL_MS,
+  buildNamedWorkbookSolutionName,
+  buildWorkbookSolutionKey,
+  buildWorkbookSolutionName,
+  createWorkbookHelperToken,
+  createWorkbookSolutionBindingKey,
+  getWorkbookExtension,
+  hashWorkbookHelperToken,
+  isWorkbookFileName,
+  normalizeWorkbookContentHash,
+  normalizeWorkbookHelperSessions,
+  parseWorkbookHelperAuthorization,
+  resolveWorkbookRevisionWrite,
+} from './workbookHelper.js';
+import {
   buildBoardAssetStorageName,
   detectBoardAssetMimeType,
   getBoardAssetHash,
@@ -147,6 +169,10 @@ const activeLessonReplaySessions = new Map();
 const activeLessonReplayOccurrenceByStudentId = new Map();
 const activeTelemostLessonReplayByStudentId = new Map();
 const lessonReplayWriteQueueByOccurrenceKey = new Map();
+const workbookHelperLaunchTickets = new Map();
+const workbookHelperExchangeAttempts = new Map();
+const workbookHelperContentAttempts = new Map();
+const workbookSolutionWriteQueues = new Map();
 const LESSON_REPLAY_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
 const LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS = 20 * 1000;
 const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;
@@ -238,6 +264,10 @@ const applyCorsHeaders = (req, res) => {
     'Access-Control-Allow-Headers',
     requestedHeaders || 'Content-Type, Authorization, Cache-Control, Pragma, X-Requested-With'
   );
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    'Content-Disposition, X-Workbook-Key, X-Workbook-Revision, X-Workbook-Content-Hash'
+  );
   appendVaryHeader(res, 'Origin');
   appendVaryHeader(res, 'Access-Control-Request-Headers');
   return true;
@@ -300,6 +330,7 @@ const finalReviewVideosFile = path.join(dataDir, 'final-review-videos.json');
 const finalReviewNotesFile = path.join(dataDir, 'final-review-notes.json');
 const authFile = path.join(dataDir, 'auth.json');
 const authSessionsFile = path.join(dataDir, 'auth-sessions.json');
+const workbookHelperSessionsFile = path.join(dataDir, 'workbook-helper-sessions.json');
 const usageFile = path.join(dataDir, 'usage.json');
 const pushFile = path.join(dataDir, 'push.json');
 const boardAssetsFile = path.join(dataDir, 'board-assets.json');
@@ -5917,6 +5948,41 @@ const writeAuthSessionsDb = (sessions) => {
   writeJsonFileAtomic(authSessionsFile, sessions);
 };
 
+let workbookHelperSessionsCache = null;
+const workbookHelperSessionsByTokenHash = new Map();
+
+const replaceWorkbookHelperSessionsCache = (sessions) => {
+  workbookHelperSessionsCache = Array.isArray(sessions) ? sessions : [];
+  workbookHelperSessionsByTokenHash.clear();
+  workbookHelperSessionsCache.forEach((session) => {
+    if (session?.tokenHash) workbookHelperSessionsByTokenHash.set(session.tokenHash, session);
+  });
+  return workbookHelperSessionsCache;
+};
+
+const ensureWorkbookHelperSessionsCache = (options = {}) => {
+  if (workbookHelperSessionsCache) return workbookHelperSessionsCache;
+  try {
+    const raw = fs.readFileSync(workbookHelperSessionsFile, 'utf8');
+    return replaceWorkbookHelperSessionsCache(
+      normalizeWorkbookHelperSessions(JSON.parse(raw), options)
+    );
+  } catch {
+    return replaceWorkbookHelperSessionsCache([]);
+  }
+};
+
+const readWorkbookHelperSessionsDb = (options = {}) => (
+  ensureWorkbookHelperSessionsCache(options).slice()
+);
+
+const writeWorkbookHelperSessionsDb = (sessions, options = {}) => {
+  const normalized = normalizeWorkbookHelperSessions(sessions, options);
+  writeJsonFileAtomic(workbookHelperSessionsFile, normalized);
+  replaceWorkbookHelperSessionsCache(normalized);
+  return normalized.slice();
+};
+
 const serializeAuthSessionForStorage = (session) => ({
   token: session.token,
   user: session.user,
@@ -7013,13 +7079,7 @@ const getPushUserStorageKey = (auth) => {
 };
 
 const canAccessStudentByRole = (auth, student, options = {}) => {
-  if (!auth || !student) return false;
-  const allowDeleted = Boolean(options.allowDeleted);
-  if (!allowDeleted && student.deletedAt) return false;
-  if (isAdminRole(auth)) return true;
-  if (isTeacherRole(auth)) return student.teacherId === auth.id;
-  if (isStudentRole(auth)) return !student.deletedAt && student.id === auth.id;
-  return false;
+  return canAccessStudentRecord(auth, student, options);
 };
 
 const ensureStudentAccess = (req, res, studentId, options = {}) => {
@@ -7027,9 +7087,12 @@ const ensureStudentAccess = (req, res, studentId, options = {}) => {
   const allowDeleted = Boolean(options.allowDeleted);
   const missingError = options.missingError || 'studentId required';
   const requestedId = String(studentId || '').trim();
-  const id = isStudentRole(req.auth)
-    ? String(req.auth?.id || '').trim()
-    : requestedId;
+  const id = resolveStudentAccessId({
+    role: req.auth?.role,
+    authenticatedStudentId: req.auth?.id,
+    requestedStudentId: requestedId,
+    strictStudentId: Boolean(options.strictStudentId),
+  });
   if (!id) {
     if (required) {
       res.status(400).json({ error: missingError });
@@ -15947,6 +16010,7 @@ migrateTestsFileNames();
 migrateMockExamFileNames();
 ensureStudentIds();
 hydrateAuthSessions();
+readWorkbookHelperSessionsDb();
 
 const getEntrySizeBytes = (entry) => {
   if (!entry) return 0;
@@ -16119,6 +16183,15 @@ const upload = multer({
   storage,
   limits: { fileSize: MAX_LESSON_SHARED_UPLOAD_FILE_BYTES },
 });
+const workbookHelperUpload = multer({
+  storage,
+  limits: {
+    files: 1,
+    fields: 8,
+    fieldSize: 2048,
+    fileSize: MAX_UPLOAD_FILE_BYTES,
+  },
+});
 const boardAssetUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: BOARD_ASSET_MAX_FILE_BYTES },
@@ -16132,6 +16205,885 @@ const lessonReplaySnapshotUpload = multer({
     fileSize: LESSON_REPLAY_SNAPSHOT_MAX_FILE_BYTES,
   },
 });
+
+const withWorkbookSolutionWriteLock = async (solutionKey, operation) => {
+  const normalizedKey = String(solutionKey || '').trim();
+  if (!normalizedKey) throw new Error('Workbook solution key is required');
+  const previous = workbookSolutionWriteQueues.get(normalizedKey) || Promise.resolve();
+  const current = previous.catch(() => null).then(operation);
+  workbookSolutionWriteQueues.set(normalizedKey, current);
+  try {
+    return await current;
+  } finally {
+    if (workbookSolutionWriteQueues.get(normalizedKey) === current) {
+      workbookSolutionWriteQueues.delete(normalizedKey);
+    }
+  }
+};
+
+const getWorkbookStoredFilePath = (entry) => {
+  const storageName = String(entry?.storageName || '').trim();
+  const safeStorageName = path.basename(storageName);
+  if (!safeStorageName || safeStorageName !== storageName) return '';
+  const filePath = path.join(uploadsDir, safeStorageName);
+  return fs.existsSync(filePath) ? filePath : '';
+};
+
+const getWorkbookFileContentHash = (entry) => {
+  const storedHash = normalizeWorkbookContentHash(entry?.workbookContentHash);
+  if (storedHash) return storedHash;
+  const filePath = getWorkbookStoredFilePath(entry);
+  if (!filePath) return '';
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+};
+
+const isWorkbookFileAccessibleToStudent = (student, entry) => {
+  if (!student || !entry) return false;
+  if (isLessonSharedFile(entry)) {
+    return Boolean(
+      normalizeTeacherId(student.teacherId)
+      && normalizeTeacherId(entry.teacherId) === normalizeTeacherId(student.teacherId)
+    );
+  }
+  return String(entry.studentId || '').trim() === String(student.id || '').trim();
+};
+
+const normalizeWorkbookSolutionKey = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(normalized) ? normalized : '';
+};
+
+const findWorkbookSolutionEntry = (
+  files,
+  studentId,
+  sourceFileId,
+  solutionKey,
+  solutionFileId = ''
+) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  const normalizedSourceFileId = String(sourceFileId || '').trim();
+  const normalizedSolutionKey = normalizeWorkbookSolutionKey(solutionKey);
+  const normalizedSolutionFileId = String(solutionFileId || '').trim();
+  const legacySolutionKey = buildWorkbookSolutionKey(normalizedStudentId, normalizedSourceFileId);
+  const list = Array.isArray(files) ? files : [];
+  const candidates = list.filter((entry) => (
+    !isLessonSharedFile(entry)
+    && String(entry?.studentId || '').trim() === normalizedStudentId
+    && String(entry?.workbookSourceFileId || '').trim() === normalizedSourceFileId
+  ));
+  const getCandidateKey = (entry) => (
+    normalizeWorkbookSolutionKey(entry?.workbookSolutionKey) || legacySolutionKey
+  );
+  if (normalizedSolutionFileId) {
+    const exact = candidates.find((entry) => String(entry?.id || '').trim() === normalizedSolutionFileId);
+    if (!exact) return null;
+    return !normalizedSolutionKey || getCandidateKey(exact) === normalizedSolutionKey ? exact : null;
+  }
+  if (!normalizedSolutionKey) return null;
+  return candidates.find((entry) => getCandidateKey(entry) === normalizedSolutionKey) || null;
+};
+
+const resolveWorkbookSourceForStudent = (student, requestedFileId, filesOverride = null) => {
+  const files = Array.isArray(filesOverride) ? filesOverride : readFilesDb();
+  const requestedId = String(requestedFileId || '').trim();
+  const launchFile = files.find((entry) => String(entry?.id || '').trim() === requestedId);
+  if (!launchFile || !isWorkbookFileAccessibleToStudent(student, launchFile)) return null;
+  const sourceFileId = String(launchFile.workbookSourceFileId || launchFile.id || '').trim();
+  const sourceFile = files.find((entry) => String(entry?.id || '').trim() === sourceFileId);
+  if (
+    !sourceFile
+    || !isWorkbookFileAccessibleToStudent(student, sourceFile)
+    || !isWorkbookFileName(sourceFile.name)
+    || !getWorkbookStoredFilePath(sourceFile)
+  ) return null;
+  const solutionFile = String(launchFile.workbookSourceFileId || '').trim()
+    ? launchFile
+    : null;
+  const solutionKey = solutionFile
+    ? (normalizeWorkbookSolutionKey(solutionFile.workbookSolutionKey)
+      || buildWorkbookSolutionKey(student.id, sourceFile.id))
+    : buildWorkbookSolutionKey(student.id, sourceFile.id);
+  if (!solutionKey) return null;
+  return {
+    files,
+    launchFile,
+    sourceFile,
+    sourceFileId: sourceFile.id,
+    solutionKey,
+    solutionFile,
+    solutionFileId: String(solutionFile?.id || ''),
+  };
+};
+
+const getWorkbookBindingState = (student, sourceFile, filesOverride = null, binding = {}) => {
+  const files = Array.isArray(filesOverride) ? filesOverride : readFilesDb();
+  const solutionKey = normalizeWorkbookSolutionKey(binding.solutionKey)
+    || buildWorkbookSolutionKey(student?.id, sourceFile?.id);
+  const solutionFileId = String(binding.solutionFileId || '').trim();
+  const solutionFile = findWorkbookSolutionEntry(
+    files,
+    student?.id,
+    sourceFile?.id,
+    solutionKey,
+    solutionFileId
+  );
+  const contentFile = solutionFile || sourceFile;
+  const revision = solutionFile
+    ? Math.max(0, Math.floor(Number(solutionFile.workbookRevision) || 0))
+    : 0;
+  return {
+    files,
+    solutionKey,
+    solutionFileId: String(solutionFile?.id || solutionFileId),
+    solutionFile,
+    contentFile,
+    revision,
+    contentHash: getWorkbookFileContentHash(contentFile),
+    fileName: String(solutionFile?.name || '').trim() || buildWorkbookSolutionName(sourceFile?.name),
+    nameRequired: Boolean(binding.nameRequired && !solutionFile),
+  };
+};
+
+const normalizeWorkbookSolutionFolderName = (value) => String(value || '')
+  .trim()
+  .toLocaleLowerCase('ru-RU')
+  .replace(/ё/g, 'е');
+
+const ensureWorkbookSolutionFolder = ({ studentId, taskNumber, category }) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  const normalizedCategory = String(category || '').trim();
+  const normalizedTaskNumber = Number(taskNumber);
+  if (!normalizedStudentId || !normalizedCategory || !Number.isFinite(normalizedTaskNumber)) {
+    const error = new Error('Не удалось определить папку решения');
+    error.statusCode = 400;
+    throw error;
+  }
+  const folders = readFoldersDb();
+  const targetName = normalizeWorkbookSolutionFolderName(WORKBOOK_HELPER_SOLUTION_FOLDER);
+  const existing = folders.find((folder) => (
+    String(folder?.studentId || '').trim() === normalizedStudentId
+    && Number(folder?.taskNumber) === normalizedTaskNumber
+    && String(folder?.category || '').trim() === normalizedCategory
+    && !normalizeParentFolderId(folder?.parentFolderId)
+    && normalizeWorkbookSolutionFolderName(folder?.name) === targetName
+  ));
+  if (existing) return existing;
+  const created = {
+    id: crypto.randomUUID(),
+    studentId: normalizedStudentId,
+    taskNumber: normalizedTaskNumber,
+    category: normalizedCategory,
+    parentFolderId: null,
+    name: WORKBOOK_HELPER_SOLUTION_FOLDER,
+    date: new Date().toLocaleDateString('ru-RU'),
+  };
+  folders.unshift(created);
+  writeFoldersDb(folders);
+  return created;
+};
+
+const createWorkbookHttpError = (statusCode, message, details = {}) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  Object.assign(error, details);
+  return error;
+};
+
+const assertWorkbookSolutionCapacity = ({ files, existing, student, sourceFile, folder, sizeBytes }) => {
+  const normalizedSizeBytes = Math.max(0, Number(sizeBytes) || 0);
+  const fileLimitBytes = getUploadFileLimitBytes(false);
+  if (!normalizedSizeBytes || normalizedSizeBytes > fileLimitBytes) {
+    throw createWorkbookHttpError(413, getUploadFileLimitError(fileLimitBytes));
+  }
+  const currentTaskTotal = files
+    .filter((entry) => (
+      entry?.id !== existing?.id
+      && String(entry?.studentId || '').trim() === String(student.id || '').trim()
+      && Number(entry?.taskNumber) === Number(sourceFile.taskNumber)
+    ))
+    .reduce((sum, entry) => sum + getEntrySizeBytes(entry), 0);
+  const taskLimitBytes = getTaskLimitBytes(false);
+  if (currentTaskTotal + normalizedSizeBytes > taskLimitBytes) {
+    throw createWorkbookHttpError(413, getTaskLimitError(taskLimitBytes));
+  }
+  const folderLimitBytes = getFolderLimitBytes(false);
+  const currentFolderTotal = files
+    .filter((entry) => entry?.id !== existing?.id && entry?.folderId === folder.id)
+    .reduce((sum, entry) => sum + getEntrySizeBytes(entry), 0);
+  if (currentFolderTotal + normalizedSizeBytes > folderLimitBytes) {
+    throw createWorkbookHttpError(413, getFolderLimitError(folderLimitBytes));
+  }
+};
+
+const removeWorkbookUploadedFile = (uploadedFile) => {
+  const filePath = String(uploadedFile?.path || '').trim();
+  if (!filePath) return;
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {
+    // A failed temporary upload cleanup must not hide the original response.
+  }
+};
+
+const upsertWorkbookSolutionContent = ({
+  student,
+  sourceFileId,
+  uploadedFile,
+  actor,
+  source = 'workbook-auto-sync',
+  memory: incomingMemory = {},
+  expectedRevision,
+  providedContentHash = '',
+  solutionKey: requestedSolutionKey = '',
+  solutionFileId: requestedSolutionFileId = '',
+  solutionName: requestedSolutionName = '',
+  requireSolutionName = false,
+  requiredHelperSessionId = '',
+  requiredHelperTokenHash = '',
+} = {}) => {
+  const requestedSourceFileId = String(sourceFileId || '').trim();
+  const initialResolved = resolveWorkbookSourceForStudent(student, requestedSourceFileId);
+  const normalizedSourceFileId = String(initialResolved?.sourceFile?.id || '').trim();
+  const solutionKey = normalizeWorkbookSolutionKey(requestedSolutionKey)
+    || normalizeWorkbookSolutionKey(initialResolved?.solutionKey);
+  const solutionFileId = String(requestedSolutionFileId || initialResolved?.solutionFileId || '').trim();
+  if (!normalizedSourceFileId || !solutionKey) {
+    removeWorkbookUploadedFile(uploadedFile);
+    return Promise.reject(createWorkbookHttpError(400, 'Некорректная привязка таблицы'));
+  }
+  return withWorkbookSolutionWriteLock(solutionKey, () => {
+    try {
+      if (requiredHelperSessionId || requiredHelperTokenHash) {
+        const activeHelperSession = readWorkbookHelperSessionsDb().find((session) => (
+          session.id === requiredHelperSessionId
+           && session.tokenHash === requiredHelperTokenHash
+           && session.studentId === String(student?.id || '').trim()
+           && session.sourceFileId === normalizedSourceFileId
+           && session.solutionKey === solutionKey
+         ));
+        if (!activeHelperSession) {
+          throw createWorkbookHttpError(401, 'Привязка таблицы была отключена');
+        }
+      }
+      if (!uploadedFile?.path || !fs.existsSync(uploadedFile.path)) {
+        throw createWorkbookHttpError(400, 'Файл не найден');
+      }
+      const resolved = resolveWorkbookSourceForStudent(student, normalizedSourceFileId);
+      if (!resolved || resolved.sourceFile.id !== normalizedSourceFileId) {
+        throw createWorkbookHttpError(410, 'Исходная таблица больше недоступна');
+      }
+      const sourceFile = resolved.sourceFile;
+      if (!isWorkbookFileName(uploadedFile.originalname)) {
+        throw createWorkbookHttpError(415, 'Можно загружать только таблицы Excel или LibreOffice');
+      }
+      const sourceExtension = getWorkbookExtension(sourceFile.name);
+      const uploadedExtension = getWorkbookExtension(normalizeFileName(uploadedFile.originalname));
+      if (!sourceExtension || uploadedExtension !== sourceExtension) {
+        throw createWorkbookHttpError(415, 'Формат решения должен совпадать с исходной таблицей');
+      }
+      const incomingContentHash = crypto
+        .createHash('sha256')
+        .update(fs.readFileSync(uploadedFile.path))
+        .digest('hex');
+      const claimedContentHash = normalizeWorkbookContentHash(providedContentHash);
+      if (providedContentHash && claimedContentHash !== incomingContentHash) {
+        throw createWorkbookHttpError(400, 'Контрольная сумма файла не совпадает');
+      }
+
+      const files = readFilesDb();
+      const existing = findWorkbookSolutionEntry(
+        files,
+        student.id,
+        sourceFile.id,
+        solutionKey,
+        solutionFileId
+      );
+      if (solutionFileId && !existing) {
+        throw createWorkbookHttpError(410, 'Сохранённое решение больше недоступно');
+      }
+      const currentRevision = existing
+        ? Math.max(0, Math.floor(Number(existing.workbookRevision) || 0))
+        : 0;
+      const existingContentHash = existing ? getWorkbookFileContentHash(existing) : '';
+      const revisionDecision = resolveWorkbookRevisionWrite({
+        currentRevision,
+        currentContentHash: existingContentHash,
+        expectedRevision,
+        incomingContentHash,
+      });
+      if (revisionDecision.action === 'invalid') {
+        throw createWorkbookHttpError(400, 'Некорректная ревизия таблицы');
+      }
+      if (revisionDecision.action === 'conflict') {
+        throw createWorkbookHttpError(409, 'Файл уже был обновлён в другом месте', {
+          revision: revisionDecision.revision,
+          contentHash: revisionDecision.contentHash,
+        });
+      }
+      if (revisionDecision.action === 'unchanged' && existing) {
+        removeWorkbookUploadedFile(uploadedFile);
+        return {
+          entry: existing,
+          revision: revisionDecision.revision,
+          contentHash: revisionDecision.contentHash,
+          unchanged: true,
+        };
+      }
+
+      const rawSolutionName = String(requestedSolutionName || '').trim();
+      const namedSolution = rawSolutionName
+        ? buildNamedWorkbookSolutionName(rawSolutionName, sourceFile.name)
+        : '';
+      let entryName = String(existing?.name || '').trim();
+      if (existing) {
+        if (rawSolutionName && !namedSolution) {
+          throw createWorkbookHttpError(400, 'Некорректное имя решения');
+        }
+        if (namedSolution && namedSolution.toLocaleLowerCase('ru-RU') !== entryName.toLocaleLowerCase('ru-RU')) {
+          throw createWorkbookHttpError(409, 'Имя сохранённого решения нельзя изменить');
+        }
+        entryName ||= buildWorkbookSolutionName(sourceFile.name);
+      } else if (requireSolutionName) {
+        if (!namedSolution) {
+          throw createWorkbookHttpError(400, 'Укажите короткое безопасное имя решения');
+        }
+        entryName = namedSolution;
+      } else {
+        entryName = buildWorkbookSolutionName(sourceFile.name);
+      }
+      if (!existing && files.some((entry) => (
+        String(entry?.studentId || '').trim() === String(student.id || '').trim()
+        && String(entry?.workbookSourceFileId || '').trim() === String(sourceFile.id || '').trim()
+        && String(entry?.name || '').trim().toLocaleLowerCase('ru-RU') === entryName.toLocaleLowerCase('ru-RU')
+      ))) {
+        throw createWorkbookHttpError(409, 'Решение с таким именем уже существует');
+      }
+
+      const folder = ensureWorkbookSolutionFolder({
+        studentId: student.id,
+        taskNumber: sourceFile.taskNumber,
+        category: sourceFile.category,
+      });
+      assertWorkbookSolutionCapacity({
+        files,
+        existing,
+        student,
+        sourceFile,
+        folder,
+        sizeBytes: uploadedFile.size,
+      });
+
+      const nowIso = new Date().toISOString();
+      const normalizedSource = normalizeFileMemorySource(source, 'workbook-auto-sync');
+      const savedBy = getFileMemoryActor(actor || {
+        id: student.id,
+        role: 'student',
+        name: student.name,
+      });
+      const memory = normalizeFileMemory({
+        ...(existing?.memory && typeof existing.memory === 'object' ? existing.memory : {}),
+        ...(incomingMemory && typeof incomingMemory === 'object' ? incomingMemory : {}),
+        kind: 'workbook-solution',
+        title: entryName.replace(/\.[^.]+$/, ''),
+        source: normalizedSource,
+        savedBy,
+        createdAt: existing?.memory?.createdAt || existing?.createdAt || nowIso,
+      }, {
+        taskNumber: sourceFile.taskNumber,
+        source: normalizedSource,
+        savedBy,
+        createdAt: existing?.createdAt || nowIso,
+      });
+      const entry = {
+        ...(existing || {}),
+        id: existing?.id || crypto.randomUUID(),
+        studentId: student.id,
+        taskNumber: Number(sourceFile.taskNumber),
+        category: String(sourceFile.category || '').trim(),
+        folderId: folder.id,
+        folderName: folder.name,
+        name: entryName,
+        size: formatSize(uploadedFile.size),
+        sizeBytes: uploadedFile.size,
+        date: existing?.date || new Date(nowIso).toLocaleDateString('ru-RU'),
+        createdAt: existing?.createdAt || nowIso,
+        updatedAt: nowIso,
+        source: normalizedSource,
+        savedBy,
+        memory,
+        url: `/uploads/${uploadedFile.filename}`,
+        storageName: uploadedFile.filename,
+        workbookSourceFileId: sourceFile.id,
+        workbookSolutionKey: solutionKey,
+        workbookRevision: existing
+          ? revisionDecision.revision
+          : Math.max(1, revisionDecision.revision),
+        workbookContentHash: incomingContentHash,
+        ...(String(sourceFile.category || '').trim() === 'class' ? {
+          lessonStudentId: student.id,
+          lessonSavedAt: nowIso,
+        } : {}),
+      };
+
+      const nextFiles = [...files];
+      if (existing) {
+        const existingIndex = nextFiles.findIndex((candidate) => candidate?.id === existing.id);
+        if (existingIndex >= 0) nextFiles[existingIndex] = entry;
+        else nextFiles.unshift(entry);
+      } else {
+        nextFiles.unshift(entry);
+      }
+      writeFilesDb(nextFiles);
+      if (existing?.storageName && existing.storageName !== entry.storageName) {
+        fs.unlink(path.join(uploadsDir, path.basename(existing.storageName)), () => {});
+      }
+      if (entry.category === 'class') {
+        appendLessonNoteActivity({
+          studentId: student.id,
+          teacherId: normalizeTeacherId(student.teacherId),
+          taskNumber: entry.taskNumber,
+          fileId: entry.id,
+          source: normalizedSource,
+          occurredAt: nowIso,
+        });
+      }
+      return {
+        entry,
+        revision: entry.workbookRevision,
+        contentHash: entry.workbookContentHash,
+        unchanged: false,
+      };
+    } catch (error) {
+      removeWorkbookUploadedFile(uploadedFile);
+      throw error;
+    }
+  });
+};
+
+const pruneWorkbookHelperLaunchTickets = (nowMs = Date.now()) => {
+  workbookHelperLaunchTickets.forEach((ticket, ticketHash) => {
+    if (!ticket || Number(ticket.expiresAtMs) <= nowMs) {
+      workbookHelperLaunchTickets.delete(ticketHash);
+    }
+  });
+  if (workbookHelperLaunchTickets.size <= WORKBOOK_HELPER_MAX_TICKETS) return;
+  const oldest = Array.from(workbookHelperLaunchTickets.entries())
+    .sort((left, right) => Number(left[1]?.createdAtMs || 0) - Number(right[1]?.createdAtMs || 0));
+  oldest
+    .slice(0, workbookHelperLaunchTickets.size - WORKBOOK_HELPER_MAX_TICKETS)
+    .forEach(([ticketHash]) => workbookHelperLaunchTickets.delete(ticketHash));
+};
+
+const createWorkbookHelperLaunchTicket = ({
+  studentId,
+  sourceFileId,
+  launchFileId,
+  solutionKey,
+  solutionFileId = '',
+  nameRequired = false,
+}) => {
+  pruneWorkbookHelperLaunchTickets();
+  const ticket = createWorkbookHelperToken();
+  const ticketHash = hashWorkbookHelperToken(ticket);
+  const nowMs = Date.now();
+  const entry = {
+    studentId: String(studentId || '').trim(),
+    sourceFileId: String(sourceFileId || '').trim(),
+    launchFileId: String(launchFileId || sourceFileId || '').trim(),
+    solutionKey: normalizeWorkbookSolutionKey(solutionKey),
+    solutionFileId: String(solutionFileId || '').trim(),
+    nameRequired: Boolean(nameRequired),
+    createdAtMs: nowMs,
+    expiresAtMs: nowMs + WORKBOOK_HELPER_TICKET_TTL_MS,
+  };
+  workbookHelperLaunchTickets.set(ticketHash, entry);
+  return { ticket, ticketHash, ...entry };
+};
+
+const WORKBOOK_HELPER_RATE_WINDOW_MS = 60 * 1000;
+const WORKBOOK_HELPER_RATE_MAX_CLIENTS = 2000;
+
+const pruneWorkbookHelperRateStore = (store, nowMs) => {
+  store.forEach((timestamps, storedKey) => {
+    const live = (Array.isArray(timestamps) ? timestamps : [])
+      .filter((timestamp) => nowMs - Number(timestamp) < WORKBOOK_HELPER_RATE_WINDOW_MS);
+    if (live.length > 0) store.set(storedKey, live);
+    else store.delete(storedKey);
+  });
+};
+
+const consumeWorkbookHelperRate = (store, req, limit) => {
+  const nowMs = Date.now();
+  const key = getClientKey(req);
+  if (!store.has(key) && store.size >= WORKBOOK_HELPER_RATE_MAX_CLIENTS) {
+    pruneWorkbookHelperRateStore(store, nowMs);
+    if (store.size >= WORKBOOK_HELPER_RATE_MAX_CLIENTS) {
+      Array.from(store.entries())
+        .sort((left, right) => (
+          Number(left[1]?.[left[1].length - 1] || 0)
+          - Number(right[1]?.[right[1].length - 1] || 0)
+        ))
+        .slice(0, store.size - WORKBOOK_HELPER_RATE_MAX_CLIENTS + 1)
+        .forEach(([storedKey]) => store.delete(storedKey));
+    }
+  }
+  const recent = (store.get(key) || [])
+    .filter((timestamp) => nowMs - Number(timestamp) < WORKBOOK_HELPER_RATE_WINDOW_MS);
+  if (recent.length >= limit) {
+    store.set(key, recent);
+    return false;
+  }
+  recent.push(nowMs);
+  store.set(key, recent);
+  return true;
+};
+
+const consumeWorkbookHelperExchangeRate = (req) => (
+  consumeWorkbookHelperRate(workbookHelperExchangeAttempts, req, 30)
+);
+
+const requireWorkbookHelperContentRate = (req, res, next) => {
+  if (!consumeWorkbookHelperRate(workbookHelperContentAttempts, req, 120)) {
+    res.setHeader('Retry-After', '60');
+    return res.status(429).json({ error: 'Слишком много запросов к таблице. Повторите через минуту.' });
+  }
+  return next();
+};
+
+const findWorkbookHelperSessionByToken = (token) => {
+  const tokenHash = hashWorkbookHelperToken(token);
+  if (!tokenHash) return null;
+  ensureWorkbookHelperSessionsCache();
+  const session = workbookHelperSessionsByTokenHash.get(tokenHash) || null;
+  if (!session) return null;
+  const actualHash = Buffer.from(tokenHash, 'hex');
+  const storedHash = Buffer.from(session.tokenHash, 'hex');
+  if (actualHash.length !== storedHash.length || !crypto.timingSafeEqual(actualHash, storedHash)) {
+    return null;
+  }
+  if (Number(session.expiresAtMs) <= Date.now()) {
+    workbookHelperSessionsByTokenHash.delete(tokenHash);
+    return null;
+  }
+  return session;
+};
+
+const updateWorkbookHelperSession = (sessionId, patch = {}, options = {}) => {
+  const sessions = readWorkbookHelperSessionsDb();
+  const index = sessions.findIndex((session) => session?.id === sessionId);
+  if (index < 0) return null;
+  const current = sessions[index];
+  sessions[index] = {
+    ...current,
+    ...patch,
+    id: current.id,
+    tokenHash: current.tokenHash,
+    studentId: current.studentId,
+    sourceFileId: current.sourceFileId,
+    launchFileId: current.launchFileId,
+    solutionKey: current.solutionKey,
+  };
+  const saved = writeWorkbookHelperSessionsDb(sessions, options);
+  return saved.find((session) => session.id === current.id) || null;
+};
+
+const removeWorkbookHelperSession = (sessionId) => {
+  const sessions = readWorkbookHelperSessionsDb();
+  const next = sessions.filter((session) => session?.id !== sessionId);
+  if (next.length === sessions.length) return false;
+  writeWorkbookHelperSessionsDb(next);
+  return true;
+};
+
+const revokeWorkbookHelperSessionsForStudents = (studentIds = []) => {
+  const targets = new Set(
+    (Array.isArray(studentIds) ? studentIds : [studentIds])
+      .map((studentId) => String(studentId || '').trim())
+      .filter(Boolean)
+  );
+  if (targets.size === 0) return 0;
+  const sessions = readWorkbookHelperSessionsDb();
+  const next = sessions.filter((session) => !targets.has(String(session?.studentId || '').trim()));
+  const removed = sessions.length - next.length;
+  if (removed > 0) writeWorkbookHelperSessionsDb(next);
+  workbookHelperLaunchTickets.forEach((ticket, ticketHash) => {
+    if (targets.has(String(ticket?.studentId || '').trim())) {
+      workbookHelperLaunchTickets.delete(ticketHash);
+    }
+  });
+  return removed;
+};
+
+const getWorkbookHelperSessionContext = (session) => {
+  const student = findStudentById(session?.studentId);
+  if (!student) return null;
+  const resolved = resolveWorkbookSourceForStudent(student, session?.sourceFileId);
+  if (
+    !resolved
+    || resolved.sourceFile.id !== session.sourceFileId
+  ) return null;
+  const state = getWorkbookBindingState(student, resolved.sourceFile, resolved.files, {
+    solutionKey: session.solutionKey,
+    solutionFileId: session.solutionFileId,
+    nameRequired: session.nameRequired,
+  });
+  if (
+    state.solutionKey !== session.solutionKey
+    || (session.solutionFileId && state.solutionFile?.id !== session.solutionFileId)
+  ) return null;
+  if (!state.contentFile || !getWorkbookStoredFilePath(state.contentFile) || !state.contentHash) return null;
+  return {
+    student,
+    sourceFile: resolved.sourceFile,
+    launchFile: resolved.files.find((entry) => entry?.id === session.launchFileId) || resolved.sourceFile,
+    state,
+  };
+};
+
+const persistWorkbookHelperSessionState = (session, state, options = {}) => {
+  const nowMs = Date.now();
+  const shouldTouch = options.force === true
+    || nowMs - Number(session?.lastUsedAtMs || 0) >= 5 * 60 * 1000
+    || String(session?.solutionFileId || '') !== String(state?.solutionFile?.id || '')
+    || Boolean(session?.nameRequired) !== Boolean(state?.nameRequired)
+    || Number(session?.revision || 0) !== Number(state?.revision || 0)
+    || String(session?.contentHash || '') !== String(state?.contentHash || '');
+  if (!shouldTouch) return session;
+  return updateWorkbookHelperSession(session.id, {
+    solutionFileId: String(state?.solutionFile?.id || ''),
+    nameRequired: Boolean(state?.nameRequired),
+    revision: Math.max(0, Math.floor(Number(state?.revision) || 0)),
+    contentHash: normalizeWorkbookContentHash(state?.contentHash),
+    lastUsedAtMs: nowMs,
+  }) || session;
+};
+
+const requireWorkbookHelperSession = (req, res, next) => {
+  const token = parseWorkbookHelperAuthorization(req.headers.authorization);
+  if (!token) {
+    return res.status(401).json({ error: 'Требуется токен Workbook' });
+  }
+  const session = findWorkbookHelperSessionByToken(token);
+  if (!session) {
+    return res.status(401).json({ error: 'Привязка таблицы истекла или была отключена' });
+  }
+  const context = getWorkbookHelperSessionContext(session);
+  if (!context) {
+    removeWorkbookHelperSession(session.id);
+    return res.status(410).json({ error: 'Таблица больше недоступна. Откройте её с платформы заново.' });
+  }
+  const touchedSession = persistWorkbookHelperSessionState(session, context.state);
+  req.workbookHelper = {
+    token,
+    tokenHash: session.tokenHash,
+    session: touchedSession,
+    ...context,
+  };
+  return next();
+};
+
+const sendWorkbookOperationError = (res, error) => {
+  const statusCode = Number(error?.statusCode) || 500;
+  const payload = { error: String(error?.message || 'Не удалось сохранить таблицу') };
+  if (Number.isFinite(Number(error?.revision))) payload.revision = Number(error.revision);
+  const contentHash = normalizeWorkbookContentHash(error?.contentHash);
+  if (contentHash) payload.contentHash = contentHash;
+  if (statusCode >= 500) console.error('[workbook-helper] operation failed:', error);
+  return res.status(statusCode).json(payload);
+};
+
+app.post('/workbook-helper/v1/exchange', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!req.is('application/json')) {
+    return res.status(415).json({ error: 'Ожидался JSON-запрос' });
+  }
+  if (!consumeWorkbookHelperExchangeRate(req)) {
+    return res.status(429).json({ error: 'Слишком много попыток. Откройте файл с платформы заново.' });
+  }
+  pruneWorkbookHelperLaunchTickets();
+  const rawTicket = String(req.body?.ticket || '').trim();
+  const ticketHash = hashWorkbookHelperToken(rawTicket);
+  const ticket = ticketHash ? workbookHelperLaunchTickets.get(ticketHash) : null;
+  if (!ticket || Number(ticket.expiresAtMs) <= Date.now()) {
+    if (ticketHash) workbookHelperLaunchTickets.delete(ticketHash);
+    return res.status(410).json({ error: 'Ссылка запуска истекла. Нажмите «Решать» ещё раз.' });
+  }
+  const student = findStudentById(ticket.studentId);
+  const resolved = student
+    ? resolveWorkbookSourceForStudent(student, ticket.sourceFileId)
+    : null;
+  if (!resolved || resolved.sourceFile.id !== ticket.sourceFileId) {
+    workbookHelperLaunchTickets.delete(ticketHash);
+    return res.status(410).json({ error: 'Таблица больше недоступна' });
+  }
+  const ticketSolutionKey = normalizeWorkbookSolutionKey(ticket.solutionKey);
+  const state = getWorkbookBindingState(student, resolved.sourceFile, resolved.files, {
+    solutionKey: ticketSolutionKey,
+    solutionFileId: ticket.solutionFileId,
+    nameRequired: ticket.nameRequired,
+  });
+  if (
+    !ticketSolutionKey
+    || (ticket.solutionFileId && state.solutionFile?.id !== ticket.solutionFileId)
+    || !state.contentHash
+  ) {
+    workbookHelperLaunchTickets.delete(ticketHash);
+    return res.status(410).json({ error: 'Файл таблицы не найден' });
+  }
+
+  try {
+    const rawToken = createWorkbookHelperToken();
+    const tokenHash = hashWorkbookHelperToken(rawToken);
+    const nowMs = Date.now();
+    const session = {
+      id: crypto.randomUUID(),
+      tokenHash,
+      studentId: student.id,
+      sourceFileId: resolved.sourceFile.id,
+      launchFileId: String(ticket.launchFileId || resolved.sourceFile.id),
+      solutionKey: ticketSolutionKey,
+      solutionFileId: String(state.solutionFile?.id || ''),
+      nameRequired: Boolean(state.nameRequired),
+      revision: state.revision,
+      contentHash: state.contentHash,
+      createdAtMs: nowMs,
+      lastUsedAtMs: nowMs,
+      expiresAtMs: nowMs + WORKBOOK_HELPER_SESSION_TTL_MS,
+    };
+    const sessions = readWorkbookHelperSessionsDb();
+    sessions.unshift(session);
+    writeWorkbookHelperSessionsDb(sessions);
+    workbookHelperLaunchTickets.delete(ticketHash);
+    return res.json({
+      token: rawToken,
+      workbookKey: session.solutionKey,
+      fileName: state.fileName,
+      solutionName: state.nameRequired ? '' : state.fileName,
+      requiresName: Boolean(state.nameRequired),
+      nameRequired: Boolean(state.nameRequired),
+      revision: state.revision,
+      contentHash: state.contentHash,
+      expiresAt: new Date(session.expiresAtMs).toISOString(),
+    });
+  } catch (error) {
+    console.error('[workbook-helper] exchange failed:', error);
+    return res.status(500).json({ error: 'Не удалось привязать помощник' });
+  }
+});
+
+app.get(
+  '/workbook-helper/v1/content',
+  requireWorkbookHelperContentRate,
+  requireWorkbookHelperSession,
+  (req, res) => {
+    const { student, state } = req.workbookHelper;
+    const filePath = getWorkbookStoredFilePath(state.contentFile);
+    if (!filePath) {
+      removeWorkbookHelperSession(req.workbookHelper.session.id);
+      return res.status(410).json({ error: 'Файл таблицы больше недоступен' });
+    }
+    const stat = fs.statSync(filePath);
+    const requestSize = getRangeSize(req.headers.range, stat.size);
+    const usage = getStudentUsage(student.id);
+    if (usage.enabled && (usage.remaining <= 0 || usage.used + requestSize > usage.limit)) {
+      return res.status(429).json({ error: 'Превышен лимит трафика для ученика' });
+    }
+    if (usage.enabled && (usage.used / usage.limit >= STUDENT_TRAFFIC_WARN_RATIO)) {
+      res.setHeader('X-Traffic-Warn', '1');
+    }
+    registerUsageOnFinish(student.id, res, requestSize);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Workbook-Key', state.solutionKey);
+    res.setHeader('X-Workbook-Revision', String(state.revision));
+    res.setHeader('X-Workbook-Content-Hash', state.contentHash);
+    res.attachment(state.fileName);
+    return res.sendFile(filePath);
+  }
+);
+
+app.put(
+  '/workbook-helper/v1/content',
+  requireWorkbookHelperContentRate,
+  requireWorkbookHelperSession,
+  workbookHelperUpload.single('file'),
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Файл не найден' });
+    const activeSession = readWorkbookHelperSessionsDb()
+      .find((session) => (
+        session.id === req.workbookHelper.session.id
+        && session.tokenHash === req.workbookHelper.tokenHash
+      ));
+    if (!activeSession) {
+      removeWorkbookUploadedFile(req.file);
+      return res.status(401).json({ error: 'Привязка таблицы была отключена' });
+    }
+    const rawExpectedRevision = req.body?.revision ?? req.headers['x-workbook-revision'];
+    const providedContentHash = req.body?.contentHash ?? req.headers['x-workbook-content-hash'] ?? '';
+    if (
+      rawExpectedRevision === ''
+      || rawExpectedRevision === null
+      || typeof rawExpectedRevision === 'undefined'
+    ) {
+      removeWorkbookUploadedFile(req.file);
+      return res.status(400).json({ error: 'Укажите ревизию таблицы' });
+    }
+    if (!normalizeWorkbookContentHash(providedContentHash)) {
+      removeWorkbookUploadedFile(req.file);
+      return res.status(400).json({ error: 'Укажите SHA-256 загружаемого файла' });
+    }
+    try {
+      const result = await upsertWorkbookSolutionContent({
+        student: req.workbookHelper.student,
+        sourceFileId: req.workbookHelper.sourceFile.id,
+        uploadedFile: req.file,
+        actor: {
+          id: req.workbookHelper.student.id,
+          role: 'student',
+          name: req.workbookHelper.student.name,
+        },
+        source: 'workbook-helper',
+        expectedRevision: rawExpectedRevision,
+        providedContentHash,
+        solutionKey: activeSession.solutionKey,
+        solutionFileId: activeSession.solutionFileId,
+        solutionName: req.body?.solutionName,
+        requireSolutionName: Boolean(activeSession.nameRequired),
+        requiredHelperSessionId: activeSession.id,
+        requiredHelperTokenHash: activeSession.tokenHash,
+      });
+      const nextState = getWorkbookBindingState(
+        req.workbookHelper.student,
+        req.workbookHelper.sourceFile,
+        null,
+        {
+          solutionKey: activeSession.solutionKey,
+          solutionFileId: result.entry?.id,
+          nameRequired: false,
+        }
+      );
+      updateWorkbookHelperSession(activeSession.id, {
+        solutionFileId: String(result.entry?.id || ''),
+        nameRequired: false,
+        revision: result.revision,
+        contentHash: result.contentHash,
+        lastUsedAtMs: Date.now(),
+      });
+      return res.json({
+        file: result.entry,
+        revision: result.revision,
+        contentHash: result.contentHash,
+        unchanged: Boolean(result.unchanged),
+        fileName: String(result.entry?.name || nextState.fileName),
+        solutionName: String(result.entry?.name || nextState.fileName),
+        requiresName: false,
+        nameRequired: false,
+        ...(nextState.solutionKey ? { workbookKey: nextState.solutionKey } : {}),
+      });
+    } catch (error) {
+      return sendWorkbookOperationError(res, error);
+    }
+  }
+);
 
 const handleUploadRequest = (req, res) => {
   const token = getAuthTokenFromRequest(req);
@@ -16486,6 +17438,160 @@ app.get('/api/session', (req, res) => {
     token: String(req.authToken || '').trim(),
   });
 });
+
+app.post('/api/workbook-helper/launch', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!isStudentRole(req.auth)) return forbid(res);
+  if (!req.is('application/json')) {
+    return res.status(415).json({ error: 'Ожидался JSON-запрос' });
+  }
+  const requestedFileId = String(req.body?.fileId || '').trim();
+  if (!requestedFileId) return res.status(400).json({ error: 'fileId required' });
+  const student = findStudentById(req.auth.id);
+  const resolved = student
+    ? resolveWorkbookSourceForStudent(student, requestedFileId)
+    : null;
+  if (!resolved) return res.status(404).json({ error: 'Таблица не найдена' });
+  const solutionFileId = String(resolved.solutionFile?.id || '');
+  const solutionKey = solutionFileId
+    ? resolved.solutionKey
+    : createWorkbookSolutionBindingKey();
+  const nameRequired = !solutionFileId;
+  const state = getWorkbookBindingState(student, resolved.sourceFile, resolved.files, {
+    solutionKey,
+    solutionFileId,
+    nameRequired,
+  });
+  if (!state.contentHash) {
+    return res.status(410).json({ error: 'Файл таблицы больше недоступен' });
+  }
+  const launch = createWorkbookHelperLaunchTicket({
+    studentId: student.id,
+    sourceFileId: resolved.sourceFile.id,
+    launchFileId: resolved.launchFile.id,
+    solutionKey,
+    solutionFileId,
+    nameRequired,
+  });
+  return res.status(201).json({
+    ticket: launch.ticket,
+    expiresAt: new Date(launch.expiresAtMs).toISOString(),
+    workbookKey: state.solutionKey,
+    fileName: state.fileName,
+    solutionName: state.nameRequired ? '' : state.fileName,
+    suggestedName: state.nameRequired ? '' : state.fileName,
+    requiresName: Boolean(state.nameRequired),
+    nameRequired: Boolean(state.nameRequired),
+    revision: state.revision,
+    contentHash: state.contentHash,
+  });
+});
+
+const requireStudentWorkbookSource = (req, res, next) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  const resolved = student
+    ? resolveWorkbookSourceForStudent(student, req.params?.sourceFileId)
+    : null;
+  if (!resolved) return res.status(404).json({ error: 'Исходная таблица не найдена' });
+  req.workbookSolution = {
+    student,
+    sourceFile: resolved.sourceFile,
+    solutionKey: resolved.solutionKey,
+    solutionFileId: resolved.solutionFileId,
+    files: resolved.files,
+  };
+  return next();
+};
+
+app.get(
+  '/api/workbook-solutions/:sourceFileId/content',
+  requireStudentWorkbookSource,
+  (req, res) => {
+    const {
+      student,
+      sourceFile,
+      files,
+      solutionKey,
+      solutionFileId,
+    } = req.workbookSolution;
+    const state = getWorkbookBindingState(student, sourceFile, files, {
+      solutionKey,
+      solutionFileId,
+    });
+    const filePath = getWorkbookStoredFilePath(state.contentFile);
+    if (!filePath || !state.contentHash) {
+      return res.status(410).json({ error: 'Файл таблицы больше недоступен' });
+    }
+    const stat = fs.statSync(filePath);
+    const requestSize = getRangeSize(req.headers.range, stat.size);
+    const usage = getStudentUsage(student.id);
+    if (usage.enabled && (usage.remaining <= 0 || usage.used + requestSize > usage.limit)) {
+      return res.status(429).json({ error: 'Превышен лимит трафика для ученика' });
+    }
+    if (usage.enabled && (usage.used / usage.limit >= STUDENT_TRAFFIC_WARN_RATIO)) {
+      res.setHeader('X-Traffic-Warn', '1');
+    }
+    registerUsageOnFinish(student.id, res, requestSize);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Workbook-Key', state.solutionKey);
+    res.setHeader('X-Workbook-Revision', String(state.revision));
+    res.setHeader('X-Workbook-Content-Hash', state.contentHash);
+    res.attachment(state.fileName);
+    return res.sendFile(filePath);
+  }
+);
+
+app.put(
+  '/api/workbook-solutions/:sourceFileId/content',
+  requireStudentWorkbookSource,
+  workbookHelperUpload.single('file'),
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Файл не найден' });
+    const rawExpectedRevision = req.body?.revision ?? req.headers['x-workbook-revision'];
+    const expectedRevisionText = String(rawExpectedRevision ?? '').trim();
+    if (!expectedRevisionText) {
+      removeWorkbookUploadedFile(req.file);
+      const state = getWorkbookBindingState(
+        req.workbookSolution.student,
+        req.workbookSolution.sourceFile,
+        null,
+        {
+          solutionKey: req.workbookSolution.solutionKey,
+          solutionFileId: req.workbookSolution.solutionFileId,
+        }
+      );
+      return res.status(428).json({
+        error: 'Перед сохранением получите актуальную ревизию таблицы',
+        revision: state.revision,
+        contentHash: state.contentHash,
+      });
+    }
+    const expectedRevision = Number(expectedRevisionText);
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      removeWorkbookUploadedFile(req.file);
+      return res.status(400).json({ error: 'Некорректная ревизия таблицы' });
+    }
+    try {
+      const result = await upsertWorkbookSolutionContent({
+        student: req.workbookSolution.student,
+        sourceFileId: req.workbookSolution.sourceFile.id,
+        uploadedFile: req.file,
+        actor: req.auth,
+        source: normalizeFileMemorySource(req.body?.source, 'workbook-auto-sync'),
+        memory: parseMemoryObject(req.body?.memory),
+        expectedRevision,
+        providedContentHash: req.body?.contentHash ?? req.headers['x-workbook-content-hash'] ?? '',
+        solutionKey: req.workbookSolution.solutionKey,
+        solutionFileId: req.workbookSolution.solutionFileId,
+      });
+      const [entryWithFolderPath] = enrichFilesWithFolderPath([result.entry], readFoldersDb());
+      return res.json(entryWithFolderPath || result.entry);
+    } catch (error) {
+      return sendWorkbookOperationError(res, error);
+    }
+  }
+);
 
 app.get('/api/payment-notifications', (req, res) => {
   const { teacherId } = req.query || {};
@@ -20657,6 +21763,7 @@ app.delete('/api/students/:id', (req, res) => {
   const deletedAt = new Date().toISOString();
   students[idx] = { ...existing, deletedAt };
   writeStudentsDb(students);
+  revokeWorkbookHelperSessionsForStudents([existing.id]);
 
   res.json({ ok: true, deletedAt });
 });
@@ -20803,6 +21910,7 @@ app.delete('/api/teachers/:id', (req, res) => {
   if (toRemove.length > 0) {
     const remaining = students.filter((s) => s.teacherId !== id);
     writeStudentsDb(remaining);
+    revokeWorkbookHelperSessionsForStudents(toRemove.map((student) => student.id));
     hardDeleteStudentData(toRemove.map((student) => student.id));
   }
 
@@ -21186,6 +22294,7 @@ app.post('/api/students/:id/reset-code', (req, res) => {
   };
   students[idx] = updated;
   writeStudentsDb(students);
+  revokeWorkbookHelperSessionsForStudents([updated.id]);
   res.json({ id: updated.id, code: plainCode, codeHint: updated.codeHint });
 });
 
@@ -26819,7 +27928,11 @@ app.delete('/api/test-files/:storageName', (req, res) => {
 app.get('/api/folders', (req, res) => {
   const { taskNumber, category, studentId } = req.query;
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
-  const effectiveStudentId = requestedStudentId || (isStudentRole(req.auth) ? req.auth.id : '');
+  const effectiveStudentId = resolveStudentAccessId({
+    role: req.auth?.role,
+    authenticatedStudentId: req.auth?.id,
+    requestedStudentId,
+  });
   if (!effectiveStudentId && !isAdminRole(req.auth)) {
     return res.status(400).json({ error: 'studentId required' });
   }
@@ -26981,7 +28094,10 @@ app.patch('/api/folders/:id', (req, res) => {
     }
     if (!canWriteLessonSharedByTeacher(req.auth, ownerTeacherId)) return forbid(res);
   } else {
-    if (!ensureStudentAccess(req, res, current.studentId, { allowDeleted: true })) return;
+    if (!ensureStudentAccess(req, res, current.studentId, {
+      allowDeleted: true,
+      strictStudentId: true,
+    })) return;
     ownerStudent = findStudentById(current?.studentId, { allowDeleted: true });
     ownerTeacherId = normalizeTeacherId(current?.teacherId || ownerStudent?.teacherId);
   }
@@ -27104,7 +28220,11 @@ app.delete('/api/folders/:id', (req, res) => {
 app.get('/api/files', (req, res) => {
   const { taskNumber, category, studentId } = req.query;
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
-  const effectiveStudentId = requestedStudentId || (isStudentRole(req.auth) ? req.auth.id : '');
+  const effectiveStudentId = resolveStudentAccessId({
+    role: req.auth?.role,
+    authenticatedStudentId: req.auth?.id,
+    requestedStudentId,
+  });
   if (!effectiveStudentId && !isAdminRole(req.auth)) {
     return res.status(400).json({ error: 'studentId required' });
   }
@@ -27322,7 +28442,10 @@ app.put('/api/files/:id/content', upload.single('file'), (req, res) => {
     removeUploadedFile();
     return res.status(403).json({ error: 'Общий исходный файл нельзя перезаписать' });
   }
-  const student = ensureStudentAccess(req, res, target?.studentId, { allowDeleted: true });
+  const student = ensureStudentAccess(req, res, target?.studentId, {
+    allowDeleted: true,
+    strictStudentId: true,
+  });
   if (!student) {
     removeUploadedFile();
     return;
@@ -27420,7 +28543,10 @@ app.delete('/api/files/:id', (req, res) => {
   const target = db[idx];
   if (isLessonSharedFile(target)) {
     if (!canWriteLessonSharedByTeacher(req.auth, target.teacherId)) return forbid(res);
-  } else if (!ensureStudentAccess(req, res, target?.studentId, { allowDeleted: true })) {
+  } else if (!ensureStudentAccess(req, res, target?.studentId, {
+    allowDeleted: true,
+    strictStudentId: true,
+  })) {
     return;
   }
 
@@ -27455,7 +28581,10 @@ app.patch('/api/files/:id', (req, res) => {
   const isCurrentLessonShared = isLessonSharedFile(current);
   if (isCurrentLessonShared) {
     if (!canWriteLessonSharedByTeacher(req.auth, current?.teacherId)) return forbid(res);
-  } else if (!ensureStudentAccess(req, res, current?.studentId, { allowDeleted: true })) {
+  } else if (!ensureStudentAccess(req, res, current?.studentId, {
+    allowDeleted: true,
+    strictStudentId: true,
+  })) {
     return;
   }
   const ownerStudent = isCurrentLessonShared ? null : findStudentById(current?.studentId, { allowDeleted: true });
@@ -27772,7 +28901,10 @@ app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => 
       cleanupUploadedSnapshot();
       return forbid(res);
     }
-  } else if (!ensureStudentAccess(req, res, current?.studentId, { allowDeleted: true })) {
+  } else if (!ensureStudentAccess(req, res, current?.studentId, {
+    allowDeleted: true,
+    strictStudentId: true,
+  })) {
     cleanupUploadedSnapshot();
     return;
   }
