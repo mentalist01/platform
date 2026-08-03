@@ -4190,11 +4190,7 @@ const NotesSection = ({
                                       e.stopPropagation();
                                       void handleLaunchWorkbookHelper(f);
                                     }}
-                                    className={`notes-explorer-file-action-btn !h-9 !w-auto !min-w-[92px] !gap-1.5 !rounded-xl !border !px-3 !py-1.5 !text-xs !font-extrabold !opacity-100 !shadow-sm transition disabled:!cursor-wait disabled:!opacity-70 ${
-                                      isWorkbookSolution
-                                        ? 'notes-explorer-open-action !min-w-[104px]'
-                                        : '!border-violet-500 !bg-gradient-to-r !from-violet-600 !to-fuchsia-500 !text-white hover:!from-violet-700 hover:!to-fuchsia-600'
-                                    }`}
+                                    className="notes-explorer-file-action-btn notes-explorer-open-action !h-9 !w-auto !min-w-[104px] !gap-1.5 !rounded-xl !border !px-3 !py-1.5 !text-xs !font-extrabold !opacity-100 !shadow-sm transition disabled:!cursor-wait disabled:!opacity-70"
                                     disabled={isWorkbookHelperBusy}
                                     title="Открыть таблицу в Excel или LibreOffice через помощник"
                                     type="button"
