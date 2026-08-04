@@ -293,6 +293,43 @@ test('question workbook helper binds exact attachments and creates a blank task 
     await assertStatus(resumedContentResponse, 200);
     assert.deepEqual(Buffer.from(await resumedContentResponse.arrayBuffer()), solutionBytes);
 
+    const freshLaunchResponse = await launchQuestion({
+      taskNumber: 9,
+      levelId: 'basic',
+      questionId: 'question-9-a',
+      attachmentId: 'attachment-ods',
+      startFresh: true,
+    });
+    await assertStatus(freshLaunchResponse, 201);
+    const freshLaunch = await freshLaunchResponse.json();
+    assert.equal(freshLaunch.hasSolution, true);
+    assert.equal(freshLaunch.startsFresh, true);
+    assert.equal(freshLaunch.revision, 1);
+    assert.equal(freshLaunch.contentHash, sha256(workbookBytes));
+    const freshSession = await exchangeLaunch(baseUrl, freshLaunch);
+    assert.equal(freshSession.exchange.revision, 1);
+    assert.equal(freshSession.exchange.contentHash, sha256(workbookBytes));
+    const freshContentResponse = await fetch(`${baseUrl}/workbook-helper/v1/content`, {
+      headers: { Authorization: freshSession.authorization },
+    });
+    await assertStatus(freshContentResponse, 200);
+    assert.equal(freshContentResponse.headers.get('x-workbook-revision'), '1');
+    assert.deepEqual(Buffer.from(await freshContentResponse.arrayBuffer()), workbookBytes);
+
+    const freshSolutionBytes = Buffer.from('student restarted this workbook from its source');
+    const freshSaveResponse = await putWorkbook({
+      baseUrl,
+      authorization: freshSession.authorization,
+      bytes: freshSolutionBytes,
+      revision: 1,
+      fileName: 'source.ods',
+    });
+    await assertStatus(freshSaveResponse, 200);
+    const freshSaved = await freshSaveResponse.json();
+    assert.equal(freshSaved.revision, 2);
+    assert.equal(freshSaved.file.id, saved.file.id);
+    assert.deepEqual(fs.readFileSync(path.join(uploadsDir, workbookStorageName)), workbookBytes);
+
     const task26LaunchResponse = await launchQuestion({
       taskNumber: 26,
       levelId: 'basic',

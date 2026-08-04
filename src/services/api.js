@@ -2108,6 +2108,7 @@ export const api = {
         levelId: payload.levelId,
         questionId: payload.questionId,
         attachmentId: payload.attachmentId,
+        startFresh: payload.startFresh === true,
       }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));

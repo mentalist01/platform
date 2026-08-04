@@ -147,6 +147,7 @@ export const normalizeWorkbookHelperSessions = (value, options = {}) => {
       const solutionKey = normalizeText(entry.solutionKey).toLowerCase();
       const solutionFileId = normalizeText(entry.solutionFileId);
       const nameRequired = typeof entry.nameRequired === 'boolean' ? entry.nameRequired : false;
+      const startsFresh = entry.startsFresh === true;
       const contentHash = normalizeWorkbookContentHash(entry.contentHash);
       const createdAtMs = Number(entry.createdAtMs);
       const lastUsedAtMs = Number(entry.lastUsedAtMs);
@@ -174,6 +175,7 @@ export const normalizeWorkbookHelperSessions = (value, options = {}) => {
         solutionKey,
         solutionFileId,
         nameRequired,
+        startsFresh,
         revision,
         contentHash,
         createdAtMs: Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : nowMs,

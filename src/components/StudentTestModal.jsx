@@ -1933,7 +1933,7 @@ const StudentTestModal = ({
     };
   }, [activeQuestion, activeQuestionId, level, stage, studentId, task?.number]);
 
-  const handleLaunchQuestionWorkbook = useCallback(async (file) => {
+  const handleLaunchQuestionWorkbook = useCallback(async (file, { startFresh = false } = {}) => {
     const attachmentId = getTestAttachmentId(file);
     if (!attachmentId || !activeQuestionId || !level) return { ok: false };
     if (isTask26TextWorkbookSource(task?.number, file) && file?.url && typeof window !== 'undefined') {
@@ -1947,6 +1947,7 @@ const StudentTestModal = ({
         levelId: level,
         questionId: activeQuestionId,
         attachmentId,
+        startFresh,
       },
     });
     const solution = result?.payload?.solution;
@@ -3406,15 +3407,39 @@ const StudentTestModal = ({
                           <span>{file.name}</span>
                         </a>
                         {canSolve && (
-                          <button
-                            type="button"
-                            onClick={() => void handleLaunchQuestionWorkbook(file)}
-                            disabled={isOpening}
-                            className="inline-flex min-h-[30px] shrink-0 items-center gap-1 rounded-lg bg-violet-600 px-2.5 text-[11px] font-extrabold text-white transition hover:bg-violet-500 disabled:cursor-wait disabled:opacity-70"
-                          >
-                            <FileSpreadsheet size={14} />
-                            {isOpening ? 'Открываем…' : (hasSolution ? 'Продолжить' : 'Решать')}
-                          </button>
+                          <div className="inline-flex shrink-0 flex-wrap items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void handleLaunchQuestionWorkbook(file)}
+                              disabled={isOpening}
+                              className={`inline-flex min-h-[30px] items-center gap-1 rounded-lg border px-2.5 text-[11px] font-bold transition disabled:cursor-wait disabled:opacity-60 ${
+                                isQuestionCodeDarkTheme
+                                  ? 'border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20'
+                                  : 'border-violet-200 bg-violet-50/80 text-violet-700 hover:bg-violet-100'
+                              }`}
+                            >
+                              <FileSpreadsheet size={14} />
+                              {isOpening && workbookHelperState.launchMode !== 'fresh'
+                                ? 'Открываем…'
+                                : (hasSolution ? 'Продолжить' : 'Решать')}
+                            </button>
+                            {hasSolution && (
+                              <button
+                                type="button"
+                                onClick={() => void handleLaunchQuestionWorkbook(file, { startFresh: true })}
+                                disabled={isOpening}
+                                title="Открыть чистый исходник. Старое решение заменится только после сохранения"
+                                className={`inline-flex min-h-[30px] items-center gap-1 rounded-lg border px-2 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                                  isQuestionCodeDarkTheme
+                                    ? 'border-slate-600 bg-slate-900 text-slate-300 hover:border-violet-500 hover:text-violet-200'
+                                    : 'border-slate-200 bg-white text-slate-500 hover:border-violet-200 hover:text-violet-700'
+                                }`}
+                              >
+                                <RefreshCcw size={13} />
+                                {isOpening && workbookHelperState.launchMode === 'fresh' ? 'Открываем…' : 'Решить заново'}
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     );
@@ -3972,15 +3997,39 @@ const StudentTestModal = ({
                           <Download size={16} className="shrink-0 text-purple-600" />
                         </a>
                         {canSolve && (
-                          <button
-                            type="button"
-                            onClick={() => void handleLaunchQuestionWorkbook(file)}
-                            disabled={isOpening}
-                            className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 px-3 font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-wait disabled:opacity-70"
-                          >
-                            <FileSpreadsheet size={16} />
-                            {isOpening ? 'Открываем…' : (hasSolution ? 'Продолжить' : 'Решать')}
-                          </button>
+                          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => void handleLaunchQuestionWorkbook(file)}
+                              disabled={isOpening}
+                              className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 font-bold transition disabled:cursor-wait disabled:opacity-60 ${
+                                isQuestionCodeDarkTheme
+                                  ? 'border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20'
+                                  : 'border-violet-200 bg-violet-50/80 text-violet-700 hover:bg-violet-100'
+                              }`}
+                            >
+                              <FileSpreadsheet size={16} />
+                              {isOpening && workbookHelperState.launchMode !== 'fresh'
+                                ? 'Открываем…'
+                                : (hasSolution ? 'Продолжить' : 'Решать')}
+                            </button>
+                            {hasSolution && (
+                              <button
+                                type="button"
+                                onClick={() => void handleLaunchQuestionWorkbook(file, { startFresh: true })}
+                                disabled={isOpening}
+                                title="Открыть чистый исходник. Старое решение заменится только после сохранения"
+                                className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                                  isQuestionCodeDarkTheme
+                                    ? 'border-slate-600 bg-slate-900 text-slate-300 hover:border-violet-500 hover:text-violet-200'
+                                    : 'border-slate-200 bg-white text-slate-500 hover:border-violet-200 hover:text-violet-700'
+                                }`}
+                              >
+                                <RefreshCcw size={15} />
+                                {isOpening && workbookHelperState.launchMode === 'fresh' ? 'Открываем…' : 'Решить заново'}
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     );

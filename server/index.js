@@ -16532,6 +16532,14 @@ const getWorkbookBindingState = (student, sourceFile, filesOverride = null, bind
   };
 };
 
+const getWorkbookLaunchContent = (sourceFile, state, startsFresh = false) => {
+  const launchFile = startsFresh ? sourceFile : state?.contentFile;
+  const contentHash = getWorkbookFileContentHash(launchFile);
+  return launchFile && getWorkbookStoredFilePath(launchFile) && contentHash
+    ? { launchFile, contentHash }
+    : null;
+};
+
 const normalizeWorkbookSolutionFolderName = (value) => String(value || '')
   .trim()
   .toLocaleLowerCase('ru-RU')
@@ -17034,6 +17042,7 @@ const createWorkbookHelperLaunchTicket = ({
   solutionKey,
   solutionFileId = '',
   nameRequired = false,
+  startsFresh = false,
 }) => {
   pruneWorkbookHelperLaunchTickets();
   const ticket = createWorkbookHelperToken();
@@ -17046,6 +17055,7 @@ const createWorkbookHelperLaunchTicket = ({
     solutionKey: normalizeWorkbookSolutionKey(solutionKey),
     solutionFileId: String(solutionFileId || '').trim(),
     nameRequired: Boolean(nameRequired),
+    startsFresh: Boolean(startsFresh),
     createdAtMs: nowMs,
     expiresAtMs: nowMs + WORKBOOK_HELPER_TICKET_TTL_MS,
   };
@@ -17184,11 +17194,17 @@ const getWorkbookHelperSessionContext = (session) => {
     state.solutionKey !== session.solutionKey
     || (session.solutionFileId && state.solutionFile?.id !== session.solutionFileId)
   ) return null;
-  if (!state.contentFile || !getWorkbookStoredFilePath(state.contentFile) || !state.contentHash) return null;
+  const launchContent = getWorkbookLaunchContent(
+    resolved.sourceFile,
+    state,
+    session.startsFresh
+  );
+  if (!launchContent) return null;
   return {
     student,
     sourceFile: resolved.sourceFile,
-    launchFile: resolved.files.find((entry) => entry?.id === session.launchFileId) || resolved.sourceFile,
+    launchFile: launchContent.launchFile,
+    launchContentHash: launchContent.contentHash,
     state,
   };
 };
@@ -17275,10 +17291,15 @@ app.post('/workbook-helper/v1/exchange', (req, res) => {
     solutionFileId: ticket.solutionFileId,
     nameRequired: ticket.nameRequired,
   });
+  const launchContent = getWorkbookLaunchContent(
+    resolved.sourceFile,
+    state,
+    ticket.startsFresh
+  );
   if (
     !ticketSolutionKey
     || (ticket.solutionFileId && state.solutionFile?.id !== ticket.solutionFileId)
-    || !state.contentHash
+    || !launchContent
   ) {
     workbookHelperLaunchTickets.delete(ticketHash);
     return res.status(410).json({ error: 'Файл таблицы не найден' });
@@ -17297,6 +17318,7 @@ app.post('/workbook-helper/v1/exchange', (req, res) => {
       solutionKey: ticketSolutionKey,
       solutionFileId: String(state.solutionFile?.id || ''),
       nameRequired: Boolean(state.nameRequired),
+      startsFresh: Boolean(ticket.startsFresh),
       revision: state.revision,
       contentHash: state.contentHash,
       createdAtMs: nowMs,
@@ -17315,7 +17337,7 @@ app.post('/workbook-helper/v1/exchange', (req, res) => {
       requiresName: Boolean(state.nameRequired),
       nameRequired: Boolean(state.nameRequired),
       revision: state.revision,
-      contentHash: state.contentHash,
+      contentHash: launchContent.contentHash,
       expiresAt: new Date(session.expiresAtMs).toISOString(),
     });
   } catch (error) {
@@ -17329,8 +17351,8 @@ app.get(
   requireWorkbookHelperContentRate,
   requireWorkbookHelperSession,
   (req, res) => {
-    const { student, state } = req.workbookHelper;
-    const filePath = getWorkbookStoredFilePath(state.contentFile);
+    const { student, state, launchFile, launchContentHash } = req.workbookHelper;
+    const filePath = getWorkbookStoredFilePath(launchFile);
     if (!filePath) {
       removeWorkbookHelperSession(req.workbookHelper.session.id);
       return res.status(410).json({ error: 'Файл таблицы больше недоступен' });
@@ -17348,7 +17370,7 @@ app.get(
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Workbook-Key', state.solutionKey);
     res.setHeader('X-Workbook-Revision', String(state.revision));
-    res.setHeader('X-Workbook-Content-Hash', state.contentHash);
+    res.setHeader('X-Workbook-Content-Hash', launchContentHash);
     res.attachment(state.fileName);
     return res.sendFile(filePath);
   }
@@ -17910,6 +17932,7 @@ app.post('/api/workbook-helper/question-launch', (req, res) => {
     );
     if (!resolved) throw createWorkbookHttpError(410, 'Таблица больше недоступна');
     const solutionFileId = String(solutionFile?.id || '');
+    const startFresh = req.body?.startFresh === true && Boolean(solutionFile);
     const state = getWorkbookBindingState(student, sourceFile, ensured.files, {
       solutionKey,
       solutionFileId,
@@ -17919,10 +17942,11 @@ app.post('/api/workbook-helper/question-launch', (req, res) => {
     const launch = createWorkbookHelperLaunchTicket({
       studentId: student.id,
       sourceFileId: sourceFile.id,
-      launchFileId: solutionFile?.id || sourceFile.id,
+      launchFileId: startFresh ? sourceFile.id : (solutionFile?.id || sourceFile.id),
       solutionKey,
       solutionFileId,
       nameRequired: false,
+      startsFresh: startFresh,
     });
     return res.status(201).json({
       ticket: launch.ticket,
@@ -17935,8 +17959,9 @@ app.post('/api/workbook-helper/question-launch', (req, res) => {
       requiresName: false,
       nameRequired: false,
       revision: state.revision,
-      contentHash: state.contentHash,
+      contentHash: startFresh ? getWorkbookFileContentHash(sourceFile) : state.contentHash,
       hasSolution: Boolean(solutionFile),
+      startsFresh: startFresh,
       solution: solutionFile ? serializeWorkbookQuestionSolution(solutionFile) : null,
       opensSourceText: Boolean(target.blankForTask26),
     });

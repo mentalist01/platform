@@ -120,6 +120,7 @@ test('drops expired, revoked and duplicate helper sessions', () => {
     solutionKey: 'b'.repeat(64),
     solutionFileId: '',
     nameRequired: true,
+    startsFresh: true,
     revision: 2,
     contentHash: 'e'.repeat(64),
     createdAtMs: nowMs - 1000,
@@ -137,12 +138,15 @@ test('drops expired, revoked and duplicate helper sessions', () => {
   assert.equal(normalized[0].revision, 2);
   assert.equal(normalized[0].contentHash, 'e'.repeat(64));
   assert.equal(normalized[0].nameRequired, true);
+  assert.equal(normalized[0].startsFresh, true);
 
   const [legacy] = normalizeWorkbookHelperSessions([{
     ...base,
     id: 'legacy-session',
     tokenHash: 'f'.repeat(64),
     nameRequired: undefined,
+    startsFresh: undefined,
   }], { nowMs });
   assert.equal(legacy.nameRequired, false);
+  assert.equal(legacy.startsFresh, false);
 });
