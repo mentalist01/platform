@@ -89,10 +89,12 @@ test('workbook helper keeps multiple named solutions bound to their exact result
   fs.mkdirSync(uploadsDir, { recursive: true });
 
   const sourceBytes = Buffer.from('source workbook bytes');
+  const task26TextBytes = Buffer.from('1;2;3\n4;5;6\n');
   const foreignSourceBytes = Buffer.from('another student workbook bytes');
   const foreignSourceStorageName = 'source-b-foreign.ods';
   const sourceStorageName = 'source-a-Таблица.ods';
   fs.writeFileSync(path.join(uploadsDir, sourceStorageName), sourceBytes);
+  fs.writeFileSync(path.join(uploadsDir, 'task26-material.txt'), task26TextBytes);
   fs.writeFileSync(path.join(uploadsDir, foreignSourceStorageName), foreignSourceBytes);
   fs.writeFileSync(path.join(dataDir, 'teachers.json'), JSON.stringify([{
     id: 'teacher-a',
@@ -121,6 +123,16 @@ test('workbook helper keeps multiple named solutions bound to their exact result
     createdAt: new Date().toISOString(),
     url: `/uploads/${sourceStorageName}`,
     storageName: sourceStorageName,
+  }, {
+    id: 'task26-text-a',
+    studentId: 'student-a',
+    taskNumber: 26,
+    category: 'class',
+    name: '26_1.txt',
+    sizeBytes: task26TextBytes.length,
+    createdAt: new Date().toISOString(),
+    url: '/uploads/task26-material.txt',
+    storageName: 'task26-material.txt',
   }]));
   const studentsFixture = JSON.parse(fs.readFileSync(path.join(dataDir, 'students.json'), 'utf8'));
   studentsFixture.push({
@@ -187,6 +199,28 @@ test('workbook helper keeps multiple named solutions bound to their exact result
     await assertStatus(loginResponse, 200);
     const login = await loginResponse.json();
     const userAuthorization = `Bearer ${login.token}`;
+
+    const task26LaunchResponse = await fetch(`${baseUrl}/api/workbook-helper/launch`, {
+      method: 'POST',
+      headers: { Authorization: userAuthorization, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'task26-text-a' }),
+    });
+    await assertStatus(task26LaunchResponse, 201);
+    const task26Launch = await task26LaunchResponse.json();
+    assert.equal(task26Launch.opensSourceText, true);
+    assert.match(task26Launch.fileName, /\.fods$/i);
+    const task26ExchangeResponse = await fetch(`${baseUrl}/workbook-helper/v1/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket: task26Launch.ticket }),
+    });
+    await assertStatus(task26ExchangeResponse, 200);
+    const task26Exchange = await task26ExchangeResponse.json();
+    const task26ContentResponse = await fetch(`${baseUrl}/workbook-helper/v1/content`, {
+      headers: { Authorization: `Workbook ${task26Exchange.token}` },
+    });
+    await assertStatus(task26ContentResponse, 200);
+    assert.match(Buffer.from(await task26ContentResponse.arrayBuffer()).toString('utf8'), /office:spreadsheet/);
 
     const foreignLaunchResponse = await fetch(`${baseUrl}/api/workbook-helper/launch`, {
       method: 'POST',
@@ -261,7 +295,7 @@ test('workbook helper keeps multiple named solutions bound to their exact result
       path.join(dataDir, 'workbook-helper-sessions.json'),
       'utf8'
     ));
-    assert.equal(sessionsOnDisk.length, 1);
+    assert.equal(sessionsOnDisk.length, 2);
     assert.equal(JSON.stringify(sessionsOnDisk).includes(exchange.token), false);
     assert.match(sessionsOnDisk[0].tokenHash, /^[0-9a-f]{64}$/);
 

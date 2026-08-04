@@ -16737,12 +16737,91 @@ const ensureWorkbookQuestionSource = ({ student, target }) => {
   return { files, source };
 };
 
-const serializeWorkbookQuestionSolution = (entry) => ({
+const ensureTask26MaterialWorkbookSource = ({ student, textFile, files: filesOverride }) => {
+  const files = Array.isArray(filesOverride) ? filesOverride : readFilesDb();
+  const sourceMarker = String(textFile?.id || '').trim();
+  let source = files.find((entry) => (
+    entry?.workbookTask26TextSourceFileId === sourceMarker
+    && String(entry?.studentId || '').trim() === String(student?.id || '').trim()
+  ));
+  const storageName = path.basename(String(source?.workbookQuestionStorageName || '').trim())
+    || `workbook-task26-${crypto.randomUUID()}.fods`;
+  const storagePath = path.join(uploadsDir, storageName);
+  if (!fs.existsSync(storagePath)) fs.writeFileSync(storagePath, BLANK_QUESTION_FODS, 'utf8');
+  const nowIso = new Date().toISOString();
+  const sourceName = `${path.basename(String(textFile?.name || 'Задание'), path.extname(String(textFile?.name || '')))} — таблица.fods`;
+  source = {
+    ...(source || {}),
+    id: source?.id || crypto.randomUUID(),
+    studentId: String(student.id),
+    taskNumber: 26,
+    category: String(textFile?.category || 'class'),
+    folderId: textFile?.folderId || null,
+    folderName: textFile?.folderName || null,
+    name: sourceName,
+    size: formatSize(Buffer.byteLength(BLANK_QUESTION_FODS)),
+    sizeBytes: Buffer.byteLength(BLANK_QUESTION_FODS),
+    date: source?.date || new Date(nowIso).toLocaleDateString('ru-RU'),
+    createdAt: source?.createdAt || nowIso,
+    updatedAt: nowIso,
+    workbookQuestionVirtualSource: true,
+    workbookQuestionStorageName: storageName,
+    workbookTask26TextSourceFileId: sourceMarker,
+    workbookContentHash: crypto.createHash('sha256').update(BLANK_QUESTION_FODS).digest('hex'),
+  };
+  const sourceIndex = files.findIndex((entry) => entry?.id === source.id);
+  if (sourceIndex >= 0) files[sourceIndex] = source;
+  else files.unshift(source);
+  writeFilesDb(files);
+  return { files, source };
+};
+
+const MAX_WORKBOOK_QUESTION_SOLUTIONS = 3;
+
+const buildWorkbookQuestionSolutionKey = (studentId, sourceFileId, slot = 1) => (
+  Number(slot) <= 1
+    ? buildWorkbookSolutionKey(studentId, sourceFileId)
+    : buildWorkbookSolutionKey(studentId, `${sourceFileId}:question-solution:${slot}`)
+);
+
+const getWorkbookQuestionSolutionEntries = (files, studentId, sourceFileId) => {
+  const usedSlots = new Set();
+  return (Array.isArray(files) ? files : [])
+    .filter((entry) => (
+      entry?.workbookQuestionSolution === true
+      && String(entry?.studentId || '').trim() === String(studentId || '').trim()
+      && String(entry?.workbookSourceFileId || '').trim() === String(sourceFileId || '').trim()
+    ))
+    .sort((left, right) => (
+      Date.parse(String(left?.createdAt || left?.updatedAt || ''))
+      - Date.parse(String(right?.createdAt || right?.updatedAt || ''))
+    ))
+    .map((entry) => {
+      let slot = Math.floor(Number(entry?.workbookQuestionSolutionSlot) || 0);
+      if (slot < 1 || slot > MAX_WORKBOOK_QUESTION_SOLUTIONS || usedSlots.has(slot)) {
+        slot = Array.from({ length: MAX_WORKBOOK_QUESTION_SOLUTIONS }, (_, index) => index + 1)
+          .find((candidate) => !usedSlots.has(candidate)) || 0;
+      }
+      if (slot) usedSlots.add(slot);
+      return { entry, slot };
+    })
+    .filter(({ slot }) => slot > 0);
+};
+
+const buildWorkbookQuestionSolutionName = (sourceName, slot = 1) => {
+  const baseName = buildWorkbookSolutionName(sourceName);
+  if (Number(slot) <= 1) return baseName;
+  const extension = path.extname(baseName);
+  return `${path.basename(baseName, extension)} ${slot}${extension}`;
+};
+
+const serializeWorkbookQuestionSolution = (entry, slot = entry?.workbookQuestionSolutionSlot || 1) => ({
   fileId: String(entry?.id || ''),
   sourceFileId: String(entry?.workbookSourceFileId || ''),
   attachmentId: String(entry?.workbookQuestionContext?.attachmentId || ''),
   name: String(entry?.name || ''),
   revision: Math.max(0, Math.floor(Number(entry?.workbookRevision) || 0)),
+  slot: Math.max(1, Math.floor(Number(slot) || 1)),
   updatedAt: String(entry?.updatedAt || entry?.createdAt || ''),
 });
 
@@ -16858,6 +16937,27 @@ const upsertWorkbookSolutionContent = ({
       if (solutionFileId && !existing) {
         throw createWorkbookHttpError(410, 'Сохранённое решение больше недоступно');
       }
+      const questionSolutions = sourceFile?.workbookQuestionContext
+        ? getWorkbookQuestionSolutionEntries(files, student.id, sourceFile.id)
+        : [];
+      const existingQuestionSolution = existing
+        ? questionSolutions.find(({ entry }) => entry.id === existing.id)
+        : null;
+      const questionSolutionSlot = existingQuestionSolution?.slot || (
+        sourceFile?.workbookQuestionContext
+          ? Array.from({ length: MAX_WORKBOOK_QUESTION_SOLUTIONS }, (_, index) => index + 1)
+            .find((slot) => (
+              buildWorkbookQuestionSolutionKey(student.id, sourceFile.id, slot) === solutionKey
+            )) || 0
+          : 0
+      );
+      if (!existing && sourceFile?.workbookQuestionContext && (
+        !questionSolutionSlot
+        || questionSolutions.length >= MAX_WORKBOOK_QUESTION_SOLUTIONS
+        || questionSolutions.some(({ slot }) => slot === questionSolutionSlot)
+      )) {
+        throw createWorkbookHttpError(409, 'Можно сохранить не больше трёх решений');
+      }
       const currentRevision = existing
         ? Math.max(0, Math.floor(Number(existing.workbookRevision) || 0))
         : 0;
@@ -16900,6 +17000,8 @@ const upsertWorkbookSolutionContent = ({
           throw createWorkbookHttpError(409, 'Имя сохранённого решения нельзя изменить');
         }
         entryName ||= buildWorkbookSolutionName(sourceFile.name);
+      } else if (questionSolutionSlot) {
+        entryName = buildWorkbookQuestionSolutionName(sourceFile.name, questionSolutionSlot);
       } else if (requireSolutionName) {
         if (!namedSolution) {
           throw createWorkbookHttpError(400, 'Укажите короткое безопасное имя решения');
@@ -16979,6 +17081,7 @@ const upsertWorkbookSolutionContent = ({
         ...(sourceFile?.workbookQuestionContext ? {
           workbookQuestionContext: { ...sourceFile.workbookQuestionContext },
           workbookQuestionSolution: true,
+          workbookQuestionSolutionSlot: questionSolutionSlot,
         } : {}),
         ...(String(sourceFile.category || '').trim() === 'class' ? {
           lessonStudentId: student.id,
@@ -17825,9 +17928,24 @@ app.post('/api/workbook-helper/launch', (req, res) => {
   const requestedFileId = String(req.body?.fileId || '').trim();
   if (!requestedFileId) return res.status(400).json({ error: 'fileId required' });
   const student = findStudentById(req.auth.id);
-  const resolved = student
+  let resolved = student
     ? resolveWorkbookSourceForStudent(student, requestedFileId)
     : null;
+  let opensSourceText = false;
+  if (!resolved && student) {
+    const files = readFilesDb();
+    const textFile = files.find((entry) => String(entry?.id || '').trim() === requestedFileId);
+    if (
+      textFile
+      && isWorkbookFileAccessibleToStudent(student, textFile)
+      && isTask26TextAttachment(textFile.taskNumber, textFile.name)
+      && getWorkbookStoredFilePath(textFile)
+    ) {
+      const ensured = ensureTask26MaterialWorkbookSource({ student, textFile, files });
+      resolved = resolveWorkbookSourceForStudent(student, ensured.source.id, ensured.files);
+      opensSourceText = Boolean(resolved);
+    }
+  }
   if (!resolved) return res.status(404).json({ error: 'Таблица не найдена' });
   const solutionFileId = String(resolved.solutionFile?.id || '');
   const solutionKey = solutionFileId
@@ -17861,6 +17979,7 @@ app.post('/api/workbook-helper/launch', (req, res) => {
     nameRequired: Boolean(state.nameRequired),
     revision: state.revision,
     contentHash: state.contentHash,
+    opensSourceText,
   });
 });
 
@@ -17880,24 +17999,27 @@ app.get('/api/workbook-helper/question-solutions', (req, res) => {
   const { question } = getQuestionEntryFromTestsDb(testsDb, taskNumber, levelId, questionId);
   if (!question) return res.status(404).json({ error: 'Вопрос не найден' });
   const context = { taskNumber, levelId, questionId };
-  const latestByAttachment = new Map();
-  readFilesDb()
-    .filter((entry) => (
+  const files = readFilesDb();
+  const matchingEntries = files.filter((entry) => (
       entry?.workbookQuestionSolution === true
       && String(entry?.studentId || '').trim() === String(student.id || '').trim()
       && workbookQuestionContextMatches(entry?.workbookQuestionContext, context, { includeAttachment: false })
+    ));
+  const sourceIds = new Set(matchingEntries.map((entry) => String(entry.workbookSourceFileId || '')));
+  const solutions = Array.from(sourceIds)
+    .flatMap((sourceFileId) => (
+      getWorkbookQuestionSolutionEntries(files, student.id, sourceFileId)
+        .filter(({ entry }) => workbookQuestionContextMatches(
+          entry?.workbookQuestionContext,
+          context,
+          { includeAttachment: false }
+        ))
+        .map(({ entry, slot }) => serializeWorkbookQuestionSolution(entry, slot))
     ))
     .sort((left, right) => (
-      Date.parse(String(right?.updatedAt || right?.createdAt || ''))
-      - Date.parse(String(left?.updatedAt || left?.createdAt || ''))
-    ))
-    .forEach((entry) => {
-      const attachmentId = String(entry?.workbookQuestionContext?.attachmentId || '').trim();
-      if (attachmentId && !latestByAttachment.has(attachmentId)) {
-        latestByAttachment.set(attachmentId, serializeWorkbookQuestionSolution(entry));
-      }
-    });
-  return res.json({ solutions: Array.from(latestByAttachment.values()) });
+      String(left.attachmentId).localeCompare(String(right.attachmentId)) || left.slot - right.slot
+    ));
+  return res.json({ solutions });
 });
 
 app.post('/api/workbook-helper/question-launch', (req, res) => {
@@ -17918,21 +18040,44 @@ app.post('/api/workbook-helper/question-launch', (req, res) => {
     });
     const ensured = ensureWorkbookQuestionSource({ student, target });
     const sourceFile = ensured.source;
-    const solutionKey = buildWorkbookSolutionKey(student.id, sourceFile.id);
-    const solutionFile = findWorkbookSolutionEntry(
+    const savedSolutions = getWorkbookQuestionSolutionEntries(
       ensured.files,
       student.id,
-      sourceFile.id,
-      solutionKey
+      sourceFile.id
     );
+    const requestedSolutionFileId = String(req.body?.solutionFileId || '').trim();
+    const requestedSolution = requestedSolutionFileId
+      ? savedSolutions.find(({ entry }) => entry.id === requestedSolutionFileId)
+      : null;
+    if (requestedSolutionFileId && !requestedSolution) {
+      throw createWorkbookHttpError(404, 'Сохранённое решение не найдено');
+    }
+    const startFresh = req.body?.startFresh === true;
+    const selectedSolution = requestedSolution || (!startFresh
+      ? [...savedSolutions].sort((left, right) => (
+        Date.parse(String(right.entry?.updatedAt || right.entry?.createdAt || ''))
+        - Date.parse(String(left.entry?.updatedAt || left.entry?.createdAt || ''))
+      ))[0]
+      : null);
+    const solutionSlot = startFresh
+      ? Array.from({ length: MAX_WORKBOOK_QUESTION_SOLUTIONS }, (_, index) => index + 1)
+        .find((slot) => !savedSolutions.some((saved) => saved.slot === slot))
+      : (selectedSolution?.slot || 1);
+    if (!solutionSlot) {
+      throw createWorkbookHttpError(409, 'Уже сохранено три решения. Удалите одно, чтобы начать новое.');
+    }
+    const solutionFile = startFresh ? null : selectedSolution?.entry;
+    const solutionKey = solutionFile
+      ? (normalizeWorkbookSolutionKey(solutionFile.workbookSolutionKey)
+        || buildWorkbookQuestionSolutionKey(student.id, sourceFile.id, solutionSlot))
+      : buildWorkbookQuestionSolutionKey(student.id, sourceFile.id, solutionSlot);
     const resolved = resolveWorkbookSourceForStudent(
       student,
-      solutionFile?.id || sourceFile.id,
+      sourceFile.id,
       ensured.files
     );
     if (!resolved) throw createWorkbookHttpError(410, 'Таблица больше недоступна');
     const solutionFileId = String(solutionFile?.id || '');
-    const startFresh = req.body?.startFresh === true && Boolean(solutionFile);
     const state = getWorkbookBindingState(student, sourceFile, ensured.files, {
       solutionKey,
       solutionFileId,
@@ -17960,9 +18105,11 @@ app.post('/api/workbook-helper/question-launch', (req, res) => {
       nameRequired: false,
       revision: state.revision,
       contentHash: startFresh ? getWorkbookFileContentHash(sourceFile) : state.contentHash,
-      hasSolution: Boolean(solutionFile),
+      hasSolution: savedSolutions.length > 0,
+      solutionCount: savedSolutions.length,
+      canCreateSolution: savedSolutions.length < MAX_WORKBOOK_QUESTION_SOLUTIONS,
       startsFresh: startFresh,
-      solution: solutionFile ? serializeWorkbookQuestionSolution(solutionFile) : null,
+      solution: solutionFile ? serializeWorkbookQuestionSolution(solutionFile, solutionSlot) : null,
       opensSourceText: Boolean(target.blankForTask26),
     });
   } catch (error) {

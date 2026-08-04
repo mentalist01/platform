@@ -34,6 +34,7 @@ const useWorkbookHelper = () => {
     const sourceFileId = String(sourceFile?.id || '').trim();
     const fileName = String(sourceFile?.name || '').trim();
     const launchMode = questionContext?.startFresh === true ? 'fresh' : 'continue';
+    const solutionFileId = String(questionContext?.solutionFileId || '').trim();
     if (!sourceFileId) {
       const error = new Error('Не удалось определить таблицу');
       setState(buildState('error', { message: error.message }));
@@ -46,6 +47,7 @@ const useWorkbookHelper = () => {
       sourceFileId,
       fileName,
       launchMode,
+      solutionFileId,
       message: 'Готовим файл для открытия…',
     }));
     try {
@@ -62,6 +64,7 @@ const useWorkbookHelper = () => {
         sourceFileId,
         fileName: String(payload?.fileName || payload?.suggestedName || fileName).trim(),
         launchMode,
+        solutionFileId,
         message: 'Открываем файл в Excel или LibreOffice…',
         expiresAt: String(payload?.expiresAt || ''),
       }));
@@ -100,7 +103,13 @@ const useWorkbookHelper = () => {
       clearFallbackTimer();
       clearProtocolObservation();
       const message = String(error?.message || '').trim() || 'Не удалось открыть помощник';
-      setState(buildState('error', { sourceFileId, fileName, launchMode, message }));
+      setState(buildState('error', {
+        sourceFileId,
+        fileName,
+        launchMode,
+        solutionFileId,
+        message,
+      }));
       return { ok: false, error };
     }
   }, [clearFallbackTimer, clearProtocolObservation]);

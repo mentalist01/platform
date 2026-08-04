@@ -1734,6 +1734,14 @@ const NotesSection = ({
       || workbookHelperState?.status === 'launching'
       || workbookHelperState?.status === 'opening'
     ) return;
+    if (
+      Number(normalizedCurrentTask) === 26
+      && /\.(txt|csv|tsv)$/i.test(String(file?.name || ''))
+      && typeof window !== 'undefined'
+    ) {
+      const sourceWindow = window.open(getFileUrl(file), '_blank', 'noopener,noreferrer');
+      if (sourceWindow) sourceWindow.opener = null;
+    }
     await onLaunchWorkbookHelper({ sourceFile: file });
   };
 
@@ -3727,6 +3735,8 @@ const NotesSection = ({
                       || memory?.kind === 'workbook-solution'
                       || sourceRaw === 'workbook-auto-sync'
                     );
+                    const isTask26TextWorkbook = Number(normalizedCurrentTask) === 26
+                      && /\.(txt|csv|tsv)$/i.test(String(f?.name || ''));
                     const isSharedTemplate = isSharedTemplateFile(f);
                     const isCommonShared = isSharedFile && !isSharedTemplate;
                     const isCheatsheet = isCheatsheetFile(f);
@@ -4183,7 +4193,7 @@ const NotesSection = ({
                                   <Download size={16} />
                                 </button>
                               )}
-                              {role === 'student' && isExcelFile(f.name) && (
+                              {role === 'student' && (isExcelFile(f.name) || isTask26TextWorkbook) && (
                                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                                   <button
                                     onClick={(e) => {
@@ -4198,7 +4208,7 @@ const NotesSection = ({
                                     <FileSpreadsheet size={15} className={isWorkbookHelperOpening ? 'animate-pulse' : ''} />
                                     <span>{isWorkbookHelperOpening ? 'Открываем…' : (isWorkbookSolution ? 'Продолжить' : 'Решать')}</span>
                                   </button>
-                                  <button
+                                  {isExcelFile(f.name) && <button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       void handleStartWorkbookAutoSync(f);
@@ -4218,7 +4228,7 @@ const NotesSection = ({
                                       ? <Check size={15} />
                                       : <Download size={15} className={isWorkbookAutoSyncStarting ? 'animate-pulse' : ''} />}
                                     <span>{isWorkbookAutoSyncActive ? 'Подключён' : 'Через браузер'}</span>
-                                  </button>
+                                  </button>}
                                 </div>
                               )}
                               {manageable && (
