@@ -209,6 +209,13 @@ const LESSON_REPLAY_AUDIO_MAX_LESSON_BYTES = (() => {
   }
   return 32 * 1024 * 1024;
 })();
+const LESSON_REPLAY_AUDIO_MIN_FREE_BYTES = (() => {
+  const configured = Number(process.env.LESSON_REPLAY_AUDIO_MIN_FREE_BYTES);
+  if (Number.isFinite(configured) && configured >= 256 * 1024 * 1024) {
+    return Math.floor(configured);
+  }
+  return 2 * 1024 * 1024 * 1024;
+})();
 const LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS = 10 * 60 * 1000;
 const LESSON_REPLAY_AUDIO_URL_TTL_SECONDS = 15 * 60;
 const lessonReplayAudioS3Config = {
@@ -243,7 +250,13 @@ const lessonReplayAudioS3 = lessonReplayAudioS3Enabled
 const lessonReplayAudioTicketSweepInterval = setInterval(() => {
   const nowMs = Date.now();
   lessonReplayAudioUploadTickets.forEach((ticket, audioId) => {
-    if (Number(ticket?.expiresAt || 0) < nowMs) lessonReplayAudioUploadTickets.delete(audioId);
+    if (Number(ticket?.expiresAt || 0) >= nowMs) return;
+    if (ticket?.storage === 'local' && ticket?.localFilePath) {
+      try { fs.rmSync(ticket.localFilePath, { force: true }); } catch {
+        // An expired partial upload may already have been removed.
+      }
+    }
+    lessonReplayAudioUploadTickets.delete(audioId);
   });
 }, 10 * 60 * 1000);
 if (typeof lessonReplayAudioTicketSweepInterval.unref === 'function') {
@@ -384,6 +397,7 @@ const lessonTopicsFile = path.join(dataDir, 'lesson-topics.json');
 const lessonHistoryFile = path.join(dataDir, 'lesson-history.json');
 const lessonReplaysDir = path.join(dataDir, 'lesson-replays');
 const lessonReplaySnapshotsDir = path.join(dataDir, 'lesson-replay-snapshots');
+const lessonReplayAudioDir = path.join(dataDir, 'lesson-replay-audio');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const paymentNotificationsFile = path.join(dataDir, 'payment-notifications.json');
 const paymentSenderLinksFile = path.join(dataDir, 'payment-sender-links.json');
@@ -980,6 +994,7 @@ fs.mkdirSync(boardSnapshotsDir, { recursive: true });
 fs.mkdirSync(jsonBackupsDir, { recursive: true });
 fs.mkdirSync(lessonReplaysDir, { recursive: true });
 fs.mkdirSync(lessonReplaySnapshotsDir, { recursive: true });
+fs.mkdirSync(lessonReplayAudioDir, { recursive: true });
 fs.mkdirSync(studentChatsDir, { recursive: true });
 fs.mkdirSync(studentSocialChatsDir, { recursive: true });
 if (RTC_PRESENCE_FS_ENABLED) {
@@ -1974,6 +1989,31 @@ const getLessonReplayAudioObjectKey = (occurrenceKey, audioId, mimeType) => {
     getLessonReplayOccurrenceHash(occurrenceKey),
     `${normalizedId}.${getLessonReplayAudioExtension(mimeType)}`,
   ].filter(Boolean).join('/');
+};
+
+const getLessonReplayAudioFolderPath = (occurrenceKey) => (
+  path.join(lessonReplayAudioDir, getLessonReplayOccurrenceHash(occurrenceKey))
+);
+
+const getLessonReplayAudioLocalFilePath = (occurrenceKey, audioId, mimeType) => {
+  const normalizedId = normalizeLessonReplayAudioId(audioId);
+  if (!normalizedId) return '';
+  return path.join(
+    getLessonReplayAudioFolderPath(occurrenceKey),
+    `${normalizedId}.${getLessonReplayAudioExtension(mimeType)}`
+  );
+};
+
+const hasLessonReplayAudioDiskCapacity = (requiredBytes = 0) => {
+  if (typeof fs.statfsSync !== 'function') return true;
+  try {
+    const stats = fs.statfsSync(lessonReplayAudioDir);
+    const freeBytes = Number(stats.bavail) * Number(stats.bsize);
+    return Number.isFinite(freeBytes)
+      && freeBytes - Math.max(0, Number(requiredBytes) || 0) >= LESSON_REPLAY_AUDIO_MIN_FREE_BYTES;
+  } catch {
+    return true;
+  }
 };
 
 const getLessonReplayFilePath = (occurrenceKey) => (
@@ -26470,9 +26510,6 @@ app.post(
 );
 
 app.get('/api/lesson-replay/audio/:audioId', async (req, res) => {
-  if (!lessonReplayAudioS3) {
-    return res.status(503).json({ error: 'Хранилище аудиозаписей ещё не подключено' });
-  }
   const student = ensureStudentAccess(req, res, req.query?.studentId);
   if (!student) return;
   const occurrenceKey = String(req.query?.occurrenceKey || '').trim();
@@ -26488,6 +26525,27 @@ app.get('/api/lesson-replay/audio/:audioId', async (req, res) => {
     event?.type === 'audio' && event.payload?.audioId === audioId
   ));
   if (!audioEvent) return res.status(404).json({ error: 'Фрагмент аудиозаписи не найден' });
+  if (audioEvent.payload?.storage === 'local') {
+    const localFilePath = getLessonReplayAudioLocalFilePath(
+      occurrenceKey,
+      audioId,
+      audioEvent.payload?.mimeType
+    );
+    try {
+      const stat = fs.statSync(localFilePath);
+      if (!stat.isFile() || stat.size <= 0) throw new Error('missing');
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Type', audioEvent.payload?.mimeType || 'audio/webm');
+      res.setHeader('Content-Disposition', 'inline');
+      return res.sendFile(localFilePath);
+    } catch {
+      return res.status(404).json({ error: 'Фрагмент аудиозаписи не найден на сервере' });
+    }
+  }
+  if (!lessonReplayAudioS3) {
+    return res.status(503).json({ error: 'Внешнее хранилище этой аудиозаписи не подключено' });
+  }
   const objectKey = getLessonReplayAudioObjectKey(
     occurrenceKey,
     audioId,
@@ -26511,9 +26569,6 @@ app.get('/api/lesson-replay/audio/:audioId', async (req, res) => {
 });
 
 app.post('/api/lesson-replay/audio/prepare', async (req, res) => {
-  if (!lessonReplayAudioS3) {
-    return res.status(503).json({ error: 'Хранилище аудиозаписей ещё не подключено' });
-  }
   const sessionId = String(req.body?.sessionId || '').trim();
   const session = activeLessonReplaySessions.get(sessionId);
   if (!session || session.closing) {
@@ -26568,7 +26623,44 @@ app.post('/api/lesson-replay/audio/prepare', async (req, res) => {
   }
   const occurredAtMs = Date.parse(String(req.body?.occurredAt || '').trim());
   const audioId = crypto.randomUUID();
-  const objectKey = getLessonReplayAudioObjectKey(session.occurrenceKey, audioId, mimeType);
+  const storage = lessonReplayAudioS3 ? 's3' : 'local';
+  const objectKey = storage === 's3'
+    ? getLessonReplayAudioObjectKey(session.occurrenceKey, audioId, mimeType)
+    : '';
+  const localFilePath = storage === 'local'
+    ? getLessonReplayAudioLocalFilePath(session.occurrenceKey, audioId, mimeType)
+    : '';
+  const ticket = {
+    audioId,
+    sessionId,
+    occurrenceKey: session.occurrenceKey,
+    studentId: student.id,
+    actorId: session.actorId,
+    actorRole: session.actorRole,
+    actorName: session.actorName,
+    storage,
+    objectKey,
+    localFilePath,
+    mimeType,
+    sizeBytes,
+    durationMs,
+    occurredAt: new Date(Number.isFinite(occurredAtMs) ? occurredAtMs : nowMs).toISOString(),
+    expiresAt: nowMs + LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS,
+  };
+  if (storage === 'local') {
+    if (!hasLessonReplayAudioDiskCapacity(sizeBytes)) {
+      return res.status(507).json({ error: 'На сервере осталось слишком мало места для аудиозаписи' });
+    }
+    lessonReplayAudioUploadTickets.set(audioId, ticket);
+    session.expiresAt = nowMs + LESSON_REPLAY_SESSION_TTL_MS;
+    return res.json({
+      audioId,
+      storage,
+      uploadUrl: `/api/lesson-replay/audio/upload/${encodeURIComponent(audioId)}`,
+      headers: { 'Content-Type': mimeType },
+      expiresAt: new Date(ticket.expiresAt).toISOString(),
+    });
+  }
   try {
     const uploadUrl = await getSignedUrl(
       lessonReplayAudioS3,
@@ -26578,24 +26670,11 @@ app.post('/api/lesson-replay/audio/prepare', async (req, res) => {
       }),
       { expiresIn: Math.round(LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS / 1000) }
     );
-    lessonReplayAudioUploadTickets.set(audioId, {
-      audioId,
-      sessionId,
-      occurrenceKey: session.occurrenceKey,
-      studentId: student.id,
-      actorId: session.actorId,
-      actorRole: session.actorRole,
-      actorName: session.actorName,
-      objectKey,
-      mimeType,
-      sizeBytes,
-      durationMs,
-      occurredAt: new Date(Number.isFinite(occurredAtMs) ? occurredAtMs : nowMs).toISOString(),
-      expiresAt: nowMs + LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS,
-    });
+    lessonReplayAudioUploadTickets.set(audioId, ticket);
     session.expiresAt = nowMs + LESSON_REPLAY_SESSION_TTL_MS;
     return res.json({
       audioId,
+      storage,
       uploadUrl,
       headers: { 'Content-Type': mimeType },
       expiresAt: new Date(nowMs + LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS).toISOString(),
@@ -26606,10 +26685,64 @@ app.post('/api/lesson-replay/audio/prepare', async (req, res) => {
   }
 });
 
-app.post('/api/lesson-replay/audio/complete', async (req, res) => {
-  if (!lessonReplayAudioS3) {
-    return res.status(503).json({ error: 'Хранилище аудиозаписей ещё не подключено' });
+app.put(
+  '/api/lesson-replay/audio/upload/:audioId',
+  express.raw({ type: () => true, limit: LESSON_REPLAY_AUDIO_MAX_SEGMENT_BYTES }),
+  async (req, res) => {
+    const audioId = normalizeLessonReplayAudioId(req.params?.audioId);
+    const ticket = audioId ? lessonReplayAudioUploadTickets.get(audioId) : null;
+    if (!ticket || Number(ticket.expiresAt) < Date.now()) {
+      if (audioId) lessonReplayAudioUploadTickets.delete(audioId);
+      return res.status(410).json({ error: 'Время загрузки аудиофрагмента истекло' });
+    }
+    if (ticket.storage !== 'local') {
+      return res.status(400).json({ error: 'Некорректный способ загрузки аудиофрагмента' });
+    }
+    if (
+      ticket.actorId !== String(req.auth?.id || '').trim()
+      || ticket.actorRole !== String(req.auth?.role || '').trim()
+    ) return forbid(res);
+    const student = ensureStudentAccess(req, res, ticket.studentId);
+    if (!student) return;
+    const requestMimeType = normalizeLessonReplayAudioMimeType(req.headers['content-type']);
+    if (!requestMimeType || requestMimeType !== ticket.mimeType) {
+      return res.status(400).json({ error: 'Формат аудиофрагмента не совпадает' });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length !== ticket.sizeBytes) {
+      return res.status(400).json({ error: 'Аудиофрагмент загрузился не полностью' });
+    }
+    if (!hasLessonReplayAudioDiskCapacity(req.body.length)) {
+      return res.status(507).json({ error: 'На сервере осталось слишком мало места для аудиозаписи' });
+    }
+    const localFilePath = getLessonReplayAudioLocalFilePath(
+      ticket.occurrenceKey,
+      audioId,
+      ticket.mimeType
+    );
+    const audioRoot = `${path.resolve(lessonReplayAudioDir)}${path.sep}`;
+    if (
+      !localFilePath
+      || localFilePath !== ticket.localFilePath
+      || !path.resolve(localFilePath).startsWith(audioRoot)
+    ) return res.status(400).json({ error: 'Некорректный путь аудиофрагмента' });
+
+    const temporaryPath = `${localFilePath}.${crypto.randomUUID()}.upload`;
+    try {
+      await fs.promises.mkdir(path.dirname(localFilePath), { recursive: true });
+      await fs.promises.writeFile(temporaryPath, req.body, { flag: 'wx' });
+      await fs.promises.rename(temporaryPath, localFilePath);
+      ticket.uploaded = true;
+      return res.json({ ok: true, audioId });
+    } catch (error) {
+      console.error('[lesson-replay] failed to store local audio:', error?.message || error);
+      return res.status(507).json({ error: 'Не удалось сохранить аудио на диске сервера' });
+    } finally {
+      fs.promises.rm(temporaryPath, { force: true }).catch(() => null);
+    }
   }
+);
+
+app.post('/api/lesson-replay/audio/complete', async (req, res) => {
   const audioId = normalizeLessonReplayAudioId(req.body?.audioId);
   const ticket = audioId ? lessonReplayAudioUploadTickets.get(audioId) : null;
   if (!ticket || Number(ticket.expiresAt) < Date.now()) {
@@ -26623,11 +26756,31 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
   const student = ensureStudentAccess(req, res, ticket.studentId);
   if (!student) return;
   try {
-    const head = await lessonReplayAudioS3.send(new HeadObjectCommand({
-      Bucket: lessonReplayAudioS3Config.bucket,
-      Key: ticket.objectKey,
-    }));
-    const storedBytes = Math.round(Number(head?.ContentLength) || 0);
+    let storedBytes = 0;
+    if (ticket.storage === 'local') {
+      if (!ticket.uploaded || !ticket.localFilePath) {
+        return res.status(400).json({ error: 'Аудиофрагмент ещё не загружен' });
+      }
+      const expectedPath = getLessonReplayAudioLocalFilePath(
+        ticket.occurrenceKey,
+        audioId,
+        ticket.mimeType
+      );
+      if (ticket.localFilePath !== expectedPath) {
+        return res.status(400).json({ error: 'Некорректный аудиофрагмент' });
+      }
+      const stat = await fs.promises.stat(expectedPath);
+      storedBytes = Math.round(Number(stat?.size) || 0);
+    } else {
+      if (!lessonReplayAudioS3) {
+        return res.status(503).json({ error: 'Внешнее хранилище аудиозаписей не подключено' });
+      }
+      const head = await lessonReplayAudioS3.send(new HeadObjectCommand({
+        Bucket: lessonReplayAudioS3Config.bucket,
+        Key: ticket.objectKey,
+      }));
+      storedBytes = Math.round(Number(head?.ContentLength) || 0);
+    }
     if (storedBytes <= 0 || storedBytes > LESSON_REPLAY_AUDIO_MAX_SEGMENT_BYTES) {
       return res.status(400).json({ error: 'Загруженный аудиофрагмент повреждён' });
     }
@@ -26646,6 +26799,7 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
           audioId,
           durationMs: ticket.durationMs,
           sizeBytes: storedBytes,
+          storage: ticket.storage,
           mimeType: ticket.mimeType,
         },
       }], {

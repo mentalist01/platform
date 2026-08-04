@@ -412,21 +412,28 @@ const useLessonReplayRecorder = ({
         mimeType: blob.type || metadata?.mimeType,
         sizeBytes: blob.size,
       });
-      const uploadResponse = await fetch(prepared.uploadUrl, {
-        method: 'PUT',
-        headers: prepared.headers || { 'Content-Type': blob.type || 'audio/webm;codecs=opus' },
-        body: blob,
-      });
-      if (!uploadResponse.ok) {
-        const uploadError = new Error(`S3 upload failed (${uploadResponse.status})`);
-        uploadError.status = uploadResponse.status;
-        uploadError.stage = 'upload';
-        throw uploadError;
+      if (prepared.storage === 'local') {
+        await api.uploadPreparedLessonReplayAudioSegment(prepared.audioId, blob, {
+          mimeType: blob.type || metadata?.mimeType,
+        });
+      } else {
+        const uploadResponse = await fetch(prepared.uploadUrl, {
+          method: 'PUT',
+          headers: prepared.headers || { 'Content-Type': blob.type || 'audio/webm;codecs=opus' },
+          body: blob,
+        });
+        if (!uploadResponse.ok) {
+          const uploadError = new Error(`Audio upload failed (${uploadResponse.status})`);
+          uploadError.status = uploadResponse.status;
+          uploadError.stage = 'upload';
+          throw uploadError;
+        }
       }
       const result = await api.completeLessonReplayAudioSegment(prepared.audioId);
       return { saved: true, ...result };
     } catch (error) {
       const disabled = error?.status === 503
+        || error?.status === 507
         || error?.status === 413
         || error?.status === 403
         || error?.stage === 'upload';

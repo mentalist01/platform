@@ -214,6 +214,7 @@ test('normalizes compact actor viewport and audio segment metadata', () => {
       audioId: 'segment_01-safe',
       durationMs: 30_100,
       sizeBytes: 121_000,
+      storage: 'local',
       mimeType: 'audio/webm;codecs=opus',
       objectKey: 'must-not-leak',
     },
@@ -222,6 +223,7 @@ test('normalizes compact actor viewport and audio segment metadata', () => {
     audioId: 'segment_01-safe',
     durationMs: 30_100,
     sizeBytes: 121_000,
+    storage: 'local',
     mimeType: 'audio/webm;codecs=opus',
   });
 });
@@ -315,6 +317,61 @@ test('strictly bounds a replay even when one snapshot is larger than the request
   }], { ...eventContext, maxBytes: 1000 });
 
   assert.ok(Buffer.byteLength(JSON.stringify(result.replay), 'utf8') <= 1000);
+});
+
+test('byte compaction preserves board and code history before a final clear', () => {
+  const events = [];
+  for (let index = 0; index < 48; index += 1) {
+    events.push({
+      id: `board-${index}`,
+      type: 'board',
+      occurredAt: new Date(START_MS + index * 2000).toISOString(),
+      payload: {
+        items: [{
+          id: `text-${index}`,
+          type: 'text',
+          text: `${index}:${'x'.repeat(1800)}`,
+          x: index,
+          y: index,
+          width: 300,
+          height: 80,
+        }],
+      },
+    });
+    events.push({
+      id: `code-${index}`,
+      type: 'code',
+      occurredAt: new Date(START_MS + index * 2000 + 1000).toISOString(),
+      payload: { code: `# ${index}\n${'x'.repeat(1200)}` },
+    });
+  }
+  events.push({
+    id: 'board-cleared',
+    type: 'board',
+    occurredAt: new Date(START_MS + 100_000).toISOString(),
+    payload: { items: [] },
+  }, {
+    id: 'code-cleared',
+    type: 'code',
+    occurredAt: new Date(START_MS + 101_000).toISOString(),
+    payload: { code: '' },
+  });
+
+  let result = { replay: createLessonReplay(occurrence, START_MS) };
+  for (let index = 0; index < events.length; index += 48) {
+    result = appendLessonReplayEvents(result.replay, events.slice(index, index + 48), {
+      ...eventContext,
+      maxBytes: 32 * 1024,
+    });
+  }
+  const boardEvents = result.replay.events.filter((event) => event.type === 'board');
+  const codeEvents = result.replay.events.filter((event) => event.type === 'code');
+
+  assert.ok(Buffer.byteLength(JSON.stringify(result.replay), 'utf8') <= 32 * 1024);
+  assert.ok(boardEvents.some((event) => event.payload.items.length > 0));
+  assert.ok(codeEvents.some((event) => event.payload.code.length > 0));
+  assert.equal(boardEvents.at(-1)?.payload.items.length, 0);
+  assert.equal(codeEvents.at(-1)?.payload.code, '');
 });
 
 test('caps a full board snapshot before it can dominate the replay file', () => {

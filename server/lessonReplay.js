@@ -276,6 +276,7 @@ const normalizePayload = (type, value) => {
       audioId,
       durationMs: Math.round(clampNumber(source.durationMs, 250, 10 * 60 * 1000, 30_000)),
       sizeBytes: Math.round(clampNumber(source.sizeBytes, 1, 4 * 1024 * 1024, 1)),
+      storage: source.storage === 'local' ? 'local' : 's3',
       mimeType: [
         'audio/webm',
         'audio/webm;codecs=opus',
@@ -305,6 +306,73 @@ const eventStateKey = (event) => JSON.stringify([
   isSharedSurfaceEvent(event) ? '' : (event.actor?.id || ''),
   event.type === 'viewport' ? (event.payload?.surface || '') : '',
 ]);
+
+const getProgressiveTimelineOrder = (events) => {
+  const source = Array.isArray(events) ? events : [];
+  if (source.length <= 2) return source;
+  const ordered = [];
+  const seen = new Set();
+  const add = (index) => {
+    if (index < 0 || index >= source.length || seen.has(index)) return;
+    seen.add(index);
+    ordered.push(source[index]);
+  };
+  add(0);
+  add(source.length - 1);
+  const ranges = [[0, source.length - 1]];
+  for (let cursor = 0; cursor < ranges.length; cursor += 1) {
+    const [left, right] = ranges[cursor];
+    if (right - left <= 1) continue;
+    const middle = Math.floor((left + right) / 2);
+    add(middle);
+    ranges.push([left, middle], [middle, right]);
+  }
+  return ordered;
+};
+
+const surfaceEventHasContent = (event) => {
+  if (event?.type === 'board') return Array.isArray(event.payload?.items) && event.payload.items.length > 0;
+  if (event?.type === 'code') {
+    return ['code', 'input', 'testFile', 'output', 'error']
+      .some((key) => String(event.payload?.[key] || '').length > 0);
+  }
+  return false;
+};
+
+// Compaction must keep the lesson timeline, not only its final state. In
+// particular, a final empty board must not erase everything drawn before it.
+const getCompactionPriorityEvents = (events) => {
+  const source = Array.isArray(events) ? events : [];
+  const ordered = [];
+  const seenIds = new Set();
+  const add = (event) => {
+    if (!event || seenIds.has(event.id)) return;
+    seenIds.add(event.id);
+    ordered.push(event);
+  };
+
+  add(source.find((event) => event.type === 'session' && event.payload?.action === 'start') || source[0]);
+  source.filter((event) => event.type === 'audio').slice(-360).forEach(add);
+
+  const latestByState = new Map();
+  source.forEach((event) => latestByState.set(eventStateKey(event), event));
+  latestByState.forEach(add);
+
+  const surfaceGroups = ['board', 'code'].map((type) => source.filter((event) => event.type === type));
+  surfaceGroups.forEach((group) => {
+    add(group.find(surfaceEventHasContent));
+    add([...group].reverse().find(surfaceEventHasContent));
+  });
+  const surfaceOrders = surfaceGroups.map(getProgressiveTimelineOrder);
+  const surfaceLength = Math.max(0, ...surfaceOrders.map((group) => group.length));
+  for (let index = 0; index < surfaceLength; index += 1) {
+    surfaceOrders.forEach((group) => add(group[index]));
+  }
+
+  getProgressiveTimelineOrder(source).forEach(add);
+  for (let index = source.length - 1; index >= 0; index -= 1) add(source[index]);
+  return ordered;
+};
 
 export const normalizeLessonReplayEvent = (value, context = {}) => {
   if (!isPlainObject(value)) return null;
@@ -345,16 +413,9 @@ export const normalizeLessonReplayEvent = (value, context = {}) => {
 const trimEventsToCountLimit = (events, maxEvents = LESSON_REPLAY_MAX_EVENTS) => {
   const source = Array.isArray(events) ? events : [];
   if (source.length <= maxEvents) return source;
-  const keepIds = new Set();
-  const firstSession = source.find((event) => event.type === 'session' && event.payload?.action === 'start');
-  keepIds.add((firstSession || source[0]).id);
-  source.filter((event) => event.type === 'audio').slice(-360).forEach((event) => keepIds.add(event.id));
-  const latestByState = new Map();
-  source.forEach((event) => latestByState.set(eventStateKey(event), event));
-  latestByState.forEach((event) => keepIds.add(event.id));
-  for (let index = source.length - 1; index >= 0 && keepIds.size < maxEvents; index -= 1) {
-    keepIds.add(source[index].id);
-  }
+  const keepIds = new Set(
+    getCompactionPriorityEvents(source).slice(0, maxEvents).map((event) => event.id)
+  );
   return source.filter((event) => keepIds.has(event.id));
 };
 
@@ -406,13 +467,6 @@ const trimReplayToByteLimit = (replay, maxBytes, currentBytes = null) => {
   if (initialBytes <= normalizedMaxBytes) return replay;
 
   const events = replay.events;
-  const essentialIds = new Set();
-  const firstSession = events.find((event) => event.type === 'session' && event.payload?.action === 'start');
-  if (firstSession || events[0]) essentialIds.add((firstSession || events[0]).id);
-  events.filter((event) => event.type === 'audio').slice(-360).forEach((event) => essentialIds.add(event.id));
-  const latestByState = new Map();
-  events.forEach((event) => latestByState.set(eventStateKey(event), event));
-  latestByState.forEach((event) => essentialIds.add(event.id));
 
   const baseBytes = Buffer.byteLength(JSON.stringify({ ...replay, events: [] }), 'utf8');
   let selectedBytes = baseBytes;
@@ -424,8 +478,7 @@ const trimReplayToByteLimit = (replay, maxBytes, currentBytes = null) => {
     selectedIds.add(event.id);
     selectedBytes += eventBytes;
   };
-  events.filter((event) => essentialIds.has(event.id)).forEach(addIfFits);
-  for (let index = events.length - 1; index >= 0; index -= 1) addIfFits(events[index]);
+  getCompactionPriorityEvents(events).forEach(addIfFits);
   replay.events = events.filter((event) => selectedIds.has(event.id));
 
   // This should only be needed for unusually tiny custom limits, but keeps the

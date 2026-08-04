@@ -1598,6 +1598,24 @@ export const api = {
     }
     return parseJsonResponse(res);
   },
+  uploadPreparedLessonReplayAudioSegment: async (audioId, blob, metadata = {}) => {
+    const res = await apiFetch(
+      `/api/lesson-replay/audio/upload/${encodeURIComponent(String(audioId || '').trim())}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': String(metadata?.mimeType || blob?.type || 'audio/webm;codecs=opus'),
+        },
+        body: blob,
+      }
+    );
+    if (!res.ok) {
+      const error = new Error(await parseApiError(res));
+      error.status = res.status;
+      throw error;
+    }
+    return parseJsonResponse(res);
+  },
   completeLessonReplayAudioSegment: async (audioId) => {
     const res = await apiFetch('/api/lesson-replay/audio/complete', {
       method: 'POST',

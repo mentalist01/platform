@@ -3348,8 +3348,8 @@ const CollabSection = ({
     if (!payload || typeof lessonReplayEventRef.current !== 'function') return;
     const signature = JSON.stringify(payload);
     if (signature === lessonReplayLastCodeSignatureRef.current) return;
-    lessonReplayLastCodeSignatureRef.current = signature;
-    lessonReplayEventRef.current('code', payload, { dedupeMs: 10_000 });
+    const accepted = lessonReplayEventRef.current('code', payload, { dedupeMs: 10_000 });
+    if (accepted !== false) lessonReplayLastCodeSignatureRef.current = signature;
   }, []);
   const scheduleLessonReplayCodeSnapshot = useCallback((ytext, delayMs = 1400, overrides = {}) => {
     if (!ytext || typeof window === 'undefined') return;
@@ -6761,7 +6761,7 @@ const CollabSection = ({
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
     const handleReplayCodeChange = (_event, transaction) => {
-      if (transaction?.local === false) return;
+      if (transaction?.local === false && role !== 'teacher') return;
       scheduleLessonReplayCodeSnapshot(ytext);
     };
     ytext.observe(handleReplayCodeChange);
@@ -6783,7 +6783,7 @@ const CollabSection = ({
         output: typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? ''),
         error: typeof runMap.get('error') === 'string' ? runMap.get('error') : String(runMap.get('error') ?? ''),
       };
-      const shouldRecordReplay = transaction?.local !== false;
+      const shouldRecordReplay = transaction?.local !== false || role === 'teacher';
       if (shouldRecordReplay) scheduleLessonReplayCodeSnapshot(ytext, 250, replayRunPayload);
       if (
         shouldRecordReplay
@@ -6803,13 +6803,16 @@ const CollabSection = ({
     const syncTestFileFromDoc = (_event, transaction) => {
       const next = normalizeCollabTextFileContent(testFileYText.toString());
       setTestFileText((prev) => (prev === next ? prev : next));
-      if (transaction?.local !== false) {
+      if (transaction?.local !== false || role === 'teacher') {
         scheduleLessonReplayCodeSnapshot(ytext, 1400, { testFile: next });
       }
     };
     testFileYText.observe(syncTestFileFromDoc);
     syncTestFileFromDoc();
     scheduleLessonReplayCodeSnapshot(ytext, 350);
+    const lessonReplayCodeHeartbeatId = window.setInterval(() => {
+      scheduleLessonReplayCodeSnapshot(ytext, 0);
+    }, 30_000);
 
     const handleStatus = (event) => {
       if (event?.status) setStatus(event.status);
@@ -6956,6 +6959,7 @@ const CollabSection = ({
       }
       testFileYText.unobserve(syncTestFileFromDoc);
       ytext.unobserve(handleReplayCodeChange);
+      window.clearInterval(lessonReplayCodeHeartbeatId);
       scheduleLessonReplayCodeSnapshot(ytext, 0);
       flushLessonReplayCodeSnapshot();
       runMap.unobserve(handleRunMapChange);
@@ -6991,6 +6995,7 @@ const CollabSection = ({
     stopCollabTestFileSelectionTracking,
     scheduleLessonReplayCodeSnapshot,
     flushLessonReplayCodeSnapshot,
+    role,
   ]);
 
   const statusLabel = status === 'connected'
@@ -9671,8 +9676,8 @@ const BoardSection = ({
     if (!payload || typeof lessonReplayEventRef.current !== 'function') return;
     const signature = JSON.stringify(payload);
     if (signature === lessonReplayLastBoardSignatureRef.current) return;
-    lessonReplayLastBoardSignatureRef.current = signature;
-    lessonReplayEventRef.current('board', payload, { dedupeMs: 10_000 });
+    const accepted = lessonReplayEventRef.current('board', payload, { dedupeMs: 10_000 });
+    if (accepted !== false) lessonReplayLastBoardSignatureRef.current = signature;
   }, []);
 
   const scheduleLessonReplayBoardSnapshot = useCallback((items, delayMs = 1600) => {
@@ -12350,7 +12355,7 @@ const BoardSection = ({
           renderPlan: { mode: 'full' },
         };
       commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
-      if (transaction?.local !== false) {
+      if (transaction?.local !== false || isTeacher) {
         scheduleLessonReplayBoardSnapshot(nextSnapshot.nextItems);
       }
       scheduleBoardRender();
@@ -12505,9 +12510,13 @@ const BoardSection = ({
     updateItems();
     handleAwareness();
     updateUndoState();
+    const lessonReplayBoardHeartbeatId = window.setInterval(() => {
+      scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
+    }, 30_000);
 
     return () => {
       yItems.unobserve(updateItems);
+      window.clearInterval(lessonReplayBoardHeartbeatId);
       scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
       flushLessonReplayBoardSnapshot();
       undoManager.off('stack-item-added', updateUndoState);
@@ -14829,7 +14838,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               capture.blocked = true;
               setTelemostAudioCapture({
                 status: 'error',
-                message: 'S3 для звука ещё не настроен или недоступен.',
+                message: 'Хранилище звука сейчас недоступно или на сервере мало места.',
               });
               if (capture.recorder?.state === 'recording') capture.recorder.stop();
             });
