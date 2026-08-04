@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { api } from '../services/api';
 
-const FLUSH_INTERVAL_MS = 2400;
+// A replay is background telemetry, not call signalling. Larger batches avoid
+// repeatedly processing a growing lesson file on a small single-core server.
+const FLUSH_INTERVAL_MS = 8000;
 const MAX_QUEUED_EVENTS = 120;
 const STOP_GRACE_MS = 20_000;
 const MODE_SWITCH_RETRY_MS = 1500;
@@ -93,7 +95,7 @@ const useLessonReplayRecorder = ({
         flushingRef.current = false;
         if (queueRef.current.length > 0 && sessionRef.current?.sessionId) {
           window.clearTimeout(flushTimerRef.current);
-          flushTimerRef.current = window.setTimeout(() => flush(), 800);
+          flushTimerRef.current = window.setTimeout(() => flush(), 2500);
         }
       }
     })();

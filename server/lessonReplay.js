@@ -438,8 +438,8 @@ export const createLessonReplay = (occurrence, nowMs = Date.now()) => normalizeL
   events: [],
 });
 
-export const summarizeLessonReplay = (value, bytes = null) => {
-  const replay = normalizeLessonReplay(value);
+export const summarizeLessonReplay = (value, bytes = null, options = {}) => {
+  const replay = options.normalized === true ? value : normalizeLessonReplay(value);
   const eventTypes = Array.from(new Set(replay.events.map((event) => event.type)));
   const lastEvent = replay.events[replay.events.length - 1] || null;
   return {

@@ -169,11 +169,14 @@ const activeLessonReplaySessions = new Map();
 const activeLessonReplayOccurrenceByStudentId = new Map();
 const activeTelemostLessonReplayByStudentId = new Map();
 const lessonReplayWriteQueueByOccurrenceKey = new Map();
+const lessonReplayCacheByOccurrenceKey = new Map();
+const lessonReplayPersistTimerByOccurrenceKey = new Map();
 const workbookHelperLaunchTickets = new Map();
 const workbookHelperExchangeAttempts = new Map();
 const workbookHelperContentAttempts = new Map();
 const workbookSolutionWriteQueues = new Map();
 const LESSON_REPLAY_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
+const LESSON_REPLAY_PERSIST_INTERVAL_MS = 12 * 1000;
 const LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS = 20 * 1000;
 const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;
 const TELEMOST_LESSON_DRAIN_MS = 30 * 1000;
@@ -2024,6 +2027,8 @@ const readLessonReplayFile = (filePath, occurrenceKey) => {
 const readLessonReplay = (occurrenceKey) => {
   const normalizedKey = String(occurrenceKey || '').trim();
   if (!normalizedKey) return null;
+  const cached = lessonReplayCacheByOccurrenceKey.get(normalizedKey);
+  if (cached) return cached;
   const filePath = getLessonReplayFilePath(normalizedKey);
   const backupPath = getLessonReplayBackupFilePath(normalizedKey);
   for (const candidate of [filePath, backupPath]) {
@@ -2038,18 +2043,28 @@ const readLessonReplay = (occurrenceKey) => {
   return null;
 };
 
-const writeLessonReplay = (replay) => {
-  const normalized = appendLessonReplayEvents(normalizeLessonReplay(replay), [], {
-    maxBytes: LESSON_REPLAY_MAX_FILE_BYTES,
-  }).replay;
-  if (!normalized.occurrence.key || !normalized.occurrence.studentId) {
-    throw new Error('Lesson replay occurrence is required');
+const getLessonReplayCompressedBytes = (occurrenceKey) => {
+  for (const candidate of [
+    getLessonReplayFilePath(occurrenceKey),
+    getLessonReplayBackupFilePath(occurrenceKey),
+  ]) {
+    try {
+      return fs.statSync(candidate).size;
+    } catch {
+      // Try the backup or report an unknown size.
+    }
   }
+  return 0;
+};
+
+const persistLessonReplay = (normalized) => {
   const filePath = getLessonReplayFilePath(normalized.occurrence.key);
   const backupPath = getLessonReplayBackupFilePath(normalized.occurrence.key);
   const raw = Buffer.from(JSON.stringify(normalized), 'utf8');
   if (raw.length > LESSON_REPLAY_MAX_FILE_BYTES) throw new Error('Lesson replay exceeds the storage limit');
-  const compressed = zlib.gzipSync(raw, { level: 6 });
+  // Replays are rewritten throughout a live lesson. Fast compression keeps the
+  // single server CPU available for the call while retaining almost all gzip savings.
+  const compressed = zlib.gzipSync(raw, { level: 1 });
   if (compressed.length > LESSON_REPLAY_MAX_COMPRESSED_BYTES) {
     throw new Error('Compressed lesson replay exceeds the storage limit');
   }
@@ -2089,6 +2104,47 @@ const writeLessonReplay = (replay) => {
   };
 };
 
+const scheduleLessonReplayPersistence = (occurrenceKey) => {
+  if (lessonReplayPersistTimerByOccurrenceKey.has(occurrenceKey)) return;
+  const timer = setTimeout(() => {
+    lessonReplayPersistTimerByOccurrenceKey.delete(occurrenceKey);
+    void withLessonReplayWriteLock(occurrenceKey, () => {
+      const latest = lessonReplayCacheByOccurrenceKey.get(occurrenceKey);
+      return latest ? persistLessonReplay(latest) : null;
+    }).catch((error) => {
+      console.error('[lesson-replay] deferred persistence failed:', error?.message || error);
+      scheduleLessonReplayPersistence(occurrenceKey);
+    });
+  }, LESSON_REPLAY_PERSIST_INTERVAL_MS);
+  if (typeof timer.unref === 'function') timer.unref();
+  lessonReplayPersistTimerByOccurrenceKey.set(occurrenceKey, timer);
+};
+
+const writeLessonReplay = (replay, options = {}) => {
+  const normalized = options.normalized === true
+    ? replay
+    : appendLessonReplayEvents(replay, [], {
+      maxBytes: LESSON_REPLAY_MAX_FILE_BYTES,
+    }).replay;
+  const occurrenceKey = normalized.occurrence.key;
+  if (!occurrenceKey || !normalized.occurrence.studentId) {
+    throw new Error('Lesson replay occurrence is required');
+  }
+  lessonReplayCacheByOccurrenceKey.set(occurrenceKey, normalized);
+  if (options.deferred === true) {
+    scheduleLessonReplayPersistence(occurrenceKey);
+    return {
+      replay: normalized,
+      compressedBytes: getLessonReplayCompressedBytes(occurrenceKey),
+      deferred: true,
+    };
+  }
+  const pendingTimer = lessonReplayPersistTimerByOccurrenceKey.get(occurrenceKey);
+  if (pendingTimer) clearTimeout(pendingTimer);
+  lessonReplayPersistTimerByOccurrenceKey.delete(occurrenceKey);
+  return persistLessonReplay(normalized);
+};
+
 const getLessonReplaySummary = (occurrenceKey, replayOverride = null) => {
   const replay = replayOverride || readLessonReplay(occurrenceKey);
   if (!replay) return { available: false, eventCount: 0, durationMs: 0, eventTypes: [], bytes: 0, updatedAt: '' };
@@ -2102,7 +2158,7 @@ const getLessonReplaySummary = (occurrenceKey, replayOverride = null) => {
       // A missing stat only means the compressed size is unknown.
     }
   }
-  return summarizeLessonReplay(replay, compressedBytes);
+  return summarizeLessonReplay(replay, compressedBytes, { normalized: true });
 };
 
 const writeFilesDb = (data) => {
@@ -25584,7 +25640,7 @@ const finishActiveLessonReplaySession = async (session, rawEvents = [], options 
           via: session.via === 'telemost' ? 'telemost' : 'platform',
         },
       }], context);
-      writeLessonReplay(appended.replay);
+      writeLessonReplay(appended.replay, { normalized: true });
     });
     activeLessonReplaySessions.delete(session.id);
     return true;
@@ -25795,7 +25851,7 @@ app.post(
             nowMs,
           });
           if (appended.added !== 1) throw new Error('Screen snapshot event was rejected');
-          const written = writeLessonReplay(appended.replay);
+          const written = writeLessonReplay(appended.replay, { deferred: true, normalized: true });
           lessonReplaySnapshotStoredBytes += buffer.length;
           return { replay: written.replay, compressedBytes: written.compressedBytes, snapshotId };
         } catch (error) {
@@ -25814,7 +25870,8 @@ app.post(
         snapshotId: result?.snapshotId || '',
         summary: summarizeLessonReplay(
           result.replay,
-          result.compressedBytes ?? getLessonReplaySummary(session.occurrenceKey, result.replay).bytes
+          result.compressedBytes ?? getLessonReplaySummary(session.occurrenceKey, result.replay).bytes,
+          { normalized: true }
         ),
       });
     } catch (error) {
@@ -25887,7 +25944,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
             actorName: reusable.actorName,
             nowMs,
           });
-          nextReplay = writeLessonReplay(switched.replay).replay;
+          nextReplay = writeLessonReplay(switched.replay, { normalized: true }).replay;
           reusable.via = requestedVia;
         }
         return {
@@ -25926,7 +25983,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
         actorName: session.actorName,
         nowMs,
       });
-      const stored = writeLessonReplay(appended.replay);
+      const stored = writeLessonReplay(appended.replay, { normalized: true });
       activeLessonReplaySessions.set(sessionId, session);
       return { session, replay: stored.replay, compressedBytes: stored.compressedBytes };
     });
@@ -25935,7 +25992,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
       occurrenceKey: occurrence.key,
       occurrence,
       via: result.session.via,
-      summary: summarizeLessonReplay(result.replay, result.compressedBytes),
+      summary: summarizeLessonReplay(result.replay, result.compressedBytes, { normalized: true }),
     });
   } catch (error) {
     console.error('[lesson-replay] failed to start session:', error);
@@ -25980,7 +26037,7 @@ app.post('/api/lesson-replay/switch', async (req, res) => {
         actorName: session.actorName,
         nowMs,
       });
-      writeLessonReplay(appended.replay);
+      writeLessonReplay(appended.replay, { normalized: true });
     });
     session.via = via;
     if (via === 'platform') session.lastPlatformActiveAt = nowMs;
@@ -26060,7 +26117,10 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         })
         : appended;
       if (finalReplay.added > 0 || appended.added > 0) {
-        const stored = writeLessonReplay(finalReplay.replay);
+        const stored = writeLessonReplay(finalReplay.replay, {
+          deferred: !canDrainTelemost,
+          normalized: true,
+        });
         return { appended, replay: stored.replay, compressedBytes: stored.compressedBytes };
       }
       return {
@@ -26080,7 +26140,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
       ok: true,
       added: result.appended.added,
       ended: canDrainTelemost,
-      summary: summarizeLessonReplay(result.replay, result.compressedBytes),
+      summary: summarizeLessonReplay(result.replay, result.compressedBytes, { normalized: true }),
     });
   } catch (error) {
     if (error?.statusCode === 404) return res.status(404).json({ error: error.message });
