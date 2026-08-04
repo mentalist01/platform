@@ -90,11 +90,13 @@ test('workbook helper keeps multiple named solutions bound to their exact result
 
   const sourceBytes = Buffer.from('source workbook bytes');
   const task26TextBytes = Buffer.from('1;2;3\n4;5;6\n');
+  const task27TextBytes = Buffer.from('alpha\tbeta\ngamma\tdelta\n');
   const foreignSourceBytes = Buffer.from('another student workbook bytes');
   const foreignSourceStorageName = 'source-b-foreign.ods';
   const sourceStorageName = 'source-a-Таблица.ods';
   fs.writeFileSync(path.join(uploadsDir, sourceStorageName), sourceBytes);
   fs.writeFileSync(path.join(uploadsDir, 'task26-material.txt'), task26TextBytes);
+  fs.writeFileSync(path.join(uploadsDir, 'task27-material.tsv'), task27TextBytes);
   fs.writeFileSync(path.join(uploadsDir, foreignSourceStorageName), foreignSourceBytes);
   fs.writeFileSync(path.join(dataDir, 'teachers.json'), JSON.stringify([{
     id: 'teacher-a',
@@ -133,6 +135,16 @@ test('workbook helper keeps multiple named solutions bound to their exact result
     createdAt: new Date().toISOString(),
     url: '/uploads/task26-material.txt',
     storageName: 'task26-material.txt',
+  }, {
+    id: 'task27-text-a',
+    studentId: 'student-a',
+    taskNumber: 27,
+    category: 'class',
+    name: '27_1.tsv',
+    sizeBytes: task27TextBytes.length,
+    createdAt: new Date().toISOString(),
+    url: '/uploads/task27-material.tsv',
+    storageName: 'task27-material.tsv',
   }]));
   const studentsFixture = JSON.parse(fs.readFileSync(path.join(dataDir, 'students.json'), 'utf8'));
   studentsFixture.push({
@@ -209,6 +221,19 @@ test('workbook helper keeps multiple named solutions bound to their exact result
     const task26Launch = await task26LaunchResponse.json();
     assert.equal(task26Launch.opensSourceText, true);
     assert.match(task26Launch.fileName, /\.fods$/i);
+    const outdatedTask26ExchangeResponse = await fetch(`${baseUrl}/workbook-helper/v1/exchange`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'IvanEgeWorkbookHelper/1.0',
+      },
+      body: JSON.stringify({ ticket: task26Launch.ticket }),
+    });
+    await assertStatus(outdatedTask26ExchangeResponse, 426);
+    assert.match(
+      String((await outdatedTask26ExchangeResponse.json()).error || ''),
+      /обновите помощник/i
+    );
     const task26ExchangeResponse = await fetch(`${baseUrl}/workbook-helper/v1/exchange`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -216,11 +241,55 @@ test('workbook helper keeps multiple named solutions bound to their exact result
     });
     await assertStatus(task26ExchangeResponse, 200);
     const task26Exchange = await task26ExchangeResponse.json();
+    assert.deepEqual(task26Exchange.sourceText, {
+      fileName: '26_1.txt',
+      sizeBytes: task26TextBytes.length,
+      contentHash: sha256(task26TextBytes),
+      contentPath: '/workbook-helper/v1/source-text',
+    });
+    const unauthorizedSourceTextResponse = await fetch(`${baseUrl}/workbook-helper/v1/source-text`);
+    await assertStatus(unauthorizedSourceTextResponse, 401);
+    const task26SourceTextResponse = await fetch(`${baseUrl}/workbook-helper/v1/source-text`, {
+      headers: { Authorization: `Workbook ${task26Exchange.token}` },
+    });
+    await assertStatus(task26SourceTextResponse, 200);
+    assert.equal(task26SourceTextResponse.headers.get('x-source-text-content-hash'), sha256(task26TextBytes));
+    assert.equal(task26SourceTextResponse.headers.get('x-source-text-size'), String(task26TextBytes.length));
+    assert.deepEqual(Buffer.from(await task26SourceTextResponse.arrayBuffer()), task26TextBytes);
+    fs.writeFileSync(path.join(uploadsDir, 'task26-material.txt'), Buffer.alloc(16 * 1024 * 1024 + 1));
+    const oversizedSourceTextResponse = await fetch(`${baseUrl}/workbook-helper/v1/source-text`, {
+      headers: { Authorization: `Workbook ${task26Exchange.token}` },
+    });
+    await assertStatus(oversizedSourceTextResponse, 413);
+    fs.writeFileSync(path.join(uploadsDir, 'task26-material.txt'), task26TextBytes);
     const task26ContentResponse = await fetch(`${baseUrl}/workbook-helper/v1/content`, {
       headers: { Authorization: `Workbook ${task26Exchange.token}` },
     });
     await assertStatus(task26ContentResponse, 200);
     assert.match(Buffer.from(await task26ContentResponse.arrayBuffer()).toString('utf8'), /office:spreadsheet/);
+
+    const task27LaunchResponse = await fetch(`${baseUrl}/api/workbook-helper/launch`, {
+      method: 'POST',
+      headers: { Authorization: userAuthorization, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'task27-text-a' }),
+    });
+    await assertStatus(task27LaunchResponse, 201);
+    const task27Launch = await task27LaunchResponse.json();
+    assert.equal(task27Launch.opensSourceText, true);
+    const task27ExchangeResponse = await fetch(`${baseUrl}/workbook-helper/v1/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket: task27Launch.ticket }),
+    });
+    await assertStatus(task27ExchangeResponse, 200);
+    const task27Exchange = await task27ExchangeResponse.json();
+    assert.equal(task27Exchange.sourceText.fileName, '27_1.tsv');
+    assert.equal(task27Exchange.sourceText.contentHash, sha256(task27TextBytes));
+    const task27SourceTextResponse = await fetch(`${baseUrl}/workbook-helper/v1/source-text`, {
+      headers: { Authorization: `Workbook ${task27Exchange.token}` },
+    });
+    await assertStatus(task27SourceTextResponse, 200);
+    assert.deepEqual(Buffer.from(await task27SourceTextResponse.arrayBuffer()), task27TextBytes);
 
     const foreignLaunchResponse = await fetch(`${baseUrl}/api/workbook-helper/launch`, {
       method: 'POST',
@@ -295,7 +364,7 @@ test('workbook helper keeps multiple named solutions bound to their exact result
       path.join(dataDir, 'workbook-helper-sessions.json'),
       'utf8'
     ));
-    assert.equal(sessionsOnDisk.length, 2);
+    assert.equal(sessionsOnDisk.length, 3);
     assert.equal(JSON.stringify(sessionsOnDisk).includes(exchange.token), false);
     assert.match(sessionsOnDisk[0].tokenHash, /^[0-9a-f]{64}$/);
 
@@ -306,6 +375,10 @@ test('workbook helper keeps multiple named solutions bound to their exact result
     assert.equal(initialContent.headers.get('x-workbook-revision'), '0');
     assert.equal(initialContent.headers.get('x-workbook-content-hash'), sha256(sourceBytes));
     assert.deepEqual(Buffer.from(await initialContent.arrayBuffer()), sourceBytes);
+    const unrelatedSourceTextResponse = await fetch(`${baseUrl}/workbook-helper/v1/source-text`, {
+      headers: { Authorization: workbookAuthorization },
+    });
+    await assertStatus(unrelatedSourceTextResponse, 404);
 
     const firstSolutionBytes = Buffer.from('first solved workbook version');
     const missingNameWrite = await putWorkbook({

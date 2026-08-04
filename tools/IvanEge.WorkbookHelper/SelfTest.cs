@@ -76,6 +76,12 @@ internal static class SelfTest
         AssertThrows<FormatException>(() => LocalWorkbookFiles.SanitizeFileName("template.ots"));
         AssertThrows<FormatException>(() => LocalWorkbookFiles.SanitizeFileName("script.exe"));
 
+        Assert(LocalSourceTextFiles.SanitizeFileName("26_1.txt") == "26_1.txt", "TXT support failed");
+        Assert(LocalSourceTextFiles.SanitizeFileName("data.CSV") == "data.csv", "CSV support failed");
+        Assert(LocalSourceTextFiles.SanitizeFileName("table.tsv") == "table.tsv", "TSV support failed");
+        Assert(LocalSourceTextFiles.SanitizeFileName("CON.txt") == "_CON.txt", "Reserved text filename was not escaped");
+        AssertThrows<FormatException>(() => LocalSourceTextFiles.SanitizeFileName("script.exe"));
+
         var first = LocalWorkbookFiles.GetUniquePath(directory, "Задание.ods");
         File.WriteAllText(first, "test");
         var second = LocalWorkbookFiles.GetUniquePath(directory, "Задание.ods");
@@ -123,7 +129,11 @@ internal static class SelfTest
         var source = Path.Combine(directory, "stable.ods");
         var bytes = Encoding.UTF8.GetBytes("stable workbook bytes");
         await File.WriteAllBytesAsync(source, bytes);
-        using var snapshot = await StableFileSnapshot.CaptureAsync(source, TimeSpan.FromSeconds(4), CancellationToken.None);
+        using var snapshot = await StableFileSnapshot.CaptureAsync(
+            source,
+            TimeSpan.FromSeconds(4),
+            CancellationToken.None,
+            directory);
         var expected = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         Assert(snapshot.ContentHash == expected, "Stable snapshot SHA-256 mismatch");
         Assert(snapshot.SizeBytes == bytes.Length, "Stable snapshot size mismatch");
@@ -205,7 +215,13 @@ internal static class SelfTest
             revision = "0",
             contentHash = hash,
             requiresName = true,
-            solutionName = "Предложенное название"
+            solutionName = "Предложенное название",
+            sourceText = new
+            {
+                fileName = "26_1.txt",
+                contentHash = new string('b', 64),
+                sizeBytes = 1024
+            }
         });
         using var exchangeDocument = JsonDocument.Parse(exchangePayload);
         var grant = HelperApiClient.ParseExchangeResponse(
@@ -213,6 +229,8 @@ internal static class SelfTest
             exchangeDocument.RootElement);
         Assert(grant.RequiresName, "requiresName was not parsed from exchange response");
         Assert(grant.SolutionName == "Предложенное название", "solutionName suggestion was not parsed");
+        Assert(grant.SourceTextFileName == "26_1.txt", "sourceText.fileName was not parsed");
+        Assert(grant.SourceTextContentHash == new string('b', 64), "sourceText.contentHash was not parsed");
 
         var aliasPayload = JsonSerializer.Serialize(new
         {

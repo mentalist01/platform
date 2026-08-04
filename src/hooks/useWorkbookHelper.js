@@ -65,7 +65,9 @@ const useWorkbookHelper = () => {
         fileName: String(payload?.fileName || payload?.suggestedName || fileName).trim(),
         launchMode,
         solutionFileId,
-        message: 'Открываем файл в Excel или LibreOffice…',
+        message: payload?.opensSourceText
+          ? 'Открываем текст в Блокноте и пустую таблицу в Excel или LibreOffice…'
+          : 'Открываем файл в Excel или LibreOffice…',
         expiresAt: String(payload?.expiresAt || ''),
       }));
       const markAsOpened = () => {
@@ -76,7 +78,9 @@ const useWorkbookHelper = () => {
           current.sourceFileId === sourceFileId && current.status === 'opening'
             ? buildState('opened', {
                 ...current,
-                message: 'Помощник открыт — сохранения будут появляться в конспектах автоматически.',
+                message: payload?.opensSourceText
+                  ? 'Текст открыт в Блокноте, пустая таблица — в Excel или LibreOffice.'
+                  : 'Помощник открыт — сохранения будут появляться в конспектах автоматически.',
               })
             : current
         ));

@@ -13,7 +13,9 @@ internal sealed record WorkbookGrant(
     string ContentHash,
     DateTimeOffset? ExpiresAt,
     bool RequiresName = false,
-    string? SolutionName = null);
+    string? SolutionName = null,
+    string? SourceTextFileName = null,
+    string? SourceTextContentHash = null);
 
 internal sealed record DownloadReceipt(
     string LocalContentHash,

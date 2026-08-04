@@ -5,6 +5,7 @@ namespace IvanEge.WorkbookHelper;
 internal static class AppPaths
 {
     public const long MaxWorkbookBytes = 64L * 1024L * 1024L;
+    public const long MaxSourceTextBytes = 16L * 1024L * 1024L;
 
     public static string InstallDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -162,6 +163,66 @@ internal static class LocalWorkbookFiles
         var safeExtension = Path.GetExtension(safe);
         var baseName = Path.GetFileNameWithoutExtension(safe).Trim().TrimEnd('.', ' ');
         if (string.IsNullOrWhiteSpace(baseName)) baseName = "Задание";
+        if (ReservedNames.Contains(baseName)) baseName = $"_{baseName}";
+        if (baseName.Length > 110) baseName = baseName[..110].TrimEnd();
+        return baseName + safeExtension.ToLowerInvariant();
+    }
+
+    public static string GetUniquePath(string directory, string fileName)
+    {
+        Directory.CreateDirectory(directory);
+        var safeName = SanitizeFileName(fileName);
+        var candidate = Path.Combine(directory, safeName);
+        if (!File.Exists(candidate)) return candidate;
+
+        var extension = Path.GetExtension(safeName);
+        var baseName = Path.GetFileNameWithoutExtension(safeName);
+        for (var index = 2; index <= 999; index++)
+        {
+            candidate = Path.Combine(directory, $"{baseName} ({index}){extension}");
+            if (!File.Exists(candidate)) return candidate;
+        }
+
+        return Path.Combine(directory, $"{baseName} ({Guid.NewGuid():N}){extension}");
+    }
+}
+
+internal static class LocalSourceTextFiles
+{
+    private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt", ".csv", ".tsv"
+    };
+
+    private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
+    public static string SanitizeFileName(string? value)
+    {
+        var raw = Path.GetFileName((value ?? string.Empty).Trim());
+        if (string.IsNullOrWhiteSpace(raw)) raw = "Исходный текст.txt";
+
+        var extension = Path.GetExtension(raw);
+        if (!AllowedExtensions.Contains(extension))
+        {
+            throw new FormatException("Сервер прислал неподдерживаемый формат исходного текста.");
+        }
+
+        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+        var builder = new StringBuilder(raw.Length);
+        foreach (var character in raw)
+        {
+            builder.Append(invalid.Contains(character) || char.IsControl(character) ? '_' : character);
+        }
+
+        var safe = builder.ToString().Trim().TrimEnd('.', ' ');
+        var safeExtension = Path.GetExtension(safe);
+        var baseName = Path.GetFileNameWithoutExtension(safe).Trim().TrimEnd('.', ' ');
+        if (string.IsNullOrWhiteSpace(baseName)) baseName = "Исходный текст";
         if (ReservedNames.Contains(baseName)) baseName = $"_{baseName}";
         if (baseName.Length > 110) baseName = baseName[..110].TrimEnd();
         return baseName + safeExtension.ToLowerInvariant();

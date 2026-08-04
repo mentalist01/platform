@@ -36,7 +36,8 @@ const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
 const STUDENT_CODE_COPY_FEEDBACK_MS = 1800;
 const MOCK_EXAM_SOURCE_BADGE_COLOR = '#0f766e';
 const TEST_WORKBOOK_EXTENSIONS = new Set(['xls', 'xlsx', 'xlsm', 'xlsb', 'ods', 'fods']);
-const TASK_26_TEXT_EXTENSIONS = new Set(['txt', 'csv', 'tsv']);
+const TEXT_TO_WORKBOOK_TASK_NUMBERS = new Set([26, 27]);
+const TEXT_TO_WORKBOOK_EXTENSIONS = new Set(['txt', 'csv', 'tsv']);
 
 const getTestAttachmentExtension = (file) => {
   const name = String(file?.name || file?.storageName || '').trim();
@@ -49,12 +50,11 @@ const getTestAttachmentId = (file) => String(file?.id || file?.storageName || ''
 const canSolveTestWorkbook = (taskNumber, file) => {
   const extension = getTestAttachmentExtension(file);
   return TEST_WORKBOOK_EXTENSIONS.has(extension)
-    || (Number(taskNumber) === 26 && TASK_26_TEXT_EXTENSIONS.has(extension));
+    || (
+      TEXT_TO_WORKBOOK_TASK_NUMBERS.has(Number(taskNumber))
+      && TEXT_TO_WORKBOOK_EXTENSIONS.has(extension)
+    );
 };
-
-const isTask26TextWorkbookSource = (taskNumber, file) => (
-  Number(taskNumber) === 26 && TASK_26_TEXT_EXTENSIONS.has(getTestAttachmentExtension(file))
-);
 
 const getStudentQuestionAnswerCount = (question, taskNumber, getAnswerCountForTask) => {
   const override = Math.trunc(Number(question?.answerCountOverride));
@@ -1941,10 +1941,6 @@ const StudentTestModal = ({
   ) => {
     const attachmentId = getTestAttachmentId(file);
     if (!attachmentId || !activeQuestionId || !level) return { ok: false };
-    if (isTask26TextWorkbookSource(task?.number, file) && file?.url && typeof window !== 'undefined') {
-      const sourceWindow = window.open(file.url, '_blank', 'noopener,noreferrer');
-      if (sourceWindow) sourceWindow.opener = null;
-    }
     const result = await launchWorkbookHelper({
       sourceFile: { id: attachmentId, name: file?.name || 'Таблица' },
       questionContext: {
@@ -4080,7 +4076,7 @@ const StudentTestModal = ({
                     <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
                       Помощник не открылся?{' '}
                       <a className="underline underline-offset-2" href="/downloads/IvanEgeWorkbookHelper.exe" download>
-                        Скачайте и установите его один раз
+                        Скачайте или обновите его
                       </a>
                       .
                     </div>

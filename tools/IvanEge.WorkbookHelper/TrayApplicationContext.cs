@@ -107,6 +107,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private async Task HandleProtocolRequestAsync(string rawRequest)
     {
         string? temporaryDownload = null;
+        string? temporarySourceTextDownload = null;
         HelperApiClient? api = null;
         try
         {
@@ -152,6 +153,24 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
             File.Move(temporaryDownload, sourcePath);
             temporaryDownload = null;
+
+            string? sourceTextPath = null;
+            if (!string.IsNullOrWhiteSpace(grant.SourceTextFileName))
+            {
+                var safeSourceTextFileName = LocalSourceTextFiles.SanitizeFileName(grant.SourceTextFileName);
+                sourceTextPath = LocalSourceTextFiles.GetUniquePath(
+                    AppPaths.AssignmentsDirectory,
+                    safeSourceTextFileName);
+                temporarySourceTextDownload = Path.Combine(
+                    Path.GetDirectoryName(sourceTextPath)!,
+                    $".{Path.GetFileName(sourceTextPath)}.{Guid.NewGuid():N}.download");
+
+                SetStatus("Скачиваю текст задания…");
+                await api.DownloadSourceTextAsync(grant, temporarySourceTextDownload, CancellationToken.None);
+                File.Move(temporarySourceTextDownload, sourceTextPath);
+                temporarySourceTextDownload = null;
+            }
+
             File.Copy(sourcePath, finalPath, overwrite: false);
             var markOfTheWebVerified = MarkOfTheWeb.TryApplyAndVerify(finalPath, request.Origin);
             var requiresManualMacroOpen = MarkOfTheWeb.IsMacroCapableFileName(finalPath)
@@ -183,20 +202,54 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 return;
             }
 
+            var workbookOpened = false;
             try
             {
                 OpenPath(finalPath);
-                ShowNotification(
-                    "Таблица готова",
-                    "Файл открыт. Сохраняйте его в Excel или LibreOffice — изменения уйдут в конспекты сами.",
-                    ToolTipIcon.Info);
+                workbookOpened = true;
             }
             catch (Exception openError)
             {
                 AppLog.Error("Could not open workbook with the system association", openError);
+            }
+
+            var sourceTextOpened = false;
+            if (!string.IsNullOrWhiteSpace(sourceTextPath))
+            {
+                try
+                {
+                    OpenTextInNotepad(sourceTextPath);
+                    sourceTextOpened = true;
+                }
+                catch (Exception openError)
+                {
+                    AppLog.Error("Could not open source text in Notepad", openError);
+                }
+            }
+
+            if (workbookOpened && sourceTextOpened)
+            {
                 ShowNotification(
-                    "Таблица скачана",
-                    $"Не удалось открыть её автоматически. Файл лежит здесь: {finalPath}",
+                    "Задание готово",
+                    "Текст открыт в Блокноте, пустая таблица — в Excel или LibreOffice. Автосохранение следит только за таблицей.",
+                    ToolTipIcon.Info);
+            }
+            else if (workbookOpened)
+            {
+                ShowNotification(
+                    "Таблица готова",
+                    string.IsNullOrWhiteSpace(sourceTextPath)
+                        ? "Файл открыт. Сохраняйте его в Excel или LibreOffice — изменения уйдут в конспекты сами."
+                        : $"Таблица открыта, но Блокнот запустить не удалось. Текст сохранён здесь: {sourceTextPath}",
+                    string.IsNullOrWhiteSpace(sourceTextPath) ? ToolTipIcon.Info : ToolTipIcon.Warning);
+            }
+            else
+            {
+                ShowNotification(
+                    "Файлы скачаны",
+                    sourceTextOpened
+                        ? $"Текст открыт в Блокноте. Таблицу откройте вручную: {finalPath}"
+                        : $"Не удалось открыть файлы автоматически. Таблица лежит здесь: {finalPath}",
                     ToolTipIcon.Warning);
             }
         }
@@ -210,6 +263,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             api?.Dispose();
             TryDelete(temporaryDownload);
+            TryDelete(temporarySourceTextDownload);
             _processingRequest = false;
         }
     }
@@ -427,6 +481,26 @@ internal sealed class TrayApplicationContext : ApplicationContext
             UseShellExecute = true,
             WorkingDirectory = Path.GetDirectoryName(path) ?? Environment.CurrentDirectory
         });
+    }
+
+    private static void OpenTextInNotepad(string path)
+    {
+        var systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        var notepadPath = Path.Combine(systemDirectory, "notepad.exe");
+        if (string.IsNullOrWhiteSpace(systemDirectory)
+            || !Path.IsPathFullyQualified(notepadPath)
+            || !File.Exists(notepadPath))
+        {
+            throw new FileNotFoundException("Не удалось найти системный Блокнот Windows.", notepadPath);
+        }
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = notepadPath,
+            UseShellExecute = false,
+            WorkingDirectory = Path.GetDirectoryName(path) ?? Environment.CurrentDirectory
+        };
+        startInfo.ArgumentList.Add(path);
+        Process.Start(startInfo);
     }
 
     private static void ShowMacroOpenBlockedWarning(string path)

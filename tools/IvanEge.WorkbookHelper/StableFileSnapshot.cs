@@ -21,9 +21,19 @@ internal sealed class StableFileSnapshot : IDisposable
     public static async Task<StableFileSnapshot> CaptureAsync(
         string sourcePath,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? temporaryDirectory = null)
     {
-        AppPaths.EnsureDataDirectories();
+        var snapshotDirectory = temporaryDirectory;
+        if (string.IsNullOrWhiteSpace(snapshotDirectory))
+        {
+            AppPaths.EnsureDataDirectories();
+            snapshotDirectory = AppPaths.TempDirectory;
+        }
+        else
+        {
+            Directory.CreateDirectory(snapshotDirectory);
+        }
         var deadline = DateTime.UtcNow + timeout;
         Exception? lastError = null;
 
@@ -42,7 +52,7 @@ internal sealed class StableFileSnapshot : IDisposable
                 var second = ReadStamp(sourcePath);
                 if (first != second) continue;
 
-                temporaryPath = System.IO.Path.Combine(AppPaths.TempDirectory, $"snapshot-{Guid.NewGuid():N}.tmp");
+                temporaryPath = System.IO.Path.Combine(snapshotDirectory, $"snapshot-{Guid.NewGuid():N}.tmp");
                 var copied = await CopyAndHashAsync(sourcePath, temporaryPath, cancellationToken).ConfigureAwait(false);
                 var after = ReadStamp(sourcePath);
                 if (second != after)

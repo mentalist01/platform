@@ -3792,7 +3792,11 @@ const hardDeleteStudentData = (studentIds = []) => {
     for (const file of removedFiles) {
       const ownedStorageName = file?.storageName || (
         file?.workbookQuestionVirtualSource === true
-        && file?.workbookQuestionContext?.mode === 'task-26-text'
+        && (
+          ['task-26-text', 'text-to-workbook'].includes(file?.workbookQuestionContext?.mode)
+          || file?.workbookTextSourceFileId
+          || file?.workbookTask26TextSourceFileId
+        )
           ? file?.workbookQuestionStorageName
           : ''
       );
@@ -16627,6 +16631,7 @@ const createWorkbookHttpError = (statusCode, message, details = {}) => {
 
 const WORKBOOK_QUESTION_CATEGORY = 'testing';
 const WORKBOOK_QUESTION_TEXT_EXTENSIONS = new Set(['.txt', '.csv', '.tsv']);
+const WORKBOOK_HELPER_SOURCE_TEXT_MAX_BYTES = 16 * 1024 * 1024;
 const BLANK_QUESTION_FODS = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:mimetype="application/vnd.oasis.opendocument.spreadsheet" office:version="1.3"><office:body><office:spreadsheet><table:table table:name="Лист1"><table:table-row><table:table-cell office:value-type="string"><text:p/></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document>`;
 
@@ -16638,8 +16643,8 @@ const isWorkbookQuestionVirtualSource = (entry) => (
   entry?.workbookQuestionVirtualSource === true
 );
 
-const isTask26TextAttachment = (taskNumber, fileName) => (
-  Number(taskNumber) === 26
+const isWorkbookTextAttachment = (taskNumber, fileName) => (
+  [26, 27].includes(Number(taskNumber))
   && WORKBOOK_QUESTION_TEXT_EXTENSIONS.has(path.extname(String(fileName || '')).toLowerCase())
 );
 
@@ -16690,8 +16695,8 @@ const getWorkbookQuestionTarget = ({ student, taskNumber, levelId, questionId, a
   const attachmentName = path.basename(
     normalizeFileName(attachment.name || stripUploadIdPrefix(storageName)) || 'Задание'
   );
-  const blankForTask26 = isTask26TextAttachment(taskNum, attachmentName);
-  if (!isWorkbookFileName(attachmentName) && !blankForTask26) {
+  const blankForTextTask = isWorkbookTextAttachment(taskNum, attachmentName);
+  if (!isWorkbookFileName(attachmentName) && !blankForTextTask) {
     throw createWorkbookHttpError(415, 'Для этого файла доступно только скачивание');
   }
   const attachmentKey = normalizeWorkbookQuestionValue(attachment.id || storageName, 240);
@@ -16703,7 +16708,7 @@ const getWorkbookQuestionTarget = ({ student, taskNumber, levelId, questionId, a
     attachmentName,
     attachmentPath,
     attachmentStorageName: storageName,
-    blankForTask26,
+    blankForTextTask,
     context: {
       taskNumber: taskNum,
       levelId: normalizedLevelId,
@@ -16711,7 +16716,7 @@ const getWorkbookQuestionTarget = ({ student, taskNumber, levelId, questionId, a
       questionNumber: questionIndex >= 0 ? questionIndex + 1 : null,
       attachmentId: attachmentKey,
       attachmentName,
-      mode: blankForTask26 ? 'task-26-text' : 'workbook',
+      mode: blankForTextTask ? 'text-to-workbook' : 'workbook',
     },
   };
 };
@@ -16727,16 +16732,16 @@ const ensureWorkbookQuestionSource = ({ student, target }) => {
   const existing = sourceIndex >= 0 ? files[sourceIndex] : null;
   let sourceStorageName = target.attachmentStorageName;
   let sourceName = target.attachmentName;
-  if (target.blankForTask26) {
+  if (target.blankForTextTask) {
     const existingStorageName = path.basename(String(existing?.workbookQuestionStorageName || '').trim());
     const existingPath = existingStorageName ? path.join(uploadsDir, existingStorageName) : '';
     if (existingPath && fs.existsSync(existingPath)) {
       sourceStorageName = existingStorageName;
     } else {
-      sourceStorageName = `${crypto.randomUUID()}-task-26-${context.questionNumber || 'question'}.fods`;
+      sourceStorageName = `${crypto.randomUUID()}-task-${context.taskNumber}-${context.questionNumber || 'question'}.fods`;
       fs.writeFileSync(path.join(uploadsDir, sourceStorageName), BLANK_QUESTION_FODS, 'utf8');
     }
-    sourceName = `Задание 26${context.questionNumber ? ` №${context.questionNumber}` : ''} — таблица.fods`;
+    sourceName = `Задание ${context.taskNumber}${context.questionNumber ? ` №${context.questionNumber}` : ''} — таблица.fods`;
   }
   const nowIso = new Date().toISOString();
   const source = {
@@ -16748,7 +16753,7 @@ const ensureWorkbookQuestionSource = ({ student, target }) => {
     folderId: null,
     folderName: null,
     name: sourceName,
-    size: target.blankForTask26 ? formatSize(Buffer.byteLength(BLANK_QUESTION_FODS)) : String(target.attachment?.size || ''),
+    size: target.blankForTextTask ? formatSize(Buffer.byteLength(BLANK_QUESTION_FODS)) : String(target.attachment?.size || ''),
     sizeBytes: 0,
     originalSizeBytes: Math.max(0, Number(target.attachment?.sizeBytes) || 0),
     date: existing?.date || new Date(nowIso).toLocaleDateString('ru-RU'),
@@ -16777,15 +16782,15 @@ const ensureWorkbookQuestionSource = ({ student, target }) => {
   return { files, source };
 };
 
-const ensureTask26MaterialWorkbookSource = ({ student, textFile, files: filesOverride }) => {
+const ensureWorkbookTextMaterialSource = ({ student, textFile, files: filesOverride }) => {
   const files = Array.isArray(filesOverride) ? filesOverride : readFilesDb();
   const sourceMarker = String(textFile?.id || '').trim();
   let source = files.find((entry) => (
-    entry?.workbookTask26TextSourceFileId === sourceMarker
+    String(entry?.workbookTextSourceFileId || entry?.workbookTask26TextSourceFileId || '').trim() === sourceMarker
     && String(entry?.studentId || '').trim() === String(student?.id || '').trim()
   ));
   const storageName = path.basename(String(source?.workbookQuestionStorageName || '').trim())
-    || `workbook-task26-${crypto.randomUUID()}.fods`;
+    || `workbook-text-${crypto.randomUUID()}.fods`;
   const storagePath = path.join(uploadsDir, storageName);
   if (!fs.existsSync(storagePath)) fs.writeFileSync(storagePath, BLANK_QUESTION_FODS, 'utf8');
   const nowIso = new Date().toISOString();
@@ -16794,7 +16799,7 @@ const ensureTask26MaterialWorkbookSource = ({ student, textFile, files: filesOve
     ...(source || {}),
     id: source?.id || crypto.randomUUID(),
     studentId: String(student.id),
-    taskNumber: 26,
+    taskNumber: Number(textFile?.taskNumber),
     category: String(textFile?.category || 'class'),
     folderId: textFile?.folderId || null,
     folderName: textFile?.folderName || null,
@@ -16806,7 +16811,7 @@ const ensureTask26MaterialWorkbookSource = ({ student, textFile, files: filesOve
     updatedAt: nowIso,
     workbookQuestionVirtualSource: true,
     workbookQuestionStorageName: storageName,
-    workbookTask26TextSourceFileId: sourceMarker,
+    workbookTextSourceFileId: sourceMarker,
     workbookContentHash: crypto.createHash('sha256').update(BLANK_QUESTION_FODS).digest('hex'),
   };
   const sourceIndex = files.findIndex((entry) => entry?.id === source.id);
@@ -16814,6 +16819,80 @@ const ensureTask26MaterialWorkbookSource = ({ student, textFile, files: filesOve
   else files.unshift(source);
   writeFilesDb(files);
   return { files, source };
+};
+
+const resolveWorkbookHelperSourceText = ({ student, sourceFile, files: filesOverride }) => {
+  if (!student || !sourceFile) return null;
+  const files = Array.isArray(filesOverride) ? filesOverride : readFilesDb();
+  const materialSourceFileId = String(
+    sourceFile?.workbookTextSourceFileId || sourceFile?.workbookTask26TextSourceFileId || ''
+  ).trim();
+  if (materialSourceFileId) {
+    const textFile = files.find((entry) => String(entry?.id || '').trim() === materialSourceFileId);
+    if (
+      !textFile
+      || !isWorkbookFileAccessibleToStudent(student, textFile)
+      || !isWorkbookTextAttachment(textFile.taskNumber, textFile.name)
+    ) return null;
+    const filePath = getWorkbookStoredFilePath(textFile);
+    if (!filePath) return null;
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      filePath,
+      fileName: path.basename(normalizeFileName(textFile.name) || `Задание ${textFile.taskNumber}.txt`),
+      sizeBytes: stat.size,
+    };
+  }
+
+  const context = sourceFile?.workbookQuestionContext;
+  if (!['task-26-text', 'text-to-workbook'].includes(context?.mode)) return null;
+  try {
+    const target = getWorkbookQuestionTarget({
+      student,
+      taskNumber: context.taskNumber,
+      levelId: context.levelId,
+      questionId: context.questionId,
+      attachmentId: context.attachmentId,
+    });
+    if (!target.blankForTextTask || !target.attachmentPath) return null;
+    const stat = fs.statSync(target.attachmentPath);
+    if (!stat.isFile()) return null;
+    return {
+      filePath: target.attachmentPath,
+      fileName: path.basename(normalizeFileName(target.attachmentName) || `Задание ${context.taskNumber}.txt`),
+      sizeBytes: stat.size,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const serializeWorkbookHelperSourceText = async (sourceText) => {
+  if (!sourceText) return null;
+  if (sourceText.sizeBytes > WORKBOOK_HELPER_SOURCE_TEXT_MAX_BYTES) {
+    throw createWorkbookHttpError(413, 'Текстовый файл больше допустимых 16 МБ');
+  }
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(sourceText.filePath);
+    let sizeBytes = 0;
+    stream.on('data', (chunk) => {
+      sizeBytes += chunk.length;
+      if (sizeBytes > WORKBOOK_HELPER_SOURCE_TEXT_MAX_BYTES) {
+        stream.destroy(createWorkbookHttpError(413, 'Текстовый файл больше допустимых 16 МБ'));
+        return;
+      }
+      hash.update(chunk);
+    });
+    stream.once('error', reject);
+    stream.once('end', () => resolve({
+      fileName: sourceText.fileName,
+      sizeBytes,
+      contentHash: hash.digest('hex'),
+      contentPath: '/workbook-helper/v1/source-text',
+    }));
+  });
 };
 
 const MAX_WORKBOOK_QUESTION_SOLUTIONS = 3;
@@ -17346,6 +17425,7 @@ const getWorkbookHelperSessionContext = (session) => {
   return {
     student,
     sourceFile: resolved.sourceFile,
+    files: resolved.files,
     launchFile: launchContent.launchFile,
     launchContentHash: launchContent.contentHash,
     state,
@@ -17404,7 +17484,7 @@ const sendWorkbookOperationError = (res, error) => {
   return res.status(statusCode).json(payload);
 };
 
-app.post('/workbook-helper/v1/exchange', (req, res) => {
+app.post('/workbook-helper/v1/exchange', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!req.is('application/json')) {
     return res.status(415).json({ error: 'Ожидался JSON-запрос' });
@@ -17449,6 +17529,25 @@ app.post('/workbook-helper/v1/exchange', (req, res) => {
   }
 
   try {
+    const sourceText = await serializeWorkbookHelperSourceText(resolveWorkbookHelperSourceText({
+      student,
+      sourceFile: resolved.sourceFile,
+      files: resolved.files,
+    }));
+    const helperUserAgent = String(req.headers['user-agent'] || '');
+    const helperVersionMatch = helperUserAgent.match(/IvanEgeWorkbookHelper\/(\d+)\.(\d+)/i);
+    if (
+      sourceText
+      && helperVersionMatch
+      && (
+        Number(helperVersionMatch[1]) < 1
+        || (Number(helperVersionMatch[1]) === 1 && Number(helperVersionMatch[2]) < 2)
+      )
+    ) {
+      return res.status(426).json({
+        error: 'Для заданий с текстом обновите помощник Excel и LibreOffice до версии 1.2 или новее.',
+      });
+    }
     const rawToken = createWorkbookHelperToken();
     const tokenHash = hashWorkbookHelperToken(rawToken);
     const nowMs = Date.now();
@@ -17482,12 +17581,52 @@ app.post('/workbook-helper/v1/exchange', (req, res) => {
       revision: state.revision,
       contentHash: launchContent.contentHash,
       expiresAt: new Date(session.expiresAtMs).toISOString(),
+      sourceText,
     });
   } catch (error) {
+    if (Number(error?.statusCode) >= 400 && Number(error?.statusCode) < 500) {
+      return sendWorkbookOperationError(res, error);
+    }
     console.error('[workbook-helper] exchange failed:', error);
     return res.status(500).json({ error: 'Не удалось привязать помощник' });
   }
 });
+
+app.get(
+  '/workbook-helper/v1/source-text',
+  requireWorkbookHelperContentRate,
+  requireWorkbookHelperSession,
+  async (req, res) => {
+    const { student, sourceFile, files } = req.workbookHelper;
+    const sourceText = resolveWorkbookHelperSourceText({ student, sourceFile, files });
+    if (!sourceText) {
+      return res.status(404).json({ error: 'Исходный текстовый файл больше недоступен' });
+    }
+    if (sourceText.sizeBytes > WORKBOOK_HELPER_SOURCE_TEXT_MAX_BYTES) {
+      return res.status(413).json({ error: 'Текстовый файл больше допустимых 16 МБ' });
+    }
+    let metadata;
+    try {
+      metadata = await serializeWorkbookHelperSourceText(sourceText);
+    } catch (error) {
+      return sendWorkbookOperationError(res, error);
+    }
+    const requestSize = getRangeSize(req.headers.range, metadata.sizeBytes);
+    const usage = getStudentUsage(student.id);
+    if (usage.enabled && (usage.remaining <= 0 || usage.used + requestSize > usage.limit)) {
+      return res.status(429).json({ error: 'Превышен лимит трафика для ученика' });
+    }
+    if (usage.enabled && (usage.used / usage.limit >= STUDENT_TRAFFIC_WARN_RATIO)) {
+      res.setHeader('X-Traffic-Warn', '1');
+    }
+    registerUsageOnFinish(student.id, res, requestSize);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Source-Text-Content-Hash', metadata.contentHash);
+    res.setHeader('X-Source-Text-Size', String(metadata.sizeBytes));
+    res.attachment(metadata.fileName);
+    return res.sendFile(sourceText.filePath);
+  }
+);
 
 app.get(
   '/workbook-helper/v1/content',
@@ -17978,15 +18117,20 @@ app.post('/api/workbook-helper/launch', (req, res) => {
     if (
       textFile
       && isWorkbookFileAccessibleToStudent(student, textFile)
-      && isTask26TextAttachment(textFile.taskNumber, textFile.name)
+      && isWorkbookTextAttachment(textFile.taskNumber, textFile.name)
       && getWorkbookStoredFilePath(textFile)
     ) {
-      const ensured = ensureTask26MaterialWorkbookSource({ student, textFile, files });
+      const ensured = ensureWorkbookTextMaterialSource({ student, textFile, files });
       resolved = resolveWorkbookSourceForStudent(student, ensured.source.id, ensured.files);
       opensSourceText = Boolean(resolved);
     }
   }
   if (!resolved) return res.status(404).json({ error: 'Таблица не найдена' });
+  opensSourceText = opensSourceText || Boolean(resolveWorkbookHelperSourceText({
+    student,
+    sourceFile: resolved.sourceFile,
+    files: resolved.files,
+  }));
   const solutionFileId = String(resolved.solutionFile?.id || '');
   const solutionKey = solutionFileId
     ? resolved.solutionKey
@@ -18150,7 +18294,7 @@ app.post('/api/workbook-helper/question-launch', (req, res) => {
       canCreateSolution: savedSolutions.length < MAX_WORKBOOK_QUESTION_SOLUTIONS,
       startsFresh: startFresh,
       solution: solutionFile ? serializeWorkbookQuestionSolution(solutionFile, solutionSlot) : null,
-      opensSourceText: Boolean(target.blankForTask26),
+      opensSourceText: Boolean(target.blankForTextTask),
     });
   } catch (error) {
     return sendWorkbookOperationError(res, error);

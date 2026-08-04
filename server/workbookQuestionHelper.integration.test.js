@@ -82,7 +82,7 @@ const putWorkbook = async ({ baseUrl, authorization, bytes, revision, fileName }
   });
 };
 
-test('question workbook helper binds exact attachments and creates a blank task 26 sheet', {
+test('question workbook helper binds exact attachments and creates blank task 26/27 sheets', {
   timeout: 40_000,
 }, async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan-ege-question-workbook-'));
@@ -94,12 +94,15 @@ test('question workbook helper binds exact attachments and creates a blank task 
   const workbookBytes = Buffer.from('exact question workbook bytes');
   const otherWorkbookBytes = Buffer.from('another question workbook bytes');
   const task26TextBytes = Buffer.from('1;2;3\n4;5;6\n');
+  const task27TextBytes = Buffer.from('word,count\nalpha,3\n');
   const workbookStorageName = 'question-source.ods';
   const otherStorageName = 'other-question.ods';
   const textStorageName = 'task-26-source.txt';
+  const task27TextStorageName = 'task-27-source.csv';
   fs.writeFileSync(path.join(uploadsDir, workbookStorageName), workbookBytes);
   fs.writeFileSync(path.join(uploadsDir, otherStorageName), otherWorkbookBytes);
   fs.writeFileSync(path.join(uploadsDir, textStorageName), task26TextBytes);
+  fs.writeFileSync(path.join(uploadsDir, task27TextStorageName), task27TextBytes);
 
   const now = new Date().toISOString();
   fs.writeFileSync(path.join(dataDir, 'teachers.json'), JSON.stringify([{
@@ -158,6 +161,20 @@ test('question workbook helper binds exact attachments and creates a blank task 
           sizeBytes: task26TextBytes.length,
           storageName: textStorageName,
           url: `/uploads/${textStorageName}`,
+        }],
+      }],
+    },
+    27: {
+      basic: [{
+        id: 'question-27-a',
+        question: 'Copy the text into a spreadsheet',
+        files: [{
+          id: 'attachment-27-csv',
+          name: 'source-27.csv',
+          size: `${task27TextBytes.length} B`,
+          sizeBytes: task27TextBytes.length,
+          storageName: task27TextStorageName,
+          url: `/uploads/${task27TextStorageName}`,
         }],
       }],
     },
@@ -387,6 +404,19 @@ test('question workbook helper binds exact attachments and creates a blank task 
     assert.equal(task26Launch.nameRequired, false);
     assert.match(task26Launch.fileName, /\.fods$/i);
     const task26Session = await exchangeLaunch(baseUrl, task26Launch);
+    assert.deepEqual(task26Session.exchange.sourceText, {
+      fileName: 'source.txt',
+      sizeBytes: task26TextBytes.length,
+      contentHash: sha256(task26TextBytes),
+      contentPath: '/workbook-helper/v1/source-text',
+    });
+    const task26SourceTextResponse = await fetch(`${baseUrl}/workbook-helper/v1/source-text`, {
+      headers: { Authorization: task26Session.authorization },
+    });
+    await assertStatus(task26SourceTextResponse, 200);
+    assert.equal(task26SourceTextResponse.headers.get('x-source-text-content-hash'), sha256(task26TextBytes));
+    assert.equal(task26SourceTextResponse.headers.get('x-source-text-size'), String(task26TextBytes.length));
+    assert.deepEqual(Buffer.from(await task26SourceTextResponse.arrayBuffer()), task26TextBytes);
     const task26ContentResponse = await fetch(`${baseUrl}/workbook-helper/v1/content`, {
       headers: { Authorization: task26Session.authorization },
     });
@@ -398,6 +428,25 @@ test('question workbook helper binds exact attachments and creates a blank task 
     assert.match(fodsText, /office:mimetype="application\/vnd\.oasis\.opendocument\.spreadsheet"/);
     assert.match(fodsText, /<office:spreadsheet>/);
     assert.match(fodsText, /<table:table table:name="Лист1">/);
+
+    const task27LaunchResponse = await launchQuestion({
+      taskNumber: 27,
+      levelId: 'basic',
+      questionId: 'question-27-a',
+      attachmentId: 'attachment-27-csv',
+    });
+    await assertStatus(task27LaunchResponse, 201);
+    const task27Launch = await task27LaunchResponse.json();
+    assert.equal(task27Launch.opensSourceText, true);
+    assert.match(task27Launch.fileName, /Задание 27.*\.fods$/i);
+    const task27Session = await exchangeLaunch(baseUrl, task27Launch);
+    assert.equal(task27Session.exchange.sourceText.fileName, 'source-27.csv');
+    assert.equal(task27Session.exchange.sourceText.contentHash, sha256(task27TextBytes));
+    const task27SourceTextResponse = await fetch(`${baseUrl}/workbook-helper/v1/source-text`, {
+      headers: { Authorization: task27Session.authorization },
+    });
+    await assertStatus(task27SourceTextResponse, 200);
+    assert.deepEqual(Buffer.from(await task27SourceTextResponse.arrayBuffer()), task27TextBytes);
   } finally {
     await stopServer(child);
     fs.rmSync(tempRoot, { recursive: true, force: true });

@@ -56,7 +56,8 @@ const mergeFolderLists = (lists) => {
   return merged;
 };
 const AUTO_REFRESH_INTERVAL_MS = 5000;
-const WORKBOOK_HELPER_TASK_NUMBERS = new Set([3, 9, 10, 12, 13, 18, 19, 20, 21, 22, 26]);
+const WORKBOOK_HELPER_TASK_NUMBERS = new Set([3, 9, 10, 12, 13, 18, 19, 20, 21, 22, 26, 27]);
+const TEXT_TO_WORKBOOK_TASK_NUMBERS = new Set([26, 27]);
 const DEFAULT_NOTES_CATEGORY = 'class';
 const ROOT_FOLDER_LABEL = 'Материалы задания';
 const NOTES_PREVIEW_CLOSE_MS = 200;
@@ -1734,14 +1735,6 @@ const NotesSection = ({
       || workbookHelperState?.status === 'launching'
       || workbookHelperState?.status === 'opening'
     ) return;
-    if (
-      Number(normalizedCurrentTask) === 26
-      && /\.(txt|csv|tsv)$/i.test(String(file?.name || ''))
-      && typeof window !== 'undefined'
-    ) {
-      const sourceWindow = window.open(getFileUrl(file), '_blank', 'noopener,noreferrer');
-      if (sourceWindow) sourceWindow.opener = null;
-    }
     await onLaunchWorkbookHelper({ sourceFile: file });
   };
 
@@ -3293,7 +3286,9 @@ const NotesSection = ({
               <div className="min-w-0">
                 <p className="text-sm font-extrabold text-slate-900">Помощник для Excel и LibreOffice</p>
                 <p className="mt-0.5 text-xs font-medium leading-5 text-slate-600">
-                  Скачайте один раз — затем «Решать» сразу откроет таблицу. При первом сохранении помощник спросит название и сам добавит работу в конспекты.
+                  {TEXT_TO_WORKBOOK_TASK_NUMBERS.has(normalizedCurrentTask)
+                    ? 'Для открытия текста в Блокноте нужна версия 1.2 или новее. Скачайте или обновите помощник — затем «Решать» откроет текст и пустую таблицу вместе.'
+                    : 'Скачайте один раз — затем «Решать» сразу откроет таблицу. При первом сохранении помощник спросит название и сам добавит работу в конспекты.'}
                 </p>
                 {workbookHelperState?.status && workbookHelperState.status !== 'idle' && (
                   <p className={`mt-1 text-xs font-semibold ${
@@ -3311,7 +3306,7 @@ const NotesSection = ({
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 text-xs font-extrabold text-violet-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50"
               >
                 <Download size={15} aria-hidden="true" />
-                Скачать для Windows
+                {TEXT_TO_WORKBOOK_TASK_NUMBERS.has(normalizedCurrentTask) ? 'Скачать / обновить' : 'Скачать для Windows'}
               </a>
               <p className="max-w-[230px] text-center text-[10px] font-medium leading-4 text-slate-500">
                 При первом запуске Windows может попросить подтверждение.
@@ -3735,7 +3730,7 @@ const NotesSection = ({
                       || memory?.kind === 'workbook-solution'
                       || sourceRaw === 'workbook-auto-sync'
                     );
-                    const isTask26TextWorkbook = Number(normalizedCurrentTask) === 26
+                    const isTextToWorkbookSource = TEXT_TO_WORKBOOK_TASK_NUMBERS.has(Number(normalizedCurrentTask))
                       && /\.(txt|csv|tsv)$/i.test(String(f?.name || ''));
                     const isSharedTemplate = isSharedTemplateFile(f);
                     const isCommonShared = isSharedFile && !isSharedTemplate;
@@ -4193,7 +4188,7 @@ const NotesSection = ({
                                   <Download size={16} />
                                 </button>
                               )}
-                              {role === 'student' && (isExcelFile(f.name) || isTask26TextWorkbook) && (
+                              {role === 'student' && (isExcelFile(f.name) || isTextToWorkbookSource) && (
                                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                                   <button
                                     onClick={(e) => {

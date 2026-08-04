@@ -11,6 +11,7 @@ internal sealed class HelperApiClient : IDisposable
 {
     private const string ExchangePath = "/workbook-helper/v1/exchange";
     private const string ContentPath = "/workbook-helper/v1/content";
+    private const string SourceTextPath = "/workbook-helper/v1/source-text";
     private readonly HttpClient _client;
     private readonly Uri _origin;
 
@@ -26,7 +27,7 @@ internal sealed class HelperApiClient : IDisposable
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.0");
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.2");
         _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
@@ -59,6 +60,19 @@ internal sealed class HelperApiClient : IDisposable
             ?? ReadBoolean(root, "requiresName", "nameRequired")
             ?? false;
         var solutionName = ReadString(workbook, "solutionName") ?? ReadString(root, "solutionName");
+        string? sourceTextFileName = null;
+        string? sourceTextContentHash = null;
+        if (TryGetObject(root, "sourceText", out var sourceText))
+        {
+            sourceTextFileName = ReadString(sourceText, "fileName", "name");
+            sourceTextContentHash = NormalizeHash(ReadString(sourceText, "contentHash", "sha256"));
+            if (string.IsNullOrWhiteSpace(sourceTextFileName)
+                || sourceTextFileName.Length > 240
+                || string.IsNullOrWhiteSpace(sourceTextContentHash))
+            {
+                throw new HelperApiException("Сервер вернул неполные данные исходного текста задания.");
+            }
+        }
 
         if (string.IsNullOrWhiteSpace(token) || token.Length > 4096
             || string.IsNullOrWhiteSpace(workbookKey) || workbookKey.Length > 512
@@ -80,7 +94,9 @@ internal sealed class HelperApiClient : IDisposable
             contentHash,
             expiresAt,
             requiresName,
-            solutionName);
+            solutionName,
+            sourceTextFileName,
+            sourceTextContentHash);
     }
 
     public async Task<DownloadReceipt> DownloadAsync(WorkbookGrant grant, string destinationPath, CancellationToken cancellationToken)
@@ -135,6 +151,79 @@ internal sealed class HelperApiClient : IDisposable
             string.IsNullOrWhiteSpace(responseContentHash) ? localContentHash : responseContentHash,
             responseRevision,
             total);
+    }
+
+    public async Task<DownloadReceipt> DownloadSourceTextAsync(
+        WorkbookGrant grant,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(grant.SourceTextFileName)
+            || string.IsNullOrWhiteSpace(grant.SourceTextContentHash))
+        {
+            throw new HelperApiException("Для задания не передан исходный текст.");
+        }
+
+        using var request = CreateAuthorizedRequest(HttpMethod.Get, grant, SourceTextPath);
+        using var response = await SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                TimeSpan.FromMinutes(2),
+                cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        if (response.Content.Headers.ContentLength is > AppPaths.MaxSourceTextBytes)
+        {
+            throw new HelperApiException("Исходный текст больше допустимых 16 МБ.", HttpStatusCode.RequestEntityTooLarge);
+        }
+
+        var responseContentHash = NormalizeHash(ReadHeader(response, "X-Source-Text-Content-Hash"));
+        if (!string.IsNullOrWhiteSpace(responseContentHash)
+            && !string.Equals(responseContentHash, grant.SourceTextContentHash, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new HelperApiException("Контрольная сумма исходного текста на сервере изменилась. Нажмите «Решать» ещё раз.");
+        }
+        var expectedContentHash = responseContentHash ?? grant.SourceTextContentHash;
+
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await using var destination = new FileStream(
+            destinationPath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            128 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = ArrayPool<byte>.Shared.Rent(128 * 1024);
+        long total = 0;
+        try
+        {
+            while (true)
+            {
+                var read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
+                if (read == 0) break;
+                total += read;
+                if (total > AppPaths.MaxSourceTextBytes)
+                {
+                    throw new HelperApiException("Исходный текст больше допустимых 16 МБ.", HttpStatusCode.RequestEntityTooLarge);
+                }
+                hash.AppendData(buffer, 0, read);
+                await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            }
+            await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+
+        var localContentHash = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        if (!string.Equals(localContentHash, expectedContentHash, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new HelperApiException("Контрольная сумма скачанного исходного текста не совпала. Файл не был открыт.");
+        }
+        return new DownloadReceipt(localContentHash, expectedContentHash, string.Empty, total);
     }
 
     public async Task<UploadReceipt> UploadAsync(
@@ -216,9 +305,12 @@ internal sealed class HelperApiClient : IDisposable
         return new UploadReceipt(nextRevision, nextHash, nextSolutionName, nextFileName);
     }
 
-    private HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, WorkbookGrant grant)
+    private HttpRequestMessage CreateAuthorizedRequest(
+        HttpMethod method,
+        WorkbookGrant grant,
+        string path = ContentPath)
     {
-        var request = new HttpRequestMessage(method, BuildUri(ContentPath));
+        var request = new HttpRequestMessage(method, BuildUri(path));
         request.Headers.Authorization = new AuthenticationHeaderValue("Workbook", grant.Token);
         request.Headers.TryAddWithoutValidation("X-Workbook-Key", grant.WorkbookKey);
         return request;

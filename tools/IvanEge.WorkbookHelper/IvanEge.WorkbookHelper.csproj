@@ -10,8 +10,8 @@
     <AssemblyTitle>Иван на сотку — помощник таблиц</AssemblyTitle>
     <Product>Иван на сотку</Product>
     <Company>Иван на сотку</Company>
-    <Version>1.1.0</Version>
-    <FileVersion>1.1.0.0</FileVersion>
+    <Version>1.2.0</Version>
+    <FileVersion>1.2.0.0</FileVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
