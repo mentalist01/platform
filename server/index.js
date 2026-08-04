@@ -27421,7 +27421,10 @@ app.patch('/api/student-next-lesson', (req, res) => {
   const scheduledDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
     ? resolveNextLessonStart(data.schedule, { now: new Date(issuedAt) })?.toISOString() || ''
     : '';
-  const normalizedDueAt = scheduledDueAt || payloadDueAt || calculateHomeworkDueAt(issuedAt, fallbackDays);
+  // The browser resolves the student's wall-clock schedule. Prefer that exact
+  // instant so a UTC server cannot mistake today's already-started lesson for
+  // the next one and collapse a multi-day plan into today.
+  const normalizedDueAt = payloadDueAt || scheduledDueAt || calculateHomeworkDueAt(issuedAt, fallbackDays);
   if (Date.parse(normalizedDueAt) < Date.parse(issuedAt)) {
     return res.status(400).json({ error: 'Срок домашки не может быть раньше даты выдачи' });
   }
@@ -27636,7 +27639,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   const scheduledDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
     ? resolveNextLessonStart(data.schedule)?.toISOString() || ''
     : '';
-  const normalizedDueAt = scheduledDueAt || (hasDueAtField
+  const normalizedDueAt = (hasDueAtField && payloadDueAt) || scheduledDueAt || (hasDueAtField
     ? (payloadDueAt || calculateHomeworkDueAt(existing.issuedAt, fallbackDays))
     : (hasDaysField
         ? calculateHomeworkDueAt(existing.issuedAt, fallbackDays)

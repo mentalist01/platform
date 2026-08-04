@@ -65,6 +65,22 @@ test('does not change a manually selected deadline', () => {
   assert.equal(result.studentData.homeworks[0].dueAt, homework.dueAt);
 });
 
+test('does not rebuild an automatic deadline when the schedule was only read', () => {
+  const homework = makeHomework();
+  const schedule = [{ weekdayKey: 'tuesday', time: '18:30' }];
+  const result = synchronizeHomeworkDueAtWithSchedule({
+    studentData: { homeworks: [homework], nextLesson: { ...homework }, schedule },
+    previousSchedule: schedule,
+    schedule,
+    now: new Date(2026, 6, 30, 13, 0, 0),
+    buildDayPlan: () => { throw new Error('plan must not be rebuilt'); },
+  });
+
+  assert.equal(result.deadlineChanged, false);
+  assert.equal(result.studentData.homeworks[0].dueAt, homework.dueAt);
+  assert.equal(result.studentData.homeworks[0].dayPlan, homework.dayPlan);
+});
+
 test('does not roll an overdue automatic homework forward to another lesson', () => {
   const homework = makeHomework({
     dueAt: new Date(2026, 6, 28, 18, 30, 0).toISOString(),
