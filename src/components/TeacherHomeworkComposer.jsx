@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react';
 
-import { resolveAuthenticatedUploadsUrl } from '../services/api';
+import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
 import {
   HOMEWORK_ASSIGNMENT_TIER_OPTIONAL,
@@ -177,6 +177,7 @@ const TeacherHomeworkComposer = ({
   draftSaving = false,
   discarding = false,
   draftRestoredAt = '',
+  studentId = '',
   studentLabel = '',
   form,
   carryoverSummary = null,
@@ -211,6 +212,7 @@ const TeacherHomeworkComposer = ({
   const [expandedImage, setExpandedImage] = useState(null);
   const [mobilePane, setMobilePane] = useState('compose');
   const [manualPlanDate, setManualPlanDate] = useState('');
+  const [solvedQuestionIds, setSolvedQuestionIds] = useState(() => new Set());
   const composerBusy = saving || draftSaving || discarding;
   const restoredDraftDate = draftRestoredAt ? new Date(draftRestoredAt) : null;
   const restoredDraftLabel = restoredDraftDate && !Number.isNaN(restoredDraftDate.getTime())
@@ -297,6 +299,28 @@ const TeacherHomeworkComposer = ({
   const previewSelected = activeGoalType === goalTypeMock
     ? Boolean(previewItem && selectedMockTargetSet.has(String(previewItem.key)))
     : previewQuestionNumber != null && selectedTargetSet.has(previewQuestionNumber);
+
+  useEffect(() => {
+    if (
+      !open
+      || !studentId
+      || activeGoalType !== goalTypeTask
+      || !Number.isFinite(activeTaskNumber)
+      || !activeLevelId
+    ) {
+      setSolvedQuestionIds(new Set());
+      return undefined;
+    }
+    let cancelled = false;
+    api.getSolvedQuestions(studentId, activeTaskNumber, activeLevelId)
+      .then((items) => {
+        if (!cancelled) setSolvedQuestionIds(new Set((Array.isArray(items) ? items : []).map(String)));
+      })
+      .catch(() => {
+        if (!cancelled) setSolvedQuestionIds(new Set());
+      });
+    return () => { cancelled = true; };
+  }, [activeGoalType, activeLevelId, activeTaskNumber, goalTypeTask, open, studentId]);
 
   const plannerGoals = goals.map((goal) => {
     const goalType = typeof normalizeGoalType === 'function'
@@ -1372,6 +1396,8 @@ const TeacherHomeworkComposer = ({
                   <div className="mt-3 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
                     {previewItems.map((item, index) => {
                       const number = activeGoalType === goalTypeTask ? index + 1 : item.label;
+                      const solved = activeGoalType === goalTypeTask
+                        && solvedQuestionIds.has(String(item.question?.id ?? index));
                       const selected = activeGoalType === goalTypeMock
                         ? selectedMockTargetSet.has(String(item.key))
                         : selectedTargetSet.has(Number(number));
@@ -1389,9 +1415,11 @@ const TeacherHomeworkComposer = ({
                             type="button"
                             onClick={() => setPreviewIndex(index)}
                             className={`min-w-9 px-2 py-1.5 text-[11px] font-black ${
-                              selected ? 'bg-purple-600 text-white' : 'bg-[rgb(var(--surface))] text-[rgb(var(--ink-soft))]'
+                              solved
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : (selected ? 'bg-purple-600 text-white' : 'bg-[rgb(var(--surface))] text-[rgb(var(--ink-soft))]')
                             }`}
-                            title={`Показать задание №${item.label}`}
+                            title={solved ? `Задание №${item.label} уже решено учеником` : `Показать задание №${item.label}`}
                           >
                             {item.label}
                           </button>

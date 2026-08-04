@@ -4602,6 +4602,7 @@ const ScheduleSection = ({
           draftSaving={homeworkDraftSaving}
           discarding={homeworkDraftDiscarding}
           draftRestoredAt={editingId ? '' : homeworkDraft?.updatedAt}
+          studentId={requestStudentId}
           studentLabel={selectedStudent ? getStudentLabel(selectedStudent) : ''}
           form={form}
           carryoverSummary={homeworkCarryoverSummary}
