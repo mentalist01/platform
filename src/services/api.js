@@ -1570,6 +1570,47 @@ export const api = {
       `/api/lesson-replay/snapshot/${encodeURIComponent(String(snapshotId || '').trim())}?${params.toString()}`
     );
   },
+  getLessonReplayAudioUrl: (studentId, occurrenceKey, audioId) => {
+    const params = new URLSearchParams({
+      studentId: String(studentId || '').trim(),
+      occurrenceKey: String(occurrenceKey || '').trim(),
+    });
+    return resolveAuthenticatedApiUrl(
+      `/api/lesson-replay/audio/${encodeURIComponent(String(audioId || '').trim())}?${params.toString()}`
+    );
+  },
+  prepareLessonReplayAudioSegment: async (sessionId, metadata = {}) => {
+    const res = await apiFetch('/api/lesson-replay/audio/prepare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: String(sessionId || '').trim(),
+        mimeType: String(metadata?.mimeType || '').trim(),
+        sizeBytes: Math.max(0, Math.round(Number(metadata?.sizeBytes) || 0)),
+        durationMs: Math.max(0, Math.round(Number(metadata?.durationMs) || 0)),
+        occurredAt: String(metadata?.occurredAt || new Date().toISOString()),
+      }),
+    });
+    if (!res.ok) {
+      const error = new Error(await parseApiError(res));
+      error.status = res.status;
+      throw error;
+    }
+    return parseJsonResponse(res);
+  },
+  completeLessonReplayAudioSegment: async (audioId) => {
+    const res = await apiFetch('/api/lesson-replay/audio/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audioId: String(audioId || '').trim() }),
+    });
+    if (!res.ok) {
+      const error = new Error(await parseApiError(res));
+      error.status = res.status;
+      throw error;
+    }
+    return parseJsonResponse(res);
+  },
   uploadLessonReplaySnapshot: async (sessionId, blob, metadata = {}) => {
     const mimeType = blob?.type === 'image/jpeg' ? 'image/jpeg' : 'image/webp';
     const extension = mimeType === 'image/jpeg' ? 'jpg' : 'webp';
@@ -2044,6 +2085,30 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileId: normalizedFileId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getQuestionWorkbookSolutions: async (studentId, taskNumber, levelId, questionId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    params.append('taskNumber', String(taskNumber));
+    params.append('levelId', String(levelId));
+    params.append('questionId', String(questionId));
+    const res = await apiFetch(`/api/workbook-helper/question-solutions?${params.toString()}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  launchQuestionWorkbookHelper: async (payload = {}) => {
+    const res = await apiFetch('/api/workbook-helper/question-launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        taskNumber: payload.taskNumber,
+        levelId: payload.levelId,
+        questionId: payload.questionId,
+        attachmentId: payload.attachmentId,
+      }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);

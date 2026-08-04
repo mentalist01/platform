@@ -51,6 +51,7 @@ const useLessonReplayRecorder = ({
   const startInFlightRef = useRef(0);
   const lastEventRef = useRef({ signature: '', at: 0 });
   const screenSnapshotDisabledSessionRef = useRef('');
+  const audioUploadDisabledSessionRef = useRef('');
   const enabledRef = useRef(Boolean(active && studentId));
   const modeRef = useRef(normalizedMode);
   const occurrenceKeyRef = useRef(normalizedOccurrenceKey);
@@ -276,6 +277,7 @@ const useLessonReplayRecorder = ({
             ).trim(),
           };
           screenSnapshotDisabledSessionRef.current = '';
+          audioUploadDisabledSessionRef.current = '';
           retryDelayMs = 1500;
           scheduleFlush(0);
           syncSessionModeRef.current?.();
@@ -345,6 +347,7 @@ const useLessonReplayRecorder = ({
     const pending = queueRef.current.splice(0);
     lastEventRef.current = { signature: '', at: 0 };
     screenSnapshotDisabledSessionRef.current = '';
+    audioUploadDisabledSessionRef.current = '';
     if (!session?.sessionId) return { ok: true, alreadyFinished: true };
     await finishSession(session, pending, options);
     return { ok: true };
@@ -394,11 +397,57 @@ const useLessonReplayRecorder = ({
     }
   }, []);
 
+  const uploadLessonReplayAudioSegment = useCallback(async (blob, metadata = {}) => {
+    const session = sessionRef.current;
+    if (
+      !enabledRef.current
+      || !session?.sessionId
+      || !(blob instanceof Blob)
+      || blob.size <= 0
+      || audioUploadDisabledSessionRef.current === session.sessionId
+    ) return { saved: false };
+    try {
+      const prepared = await api.prepareLessonReplayAudioSegment(session.sessionId, {
+        ...metadata,
+        mimeType: blob.type || metadata?.mimeType,
+        sizeBytes: blob.size,
+      });
+      const uploadResponse = await fetch(prepared.uploadUrl, {
+        method: 'PUT',
+        headers: prepared.headers || { 'Content-Type': blob.type || 'audio/webm;codecs=opus' },
+        body: blob,
+      });
+      if (!uploadResponse.ok) {
+        const uploadError = new Error(`S3 upload failed (${uploadResponse.status})`);
+        uploadError.status = uploadResponse.status;
+        uploadError.stage = 'upload';
+        throw uploadError;
+      }
+      const result = await api.completeLessonReplayAudioSegment(prepared.audioId);
+      return { saved: true, ...result };
+    } catch (error) {
+      const disabled = error?.status === 503
+        || error?.status === 413
+        || error?.status === 403
+        || error?.stage === 'upload';
+      if (disabled) audioUploadDisabledSessionRef.current = session.sessionId;
+      if (
+        (error?.status === 404 || error?.status === 410)
+        && sessionRef.current?.sessionId === session.sessionId
+      ) {
+        sessionRef.current = null;
+        if (enabledRef.current) startSessionRef.current?.();
+      }
+      return { saved: false, disabled, error };
+    }
+  }, []);
+
   return {
     recordLessonReplayEvent: recordEvent,
     flushLessonReplay: flush,
     finishLessonReplayNow,
     uploadLessonReplayScreenSnapshot,
+    uploadLessonReplayAudioSegment,
   };
 };
 

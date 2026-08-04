@@ -1503,6 +1503,16 @@ const LESSON_REPLAY_VIEW_LABELS = Object.freeze({
   teacher: 'Ученики',
   'teacher-calendar': 'Календарь',
 });
+const TELEMOST_AUDIO_SEGMENT_MS = 30_000;
+const TELEMOST_AUDIO_BITRATE = 32_000;
+const getTelemostReplayAudioMimeType = () => {
+  if (typeof MediaRecorder === 'undefined') return '';
+  return [
+    'audio/webm;codecs=opus',
+    'audio/ogg;codecs=opus',
+    'audio/mp4',
+  ].find((candidate) => MediaRecorder.isTypeSupported?.(candidate)) || '';
+};
 const TEACHER_NOTIF_HISTORY_KEY_PREFIX = 'ege_teacher_notif_history_v1';
 const NOTES_SAVE_DRAFT_STORAGE_KEY_PREFIX = 'ege_notes_save_draft_v1';
 const NOTES_SAVE_DRAFT_CATEGORIES = new Set(['class', 'home']);
@@ -3324,6 +3334,10 @@ const CollabSection = ({
   const lessonReplayCodeTimerRef = useRef(null);
   const lessonReplayPendingCodeRef = useRef(null);
   const lessonReplayLastCodeSignatureRef = useRef('');
+  const lessonReplayCodeViewportTimerRef = useRef(null);
+  const lessonReplayPendingCodeViewportRef = useRef(null);
+  const lessonReplayLastCodeViewportSignatureRef = useRef('');
+  const lessonReplayLastCodeViewportAtRef = useRef(0);
   useEffect(() => {
     lessonReplayEventRef.current = onLessonReplayEvent;
   }, [onLessonReplayEvent]);
@@ -3354,6 +3368,45 @@ const CollabSection = ({
     );
   }, [flushLessonReplayCodeSnapshot]);
   useEffect(() => () => flushLessonReplayCodeSnapshot(), [flushLessonReplayCodeSnapshot]);
+  const flushLessonReplayCodeViewport = useCallback(() => {
+    if (typeof window !== 'undefined') window.clearTimeout(lessonReplayCodeViewportTimerRef.current);
+    const payload = lessonReplayPendingCodeViewportRef.current;
+    lessonReplayPendingCodeViewportRef.current = null;
+    if (!payload || typeof lessonReplayEventRef.current !== 'function') return;
+    const signature = JSON.stringify(payload);
+    if (signature === lessonReplayLastCodeViewportSignatureRef.current) return;
+    lessonReplayLastCodeViewportSignatureRef.current = signature;
+    lessonReplayLastCodeViewportAtRef.current = Date.now();
+    lessonReplayEventRef.current('viewport', payload, { dedupeMs: 5000 });
+  }, []);
+  const scheduleLessonReplayCodeViewport = useCallback((editor, delayMs = 1600) => {
+    if (!editor || typeof window === 'undefined') return;
+    const layout = editor.getLayoutInfo?.() || {};
+    const viewportHeight = Math.max(1, Number(layout.height) || 1);
+    const viewportWidth = Math.max(1, Number(layout.contentWidth) || Number(layout.width) || 1);
+    const scrollTop = Math.max(0, Number(editor.getScrollTop?.()) || 0);
+    const scrollLeft = Math.max(0, Number(editor.getScrollLeft?.()) || 0);
+    const maxScrollTop = Math.max(1, (Number(editor.getScrollHeight?.()) || viewportHeight) - viewportHeight);
+    const maxScrollLeft = Math.max(1, (Number(editor.getScrollWidth?.()) || viewportWidth) - viewportWidth);
+    const visibleRange = editor.getVisibleRanges?.()?.[0] || null;
+    const cursor = editor.getPosition?.() || null;
+    lessonReplayPendingCodeViewportRef.current = {
+      surface: 'code',
+      scrollTopRatio: Math.min(1, scrollTop / maxScrollTop),
+      scrollLeftRatio: Math.min(1, scrollLeft / maxScrollLeft),
+      firstVisibleLine: Math.max(1, Number(visibleRange?.startLineNumber) || 1),
+      cursorLine: Math.max(1, Number(cursor?.lineNumber) || 1),
+      cursorColumn: Math.max(1, Number(cursor?.column) || 1),
+    };
+    const elapsed = Date.now() - lessonReplayLastCodeViewportAtRef.current;
+    const waitMs = Math.max(Number(delayMs) || 0, 4000 - elapsed, 0);
+    window.clearTimeout(lessonReplayCodeViewportTimerRef.current);
+    lessonReplayCodeViewportTimerRef.current = window.setTimeout(
+      flushLessonReplayCodeViewport,
+      waitMs
+    );
+  }, [flushLessonReplayCodeViewport]);
+  useEffect(() => () => flushLessonReplayCodeViewport(), [flushLessonReplayCodeViewport]);
   const setCollabBoardMemorySnapshotRenderer = useCallback((renderer) => {
     collabBoardSnapshotRendererRef.current = typeof renderer === 'function' ? renderer : null;
   }, []);
@@ -4164,6 +4217,7 @@ const CollabSection = ({
     collabCursorPositionDisposableRef.current?.dispose?.();
     collabCursorPositionDisposableRef.current = editor.onDidChangeCursorPosition(() => {
       publishCursorFromEditorPosition(true);
+      scheduleLessonReplayCodeViewport(editor);
     });
     collabCursorSelectionDisposableRef.current?.dispose?.();
     collabCursorSelectionDisposableRef.current = editor.onDidChangeCursorSelection(() => {
@@ -4184,10 +4238,12 @@ const CollabSection = ({
     collabCursorLayoutDisposableRef.current?.dispose?.();
     collabCursorLayoutDisposableRef.current = editor.onDidLayoutChange(() => {
       setEditorViewportVersion((prev) => prev + 1);
+      scheduleLessonReplayCodeViewport(editor);
     });
     collabCursorScrollDisposableRef.current?.dispose?.();
     collabCursorScrollDisposableRef.current = editor.onDidScrollChange(() => {
       setEditorViewportVersion((prev) => prev + 1);
+      scheduleLessonReplayCodeViewport(editor);
     });
     if (monaco?.KeyCode && typeof editor.addCommand === 'function') {
       const runAllFromEditor = () => {
@@ -4200,10 +4256,12 @@ const CollabSection = ({
     }
     setEditorReady(true);
     setEditorMountVersion((prev) => prev + 1);
+    scheduleLessonReplayCodeViewport(editor, 250);
   }, [
     applyDebugGlyphScale,
     editorFontSize,
     scheduleCollabEditorCursor,
+    scheduleLessonReplayCodeViewport,
   ]);
 
   useEffect(() => () => {
@@ -6702,7 +6760,10 @@ const CollabSection = ({
 
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
-    const handleReplayCodeChange = () => scheduleLessonReplayCodeSnapshot(ytext);
+    const handleReplayCodeChange = (_event, transaction) => {
+      if (transaction?.local === false) return;
+      scheduleLessonReplayCodeSnapshot(ytext);
+    };
     ytext.observe(handleReplayCodeChange);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
     provider.awareness.setLocalStateField('selection', null);
@@ -6714,7 +6775,7 @@ const CollabSection = ({
 
     const runMap = doc.getMap('collabRun');
     runMapRef.current = runMap;
-    const handleRunMapChange = () => {
+    const handleRunMapChange = (_event, transaction) => {
       updateRunStateFromMap(runMap);
       const replayRunPayload = {
         status: typeof runMap.get('status') === 'string' ? runMap.get('status') : 'idle',
@@ -6722,8 +6783,11 @@ const CollabSection = ({
         output: typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? ''),
         error: typeof runMap.get('error') === 'string' ? runMap.get('error') : String(runMap.get('error') ?? ''),
       };
-      scheduleLessonReplayCodeSnapshot(ytext, 250, replayRunPayload);
+      const shouldRecordReplay = transaction?.local !== false;
+      if (shouldRecordReplay) scheduleLessonReplayCodeSnapshot(ytext, 250, replayRunPayload);
       if (
+        shouldRecordReplay
+        &&
         typeof lessonReplayEventRef.current === 'function'
         && (replayRunPayload.status !== 'idle' || replayRunPayload.output || replayRunPayload.error)
       ) {
@@ -6736,10 +6800,12 @@ const CollabSection = ({
 
     const testFileYText = doc.getText(COLLAB_TEST_FILE_DOC_KEY);
     collabTestFileRef.current = testFileYText;
-    const syncTestFileFromDoc = () => {
+    const syncTestFileFromDoc = (_event, transaction) => {
       const next = normalizeCollabTextFileContent(testFileYText.toString());
       setTestFileText((prev) => (prev === next ? prev : next));
-      scheduleLessonReplayCodeSnapshot(ytext, 1400, { testFile: next });
+      if (transaction?.local !== false) {
+        scheduleLessonReplayCodeSnapshot(ytext, 1400, { testFile: next });
+      }
     };
     testFileYText.observe(syncTestFileFromDoc);
     syncTestFileFromDoc();
@@ -9587,6 +9653,10 @@ const BoardSection = ({
   const lessonReplayBoardTimerRef = useRef(null);
   const lessonReplayPendingBoardRef = useRef(null);
   const lessonReplayLastBoardSignatureRef = useRef('');
+  const lessonReplayBoardViewportTimerRef = useRef(null);
+  const lessonReplayPendingBoardViewportRef = useRef(null);
+  const lessonReplayLastBoardViewportSignatureRef = useRef('');
+  const lessonReplayLastBoardViewportAtRef = useRef(0);
   const boardRevision = boardSnapshot.revision;
   const boardItemCount = boardSnapshot.itemCount;
 
@@ -9633,6 +9703,32 @@ const BoardSection = ({
   }, [flushLessonReplayBoardSnapshot]);
 
   useEffect(() => () => flushLessonReplayBoardSnapshot(), [flushLessonReplayBoardSnapshot]);
+
+  const flushLessonReplayBoardViewport = useCallback(() => {
+    if (typeof window !== 'undefined') window.clearTimeout(lessonReplayBoardViewportTimerRef.current);
+    const payload = lessonReplayPendingBoardViewportRef.current;
+    lessonReplayPendingBoardViewportRef.current = null;
+    if (!payload || typeof lessonReplayEventRef.current !== 'function') return;
+    const signature = JSON.stringify(payload);
+    if (signature === lessonReplayLastBoardViewportSignatureRef.current) return;
+    lessonReplayLastBoardViewportSignatureRef.current = signature;
+    lessonReplayLastBoardViewportAtRef.current = Date.now();
+    lessonReplayEventRef.current('viewport', payload, { dedupeMs: 5000 });
+  }, []);
+
+  const scheduleLessonReplayBoardViewport = useCallback((payload, delayMs = 1600) => {
+    if (!payload || typeof window === 'undefined') return;
+    lessonReplayPendingBoardViewportRef.current = payload;
+    const elapsed = Date.now() - lessonReplayLastBoardViewportAtRef.current;
+    const waitMs = Math.max(Number(delayMs) || 0, 4000 - elapsed, 0);
+    window.clearTimeout(lessonReplayBoardViewportTimerRef.current);
+    lessonReplayBoardViewportTimerRef.current = window.setTimeout(
+      flushLessonReplayBoardViewport,
+      waitMs
+    );
+  }, [flushLessonReplayBoardViewport]);
+
+  useEffect(() => () => flushLessonReplayBoardViewport(), [flushLessonReplayBoardViewport]);
 
   useEffect(() => {
     setIsMinimapOpen(false);
@@ -10148,6 +10244,27 @@ const BoardSection = ({
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
+
+  useEffect(() => {
+    if (!roomId || !viewportHydratedRef.current) return;
+    scheduleLessonReplayBoardViewport({
+      surface: 'board',
+      zoom: Math.max(0.05, Number(zoom) || 1),
+      offset: {
+        x: Number(offset?.x) || 0,
+        y: Number(offset?.y) || 0,
+      },
+      width: Math.max(1, Math.round(Number(boardSize.width) || 900)),
+      height: Math.max(1, Math.round(Number(boardSize.height) || 520)),
+    }, 1600);
+  }, [
+    boardSize.height,
+    boardSize.width,
+    offset,
+    roomId,
+    scheduleLessonReplayBoardViewport,
+    zoom,
+  ]);
 
   useEffect(() => {
     if (tool !== 'move' && tool !== 'select' && selectedImageId) setSelectedImageId(null);
@@ -12224,7 +12341,7 @@ const BoardSection = ({
       });
     };
 
-    const updateItems = (event) => {
+    const updateItems = (event, transaction) => {
       const hasDelta = Array.isArray(event?.changes?.delta) && event.changes.delta.length > 0;
       const nextSnapshot = hasDelta
         ? applyBoardDelta(event.changes.delta)
@@ -12233,7 +12350,9 @@ const BoardSection = ({
           renderPlan: { mode: 'full' },
         };
       commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
-      scheduleLessonReplayBoardSnapshot(nextSnapshot.nextItems);
+      if (transaction?.local !== false) {
+        scheduleLessonReplayBoardSnapshot(nextSnapshot.nextItems);
+      }
       scheduleBoardRender();
       const capacityError = getBoardCapacityError(nextSnapshot.nextItems.length, nextSnapshot.nextEstimatedBytes);
       setPasteError((current) => {
@@ -14342,6 +14461,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [callSessionStatus, setCallSessionStatus] = useState('idle');
   const [telemostLessonReplay, setTelemostLessonReplay] = useState(null);
   const [telemostLessonFinishBusy, setTelemostLessonFinishBusy] = useState(false);
+  const [telemostAudioCapture, setTelemostAudioCapture] = useState({ status: 'idle', message: '' });
+  const telemostAudioCaptureRef = useRef(null);
   const telemostLessonActivityMissesRef = useRef(0);
   const [callAutoStartToken, setCallAutoStartToken] = useState(0);
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
@@ -14548,6 +14669,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     recordLessonReplayEvent,
     finishLessonReplayNow,
     uploadLessonReplayScreenSnapshot,
+    uploadLessonReplayAudioSegment,
   } = useLessonReplayRecorder({
     active: callSessionStatus === 'connected' || isTelemostLessonReplayActive,
     studentId: lessonReplayStudentId,
@@ -14556,6 +14678,207 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     view,
     viewLabel: LESSON_REPLAY_VIEW_LABELS[view] || view,
   });
+
+  const stopTelemostAudioCapture = useCallback(() => {
+    const capture = telemostAudioCaptureRef.current;
+    telemostAudioCaptureRef.current = null;
+    if (!capture) {
+      setTelemostAudioCapture({ status: 'idle', message: '' });
+      return Promise.resolve();
+    }
+    capture.cancelled = true;
+    window.clearTimeout(capture.stopTimerId);
+    if (capture.recorder?.state === 'recording') {
+      try { capture.recorder.stop(); } catch {
+        // The recorder may already have stopped between the state check and this call.
+        capture.closeGraph?.();
+      }
+    } else {
+      capture.closeGraph?.();
+    }
+    setTelemostAudioCapture({ status: 'idle', message: '' });
+    return capture.stopPromise || Promise.resolve();
+  }, []);
+
+  const startTelemostAudioCapture = useCallback(async () => {
+    if (
+      !isTelemostLessonReplayActive
+      || telemostAudioCaptureRef.current
+      || !navigator.mediaDevices?.getDisplayMedia
+    ) return;
+    const mimeType = getTelemostReplayAudioMimeType();
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!mimeType || !AudioContextCtor) {
+      setTelemostAudioCapture({
+        status: 'error',
+        message: 'Этот браузер не умеет записывать звук Телемоста.',
+      });
+      return;
+    }
+    setTelemostAudioCapture({
+      status: 'requesting',
+      message: 'Выбери вкладку Телемоста и включи «Поделиться аудио».',
+    });
+    let displayStream = null;
+    let micStream = null;
+    try {
+      displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+        preferCurrentTab: false,
+        selfBrowserSurface: 'exclude',
+        systemAudio: 'include',
+      });
+      const sharedAudioTracks = displayStream.getAudioTracks();
+      if (sharedAudioTracks.length === 0) {
+        displayStream.getTracks().forEach((track) => track.stop());
+        setTelemostAudioCapture({
+          status: 'error',
+          message: 'Звук не выбран. Нажми ещё раз и включи «Поделиться аудио».',
+        });
+        return;
+      }
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false,
+        });
+      } catch {
+        micStream = null;
+      }
+      const audioContext = new AudioContextCtor();
+      const destination = audioContext.createMediaStreamDestination();
+      const sources = [];
+      const tracks = [
+        ...sharedAudioTracks,
+        ...(micStream?.getAudioTracks?.() || []),
+      ].filter((track) => track.readyState === 'live');
+      tracks.forEach((track) => {
+        const source = audioContext.createMediaStreamSource(new MediaStream([track]));
+        const gain = audioContext.createGain();
+        gain.gain.value = tracks.length > 1 ? 0.72 : 1;
+        source.connect(gain);
+        gain.connect(destination);
+        sources.push({ source, gain });
+      });
+      const capture = {
+        cancelled: false,
+        blocked: false,
+        closed: false,
+        displayStream,
+        micStream,
+        audioContext,
+        destination,
+        sources,
+        recorder: null,
+        stopTimerId: null,
+        closeGraph: null,
+        stopPromise: null,
+        resolveStopped: null,
+      };
+      capture.stopPromise = new Promise((resolve) => {
+        capture.resolveStopped = resolve;
+      });
+      capture.closeGraph = () => {
+        if (capture.closed) return;
+        capture.closed = true;
+        capture.displayStream?.getTracks?.().forEach((track) => track.stop());
+        capture.micStream?.getTracks?.().forEach((track) => track.stop());
+        capture.sources.forEach(({ source, gain }) => {
+          try { source.disconnect(); } catch {
+            // The source may already be disconnected by a browser-ended share.
+          }
+          try { gain.disconnect(); } catch {
+            // The gain may already be disconnected by a browser-ended share.
+          }
+        });
+        capture.audioContext.close().catch(() => null);
+        capture.resolveStopped?.();
+        capture.resolveStopped = null;
+      };
+      const startSegment = () => {
+        if (capture.cancelled || capture.blocked) {
+          capture.closeGraph();
+          return;
+        }
+        const chunks = [];
+        const segmentStartedAt = Date.now();
+        capture.recorder = new MediaRecorder(destination.stream, {
+          mimeType,
+          audioBitsPerSecond: TELEMOST_AUDIO_BITRATE,
+        });
+        capture.recorder.ondataavailable = (event) => {
+          if (event.data?.size > 0) chunks.push(event.data);
+        };
+        capture.recorder.onstop = () => {
+          window.clearTimeout(capture.stopTimerId);
+          const durationMs = Math.max(250, Date.now() - segmentStartedAt);
+          const blob = chunks.length > 0 ? new Blob(chunks, { type: mimeType }) : null;
+          capture.recorder = null;
+          const uploadPromise = blob?.size
+            ? uploadLessonReplayAudioSegment(blob, {
+              occurredAt: new Date(segmentStartedAt).toISOString(),
+              durationMs,
+              mimeType,
+            })
+            : Promise.resolve({ saved: false });
+          if (!capture.cancelled && !capture.blocked) {
+            startSegment();
+            void uploadPromise.then((result) => {
+              if (!result?.disabled) return;
+              capture.blocked = true;
+              setTelemostAudioCapture({
+                status: 'error',
+                message: 'S3 для звука ещё не настроен или недоступен.',
+              });
+              if (capture.recorder?.state === 'recording') capture.recorder.stop();
+            });
+          } else {
+            void uploadPromise.finally(() => capture.closeGraph());
+          }
+        };
+        capture.recorder.start();
+        capture.stopTimerId = window.setTimeout(() => {
+          if (capture.recorder?.state === 'recording') capture.recorder.stop();
+        }, TELEMOST_AUDIO_SEGMENT_MS);
+      };
+      const stopFromBrowser = () => {
+        if (telemostAudioCaptureRef.current !== capture) return;
+        stopTelemostAudioCapture();
+      };
+      displayStream.getVideoTracks().forEach((track) => {
+        track.addEventListener('ended', stopFromBrowser, { once: true });
+      });
+      telemostAudioCaptureRef.current = capture;
+      await audioContext.resume();
+      startSegment();
+      setTelemostAudioCapture({
+        status: 'recording',
+        message: micStream
+          ? 'Пишется звук Телемоста и микрофона.'
+          : 'Пишется звук Телемоста; микрофон браузер не дал.',
+      });
+    } catch (error) {
+      displayStream?.getTracks?.().forEach((track) => track.stop());
+      micStream?.getTracks?.().forEach((track) => track.stop());
+      const cancelled = error?.name === 'NotAllowedError' || error?.name === 'AbortError';
+      setTelemostAudioCapture({
+        status: cancelled ? 'idle' : 'error',
+        message: cancelled ? '' : 'Не удалось начать запись звука Телемоста.',
+      });
+    }
+  }, [
+    isTelemostLessonReplayActive,
+    stopTelemostAudioCapture,
+    uploadLessonReplayAudioSegment,
+  ]);
+
+  useEffect(() => {
+    if (isTelemostLessonReplayActive && callSessionStatus !== 'connected') return;
+    stopTelemostAudioCapture();
+  }, [callSessionStatus, isTelemostLessonReplayActive, stopTelemostAudioCapture]);
+
+  useEffect(() => () => stopTelemostAudioCapture(), [stopTelemostAudioCapture]);
   const {
     workbookAutoSyncState,
     startWorkbookAutoSync,
@@ -14574,12 +14897,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   useEffect(() => {
     if (!lessonReplayActivityLookupStudentId) return undefined;
     let cancelled = false;
+    let busy = false;
+    let timerId = null;
+    const scheduleRefresh = (delayMs) => {
+      window.clearTimeout(timerId);
+      if (!cancelled) timerId = window.setTimeout(refreshActivity, delayMs);
+    };
     const refreshActivity = async () => {
+      if (busy || cancelled) return;
+      busy = true;
+      let nextDelayMs = 30_000;
       try {
         const activity = await api.getLessonReplayActivity(lessonReplayActivityLookupStudentId);
         if (cancelled) return;
         if (activity?.active && activity?.mode === 'telemost') {
           applyTelemostLessonReplay(activity);
+          nextDelayMs = 5000;
           return;
         }
         telemostLessonActivityMissesRef.current += 1;
@@ -14590,16 +14923,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         }
       } catch {
         // A temporary network issue must not interrupt an otherwise active lesson.
+      } finally {
+        busy = false;
+        scheduleRefresh(nextDelayMs);
       }
     };
-    const initialTimerId = window.setTimeout(refreshActivity, 1200);
-    const intervalId = window.setInterval(refreshActivity, 5000);
-    const handleFocus = () => refreshActivity();
+    scheduleRefresh(1200);
+    const handleFocus = () => scheduleRefresh(0);
     window.addEventListener('focus', handleFocus);
     return () => {
       cancelled = true;
-      window.clearTimeout(initialTimerId);
-      window.clearInterval(intervalId);
+      window.clearTimeout(timerId);
       window.removeEventListener('focus', handleFocus);
     };
   }, [applyTelemostLessonReplay, lessonReplayActivityLookupStudentId]);
@@ -14608,8 +14942,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const autoFinishAtMs = Date.parse(String(telemostLessonReplay?.autoFinishAt || '').trim());
     if (!isTelemostLessonReplayActive || !Number.isFinite(autoFinishAtMs)) return undefined;
     const finishAtCutoff = () => {
-      setTelemostLessonReplay(null);
-      if (callSessionStatus !== 'connected') finishLessonReplayNow();
+      void (async () => {
+        await stopTelemostAudioCapture();
+        setTelemostLessonReplay(null);
+        if (callSessionStatus !== 'connected') await finishLessonReplayNow();
+      })();
     };
     const delayMs = autoFinishAtMs - Date.now();
     if (delayMs <= 0) {
@@ -14618,7 +14955,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
     const timerId = window.setTimeout(finishAtCutoff, Math.min(delayMs, 2_147_000_000));
     return () => window.clearTimeout(timerId);
-  }, [callSessionStatus, finishLessonReplayNow, isTelemostLessonReplayActive, telemostLessonReplay?.autoFinishAt]);
+  }, [
+    callSessionStatus,
+    finishLessonReplayNow,
+    isTelemostLessonReplayActive,
+    stopTelemostAudioCapture,
+    telemostLessonReplay?.autoFinishAt,
+  ]);
 
   useEffect(() => {
     telemostLessonActivityMissesRef.current = 0;
@@ -14630,15 +14973,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (!studentId || telemostLessonFinishBusy) return;
     setTelemostLessonFinishBusy(true);
     try {
+      await stopTelemostAudioCapture();
       await api.finishLessonReplayLesson(studentId, telemostLessonReplay?.occurrenceKey || '');
-      finishLessonReplayNow();
+      await finishLessonReplayNow();
       setTelemostLessonReplay(null);
     } catch (error) {
       console.error('[lesson-replay] failed to finish Telemost lesson:', error);
     } finally {
       setTelemostLessonFinishBusy(false);
     }
-  }, [finishLessonReplayNow, telemostLessonFinishBusy, telemostLessonReplay]);
+  }, [
+    finishLessonReplayNow,
+    stopTelemostAudioCapture,
+    telemostLessonFinishBusy,
+    telemostLessonReplay,
+  ]);
   const isBoardView = view === 'board';
   const isCallView = view === 'call';
   const isCollabView = view === 'collab';
@@ -18540,11 +18889,31 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           <div className="min-w-0">
             <p className="truncate text-xs font-black text-slate-800">Урок идёт в Телемосте</p>
             <p className="truncate text-[10px] font-semibold text-slate-500">
-              {telemostLessonAutoFinishLabel
-                ? `Ход урока записывается до ${telemostLessonAutoFinishLabel}`
-                : 'Ход урока записывается без звука'}
+              {telemostAudioCapture.message || (telemostLessonAutoFinishLabel
+                ? `Доска и код пишутся до ${telemostLessonAutoFinishLabel}`
+                : 'Доска и код продолжают записываться')}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={telemostAudioCapture.status === 'recording'
+              ? stopTelemostAudioCapture
+              : startTelemostAudioCapture}
+            disabled={telemostAudioCapture.status === 'requesting'}
+            className={`shrink-0 rounded-xl border px-3 py-2 text-[11px] font-extrabold transition disabled:cursor-wait disabled:opacity-60 ${
+              telemostAudioCapture.status === 'recording'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                : 'border-violet-200 bg-white text-violet-700 hover:bg-violet-50'
+            }`}
+            title="Для Телемоста браузер один раз попросит выбрать вкладку с включённым звуком"
+          >
+            <span className="flex items-center gap-1.5">
+              <Mic size={14} />
+              {telemostAudioCapture.status === 'recording'
+                ? 'Звук пишется'
+                : (telemostAudioCapture.status === 'requesting' ? 'Выбери вкладку…' : 'Записать звук')}
+            </span>
+          </button>
           <button
             type="button"
             onClick={handleFinishTelemostLesson}
@@ -20219,6 +20588,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onTelemostLessonStart={applyTelemostLessonReplay}
               onLessonReplayEvent={recordLessonReplayEvent}
               onLessonReplayScreenSnapshot={uploadLessonReplayScreenSnapshot}
+              onLessonReplayAudioSegment={uploadLessonReplayAudioSegment}
               onRequestExpand={() => setCallPanelExpanded(true)}
               onRequestCollapse={() => setCallPanelExpanded(false)}
               onRequestOpenCall={() => navigateToView('call')}

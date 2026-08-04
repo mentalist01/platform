@@ -11,6 +11,13 @@ import { createRequire } from 'module';
 import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ARTIFACT_CATALOG_METADATA } from '../src/data/artifactCatalog.js';
 import { PROFILE_THEME_CATALOG, PROFILE_THEME_RARITY_ORDER } from '../src/data/profileThemeCatalog.js';
 import {
@@ -171,12 +178,15 @@ const activeTelemostLessonReplayByStudentId = new Map();
 const lessonReplayWriteQueueByOccurrenceKey = new Map();
 const lessonReplayCacheByOccurrenceKey = new Map();
 const lessonReplayPersistTimerByOccurrenceKey = new Map();
+const lessonReplayPersistFailureByOccurrenceKey = new Map();
+const lessonReplayAudioUploadTickets = new Map();
 const workbookHelperLaunchTickets = new Map();
 const workbookHelperExchangeAttempts = new Map();
 const workbookHelperContentAttempts = new Map();
 const workbookSolutionWriteQueues = new Map();
 const LESSON_REPLAY_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
-const LESSON_REPLAY_PERSIST_INTERVAL_MS = 12 * 1000;
+const LESSON_REPLAY_PERSIST_INTERVAL_MS = 30 * 1000;
+const LESSON_REPLAY_PERSIST_MAX_RETRY_MS = 5 * 60 * 1000;
 const LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS = 20 * 1000;
 const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;
 const TELEMOST_LESSON_DRAIN_MS = 30 * 1000;
@@ -191,6 +201,54 @@ const LESSON_REPLAY_SNAPSHOT_MAX_TOTAL_BYTES = (() => {
   }
   return 6 * 1024 * 1024 * 1024;
 })();
+const LESSON_REPLAY_AUDIO_MAX_SEGMENT_BYTES = 4 * 1024 * 1024;
+const LESSON_REPLAY_AUDIO_MAX_LESSON_BYTES = (() => {
+  const configured = Number(process.env.LESSON_REPLAY_AUDIO_MAX_LESSON_BYTES);
+  if (Number.isFinite(configured) && configured >= LESSON_REPLAY_AUDIO_MAX_SEGMENT_BYTES) {
+    return Math.floor(configured);
+  }
+  return 32 * 1024 * 1024;
+})();
+const LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS = 10 * 60 * 1000;
+const LESSON_REPLAY_AUDIO_URL_TTL_SECONDS = 15 * 60;
+const lessonReplayAudioS3Config = {
+  endpoint: String(process.env.LESSON_REPLAY_S3_ENDPOINT || process.env.S3_ENDPOINT || '').trim(),
+  region: String(process.env.LESSON_REPLAY_S3_REGION || process.env.S3_REGION || 'ru-1').trim() || 'ru-1',
+  bucket: String(process.env.LESSON_REPLAY_S3_BUCKET || process.env.S3_BUCKET || '').trim(),
+  accessKeyId: String(process.env.LESSON_REPLAY_S3_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || '').trim(),
+  secretAccessKey: String(process.env.LESSON_REPLAY_S3_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || '').trim(),
+  prefix: String(process.env.LESSON_REPLAY_S3_PREFIX || 'lesson-audio')
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/[^0-9a-z/_-]/gi, '') || 'lesson-audio',
+};
+const lessonReplayAudioS3Enabled = Boolean(
+  lessonReplayAudioS3Config.endpoint
+  && lessonReplayAudioS3Config.bucket
+  && lessonReplayAudioS3Config.accessKeyId
+  && lessonReplayAudioS3Config.secretAccessKey
+);
+const lessonReplayAudioS3 = lessonReplayAudioS3Enabled
+  ? new S3Client({
+    endpoint: lessonReplayAudioS3Config.endpoint,
+    region: lessonReplayAudioS3Config.region,
+    credentials: {
+      accessKeyId: lessonReplayAudioS3Config.accessKeyId,
+      secretAccessKey: lessonReplayAudioS3Config.secretAccessKey,
+    },
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
+  })
+  : null;
+const lessonReplayAudioTicketSweepInterval = setInterval(() => {
+  const nowMs = Date.now();
+  lessonReplayAudioUploadTickets.forEach((ticket, audioId) => {
+    if (Number(ticket?.expiresAt || 0) < nowMs) lessonReplayAudioUploadTickets.delete(audioId);
+  });
+}, 10 * 60 * 1000);
+if (typeof lessonReplayAudioTicketSweepInterval.unref === 'function') {
+  lessonReplayAudioTicketSweepInterval.unref();
+}
 const lessonReplaySessionSweepInterval = setInterval(() => {
   const nowMs = Date.now();
   activeLessonReplaySessions.forEach((session, sessionId) => {
@@ -975,7 +1033,7 @@ const BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED = parseEnabledEnv(
 const BOARD_COLLAB_SNAPSHOT_WRITE_DEBOUNCE_MS = (() => {
   const raw = Number(process.env.BOARD_COLLAB_SNAPSHOT_WRITE_DEBOUNCE_MS);
   if (Number.isFinite(raw) && raw >= 250) return Math.floor(raw);
-  return 10000;
+  return 60000;
 })();
 if (isProduction && dataDir === defaultDataDir) {
   console.warn('[storage] PLATFORM_DATA_DIR is not set. Data can be lost after a clean deploy.');
@@ -1331,6 +1389,7 @@ const flushBoardDocSnapshot = (docName, ydoc) => {
   const [filePath, ...legacyPaths] = getBoardSnapshotFilePaths(normalized);
   if (!filePath) return false;
   clearBoardSnapshotWriteTimer(normalized);
+  const startedAt = Date.now();
   try {
     const stateUpdate = Y.encodeStateAsUpdate(ydoc);
     const contents = Buffer.from(stateUpdate);
@@ -1345,6 +1404,10 @@ const flushBoardDocSnapshot = (docName, ydoc) => {
         if (fs.existsSync(legacyPath)) fs.unlinkSync(legacyPath);
       } catch {}
     });
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= 250) {
+      console.warn(`[perf] board snapshot ${normalized} took ${elapsedMs}ms (${contents.length} bytes)`);
+    }
     return true;
   } catch (error) {
     console.warn('[board] snapshot write failed:', error?.message || error);
@@ -1355,7 +1418,9 @@ const scheduleBoardDocSnapshotWrite = (docName, ydoc) => {
   const normalized = normalizeCollabDocName(docName);
   if (!normalized || !ydoc) return;
   if (!isBoardSnapshotPersistenceActive(normalized)) return;
-  clearBoardSnapshotWriteTimer(normalized);
+  // Throttle instead of debounce: during continuous drawing we still persist at
+  // most once a minute, without repeatedly encoding a multi-megabyte Yjs doc.
+  if (boardSnapshotWriteTimers.has(normalized)) return;
   const timerId = setTimeout(() => {
     boardSnapshotWriteTimers.delete(normalized);
     flushBoardDocSnapshot(normalized, ydoc);
@@ -1880,6 +1945,37 @@ const getLessonReplayOccurrenceHash = (occurrenceKey) => (
   crypto.createHash('sha256').update(String(occurrenceKey || '')).digest('hex')
 );
 
+const normalizeLessonReplayAudioId = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)
+    ? normalized
+    : '';
+};
+
+const normalizeLessonReplayAudioMimeType = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized.startsWith('audio/webm')) return 'audio/webm;codecs=opus';
+  if (normalized.startsWith('audio/ogg')) return 'audio/ogg;codecs=opus';
+  if (normalized.startsWith('audio/mp4')) return 'audio/mp4';
+  return '';
+};
+
+const getLessonReplayAudioExtension = (mimeType) => {
+  if (String(mimeType || '').startsWith('audio/ogg')) return 'ogg';
+  if (String(mimeType || '').startsWith('audio/mp4')) return 'm4a';
+  return 'webm';
+};
+
+const getLessonReplayAudioObjectKey = (occurrenceKey, audioId, mimeType) => {
+  const normalizedId = normalizeLessonReplayAudioId(audioId);
+  if (!normalizedId) return '';
+  return [
+    lessonReplayAudioS3Config.prefix,
+    getLessonReplayOccurrenceHash(occurrenceKey),
+    `${normalizedId}.${getLessonReplayAudioExtension(mimeType)}`,
+  ].filter(Boolean).join('/');
+};
+
 const getLessonReplayFilePath = (occurrenceKey) => (
   path.join(lessonReplaysDir, `${getLessonReplayOccurrenceHash(occurrenceKey)}.json.gz`)
 );
@@ -2058,6 +2154,7 @@ const getLessonReplayCompressedBytes = (occurrenceKey) => {
 };
 
 const persistLessonReplay = (normalized) => {
+  const startedAt = Date.now();
   const filePath = getLessonReplayFilePath(normalized.occurrence.key);
   const backupPath = getLessonReplayBackupFilePath(normalized.occurrence.key);
   const raw = Buffer.from(JSON.stringify(normalized), 'utf8');
@@ -2098,6 +2195,10 @@ const persistLessonReplay = (normalized) => {
       console.warn('[lesson-replay] failed to remove an old replay backup:', error?.message || error);
     }
   }
+  const elapsedMs = Date.now() - startedAt;
+  if (elapsedMs >= 200) {
+    console.warn(`[perf] lesson replay persist took ${elapsedMs}ms (${raw.length} raw, ${compressed.length} gzip)`);
+  }
   return {
     replay: normalized,
     compressedBytes: compressed.length,
@@ -2106,16 +2207,35 @@ const persistLessonReplay = (normalized) => {
 
 const scheduleLessonReplayPersistence = (occurrenceKey) => {
   if (lessonReplayPersistTimerByOccurrenceKey.has(occurrenceKey)) return;
+  const failure = lessonReplayPersistFailureByOccurrenceKey.get(occurrenceKey);
+  const retryDelayMs = failure
+    ? Math.max(0, Number(failure.nextRetryAt) - Date.now())
+    : 0;
   const timer = setTimeout(() => {
     lessonReplayPersistTimerByOccurrenceKey.delete(occurrenceKey);
     void withLessonReplayWriteLock(occurrenceKey, () => {
       const latest = lessonReplayCacheByOccurrenceKey.get(occurrenceKey);
       return latest ? persistLessonReplay(latest) : null;
+    }).then(() => {
+      lessonReplayPersistFailureByOccurrenceKey.delete(occurrenceKey);
+      const hasActiveOccurrenceSession = Array.from(activeLessonReplaySessions.values())
+        .some((session) => session.occurrenceKey === occurrenceKey && !session.closing);
+      if (!hasActiveOccurrenceSession) lessonReplayCacheByOccurrenceKey.delete(occurrenceKey);
     }).catch((error) => {
       console.error('[lesson-replay] deferred persistence failed:', error?.message || error);
+      const previous = lessonReplayPersistFailureByOccurrenceKey.get(occurrenceKey);
+      const attempts = Math.min(12, Math.max(0, Number(previous?.attempts) || 0) + 1);
+      const delayMs = Math.min(
+        LESSON_REPLAY_PERSIST_MAX_RETRY_MS,
+        LESSON_REPLAY_PERSIST_INTERVAL_MS * (2 ** Math.min(4, attempts))
+      );
+      lessonReplayPersistFailureByOccurrenceKey.set(occurrenceKey, {
+        attempts,
+        nextRetryAt: Date.now() + delayMs,
+      });
       scheduleLessonReplayPersistence(occurrenceKey);
     });
-  }, LESSON_REPLAY_PERSIST_INTERVAL_MS);
+  }, Math.max(LESSON_REPLAY_PERSIST_INTERVAL_MS, retryDelayMs));
   if (typeof timer.unref === 'function') timer.unref();
   lessonReplayPersistTimerByOccurrenceKey.set(occurrenceKey, timer);
 };
@@ -2142,7 +2262,9 @@ const writeLessonReplay = (replay, options = {}) => {
   const pendingTimer = lessonReplayPersistTimerByOccurrenceKey.get(occurrenceKey);
   if (pendingTimer) clearTimeout(pendingTimer);
   lessonReplayPersistTimerByOccurrenceKey.delete(occurrenceKey);
-  return persistLessonReplay(normalized);
+  const stored = persistLessonReplay(normalized);
+  lessonReplayPersistFailureByOccurrenceKey.delete(occurrenceKey);
+  return stored;
 };
 
 const getLessonReplaySummary = (occurrenceKey, replayOverride = null) => {
@@ -3628,8 +3750,14 @@ const hardDeleteStudentData = (studentIds = []) => {
   if (removedFiles.length > 0) {
     writeFilesDb(remainingFiles);
     for (const file of removedFiles) {
-      if (file?.storageName) {
-        const filePath = path.join(uploadsDir, file.storageName);
+      const ownedStorageName = file?.storageName || (
+        file?.workbookQuestionVirtualSource === true
+        && file?.workbookQuestionContext?.mode === 'task-26-text'
+          ? file?.workbookQuestionStorageName
+          : ''
+      );
+      if (ownedStorageName) {
+        const filePath = path.join(uploadsDir, path.basename(ownedStorageName));
         fs.unlink(filePath, () => {});
       }
     }
@@ -16278,7 +16406,11 @@ const withWorkbookSolutionWriteLock = async (solutionKey, operation) => {
 };
 
 const getWorkbookStoredFilePath = (entry) => {
-  const storageName = String(entry?.storageName || '').trim();
+  const storageName = String(
+    entry?.workbookQuestionVirtualSource === true
+      ? entry?.workbookQuestionStorageName
+      : entry?.storageName
+  ).trim();
   const safeStorageName = path.basename(storageName);
   if (!safeStorageName || safeStorageName !== storageName) return '';
   const filePath = path.join(uploadsDir, safeStorageName);
@@ -16444,6 +16576,167 @@ const createWorkbookHttpError = (statusCode, message, details = {}) => {
   Object.assign(error, details);
   return error;
 };
+
+const WORKBOOK_QUESTION_CATEGORY = 'testing';
+const WORKBOOK_QUESTION_TEXT_EXTENSIONS = new Set(['.txt', '.csv', '.tsv']);
+const BLANK_QUESTION_FODS = `<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:mimetype="application/vnd.oasis.opendocument.spreadsheet" office:version="1.3"><office:body><office:spreadsheet><table:table table:name="Лист1"><table:table-row><table:table-cell office:value-type="string"><text:p/></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document>`;
+
+const normalizeWorkbookQuestionValue = (value, maxLength = 240) => (
+  String(value ?? '').replace(/\0/g, '').trim().slice(0, maxLength)
+);
+
+const isWorkbookQuestionVirtualSource = (entry) => (
+  entry?.workbookQuestionVirtualSource === true
+);
+
+const isTask26TextAttachment = (taskNumber, fileName) => (
+  Number(taskNumber) === 26
+  && WORKBOOK_QUESTION_TEXT_EXTENSIONS.has(path.extname(String(fileName || '')).toLowerCase())
+);
+
+const workbookQuestionContextMatches = (value, target, { includeAttachment = true } = {}) => {
+  const context = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  if (Number(context.taskNumber) !== Number(target?.taskNumber)) return false;
+  if (String(context.levelId || '') !== String(target?.levelId || '')) return false;
+  if (String(context.questionId || '') !== String(target?.questionId || '')) return false;
+  return !includeAttachment
+    || String(context.attachmentId || '') === String(target?.attachmentId || '');
+};
+
+const getWorkbookQuestionTarget = ({ student, taskNumber, levelId, questionId, attachmentId }) => {
+  const taskNum = Number(taskNumber);
+  const normalizedLevelId = normalizeWorkbookQuestionValue(levelId, 100);
+  const normalizedQuestionId = normalizeWorkbookQuestionValue(questionId, 160);
+  const requestedAttachmentId = normalizeWorkbookQuestionValue(attachmentId, 240);
+  if (!Number.isFinite(taskNum) || !normalizedLevelId || !normalizedQuestionId || !requestedAttachmentId) {
+    throw createWorkbookHttpError(400, 'Некорректные параметры задания');
+  }
+  const studentData = getStudentData(student.id);
+  const testsDb = getTestsDbWithStudentMockFollowups(studentData);
+  const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(
+    testsDb,
+    taskNum,
+    normalizedLevelId,
+    normalizedQuestionId
+  );
+  if (!taskLevels) throw createWorkbookHttpError(404, 'Задание не найдено');
+  if (!questions) throw createWorkbookHttpError(404, 'Уровень не найден');
+  if (!question) throw createWorkbookHttpError(404, 'Вопрос не найден');
+  const attachments = Array.isArray(question.files) ? question.files : [];
+  const attachment = attachments.find((file) => {
+    const ids = [file?.id, file?.storageName]
+      .map((value) => normalizeWorkbookQuestionValue(value, 240))
+      .filter(Boolean);
+    return ids.includes(requestedAttachmentId);
+  });
+  if (!attachment) throw createWorkbookHttpError(404, 'Файл не найден в этом вопросе');
+  const storageName = path.basename(String(attachment.storageName || '').trim());
+  if (!storageName || storageName !== String(attachment.storageName || '').trim()) {
+    throw createWorkbookHttpError(400, 'Некорректный файл задания');
+  }
+  const attachmentPath = path.join(uploadsDir, storageName);
+  if (!fs.existsSync(attachmentPath)) {
+    throw createWorkbookHttpError(410, 'Файл задания больше недоступен');
+  }
+  const attachmentName = path.basename(
+    normalizeFileName(attachment.name || stripUploadIdPrefix(storageName)) || 'Задание'
+  );
+  const blankForTask26 = isTask26TextAttachment(taskNum, attachmentName);
+  if (!isWorkbookFileName(attachmentName) && !blankForTask26) {
+    throw createWorkbookHttpError(415, 'Для этого файла доступно только скачивание');
+  }
+  const attachmentKey = normalizeWorkbookQuestionValue(attachment.id || storageName, 240);
+  const questionIndex = questions.findIndex((entry) => (
+    String(entry?.id ?? '').trim() === normalizedQuestionId
+  ));
+  return {
+    attachment,
+    attachmentName,
+    attachmentPath,
+    attachmentStorageName: storageName,
+    blankForTask26,
+    context: {
+      taskNumber: taskNum,
+      levelId: normalizedLevelId,
+      questionId: normalizedQuestionId,
+      questionNumber: questionIndex >= 0 ? questionIndex + 1 : null,
+      attachmentId: attachmentKey,
+      attachmentName,
+      mode: blankForTask26 ? 'task-26-text' : 'workbook',
+    },
+  };
+};
+
+const ensureWorkbookQuestionSource = ({ student, target }) => {
+  let files = readFilesDb();
+  const context = target.context;
+  const sourceIndex = files.findIndex((entry) => (
+    isWorkbookQuestionVirtualSource(entry)
+    && String(entry?.studentId || '').trim() === String(student.id || '').trim()
+    && workbookQuestionContextMatches(entry?.workbookQuestionContext, context)
+  ));
+  const existing = sourceIndex >= 0 ? files[sourceIndex] : null;
+  let sourceStorageName = target.attachmentStorageName;
+  let sourceName = target.attachmentName;
+  if (target.blankForTask26) {
+    const existingStorageName = path.basename(String(existing?.workbookQuestionStorageName || '').trim());
+    const existingPath = existingStorageName ? path.join(uploadsDir, existingStorageName) : '';
+    if (existingPath && fs.existsSync(existingPath)) {
+      sourceStorageName = existingStorageName;
+    } else {
+      sourceStorageName = `${crypto.randomUUID()}-task-26-${context.questionNumber || 'question'}.fods`;
+      fs.writeFileSync(path.join(uploadsDir, sourceStorageName), BLANK_QUESTION_FODS, 'utf8');
+    }
+    sourceName = `Задание 26${context.questionNumber ? ` №${context.questionNumber}` : ''} — таблица.fods`;
+  }
+  const nowIso = new Date().toISOString();
+  const source = {
+    ...(existing || {}),
+    id: existing?.id || crypto.randomUUID(),
+    studentId: student.id,
+    taskNumber: context.taskNumber,
+    category: WORKBOOK_QUESTION_CATEGORY,
+    folderId: null,
+    folderName: null,
+    name: sourceName,
+    size: target.blankForTask26 ? formatSize(Buffer.byteLength(BLANK_QUESTION_FODS)) : String(target.attachment?.size || ''),
+    sizeBytes: 0,
+    originalSizeBytes: Math.max(0, Number(target.attachment?.sizeBytes) || 0),
+    date: existing?.date || new Date(nowIso).toLocaleDateString('ru-RU'),
+    createdAt: existing?.createdAt || nowIso,
+    updatedAt: nowIso,
+    source: 'test-question-workbook',
+    workbookQuestionVirtualSource: true,
+    workbookQuestionStorageName: sourceStorageName,
+    workbookQuestionContext: context,
+    memory: normalizeFileMemory({
+      ...(existing?.memory && typeof existing.memory === 'object' ? existing.memory : {}),
+      kind: 'workbook-question-source',
+      source: 'test-question-workbook',
+      title: sourceName.replace(/\.[^.]+$/, ''),
+      taskNumber: context.taskNumber,
+      createdAt: existing?.memory?.createdAt || existing?.createdAt || nowIso,
+    }, {
+      taskNumber: context.taskNumber,
+      source: 'test-question-workbook',
+      createdAt: existing?.createdAt || nowIso,
+    }),
+  };
+  if (sourceIndex >= 0) files[sourceIndex] = source;
+  else files.unshift(source);
+  writeFilesDb(files);
+  return { files, source };
+};
+
+const serializeWorkbookQuestionSolution = (entry) => ({
+  fileId: String(entry?.id || ''),
+  sourceFileId: String(entry?.workbookSourceFileId || ''),
+  attachmentId: String(entry?.workbookQuestionContext?.attachmentId || ''),
+  name: String(entry?.name || ''),
+  revision: Math.max(0, Math.floor(Number(entry?.workbookRevision) || 0)),
+  updatedAt: String(entry?.updatedAt || entry?.createdAt || ''),
+});
 
 const assertWorkbookSolutionCapacity = ({ files, existing, student, sourceFile, folder, sizeBytes }) => {
   const normalizedSizeBytes = Math.max(0, Number(sizeBytes) || 0);
@@ -16675,6 +16968,10 @@ const upsertWorkbookSolutionContent = ({
           ? revisionDecision.revision
           : Math.max(1, revisionDecision.revision),
         workbookContentHash: incomingContentHash,
+        ...(sourceFile?.workbookQuestionContext ? {
+          workbookQuestionContext: { ...sourceFile.workbookQuestionContext },
+          workbookQuestionSolution: true,
+        } : {}),
         ...(String(sourceFile.category || '').trim() === 'class' ? {
           lessonStudentId: student.id,
           lessonSavedAt: nowIso,
@@ -17163,7 +17460,9 @@ const handleUploadRequest = (req, res) => {
   const isBoardAsset = safeName.startsWith('board-asset-');
   const ownedFile = isBoardAsset
     ? null
-    : readFilesDb().find((entry) => entry?.storageName === safeName);
+    : readFilesDb().find((entry) => (
+      !isWorkbookQuestionVirtualSource(entry) && entry?.storageName === safeName
+    ));
   const boardAssetGrants = isBoardAsset
     ? readBoardAssetsDb().filter((entry) => entry.storageName === safeName)
     : [];
@@ -17541,6 +17840,109 @@ app.post('/api/workbook-helper/launch', (req, res) => {
     revision: state.revision,
     contentHash: state.contentHash,
   });
+});
+
+app.get('/api/workbook-helper/question-solutions', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id);
+  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  const taskNumber = Number(req.query?.taskNumber);
+  const levelId = normalizeWorkbookQuestionValue(req.query?.levelId, 100);
+  const questionId = normalizeWorkbookQuestionValue(req.query?.questionId, 160);
+  if (!Number.isFinite(taskNumber) || !levelId || !questionId) {
+    return res.status(400).json({ error: 'Некорректные параметры задания' });
+  }
+  const studentData = getStudentData(student.id);
+  const testsDb = getTestsDbWithStudentMockFollowups(studentData);
+  const { question } = getQuestionEntryFromTestsDb(testsDb, taskNumber, levelId, questionId);
+  if (!question) return res.status(404).json({ error: 'Вопрос не найден' });
+  const context = { taskNumber, levelId, questionId };
+  const latestByAttachment = new Map();
+  readFilesDb()
+    .filter((entry) => (
+      entry?.workbookQuestionSolution === true
+      && String(entry?.studentId || '').trim() === String(student.id || '').trim()
+      && workbookQuestionContextMatches(entry?.workbookQuestionContext, context, { includeAttachment: false })
+    ))
+    .sort((left, right) => (
+      Date.parse(String(right?.updatedAt || right?.createdAt || ''))
+      - Date.parse(String(left?.updatedAt || left?.createdAt || ''))
+    ))
+    .forEach((entry) => {
+      const attachmentId = String(entry?.workbookQuestionContext?.attachmentId || '').trim();
+      if (attachmentId && !latestByAttachment.has(attachmentId)) {
+        latestByAttachment.set(attachmentId, serializeWorkbookQuestionSolution(entry));
+      }
+    });
+  return res.json({ solutions: Array.from(latestByAttachment.values()) });
+});
+
+app.post('/api/workbook-helper/question-launch', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!isStudentRole(req.auth)) return forbid(res);
+  if (!req.is('application/json')) {
+    return res.status(415).json({ error: 'Ожидался JSON-запрос' });
+  }
+  const student = findStudentById(req.auth.id);
+  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  try {
+    const target = getWorkbookQuestionTarget({
+      student,
+      taskNumber: req.body?.taskNumber,
+      levelId: req.body?.levelId,
+      questionId: req.body?.questionId,
+      attachmentId: req.body?.attachmentId,
+    });
+    const ensured = ensureWorkbookQuestionSource({ student, target });
+    const sourceFile = ensured.source;
+    const solutionKey = buildWorkbookSolutionKey(student.id, sourceFile.id);
+    const solutionFile = findWorkbookSolutionEntry(
+      ensured.files,
+      student.id,
+      sourceFile.id,
+      solutionKey
+    );
+    const resolved = resolveWorkbookSourceForStudent(
+      student,
+      solutionFile?.id || sourceFile.id,
+      ensured.files
+    );
+    if (!resolved) throw createWorkbookHttpError(410, 'Таблица больше недоступна');
+    const solutionFileId = String(solutionFile?.id || '');
+    const state = getWorkbookBindingState(student, sourceFile, ensured.files, {
+      solutionKey,
+      solutionFileId,
+      nameRequired: false,
+    });
+    if (!state.contentHash) throw createWorkbookHttpError(410, 'Таблица больше недоступна');
+    const launch = createWorkbookHelperLaunchTicket({
+      studentId: student.id,
+      sourceFileId: sourceFile.id,
+      launchFileId: solutionFile?.id || sourceFile.id,
+      solutionKey,
+      solutionFileId,
+      nameRequired: false,
+    });
+    return res.status(201).json({
+      ticket: launch.ticket,
+      expiresAt: new Date(launch.expiresAtMs).toISOString(),
+      workbookKey: state.solutionKey,
+      sourceFileId: sourceFile.id,
+      fileName: state.fileName,
+      solutionName: state.fileName,
+      suggestedName: state.fileName,
+      requiresName: false,
+      nameRequired: false,
+      revision: state.revision,
+      contentHash: state.contentHash,
+      hasSolution: Boolean(solutionFile),
+      solution: solutionFile ? serializeWorkbookQuestionSolution(solutionFile) : null,
+      opensSourceText: Boolean(target.blankForTask26),
+    });
+  } catch (error) {
+    return sendWorkbookOperationError(res, error);
+  }
 });
 
 const requireStudentWorkbookSource = (req, res, next) => {
@@ -25516,6 +25918,7 @@ app.get('/api/student-search', async (req, res) => {
   const teacherId = normalizeTeacherId(student.teacherId);
   const visibleFiles = enrichFilesWithFolderPath(
     readFilesDb().filter((file) => {
+      if (isWorkbookQuestionVirtualSource(file)) return false;
       if (String(file?.studentId || '').trim() === student.id) return true;
       return isLessonSharedFile(file) && normalizeTeacherId(file?.teacherId) === teacherId;
     }),
@@ -25629,6 +26032,7 @@ const finishActiveLessonReplaySession = async (session, rawEvents = [], options 
         actorId: session.actorId,
         actorName: session.actorName,
         nowMs,
+        normalizedReplay: true,
       };
       const withPending = appendLessonReplayEvents(replay, rawEvents, context).replay;
       const appended = appendLessonReplayEvents(withPending, [{
@@ -25643,6 +26047,12 @@ const finishActiveLessonReplaySession = async (session, rawEvents = [], options 
       writeLessonReplay(appended.replay, { normalized: true });
     });
     activeLessonReplaySessions.delete(session.id);
+    const hasOtherOccurrenceSession = Array.from(activeLessonReplaySessions.values())
+      .some((entry) => entry.occurrenceKey === session.occurrenceKey && !entry.closing);
+    if (!hasOtherOccurrenceSession && !lessonReplayPersistTimerByOccurrenceKey.has(session.occurrenceKey)) {
+      lessonReplayCacheByOccurrenceKey.delete(session.occurrenceKey);
+      lessonReplayPersistFailureByOccurrenceKey.delete(session.occurrenceKey);
+    }
     return true;
   } catch (error) {
     session.closing = false;
@@ -25849,6 +26259,7 @@ app.post(
             actorId: session.actorId,
             actorName: session.actorName,
             nowMs,
+            normalizedReplay: true,
           });
           if (appended.added !== 1) throw new Error('Screen snapshot event was rejected');
           const written = writeLessonReplay(appended.replay, { deferred: true, normalized: true });
@@ -25885,6 +26296,213 @@ app.post(
     }
   }
 );
+
+app.get('/api/lesson-replay/audio/:audioId', async (req, res) => {
+  if (!lessonReplayAudioS3) {
+    return res.status(503).json({ error: 'Хранилище аудиозаписей ещё не подключено' });
+  }
+  const student = ensureStudentAccess(req, res, req.query?.studentId);
+  if (!student) return;
+  const occurrenceKey = String(req.query?.occurrenceKey || '').trim();
+  const audioId = normalizeLessonReplayAudioId(req.params?.audioId);
+  if (!occurrenceKey || occurrenceKey.length > 760 || !audioId) {
+    return res.status(400).json({ error: 'Некорректный фрагмент аудиозаписи' });
+  }
+  const replay = readLessonReplay(occurrenceKey);
+  if (!replay || replay.occurrence?.studentId !== student.id) {
+    return res.status(404).json({ error: 'Запись занятия не найдена' });
+  }
+  const audioEvent = replay.events.find((event) => (
+    event?.type === 'audio' && event.payload?.audioId === audioId
+  ));
+  if (!audioEvent) return res.status(404).json({ error: 'Фрагмент аудиозаписи не найден' });
+  const objectKey = getLessonReplayAudioObjectKey(
+    occurrenceKey,
+    audioId,
+    audioEvent.payload?.mimeType
+  );
+  try {
+    const playbackUrl = await getSignedUrl(
+      lessonReplayAudioS3,
+      new GetObjectCommand({
+        Bucket: lessonReplayAudioS3Config.bucket,
+        Key: objectKey,
+      }),
+      { expiresIn: LESSON_REPLAY_AUDIO_URL_TTL_SECONDS }
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.redirect(302, playbackUrl);
+  } catch (error) {
+    console.error('[lesson-replay] failed to sign audio playback:', error?.message || error);
+    return res.status(503).json({ error: 'Аудиозапись временно недоступна' });
+  }
+});
+
+app.post('/api/lesson-replay/audio/prepare', async (req, res) => {
+  if (!lessonReplayAudioS3) {
+    return res.status(503).json({ error: 'Хранилище аудиозаписей ещё не подключено' });
+  }
+  const sessionId = String(req.body?.sessionId || '').trim();
+  const session = activeLessonReplaySessions.get(sessionId);
+  if (!session || session.closing) {
+    return res.status(410).json({ error: 'Сессия записи завершена' });
+  }
+  if (
+    session.actorId !== String(req.auth?.id || '').trim()
+    || session.actorRole !== String(req.auth?.role || '').trim()
+  ) return forbid(res);
+  const student = ensureStudentAccess(req, res, session.studentId);
+  if (!student) return;
+  const nowMs = Date.now();
+  const expiredTelemost = activeTelemostLessonReplayByStudentId.get(student.id);
+  const canDrainTelemost = Boolean(
+    session.via === 'telemost'
+    && expiredTelemost?.occurrence?.key === session.occurrenceKey
+    && nowMs <= Number(expiredTelemost.autoFinishAtMs || 0) + TELEMOST_LESSON_DRAIN_MS
+  );
+  if (!isLessonReplaySessionWritable(session, student, nowMs) && !canDrainTelemost) {
+    return res.status(410).json({ error: 'Запись этого урока уже завершена' });
+  }
+  const mimeType = normalizeLessonReplayAudioMimeType(req.body?.mimeType);
+  const sizeBytes = Math.round(Number(req.body?.sizeBytes) || 0);
+  const durationMs = Math.round(Number(req.body?.durationMs) || 0);
+  if (!mimeType) return res.status(400).json({ error: 'Этот формат аудио не поддерживается' });
+  if (sizeBytes <= 0 || sizeBytes > LESSON_REPLAY_AUDIO_MAX_SEGMENT_BYTES) {
+    return res.status(413).json({ error: 'Фрагмент аудио слишком большой' });
+  }
+  if (durationMs < 250 || durationMs > 10 * 60 * 1000) {
+    return res.status(400).json({ error: 'Некорректная длительность аудиофрагмента' });
+  }
+  const pendingForSession = Array.from(lessonReplayAudioUploadTickets.values())
+    .filter((ticket) => ticket.sessionId === sessionId && Number(ticket.expiresAt) >= nowMs)
+    .length;
+  if (pendingForSession >= 4) {
+    return res.status(429).json({ error: 'Предыдущий фрагмент аудио ещё загружается' });
+  }
+  const replay = readLessonReplay(session.occurrenceKey);
+  if (!replay || replay.occurrence?.studentId !== student.id) {
+    return res.status(404).json({ error: 'Запись занятия не найдена' });
+  }
+  const storedAudioBytes = replay.events.reduce((sum, event) => (
+    event?.type === 'audio' ? sum + Math.max(0, Number(event.payload?.sizeBytes) || 0) : sum
+  ), 0);
+  const pendingAudioBytes = Array.from(lessonReplayAudioUploadTickets.values()).reduce((sum, ticket) => (
+    ticket.occurrenceKey === session.occurrenceKey && Number(ticket.expiresAt) >= nowMs
+      ? sum + Math.max(0, Number(ticket.sizeBytes) || 0)
+      : sum
+  ), 0);
+  if (storedAudioBytes + pendingAudioBytes + sizeBytes > LESSON_REPLAY_AUDIO_MAX_LESSON_BYTES) {
+    return res.status(413).json({ error: 'Для одного урока достигнут лимит аудиозаписи' });
+  }
+  const occurredAtMs = Date.parse(String(req.body?.occurredAt || '').trim());
+  const audioId = crypto.randomUUID();
+  const objectKey = getLessonReplayAudioObjectKey(session.occurrenceKey, audioId, mimeType);
+  try {
+    const uploadUrl = await getSignedUrl(
+      lessonReplayAudioS3,
+      new PutObjectCommand({
+        Bucket: lessonReplayAudioS3Config.bucket,
+        Key: objectKey,
+      }),
+      { expiresIn: Math.round(LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS / 1000) }
+    );
+    lessonReplayAudioUploadTickets.set(audioId, {
+      audioId,
+      sessionId,
+      occurrenceKey: session.occurrenceKey,
+      studentId: student.id,
+      actorId: session.actorId,
+      actorRole: session.actorRole,
+      actorName: session.actorName,
+      objectKey,
+      mimeType,
+      sizeBytes,
+      durationMs,
+      occurredAt: new Date(Number.isFinite(occurredAtMs) ? occurredAtMs : nowMs).toISOString(),
+      expiresAt: nowMs + LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS,
+    });
+    session.expiresAt = nowMs + LESSON_REPLAY_SESSION_TTL_MS;
+    return res.json({
+      audioId,
+      uploadUrl,
+      headers: { 'Content-Type': mimeType },
+      expiresAt: new Date(nowMs + LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS).toISOString(),
+    });
+  } catch (error) {
+    console.error('[lesson-replay] failed to sign audio upload:', error?.message || error);
+    return res.status(503).json({ error: 'Не удалось подготовить загрузку аудиозаписи' });
+  }
+});
+
+app.post('/api/lesson-replay/audio/complete', async (req, res) => {
+  if (!lessonReplayAudioS3) {
+    return res.status(503).json({ error: 'Хранилище аудиозаписей ещё не подключено' });
+  }
+  const audioId = normalizeLessonReplayAudioId(req.body?.audioId);
+  const ticket = audioId ? lessonReplayAudioUploadTickets.get(audioId) : null;
+  if (!ticket || Number(ticket.expiresAt) < Date.now()) {
+    if (audioId) lessonReplayAudioUploadTickets.delete(audioId);
+    return res.status(410).json({ error: 'Время загрузки аудиофрагмента истекло' });
+  }
+  if (
+    ticket.actorId !== String(req.auth?.id || '').trim()
+    || ticket.actorRole !== String(req.auth?.role || '').trim()
+  ) return forbid(res);
+  const student = ensureStudentAccess(req, res, ticket.studentId);
+  if (!student) return;
+  try {
+    const head = await lessonReplayAudioS3.send(new HeadObjectCommand({
+      Bucket: lessonReplayAudioS3Config.bucket,
+      Key: ticket.objectKey,
+    }));
+    const storedBytes = Math.round(Number(head?.ContentLength) || 0);
+    if (storedBytes <= 0 || storedBytes > LESSON_REPLAY_AUDIO_MAX_SEGMENT_BYTES) {
+      return res.status(400).json({ error: 'Загруженный аудиофрагмент повреждён' });
+    }
+    const result = await withLessonReplayWriteLock(ticket.occurrenceKey, () => {
+      const replay = readLessonReplay(ticket.occurrenceKey);
+      if (!replay || replay.occurrence?.studentId !== student.id) {
+        const notFoundError = new Error('Запись занятия не найдена');
+        notFoundError.statusCode = 404;
+        throw notFoundError;
+      }
+      const appended = appendLessonReplayEvents(replay, [{
+        id: `${ticket.sessionId}:audio:${audioId}`,
+        type: 'audio',
+        occurredAt: ticket.occurredAt,
+        payload: {
+          audioId,
+          durationMs: ticket.durationMs,
+          sizeBytes: storedBytes,
+          mimeType: ticket.mimeType,
+        },
+      }], {
+        actorRole: ticket.actorRole,
+        actorId: ticket.actorId,
+        actorName: ticket.actorName,
+        nowMs: Date.now(),
+        normalizedReplay: true,
+      });
+      const stored = writeLessonReplay(appended.replay, { deferred: true, normalized: true });
+      return { added: appended.added, replay: stored.replay, compressedBytes: stored.compressedBytes };
+    });
+    lessonReplayAudioUploadTickets.delete(audioId);
+    return res.json({
+      ok: true,
+      audioId,
+      added: result.added,
+      summary: summarizeLessonReplay(result.replay, result.compressedBytes, { normalized: true }),
+    });
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || 503;
+    if (statusCode >= 500) {
+      console.error('[lesson-replay] failed to complete audio upload:', error?.message || error);
+    }
+    return res.status(statusCode).json({
+      error: statusCode === 404 ? error.message : 'Не удалось сохранить аудиофрагмент',
+    });
+  }
+});
 
 app.post('/api/lesson-replay/session', async (req, res) => {
   const student = ensureStudentAccess(req, res, req.body?.studentId);
@@ -25943,6 +26561,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
             actorId: reusable.actorId,
             actorName: reusable.actorName,
             nowMs,
+            normalizedReplay: true,
           });
           nextReplay = writeLessonReplay(switched.replay, { normalized: true }).replay;
           reusable.via = requestedVia;
@@ -25982,6 +26601,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
         actorId: session.actorId,
         actorName: session.actorName,
         nowMs,
+        normalizedReplay: true,
       });
       const stored = writeLessonReplay(appended.replay, { normalized: true });
       activeLessonReplaySessions.set(sessionId, session);
@@ -26036,6 +26656,7 @@ app.post('/api/lesson-replay/switch', async (req, res) => {
         actorId: session.actorId,
         actorName: session.actorName,
         nowMs,
+        normalizedReplay: true,
       });
       writeLessonReplay(appended.replay, { normalized: true });
     });
@@ -26102,6 +26723,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         actorId: session.actorId,
         actorName: session.actorName,
         nowMs,
+        normalizedReplay: true,
       });
       const finalReplay = canDrainTelemost
         ? appendLessonReplayEvents(appended.replay, [{
@@ -26114,6 +26736,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
           actorId: session.actorId,
           actorName: session.actorName,
           nowMs,
+          normalizedReplay: true,
         })
         : appended;
       if (finalReplay.added > 0 || appended.added > 0) {
@@ -28296,7 +28919,7 @@ app.get('/api/files', (req, res) => {
     effectiveStudent = ensureStudentAccess(req, res, effectiveStudentId);
     if (!effectiveStudent) return;
   }
-  let files = readFilesDb();
+  let files = readFilesDb().filter((entry) => !isWorkbookQuestionVirtualSource(entry));
   if (effectiveStudentId) {
     const teacherId = normalizeTeacherId(effectiveStudent?.teacherId);
     files = files.filter((entry) => {
@@ -28501,6 +29124,10 @@ app.put('/api/files/:id/content', upload.single('file'), (req, res) => {
     return res.status(404).json({ error: 'Файл не найден' });
   }
   const target = db[idx];
+  if (isWorkbookQuestionVirtualSource(target)) {
+    removeUploadedFile();
+    return res.status(404).json({ error: 'Файл не найден' });
+  }
   if (isLessonSharedFile(target)) {
     removeUploadedFile();
     return res.status(403).json({ error: 'Общий исходный файл нельзя перезаписать' });
@@ -28604,6 +29231,9 @@ app.delete('/api/files/:id', (req, res) => {
   const idx = db.findIndex((f) => f.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Файл не найден' });
   const target = db[idx];
+  if (isWorkbookQuestionVirtualSource(target)) {
+    return res.status(404).json({ error: 'Файл не найден' });
+  }
   if (isLessonSharedFile(target)) {
     if (!canWriteLessonSharedByTeacher(req.auth, target.teacherId)) return forbid(res);
   } else if (!ensureStudentAccess(req, res, target?.studentId, {
@@ -28641,6 +29271,9 @@ app.patch('/api/files/:id', (req, res) => {
   const idx = db.findIndex((f) => f.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Файл не найден' });
   const current = db[idx];
+  if (isWorkbookQuestionVirtualSource(current)) {
+    return res.status(404).json({ error: 'Файл не найден' });
+  }
   const isCurrentLessonShared = isLessonSharedFile(current);
   if (isCurrentLessonShared) {
     if (!canWriteLessonSharedByTeacher(req.auth, current?.teacherId)) return forbid(res);

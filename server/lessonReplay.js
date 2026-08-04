@@ -13,6 +13,7 @@ const MAX_EVENT_ID_CHARS = 160;
 const MAX_BOARD_EVENT_BYTES = 384 * 1024;
 const MAX_NORMALIZED_EVENT_BYTES = 512 * 1024;
 const MAX_SCREEN_SNAPSHOT_ID_CHARS = 80;
+const MAX_AUDIO_ID_CHARS = 96;
 
 const EVENT_TYPES = new Set([
   'session',
@@ -22,6 +23,8 @@ const EVENT_TYPES = new Set([
   'board',
   'run',
   'screen',
+  'viewport',
+  'audio',
 ]);
 
 const isPlainObject = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -242,15 +245,65 @@ const normalizePayload = (type, value) => {
       sharedByName: clampText(source.sharedByName, 160).trim(),
     };
   }
+  if (type === 'viewport') {
+    const surface = source.surface === 'code' ? 'code' : 'board';
+    if (surface === 'code') {
+      return {
+        surface,
+        scrollTopRatio: clampNumber(source.scrollTopRatio, 0, 1, 0),
+        scrollLeftRatio: clampNumber(source.scrollLeftRatio, 0, 1, 0),
+        firstVisibleLine: Math.round(clampNumber(source.firstVisibleLine, 1, 2_000_000, 1)),
+        cursorLine: Math.round(clampNumber(source.cursorLine, 1, 2_000_000, 1)),
+        cursorColumn: Math.round(clampNumber(source.cursorColumn, 1, 2_000_000, 1)),
+      };
+    }
+    return {
+      surface,
+      zoom: clampNumber(source.zoom, 0.05, 32, 1),
+      offset: {
+        x: clampNumber(source.offset?.x, -1_000_000, 1_000_000, 0),
+        y: clampNumber(source.offset?.y, -1_000_000, 1_000_000, 0),
+      },
+      width: Math.round(clampNumber(source.width, 1, 16_384, 900)),
+      height: Math.round(clampNumber(source.height, 1, 16_384, 520)),
+    };
+  }
+  if (type === 'audio') {
+    const audioId = clampText(source.audioId, MAX_AUDIO_ID_CHARS)
+      .trim()
+      .replace(/[^0-9a-z_-]/gi, '');
+    return {
+      audioId,
+      durationMs: Math.round(clampNumber(source.durationMs, 250, 10 * 60 * 1000, 30_000)),
+      sizeBytes: Math.round(clampNumber(source.sizeBytes, 1, 4 * 1024 * 1024, 1)),
+      mimeType: [
+        'audio/webm',
+        'audio/webm;codecs=opus',
+        'audio/ogg',
+        'audio/ogg;codecs=opus',
+        'audio/mp4',
+      ].includes(source.mimeType) ? source.mimeType : 'audio/webm',
+    };
+  }
   return {};
 };
 
 const stableSignature = (event) => JSON.stringify([event.type, event.payload]);
 
+const isSharedSurfaceEvent = (event) => ['code', 'board', 'run'].includes(event?.type);
+
 const actorEventTypeKey = (event) => JSON.stringify([
   event.type,
-  event.actor?.role || 'student',
-  event.actor?.id || '',
+  isSharedSurfaceEvent(event) ? 'shared' : (event.actor?.role || 'student'),
+  isSharedSurfaceEvent(event) ? '' : (event.actor?.id || ''),
+  event.type === 'viewport' ? (event.payload?.surface || '') : '',
+]);
+
+const eventStateKey = (event) => JSON.stringify([
+  event.type,
+  isSharedSurfaceEvent(event) ? 'shared' : (event.actor?.role || 'student'),
+  isSharedSurfaceEvent(event) ? '' : (event.actor?.id || ''),
+  event.type === 'viewport' ? (event.payload?.surface || '') : '',
 ]);
 
 export const normalizeLessonReplayEvent = (value, context = {}) => {
@@ -270,6 +323,7 @@ export const normalizeLessonReplayEvent = (value, context = {}) => {
   const id = clampText(value.id, MAX_EVENT_ID_CHARS).trim();
   const payload = normalizePayload(type, value.payload);
   if (type === 'screen' && payload.active !== false && !payload.snapshotId) return null;
+  if (type === 'audio' && !payload.audioId) return null;
   const normalized = {
     id: id || `${occurredAtMs}-${Math.random().toString(36).slice(2, 12)}`,
     type,
@@ -294,9 +348,10 @@ const trimEventsToCountLimit = (events, maxEvents = LESSON_REPLAY_MAX_EVENTS) =>
   const keepIds = new Set();
   const firstSession = source.find((event) => event.type === 'session' && event.payload?.action === 'start');
   keepIds.add((firstSession || source[0]).id);
-  const latestByType = new Map();
-  source.forEach((event) => latestByType.set(event.type, event));
-  latestByType.forEach((event) => keepIds.add(event.id));
+  source.filter((event) => event.type === 'audio').slice(-360).forEach((event) => keepIds.add(event.id));
+  const latestByState = new Map();
+  source.forEach((event) => latestByState.set(eventStateKey(event), event));
+  latestByState.forEach((event) => keepIds.add(event.id));
   for (let index = source.length - 1; index >= 0 && keepIds.size < maxEvents; index -= 1) {
     keepIds.add(source[index].id);
   }
@@ -343,17 +398,21 @@ export const normalizeLessonReplay = (value) => {
   return normalized;
 };
 
-const trimReplayToByteLimit = (replay, maxBytes) => {
+const trimReplayToByteLimit = (replay, maxBytes, currentBytes = null) => {
   const normalizedMaxBytes = Math.max(512, Number(maxBytes) || LESSON_REPLAY_MAX_FILE_BYTES);
-  if (Buffer.byteLength(JSON.stringify(replay), 'utf8') <= normalizedMaxBytes) return replay;
+  const initialBytes = Number.isFinite(Number(currentBytes))
+    ? Number(currentBytes)
+    : Buffer.byteLength(JSON.stringify(replay), 'utf8');
+  if (initialBytes <= normalizedMaxBytes) return replay;
 
   const events = replay.events;
   const essentialIds = new Set();
   const firstSession = events.find((event) => event.type === 'session' && event.payload?.action === 'start');
   if (firstSession || events[0]) essentialIds.add((firstSession || events[0]).id);
-  const latestByType = new Map();
-  events.forEach((event) => latestByType.set(event.type, event));
-  latestByType.forEach((event) => essentialIds.add(event.id));
+  events.filter((event) => event.type === 'audio').slice(-360).forEach((event) => essentialIds.add(event.id));
+  const latestByState = new Map();
+  events.forEach((event) => latestByState.set(eventStateKey(event), event));
+  latestByState.forEach((event) => essentialIds.add(event.id));
 
   const baseBytes = Buffer.byteLength(JSON.stringify({ ...replay, events: [] }), 'utf8');
   let selectedBytes = baseBytes;
@@ -379,7 +438,13 @@ const trimReplayToByteLimit = (replay, maxBytes) => {
 };
 
 export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => {
-  const replay = normalizeLessonReplay(rawReplay);
+  const replay = context.normalizedReplay === true && rawReplay?.version === REPLAY_VERSION
+    ? {
+      ...rawReplay,
+      occurrence: { ...(rawReplay.occurrence || {}) },
+      events: Array.isArray(rawReplay.events) ? [...rawReplay.events] : [],
+    }
+    : normalizeLessonReplay(rawReplay);
   const knownIds = new Set(replay.events.map((event) => event.id));
   const latestSignatureByActorAndType = new Map();
   replay.events.forEach((event) => latestSignatureByActorAndType.set(actorEventTypeKey(event), {
@@ -421,12 +486,17 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
   const now = new Date(Number(context.nowMs) || Date.now()).toISOString();
   replay.createdAt = replay.createdAt || now;
   if (added > 0) replay.updatedAt = now;
-  trimReplayToByteLimit(replay, Number(context.maxBytes) || LESSON_REPLAY_MAX_FILE_BYTES);
+  const maxBytes = Number(context.maxBytes) || LESSON_REPLAY_MAX_FILE_BYTES;
+  let bytes = Buffer.byteLength(JSON.stringify(replay), 'utf8');
+  if (bytes > maxBytes) {
+    trimReplayToByteLimit(replay, maxBytes, bytes);
+    bytes = Buffer.byteLength(JSON.stringify(replay), 'utf8');
+  }
 
   return {
     replay,
     added,
-    bytes: Buffer.byteLength(JSON.stringify(replay), 'utf8'),
+    bytes,
   };
 };
 

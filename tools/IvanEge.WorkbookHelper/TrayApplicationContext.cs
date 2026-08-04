@@ -136,11 +136,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
 
             var safeFileName = LocalWorkbookFiles.SanitizeFileName(grant.FileName);
-            AppPaths.CleanupStaleSolutionDownloads();
+            AppPaths.CleanupStaleSolutionDownloads(AppPaths.AssignmentsDirectory);
+            AppPaths.CleanupStaleSolutionDownloads(AppPaths.SolutionsDirectory);
+            var sourcePath = LocalWorkbookFiles.GetUniquePath(AppPaths.AssignmentsDirectory, safeFileName);
             var finalPath = LocalWorkbookFiles.GetUniquePath(AppPaths.SolutionsDirectory, safeFileName);
             temporaryDownload = Path.Combine(
-                Path.GetDirectoryName(finalPath)!,
-                $".{Path.GetFileName(finalPath)}.{Guid.NewGuid():N}.download");
+                Path.GetDirectoryName(sourcePath)!,
+                $".{Path.GetFileName(sourcePath)}.{Guid.NewGuid():N}.download");
 
             SetStatus("Скачиваю таблицу…");
             var download = await api.DownloadAsync(grant, temporaryDownload, CancellationToken.None);
@@ -148,8 +150,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
             {
                 throw new HelperApiException("Контрольная сумма скачанной таблицы не совпала. Файл не был открыт.");
             }
-            File.Move(temporaryDownload, finalPath);
+            File.Move(temporaryDownload, sourcePath);
             temporaryDownload = null;
+            File.Copy(sourcePath, finalPath, overwrite: false);
             var markOfTheWebVerified = MarkOfTheWeb.TryApplyAndVerify(finalPath, request.Origin);
             var requiresManualMacroOpen = MarkOfTheWeb.IsMacroCapableFileName(finalPath)
                 && !markOfTheWebVerified;

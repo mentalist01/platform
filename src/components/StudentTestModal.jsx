@@ -1,8 +1,9 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
+import useWorkbookHelper from '../hooks/useWorkbookHelper';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
@@ -34,6 +35,26 @@ const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
 const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
 const STUDENT_CODE_COPY_FEEDBACK_MS = 1800;
 const MOCK_EXAM_SOURCE_BADGE_COLOR = '#0f766e';
+const TEST_WORKBOOK_EXTENSIONS = new Set(['xls', 'xlsx', 'xlsm', 'xlsb', 'ods', 'fods']);
+const TASK_26_TEXT_EXTENSIONS = new Set(['txt', 'csv', 'tsv']);
+
+const getTestAttachmentExtension = (file) => {
+  const name = String(file?.name || file?.storageName || '').trim();
+  const match = name.match(/\.([^.\\/]+)$/);
+  return match ? match[1].toLowerCase() : '';
+};
+
+const getTestAttachmentId = (file) => String(file?.id || file?.storageName || '').trim();
+
+const canSolveTestWorkbook = (taskNumber, file) => {
+  const extension = getTestAttachmentExtension(file);
+  return TEST_WORKBOOK_EXTENSIONS.has(extension)
+    || (Number(taskNumber) === 26 && TASK_26_TEXT_EXTENSIONS.has(extension));
+};
+
+const isTask26TextWorkbookSource = (taskNumber, file) => (
+  Number(taskNumber) === 26 && TASK_26_TEXT_EXTENSIONS.has(getTestAttachmentExtension(file))
+);
 
 const getStudentQuestionAnswerCount = (question, taskNumber, getAnswerCountForTask) => {
   const override = Math.trunc(Number(question?.answerCountOverride));
@@ -656,6 +677,7 @@ const StudentTestModal = ({
   withStudentId,
 }) => {
   const monacoTheme = resolveMonacoColorTheme(theme);
+  const { workbookHelperState, launchWorkbookHelper } = useWorkbookHelper();
   const isQuestionCodeDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
@@ -697,6 +719,7 @@ const StudentTestModal = ({
   const [questionCodeSavingById, setQuestionCodeSavingById] = useState({});
   const [questionCodeAutoSavePendingById, setQuestionCodeAutoSavePendingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
+  const [questionWorkbookSolutions, setQuestionWorkbookSolutions] = useState({});
   const [questionRunStateById, setQuestionRunStateById] = useState({});
   const [questionTurtleWindowQuestionId, setQuestionTurtleWindowQuestionId] = useState('');
   const [questionTurtleWindowFullscreen, setQuestionTurtleWindowFullscreen] = useState(false);
@@ -1871,6 +1894,70 @@ const StudentTestModal = ({
     if (!activeQuestionId) return;
     loadQuestionCode(activeQuestionId);
   }, [stage, questionCodeOpen, questionCodePreviewOpen, activeQuestionId, studentId, task?.number, level]);
+
+  useEffect(() => {
+    const attachments = Array.isArray(activeQuestion?.files) ? activeQuestion.files : [];
+    const hasWorkbook = attachments.some((file) => canSolveTestWorkbook(task?.number, file));
+    if (stage !== 'testing' || !level || !activeQuestionId || !hasWorkbook) {
+      setQuestionWorkbookSolutions({});
+      return undefined;
+    }
+    let cancelled = false;
+    const loadSolutions = async () => {
+      try {
+        const payload = await api.getQuestionWorkbookSolutions(
+          studentId,
+          task.number,
+          level,
+          activeQuestionId
+        );
+        if (cancelled) return;
+        const next = {};
+        (Array.isArray(payload?.solutions) ? payload.solutions : []).forEach((solution) => {
+          const attachmentId = String(solution?.attachmentId || '').trim();
+          if (attachmentId) next[attachmentId] = solution;
+        });
+        setQuestionWorkbookSolutions(next);
+      } catch {
+        if (!cancelled) setQuestionWorkbookSolutions({});
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void loadSolutions();
+    };
+    void loadSolutions();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [activeQuestion, activeQuestionId, level, stage, studentId, task?.number]);
+
+  const handleLaunchQuestionWorkbook = useCallback(async (file) => {
+    const attachmentId = getTestAttachmentId(file);
+    if (!attachmentId || !activeQuestionId || !level) return { ok: false };
+    if (isTask26TextWorkbookSource(task?.number, file) && file?.url && typeof window !== 'undefined') {
+      const sourceWindow = window.open(file.url, '_blank', 'noopener,noreferrer');
+      if (sourceWindow) sourceWindow.opener = null;
+    }
+    const result = await launchWorkbookHelper({
+      sourceFile: { id: attachmentId, name: file?.name || 'Таблица' },
+      questionContext: {
+        taskNumber: task.number,
+        levelId: level,
+        questionId: activeQuestionId,
+        attachmentId,
+      },
+    });
+    const solution = result?.payload?.solution;
+    if (solution?.attachmentId) {
+      setQuestionWorkbookSolutions((current) => ({
+        ...current,
+        [solution.attachmentId]: solution,
+      }));
+    }
+    return result;
+  }, [activeQuestionId, launchWorkbookHelper, level, task?.number]);
 
   useEffect(() => {
     if (!questionCodeOpen) return undefined;
@@ -3303,16 +3390,35 @@ const StudentTestModal = ({
 
               {extraFiles.length > 0 && (
                 <div className="student-test-code-focus__files">
-                  {extraFiles.map((file) => (
-                    <a
-                      key={file.id || file.url}
-                      href={buildDownloadUrl(file.url)}
-                      download={file?.name || undefined}
-                    >
-                      <Download size={14} />
-                      <span>{file.name}</span>
-                    </a>
-                  ))}
+                  {extraFiles.map((file) => {
+                    const attachmentId = getTestAttachmentId(file);
+                    const canSolve = canSolveTestWorkbook(task?.number, file);
+                    const hasSolution = Boolean(questionWorkbookSolutions?.[attachmentId]);
+                    const isOpening = workbookHelperState.sourceFileId === attachmentId
+                      && ['launching', 'opening'].includes(workbookHelperState.status);
+                    return (
+                      <div key={attachmentId || file.url} className="inline-flex shrink-0 items-center gap-1">
+                        <a
+                          href={buildDownloadUrl(file.url)}
+                          download={file?.name || undefined}
+                        >
+                          <Download size={14} />
+                          <span>{file.name}</span>
+                        </a>
+                        {canSolve && (
+                          <button
+                            type="button"
+                            onClick={() => void handleLaunchQuestionWorkbook(file)}
+                            disabled={isOpening}
+                            className="inline-flex min-h-[30px] shrink-0 items-center gap-1 rounded-lg bg-violet-600 px-2.5 text-[11px] font-extrabold text-white transition hover:bg-violet-500 disabled:cursor-wait disabled:opacity-70"
+                          >
+                            <FileSpreadsheet size={14} />
+                            {isOpening ? 'Открываем…' : (hasSolution ? 'Продолжить' : 'Решать')}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -3841,19 +3947,55 @@ const StudentTestModal = ({
               <div className="mb-5 md:mb-6">
                 <p className="text-xs font-bold text-gray-400 uppercase mb-2">Доп. файлы</p>
                 <div className="space-y-2">
-                    {extraFiles.map((file, fileIndex) => (
-                      <a
-                        key={file.id || file.url}
-                        href={buildDownloadUrl(file.url)}
-                        download={file?.name || undefined}
+                  {extraFiles.map((file, fileIndex) => {
+                    const attachmentId = getTestAttachmentId(file);
+                    const canSolve = canSolveTestWorkbook(task?.number, file);
+                    const hasSolution = Boolean(questionWorkbookSolutions?.[attachmentId]);
+                    const isOpening = workbookHelperState.sourceFileId === attachmentId
+                      && ['launching', 'opening'].includes(workbookHelperState.status);
+                    return (
+                      <div
+                        key={attachmentId || file.url}
                         style={{ '--student-test-item-index': fileIndex }}
-                        className="student-test-file flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50"
-                    >
-                      <span className="truncate">{file.name}</span>
-                      <Download size={16} className="text-purple-600" />
-                    </a>
-                  ))}
+                        className={`student-test-file flex items-center gap-2 rounded-xl border px-2 py-2 text-sm ${
+                          isQuestionCodeDarkTheme
+                            ? 'border-slate-700 bg-slate-900 text-slate-100 hover:border-violet-500 hover:bg-slate-800'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-purple-300 hover:bg-purple-50'
+                        }`}
+                      >
+                        <a
+                          href={buildDownloadUrl(file.url)}
+                          download={file?.name || undefined}
+                          className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg px-1 py-1"
+                        >
+                          <span className="truncate">{file.name}</span>
+                          <Download size={16} className="shrink-0 text-purple-600" />
+                        </a>
+                        {canSolve && (
+                          <button
+                            type="button"
+                            onClick={() => void handleLaunchQuestionWorkbook(file)}
+                            disabled={isOpening}
+                            className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 px-3 font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-wait disabled:opacity-70"
+                          >
+                            <FileSpreadsheet size={16} />
+                            {isOpening ? 'Открываем…' : (hasSolution ? 'Продолжить' : 'Решать')}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+                {['fallback', 'error'].includes(workbookHelperState.status)
+                  && extraFiles.some((file) => getTestAttachmentId(file) === workbookHelperState.sourceFileId) && (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                      Помощник не открылся?{' '}
+                      <a className="underline underline-offset-2" href="/downloads/IvanEgeWorkbookHelper.exe" download>
+                        Скачайте и установите его один раз
+                      </a>
+                      .
+                    </div>
+                  )}
               </div>
             )}
 

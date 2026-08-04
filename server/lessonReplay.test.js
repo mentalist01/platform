@@ -41,7 +41,8 @@ test('normalizes a replay event and drops unsupported event types', () => {
   assert.equal(event.offsetMs, 5000);
   assert.deepEqual(event.actor, { role: 'teacher', id: 'teacher-1', name: 'Иван' });
   assert.deepEqual(event.payload, { view: 'board', label: 'Доска' });
-  assert.equal(normalizeLessonReplayEvent({ type: 'audio' }, eventContext), null);
+  assert.equal(normalizeLessonReplayEvent({ type: 'camera' }, eventContext), null);
+  assert.equal(normalizeLessonReplayEvent({ type: 'audio', payload: {} }, eventContext), null);
 });
 
 test('keeps board assets as references and never stores inline images', () => {
@@ -116,7 +117,7 @@ test('append is idempotent by event id and suppresses identical rapid snapshots'
   assert.equal(second.replay.events.length, 1);
 });
 
-test('rapid snapshot dedupe is scoped to the actor role and id', () => {
+test('shared code snapshots dedupe across actors while viewports stay actor-scoped', () => {
   const event = (id, occurredAtMs) => ({
     id,
     type: 'code',
@@ -161,17 +162,68 @@ test('rapid snapshot dedupe is scoped to the actor role and id', () => {
   );
 
   assert.equal(student.added, 1);
-  assert.equal(teacher.added, 1);
-  assert.equal(otherTeacher.added, 1);
+  assert.equal(teacher.added, 0);
+  assert.equal(otherTeacher.added, 0);
   assert.equal(duplicateOtherTeacher.added, 0);
   assert.deepEqual(
     duplicateOtherTeacher.replay.events.map((entry) => [entry.actor.role, entry.actor.id]),
-    [
-      ['student', 'student-1'],
-      ['teacher', 'teacher-1'],
-      ['teacher', 'teacher-2'],
-    ]
+    [['student', 'student-1']]
   );
+
+  const teacherViewport = appendLessonReplayEvents(student.replay, [{
+    id: 'teacher-view',
+    type: 'viewport',
+    occurredAt: new Date(START_MS + 2000).toISOString(),
+    payload: { surface: 'code', scrollTopRatio: 0.5 },
+  }], teacherContext);
+  const studentViewport = appendLessonReplayEvents(teacherViewport.replay, [{
+    id: 'student-view',
+    type: 'viewport',
+    occurredAt: new Date(START_MS + 3000).toISOString(),
+    payload: { surface: 'code', scrollTopRatio: 0.5 },
+  }], studentContext);
+  assert.equal(teacherViewport.added, 1);
+  assert.equal(studentViewport.added, 1);
+});
+
+test('normalizes compact actor viewport and audio segment metadata', () => {
+  const boardViewport = normalizeLessonReplayEvent({
+    type: 'viewport',
+    occurredAt: new Date(START_MS + 1000).toISOString(),
+    payload: {
+      surface: 'board',
+      zoom: 999,
+      offset: { x: 125.5, y: -80 },
+      width: 1280,
+      height: 720,
+      privateValue: 'drop me',
+    },
+  }, eventContext);
+  assert.deepEqual(boardViewport.payload, {
+    surface: 'board',
+    zoom: 32,
+    offset: { x: 125.5, y: -80 },
+    width: 1280,
+    height: 720,
+  });
+
+  const audio = normalizeLessonReplayEvent({
+    type: 'audio',
+    occurredAt: new Date(START_MS + 2000).toISOString(),
+    payload: {
+      audioId: 'segment_01-safe',
+      durationMs: 30_100,
+      sizeBytes: 121_000,
+      mimeType: 'audio/webm;codecs=opus',
+      objectKey: 'must-not-leak',
+    },
+  }, eventContext);
+  assert.deepEqual(audio.payload, {
+    audioId: 'segment_01-safe',
+    durationMs: 30_100,
+    sizeBytes: 121_000,
+    mimeType: 'audio/webm;codecs=opus',
+  });
 });
 
 test('session events preserve an explicit transport switch action', () => {

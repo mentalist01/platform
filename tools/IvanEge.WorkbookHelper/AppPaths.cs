@@ -17,27 +17,8 @@ internal static class AppPaths
     public static string TrustedOriginsPath => Path.Combine(DataDirectory, "trusted-origins.json");
     public static string LogPath => Path.Combine(DataDirectory, "helper.log");
 
-    public static string SolutionsDirectory
-    {
-        get
-        {
-            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            if (!string.IsNullOrWhiteSpace(desktop))
-            {
-                var desktopTarget = Path.Combine(desktop, "Иван на сотку", "Решения");
-                if (TryEnsureWritableDirectory(desktopTarget)) return desktopTarget;
-            }
-
-            var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            if (string.IsNullOrWhiteSpace(documents))
-            {
-                documents = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents");
-            }
-            var documentsTarget = Path.Combine(documents, "Иван на сотку", "Решения");
-            Directory.CreateDirectory(documentsTarget);
-            return documentsTarget;
-        }
-    }
+    public static string AssignmentsDirectory => GetWorkbookDirectory("Задания");
+    public static string SolutionsDirectory => GetWorkbookDirectory("Решения");
 
     public static void EnsureDataDirectories()
     {
@@ -122,6 +103,25 @@ internal static class AppPaths
             }
             return false;
         }
+    }
+
+    private static string GetWorkbookDirectory(string childDirectory)
+    {
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        if (!string.IsNullOrWhiteSpace(desktop))
+        {
+            var desktopTarget = Path.Combine(desktop, "Иван на сотку", childDirectory);
+            if (TryEnsureWritableDirectory(desktopTarget)) return desktopTarget;
+        }
+
+        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrWhiteSpace(documents))
+        {
+            documents = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents");
+        }
+        var documentsTarget = Path.Combine(documents, "Иван на сотку", childDirectory);
+        Directory.CreateDirectory(documentsTarget);
+        return documentsTarget;
     }
 }
 

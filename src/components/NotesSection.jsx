@@ -3523,7 +3523,7 @@ const NotesSection = ({
                       const folder = item.folder;
                       const sharedFolder = isLessonSharedFolder(folder);
                       const sharedRootFolder = sharedFolder && !normalizeParentFolderId(folder?.parentFolderId);
-                      const folderDisplayName = sharedFolder ? 'Файлы к уроку' : folder.name;
+                      const folderDisplayName = sharedRootFolder ? 'Файлы к уроку' : folder.name;
                       const folderFileCount = sharedRootFolder
                         ? sharedLessonFilesCount
                         : (folderCounts.map.get(folder.id) || 0);

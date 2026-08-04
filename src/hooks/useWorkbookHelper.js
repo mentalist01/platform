@@ -30,7 +30,7 @@ const useWorkbookHelper = () => {
     protocolObservationCleanupRef.current = null;
   }, []);
 
-  const launchWorkbookHelper = useCallback(async ({ sourceFile } = {}) => {
+  const launchWorkbookHelper = useCallback(async ({ sourceFile, questionContext = null } = {}) => {
     const sourceFileId = String(sourceFile?.id || '').trim();
     const fileName = String(sourceFile?.name || '').trim();
     if (!sourceFileId) {
@@ -47,7 +47,9 @@ const useWorkbookHelper = () => {
       message: 'Готовим файл для открытия…',
     }));
     try {
-      const payload = await api.launchWorkbookHelper(sourceFileId);
+      const payload = questionContext
+        ? await api.launchQuestionWorkbookHelper(questionContext)
+        : await api.launchWorkbookHelper(sourceFileId);
       const ticket = String(payload?.ticket || '').trim();
       const origin = getExternalApiOrigin();
       if (!ticket || !origin) throw new Error('Сервер не выдал ссылку для помощника');
@@ -90,7 +92,7 @@ const useWorkbookHelper = () => {
         ));
       }, FALLBACK_HINT_DELAY_MS);
       window.location.assign(deepLink);
-      return { ok: true, deepLink };
+      return { ok: true, deepLink, payload };
     } catch (error) {
       clearFallbackTimer();
       clearProtocolObservation();

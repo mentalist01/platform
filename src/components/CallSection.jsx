@@ -107,6 +107,18 @@ const LESSON_REPLAY_SCREEN_HEARTBEAT_MS = 90_000;
 const LESSON_REPLAY_SCREEN_CAPTURE_MAX_BYTES = 238 * 1024;
 const LESSON_REPLAY_SCREEN_CAPTURE_MAX_WIDTH = 1280;
 const LESSON_REPLAY_SCREEN_CAPTURE_MAX_HEIGHT = 720;
+const LESSON_REPLAY_AUDIO_SEGMENT_MS = 30_000;
+const LESSON_REPLAY_AUDIO_BITRATE = 32_000;
+
+const getLessonReplayAudioMimeType = () => {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/ogg;codecs=opus',
+    'audio/mp4',
+  ];
+  return candidates.find((candidate) => MediaRecorder.isTypeSupported?.(candidate)) || '';
+};
 
 const canvasToBlob = (canvas, mimeType, quality) => new Promise((resolve) => {
   canvas.toBlob((blob) => resolve(blob || null), mimeType, quality);
@@ -1256,6 +1268,7 @@ const CallSection = ({
   onTelemostLessonStart,
   onLessonReplayEvent,
   onLessonReplayScreenSnapshot,
+  onLessonReplayAudioSegment,
   theme = 'light',
   autoStartToken = 0,
 }) => {
@@ -2206,6 +2219,119 @@ const CallSection = ({
       window.clearTimeout(timerId);
     };
   }, [lessonReplayScreenSource, onLessonReplayScreenSnapshot]);
+
+  useEffect(() => {
+    if (
+      !isTeacher
+      || status !== 'connected'
+      || typeof onLessonReplayAudioSegment !== 'function'
+      || typeof window === 'undefined'
+      || typeof MediaRecorder === 'undefined'
+    ) return undefined;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return undefined;
+    const localTrack = localAudioTrackRef.current;
+    const sourceTracks = [
+      ...(localTrack?.readyState === 'live' ? [localTrack] : []),
+      ...remotePeers.flatMap((peer) => (
+        peer?.stream ? peer.stream.getAudioTracks().filter((track) => track.readyState === 'live') : []
+      )),
+    ].filter((track, index, tracks) => tracks.findIndex((entry) => entry.id === track.id) === index);
+    if (sourceTracks.length === 0) return undefined;
+
+    const mimeType = getLessonReplayAudioMimeType();
+    if (!mimeType) return undefined;
+    const audioContext = new AudioContextCtor();
+    const destination = audioContext.createMediaStreamDestination();
+    const sources = [];
+    sourceTracks.forEach((track) => {
+      try {
+        const source = audioContext.createMediaStreamSource(new MediaStream([track]));
+        const gain = audioContext.createGain();
+        gain.gain.value = sourceTracks.length > 1 ? 0.72 : 1;
+        source.connect(gain);
+        gain.connect(destination);
+        sources.push({ source, gain });
+      } catch {
+        // A track can disappear while the call is reconnecting; the effect will rebuild the mix.
+      }
+    });
+    if (sources.length === 0 || destination.stream.getAudioTracks().length === 0) {
+      audioContext.close().catch(() => null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    let blocked = false;
+    let recorder = null;
+    let stopTimerId = null;
+    let closed = false;
+    const closeGraph = () => {
+      if (closed) return;
+      closed = true;
+      sources.forEach(({ source, gain }) => {
+        try { source.disconnect(); } catch {
+          // The source may already be disconnected during a reconnect.
+        }
+        try { gain.disconnect(); } catch {
+          // The gain may already be disconnected during a reconnect.
+        }
+      });
+      audioContext.close().catch(() => null);
+    };
+    const startSegment = () => {
+      if (cancelled || blocked) {
+        closeGraph();
+        return;
+      }
+      const chunks = [];
+      const segmentStartedAt = Date.now();
+      try {
+        recorder = new MediaRecorder(destination.stream, {
+          mimeType,
+          audioBitsPerSecond: LESSON_REPLAY_AUDIO_BITRATE,
+        });
+      } catch {
+        blocked = true;
+        closeGraph();
+        return;
+      }
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size > 0) chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        window.clearTimeout(stopTimerId);
+        const durationMs = Math.max(250, Date.now() - segmentStartedAt);
+        const blob = chunks.length > 0 ? new Blob(chunks, { type: mimeType }) : null;
+        recorder = null;
+        if (blob?.size) {
+          void onLessonReplayAudioSegment(blob, {
+            occurredAt: new Date(segmentStartedAt).toISOString(),
+            durationMs,
+            mimeType,
+          }).then((result) => {
+            if (!result?.disabled) return;
+            blocked = true;
+            if (recorder?.state === 'recording') recorder.stop();
+          });
+        }
+        if (!cancelled && !blocked) startSegment();
+        else closeGraph();
+      };
+      recorder.start();
+      stopTimerId = window.setTimeout(() => {
+        if (recorder?.state === 'recording') recorder.stop();
+      }, LESSON_REPLAY_AUDIO_SEGMENT_MS);
+    };
+    audioContext.resume().catch(() => null).finally(startSegment);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(stopTimerId);
+      if (recorder?.state === 'recording') recorder.stop();
+      else closeGraph();
+    };
+  }, [isTeacher, micEnabled, onLessonReplayAudioSegment, remotePeers, status]);
 
   const sendWs = useCallback((payload) => {
     const ws = wsRef.current;
