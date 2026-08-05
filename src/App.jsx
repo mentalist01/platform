@@ -423,7 +423,7 @@ const drawBoardTaskCard = (ctx, item, resolveImage = () => null, options = {}) =
   const borderColor = status === 'correct' ? '#22c55e' : (status === 'wrong' ? '#ef4444' : '#d8d2f4');
   const accentColor = status === 'correct' ? '#16a34a' : (status === 'wrong' ? '#dc2626' : '#7c3aed');
   const layout = getBoardTaskAnswerLayout(item);
-  const hideInteractiveOverlays = options?.hideInteractiveOverlays === true;
+  const hideInteractiveControls = options?.hideInteractiveControls === true;
 
   ctx.save();
   ctx.shadowColor = 'rgba(41, 28, 76, 0.14)';
@@ -476,7 +476,7 @@ const drawBoardTaskCard = (ctx, item, resolveImage = () => null, options = {}) =
     ctx.beginPath();
     ctx.roundRect(contentLeft, contentY, contentWidth, imageHeight, 12);
     ctx.fill();
-    if (image && !hideInteractiveOverlays) {
+    if (image) {
       const naturalWidth = Math.max(1, Number(image.naturalWidth) || Number(image.width) || 1);
       const naturalHeight = Math.max(1, Number(image.naturalHeight) || Number(image.height) || 1);
       const scale = Math.min(contentWidth / naturalWidth, imageHeight / naturalHeight);
@@ -494,7 +494,7 @@ const drawBoardTaskCard = (ctx, item, resolveImage = () => null, options = {}) =
         drawHeight
       );
       ctx.restore();
-    } else if (!hideInteractiveOverlays) {
+    } else {
       ctx.fillStyle = '#978cae';
       ctx.font = '600 13px Inter, Arial, sans-serif';
       ctx.textAlign = 'center';
@@ -524,7 +524,7 @@ const drawBoardTaskCard = (ctx, item, resolveImage = () => null, options = {}) =
   ctx.font = '800 12px Inter, Arial, sans-serif';
   ctx.fillText('ОТВЕТ', x + layout.panelX, y + layout.panelY + 9);
 
-  if (!hideInteractiveOverlays) {
+  if (!hideInteractiveControls) {
     const answers = Array.from({ length: Math.max(1, Number(item.answerCount) || 1) }, (_, index) => String(item.userAnswers?.[index] ?? ''));
     layout.fields.forEach((field) => {
       ctx.fillStyle = '#ffffff';
@@ -12257,7 +12257,7 @@ const BoardSection = ({
       drawBoardTaskCard(ctx, item, (screenshot) => {
         const cacheEntry = getCachedImage(getBoardTaskImageSource(screenshot));
         return cacheEntry?.loaded ? cacheEntry.img : null;
-      }, { hideInteractiveOverlays: true });
+      }, { hideInteractiveControls: true });
       return;
     }
     if (item.type === 'image') {
@@ -14534,26 +14534,6 @@ const BoardSection = ({
             const status = ['correct', 'wrong'].includes(displayItem.checkState)
               ? displayItem.checkState
               : 'idle';
-            let nextScreenshotTop = BOARD_TASK_CARD_HEADER_HEIGHT + 16;
-            const screenshotOverlays = (Array.isArray(displayItem.screenshots) ? displayItem.screenshots : []).map((screenshot, index) => {
-              const screenshotHeight = Math.max(40, Number(screenshot?.displayHeight) || 220);
-              const overlay = (
-                <img
-                  key={`${taskItem.id}-screenshot-${index}`}
-                  src={getBoardTaskImageSource(screenshot)}
-                  alt={screenshot?.name || 'Изображение задания'}
-                  className="board-task-controls__screenshot"
-                  style={{
-                    left: `${BOARD_TASK_CARD_PADDING}px`,
-                    top: `${nextScreenshotTop}px`,
-                    width: `${Math.max(1, (Number(displayItem.width) || BOARD_TASK_DEFAULT_WIDTH) - BOARD_TASK_CARD_PADDING * 2)}px`,
-                    height: `${screenshotHeight}px`,
-                  }}
-                />
-              );
-              nextScreenshotTop += screenshotHeight + 12;
-              return overlay;
-            });
             const stopTaskControlPointer = (event) => {
               event.stopPropagation();
               boardPasteFocusedRef.current = true;
@@ -14571,7 +14551,6 @@ const BoardSection = ({
                 }}
                 aria-label={displayItem.heading || 'Задание на доске'}
               >
-                {screenshotOverlays}
                 {layout.fields.map((field) => {
                   const label = displayItem.answerLabels?.[field.answerIndex] || field.answerIndex + 1;
                   return (
