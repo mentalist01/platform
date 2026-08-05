@@ -133,6 +133,10 @@ import {
   normalizeBoardAssetEntry,
 } from './boardAssets.js';
 import {
+  buildQuestionCheckRawValue,
+  createQuestionAnswerRules,
+} from './questionAnswerCheck.js';
+import {
   STUDENT_STUDY_STATUS_ACTIVE,
   isCurrentStudent,
   normalizeStudentStudyStatus,
@@ -10731,8 +10735,6 @@ const getHighestArtifactRankFromCollection = (collection = []) => {
   return '';
 };
 
-const normalizeAnswerValue = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-
 const getAnswerCountForTask = (taskNumber) => {
   const num = Number(taskNumber);
   if (num === GAME_THEORY_TASK) return 4;
@@ -10741,6 +10743,14 @@ const getAnswerCountForTask = (taskNumber) => {
   if (num === 17 || num === 18 || num === 26) return 2;
   return 1;
 };
+
+const {
+  getAnswerCountForQuestion,
+  getExpectedAnswersForQuestion,
+  isSolvedAnswerValid,
+  normalizeAnswerValue,
+  parseSubmittedAnswers,
+} = createQuestionAnswerRules({ getAnswerCountForTask });
 
 const getMockAnswerCountForTask = (taskNumber) => {
   const num = Number(taskNumber);
@@ -11229,65 +11239,6 @@ const deriveXpFromMockAttempts = (mockAttempts, artifactLevels = null) => {
   }, 0));
 };
 
-const getExpectedAnswersForQuestion = (question, count) => {
-  if (!question || typeof question !== 'object') {
-    return Array.from({ length: count }, () => '');
-  }
-  if (count <= 1) {
-    const fallback = Array.isArray(question?.options)
-      ? question.options[question.correctIndex]
-      : '';
-    const directAnswer = question?.answer;
-    if (directAnswer !== undefined && directAnswer !== null && String(directAnswer).trim() !== '') {
-      return [directAnswer];
-    }
-    const fromArray = Array.isArray(question?.answers) ? question.answers : [];
-    if (fromArray.length > 0 && String(fromArray[0] ?? '').trim() !== '') {
-      return [fromArray[0]];
-    }
-    return [fallback ?? ''];
-  }
-  const fromArray = Array.isArray(question.answers) ? question.answers : [];
-  if (fromArray.length > 0) {
-    const filled = [...fromArray];
-    while (filled.length < count) filled.push('');
-    return filled.slice(0, count);
-  }
-  const answers = [];
-  for (let i = 1; i <= count; i += 1) {
-    const key = i === 1 ? 'answer' : `answer${i}`;
-    answers.push(question?.[key] ?? '');
-  }
-  return answers;
-};
-
-const parseSubmittedAnswers = (rawValue, count) => {
-  if (count <= 1) return [String(rawValue ?? '')];
-  if (typeof rawValue !== 'string') {
-    return Array.from({ length: count }, () => '');
-  }
-  const trimmed = rawValue.trim();
-  if (!trimmed) {
-    return Array.from({ length: count }, () => '');
-  }
-  let values = null;
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) values = parsed;
-      else if (parsed && typeof parsed === 'object') {
-        if (Array.isArray(parsed.answers)) values = parsed.answers;
-        else if (typeof parsed.answer !== 'undefined') values = [parsed.answer];
-      }
-    } catch {
-      values = null;
-    }
-  }
-  if (!Array.isArray(values)) values = [trimmed];
-  const normalized = Array.from({ length: count }, (_, index) => String(values[index] ?? ''));
-  return normalized;
-};
-
 const parseMockAttemptAnswers = (rawValue, count) => {
   if (count <= 1) {
     if (Array.isArray(rawValue)) return [String(rawValue[0] ?? '')];
@@ -11548,26 +11499,6 @@ const filterMockAttemptAnswersToTaskKeys = (answers, targetTaskKeys = []) => {
     if (allowedKeys.has(normalizedTaskKey)) result[normalizedTaskKey] = value;
     return result;
   }, {});
-};
-
-const getAnswerCountForQuestion = (question, taskNumber) => {
-  const override = Math.trunc(Number(question?.answerCountOverride));
-  if (Number.isFinite(override) && override > 0 && override <= 50) return override;
-  return getAnswerCountForTask(taskNumber);
-};
-
-const isSolvedAnswerValid = (question, rawValue, taskNumber) => {
-  const answerCount = getAnswerCountForQuestion(question, taskNumber);
-  const expectedAnswers = getExpectedAnswersForQuestion(question, answerCount);
-  const providedAnswers = parseSubmittedAnswers(rawValue, answerCount);
-  if (answerCount <= 1) {
-    if (!String(providedAnswers[0] ?? '').trim()) return false;
-    return normalizeAnswerValue(providedAnswers[0]) === normalizeAnswerValue(expectedAnswers[0]);
-  }
-  if (providedAnswers.every((value) => !String(value ?? '').trim())) return false;
-  return expectedAnswers.every((expected, index) => (
-    normalizeAnswerValue(expected) === normalizeAnswerValue(providedAnswers[index])
-  ));
 };
 
 const normalizeAnswerHistoryEntry = (entry) => {
@@ -24227,6 +24158,64 @@ app.patch('/api/progress', (req, res) => {
   progress[key] = clamped;
   const updated = setStudentData(student.id, { ...data, progress });
   res.json(updated.progress);
+});
+
+app.post('/api/questions/check', (req, res) => {
+  const {
+    studentId,
+    taskNumber,
+    levelId,
+    questionId,
+    answers,
+  } = req.body || {};
+  const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
+  const effectiveStudentId = isStudentRole(req.auth)
+    ? req.auth.id
+    : requestedStudentId;
+  if (!effectiveStudentId) return res.status(400).json({ error: 'studentId required' });
+  if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) {
+    return forbid(res);
+  }
+  const student = ensureStudentAccess(req, res, effectiveStudentId);
+  if (!student) return;
+
+  const taskNum = Number(taskNumber);
+  const levelKey = String(levelId || '').trim();
+  const questionKey = String(questionId || '').trim();
+  if (!Number.isFinite(taskNum) || taskNum <= 0 || !levelKey || !questionKey) {
+    return res.status(400).json({ error: 'Некорректные параметры' });
+  }
+  if (!Array.isArray(answers) || answers.length > 50) {
+    return res.status(400).json({ error: 'Некорректные ответы' });
+  }
+  const normalizedAnswers = answers.map((value) => String(value ?? ''));
+  if (normalizedAnswers.some((value) => value.length > 2000)) {
+    return res.status(400).json({ error: 'Ответ слишком длинный' });
+  }
+  if (isPythonTaskNumber(taskNum) || levelKey === PYTHON_LEVEL_ID) {
+    return res.status(400).json({ error: 'Для Python-заданий нужна проверка кода' });
+  }
+
+  const studentData = getStudentData(student.id);
+  const testsDb = getTestsDbWithStudentMockFollowups(studentData);
+  const taskLevels = testsDb?.[String(taskNum)];
+  if (!taskLevels || typeof taskLevels !== 'object') {
+    return res.status(400).json({ error: 'Задание не найдено' });
+  }
+  const questions = taskLevels[levelKey];
+  if (!Array.isArray(questions)) {
+    return res.status(400).json({ error: 'Уровень не найден' });
+  }
+  const question = questions.find((entry) => String(entry?.id ?? '').trim() === questionKey);
+  if (!question) {
+    return res.status(400).json({ error: 'Вопрос не найден' });
+  }
+
+  const answerCount = getAnswerCountForQuestion(question, taskNum);
+  const rawValue = buildQuestionCheckRawValue(normalizedAnswers, answerCount);
+  const correct = isSolvedAnswerValid(question, rawValue, taskNum);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ correct });
 });
 
 app.post('/api/progress/solve', async (req, res) => {

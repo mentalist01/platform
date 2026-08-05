@@ -229,6 +229,80 @@ const viewFromRecordedPosition = (fitView, recordedView) => {
   return { x, y, width, height };
 };
 
+const ReplayBoardTask = ({ item }) => {
+  const x = Number(item?.x) || 0;
+  const y = Number(item?.y) || 0;
+  const width = Math.max(420, Number(item?.width) || 720);
+  const height = Math.max(220, Number(item?.height) || 640);
+  const answerCount = Math.max(1, Math.min(50, Number(item?.answerCount) || 1));
+  const columns = answerCount === 1 ? 1 : (answerCount > 20 ? 5 : 2);
+  const order = answerCount === 20
+    ? Array.from({ length: 10 }, (_, rowIndex) => [rowIndex, rowIndex + 10]).flat()
+    : Array.from({ length: answerCount }, (_, index) => index);
+  const rows = Math.ceil(answerCount / columns);
+  const padding = 22;
+  const gap = columns > 2 ? 7 : 12;
+  const fieldWidth = (width - padding * 2 - gap * (columns - 1)) / columns;
+  const fieldHeight = 44;
+  const rowGap = 10;
+  const panelHeight = 48 + rows * fieldHeight + Math.max(0, rows - 1) * rowGap + 66;
+  const panelY = height - panelHeight - padding;
+  const status = ['correct', 'wrong'].includes(item?.checkState) ? item.checkState : 'idle';
+  const accent = status === 'correct' ? '#16a34a' : (status === 'wrong' ? '#dc2626' : '#7c3aed');
+  let imageY = y + 78;
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={height} rx="18" fill="#fff" stroke={status === 'idle' ? '#d8d2f4' : accent} strokeWidth={status === 'idle' ? 1.5 : 2.5} />
+      <path d={`M ${x + 18} ${y + 1} H ${x + width - 18} Q ${x + width - 1} ${y + 1} ${x + width - 1} ${y + 18} V ${y + 62} H ${x + 1} V ${y + 18} Q ${x + 1} ${y + 1} ${x + 18} ${y + 1}`} fill="#f6f3ff" />
+      <rect x={x + 18} y={y + 15} width="34" height="34" rx="10" fill={accent} />
+      <text x={x + 35} y={y + 37} textAnchor="middle" fill="#fff" fontSize="16" fontWeight="800">{String(item.questionNumber || item.taskNumber || '?').slice(0, 4)}</text>
+      <text x={x + 64} y={y + 34} fill="#211a35" fontSize="17" fontWeight="800">{String(item.heading || `Задание ${item.taskDisplayNumber || item.taskNumber || ''}`).slice(0, 72)}</text>
+      {(item.screenshots || []).map((screenshot, index) => {
+        const imageHeight = Math.max(40, Number(screenshot?.displayHeight) || 220);
+        const currentY = imageY;
+        imageY += imageHeight + 12;
+        return (
+          <image
+            key={`${item.id}-task-image-${index}`}
+            href={resolveAuthenticatedUploadsUrl(screenshot.assetUrl)}
+            x={x + padding}
+            y={currentY}
+            width={width - padding * 2}
+            height={imageHeight}
+            preserveAspectRatio="xMidYMid meet"
+          />
+        );
+      })}
+      {item.questionText && imageY < y + panelY - 12 && (
+        <foreignObject x={x + padding} y={imageY} width={width - padding * 2} height={Math.max(24, y + panelY - imageY - 12)}>
+          <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#211a35', fontFamily: 'Inter, system-ui, sans-serif', fontSize: 17, fontWeight: 600, lineHeight: 1.4, overflow: 'hidden', whiteSpace: 'pre-wrap' }}>
+            {item.questionText}
+          </div>
+        </foreignObject>
+      )}
+      <rect x={x + padding - 8} y={y + panelY - 8} width={width - padding * 2 + 16} height={panelHeight + 2} rx="14" fill={status === 'correct' ? '#f0fdf4' : (status === 'wrong' ? '#fef2f2' : '#f8f7fc')} />
+      <text x={x + padding} y={y + panelY + 19} fill="#6d6381" fontSize="12" fontWeight="800">ОТВЕТ</text>
+      {order.map((answerIndex, position) => {
+        const row = Math.floor(position / columns);
+        const column = position % columns;
+        const fieldX = x + padding + column * (fieldWidth + gap);
+        const fieldY = y + panelY + 48 + row * (fieldHeight + rowGap);
+        const value = String(item.userAnswers?.[answerIndex] ?? '');
+        const label = item.answerLabels?.[answerIndex] || answerIndex + 1;
+        return (
+          <g key={`${item.id}-task-answer-${answerIndex}`}>
+            <rect x={fieldX} y={fieldY} width={fieldWidth} height={fieldHeight} rx="10" fill="#fff" stroke={status === 'wrong' ? '#fecaca' : (status === 'correct' ? '#bbf7d0' : '#ddd6ee')} strokeWidth="1.3" />
+            <text x={fieldX + 13} y={fieldY + 27} fill={value ? '#251d38' : '#aaa1b9'} fontSize="14" fontWeight={value ? '600' : '500'}>{(value || `Ответ ${label}`).slice(0, 38)}</text>
+          </g>
+        );
+      })}
+      <rect x={x + padding} y={y + panelY + panelHeight - 58} width="142" height="42" rx="11" fill={accent} />
+      <text x={x + padding + 71} y={y + panelY + panelHeight - 32} textAnchor="middle" fill="#fff" fontSize="14" fontWeight="800">Проверить</text>
+      {status !== 'idle' && <text x={x + padding + 160} y={y + panelY + panelHeight - 32} fill={accent} fontSize="14" fontWeight="800">{status === 'correct' ? 'Верно!' : 'Пока неверно'}</text>}
+    </g>
+  );
+};
+
 const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
   const normalizedItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
   const fitView = useMemo(() => getFitView(normalizedItems), [normalizedItems]);
@@ -325,6 +399,9 @@ const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
                 ))}
               </text>
             );
+          }
+          if (item.type === 'task') {
+            return <ReplayBoardTask key={key} item={item} />;
           }
           if (item.type === 'image' && item.assetUrl) {
             const source = resolveAuthenticatedUploadsUrl(item.assetUrl);

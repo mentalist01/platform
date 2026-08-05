@@ -7,6 +7,7 @@ import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
 import { getHomeworkLessonBasketItemKey } from '../utils/homeworkLessonBasket';
+import { writeBoardTaskToClipboard } from '../utils/boardTaskClipboard';
 import { Button } from './ui';
 
 const TEACHER_CODE_COPY_FEEDBACK_MS = 1800;
@@ -128,10 +129,12 @@ const ProgressReviewModal = ({
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
   const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
+  const [questionBoardCopyState, setQuestionBoardCopyState] = useState('idle');
   const [questionCodePreviewOpen, setQuestionCodePreviewOpen] = useState(false);
   const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
   const [expandedImage, setExpandedImage] = useState(null);
   const questionCodeCopyResetTimerRef = React.useRef(null);
+  const questionBoardCopyResetTimerRef = React.useRef(null);
   const questionCodeRequestScopeRef = React.useRef('');
 
   const getQuestionCodeEntry = (questionId) => {
@@ -322,16 +325,25 @@ const ProgressReviewModal = ({
 
   useEffect(() => {
     setQuestionCodeCopyState('idle');
+    setQuestionBoardCopyState('idle');
     setQuestionCodePreviewOpen(false);
     setExpandedImage(null);
     if (questionCodeCopyResetTimerRef.current) {
       clearTimeout(questionCodeCopyResetTimerRef.current);
       questionCodeCopyResetTimerRef.current = null;
     }
+    if (questionBoardCopyResetTimerRef.current) {
+      clearTimeout(questionBoardCopyResetTimerRef.current);
+      questionBoardCopyResetTimerRef.current = null;
+    }
     return () => {
       if (questionCodeCopyResetTimerRef.current) {
         clearTimeout(questionCodeCopyResetTimerRef.current);
         questionCodeCopyResetTimerRef.current = null;
+      }
+      if (questionBoardCopyResetTimerRef.current) {
+        clearTimeout(questionBoardCopyResetTimerRef.current);
+        questionBoardCopyResetTimerRef.current = null;
       }
     };
   }, [currentIndex, levelId, studentId, taskNumber]);
@@ -391,7 +403,10 @@ const ProgressReviewModal = ({
     Array.isArray(homeworkLessonBasketItems) ? homeworkLessonBasketItems : []
   ).some((item) => getHomeworkLessonBasketItemKey(item) === currentBasketItemKey);
   const isSolved = solvedIds.has(currentId);
-  const answerCount = Math.max(1, Number(getAnswerCountForTask(task?.number)) || 1);
+  const answerCountOverride = Math.trunc(Number(currentQuestion?.answerCountOverride));
+  const answerCount = Number.isFinite(answerCountOverride) && answerCountOverride > 0 && answerCountOverride <= 50
+    ? answerCountOverride
+    : Math.max(1, Number(getAnswerCountForTask(task?.number)) || 1);
   const answerLabels = buildAnswerLabels(answerCount);
   const activeLevel = levelOptions.find((level) => level.id === levelId) || levelOptions[0] || null;
   const currentQuestionLabel = normalizeQuestionLabel(currentQuestion?.label);
@@ -502,6 +517,36 @@ const ProgressReviewModal = ({
     questionCodeCopyResetTimerRef.current = setTimeout(() => {
       setQuestionCodeCopyState('idle');
       questionCodeCopyResetTimerRef.current = null;
+    }, TEACHER_CODE_COPY_FEEDBACK_MS);
+  };
+
+  const handleCopyQuestionToBoard = async () => {
+    if (!currentQuestion) return;
+    const copied = await writeBoardTaskToClipboard({
+      metadata: {
+        taskNumber,
+        taskDisplayNumber,
+        taskTitle: task?.title || '',
+        levelId,
+        levelTitle: activeLevel?.label || '',
+        questionId: currentId,
+        questionNumber: currentIndex + 1,
+        questionLabel: currentQuestionLabel?.text || '',
+      },
+      questionText: currentQuestion.question || '',
+      screenshots: Array.isArray(currentQuestion.screenshots) ? currentQuestion.screenshots : [],
+      answerCount,
+      answerLabels,
+      studentAnswers: studentAnswerValues,
+      sourceStudentId: studentId,
+    });
+    setQuestionBoardCopyState(copied ? 'copied' : 'error');
+    if (questionBoardCopyResetTimerRef.current) {
+      clearTimeout(questionBoardCopyResetTimerRef.current);
+    }
+    questionBoardCopyResetTimerRef.current = setTimeout(() => {
+      setQuestionBoardCopyState('idle');
+      questionBoardCopyResetTimerRef.current = null;
     }, TEACHER_CODE_COPY_FEEDBACK_MS);
   };
 
@@ -645,6 +690,17 @@ const ProgressReviewModal = ({
                       </span>
                     ) : <span aria-hidden="true" />}
                     <div className="student-test-question-panel__toolbar-actions">
+                      <button
+                        type="button"
+                        className={`teacher-board-task-copy ${questionBoardCopyState === 'copied' ? 'is-copied' : ''} ${questionBoardCopyState === 'error' ? 'is-error' : ''}`}
+                        onClick={() => { void handleCopyQuestionToBoard(); }}
+                        title="Скопировать условие и интерактивные поля, затем вставить их на доску через Ctrl+V"
+                      >
+                        {questionBoardCopyState === 'copied' ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
+                        <span>{questionBoardCopyState === 'copied'
+                          ? 'Задание скопировано'
+                          : (questionBoardCopyState === 'error' ? 'Не удалось скопировать' : 'Скопировать задание')}</span>
+                      </button>
                       {typeof onAddToHomeworkLessonBasket === 'function' && (
                         <button
                           type="button"

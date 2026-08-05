@@ -92653,3 +92653,207 @@ html[data-theme='dark'] .mock-exam-modal--timer .mock-exam-modal-card__taskbar {
     animation: none !important;
   }
 }
+
+/* Interactive task cards keep the board canvas intact: only answer controls live in DOM. */
+.board-task-controls-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.board-task-controls {
+  position: absolute;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.board-task-controls__screenshot {
+  position: absolute;
+  display: block;
+  border-radius: 12px;
+  background: #f8fafc;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.board-task-controls__input,
+.board-task-controls__check {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: auto;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.board-task-controls__input {
+  border: 1.3px solid #ddd6ee;
+  border-radius: 10px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.985);
+  padding: 0 13px;
+  color: #251d38;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(44, 31, 73, 0.04);
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.board-task-controls__input::placeholder {
+  color: #aaa1b9;
+  font-weight: 500;
+}
+
+.board-task-controls__input:hover {
+  border-color: #b9add5;
+}
+
+.board-task-controls__input:focus {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.17);
+}
+
+.board-task-controls.is-correct .board-task-controls__input {
+  border-color: #86efac;
+  background: rgba(240, 253, 244, 0.985);
+}
+
+.board-task-controls.is-wrong .board-task-controls__input {
+  border-color: #fca5a5;
+  background: rgba(254, 242, 242, 0.985);
+}
+
+.board-task-controls__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 7px 16px rgba(109, 40, 217, 0.2);
+  transition: transform 130ms ease, box-shadow 130ms ease, filter 130ms ease;
+}
+
+.board-task-controls__check:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow: 0 9px 20px rgba(109, 40, 217, 0.26);
+}
+
+.board-task-controls__check:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.board-task-controls__check:focus-visible {
+  outline: 3px solid rgba(139, 92, 246, 0.24);
+  outline-offset: 2px;
+}
+
+.board-task-controls__check:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.board-task-controls.is-correct .board-task-controls__check {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  box-shadow: 0 7px 16px rgba(22, 163, 74, 0.2);
+}
+
+.board-task-controls.is-wrong .board-task-controls__check {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 7px 16px rgba(220, 38, 38, 0.18);
+}
+
+.board-task-controls__result {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  color: #6d28d9;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.board-task-controls.is-correct .board-task-controls__result {
+  color: #15803d;
+}
+
+.board-task-controls.is-wrong .board-task-controls__result,
+.board-task-controls__result.is-error {
+  color: #dc2626;
+}
+
+.teacher-board-task-copy {
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(109, 40, 217, 0.24);
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.1), rgba(147, 51, 234, 0.06));
+  padding: 0.5rem 0.75rem;
+  color: #6d28d9;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.1;
+  transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.teacher-board-task-copy:hover {
+  border-color: rgba(109, 40, 217, 0.42);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.16), rgba(147, 51, 234, 0.1));
+  transform: translateY(-1px);
+}
+
+.teacher-board-task-copy:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+}
+
+.teacher-board-task-copy.is-copied {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.teacher-board-task-copy.is-error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+html[data-theme='dark'] .teacher-board-task-copy {
+  border-color: rgba(196, 181, 253, 0.3);
+  background: rgba(124, 58, 237, 0.16);
+  color: #ddd6fe;
+}
+
+html[data-theme='dark'] .teacher-board-task-copy.is-copied {
+  border-color: rgba(52, 211, 153, 0.38);
+  background: rgba(6, 78, 59, 0.52);
+  color: #a7f3d0;
+}
+
+html[data-theme='dark'] .teacher-board-task-copy.is-error {
+  border-color: rgba(248, 113, 113, 0.36);
+  background: rgba(127, 29, 29, 0.42);
+  color: #fecaca;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-task-controls__input,
+  .board-task-controls__check {
+    transition: none;
+  }
+}

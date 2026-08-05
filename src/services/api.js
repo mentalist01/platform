@@ -1330,6 +1330,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  checkQuestionAnswers: async (payload) => {
+    const res = await apiFetch('/api/questions/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getSolvedQuestions: async (studentId, taskNumber, levelId, options = {}) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);

@@ -102,6 +102,7 @@ import {
   saveHomeworkLessonBaskets,
 } from './utils/homeworkLessonBasket';
 import { normalizeTelemostUrl } from './utils/telemost';
+import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
   isPushFeatureSupported,
@@ -289,6 +290,277 @@ const BOARD_POINT_MIN_DISTANCE = 1.5;
 const BOARD_STROKE_SMOOTHING_DISTANCE = 12;
 const BOARD_STROKE_SMOOTHING_MIN_ALPHA = 0.22;
 const BOARD_STROKE_SMOOTHING_MAX_ALPHA = 0.72;
+const BOARD_TASK_MIN_WIDTH = 420;
+const BOARD_TASK_MAX_WIDTH = 920;
+const BOARD_TASK_DEFAULT_WIDTH = 720;
+const BOARD_TASK_MAX_HEIGHT = 2400;
+const BOARD_TASK_MAX_SCREENSHOTS = 8;
+const BOARD_TASK_MAX_ANSWERS = 50;
+const BOARD_TASK_CARD_PADDING = 22;
+const BOARD_TASK_CARD_HEADER_HEIGHT = 62;
+const BOARD_TASK_ANSWER_FIELD_HEIGHT = 44;
+const BOARD_TASK_ANSWER_FIELD_GAP = 10;
+
+const getBoardTaskAnswerOrder = (answerCount) => {
+  const count = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Number(answerCount) || 1));
+  if (count === 20) {
+    return Array.from({ length: 10 }, (_, rowIndex) => [rowIndex, rowIndex + 10]).flat();
+  }
+  return Array.from({ length: count }, (_, index) => index);
+};
+
+const getBoardTaskAnswerLayout = (item) => {
+  const answerCount = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Number(item?.answerCount) || 1));
+  const columns = answerCount === 1 ? 1 : (answerCount > 20 ? 5 : 2);
+  const rows = Math.ceil(answerCount / columns);
+  const width = Math.max(BOARD_TASK_MIN_WIDTH, Number(item?.width) || BOARD_TASK_DEFAULT_WIDTH);
+  const panelX = BOARD_TASK_CARD_PADDING;
+  const panelWidth = width - BOARD_TASK_CARD_PADDING * 2;
+  const gridTopOffset = 48;
+  const gridHeight = rows * BOARD_TASK_ANSWER_FIELD_HEIGHT
+    + Math.max(0, rows - 1) * BOARD_TASK_ANSWER_FIELD_GAP;
+  const panelHeight = gridTopOffset + gridHeight + 66;
+  const panelY = Math.max(BOARD_TASK_CARD_HEADER_HEIGHT + BOARD_TASK_CARD_PADDING, (Number(item?.height) || panelHeight) - panelHeight - BOARD_TASK_CARD_PADDING);
+  const columnGap = 12;
+  const fieldWidth = columns === 1 ? panelWidth : (panelWidth - columnGap) / 2;
+  const order = getBoardTaskAnswerOrder(answerCount);
+  const fields = order.map((answerIndex, position) => {
+    const row = Math.floor(position / columns);
+    const column = position % columns;
+    return {
+      answerIndex,
+      x: panelX + column * (fieldWidth + columnGap),
+      y: panelY + gridTopOffset + row * (BOARD_TASK_ANSWER_FIELD_HEIGHT + BOARD_TASK_ANSWER_FIELD_GAP),
+      width: fieldWidth,
+      height: BOARD_TASK_ANSWER_FIELD_HEIGHT,
+    };
+  });
+  return {
+    panelX,
+    panelY,
+    panelWidth,
+    panelHeight,
+    fields,
+    button: {
+      x: panelX,
+      y: panelY + gridTopOffset + gridHeight + 14,
+      width: 142,
+      height: 42,
+    },
+  };
+};
+
+const estimateBoardTaskTextHeight = (value, width = BOARD_TASK_DEFAULT_WIDTH) => {
+  const text = String(value || '').trim();
+  if (!text) return 0;
+  const approximateCharactersPerLine = Math.max(24, Math.floor((width - BOARD_TASK_CARD_PADDING * 2) / 9));
+  const lineCount = text.split('\n').reduce((sum, line) => (
+    sum + Math.max(1, Math.ceil(String(line || ' ').length / approximateCharactersPerLine))
+  ), 0);
+  return Math.min(12, lineCount) * 24 + 8;
+};
+
+const getBoardTaskStoredImageSource = (image) => {
+  if (!image || typeof image !== 'object') return '';
+  return normalizeBoardAssetUrl(image.assetUrl || image.imageUrl);
+};
+
+const getBoardTaskImageSource = (image) => {
+  const source = getBoardTaskStoredImageSource(image);
+  return source ? resolveAuthenticatedUploadsUrl(source) : '';
+};
+
+const getBoardItemImageSources = (item) => {
+  if (item?.type === 'image') {
+    const source = getBoardImageSource(item);
+    return source ? [source] : [];
+  }
+  if (item?.type === 'task') {
+    return (Array.isArray(item.screenshots) ? item.screenshots : [])
+      .map((image) => getBoardTaskImageSource(image))
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const wrapBoardTaskText = (ctx, value, maxWidth, maxLines = 12) => {
+  const paragraphs = String(value || '').replace(/\r\n?/g, '\n').split('\n');
+  const lines = [];
+  for (const paragraph of paragraphs) {
+    const words = String(paragraph || '').split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      lines.push('');
+      if (lines.length >= maxLines) break;
+      continue;
+    }
+    let current = '';
+    words.forEach((word) => {
+      if (lines.length >= maxLines) return;
+      const candidate = current ? `${current} ${word}` : word;
+      if (!current || ctx.measureText(candidate).width <= maxWidth) {
+        current = candidate;
+        return;
+      }
+      lines.push(current);
+      current = word;
+    });
+    if (lines.length < maxLines && current) lines.push(current);
+    if (lines.length >= maxLines) break;
+  }
+  if (lines.length === maxLines && paragraphs.join(' ').length > lines.join(' ').length) {
+    lines[maxLines - 1] = `${lines[maxLines - 1].replace(/[.…]+$/, '')}…`;
+  }
+  return lines;
+};
+
+const drawBoardTaskCard = (ctx, item, resolveImage = () => null, options = {}) => {
+  if (!ctx || !item) return;
+  const x = Number(item.x) || 0;
+  const y = Number(item.y) || 0;
+  const width = Math.max(BOARD_TASK_MIN_WIDTH, Number(item.width) || BOARD_TASK_DEFAULT_WIDTH);
+  const height = Math.max(220, Number(item.height) || 220);
+  const status = ['correct', 'wrong'].includes(item.checkState) ? item.checkState : 'idle';
+  const borderColor = status === 'correct' ? '#22c55e' : (status === 'wrong' ? '#ef4444' : '#d8d2f4');
+  const accentColor = status === 'correct' ? '#16a34a' : (status === 'wrong' ? '#dc2626' : '#7c3aed');
+  const layout = getBoardTaskAnswerLayout(item);
+  const hideInteractiveOverlays = options?.hideInteractiveOverlays === true;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(41, 28, 76, 0.14)';
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 7;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, height, 18);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = status === 'idle' ? 1.5 : 2.5;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, height, 18);
+  ctx.stroke();
+
+  ctx.fillStyle = '#f6f3ff';
+  ctx.beginPath();
+  ctx.roundRect(x + 1, y + 1, width - 2, BOARD_TASK_CARD_HEADER_HEIGHT, [17, 17, 0, 0]);
+  ctx.fill();
+  ctx.fillStyle = accentColor;
+  ctx.beginPath();
+  ctx.roundRect(x + 18, y + 15, 34, 34, 10);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '800 16px Inter, Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(item.questionNumber || item.taskNumber || '?').slice(0, 4), x + 35, y + 32);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#211a35';
+  ctx.font = '800 17px Inter, Arial, sans-serif';
+  const heading = String(item.heading || `Задание ${item.taskDisplayNumber || item.taskNumber || ''}`).trim();
+  ctx.fillText(heading.slice(0, 72), x + 64, y + 15);
+  ctx.fillStyle = '#766b8d';
+  ctx.font = '600 12px Inter, Arial, sans-serif';
+  const meta = [item.levelLabel, item.questionLabel].map((value) => String(value || '').trim()).filter(Boolean).join(' · ');
+  ctx.fillText((meta || 'Интерактивное задание').slice(0, 96), x + 64, y + 38);
+
+  const contentLeft = x + BOARD_TASK_CARD_PADDING;
+  const contentWidth = width - BOARD_TASK_CARD_PADDING * 2;
+  let contentY = y + BOARD_TASK_CARD_HEADER_HEIGHT + 16;
+  const screenshots = Array.isArray(item.screenshots) ? item.screenshots : [];
+  screenshots.forEach((screenshot) => {
+    const imageHeight = Math.max(40, Number(screenshot.displayHeight) || 220);
+    const image = resolveImage(screenshot);
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.roundRect(contentLeft, contentY, contentWidth, imageHeight, 12);
+    ctx.fill();
+    if (image && !hideInteractiveOverlays) {
+      const naturalWidth = Math.max(1, Number(image.naturalWidth) || Number(image.width) || 1);
+      const naturalHeight = Math.max(1, Number(image.naturalHeight) || Number(image.height) || 1);
+      const scale = Math.min(contentWidth / naturalWidth, imageHeight / naturalHeight);
+      const drawWidth = naturalWidth * scale;
+      const drawHeight = naturalHeight * scale;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(contentLeft, contentY, contentWidth, imageHeight, 12);
+      ctx.clip();
+      ctx.drawImage(
+        image,
+        contentLeft + (contentWidth - drawWidth) / 2,
+        contentY + (imageHeight - drawHeight) / 2,
+        drawWidth,
+        drawHeight
+      );
+      ctx.restore();
+    } else if (!hideInteractiveOverlays) {
+      ctx.fillStyle = '#978cae';
+      ctx.font = '600 13px Inter, Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Загружаем изображение задания…', contentLeft + contentWidth / 2, contentY + imageHeight / 2);
+      ctx.textAlign = 'left';
+    }
+    contentY += imageHeight + 12;
+  });
+
+  const questionText = String(item.questionText || '').trim();
+  if (questionText && contentY < y + layout.panelY - 14) {
+    ctx.fillStyle = '#211a35';
+    ctx.font = '600 17px Inter, Arial, sans-serif';
+    ctx.textBaseline = 'top';
+    const availableHeight = Math.max(0, y + layout.panelY - 14 - contentY);
+    const maxLines = Math.max(1, Math.min(12, Math.floor(availableHeight / 24)));
+    wrapBoardTaskText(ctx, questionText, contentWidth, maxLines).forEach((line, index) => {
+      ctx.fillText(line, contentLeft, contentY + index * 24);
+    });
+  }
+
+  ctx.fillStyle = status === 'correct' ? '#f0fdf4' : (status === 'wrong' ? '#fef2f2' : '#f8f7fc');
+  ctx.beginPath();
+  ctx.roundRect(x + layout.panelX - 8, y + layout.panelY - 8, layout.panelWidth + 16, layout.panelHeight + 2, 14);
+  ctx.fill();
+  ctx.fillStyle = '#6d6381';
+  ctx.font = '800 12px Inter, Arial, sans-serif';
+  ctx.fillText('ОТВЕТ', x + layout.panelX, y + layout.panelY + 9);
+
+  if (!hideInteractiveOverlays) {
+    const answers = Array.from({ length: Math.max(1, Number(item.answerCount) || 1) }, (_, index) => String(item.userAnswers?.[index] ?? ''));
+    layout.fields.forEach((field) => {
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = status === 'wrong' ? '#fecaca' : (status === 'correct' ? '#bbf7d0' : '#ddd6ee');
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.roundRect(x + field.x, y + field.y, field.width, field.height, 10);
+      ctx.fill();
+      ctx.stroke();
+      const value = answers[field.answerIndex];
+      ctx.fillStyle = value ? '#251d38' : '#aaa1b9';
+      ctx.font = value ? '600 15px Inter, Arial, sans-serif' : '500 14px Inter, Arial, sans-serif';
+      const label = item.answerLabels?.[field.answerIndex] || field.answerIndex + 1;
+      ctx.fillText((value || `Ответ ${label}`).slice(0, 52), x + field.x + 13, y + field.y + 13);
+    });
+
+    ctx.fillStyle = accentColor;
+    ctx.beginPath();
+    ctx.roundRect(x + layout.button.x, y + layout.button.y, layout.button.width, layout.button.height, 11);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 14px Inter, Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Проверить', x + layout.button.x + 24, y + layout.button.y + layout.button.height / 2);
+    if (status !== 'idle') {
+      ctx.fillStyle = accentColor;
+      ctx.font = '800 14px Inter, Arial, sans-serif';
+      ctx.fillText(
+        status === 'correct' ? 'Верно!' : 'Пока неверно',
+        x + layout.button.x + layout.button.width + 18,
+        y + layout.button.y + layout.button.height / 2
+      );
+    }
+  }
+  ctx.restore();
+};
 
 const drawBoardImage = (ctx, image, item, overrides = {}) => {
   if (!ctx || !image || !item) return;
@@ -586,6 +858,58 @@ const normalizeBoardStoredItem = (rawValue) => {
       height: Math.max(1, Number(source.height) || BOARD_TEXT_FONT_SIZE * 1.25),
     };
   }
+  if (base.type === 'task') {
+    const answerCount = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Math.floor(Number(source.answerCount) || 1)));
+    const screenshots = (Array.isArray(source.screenshots) ? source.screenshots : [])
+      .slice(0, BOARD_TASK_MAX_SCREENSHOTS)
+      .map((image) => {
+        const assetUrl = getBoardTaskStoredImageSource(image);
+        if (!assetUrl) return null;
+        return {
+          assetUrl,
+          assetId: typeof image?.assetId === 'string' ? image.assetId.slice(0, 120) : '',
+          name: typeof image?.name === 'string' ? image.name.slice(0, 240) : '',
+          naturalWidth: Math.max(1, Number(image?.naturalWidth) || Number(image?.width) || 1),
+          naturalHeight: Math.max(1, Number(image?.naturalHeight) || Number(image?.height) || 1),
+          displayHeight: Math.max(40, Math.min(720, Number(image?.displayHeight) || 220)),
+        };
+      })
+      .filter(Boolean);
+    const normalizeAnswers = (values) => Array.from(
+      { length: answerCount },
+      (_, index) => String(values?.[index] ?? '').slice(0, 500)
+    );
+    return {
+      ...base,
+      type: 'task',
+      x: Number(source.x) || 0,
+      y: Number(source.y) || 0,
+      width: Math.max(BOARD_TASK_MIN_WIDTH, Math.min(BOARD_TASK_MAX_WIDTH, Number(source.width) || BOARD_TASK_DEFAULT_WIDTH)),
+      height: Math.max(220, Math.min(BOARD_TASK_MAX_HEIGHT, Number(source.height) || 640)),
+      heading: typeof source.heading === 'string' ? source.heading.slice(0, 240) : '',
+      taskNumber: Number.isFinite(Number(source.taskNumber)) ? Number(source.taskNumber) : null,
+      taskDisplayNumber: typeof source.taskDisplayNumber === 'string' || typeof source.taskDisplayNumber === 'number'
+        ? String(source.taskDisplayNumber).slice(0, 40)
+        : '',
+      taskTitle: typeof source.taskTitle === 'string' ? source.taskTitle.slice(0, 240) : '',
+      levelId: typeof source.levelId === 'string' ? source.levelId.slice(0, 80) : '',
+      levelLabel: typeof source.levelLabel === 'string' ? source.levelLabel.slice(0, 120) : '',
+      questionId: typeof source.questionId === 'string' ? source.questionId.slice(0, 160) : '',
+      questionNumber: Number.isFinite(Number(source.questionNumber)) ? Math.max(1, Math.floor(Number(source.questionNumber))) : null,
+      questionLabel: typeof source.questionLabel === 'string' ? source.questionLabel.slice(0, 160) : '',
+      questionText: typeof source.questionText === 'string' ? source.questionText.slice(0, 12000) : '',
+      screenshots,
+      answerCount,
+      answerLabels: Array.from(
+        { length: answerCount },
+        (_, index) => String(source.answerLabels?.[index] ?? index + 1).slice(0, 40)
+      ),
+      userAnswers: normalizeAnswers(source.userAnswers),
+      studentAnswers: normalizeAnswers(source.studentAnswers),
+      checkState: ['correct', 'wrong'].includes(source.checkState) ? source.checkState : 'idle',
+      sourceStudentId: typeof source.sourceStudentId === 'string' ? source.sourceStudentId.slice(0, 160) : '',
+    };
+  }
   if (base.type === 'image') {
     const assetUrl = normalizeBoardAssetUrl(source.assetUrl || source.imageUrl);
     const dataUrl = typeof source.dataUrl === 'string' ? source.dataUrl : '';
@@ -633,6 +957,26 @@ const estimateBoardItemBytes = (item) => {
   }
   if (item.type === 'shape') return sharedBytes + 72;
   if (item.type === 'text') return sharedBytes + 56 + String(item.text || '').length * 2;
+  if (item.type === 'task') {
+    const screenshots = Array.isArray(item.screenshots) ? item.screenshots : [];
+    const textBytes = [
+      item.heading,
+      item.taskDisplayNumber,
+      item.taskTitle,
+      item.levelId,
+      item.levelLabel,
+      item.questionId,
+      item.questionLabel,
+      item.questionText,
+      ...(item.answerLabels || []),
+      ...(item.userAnswers || []),
+      ...(item.studentAnswers || []),
+    ].reduce((sum, value) => sum + String(value || '').length * 2, 0);
+    const imageReferenceBytes = screenshots.reduce((sum, image) => (
+      sum + String(image?.assetUrl || '').length + String(image?.assetId || '').length + String(image?.name || '').length * 2 + 48
+    ), 0);
+    return sharedBytes + 160 + textBytes + imageReferenceBytes;
+  }
   if (item.type === 'image') {
     return sharedBytes
       + 64
@@ -9588,6 +9932,7 @@ const BoardSection = ({
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
   const [saveNameError, setSaveNameError] = useState(false);
+  const [taskCheckUiById, setTaskCheckUiById] = useState({});
 
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
@@ -9664,6 +10009,7 @@ const BoardSection = ({
   const lessonReplayLastBoardViewportAtRef = useRef(0);
   const boardRevision = boardSnapshot.revision;
   const boardItemCount = boardSnapshot.itemCount;
+  const boardTaskItems = boardItemsRef.current.filter((item) => item?.type === 'task');
 
   useEffect(() => {
     lessonReplayEventRef.current = onLessonReplayEvent;
@@ -9743,6 +10089,7 @@ const BoardSection = ({
     setIsImageCropMenuOpen(false);
     setIsImageMoreOpen(false);
     setTextDraft(null);
+    setTaskCheckUiById({});
     linkedBoardObjectRef.current = '';
   }, [roomId]);
 
@@ -9768,22 +10115,22 @@ const BoardSection = ({
   }, [releaseCachedBoardImage]);
 
   const trackBoardImageInsert = useCallback((item) => {
-    const source = getBoardImageSource(item);
-    if (!source) return;
-    const nextCount = Number(boardImageUsageRef.current.get(source) || 0) + 1;
-    boardImageUsageRef.current.set(source, nextCount);
+    getBoardItemImageSources(item).forEach((source) => {
+      const nextCount = Number(boardImageUsageRef.current.get(source) || 0) + 1;
+      boardImageUsageRef.current.set(source, nextCount);
+    });
   }, []);
 
   const trackBoardImageRemoval = useCallback((item) => {
-    const source = getBoardImageSource(item);
-    if (!source) return;
-    const currentCount = Number(boardImageUsageRef.current.get(source) || 0);
-    if (currentCount <= 1) {
-      boardImageUsageRef.current.delete(source);
-      releaseCachedBoardImage(source);
-      return;
-    }
-    boardImageUsageRef.current.set(source, currentCount - 1);
+    getBoardItemImageSources(item).forEach((source) => {
+      const currentCount = Number(boardImageUsageRef.current.get(source) || 0);
+      if (currentCount <= 1) {
+        boardImageUsageRef.current.delete(source);
+        releaseCachedBoardImage(source);
+        return;
+      }
+      boardImageUsageRef.current.set(source, currentCount - 1);
+    });
   }, [releaseCachedBoardImage]);
 
   const resetBoardData = useCallback(() => {
@@ -10688,7 +11035,7 @@ const BoardSection = ({
       } else if (item.type === 'line' || item.type === 'arrow') {
         includePoint(item.start?.x, item.start?.y);
         includePoint(item.end?.x, item.end?.y);
-      } else if (item.type === 'shape' || item.type === 'text') {
+      } else if (item.type === 'shape' || item.type === 'text' || item.type === 'task') {
         includePoint(item.x, item.y);
         includePoint((item.x || 0) + (item.width || 0), (item.y || 0) + (item.height || 0));
       } else if (item.type === 'image') {
@@ -10711,10 +11058,24 @@ const BoardSection = ({
     const padding = BOARD_EXPORT_PADDING;
     const width = Math.max(1, bounds.maxX - bounds.minX + padding * 2);
     const height = Math.max(1, bounds.maxY - bounds.minY + padding * 2);
-    const imageItems = boardItems.filter((item) => getBoardImageSource(item));
+    const imageItems = boardItems.flatMap((item) => {
+      if (item?.type === 'image') {
+        const source = getBoardImageSource(item);
+        return source ? [{ source, width: item.width, height: item.height }] : [];
+      }
+      if (item?.type === 'task') {
+        const taskImageWidth = Math.max(1, (Number(item.width) || BOARD_TASK_DEFAULT_WIDTH) - BOARD_TASK_CARD_PADDING * 2);
+        return (Array.isArray(item.screenshots) ? item.screenshots : []).map((screenshot) => ({
+          source: getBoardTaskImageSource(screenshot),
+          width: taskImageWidth,
+          height: screenshot?.displayHeight,
+        })).filter((entry) => entry.source);
+      }
+      return [];
+    });
     const imageMap = new Map();
     await Promise.all(imageItems.map(async (item) => {
-      const source = getBoardImageSource(item);
+      const source = item.source;
       if (!source || imageMap.has(source)) return;
       const img = await new Promise((resolve) => {
         const image = new Image();
@@ -10726,13 +11087,13 @@ const BoardSection = ({
       if (img) imageMap.set(source, img);
     }));
 
-    const hasVectorItems = boardItems.some((item) => ['stroke', 'line', 'arrow', 'shape', 'text'].includes(item?.type));
+    const hasVectorItems = boardItems.some((item) => ['stroke', 'line', 'arrow', 'shape', 'text', 'task'].includes(item?.type));
     const baseScale = hasVectorItems && !imageItems.length
       ? BOARD_EXPORT_VECTOR_BASE_SCALE
       : BOARD_EXPORT_BASE_SCALE;
 
     const preferredScale = imageItems.reduce((maxScale, item) => {
-      const img = imageMap.get(getBoardImageSource(item));
+      const img = imageMap.get(item.source);
       if (!img) return maxScale;
       const itemWidth = Math.max(1, Number(item.width) || 1);
       const itemHeight = Math.max(1, Number(item.height) || 1);
@@ -10779,6 +11140,9 @@ const BoardSection = ({
       if (item.type === 'arrow') drawArrow(ctx, item);
       if (item.type === 'shape') drawShape(ctx, item);
       if (item.type === 'text') drawTextItem(ctx, item);
+      if (item.type === 'task') {
+        drawBoardTaskCard(ctx, item, (screenshot) => imageMap.get(getBoardTaskImageSource(screenshot)) || null);
+      }
       if (item.type === 'image') {
         const img = imageMap.get(getBoardImageSource(item));
         if (!img) return;
@@ -10927,6 +11291,104 @@ const BoardSection = ({
     }, localOriginRef.current);
     if (updated && stopCapturing) undoManagerRef.current?.stopCapturing();
     return updated;
+  };
+
+  const updateBoardTaskItem = (id, updater, { stopCapturing = true } = {}) => {
+    const yItems = yItemsRef.current;
+    const docInstance = docRef.current;
+    if (!id || !yItems || !docInstance || typeof updater !== 'function') return null;
+    let updated = null;
+    docInstance.transact(() => {
+      for (let index = yItems.length - 1; index >= 0; index -= 1) {
+        const raw = yItems.get(index);
+        const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+        if (item?.id !== id || item.type !== 'task') continue;
+        const next = updater({ ...item });
+        if (!next) break;
+        updated = { ...next, id: item.id, type: 'task' };
+        yItems.delete(index, 1);
+        yItems.insert(index, [updated]);
+        break;
+      }
+    }, localOriginRef.current);
+    if (updated && stopCapturing) undoManagerRef.current?.stopCapturing();
+    return updated;
+  };
+
+  const handleBoardTaskAnswerChange = (item, answerIndex, value) => {
+    if (!item?.id) return;
+    const answerCount = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Number(item.answerCount) || 1));
+    const nextValue = String(value ?? '').slice(0, 500);
+    updateBoardTaskItem(item.id, (current) => {
+      const userAnswers = Array.from(
+        { length: answerCount },
+        (_, index) => String(current.userAnswers?.[index] ?? '')
+      );
+      userAnswers[answerIndex] = nextValue;
+      return { ...current, userAnswers, checkState: 'idle' };
+    }, { stopCapturing: false });
+    setTaskCheckUiById((current) => {
+      if (!current?.[item.id]) return current;
+      const next = { ...current };
+      delete next[item.id];
+      return next;
+    });
+  };
+
+  const handleBoardTaskCheck = async (item) => {
+    if (!item?.id || taskCheckUiById?.[item.id]?.status === 'checking') return;
+    const answerCount = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Number(item.answerCount) || 1));
+    const answers = Array.from(
+      { length: answerCount },
+      (_, index) => String(item.userAnswers?.[index] ?? '').trim()
+    );
+    if (answers.every((value) => !value)) {
+      setTaskCheckUiById((current) => ({
+        ...current,
+        [item.id]: { status: 'error', message: 'Сначала введите ответ' },
+      }));
+      return;
+    }
+    setTaskCheckUiById((current) => ({ ...current, [item.id]: { status: 'checking', message: '' } }));
+    try {
+      const studentId = item.sourceStudentId || effectiveStudentId;
+      const result = await api.checkQuestionAnswers({
+        studentId,
+        taskNumber: item.taskNumber,
+        levelId: item.levelId,
+        questionId: item.questionId,
+        answers,
+      });
+      const correct = result?.correct === true;
+      if (correct) {
+        const answerPayload = answerCount <= 1
+          ? answers[0]
+          : JSON.stringify({ answers });
+        await api.solveQuestion({
+          studentId,
+          taskNumber: item.taskNumber,
+          levelId: item.levelId,
+          questionId: item.questionId,
+          code: answerPayload,
+          localDay: getLocalDayKey(),
+        });
+      }
+      updateBoardTaskItem(item.id, (current) => ({
+        ...current,
+        userAnswers: answers,
+        checkState: correct ? 'correct' : 'wrong',
+      }));
+      setTaskCheckUiById((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+    } catch (error) {
+      setTaskCheckUiById((current) => ({
+        ...current,
+        [item.id]: { status: 'error', message: error?.message || 'Не удалось проверить ответ' },
+      }));
+    }
   };
 
   const applyImageCropPreset = (id, targetAspect) => {
@@ -11207,7 +11669,7 @@ const BoardSection = ({
       let hit = false;
       if (item.type === 'stroke') hit = hitTestStroke(item, point, BOARD_ERASER_RADIUS);
       else if (item.type === 'line' || item.type === 'arrow') hit = hitTestLine(item, point, BOARD_ERASER_RADIUS);
-      else if (item.type === 'shape' || item.type === 'text') hit = isPointInRect(point, {
+      else if (item.type === 'shape' || item.type === 'text' || item.type === 'task') hit = isPointInRect(point, {
         x: item.x || 0,
         y: item.y || 0,
         width: item.width || 0,
@@ -11249,7 +11711,7 @@ const BoardSection = ({
       const maxY = Math.max(start.y || 0, end.y || 0);
       return { minX, minY, maxX, maxY };
     }
-    if (item.type === 'shape' || item.type === 'text') {
+    if (item.type === 'shape' || item.type === 'text' || item.type === 'task') {
       const x = item.x || 0;
       const y = item.y || 0;
       const w = item.width || 0;
@@ -11336,7 +11798,7 @@ const BoardSection = ({
         }
         if (item.type === 'stroke') return hitTestStroke(item, point, BOARD_SELECTION_HIT_RADIUS);
         if (item.type === 'line' || item.type === 'arrow') return hitTestLine(item, point, BOARD_SELECTION_HIT_RADIUS);
-        if (item.type === 'shape' || item.type === 'text') {
+        if (item.type === 'shape' || item.type === 'text' || item.type === 'task') {
           const x = item.x || 0;
           const y = item.y || 0;
           return point.x >= x && point.x <= x + (item.width || 0) && point.y >= y && point.y <= y + (item.height || 0);
@@ -11400,7 +11862,7 @@ const BoardSection = ({
             y: item.y || 0,
           };
         }
-        if (item.type === 'shape' || item.type === 'text') {
+        if (item.type === 'shape' || item.type === 'text' || item.type === 'task') {
           return {
             id: item.id,
             type: item.type,
@@ -11440,7 +11902,7 @@ const BoardSection = ({
               start: { x: (item.start?.x || 0) + dx, y: (item.start?.y || 0) + dy },
               end: { x: (item.end?.x || 0) + dx, y: (item.end?.y || 0) + dy },
             };
-          } else if (current.type === 'image' || current.type === 'shape' || current.type === 'text') {
+          } else if (current.type === 'image' || current.type === 'shape' || current.type === 'text' || current.type === 'task') {
             next = { ...current, x: (item.x || 0) + dx, y: (item.y || 0) + dy };
           }
           yItems.delete(i, 1);
@@ -11485,7 +11947,7 @@ const BoardSection = ({
         y: (snapshot.y || 0) + dy,
       };
     }
-    if (snapshot.type === 'shape' || snapshot.type === 'text') {
+    if (snapshot.type === 'shape' || snapshot.type === 'text' || snapshot.type === 'task') {
       return {
         ...item,
         x: (snapshot.x || 0) + dx,
@@ -11789,6 +12251,13 @@ const BoardSection = ({
     }
     if (item.type === 'text') {
       drawTextItem(ctx, item);
+      return;
+    }
+    if (item.type === 'task') {
+      drawBoardTaskCard(ctx, item, (screenshot) => {
+        const cacheEntry = getCachedImage(getBoardTaskImageSource(screenshot));
+        return cacheEntry?.loaded ? cacheEntry.img : null;
+      }, { hideInteractiveOverlays: true });
       return;
     }
     if (item.type === 'image') {
@@ -12545,6 +13014,168 @@ const BoardSection = ({
     const handlePaste = async (event) => {
       if (!roomId || !yItemsRef.current) return;
       if (!shouldHandleBoardImagePaste(event)) return;
+      const boardTaskPayload = readBoardTaskFromPasteEvent(event);
+      if (boardTaskPayload) {
+        event.preventDefault();
+        setPasteError('');
+        const docInstance = docRef.current;
+        try {
+          const answerCount = Math.max(
+            1,
+            Math.min(BOARD_TASK_MAX_ANSWERS, Number(boardTaskPayload.answerCount) || 1)
+          );
+          const currentZoom = zoomRef.current || 1;
+          const viewportWidth = Math.max(BOARD_TASK_MIN_WIDTH, (boardSizeRef.current.width || BOARD_TASK_DEFAULT_WIDTH) / currentZoom);
+          const width = Math.max(
+            BOARD_TASK_MIN_WIDTH,
+            Math.min(BOARD_TASK_DEFAULT_WIDTH, BOARD_TASK_MAX_WIDTH, viewportWidth * 0.86)
+          );
+          const initialCapacity = ensureBoardCanAddItems([{
+            type: 'task',
+            width,
+            height: 640,
+            questionText: boardTaskPayload.questionText,
+            answerCount,
+          }]);
+          if (!initialCapacity.ok) {
+            setPasteError(initialCapacity.error);
+            return;
+          }
+
+          const uploadedScreenshots = [];
+          let failedScreenshotCount = 0;
+          const taskScreenshots = boardTaskPayload.screenshots.slice(0, BOARD_TASK_MAX_SCREENSHOTS);
+          for (let screenshotIndex = 0; screenshotIndex < taskScreenshots.length; screenshotIndex += 1) {
+            const screenshot = taskScreenshots[screenshotIndex];
+            const rawSource = String(screenshot?.url || '').trim();
+            if (!rawSource) continue;
+            try {
+              const source = withStudentId(
+                rawSource,
+                boardTaskPayload.sourceStudentId || effectiveStudentId
+              );
+              const response = await fetch(source, { credentials: 'include' });
+              if (!response.ok) throw new Error('Не удалось загрузить изображение задания');
+              const blob = await response.blob();
+              if (!blob.type.startsWith('image/')) throw new Error('Файл задания не является изображением');
+              if (blob.size > BOARD_MAX_IMAGE_BYTES) throw new Error('Изображение задания больше 10 МБ');
+              const fileName = String(screenshot?.name || `task-${screenshotIndex + 1}`).trim() || `task-${screenshotIndex + 1}`;
+              const file = new File([blob], fileName, { type: blob.type, lastModified: Date.now() });
+              const objectUrl = URL.createObjectURL(file);
+              try {
+                const image = new Image();
+                await new Promise((resolve, reject) => {
+                  image.onload = resolve;
+                  image.onerror = () => reject(new Error('Не удалось прочитать изображение задания'));
+                  image.src = objectUrl;
+                });
+                const prepared = await prepareBoardImageUpload(file, image);
+                const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId);
+                const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
+                if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');
+                const naturalWidth = Math.max(1, Number(prepared.naturalWidth) || 1);
+                const naturalHeight = Math.max(1, Number(prepared.naturalHeight) || 1);
+                const contentWidth = width - BOARD_TASK_CARD_PADDING * 2;
+                uploadedScreenshots.push({
+                  assetId: String(uploaded.id),
+                  assetUrl,
+                  name: fileName.slice(0, 240),
+                  naturalWidth,
+                  naturalHeight,
+                  displayHeight: Math.max(80, Math.min(520, contentWidth * naturalHeight / naturalWidth)),
+                });
+              } finally {
+                URL.revokeObjectURL(objectUrl);
+              }
+            } catch {
+              failedScreenshotCount += 1;
+            }
+          }
+          if (taskScreenshots.length > 0 && uploadedScreenshots.length === 0) {
+            throw new Error('Не удалось перенести изображение задания. Попробуйте скопировать его ещё раз.');
+          }
+          if (!docInstance || docRef.current !== docInstance || !yItemsRef.current) return;
+
+          const metadata = boardTaskPayload.metadata || {};
+          const textHeight = estimateBoardTaskTextHeight(boardTaskPayload.questionText, width);
+          const provisionalLayout = getBoardTaskAnswerLayout({ width, height: 1200, answerCount });
+          const fixedHeight = BOARD_TASK_CARD_HEADER_HEIGHT
+            + BOARD_TASK_CARD_PADDING * 3
+            + textHeight
+            + provisionalLayout.panelHeight;
+          const availableImageHeight = Math.max(0, BOARD_TASK_MAX_HEIGHT - fixedHeight);
+          const requestedImageHeight = uploadedScreenshots.reduce((sum, screenshot) => sum + screenshot.displayHeight + 12, 0);
+          if (requestedImageHeight > availableImageHeight && requestedImageHeight > 0) {
+            const scale = availableImageHeight / requestedImageHeight;
+            uploadedScreenshots.forEach((screenshot) => {
+              screenshot.displayHeight = Math.max(48, screenshot.displayHeight * scale);
+            });
+          }
+          const imagesHeight = uploadedScreenshots.reduce((sum, screenshot) => sum + screenshot.displayHeight + 12, 0);
+          const height = Math.max(
+            320,
+            Math.min(
+              BOARD_TASK_MAX_HEIGHT,
+              BOARD_TASK_CARD_HEADER_HEIGHT
+                + BOARD_TASK_CARD_PADDING * 3
+                + Math.max(24, imagesHeight + textHeight)
+                + provisionalLayout.panelHeight
+            )
+          );
+          const pointer = getBoardPastePoint();
+          const x = pointer.x - width / 2;
+          const y = pointer.y - Math.min(height / 2, 180 / currentZoom);
+          const taskDisplayNumber = String(metadata.taskDisplayNumber || metadata.taskNumber || '').trim();
+          const questionNumber = Number(metadata.questionNumber) || 1;
+          const entry = {
+            id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random()}`,
+            type: 'task',
+            x,
+            y,
+            width,
+            height,
+            heading: `Задание ${taskDisplayNumber || metadata.taskNumber || ''} · вопрос ${questionNumber}`,
+            taskNumber: Number(metadata.taskNumber),
+            taskDisplayNumber,
+            taskTitle: metadata.taskTitle || '',
+            levelId: metadata.levelId || '',
+            levelLabel: metadata.levelTitle || '',
+            questionId: metadata.questionId || '',
+            questionNumber,
+            questionLabel: metadata.questionLabel || '',
+            questionText: boardTaskPayload.questionText || '',
+            screenshots: uploadedScreenshots,
+            answerCount,
+            answerLabels: boardTaskPayload.answerLabels,
+            userAnswers: Array.from({ length: answerCount }, () => ''),
+            studentAnswers: boardTaskPayload.studentAnswers,
+            checkState: 'idle',
+            sourceStudentId: boardTaskPayload.sourceStudentId || effectiveStudentId || '',
+            authorId: userId,
+          };
+          const capacity = ensureBoardCanAddItems([entry]);
+          if (!capacity.ok) {
+            setPasteError(capacity.error);
+            return;
+          }
+          docInstance.transact(() => {
+            yItemsRef.current?.push([entry]);
+          }, localOriginRef.current);
+          if (toolRef.current === 'select') {
+            setSelectedIds([entry.id]);
+            setSelectionBox({ x, y, width, height });
+          }
+          lastPointerRef.current = { x: pointer.x, y: pointer.y };
+          if (failedScreenshotCount > 0) {
+            setPasteError(`Задание вставлено, но не удалось перенести изображений: ${failedScreenshotCount}.`);
+          }
+        } catch (error) {
+          setPasteError(error?.message || 'Не удалось вставить задание');
+        }
+        return;
+      }
       const clipboardItems = event.clipboardData?.items || [];
       const imageItem = Array.from(clipboardItems).find((item) => item.type?.startsWith('image/'));
       if (!imageItem) return;
@@ -13894,6 +14525,114 @@ const BoardSection = ({
           onWheel={handleWheel}
           onContextMenu={(e) => e.preventDefault()}
         />
+        <div className="board-task-controls-layer" aria-label="Интерактивные задания на доске">
+          {boardTaskItems.map((taskItem) => {
+            const displayItem = getSelectionDragPreviewItem(taskItem);
+            const layout = getBoardTaskAnswerLayout(displayItem);
+            const taskUi = taskCheckUiById?.[taskItem.id] || null;
+            const isChecking = taskUi?.status === 'checking';
+            const status = ['correct', 'wrong'].includes(displayItem.checkState)
+              ? displayItem.checkState
+              : 'idle';
+            let nextScreenshotTop = BOARD_TASK_CARD_HEADER_HEIGHT + 16;
+            const screenshotOverlays = (Array.isArray(displayItem.screenshots) ? displayItem.screenshots : []).map((screenshot, index) => {
+              const screenshotHeight = Math.max(40, Number(screenshot?.displayHeight) || 220);
+              const overlay = (
+                <img
+                  key={`${taskItem.id}-screenshot-${index}`}
+                  src={getBoardTaskImageSource(screenshot)}
+                  alt={screenshot?.name || 'Изображение задания'}
+                  className="board-task-controls__screenshot"
+                  style={{
+                    left: `${BOARD_TASK_CARD_PADDING}px`,
+                    top: `${nextScreenshotTop}px`,
+                    width: `${Math.max(1, (Number(displayItem.width) || BOARD_TASK_DEFAULT_WIDTH) - BOARD_TASK_CARD_PADDING * 2)}px`,
+                    height: `${screenshotHeight}px`,
+                  }}
+                />
+              );
+              nextScreenshotTop += screenshotHeight + 12;
+              return overlay;
+            });
+            const stopTaskControlPointer = (event) => {
+              event.stopPropagation();
+              boardPasteFocusedRef.current = true;
+            };
+            return (
+              <div
+                key={taskItem.id}
+                className={`board-task-controls is-${status}`}
+                style={{
+                  left: `${((Number(displayItem.x) || 0) - offset.x) * (zoom || 1)}px`,
+                  top: `${((Number(displayItem.y) || 0) - offset.y) * (zoom || 1)}px`,
+                  width: `${Number(displayItem.width) || BOARD_TASK_DEFAULT_WIDTH}px`,
+                  height: `${Number(displayItem.height) || 640}px`,
+                  transform: `scale(${zoom || 1})`,
+                }}
+                aria-label={displayItem.heading || 'Задание на доске'}
+              >
+                {screenshotOverlays}
+                {layout.fields.map((field) => {
+                  const label = displayItem.answerLabels?.[field.answerIndex] || field.answerIndex + 1;
+                  return (
+                    <input
+                      key={`${taskItem.id}-answer-${field.answerIndex}`}
+                      type="text"
+                      value={String(displayItem.userAnswers?.[field.answerIndex] ?? '')}
+                      placeholder={`Ответ ${label}`}
+                      aria-label={`Ответ ${label}`}
+                      className="board-task-controls__input"
+                      style={{
+                        left: `${field.x}px`,
+                        top: `${field.y}px`,
+                        width: `${field.width}px`,
+                        height: `${field.height}px`,
+                      }}
+                      onPointerDown={stopTaskControlPointer}
+                      onClick={(event) => event.stopPropagation()}
+                      onFocus={() => { boardPasteFocusedRef.current = true; }}
+                      onChange={(event) => handleBoardTaskAnswerChange(taskItem, field.answerIndex, event.target.value)}
+                    />
+                  );
+                })}
+                <button
+                  type="button"
+                  className="board-task-controls__check"
+                  style={{
+                    left: `${layout.button.x}px`,
+                    top: `${layout.button.y}px`,
+                    width: `${layout.button.width}px`,
+                    height: `${layout.button.height}px`,
+                  }}
+                  disabled={isChecking || status === 'correct'}
+                  onPointerDown={stopTaskControlPointer}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleBoardTaskCheck(taskItem);
+                  }}
+                >
+                  {isChecking ? <RefreshCcw size={15} className="animate-spin" /> : <Check size={16} />}
+                  <span>{isChecking ? 'Проверяем' : (status === 'correct' ? 'Засчитано' : 'Проверить')}</span>
+                </button>
+                <div
+                  className={`board-task-controls__result ${taskUi?.status === 'error' ? 'is-error' : ''}`}
+                  style={{
+                    left: `${layout.button.x + layout.button.width + 16}px`,
+                    top: `${layout.button.y}px`,
+                    height: `${layout.button.height}px`,
+                    maxWidth: `${layout.panelWidth - layout.button.width - 16}px`,
+                  }}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {taskUi?.status === 'error'
+                    ? taskUi.message
+                    : (status === 'correct' ? 'Верно — решение засчитано!' : (status === 'wrong' ? 'Пока неверно' : ''))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
         {textDraft && (
           <textarea
             ref={textEditorRef}
