@@ -3953,7 +3953,7 @@ const ProgressSection = ({
             );
           })}
         </div>
-        <div className="progress-section-tabs w-full rounded-2xl border border-slate-200 bg-white/85 p-1.5 sm:w-auto sm:self-center">
+        <div className="progress-section-tabs !min-h-0 w-full rounded-2xl border border-slate-200 bg-white/85 p-1.5 sm:w-auto sm:self-center">
           <button
             type="button"
             onClick={onOpenHomeworkStats}
