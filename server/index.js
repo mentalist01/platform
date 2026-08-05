@@ -97,6 +97,7 @@ import {
   createLessonReplay,
   normalizeLessonReplay,
   summarizeLessonReplay,
+  summarizeLessonReplayStorage,
 } from './lessonReplay.js';
 import {
   STUDENT_SEARCH_QUERY_MAX_LENGTH,
@@ -184,6 +185,7 @@ const lessonReplayCacheByOccurrenceKey = new Map();
 const lessonReplayPersistTimerByOccurrenceKey = new Map();
 const lessonReplayPersistFailureByOccurrenceKey = new Map();
 const lessonReplayAudioUploadTickets = new Map();
+const lessonReplayStorageSummaryCacheByOccurrenceKey = new Map();
 const workbookHelperLaunchTickets = new Map();
 const workbookHelperExchangeAttempts = new Map();
 const workbookHelperContentAttempts = new Map();
@@ -2108,6 +2110,7 @@ const ensureLessonReplaySnapshotCapacity = (requiredBytes, protectedOccurrenceKe
     if (protectedHashes.has(candidate.hash) || !candidate.folderPath.startsWith(rootPath)) continue;
     try {
       fs.rmSync(candidate.folderPath, { recursive: true, force: true });
+      lessonReplayStorageSummaryCacheByOccurrenceKey.clear();
       lessonReplaySnapshotStoredBytes = Math.max(
         0,
         lessonReplaySnapshotStoredBytes - candidate.bytes
@@ -2239,6 +2242,7 @@ const persistLessonReplay = (normalized) => {
       console.warn('[lesson-replay] failed to remove an old replay backup:', error?.message || error);
     }
   }
+  lessonReplayStorageSummaryCacheByOccurrenceKey.delete(normalized.occurrence.key);
   const elapsedMs = Date.now() - startedAt;
   if (elapsedMs >= 200) {
     console.warn(`[perf] lesson replay persist took ${elapsedMs}ms (${raw.length} raw, ${compressed.length} gzip)`);
@@ -2294,6 +2298,7 @@ const writeLessonReplay = (replay, options = {}) => {
   if (!occurrenceKey || !normalized.occurrence.studentId) {
     throw new Error('Lesson replay occurrence is required');
   }
+  lessonReplayStorageSummaryCacheByOccurrenceKey.delete(occurrenceKey);
   lessonReplayCacheByOccurrenceKey.set(occurrenceKey, normalized);
   if (options.deferred === true) {
     scheduleLessonReplayPersistence(occurrenceKey);
@@ -2325,6 +2330,28 @@ const getLessonReplaySummary = (occurrenceKey, replayOverride = null) => {
     }
   }
   return summarizeLessonReplay(replay, compressedBytes, { normalized: true });
+};
+
+const getLessonReplayStorageSummary = (occurrenceKey) => {
+  const normalizedKey = String(occurrenceKey || '').trim();
+  if (!normalizedKey) return null;
+  if (lessonReplayStorageSummaryCacheByOccurrenceKey.has(normalizedKey)) {
+    return lessonReplayStorageSummaryCacheByOccurrenceKey.get(normalizedKey);
+  }
+  const replay = readLessonReplay(normalizedKey);
+  if (!replay) {
+    lessonReplayStorageSummaryCacheByOccurrenceKey.set(normalizedKey, null);
+    return null;
+  }
+  const replaySummary = getLessonReplaySummary(normalizedKey, replay);
+  const snapshotUsage = getLessonReplaySnapshotFolderUsage(normalizedKey);
+  const storage = summarizeLessonReplayStorage(replay, {
+    normalized: true,
+    dataBytes: replaySummary.bytes,
+    snapshotBytes: snapshotUsage.bytes,
+  });
+  lessonReplayStorageSummaryCacheByOccurrenceKey.set(normalizedKey, storage);
+  return storage;
 };
 
 const writeFilesDb = (data) => {
@@ -25624,7 +25651,7 @@ const serializeLessonReplayForClient = (replay) => {
   };
 };
 
-const serializeStudentLessonHistoryEntry = (entry) => ({
+const serializeStudentLessonHistoryEntry = (entry, replayStorage = null) => ({
   key: entry.key,
   dayKey: entry.dayKey,
   time: entry.time,
@@ -25633,6 +25660,7 @@ const serializeStudentLessonHistoryEntry = (entry) => ({
   endMs: entry.endMs,
   subject: entry.subject,
   topic: entry.topic || null,
+  ...(replayStorage ? { replayStorage } : {}),
 });
 
 const getLessonMaterialFileStudentId = (file) => {
@@ -27334,10 +27362,25 @@ app.get('/api/lesson-history', async (req, res) => {
   if (!student) return;
   try {
     const history = await buildResolvedStudentLessonHistory(student, req.auth);
+    const includeReplayStorage = isTeacherRole(req.auth);
+    const replayStorageByKey = new Map();
+    let replayStorageTotalBytes = 0;
+    if (includeReplayStorage) {
+      history.forEach((entry) => {
+        const storage = getLessonReplayStorageSummary(entry?.key);
+        if (!storage) return;
+        replayStorageByKey.set(entry.key, storage);
+        replayStorageTotalBytes += storage.totalBytes;
+      });
+    }
     const page = paginateStudentLessonHistory(history, { offset, limit });
     return res.json({
       ...page,
-      items: page.items.map(serializeStudentLessonHistoryEntry),
+      items: page.items.map((entry) => serializeStudentLessonHistoryEntry(
+        entry,
+        includeReplayStorage ? replayStorageByKey.get(entry.key) : null
+      )),
+      ...(includeReplayStorage ? { replayStorageTotalBytes } : {}),
     });
   } catch (error) {
     console.error('[lesson-history] failed to build history:', error);

@@ -7,6 +7,7 @@ import {
   normalizeLessonReplay,
   normalizeLessonReplayEvent,
   summarizeLessonReplay,
+  summarizeLessonReplayStorage,
 } from './lessonReplay.js';
 
 const START_MS = Date.parse('2026-08-01T10:00:00.000Z');
@@ -289,6 +290,28 @@ test('sorts events by lesson offset and measures UTF-8 bytes', () => {
   assert.deepEqual(replay.events.map((event) => event.id), ['earlier', 'later']);
   assert.equal(summary.durationMs, 9000);
   assert.ok(summary.bytes > JSON.stringify(replay).length, 'Russian UTF-8 text must take more than one byte per letter');
+});
+
+test('adds replay data, screen snapshots and audio to the full storage size', () => {
+  const replay = normalizeLessonReplay({
+    occurrence,
+    events: [
+      { id: 'screen', type: 'screen', occurredAt: new Date(START_MS + 1000).toISOString(), payload: { snapshotId: '12345678-1234-4123-8123-123456789abc', sizeBytes: 1200 } },
+      { id: 'audio', type: 'audio', occurredAt: new Date(START_MS + 2000).toISOString(), payload: { audioId: 'audio-1', durationMs: 1000, sizeBytes: 3400, storage: 'local' } },
+    ],
+  });
+  const storage = summarizeLessonReplayStorage(replay, {
+    normalized: true,
+    dataBytes: 500,
+    snapshotBytes: 1100,
+  });
+
+  assert.deepEqual(storage, {
+    dataBytes: 500,
+    snapshotBytes: 1100,
+    audioBytes: 3400,
+    totalBytes: 5000,
+  });
 });
 
 test('rejects events far outside the lesson window', () => {

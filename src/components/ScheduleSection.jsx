@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2 } from 'lucide-react';
+import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2 } from 'lucide-react';
 import { api, resolveAuthenticatedApiUrl } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -37,6 +37,14 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
 const SHOW_SCHEDULE_SKILL_TREE = false;
 const DEFAULT_SCHEDULE_SUBJECT = 'Занятие';
 const SCHEDULE_LOOKAHEAD_WEEKS = 16;
+
+const formatLessonReplayStorageBytes = (value) => {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return `${Math.round(bytes)} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes >= 100 * 1024 ? 0 : 1).replace('.', ',')} КБ`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes >= 100 * 1024 * 1024 ? 0 : 1).replace('.', ',')} МБ`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2).replace('.', ',')} ГБ`;
+};
 const SCHEDULE_WEEKDAYS = [
   { key: 'monday', label: 'Понедельник', order: 1 },
   { key: 'tuesday', label: 'Вторник', order: 2 },
@@ -680,6 +688,7 @@ const ScheduleSection = ({
   const [showLessonHistory, setShowLessonHistory] = useState(false);
   const [lessonHistory, setLessonHistory] = useState([]);
   const [lessonHistoryTotal, setLessonHistoryTotal] = useState(0);
+  const [lessonReplayStorageTotalBytes, setLessonReplayStorageTotalBytes] = useState(0);
   const [lessonHistoryHasMore, setLessonHistoryHasMore] = useState(false);
   const [lessonHistoryNextOffset, setLessonHistoryNextOffset] = useState(null);
   const [lessonHistoryLoading, setLessonHistoryLoading] = useState(false);
@@ -1518,6 +1527,15 @@ const ScheduleSection = ({
         id="student-lesson-history-panel"
         className="student-lesson-history__panel"
       >
+        {role === 'teacher' && (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-violet-200/80 bg-violet-50/70 px-3 py-2 text-xs text-slate-600">
+            <span className="inline-flex items-center gap-2 font-semibold">
+              <HardDrive size={15} className="text-violet-600" />
+              Все записи ученика
+            </span>
+            <strong className="text-sm text-violet-700">{formatLessonReplayStorageBytes(lessonReplayStorageTotalBytes)}</strong>
+          </div>
+        )}
         {lessonHistoryLoading && lessonHistory.length === 0 ? (
           <div className="student-lesson-history__status" role="status" aria-live="polite">
             <RefreshCcw size={16} className="animate-spin" />
@@ -1578,6 +1596,15 @@ const ScheduleSection = ({
                               <strong>{getScheduleTimeRangeLabel(entry)}</strong>
                               <span>{durationLabel}</span>
                             </div>
+                            {role === 'teacher' && Number(entry?.replayStorage?.totalBytes) > 0 && (
+                              <div
+                                className="mt-1.5 inline-flex w-fit items-center gap-1.5 rounded-lg border border-violet-200/80 bg-violet-50/70 px-2 py-1 text-[11px] font-bold text-violet-700"
+                                title={`Данные: ${formatLessonReplayStorageBytes(entry.replayStorage.dataBytes)} · Снимки: ${formatLessonReplayStorageBytes(entry.replayStorage.snapshotBytes)} · Аудио: ${formatLessonReplayStorageBytes(entry.replayStorage.audioBytes)}`}
+                              >
+                                <HardDrive size={12} />
+                                Запись: {formatLessonReplayStorageBytes(entry.replayStorage.totalBytes)}
+                              </div>
+                            )}
                             <div
                               className={`schedule-shell__student-lesson-topic${topic ? ` schedule-shell__student-lesson-topic--${topic.source}` : ' schedule-shell__student-lesson-topic--empty'}`}
                               title={topicText || 'Тема не сохранилась'}
@@ -2087,6 +2114,7 @@ const ScheduleSection = ({
     if (!['student', 'teacher'].includes(role) || !showLessonHistory || !effectiveStudentId) return undefined;
     let cancelled = false;
     setLessonHistoryLoading(true);
+    if (role === 'teacher') setLessonReplayStorageTotalBytes(0);
     setLessonHistoryError('');
     setLessonHistoryErrorMode('');
     api.getLessonHistory(requestStudentId, { limit: LESSON_HISTORY_PAGE_SIZE, offset: 0 })
@@ -2095,6 +2123,9 @@ const ScheduleSection = ({
         const items = Array.isArray(data?.items) ? data.items : [];
         setLessonHistory(items);
         setLessonHistoryTotal(Number.isFinite(Number(data?.total)) ? Number(data.total) : items.length);
+        setLessonReplayStorageTotalBytes(role === 'teacher'
+          ? Math.max(0, Number(data?.replayStorageTotalBytes) || 0)
+          : 0);
         setLessonHistoryHasMore(Boolean(data?.hasMore));
         setLessonHistoryNextOffset(data?.nextOffset !== null && Number.isFinite(Number(data?.nextOffset))
           ? Number(data.nextOffset)
@@ -2131,6 +2162,9 @@ const ScheduleSection = ({
         return Array.from(byKey.values());
       });
       setLessonHistoryTotal(Number.isFinite(Number(data?.total)) ? Number(data.total) : lessonHistoryTotal);
+      if (role === 'teacher') {
+        setLessonReplayStorageTotalBytes(Math.max(0, Number(data?.replayStorageTotalBytes) || 0));
+      }
       setLessonHistoryHasMore(Boolean(data?.hasMore));
       setLessonHistoryNextOffset(data?.nextOffset !== null && Number.isFinite(Number(data?.nextOffset))
         ? Number(data.nextOffset)
@@ -2142,7 +2176,7 @@ const ScheduleSection = ({
     } finally {
       setLessonHistoryLoadingMore(false);
     }
-  }, [lessonHistoryHasMore, lessonHistoryLoadingMore, lessonHistoryNextOffset, lessonHistoryTotal, requestStudentId]);
+  }, [lessonHistoryHasMore, lessonHistoryLoadingMore, lessonHistoryNextOffset, lessonHistoryTotal, requestStudentId, role]);
 
   const lessonHistoryGroups = useMemo(() => {
     const groups = new Map();

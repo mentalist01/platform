@@ -576,3 +576,25 @@ export const summarizeLessonReplay = (value, bytes = null, options = {}) => {
     updatedAt: replay.updatedAt || '',
   };
 };
+
+export const summarizeLessonReplayStorage = (value, options = {}) => {
+  const replay = options.normalized === true ? value : normalizeLessonReplay(value);
+  const dataBytes = Number.isFinite(Number(options.dataBytes))
+    ? Math.max(0, Math.round(Number(options.dataBytes)))
+    : Buffer.byteLength(JSON.stringify(replay), 'utf8');
+  const referencedSnapshotBytes = replay.events.reduce((sum, event) => (
+    event?.type === 'screen' ? sum + Math.max(0, Number(event.payload?.sizeBytes) || 0) : sum
+  ), 0);
+  const snapshotBytes = Number.isFinite(Number(options.snapshotBytes))
+    ? Math.max(0, Math.round(Number(options.snapshotBytes)))
+    : referencedSnapshotBytes;
+  const audioBytes = replay.events.reduce((sum, event) => (
+    event?.type === 'audio' ? sum + Math.max(0, Number(event.payload?.sizeBytes) || 0) : sum
+  ), 0);
+  return {
+    dataBytes,
+    snapshotBytes,
+    audioBytes,
+    totalBytes: dataBytes + snapshotBytes + audioBytes,
+  };
+};
