@@ -191,7 +191,10 @@ const workbookHelperExchangeAttempts = new Map();
 const workbookHelperContentAttempts = new Map();
 const workbookSolutionWriteQueues = new Map();
 const LESSON_REPLAY_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
-const LESSON_REPLAY_PERSIST_INTERVAL_MS = 30 * 1000;
+// Live events stay in the in-memory replay cache and are flushed immediately
+// when the lesson ends. A one-minute checkpoint avoids recompressing the whole
+// growing lesson file twice as often on a single-core server.
+const LESSON_REPLAY_PERSIST_INTERVAL_MS = 60 * 1000;
 const LESSON_REPLAY_PERSIST_MAX_RETRY_MS = 5 * 60 * 1000;
 const LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS = 20 * 1000;
 const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;

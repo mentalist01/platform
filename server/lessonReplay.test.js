@@ -94,6 +94,71 @@ test('compacts very long board strokes without losing endpoints', () => {
   assert.deepEqual(compacted.at(-1), { x: 1999, y: 3998 });
 });
 
+test('keeps compact board deltas needed for chronological playback', () => {
+  const event = normalizeLessonReplayEvent({
+    id: 'board-delta',
+    type: 'board',
+    occurredAt: new Date(START_MS + 15_000).toISOString(),
+    payload: {
+      mode: 'delta',
+      upserts: [{
+        index: 2,
+        item: {
+          id: 'stroke-new',
+          type: 'stroke',
+          color: '#111827',
+          width: 4,
+          points: [{ x: 10, y: 20 }, { x: 30, y: 40 }],
+        },
+      }],
+      removedIds: ['old-stroke', 'old-stroke'],
+    },
+  }, eventContext);
+
+  assert.equal(event.payload.mode, 'delta');
+  assert.deepEqual(event.payload.removedIds, ['old-stroke']);
+  assert.equal(event.payload.upserts.length, 1);
+  assert.equal(event.payload.upserts[0].index, 2);
+  assert.equal(event.payload.upserts[0].item.id, 'stroke-new');
+  assert.equal(Object.hasOwn(event.payload, 'items'), false);
+});
+
+test('retains a full hour of 5-second board checkpoints without hitting the replay limit', () => {
+  const events = [{
+    id: 'board-initial',
+    type: 'board',
+    occurredAt: new Date(START_MS).toISOString(),
+    payload: { mode: 'snapshot', items: [] },
+  }];
+  for (let index = 1; index <= 720; index += 1) {
+    events.push({
+      id: `board-delta-${index}`,
+      type: 'board',
+      occurredAt: new Date(START_MS + index * 5_000).toISOString(),
+      payload: {
+        mode: 'delta',
+        upserts: [{
+          index: index - 1,
+          item: {
+            id: `stroke-${index}`,
+            type: 'stroke',
+            points: [{ x: index, y: index }, { x: index + 5, y: index + 8 }],
+          },
+        }],
+        removedIds: [],
+      },
+    });
+  }
+
+  let result = { replay: createLessonReplay(occurrence, START_MS) };
+  for (let index = 0; index < events.length; index += 48) {
+    result = appendLessonReplayEvents(result.replay, events.slice(index, index + 48), eventContext);
+  }
+
+  assert.equal(result.replay.events.filter((event) => event.type === 'board').length, 721);
+  assert.ok(result.bytes < 1024 * 1024);
+});
+
 test('append is idempotent by event id and suppresses identical rapid snapshots', () => {
   const replay = createLessonReplay(occurrence, START_MS);
   const event = {

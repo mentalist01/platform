@@ -117,6 +117,40 @@ const getActorRole = (event) => {
   return role === 'teacher' || role === 'student' ? role : '';
 };
 
+const materializeBoardReplayEvents = (events) => {
+  let boardItems = [];
+  return events.map((event) => {
+    if (event?.type !== 'board') return event;
+    const payload = event.payload || {};
+    if (payload.mode === 'delta') {
+      const removedIds = new Set(
+        (Array.isArray(payload.removedIds) ? payload.removedIds : []).map((id) => String(id || ''))
+      );
+      const upserts = (Array.isArray(payload.upserts) ? payload.upserts : [])
+        .filter((entry) => entry?.item?.id)
+        .sort((left, right) => Number(left.index) - Number(right.index));
+      const upsertIds = new Set(upserts.map((entry) => String(entry.item.id)));
+      const nextItems = boardItems.filter((item) => (
+        !removedIds.has(String(item?.id || '')) && !upsertIds.has(String(item?.id || ''))
+      ));
+      upserts.forEach((entry) => {
+        const index = Math.max(0, Math.min(nextItems.length, Math.round(Number(entry.index) || 0)));
+        nextItems.splice(index, 0, entry.item);
+      });
+      boardItems = nextItems;
+    } else {
+      boardItems = Array.isArray(payload.items) ? [...payload.items] : [];
+    }
+    return {
+      ...event,
+      payload: {
+        ...payload,
+        items: boardItems,
+      },
+    };
+  });
+};
+
 const applyEventToState = (state, event) => {
   state.current = event;
   if (event.type === 'task') state.task = event.payload?.active === false ? null : event;
@@ -477,9 +511,11 @@ const ReplayScreen = ({ event, occurrence }) => {
 
 const LessonReplayPlayer = ({ replay }) => {
   const events = useMemo(() => (
-    (Array.isArray(replay?.events) ? replay.events : [])
+    materializeBoardReplayEvents(
+      (Array.isArray(replay?.events) ? replay.events : [])
       .map((event) => ({ ...event, offsetMs: Math.max(0, Number(event?.offsetMs) || 0) }))
       .sort((left, right) => left.offsetMs - right.offsetMs || String(left.id).localeCompare(String(right.id)))
+    )
   ), [replay]);
   const durationMs = useMemo(() => Math.max(1000, Number(replay?.durationMs) || 0, ...events.map((event) => event.offsetMs)), [events, replay?.durationMs]);
   const [positionMs, setPositionMs] = useState(0);

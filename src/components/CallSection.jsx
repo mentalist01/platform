@@ -387,6 +387,40 @@ const normalizeConnectionQuality = (value) => {
   if (value === 'poor' || value === 'ok' || value === 'good') return value;
   return 'good';
 };
+const shouldProcessMicrophone = (sensitivityPercent, triggerThresholdPercent) => (
+  normalizeMicSensitivityPercent(sensitivityPercent) !== DEFAULT_MIC_SENSITIVITY_PERCENT
+  || normalizeMicTriggerThresholdPercent(triggerThresholdPercent) > DEFAULT_MIC_TRIGGER_THRESHOLD_PERCENT
+);
+const getRtcRouteLabel = (statsReport) => {
+  if (!statsReport || typeof statsReport.forEach !== 'function') return 'Проверяется';
+  const reportsById = new Map();
+  let selectedPair = null;
+  let selectedPairId = '';
+  statsReport.forEach((report) => {
+    if (report?.id) reportsById.set(report.id, report);
+    if (report?.type === 'transport' && report.selectedCandidatePairId) {
+      selectedPairId = report.selectedCandidatePairId;
+    }
+    if (report?.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
+      selectedPair = report;
+    }
+  });
+  if (selectedPairId && reportsById.has(selectedPairId)) selectedPair = reportsById.get(selectedPairId);
+  if (!selectedPair) return 'Проверяется';
+  const localCandidate = reportsById.get(selectedPair.localCandidateId);
+  const remoteCandidate = reportsById.get(selectedPair.remoteCandidateId);
+  const relayCandidate = [localCandidate, remoteCandidate].find((candidate) => candidate?.candidateType === 'relay');
+  const candidate = relayCandidate || localCandidate || remoteCandidate;
+  const rawProtocol = String(candidate?.relayProtocol || candidate?.protocol || '').trim().toLowerCase();
+  const candidateUrl = String(candidate?.url || '').trim().toLowerCase();
+  const protocol = candidateUrl.startsWith('turns:')
+    ? 'TLS'
+    : rawProtocol
+      ? rawProtocol.toUpperCase()
+      : '';
+  const route = relayCandidate ? 'TURN' : 'P2P';
+  return protocol ? `${route}/${protocol}` : route;
+};
 const getConnectionAdaptiveProfile = (quality, highVideoLoad = false) => {
   const normalizedQuality = normalizeConnectionQuality(quality);
   const baseProfile = normalizedQuality === 'poor'
@@ -1336,8 +1370,13 @@ const CallSection = ({
   const [connectionStats, setConnectionStats] = useState({
     quality: 'unknown',
     lossPercent: 0,
+    outboundLossPercent: 0,
     jitterMs: 0,
+    outboundJitterMs: 0,
     rttMs: 0,
+    outboundRttMs: 0,
+    outboundMeasured: false,
+    route: 'Проверяется',
   });
   const [lessonChatId, setLessonChatId] = useState('');
   const [lessonChatMeta, setLessonChatMeta] = useState(null);
@@ -1423,11 +1462,12 @@ const CallSection = ({
   const lastPresencePongAtRef = useRef(0);
   const roomResyncCooldownUntilRef = useRef(0);
   const effectiveIceTransportPolicyRef = useRef(RTC_ICE_TRANSPORT_POLICY);
-  const iceTransportPolicyFallbackTriedRef = useRef(false);
+  const relayConnectionRetryTriedRef = useRef(false);
   const connectionQualityRef = useRef('ok');
   const highVideoLoadRef = useRef(false);
   const statsTimerRef = useRef(null);
   const lastInboundAudioRef = useRef(new Map());
+  const lastRemoteInboundAudioRef = useRef(new Map());
   const remoteScreenShareStateRef = useRef(new Map());
   const lessonReplayScreenSourceRef = useRef(null);
   const normalizedUiMode = ['full', 'floating', 'collapsed', 'hidden'].includes(uiMode)
@@ -1868,9 +1908,9 @@ const CallSection = ({
     wsReconnectAttemptRef.current = 0;
   }, [clearWsReconnectTimer]);
 
-  const resetIceTransportPolicyFallback = useCallback(() => {
+  const resetIceTransportPolicy = useCallback(() => {
     effectiveIceTransportPolicyRef.current = RTC_ICE_TRANSPORT_POLICY;
-    iceTransportPolicyFallbackTriedRef.current = false;
+    relayConnectionRetryTriedRef.current = false;
   }, []);
 
   const scheduleWsReconnect = useCallback((reasonText = '') => {
@@ -1977,7 +2017,7 @@ const CallSection = ({
         ...(encodings[0] || {}),
         maxBitrate: profile.audioBitrate,
         dtx: 'disabled',
-        priority: quality === 'poor' ? 'high' : 'medium',
+        priority: 'high',
       };
       params.encodings = encodings;
       sender.setParameters(params).catch(() => {});
@@ -2716,12 +2756,18 @@ const CallSection = ({
       statsTimerRef.current = null;
     }
     lastInboundAudioRef.current.clear();
+    lastRemoteInboundAudioRef.current.clear();
     connectionQualityRef.current = 'ok';
     setConnectionStats({
       quality: 'unknown',
       lossPercent: 0,
+      outboundLossPercent: 0,
       jitterMs: 0,
+      outboundJitterMs: 0,
       rttMs: 0,
+      outboundRttMs: 0,
+      outboundMeasured: false,
+      route: 'Проверяется',
     });
   }, []);
 
@@ -2732,16 +2778,27 @@ const CallSection = ({
       setConnectionStats({
         quality: 'unknown',
         lossPercent: 0,
+        outboundLossPercent: 0,
         jitterMs: 0,
+        outboundJitterMs: 0,
         rttMs: 0,
+        outboundRttMs: 0,
+        outboundMeasured: false,
+        route: 'Проверяется',
       });
       return;
     }
 
     let totalPackets = 0;
     let totalLost = 0;
+    let totalOutboundPackets = 0;
+    let totalOutboundLost = 0;
+    let outboundMeasured = false;
     const jitterSamples = [];
+    const outboundJitterSamples = [];
     const rttSamples = [];
+    const outboundRttSamples = [];
+    const routeLabels = [];
 
     for (const [peerId, peerState] of peers) {
       const pc = peerState?.pc;
@@ -2753,6 +2810,15 @@ const CallSection = ({
         continue;
       }
       if (!statsReport) continue;
+
+      const outboundAudioById = new Map();
+      statsReport.forEach((report) => {
+        if (report.type === 'outbound-rtp' && report.kind === 'audio' && !report.isRemote) {
+          outboundAudioById.set(report.id, report);
+        }
+      });
+      const routeLabel = getRtcRouteLabel(statsReport);
+      if (routeLabel !== 'Проверяется') routeLabels.push(routeLabel);
 
       statsReport.forEach((report) => {
         if (report.type === 'inbound-rtp' && report.kind === 'audio' && !report.isRemote) {
@@ -2772,6 +2838,28 @@ const CallSection = ({
           }
         }
 
+        if (report.type === 'remote-inbound-rtp' && report.kind === 'audio') {
+          outboundMeasured = true;
+          const outbound = outboundAudioById.get(report.localId);
+          const sent = Math.max(0, Number(outbound?.packetsSent) || 0);
+          const lost = Math.max(0, Number(report.packetsLost) || 0);
+          const sampleKey = `${peerId}:${report.id}`;
+          const prev = lastRemoteInboundAudioRef.current.get(sampleKey) || { sent, lost };
+          const sentDelta = Math.max(0, sent - prev.sent);
+          const lostDelta = Math.max(0, lost - prev.lost);
+          if (sentDelta > 0) {
+            totalOutboundPackets += sentDelta;
+            totalOutboundLost += Math.min(sentDelta, lostDelta);
+          }
+          lastRemoteInboundAudioRef.current.set(sampleKey, { sent, lost });
+          if (Number.isFinite(report.jitter) && report.jitter >= 0) {
+            outboundJitterSamples.push(report.jitter * 1000);
+          }
+          if (Number.isFinite(report.roundTripTime) && report.roundTripTime >= 0) {
+            outboundRttSamples.push(report.roundTripTime * 1000);
+          }
+        }
+
         if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
           if (Number.isFinite(report.currentRoundTripTime) && report.currentRoundTripTime >= 0) {
             rttSamples.push(report.currentRoundTripTime * 1000);
@@ -2781,16 +2869,29 @@ const CallSection = ({
     }
 
     const lossPercent = totalPackets > 0 ? (totalLost / totalPackets) * 100 : 0;
+    const outboundLossPercent = totalOutboundPackets > 0
+      ? (totalOutboundLost / totalOutboundPackets) * 100
+      : 0;
     const jitterMs = jitterSamples.length
       ? jitterSamples.reduce((sum, value) => sum + value, 0) / jitterSamples.length
+      : 0;
+    const outboundJitterMs = outboundJitterSamples.length
+      ? outboundJitterSamples.reduce((sum, value) => sum + value, 0) / outboundJitterSamples.length
       : 0;
     const rttMs = rttSamples.length
       ? rttSamples.reduce((sum, value) => sum + value, 0) / rttSamples.length
       : 0;
+    const outboundRttMs = outboundRttSamples.length
+      ? outboundRttSamples.reduce((sum, value) => sum + value, 0) / outboundRttSamples.length
+      : 0;
 
-    const quality = lossPercent > 8 || jitterMs > 50 || rttMs > 250
+    const effectiveLossPercent = Math.max(lossPercent, outboundLossPercent);
+    const effectiveJitterMs = Math.max(jitterMs, outboundJitterMs);
+    const effectiveRttMs = Math.max(rttMs, outboundRttMs);
+
+    const quality = effectiveLossPercent > 8 || effectiveJitterMs > 50 || effectiveRttMs > 250
       ? 'poor'
-      : lossPercent > 3 || jitterMs > 25 || rttMs > 130
+      : effectiveLossPercent > 3 || effectiveJitterMs > 25 || effectiveRttMs > 130
         ? 'ok'
         : 'good';
     const normalizedQuality = normalizeConnectionQuality(quality);
@@ -2802,8 +2903,13 @@ const CallSection = ({
     setConnectionStats({
       quality: normalizedQuality,
       lossPercent,
+      outboundLossPercent,
       jitterMs,
+      outboundJitterMs,
       rttMs,
+      outboundRttMs,
+      outboundMeasured,
+      route: routeLabels[0] || 'Проверяется',
     });
   }, [retuneAllPeerSenders]);
 
@@ -2833,6 +2939,7 @@ const CallSection = ({
     peerMetaRef.current.clear();
     remoteStreamsRef.current.clear();
     lastInboundAudioRef.current.clear();
+    lastRemoteInboundAudioRef.current.clear();
     videoTrackStreamsRef.current.clear();
     setRemotePeers([]);
     setSpeakingByPeer({});
@@ -2847,15 +2954,15 @@ const CallSection = ({
     });
   }, []);
 
-  const tryDirectIceFallback = useCallback(() => {
+  const retryRelayConnection = useCallback(() => {
     if (RTC_ICE_TRANSPORT_POLICY !== 'relay') return false;
-    if (iceTransportPolicyFallbackTriedRef.current) return false;
+    if (relayConnectionRetryTriedRef.current) return false;
     const ws = wsRef.current;
     const roomId = activeRoomRef.current;
     if (!roomId || !ws || ws.readyState !== WebSocket.OPEN) return false;
     if (manualCloseRef.current) return false;
-    iceTransportPolicyFallbackTriedRef.current = true;
-    effectiveIceTransportPolicyRef.current = 'all';
+    relayConnectionRetryTriedRef.current = true;
+    effectiveIceTransportPolicyRef.current = 'relay';
     setError('');
     peersRef.current.forEach((_, peerId) => {
       sendWs({
@@ -2864,7 +2971,7 @@ const CallSection = ({
         targetId: peerId,
         signal: {
           control: {
-            preferredIceTransportPolicy: 'all',
+            preferredIceTransportPolicy: 'relay',
             restartConnection: true,
           },
         },
@@ -3192,6 +3299,10 @@ const CallSection = ({
 
   const createLocalProcessedMicTrack = useCallback((rawTrack) => {
     if (!rawTrack || rawTrack.readyState !== 'live' || typeof window === 'undefined') return rawTrack;
+    // With default settings the WebAudio graph changes nothing, but can be
+    // suspended by the browser and make speech sound muffled or disappear.
+    // Keep the same direct microphone path used by regular conferencing apps.
+    if (!shouldProcessMicrophone(micSensitivityPercent, micTriggerThresholdPercent)) return rawTrack;
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextCtor) return rawTrack;
 
@@ -3271,7 +3382,7 @@ const CallSection = ({
     } catch {
       return rawTrack;
     }
-  }, [micSensitivityPercent]);
+  }, [micSensitivityPercent, micTriggerThresholdPercent]);
 
   const stopMicTrack = useCallback((withSync = true) => {
     const track = localAudioTrackRef.current;
@@ -3794,9 +3905,8 @@ const CallSection = ({
       const preferredIceTransportPolicy = typeof control?.preferredIceTransportPolicy === 'string'
         ? control.preferredIceTransportPolicy.trim().toLowerCase()
         : '';
-      if (preferredIceTransportPolicy === 'all') {
-        effectiveIceTransportPolicyRef.current = 'all';
-        iceTransportPolicyFallbackTriedRef.current = true;
+      if (preferredIceTransportPolicy === 'relay' && RTC_ICE_TRANSPORT_POLICY === 'relay') {
+        effectiveIceTransportPolicyRef.current = 'relay';
       }
       if (Boolean(control?.restartConnection)) {
         detachPeer(fromId, { closeConnection: true });
@@ -4140,7 +4250,7 @@ const CallSection = ({
     const isReconnect = Boolean(options?.isReconnect);
     primeAlertSounds();
     if (!isReconnect && !activeRoomRef.current) {
-      resetIceTransportPolicyFallback();
+      resetIceTransportPolicy();
     }
     if (!roomId) {
       setPresenceError('');
@@ -4327,7 +4437,7 @@ const CallSection = ({
         setError(connectErrorText);
       }
     }
-  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertSounds, resetIceTransportPolicyFallback, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertSounds, resetIceTransportPolicy, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   useEffect(() => {
     startCallRef.current = startCall;
@@ -4360,7 +4470,7 @@ const CallSection = ({
     if (!hasOnlyPendingPeerConnections) return undefined;
 
     const timerId = setTimeout(() => {
-      if (tryDirectIceFallback()) return;
+      if (retryRelayConnection()) return;
       setError((current) => current || getMediaConnectionStalledError(rtcIceConfig.hasTurn));
     }, PEER_CONNECTING_WARNING_DELAY_MS);
 
@@ -4374,7 +4484,7 @@ const CallSection = ({
     peerConnectionSummary.total,
     rtcIceConfig.hasTurn,
     status,
-    tryDirectIceFallback,
+    retryRelayConnection,
   ]);
 
   useEffect(() => {
@@ -6360,7 +6470,11 @@ const CallSection = ({
                   </div>
 
                   <p className={connectionHintClass}>
-                    Потери: {connectionStats.lossPercent.toFixed(1)}% | Джиттер: {Math.round(connectionStats.jitterMs)} ms | RTT: {Math.round(connectionStats.rttMs)} ms
+                    Маршрут: {connectionStats.route} · Входящий звук: потери {connectionStats.lossPercent.toFixed(1)}%, джиттер {Math.round(connectionStats.jitterMs)} мс
+                    {connectionStats.outboundMeasured && (
+                      <> · Ваш голос: потери {connectionStats.outboundLossPercent.toFixed(1)}%, джиттер {Math.round(connectionStats.outboundJitterMs)} мс</>
+                    )}
+                    {' '}· RTT: {Math.round(Math.max(connectionStats.rttMs, connectionStats.outboundRttMs))} мс
                   </p>
                 </>
               )}

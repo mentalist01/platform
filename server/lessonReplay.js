@@ -171,6 +171,33 @@ const fitBoardItemsToByteLimit = (items, maxBytes = MAX_BOARD_EVENT_BYTES) => {
   return selected.sort((left, right) => left.index - right.index).map((entry) => entry.item);
 };
 
+const fitBoardDeltaToByteLimit = (rawUpserts, rawRemovedIds, maxBytes = MAX_BOARD_EVENT_BYTES) => {
+  const removedIds = [];
+  const seenRemovedIds = new Set();
+  (Array.isArray(rawRemovedIds) ? rawRemovedIds : []).slice(0, MAX_BOARD_ITEMS).forEach((value) => {
+    const id = clampText(value, 160).trim();
+    if (!id || seenRemovedIds.has(id)) return;
+    seenRemovedIds.add(id);
+    removedIds.push(id);
+  });
+
+  const upserts = [];
+  let usedBytes = Buffer.byteLength(JSON.stringify({ mode: 'delta', upserts: [], removedIds }), 'utf8');
+  (Array.isArray(rawUpserts) ? rawUpserts : []).slice(0, MAX_BOARD_ITEMS).forEach((entry) => {
+    const item = normalizeBoardItem(entry?.item || entry);
+    if (!item) return;
+    const normalized = {
+      index: Math.round(clampNumber(entry?.index, 0, MAX_BOARD_ITEMS - 1, upserts.length)),
+      item,
+    };
+    const entryBytes = Buffer.byteLength(JSON.stringify(normalized), 'utf8') + (upserts.length > 0 ? 1 : 0);
+    if (usedBytes + entryBytes > maxBytes) return;
+    upserts.push(normalized);
+    usedBytes += entryBytes;
+  });
+  return { upserts, removedIds };
+};
+
 const normalizePayload = (type, value) => {
   const source = isPlainObject(value) ? value : {};
   if (type === 'session') {
@@ -209,7 +236,14 @@ const normalizePayload = (type, value) => {
     };
   }
   if (type === 'board') {
+    if (source.mode === 'delta') {
+      return {
+        mode: 'delta',
+        ...fitBoardDeltaToByteLimit(source.upserts, source.removedIds),
+      };
+    }
     return {
+      mode: 'snapshot',
       items: fitBoardItemsToByteLimit(
         (Array.isArray(source.items) ? source.items : []).slice(0, MAX_BOARD_ITEMS)
       ),
@@ -331,7 +365,13 @@ const getProgressiveTimelineOrder = (events) => {
 };
 
 const surfaceEventHasContent = (event) => {
-  if (event?.type === 'board') return Array.isArray(event.payload?.items) && event.payload.items.length > 0;
+  if (event?.type === 'board') {
+    return (
+      (Array.isArray(event.payload?.items) && event.payload.items.length > 0)
+      || (Array.isArray(event.payload?.upserts) && event.payload.upserts.length > 0)
+      || (Array.isArray(event.payload?.removedIds) && event.payload.removedIds.length > 0)
+    );
+  }
   if (event?.type === 'code') {
     return ['code', 'input', 'testFile', 'output', 'error']
       .some((key) => String(event.payload?.[key] || '').length > 0);
@@ -362,6 +402,7 @@ const getCompactionPriorityEvents = (events) => {
   surfaceGroups.forEach((group) => {
     add(group.find(surfaceEventHasContent));
     add([...group].reverse().find(surfaceEventHasContent));
+    group.filter((event) => event.type === 'board' && event.payload?.mode === 'snapshot').forEach(add);
   });
   const surfaceOrders = surfaceGroups.map(getProgressiveTimelineOrder);
   const surfaceLength = Math.max(0, ...surfaceOrders.map((group) => group.length));

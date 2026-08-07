@@ -3469,6 +3469,7 @@ const CollabSection = ({
   studentsLoading,
   openSaveToNotesToken = 0,
   onLessonReplayEvent = null,
+  lessonReplayActive = false,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
@@ -8990,6 +8991,7 @@ const CollabSection = ({
                     theme={theme}
                     onMemorySnapshotRenderer={setCollabBoardMemorySnapshotRenderer}
                     onLessonReplayEvent={onLessonReplayEvent}
+                    lessonReplayActive={lessonReplayActive}
                   />
                 </div>
                 {notesTopPaneResizeHandle}
@@ -9858,6 +9860,71 @@ const CollabSection = ({
   );
 };
 
+const LESSON_REPLAY_BOARD_CHECKPOINT_MS = 5_000;
+const LESSON_REPLAY_BOARD_KEYFRAME_MS = 5 * 60_000;
+
+const compactLessonReplayBoardItems = (items) => (
+  (Array.isArray(items) ? items : []).slice(0, 1200).map((item) => {
+    if (!item || typeof item !== 'object') return null;
+    if (item.type === 'image') {
+      const safeImage = { ...item };
+      delete safeImage.dataUrl;
+      return safeImage.assetUrl ? safeImage : null;
+    }
+    if (item.type === 'stroke' && Array.isArray(item.points) && item.points.length > 600) {
+      const points = [];
+      const step = (item.points.length - 1) / 599;
+      for (let index = 0; index < 600; index += 1) {
+        points.push(item.points[Math.min(item.points.length - 1, Math.round(index * step))]);
+      }
+      return { ...item, points };
+    }
+    return item;
+  }).filter(Boolean)
+);
+
+const createLessonReplayBoardState = (items) => {
+  const signaturesById = new Map();
+  const indexesById = new Map();
+  items.forEach((item, index) => {
+    const id = String(item?.id || '').trim();
+    if (!id) return;
+    signaturesById.set(id, JSON.stringify(item));
+    indexesById.set(id, index);
+  });
+  return { items, signaturesById, indexesById };
+};
+
+const createLessonReplayBoardPayload = (items, previousState, forceSnapshot = false) => {
+  const nextState = createLessonReplayBoardState(compactLessonReplayBoardItems(items));
+  if (!previousState || forceSnapshot) {
+    return {
+      payload: { mode: 'snapshot', items: nextState.items },
+      state: nextState,
+    };
+  }
+  const upserts = [];
+  nextState.items.forEach((item, index) => {
+    const id = String(item?.id || '').trim();
+    if (!id) return;
+    if (
+      previousState.signaturesById.get(id) !== nextState.signaturesById.get(id)
+      || previousState.indexesById.get(id) !== index
+    ) {
+      upserts.push({ index, item });
+    }
+  });
+  const removedIds = [];
+  previousState.signaturesById.forEach((_, id) => {
+    if (!nextState.signaturesById.has(id)) removedIds.push(id);
+  });
+  if (upserts.length === 0 && removedIds.length === 0) return { payload: null, state: nextState };
+  return {
+    payload: { mode: 'delta', upserts, removedIds },
+    state: nextState,
+  };
+};
+
 const BoardSection = ({
   role,
   userId,
@@ -9874,6 +9941,7 @@ const BoardSection = ({
   theme = THEME_LIGHT,
   onMemorySnapshotRenderer = null,
   onLessonReplayEvent = null,
+  lessonReplayActive = false,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
@@ -10000,9 +10068,12 @@ const BoardSection = ({
   const viewportHydratedRef = useRef(false);
   const viewportPersistTimerRef = useRef(null);
   const lessonReplayEventRef = useRef(onLessonReplayEvent);
+  const lessonReplayActiveRef = useRef(Boolean(lessonReplayActive));
+  const lessonReplayPreviousActiveRef = useRef(Boolean(lessonReplayActive));
   const lessonReplayBoardTimerRef = useRef(null);
   const lessonReplayPendingBoardRef = useRef(null);
-  const lessonReplayLastBoardSignatureRef = useRef('');
+  const lessonReplayLastBoardStateRef = useRef(null);
+  const lessonReplayLastBoardKeyframeAtRef = useRef(0);
   const lessonReplayBoardViewportTimerRef = useRef(null);
   const lessonReplayPendingBoardViewportRef = useRef(null);
   const lessonReplayLastBoardViewportSignatureRef = useRef('');
@@ -10015,37 +10086,38 @@ const BoardSection = ({
     lessonReplayEventRef.current = onLessonReplayEvent;
   }, [onLessonReplayEvent]);
 
+  useEffect(() => {
+    lessonReplayActiveRef.current = Boolean(lessonReplayActive);
+  }, [lessonReplayActive]);
+
   const flushLessonReplayBoardSnapshot = useCallback(() => {
     if (typeof window !== 'undefined') window.clearTimeout(lessonReplayBoardTimerRef.current);
-    const payload = lessonReplayPendingBoardRef.current;
+    lessonReplayBoardTimerRef.current = null;
+    const items = lessonReplayPendingBoardRef.current;
     lessonReplayPendingBoardRef.current = null;
-    if (!payload || typeof lessonReplayEventRef.current !== 'function') return;
-    const signature = JSON.stringify(payload);
-    if (signature === lessonReplayLastBoardSignatureRef.current) return;
-    const accepted = lessonReplayEventRef.current('board', payload, { dedupeMs: 10_000 });
-    if (accepted !== false) lessonReplayLastBoardSignatureRef.current = signature;
+    if (!items || typeof lessonReplayEventRef.current !== 'function') return false;
+    const now = Date.now();
+    const forceSnapshot = (
+      !lessonReplayLastBoardStateRef.current
+      || now - lessonReplayLastBoardKeyframeAtRef.current >= LESSON_REPLAY_BOARD_KEYFRAME_MS
+    );
+    const checkpoint = createLessonReplayBoardPayload(
+      items,
+      lessonReplayLastBoardStateRef.current,
+      forceSnapshot
+    );
+    if (!checkpoint.payload) return false;
+    const accepted = lessonReplayEventRef.current('board', checkpoint.payload, { dedupeMs: 1000 });
+    if (accepted === false) return false;
+    lessonReplayLastBoardStateRef.current = checkpoint.state;
+    if (checkpoint.payload.mode === 'snapshot') lessonReplayLastBoardKeyframeAtRef.current = now;
+    return true;
   }, []);
 
-  const scheduleLessonReplayBoardSnapshot = useCallback((items, delayMs = 1600) => {
+  const scheduleLessonReplayBoardSnapshot = useCallback((items, delayMs = LESSON_REPLAY_BOARD_CHECKPOINT_MS) => {
     if (typeof window === 'undefined') return;
-    const compactItems = (Array.isArray(items) ? items : []).slice(0, 1200).map((item) => {
-      if (!item || typeof item !== 'object') return null;
-      if (item.type === 'image') {
-        const safeImage = { ...item };
-        delete safeImage.dataUrl;
-        return safeImage.assetUrl ? safeImage : null;
-      }
-      if (item.type === 'stroke' && Array.isArray(item.points) && item.points.length > 600) {
-        const points = [];
-        const step = (item.points.length - 1) / 599;
-        for (let index = 0; index < 600; index += 1) {
-          points.push(item.points[Math.min(item.points.length - 1, Math.round(index * step))]);
-        }
-        return { ...item, points };
-      }
-      return item;
-    }).filter(Boolean);
-    lessonReplayPendingBoardRef.current = { items: compactItems };
+    lessonReplayPendingBoardRef.current = Array.isArray(items) ? items : [];
+    if (lessonReplayBoardTimerRef.current && Number(delayMs) > 0) return;
     window.clearTimeout(lessonReplayBoardTimerRef.current);
     lessonReplayBoardTimerRef.current = window.setTimeout(
       flushLessonReplayBoardSnapshot,
@@ -10054,6 +10126,28 @@ const BoardSection = ({
   }, [flushLessonReplayBoardSnapshot]);
 
   useEffect(() => () => flushLessonReplayBoardSnapshot(), [flushLessonReplayBoardSnapshot]);
+
+  useEffect(() => {
+    const wasActive = lessonReplayPreviousActiveRef.current;
+    lessonReplayPreviousActiveRef.current = Boolean(lessonReplayActive);
+    if (wasActive && !lessonReplayActive) {
+      const finalItems = yItemsRef.current?.toArray?.() || boardItemsRef.current || [];
+      lessonReplayPendingBoardRef.current = finalItems;
+      flushLessonReplayBoardSnapshot();
+    }
+    lessonReplayLastBoardStateRef.current = null;
+    lessonReplayLastBoardKeyframeAtRef.current = 0;
+    lessonReplayPendingBoardRef.current = null;
+    if (typeof window === 'undefined') return undefined;
+    window.clearTimeout(lessonReplayBoardTimerRef.current);
+    lessonReplayBoardTimerRef.current = null;
+    if (!lessonReplayActive) return undefined;
+    const timerId = window.setTimeout(() => {
+      const currentItems = yItemsRef.current?.toArray?.() || boardItemsRef.current || [];
+      scheduleLessonReplayBoardSnapshot(currentItems, 0);
+    }, 0);
+    return () => window.clearTimeout(timerId);
+  }, [flushLessonReplayBoardSnapshot, lessonReplayActive, roomId, scheduleLessonReplayBoardSnapshot]);
 
   const flushLessonReplayBoardViewport = useCallback(() => {
     if (typeof window !== 'undefined') window.clearTimeout(lessonReplayBoardViewportTimerRef.current);
@@ -12823,8 +12917,18 @@ const BoardSection = ({
           ...buildBoardSnapshotFromYItems(yItems),
           renderPlan: { mode: 'full' },
         };
+      const previousItems = boardItemsRef.current;
+      const shouldRecordReplay = transaction?.local !== false || isTeacher;
+      if (
+        lessonReplayActiveRef.current
+        && shouldRecordReplay
+        && previousItems.length > nextSnapshot.nextItems.length
+      ) {
+        scheduleLessonReplayBoardSnapshot(previousItems, 0);
+        flushLessonReplayBoardSnapshot();
+      }
       commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
-      if (transaction?.local !== false || isTeacher) {
+      if (shouldRecordReplay && lessonReplayActiveRef.current) {
         scheduleLessonReplayBoardSnapshot(nextSnapshot.nextItems);
       }
       scheduleBoardRender();
@@ -12980,8 +13084,9 @@ const BoardSection = ({
     handleAwareness();
     updateUndoState();
     const lessonReplayBoardHeartbeatId = window.setInterval(() => {
+      if (!lessonReplayActiveRef.current) return;
       scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
-    }, 30_000);
+    }, LESSON_REPLAY_BOARD_CHECKPOINT_MS);
 
     return () => {
       yItems.unobserve(updateItems);
@@ -21294,6 +21399,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
               openSaveToNotesToken={collabSaveToNotesToken}
               onLessonReplayEvent={recordLessonReplayEvent}
+              lessonReplayActive={callSessionStatus === 'connected' || isTelemostLessonReplayActive}
             />
           )}
           {isCallViewAvailable && (
@@ -21356,6 +21462,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
               theme={theme}
               onLessonReplayEvent={recordLessonReplayEvent}
+              lessonReplayActive={callSessionStatus === 'connected' || isTelemostLessonReplayActive}
             />
           )}
           {view === 'notes' && (
