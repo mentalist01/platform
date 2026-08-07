@@ -151,13 +151,17 @@ const StudentLessonDetailModal = ({
     document.body.style.overflow = 'hidden';
     const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
     const handleKeyDown = (event) => {
+      const fullscreenPlayer = document.querySelector('.lesson-replay-player.is-fullscreen');
+      const nativeFullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || null;
       if (event.key === 'Escape') {
+        if (nativeFullscreenElement || fullscreenPlayer) return;
         event.preventDefault();
         onClose?.();
         return;
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll(
+      const focusScope = fullscreenPlayer || dialogRef.current;
+      const focusable = Array.from(focusScope.querySelectorAll(
         'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
       ));
       if (focusable.length === 0) return;

@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import LinkifiedText from './LinkifiedText';
 import StudentSearchSelect from './StudentSearchSelect';
 import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
+import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 
 const DEFAULT_ICE_SERVERS = [
@@ -1330,6 +1331,7 @@ const CallSection = ({
   const [error, setError] = useState('');
   const [presenceError, setPresenceError] = useState('');
   const [micEnabled, setMicEnabled] = useState(false);
+  const [lessonReplayLocalAudioTrackVersion, setLessonReplayLocalAudioTrackVersion] = useState(0);
   const [micBusy, setMicBusy] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
@@ -2260,6 +2262,21 @@ const CallSection = ({
     };
   }, [lessonReplayScreenSource, onLessonReplayScreenSnapshot]);
 
+  const lessonReplayAudioTrackKey = useMemo(() => {
+    const localTrack = localAudioTrackRef.current;
+    const trackIds = [
+      ...(localTrack?.readyState === 'live' ? [localTrack.id] : []),
+      ...remotePeers.flatMap((peer) => (
+        peer?.stream
+          ? peer.stream.getAudioTracks()
+            .filter((track) => track.readyState === 'live')
+            .map((track) => track.id)
+          : []
+      )),
+    ].filter(Boolean);
+    return `${lessonReplayLocalAudioTrackVersion}:${micEnabled ? 'mic-on' : 'mic-off'}:${Array.from(new Set(trackIds)).sort().join('|')}`;
+  }, [lessonReplayLocalAudioTrackVersion, micEnabled, remotePeers]);
+
   useEffect(() => {
     if (
       !isTeacher
@@ -2273,8 +2290,8 @@ const CallSection = ({
     const localTrack = localAudioTrackRef.current;
     const sourceTracks = [
       ...(localTrack?.readyState === 'live' ? [localTrack] : []),
-      ...remotePeers.flatMap((peer) => (
-        peer?.stream ? peer.stream.getAudioTracks().filter((track) => track.readyState === 'live') : []
+      ...Array.from(remoteStreamsRef.current.values()).flatMap((stream) => (
+        stream?.getAudioTracks?.().filter((track) => track.readyState === 'live') || []
       )),
     ].filter((track, index, tracks) => tracks.findIndex((entry) => entry.id === track.id) === index);
     if (sourceTracks.length === 0) return undefined;
@@ -2301,10 +2318,6 @@ const CallSection = ({
       return undefined;
     }
 
-    let cancelled = false;
-    let blocked = false;
-    let recorder = null;
-    let stopTimerId = null;
     let closed = false;
     const closeGraph = () => {
       if (closed) return;
@@ -2319,59 +2332,28 @@ const CallSection = ({
       });
       audioContext.close().catch(() => null);
     };
-    const startSegment = () => {
-      if (cancelled || blocked) {
-        closeGraph();
-        return;
-      }
-      const chunks = [];
-      const segmentStartedAt = Date.now();
+    let controller = null;
+    audioContext.resume().catch(() => null).then(() => {
+      if (closed) return;
       try {
-        recorder = new MediaRecorder(destination.stream, {
+        controller = createSegmentedAudioRecorder({
+          stream: destination.stream,
           mimeType,
           audioBitsPerSecond: LESSON_REPLAY_AUDIO_BITRATE,
+          segmentMs: LESSON_REPLAY_AUDIO_SEGMENT_MS,
+          onSegment: onLessonReplayAudioSegment,
         });
+        void controller.captureStopped.finally(closeGraph);
       } catch {
-        blocked = true;
         closeGraph();
-        return;
       }
-      recorder.ondataavailable = (event) => {
-        if (event.data?.size > 0) chunks.push(event.data);
-      };
-      recorder.onstop = () => {
-        window.clearTimeout(stopTimerId);
-        const durationMs = Math.max(250, Date.now() - segmentStartedAt);
-        const blob = chunks.length > 0 ? new Blob(chunks, { type: mimeType }) : null;
-        recorder = null;
-        if (blob?.size) {
-          void onLessonReplayAudioSegment(blob, {
-            occurredAt: new Date(segmentStartedAt).toISOString(),
-            durationMs,
-            mimeType,
-          }).then((result) => {
-            if (!result?.disabled) return;
-            blocked = true;
-            if (recorder?.state === 'recording') recorder.stop();
-          });
-        }
-        if (!cancelled && !blocked) startSegment();
-        else closeGraph();
-      };
-      recorder.start();
-      stopTimerId = window.setTimeout(() => {
-        if (recorder?.state === 'recording') recorder.stop();
-      }, LESSON_REPLAY_AUDIO_SEGMENT_MS);
-    };
-    audioContext.resume().catch(() => null).finally(startSegment);
+    });
 
     return () => {
-      cancelled = true;
-      window.clearTimeout(stopTimerId);
-      if (recorder?.state === 'recording') recorder.stop();
+      if (controller) void controller.stop().finally(closeGraph);
       else closeGraph();
     };
-  }, [isTeacher, micEnabled, onLessonReplayAudioSegment, remotePeers, status]);
+  }, [isTeacher, lessonReplayAudioTrackKey, onLessonReplayAudioSegment, status]);
 
   const sendWs = useCallback((payload) => {
     const ws = wsRef.current;
@@ -3399,6 +3381,7 @@ const CallSection = ({
       try { rawTrack.stop(); } catch {}
     }
     localAudioTrackRef.current = null;
+    setLessonReplayLocalAudioTrackVersion((current) => current + 1);
     localRawAudioTrackRef.current = null;
     disposeLocalMicProcessing();
     replaceLocalStreamAudioTrack(withSync ? getPreferredOutgoingAudioTrack() : null);
@@ -3481,6 +3464,7 @@ const CallSection = ({
     if (existing) {
       localStreamRef.current.removeTrack(existing);
       localAudioTrackRef.current = null;
+      setLessonReplayLocalAudioTrackVersion((current) => current + 1);
     }
     const staleRawTrack = localRawAudioTrackRef.current;
     if (staleRawTrack) {
@@ -3531,6 +3515,7 @@ const CallSection = ({
         localStreamRef.current.removeTrack(localAudioTrackRef.current);
       }
       localAudioTrackRef.current = null;
+      setLessonReplayLocalAudioTrackVersion((current) => current + 1);
       localRawAudioTrackRef.current = null;
       setMicEnabled(false);
       disposeLocalMicProcessing();
@@ -3547,6 +3532,7 @@ const CallSection = ({
       }
       localStreamRef.current.removeTrack(outputTrack);
       localAudioTrackRef.current = rawTrack;
+      setLessonReplayLocalAudioTrackVersion((current) => current + 1);
       if (!localStreamRef.current.getAudioTracks().some((track) => track.id === rawTrack.id)) {
         localStreamRef.current.addTrack(rawTrack);
       }
@@ -3561,6 +3547,7 @@ const CallSection = ({
     }
 
     localAudioTrackRef.current = outputTrack;
+    setLessonReplayLocalAudioTrackVersion((current) => current + 1);
     if (!localStreamRef.current.getAudioTracks().includes(outputTrack)) {
       localStreamRef.current.addTrack(outputTrack);
     }

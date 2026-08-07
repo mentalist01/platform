@@ -8,6 +8,10 @@ const FLUSH_INTERVAL_MS = 8000;
 const MAX_QUEUED_EVENTS = 120;
 const STOP_GRACE_MS = 20_000;
 const MODE_SWITCH_RETRY_MS = 1500;
+const AUDIO_UPLOAD_RETRY_DELAYS_MS = [0, 750, 1800];
+const AUDIO_UPLOAD_REQUEST_TIMEOUT_MS = 12_000;
+const AUDIO_UPLOAD_DRAIN_TIMEOUT_MS = 20_000;
+const MAX_PENDING_AUDIO_SEGMENTS = 8;
 
 const normalizeRecorderMode = (value) => (value === 'telemost' ? 'telemost' : 'platform');
 
@@ -25,6 +29,70 @@ const getPayloadSignature = (type, payload) => {
     return `${type}:${Date.now()}`;
   }
 };
+
+const getAdjustedOccurredAt = (occurredAt, clockOffsetMs = 0) => {
+  const parsed = Date.parse(String(occurredAt || '').trim());
+  if (!Number.isFinite(parsed)) return occurredAt;
+  return new Date(parsed + (Number(clockOffsetMs) || 0)).toISOString();
+};
+
+const applySessionClockToEvents = (events, session) => (
+  (Array.isArray(events) ? events : []).map((event) => ({
+    ...event,
+    occurredAt: getAdjustedOccurredAt(event?.occurredAt, session?.clockOffsetMs),
+  }))
+);
+
+const isRetryableAudioUploadError = (error) => {
+  const status = Number(error?.status) || 0;
+  return status === 0 || status === 408 || status === 425 || status === 429 || status >= 500;
+};
+
+const waitForAudioUploadRetry = (delayMs) => new Promise((resolve) => {
+  window.setTimeout(resolve, Math.max(0, Number(delayMs) || 0));
+});
+
+const runAudioUploadRequest = (request) => new Promise((resolve, reject) => {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  let settled = false;
+  const settle = (callback, value) => {
+    if (settled) return;
+    settled = true;
+    window.clearTimeout(timerId);
+    callback(value);
+  };
+  const timerId = window.setTimeout(() => {
+    const error = new Error('Audio upload timed out');
+    error.status = 408;
+    settle(reject, error);
+    controller?.abort();
+  }, AUDIO_UPLOAD_REQUEST_TIMEOUT_MS);
+  Promise.resolve()
+    .then(() => request(controller?.signal))
+    .then((value) => settle(resolve, value))
+    .catch((error) => settle(reject, error));
+});
+
+const runAudioUploadStage = (stage, request) => (
+  runAudioUploadRequest(request).catch((error) => {
+    if (error && typeof error === 'object') error.stage = stage;
+    throw error;
+  })
+);
+
+const waitForAudioUploadsToDrain = (promise, timeoutMs = AUDIO_UPLOAD_DRAIN_TIMEOUT_MS) => (
+  new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timerId);
+      resolve();
+    };
+    const timerId = window.setTimeout(finish, Math.max(0, Number(timeoutMs) || 0));
+    Promise.resolve(promise).catch(() => null).then(finish);
+  })
+);
 
 const useLessonReplayRecorder = ({
   active = false,
@@ -52,6 +120,7 @@ const useLessonReplayRecorder = ({
   const lastEventRef = useRef({ signature: '', at: 0 });
   const screenSnapshotDisabledSessionRef = useRef('');
   const audioUploadDisabledSessionRef = useRef('');
+  const audioUploadQueuesRef = useRef(new Map());
   const enabledRef = useRef(Boolean(active && studentId));
   const modeRef = useRef(normalizedMode);
   const occurrenceKeyRef = useRef(normalizedOccurrenceKey);
@@ -68,7 +137,8 @@ const useLessonReplayRecorder = ({
     const session = sessionRef.current;
     if (flushingRef.current) return flushPromiseRef.current;
     if (!session?.sessionId || queueRef.current.length === 0) return null;
-    const events = queueRef.current.splice(0, 48);
+    const queuedEvents = queueRef.current.splice(0, 48);
+    const events = applySessionClockToEvents(queuedEvents, session);
     flushingRef.current = true;
     const operation = (async () => {
       try {
@@ -79,7 +149,7 @@ const useLessonReplayRecorder = ({
           queueRef.current = [];
         }
       } catch (error) {
-        queueRef.current = [...events, ...queueRef.current].slice(0, MAX_QUEUED_EVENTS);
+        queueRef.current = [...queuedEvents, ...queueRef.current].slice(0, MAX_QUEUED_EVENTS);
         const message = String(error?.message || '');
         if (
           error?.status === 404
@@ -156,15 +226,26 @@ const useLessonReplayRecorder = ({
 
   syncSessionModeRef.current = syncSessionMode;
 
+  const drainAudioUploads = useCallback(async (sessionId) => {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return;
+    const queue = audioUploadQueuesRef.current.get(normalizedSessionId);
+    if (queue?.tail) await waitForAudioUploadsToDrain(queue.tail);
+  }, []);
+
   const finishSession = useCallback(async (session, pendingEvents = null, options = {}) => {
     if (!session?.sessionId) return;
+    await drainAudioUploads(session.sessionId);
     const pending = Array.isArray(pendingEvents) ? pendingEvents : queueRef.current.splice(0);
     const finalBatchStart = Math.max(0, pending.length - 48);
     for (let index = 0; index < finalBatchStart; index += 48) {
       try {
         await api.appendLessonReplayEvents(
           session.sessionId,
-          pending.slice(index, Math.min(index + 48, finalBatchStart)),
+          applySessionClockToEvents(
+            pending.slice(index, Math.min(index + 48, finalBatchStart)),
+            session
+          ),
           options
         );
       } catch {
@@ -175,12 +256,12 @@ const useLessonReplayRecorder = ({
     try {
       await api.finishLessonReplaySession(session.sessionId, {
         ...options,
-        events: pending.slice(finalBatchStart),
+        events: applySessionClockToEvents(pending.slice(finalBatchStart), session),
       });
     } catch {
       // Session expiry will clean up an interrupted finish on the server.
     }
-  }, []);
+  }, [drainAudioUploads]);
 
   const recordEvent = useCallback((type, payload = {}, options = {}) => {
     if (!enabledRef.current) return false;
@@ -253,11 +334,13 @@ const useLessonReplayRecorder = ({
       startInFlightRef.current = generation;
       const requestedMode = modeRef.current;
       const requestedOccurrenceKey = occurrenceKeyRef.current;
+      const requestStartedAtMs = Date.now();
       api.startLessonReplaySession(normalizedStudentId, {
         via: requestedMode,
         occurrenceKey: requestedOccurrenceKey,
       })
         .then((session) => {
+          const responseReceivedAtMs = Date.now();
           if (cancelled || sessionGenerationRef.current !== generation) {
             if (session?.sessionId) api.finishLessonReplaySession(session.sessionId).catch(() => null);
             return;
@@ -265,10 +348,22 @@ const useLessonReplayRecorder = ({
           const sessionMode = normalizeRecorderMode(
             session?.activity?.mode || session?.mode || session?.via || requestedMode
           );
+          const serverNowMs = Number(session?.serverNowMs)
+            || Date.parse(String(session?.serverNow || '').trim());
+          const serverRequestReceivedAtMs = Number(session?.serverRequestReceivedAtMs);
+          const clockOffsetMs = Number.isFinite(serverNowMs)
+            ? Math.round(Number.isFinite(serverRequestReceivedAtMs)
+              ? (
+                (serverRequestReceivedAtMs - requestStartedAtMs)
+                + (serverNowMs - responseReceivedAtMs)
+              ) / 2
+              : serverNowMs - ((requestStartedAtMs + responseReceivedAtMs) / 2))
+            : 0;
           sessionRef.current = {
             ...session,
             studentId: normalizedStudentId,
             via: sessionMode,
+            clockOffsetMs,
             occurrenceKey: String(
               session?.occurrenceKey
               || session?.activity?.occurrenceKey
@@ -379,7 +474,10 @@ const useLessonReplayRecorder = ({
       || screenSnapshotDisabledSessionRef.current === session.sessionId
     ) return { saved: false };
     try {
-      const result = await api.uploadLessonReplaySnapshot(session.sessionId, blob, metadata);
+      const result = await api.uploadLessonReplaySnapshot(session.sessionId, blob, {
+        ...metadata,
+        occurredAt: getAdjustedOccurredAt(metadata?.occurredAt, session.clockOffsetMs),
+      });
       return { saved: true, ...result };
     } catch (error) {
       const disabled = error?.status === 413 || error?.status === 507;
@@ -397,7 +495,7 @@ const useLessonReplayRecorder = ({
     }
   }, []);
 
-  const uploadLessonReplayAudioSegment = useCallback(async (blob, metadata = {}) => {
+  const uploadLessonReplayAudioSegment = useCallback((blob, metadata = {}) => {
     const session = sessionRef.current;
     if (
       !enabledRef.current
@@ -405,48 +503,102 @@ const useLessonReplayRecorder = ({
       || !(blob instanceof Blob)
       || blob.size <= 0
       || audioUploadDisabledSessionRef.current === session.sessionId
-    ) return { saved: false };
-    try {
-      const prepared = await api.prepareLessonReplayAudioSegment(session.sessionId, {
+    ) return Promise.resolve({ saved: false });
+
+    let queue = audioUploadQueuesRef.current.get(session.sessionId);
+    if (!queue) {
+      queue = { tail: Promise.resolve(), pending: 0 };
+      audioUploadQueuesRef.current.set(session.sessionId, queue);
+    }
+    if (queue.pending >= MAX_PENDING_AUDIO_SEGMENTS) {
+      const error = new Error('Audio upload queue is full');
+      error.code = 'AUDIO_UPLOAD_QUEUE_FULL';
+      audioUploadDisabledSessionRef.current = session.sessionId;
+      return Promise.resolve({ saved: false, disabled: true, error });
+    }
+    queue.pending += 1;
+
+    const operation = queue.tail.catch(() => null).then(async () => {
+      let prepared = null;
+      let uploaded = false;
+      let lastError = null;
+      const normalizedMetadata = {
         ...metadata,
+        occurredAt: getAdjustedOccurredAt(metadata?.occurredAt, session.clockOffsetMs),
         mimeType: blob.type || metadata?.mimeType,
         sizeBytes: blob.size,
-      });
-      if (prepared.storage === 'local') {
-        await api.uploadPreparedLessonReplayAudioSegment(prepared.audioId, blob, {
-          mimeType: blob.type || metadata?.mimeType,
-        });
-      } else {
-        const uploadResponse = await fetch(prepared.uploadUrl, {
-          method: 'PUT',
-          headers: prepared.headers || { 'Content-Type': blob.type || 'audio/webm;codecs=opus' },
-          body: blob,
-        });
-        if (!uploadResponse.ok) {
-          const uploadError = new Error(`Audio upload failed (${uploadResponse.status})`);
-          uploadError.status = uploadResponse.status;
-          uploadError.stage = 'upload';
-          throw uploadError;
+      };
+
+      for (let attempt = 0; attempt < AUDIO_UPLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
+        if (attempt > 0) await waitForAudioUploadRetry(AUDIO_UPLOAD_RETRY_DELAYS_MS[attempt]);
+        try {
+          if (!prepared) {
+            prepared = await runAudioUploadStage('prepare', (signal) => (
+              api.prepareLessonReplayAudioSegment(session.sessionId, normalizedMetadata, { signal })
+            ));
+          }
+          if (!uploaded) {
+            if (prepared.storage === 'local') {
+              await runAudioUploadStage('upload', (signal) => (
+                api.uploadPreparedLessonReplayAudioSegment(prepared.audioId, blob, {
+                  mimeType: normalizedMetadata.mimeType,
+                }, { signal })
+              ));
+            } else {
+              const uploadResponse = await runAudioUploadStage('upload', (signal) => fetch(prepared.uploadUrl, {
+                method: 'PUT',
+                headers: prepared.headers || { 'Content-Type': normalizedMetadata.mimeType || 'audio/webm;codecs=opus' },
+                body: blob,
+                signal,
+              }));
+              if (!uploadResponse.ok) {
+                const uploadError = new Error(`Audio upload failed (${uploadResponse.status})`);
+                uploadError.status = uploadResponse.status;
+                uploadError.stage = 'upload';
+                throw uploadError;
+              }
+            }
+            uploaded = true;
+          }
+          const result = await runAudioUploadStage('complete', (signal) => (
+            api.completeLessonReplayAudioSegment(prepared.audioId, { signal })
+          ));
+          return { saved: true, ...result };
+        } catch (error) {
+          lastError = error;
+          if (!isRetryableAudioUploadError(error)) break;
         }
       }
-      const result = await api.completeLessonReplayAudioSegment(prepared.audioId);
-      return { saved: true, ...result };
-    } catch (error) {
-      const disabled = error?.status === 503
-        || error?.status === 507
-        || error?.status === 413
-        || error?.status === 403
-        || error?.stage === 'upload';
+
+      const error = lastError;
+      const sessionExpired = error?.stage === 'prepare'
+        && (error?.status === 404 || error?.status === 410);
+      // Never continue producing a replay with silent holes after all retries
+      // are exhausted. Session expiry is the only recoverable case: it starts
+      // a replacement session, while every other persistent failure stops the
+      // capture and leaves the already-saved recording intact.
+      const disabled = !sessionExpired;
       if (disabled) audioUploadDisabledSessionRef.current = session.sessionId;
       if (
-        (error?.status === 404 || error?.status === 410)
+        sessionExpired
         && sessionRef.current?.sessionId === session.sessionId
       ) {
         sessionRef.current = null;
         if (enabledRef.current) startSessionRef.current?.();
       }
       return { saved: false, disabled, error };
-    }
+    });
+    queue.tail = operation.catch(() => null);
+    const settledTail = queue.tail;
+    void settledTail.then(() => {
+      queue.pending = Math.max(0, queue.pending - 1);
+      if (
+        queue.pending === 0
+        && queue.tail === settledTail
+        && audioUploadQueuesRef.current.get(session.sessionId) === queue
+      ) audioUploadQueuesRef.current.delete(session.sessionId);
+    });
+    return operation;
   }, []);
 
   return {

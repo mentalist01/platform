@@ -97,8 +97,12 @@ import {
   createLessonReplay,
   normalizeLessonReplay,
   summarizeLessonReplay,
-  summarizeLessonReplayStorage,
 } from './lessonReplay.js';
+import {
+  mergeLessonReplayStorageEntry,
+  normalizeLessonReplayStorageIndex,
+  serializeLessonReplayStorageIndex,
+} from './lessonReplayStorageIndex.js';
 import {
   STUDENT_SEARCH_QUERY_MAX_LENGTH,
   buildStudentSearchQuery,
@@ -186,6 +190,10 @@ const lessonReplayPersistTimerByOccurrenceKey = new Map();
 const lessonReplayPersistFailureByOccurrenceKey = new Map();
 const lessonReplayAudioUploadTickets = new Map();
 const lessonReplayStorageSummaryCacheByOccurrenceKey = new Map();
+const lessonReplayStorageIndexByHash = new Map();
+const lessonReplayStorageReconciledHashes = new Set();
+let lessonReplayStorageIndexPersistTimer = null;
+let lessonReplayStorageIndexDirty = false;
 const workbookHelperLaunchTickets = new Map();
 const workbookHelperExchangeAttempts = new Map();
 const workbookHelperContentAttempts = new Map();
@@ -260,7 +268,7 @@ const lessonReplayAudioTicketSweepInterval = setInterval(() => {
   const nowMs = Date.now();
   lessonReplayAudioUploadTickets.forEach((ticket, audioId) => {
     if (Number(ticket?.expiresAt || 0) >= nowMs) return;
-    if (ticket?.storage === 'local' && ticket?.localFilePath) {
+    if (!ticket?.completed && ticket?.storage === 'local' && ticket?.localFilePath) {
       try { fs.rmSync(ticket.localFilePath, { force: true }); } catch {
         // An expired partial upload may already have been removed.
       }
@@ -407,6 +415,7 @@ const lessonHistoryFile = path.join(dataDir, 'lesson-history.json');
 const lessonReplaysDir = path.join(dataDir, 'lesson-replays');
 const lessonReplaySnapshotsDir = path.join(dataDir, 'lesson-replay-snapshots');
 const lessonReplayAudioDir = path.join(dataDir, 'lesson-replay-audio');
+const lessonReplayStorageIndexFile = path.join(dataDir, 'lesson-replay-storage-index.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const paymentNotificationsFile = path.join(dataDir, 'payment-notifications.json');
 const paymentSenderLinksFile = path.join(dataDir, 'payment-sender-links.json');
@@ -1969,6 +1978,85 @@ const getLessonReplayOccurrenceHash = (occurrenceKey) => (
   crypto.createHash('sha256').update(String(occurrenceKey || '')).digest('hex')
 );
 
+const persistLessonReplayStorageIndex = () => {
+  lessonReplayStorageIndexPersistTimer = null;
+  writeJsonFileAtomic(
+    lessonReplayStorageIndexFile,
+    serializeLessonReplayStorageIndex(lessonReplayStorageIndexByHash)
+  );
+  lessonReplayStorageIndexDirty = false;
+};
+
+const scheduleLessonReplayStorageIndexPersistence = (delayMs = 1500) => {
+  if (lessonReplayStorageIndexPersistTimer) return;
+  lessonReplayStorageIndexPersistTimer = setTimeout(() => {
+    try {
+      persistLessonReplayStorageIndex();
+    } catch (error) {
+      console.error('[lesson-replay] failed to persist storage index:', error?.message || error);
+      scheduleLessonReplayStorageIndexPersistence(15_000);
+    }
+  }, Math.max(250, Number(delayMs) || 1500));
+  if (typeof lessonReplayStorageIndexPersistTimer.unref === 'function') {
+    lessonReplayStorageIndexPersistTimer.unref();
+  }
+};
+
+const setLessonReplayStorageIndexByHash = (rawHash, patch = {}, increments = {}) => {
+  const hash = String(rawHash || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hash)) return null;
+  const next = mergeLessonReplayStorageEntry(
+    lessonReplayStorageIndexByHash.get(hash),
+    { ...patch, updatedAt: new Date().toISOString() },
+    increments
+  );
+  lessonReplayStorageIndexByHash.set(hash, next);
+  lessonReplayStorageIndexDirty = true;
+  lessonReplayStorageSummaryCacheByOccurrenceKey.forEach((_, occurrenceKey) => {
+    if (getLessonReplayOccurrenceHash(occurrenceKey) === hash) {
+      lessonReplayStorageSummaryCacheByOccurrenceKey.delete(occurrenceKey);
+    }
+  });
+  scheduleLessonReplayStorageIndexPersistence();
+  return next;
+};
+
+const updateLessonReplayStorageIndex = (occurrenceKey, patch = {}, increments = {}) => {
+  const normalizedKey = String(occurrenceKey || '').trim();
+  if (!normalizedKey) return null;
+  const hash = getLessonReplayOccurrenceHash(normalizedKey);
+  const next = mergeLessonReplayStorageEntry(
+    lessonReplayStorageIndexByHash.get(hash),
+    { ...patch, updatedAt: new Date().toISOString() },
+    increments
+  );
+  lessonReplayStorageIndexByHash.set(hash, next);
+  lessonReplayStorageIndexDirty = true;
+  lessonReplayStorageSummaryCacheByOccurrenceKey.set(normalizedKey, next);
+  scheduleLessonReplayStorageIndexPersistence();
+  return next;
+};
+
+try {
+  const parsedStorageIndex = JSON.parse(fs.readFileSync(lessonReplayStorageIndexFile, 'utf8'));
+  normalizeLessonReplayStorageIndex(parsedStorageIndex).forEach((entry, hash) => {
+    lessonReplayStorageIndexByHash.set(hash, entry);
+  });
+} catch (error) {
+  if (error?.code !== 'ENOENT') {
+    console.warn('[lesson-replay] failed to load storage index:', error?.message || error);
+  }
+}
+
+process.on('exit', () => {
+  if (!lessonReplayStorageIndexDirty) return;
+  try {
+    persistLessonReplayStorageIndex();
+  } catch {
+    // The media files remain authoritative and will rebuild the index next boot.
+  }
+});
+
 const normalizeLessonReplayAudioId = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)
@@ -2011,6 +2099,26 @@ const getLessonReplayAudioLocalFilePath = (occurrenceKey, audioId, mimeType) => 
     getLessonReplayAudioFolderPath(occurrenceKey),
     `${normalizedId}.${getLessonReplayAudioExtension(mimeType)}`
   );
+};
+
+const getLessonReplayAudioFolderUsage = (occurrenceKey) => {
+  const folderPath = getLessonReplayAudioFolderPath(occurrenceKey);
+  let entries = [];
+  try {
+    entries = fs.readdirSync(folderPath, { withFileTypes: true });
+  } catch {
+    return { count: 0, bytes: 0 };
+  }
+  return entries.reduce((usage, entry) => {
+    if (!entry.isFile() || !/\.(?:webm|ogg|m4a)$/i.test(entry.name)) return usage;
+    try {
+      usage.count += 1;
+      usage.bytes += Math.max(0, Number(fs.statSync(path.join(folderPath, entry.name)).size) || 0);
+    } catch {
+      // Ignore a segment that disappeared while the folder was inspected.
+    }
+    return usage;
+  }, { count: 0, bytes: 0 });
 };
 
 const hasLessonReplayAudioDiskCapacity = (requiredBytes = 0) => {
@@ -2113,7 +2221,7 @@ const ensureLessonReplaySnapshotCapacity = (requiredBytes, protectedOccurrenceKe
     if (protectedHashes.has(candidate.hash) || !candidate.folderPath.startsWith(rootPath)) continue;
     try {
       fs.rmSync(candidate.folderPath, { recursive: true, force: true });
-      lessonReplayStorageSummaryCacheByOccurrenceKey.clear();
+      setLessonReplayStorageIndexByHash(candidate.hash, { snapshotBytes: 0 });
       lessonReplaySnapshotStoredBytes = Math.max(
         0,
         lessonReplaySnapshotStoredBytes - candidate.bytes
@@ -2245,7 +2353,15 @@ const persistLessonReplay = (normalized) => {
       console.warn('[lesson-replay] failed to remove an old replay backup:', error?.message || error);
     }
   }
-  lessonReplayStorageSummaryCacheByOccurrenceKey.delete(normalized.occurrence.key);
+  const occurrenceHash = getLessonReplayOccurrenceHash(normalized.occurrence.key);
+  if (!lessonReplayStorageReconciledHashes.has(occurrenceHash)) {
+    // A legacy lesson may already have snapshots or audio. Backfill all counters
+    // before applying a partial data-size update so those bytes are never lost.
+    getLessonReplayStorageSummary(normalized.occurrence.key);
+  }
+  updateLessonReplayStorageIndex(normalized.occurrence.key, {
+    dataBytes: compressed.length,
+  });
   const elapsedMs = Date.now() - startedAt;
   if (elapsedMs >= 200) {
     console.warn(`[perf] lesson replay persist took ${elapsedMs}ms (${raw.length} raw, ${compressed.length} gzip)`);
@@ -2338,22 +2454,37 @@ const getLessonReplaySummary = (occurrenceKey, replayOverride = null) => {
 const getLessonReplayStorageSummary = (occurrenceKey) => {
   const normalizedKey = String(occurrenceKey || '').trim();
   if (!normalizedKey) return null;
-  if (lessonReplayStorageSummaryCacheByOccurrenceKey.has(normalizedKey)) {
+  const occurrenceHash = getLessonReplayOccurrenceHash(normalizedKey);
+  if (
+    lessonReplayStorageReconciledHashes.has(occurrenceHash)
+    && lessonReplayStorageSummaryCacheByOccurrenceKey.has(normalizedKey)
+  ) {
     return lessonReplayStorageSummaryCacheByOccurrenceKey.get(normalizedKey);
   }
-  const replay = readLessonReplay(normalizedKey);
-  if (!replay) {
+  const indexed = lessonReplayStorageIndexByHash.get(occurrenceHash);
+
+  // Reconcile once per process from file metadata. This repairs a sidecar that
+  // was not flushed before a restart, without inflating multi-megabyte replays.
+  const dataBytes = getLessonReplayCompressedBytes(normalizedKey);
+  const snapshotUsage = getLessonReplaySnapshotFolderUsage(normalizedKey);
+  const audioUsage = getLessonReplayAudioFolderUsage(normalizedKey);
+  const audioBytes = lessonReplayAudioS3
+    ? Math.max(audioUsage.bytes, Number(indexed?.audioBytes) || 0)
+    : audioUsage.bytes;
+  lessonReplayStorageReconciledHashes.add(occurrenceHash);
+  if (dataBytes <= 0 && snapshotUsage.bytes <= 0 && audioBytes <= 0) {
+    if (lessonReplayStorageIndexByHash.delete(occurrenceHash)) {
+      lessonReplayStorageIndexDirty = true;
+      scheduleLessonReplayStorageIndexPersistence();
+    }
     lessonReplayStorageSummaryCacheByOccurrenceKey.set(normalizedKey, null);
     return null;
   }
-  const replaySummary = getLessonReplaySummary(normalizedKey, replay);
-  const snapshotUsage = getLessonReplaySnapshotFolderUsage(normalizedKey);
-  const storage = summarizeLessonReplayStorage(replay, {
-    normalized: true,
-    dataBytes: replaySummary.bytes,
+  const storage = updateLessonReplayStorageIndex(normalizedKey, {
+    dataBytes,
     snapshotBytes: snapshotUsage.bytes,
+    audioBytes,
   });
-  lessonReplayStorageSummaryCacheByOccurrenceKey.set(normalizedKey, storage);
   return storage;
 };
 
@@ -26640,6 +26771,9 @@ app.post(
           if (appended.added !== 1) throw new Error('Screen snapshot event was rejected');
           const written = writeLessonReplay(appended.replay, { deferred: true, normalized: true });
           lessonReplaySnapshotStoredBytes += buffer.length;
+          updateLessonReplayStorageIndex(session.occurrenceKey, {
+            snapshotBytes: usage.bytes + buffer.length,
+          });
           return { replay: written.replay, compressedBytes: written.compressedBytes, snapshotId };
         } catch (error) {
           try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
@@ -26765,20 +26899,23 @@ app.post('/api/lesson-replay/audio/prepare', async (req, res) => {
     return res.status(400).json({ error: 'Некорректная длительность аудиофрагмента' });
   }
   const pendingForSession = Array.from(lessonReplayAudioUploadTickets.values())
-    .filter((ticket) => ticket.sessionId === sessionId && Number(ticket.expiresAt) >= nowMs)
+    .filter((ticket) => (
+      !ticket.completed
+      && ticket.sessionId === sessionId
+      && Number(ticket.expiresAt) >= nowMs
+    ))
     .length;
   if (pendingForSession >= 4) {
     return res.status(429).json({ error: 'Предыдущий фрагмент аудио ещё загружается' });
   }
-  const replay = readLessonReplay(session.occurrenceKey);
-  if (!replay || replay.occurrence?.studentId !== student.id) {
-    return res.status(404).json({ error: 'Запись занятия не найдена' });
-  }
-  const storedAudioBytes = replay.events.reduce((sum, event) => (
-    event?.type === 'audio' ? sum + Math.max(0, Number(event.payload?.sizeBytes) || 0) : sum
-  ), 0);
+  const storedAudioBytes = Math.max(
+    0,
+    Number(getLessonReplayStorageSummary(session.occurrenceKey)?.audioBytes) || 0
+  );
   const pendingAudioBytes = Array.from(lessonReplayAudioUploadTickets.values()).reduce((sum, ticket) => (
-    ticket.occurrenceKey === session.occurrenceKey && Number(ticket.expiresAt) >= nowMs
+    !ticket.completed
+      && ticket.occurrenceKey === session.occurrenceKey
+      && Number(ticket.expiresAt) >= nowMs
       ? sum + Math.max(0, Number(ticket.sizeBytes) || 0)
       : sum
   ), 0);
@@ -26919,6 +27056,9 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
   ) return forbid(res);
   const student = ensureStudentAccess(req, res, ticket.studentId);
   if (!student) return;
+  if (ticket.completed && ticket.completedResponse) {
+    return res.json(ticket.completedResponse);
+  }
   try {
     let storedBytes = 0;
     if (ticket.storage === 'local') {
@@ -26976,13 +27116,21 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
       const stored = writeLessonReplay(appended.replay, { deferred: true, normalized: true });
       return { added: appended.added, replay: stored.replay, compressedBytes: stored.compressedBytes };
     });
-    lessonReplayAudioUploadTickets.delete(audioId);
-    return res.json({
+    if (result.added > 0) {
+      updateLessonReplayStorageIndex(ticket.occurrenceKey, {}, {
+        audioBytes: storedBytes,
+      });
+    }
+    const responsePayload = {
       ok: true,
       audioId,
       added: result.added,
       summary: summarizeLessonReplay(result.replay, result.compressedBytes, { normalized: true }),
-    });
+    };
+    ticket.completed = true;
+    ticket.completedResponse = responsePayload;
+    ticket.expiresAt = Date.now() + LESSON_REPLAY_AUDIO_UPLOAD_TTL_MS;
+    return res.json(responsePayload);
   } catch (error) {
     const statusCode = Number(error?.statusCode) || 503;
     if (statusCode >= 500) {
@@ -27097,11 +27245,15 @@ app.post('/api/lesson-replay/session', async (req, res) => {
       activeLessonReplaySessions.set(sessionId, session);
       return { session, replay: stored.replay, compressedBytes: stored.compressedBytes };
     });
+    const responseNowMs = Date.now();
     return res.json({
       sessionId: result.session.id,
       occurrenceKey: occurrence.key,
       occurrence,
       via: result.session.via,
+      serverRequestReceivedAtMs: nowMs,
+      serverNowMs: responseNowMs,
+      serverNow: new Date(responseNowMs).toISOString(),
       summary: summarizeLessonReplay(result.replay, result.compressedBytes, { normalized: true }),
     });
   } catch (error) {

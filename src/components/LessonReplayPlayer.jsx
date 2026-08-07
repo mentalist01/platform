@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Code2,
   ListChecks,
+  Maximize2,
+  Minimize2,
   MonitorUp,
   MousePointer2,
   Pause,
@@ -16,6 +18,12 @@ import {
 } from 'lucide-react';
 
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
+import {
+  findReplayAudioEventIndex,
+  findUpcomingReplayAudioEventIndex,
+  getReplayAudioDurationMs,
+  getReplayTimelineDurationMs,
+} from '../utils/lessonReplayTimeline';
 import './LessonReplayPlayer.css';
 
 const VIEW_LABELS = {
@@ -52,6 +60,8 @@ const SURFACE_TABS = {
   code: { label: 'Код', icon: Code2 },
   screen: { label: 'Экран', icon: MonitorUp },
 };
+
+const AUDIO_LOAD_TIMEOUT_MS = 12_000;
 
 const formatClock = (value) => {
   const totalSeconds = Math.max(0, Math.floor((Number(value) || 0) / 1000));
@@ -283,7 +293,10 @@ const ReplayBoardTask = ({ item }) => {
   const panelY = height - panelHeight - padding;
   const status = ['correct', 'wrong'].includes(item?.checkState) ? item.checkState : 'idle';
   const accent = status === 'correct' ? '#16a34a' : (status === 'wrong' ? '#dc2626' : '#7c3aed');
-  let imageY = y + 78;
+  const screenshotHeights = (item.screenshots || []).map((screenshot) => (
+    Math.max(40, Number(screenshot?.displayHeight) || 220)
+  ));
+  const imageY = y + 78 + screenshotHeights.reduce((total, imageHeight) => total + imageHeight + 12, 0);
   return (
     <g>
       <rect x={x} y={y} width={width} height={height} rx="18" fill="#fff" stroke={status === 'idle' ? '#d8d2f4' : accent} strokeWidth={status === 'idle' ? 1.5 : 2.5} />
@@ -292,9 +305,10 @@ const ReplayBoardTask = ({ item }) => {
       <text x={x + 35} y={y + 37} textAnchor="middle" fill="#fff" fontSize="16" fontWeight="800">{String(item.questionNumber || item.taskNumber || '?').slice(0, 4)}</text>
       <text x={x + 64} y={y + 34} fill="#211a35" fontSize="17" fontWeight="800">{String(item.heading || `Задание ${item.taskDisplayNumber || item.taskNumber || ''}`).slice(0, 72)}</text>
       {(item.screenshots || []).map((screenshot, index) => {
-        const imageHeight = Math.max(40, Number(screenshot?.displayHeight) || 220);
-        const currentY = imageY;
-        imageY += imageHeight + 12;
+        const imageHeight = screenshotHeights[index];
+        const currentY = y + 78 + screenshotHeights
+          .slice(0, index)
+          .reduce((total, previousHeight) => total + previousHeight + 12, 0);
         return (
           <image
             key={`${item.id}-task-image-${index}`}
@@ -509,6 +523,18 @@ const ReplayScreen = ({ event, occurrence }) => {
   );
 };
 
+const getReplayAudioSource = (event, replay) => {
+  if (!event) return '';
+  if (event.payload?.audioId) {
+    return api.getLessonReplayAudioUrl(
+      replay?.occurrence?.studentId,
+      replay?.occurrence?.key,
+      event.payload.audioId
+    );
+  }
+  return resolveAuthenticatedUploadsUrl(event.payload?.playbackUrl || event.payload?.url);
+};
+
 const LessonReplayPlayer = ({ replay }) => {
   const events = useMemo(() => (
     materializeBoardReplayEvents(
@@ -517,39 +543,170 @@ const LessonReplayPlayer = ({ replay }) => {
       .sort((left, right) => left.offsetMs - right.offsetMs || String(left.id).localeCompare(String(right.id)))
     )
   ), [replay]);
-  const durationMs = useMemo(() => Math.max(1000, Number(replay?.durationMs) || 0, ...events.map((event) => event.offsetMs)), [events, replay?.durationMs]);
+  const durationMs = useMemo(
+    () => getReplayTimelineDurationMs(events, replay?.durationMs),
+    [events, replay?.durationMs]
+  );
   const [positionMs, setPositionMs] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [mode, setMode] = useState('teacher');
   const [activeTab, setActiveTab] = useState('board');
   const [audioMuted, setAudioMuted] = useState(false);
+  const [audioBuffering, setAudioBuffering] = useState(false);
+  const [seekSequence, setSeekSequence] = useState(0);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
+  const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
+  const playerRef = useRef(null);
   const positionRef = useRef(0);
   const frameRef = useRef(null);
   const lastFrameAtRef = useRef(0);
   const lastRenderedAtRef = useRef(0);
-  const audioRef = useRef(null);
+  const audioRefs = useRef([null, null]);
+  const audioClockRef = useRef({ event: null, slot: -1, nextAudioStart: null, upcomingAudioStart: null });
+  const endedAudioEventIdRef = useRef('');
+  const playingRef = useRef(false);
+  const seekSequenceRef = useRef(0);
+  const fullscreenRequestPendingRef = useRef(false);
+  const isFullscreen = isNativeFullscreen || isFallbackFullscreen;
 
-  useEffect(() => { positionRef.current = positionMs; }, [positionMs]);
+  const audioEvents = useMemo(() => events.filter((event) => (
+    event.type === 'audio'
+    && (event.payload?.audioId || event.payload?.playbackUrl || event.payload?.url)
+  )), [events]);
+  const audioEventIndex = useMemo(
+    () => findReplayAudioEventIndex(audioEvents, positionMs),
+    [audioEvents, positionMs]
+  );
+  const audioEvent = audioEventIndex >= 0 ? audioEvents[audioEventIndex] : null;
+  const upcomingAudioEventIndex = findUpcomingReplayAudioEventIndex(audioEvents, positionMs);
+  const hasUpcomingAudioEvent = upcomingAudioEventIndex >= 0
+    && upcomingAudioEventIndex < audioEvents.length
+    && upcomingAudioEventIndex !== audioEventIndex;
+  const audioSlots = useMemo(() => {
+    const slots = [null, null];
+    const indexes = [
+      ...(audioEventIndex >= 0 ? [audioEventIndex] : []),
+      ...(hasUpcomingAudioEvent ? [upcomingAudioEventIndex] : []),
+    ];
+    indexes.forEach((index) => {
+      const event = audioEvents[index];
+      if (!event) return;
+      const slot = index % 2;
+      if (slots[slot] && index !== audioEventIndex) return;
+      slots[slot] = {
+        index,
+        event,
+        source: getReplayAudioSource(event, replay),
+      };
+    });
+    return slots;
+  }, [audioEventIndex, audioEvents, hasUpcomingAudioEvent, replay, upcomingAudioEventIndex]);
+  const activeAudioSlot = audioEventIndex >= 0 ? audioEventIndex % 2 : -1;
+  const audioSource = activeAudioSlot >= 0 ? (audioSlots[activeAudioSlot]?.source || '') : '';
+  const nextAudioStart = audioEventIndex >= 0 && hasUpcomingAudioEvent
+    ? Number(audioEvents[upcomingAudioEventIndex]?.offsetMs)
+    : null;
+  const upcomingAudioStart = hasUpcomingAudioEvent
+    ? Number(audioEvents[upcomingAudioEventIndex]?.offsetMs)
+    : null;
+
+  useLayoutEffect(() => {
+    playingRef.current = playing;
+    audioClockRef.current = {
+      event: audioEvent,
+      slot: activeAudioSlot,
+      nextAudioStart: Number.isFinite(nextAudioStart) ? nextAudioStart : null,
+      upcomingAudioStart: Number.isFinite(upcomingAudioStart) ? upcomingAudioStart : null,
+    };
+  }, [activeAudioSlot, audioEvent, nextAudioStart, playing, upcomingAudioStart]);
 
   useEffect(() => {
-    if (!playing || typeof window === 'undefined') return undefined;
-    lastFrameAtRef.current = performance.now();
-    const tick = (now) => {
-      const delta = Math.max(0, now - lastFrameAtRef.current) * speed;
-      lastFrameAtRef.current = now;
-      const next = Math.min(durationMs, positionRef.current + delta);
-      positionRef.current = next;
-      if (next >= durationMs || now - lastRenderedAtRef.current >= 80) {
-        lastRenderedAtRef.current = now;
-        setPositionMs(next);
-      }
-      if (next >= durationMs) { setPlaying(false); return; }
-      frameRef.current = window.requestAnimationFrame(tick);
+    if (typeof document === 'undefined') return undefined;
+    const handleFullscreenChange = () => {
+      const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || null;
+      const playerIsFullscreen = fullscreenElement === playerRef.current;
+      fullscreenRequestPendingRef.current = false;
+      setIsNativeFullscreen(playerIsFullscreen);
+      if (playerIsFullscreen) setIsFallbackFullscreen(false);
     };
-    frameRef.current = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frameRef.current);
-  }, [durationMs, playing, speed]);
+    const handleFullscreenError = () => {
+      if (!fullscreenRequestPendingRef.current) return;
+      fullscreenRequestPendingRef.current = false;
+      setIsFallbackFullscreen(true);
+    };
+    handleFullscreenChange();
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('fullscreenerror', handleFullscreenError);
+    document.addEventListener('webkitfullscreenerror', handleFullscreenError);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('fullscreenerror', handleFullscreenError);
+      document.removeEventListener('webkitfullscreenerror', handleFullscreenError);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined' || !isFallbackFullscreen) return undefined;
+    document.body.classList.add('lesson-replay-fullscreen-fallback-active');
+    return () => document.body.classList.remove('lesson-replay-fullscreen-fallback-active');
+  }, [isFallbackFullscreen]);
+
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined' || !isFullscreen) return undefined;
+    const handleFullscreenEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      if (isFallbackFullscreen) {
+        event.preventDefault();
+        setIsFallbackFullscreen(false);
+      }
+      // Native fullscreen keeps the browser's default Escape action. Stopping
+      // propagation only prevents the surrounding lesson modal from closing.
+    };
+    document.addEventListener('keydown', handleFullscreenEscape, true);
+    return () => document.removeEventListener('keydown', handleFullscreenEscape, true);
+  }, [isFallbackFullscreen, isFullscreen]);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (typeof document === 'undefined') return;
+    const player = playerRef.current;
+    if (!player) return;
+    if (isFallbackFullscreen) {
+      fullscreenRequestPendingRef.current = false;
+      setIsFallbackFullscreen(false);
+      return;
+    }
+    const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || null;
+    try {
+      if (fullscreenElement === player) {
+        fullscreenRequestPendingRef.current = false;
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else document.webkitExitFullscreen?.();
+        return;
+      }
+      if (fullscreenElement) {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else document.webkitExitFullscreen?.();
+      }
+      fullscreenRequestPendingRef.current = true;
+      if (player.requestFullscreen) {
+        await player.requestFullscreen({ navigationUI: 'hide' });
+      } else if (player.webkitRequestFullscreen) {
+        const request = player.webkitRequestFullscreen();
+        if (request && typeof request.then === 'function') await request;
+      } else {
+        fullscreenRequestPendingRef.current = false;
+        setIsFallbackFullscreen(true);
+      }
+    } catch {
+      fullscreenRequestPendingRef.current = false;
+      setIsFallbackFullscreen(true);
+    }
+  }, [isFallbackFullscreen]);
 
   const state = useMemo(() => buildStateAt(events, positionMs), [events, positionMs]);
   const followedRole = mode === 'student' ? 'student' : 'teacher';
@@ -569,47 +726,241 @@ const LessonReplayPlayer = ({ replay }) => {
     ? activeTab
     : (followedTab === 'screen' && !hasScreenEvents ? 'board' : followedTab);
 
-  const audioEvents = useMemo(() => events.filter((event) => (
-    event.type === 'audio'
-    && (event.payload?.audioId || event.payload?.playbackUrl || event.payload?.url)
-  )), [events]);
-  const audioEvent = useMemo(() => {
-    let current = null;
-    for (const event of audioEvents) {
-      if (event.offsetMs > positionMs) break;
-      const duration = Math.max(250, Number(event.payload?.durationMs) || 30_000);
-      if (positionMs <= event.offsetMs + duration + 500) current = event;
+  const seekReplayTo = useCallback((rawPositionMs) => {
+    const nextPosition = Math.min(durationMs, Math.max(0, Number(rawPositionMs) || 0));
+    positionRef.current = nextPosition;
+    endedAudioEventIdRef.current = '';
+    seekSequenceRef.current += 1;
+    setSeekSequence(seekSequenceRef.current);
+    setAudioBuffering(false);
+    setPositionMs(nextPosition);
+  }, [durationMs]);
+
+  const handleAudioEnded = useCallback((slot, entry, audio) => {
+    const clock = audioClockRef.current;
+    if (!entry || clock.slot !== slot || clock.event?.id !== entry.event?.id) return;
+    endedAudioEventIdRef.current = entry.event.id;
+    setAudioBuffering(false);
+    const recordedDuration = getReplayAudioDurationMs(entry.event);
+    const actualDuration = Number.isFinite(audio?.duration) && audio.duration > 0
+      ? audio.duration * 1000
+      : recordedDuration;
+    const actualEnd = Number(entry.event.offsetMs) + actualDuration;
+    const nextPosition = Math.min(durationMs, Math.max(positionRef.current, actualEnd));
+    positionRef.current = nextPosition;
+    setPositionMs(nextPosition);
+    if (nextPosition >= durationMs) setPlaying(false);
+  }, [durationMs]);
+
+  const handleAudioUnavailable = useCallback((slot, entry) => {
+    const clock = audioClockRef.current;
+    if (!entry || clock.slot !== slot || clock.event?.id !== entry.event?.id) return;
+    endedAudioEventIdRef.current = entry.event.id;
+    audioRefs.current[slot]?.pause();
+    setAudioBuffering(false);
+    const nextPosition = Math.min(
+      durationMs,
+      Math.max(positionRef.current, Number(entry.event.offsetMs) || 0)
+    );
+    positionRef.current = nextPosition;
+    setPositionMs(nextPosition);
+    if (nextPosition >= durationMs) setPlaying(false);
+  }, [durationMs]);
+
+  /* eslint-disable react-hooks/immutability -- HTMLMediaElement playback is an imperative browser API synchronized by these effects. */
+  useEffect(() => {
+    audioRefs.current.forEach((audio) => {
+      if (!audio) return;
+      audio.playbackRate = speed;
+      audio.muted = audioMuted;
+    });
+  }, [audioMuted, speed]);
+
+  useEffect(() => {
+    const entry = activeAudioSlot >= 0 ? audioSlots[activeAudioSlot] : null;
+    const audio = activeAudioSlot >= 0 ? audioRefs.current[activeAudioSlot] : null;
+    if (!audio || !audioSource || !audioEvent || entry?.event?.id !== audioEvent.id) return undefined;
+    if (endedAudioEventIdRef.current === audioEvent.id) return undefined;
+    if (endedAudioEventIdRef.current !== audioEvent.id) endedAudioEventIdRef.current = '';
+    let cancelled = false;
+    let waitingForSeek = false;
+
+    const handlePlayFailure = (error) => {
+      if (cancelled) return;
+      const clock = audioClockRef.current;
+      if (clock.slot !== activeAudioSlot || clock.event?.id !== audioEvent.id) return;
+      if (endedAudioEventIdRef.current === audioEvent.id) return;
+      setAudioBuffering(false);
+      if (error?.name === 'NotAllowedError' || error?.name === 'AbortError') {
+        setPlaying(false);
+      } else {
+        handleAudioUnavailable(activeAudioSlot, entry);
+      }
+    };
+    const resumeAfterSeek = () => {
+      waitingForSeek = false;
+      if (cancelled || !playingRef.current) return;
+      const clock = audioClockRef.current;
+      if (clock.slot !== activeAudioSlot || clock.event?.id !== audioEvent.id) return;
+      if (endedAudioEventIdRef.current === audioEvent.id) return;
+      const playPromise = audio.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(handlePlayFailure);
+      }
+    };
+    const applyPosition = () => {
+      if (cancelled) return;
+      const clock = audioClockRef.current;
+      if (clock.slot !== activeAudioSlot || clock.event?.id !== audioEvent.id) return;
+      const desiredTime = Math.max(0, (positionRef.current - Number(audioEvent.offsetMs)) / 1000);
+      waitingForSeek = true;
+      audio.addEventListener('seeked', resumeAfterSeek, { once: true });
+      try {
+        audio.currentTime = Number.isFinite(audio.duration)
+          ? Math.min(desiredTime, Math.max(0, audio.duration - 0.02))
+          : desiredTime;
+      } catch {
+        audio.removeEventListener('seeked', resumeAfterSeek);
+        waitingForSeek = false;
+        resumeAfterSeek();
+        return;
+      }
+      if (!audio.seeking) {
+        audio.removeEventListener('seeked', resumeAfterSeek);
+        waitingForSeek = false;
+        resumeAfterSeek();
+      }
+    };
+
+    if (audio.readyState >= 1) applyPosition();
+    else audio.addEventListener('loadedmetadata', applyPosition, { once: true });
+    return () => {
+      cancelled = true;
+      audio.removeEventListener('loadedmetadata', applyPosition);
+      if (waitingForSeek) audio.removeEventListener('seeked', resumeAfterSeek);
+    };
+  }, [activeAudioSlot, audioEvent, audioSlots, audioSource, handleAudioUnavailable, seekSequence]);
+
+  useEffect(() => {
+    audioRefs.current.forEach((audio, slot) => {
+      if (audio && slot !== activeAudioSlot) audio.pause();
+    });
+    const entry = activeAudioSlot >= 0 ? audioSlots[activeAudioSlot] : null;
+    const audio = activeAudioSlot >= 0 ? audioRefs.current[activeAudioSlot] : null;
+    if (!audio || !audioSource || !audioEvent || entry?.event?.id !== audioEvent.id) return undefined;
+    if (endedAudioEventIdRef.current === audioEvent.id) {
+      audio.pause();
+      return undefined;
     }
-    return current;
-  }, [audioEvents, positionMs]);
-  const audioSource = audioEvent
-    ? (audioEvent.payload?.audioId
-      ? api.getLessonReplayAudioUrl(
-        replay?.occurrence?.studentId,
-        replay?.occurrence?.key,
-        audioEvent.payload.audioId
-      )
-      : resolveAuthenticatedUploadsUrl(audioEvent.payload?.playbackUrl || audioEvent.payload?.url))
-    : '';
+    if (!playing) {
+      audio.pause();
+      return undefined;
+    }
+    if (audio.readyState < 1 || audio.seeking) return undefined;
+    let cancelled = false;
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch((error) => {
+        if (cancelled) return;
+        const clock = audioClockRef.current;
+        if (clock.slot !== activeAudioSlot || clock.event?.id !== audioEvent.id) return;
+        if (endedAudioEventIdRef.current === audioEvent.id) return;
+        setAudioBuffering(false);
+        if (error?.name === 'NotAllowedError' || error?.name === 'AbortError') {
+          setPlaying(false);
+        } else {
+          handleAudioUnavailable(activeAudioSlot, entry);
+        }
+      });
+    }
+    return () => { cancelled = true; };
+  }, [activeAudioSlot, audioEvent, audioSlots, audioSource, handleAudioUnavailable, playing]);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !audioSource || !audioEvent) return;
-    audio.playbackRate = speed;
-    audio.muted = audioMuted;
-    const desiredTime = Math.max(0, (positionRef.current - audioEvent.offsetMs) / 1000);
-    if (Number.isFinite(audio.duration)) audio.currentTime = Math.min(desiredTime, Math.max(0, audio.duration - 0.05));
-    else audio.currentTime = desiredTime;
-    if (playing) audio.play().catch(() => undefined);
-    else audio.pause();
-  }, [audioEvent, audioMuted, audioSource, playing, speed]);
+    if (!playing || activeAudioSlot < 0 || !audioEvent || !audioSource) return undefined;
+    const entry = audioSlots[activeAudioSlot];
+    const audio = audioRefs.current[activeAudioSlot];
+    if (
+      !entry
+      || !audio
+      || entry.event?.id !== audioEvent.id
+      || endedAudioEventIdRef.current === audioEvent.id
+      || (!audioBuffering && audio.readyState >= 2)
+    ) {
+      return undefined;
+    }
+    setAudioBuffering(true);
+    const eventId = audioEvent.id;
+    const timerId = window.setTimeout(() => {
+      const clock = audioClockRef.current;
+      const currentAudio = audioRefs.current[activeAudioSlot];
+      if (
+        !playingRef.current
+        || clock.slot !== activeAudioSlot
+        || clock.event?.id !== eventId
+        || (!audioBuffering && currentAudio && currentAudio.readyState >= 2)
+      ) return;
+      handleAudioUnavailable(activeAudioSlot, entry);
+    }, AUDIO_LOAD_TIMEOUT_MS);
+    return () => window.clearTimeout(timerId);
+  }, [activeAudioSlot, audioBuffering, audioEvent, audioSlots, audioSource, handleAudioUnavailable, playing, seekSequence]);
+  /* eslint-enable react-hooks/immutability */
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !audioSource || !audioEvent) return;
-    const desiredTime = Math.max(0, (positionMs - audioEvent.offsetMs) / 1000);
-    if (Math.abs(audio.currentTime - desiredTime) > 0.8) audio.currentTime = desiredTime;
-  }, [audioEvent, audioSource, positionMs]);
+    if (!playing || typeof window === 'undefined') return undefined;
+    lastFrameAtRef.current = performance.now();
+    const tick = (now) => {
+      const delta = Math.max(0, now - lastFrameAtRef.current) * speed;
+      lastFrameAtRef.current = now;
+      const clock = audioClockRef.current;
+      const audio = clock.slot >= 0 ? audioRefs.current[clock.slot] : null;
+      const audioEnded = Boolean(
+        clock.event?.id
+        && endedAudioEventIdRef.current === clock.event.id
+      );
+      const audioCanDriveClock = Boolean(
+        clock.event
+        && audio
+        && !audioEnded
+        && !audio.paused
+        && !audio.ended
+        && !audio.seeking
+        && audio.readyState >= 2
+      );
+      let next;
+      if (audioCanDriveClock) {
+        next = Number(clock.event.offsetMs) + (Math.max(0, audio.currentTime) * 1000);
+        if (
+          Number.isFinite(clock.nextAudioStart)
+          && clock.nextAudioStart > Number(clock.event.offsetMs)
+          && next >= clock.nextAudioStart
+        ) next = clock.nextAudioStart;
+      } else if (clock.event && !audioEnded) {
+        // The audio element is loading or stalled. Keep board/code on the same
+        // sample instead of skipping speech to catch a wall-clock timeline.
+        next = positionRef.current;
+      } else {
+        next = positionRef.current + delta;
+        const boundary = clock.event ? clock.nextAudioStart : clock.upcomingAudioStart;
+        if (
+          Number.isFinite(boundary)
+          && boundary > positionRef.current
+          && next >= boundary
+        ) next = boundary;
+      }
+      next = Math.min(durationMs, Math.max(0, next));
+      positionRef.current = next;
+      const reachedAudioBoundary = next === clock.nextAudioStart || next === clock.upcomingAudioStart;
+      if (next >= durationMs || reachedAudioBoundary || now - lastRenderedAtRef.current >= 80) {
+        lastRenderedAtRef.current = now;
+        setPositionMs(next);
+      }
+      if (next >= durationMs) { setPlaying(false); return; }
+      frameRef.current = window.requestAnimationFrame(tick);
+    };
+    frameRef.current = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameRef.current);
+  }, [durationMs, playing, speed]);
 
   const markers = events.length <= 120 ? events : events.filter((_, index) => index % Math.ceil(events.length / 120) === 0);
   const currentEvent = mode === 'free' ? state.current : (followedState.current || state.current);
@@ -621,12 +972,17 @@ const LessonReplayPlayer = ({ replay }) => {
   if (events.length === 0) return null;
 
   const togglePlaying = () => {
-    if (positionRef.current >= durationMs) { positionRef.current = 0; setPositionMs(0); }
+    if (positionRef.current >= durationMs) seekReplayTo(0);
     setPlaying((current) => !current);
   };
 
   return (
-    <section className="lesson-replay-player" aria-label="Воспроизведение хода занятия">
+    <section
+      ref={playerRef}
+      className={`lesson-replay-player${isFullscreen ? ' is-fullscreen' : ''}${isFallbackFullscreen ? ' is-fullscreen-fallback' : ''}`}
+      data-fullscreen-mode={isNativeFullscreen ? 'native' : (isFallbackFullscreen ? 'fallback' : 'inline')}
+      aria-label="Воспроизведение хода занятия"
+    >
       <header className="lesson-replay-player__header">
         <span className="lesson-replay-player__icon"><Play size={17} fill="currentColor" /></span>
         <div><span>Ход занятия</span><strong>Воспроизведение урока</strong></div>
@@ -637,9 +993,52 @@ const LessonReplayPlayer = ({ replay }) => {
           disabled={audioEvents.length === 0}
         >
           {audioEvents.length > 0 && !audioMuted ? <Volume2 size={14} /> : <VolumeX size={14} />}
-          {audioEvents.length > 0 ? (audioMuted ? 'Звук выключен' : 'Со звуком') : 'Без звука'}
+          {audioEvents.length > 0
+            ? (audioEvent && audioBuffering && playing ? 'Загрузка звука…' : (audioMuted ? 'Звук выключен' : 'Со звуком'))
+            : 'Без звука'}
         </button>
-        {audioSource && <audio ref={audioRef} key={audioSource} src={audioSource} preload="metadata" />}
+        <div className="lesson-replay-player__audio-elements" aria-hidden="true">
+          {audioSlots.map((entry, slot) => (
+            <audio
+              key={`lesson-replay-audio-slot-${slot}`}
+              ref={(node) => { audioRefs.current[slot] = node; }}
+              src={entry?.source || undefined}
+              preload="auto"
+              muted={audioMuted}
+              onWaiting={() => {
+                if (audioClockRef.current.slot === slot && playing) setAudioBuffering(true);
+              }}
+              onStalled={() => {
+                if (audioClockRef.current.slot === slot && playing) setAudioBuffering(true);
+              }}
+              onSeeking={() => {
+                if (audioClockRef.current.slot === slot && playing) setAudioBuffering(true);
+              }}
+              onCanPlay={() => {
+                if (audioClockRef.current.slot === slot) setAudioBuffering(false);
+              }}
+              onPlaying={() => {
+                if (audioClockRef.current.slot === slot) setAudioBuffering(false);
+              }}
+              onEnded={(event) => handleAudioEnded(slot, entry, event.currentTarget)}
+              onError={() => {
+                if (audioClockRef.current.slot !== slot) return;
+                handleAudioUnavailable(slot, entry);
+              }}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          className="lesson-replay-player__fullscreen"
+          onClick={toggleFullscreen}
+          aria-label={isFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть запись на весь экран'}
+          aria-pressed={isFullscreen}
+          title={isFullscreen ? 'Выйти из полноэкранного режима' : 'На весь экран'}
+        >
+          {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          <span>{isFullscreen ? 'Свернуть' : 'На весь экран'}</span>
+        </button>
       </header>
 
       <div className="lesson-replay-player__viewbar">
@@ -685,7 +1084,7 @@ const LessonReplayPlayer = ({ replay }) => {
           max={Math.max(1, Math.round(durationMs))}
           step="100"
           value={Math.min(durationMs, Math.round(positionMs))}
-          onChange={(event) => { const next = Number(event.target.value) || 0; positionRef.current = next; setPositionMs(next); }}
+          onChange={(event) => seekReplayTo(event.target.value)}
           aria-label="Позиция воспроизведения"
         />
       </div>
@@ -694,7 +1093,7 @@ const LessonReplayPlayer = ({ replay }) => {
         <button type="button" className="lesson-replay-player__play" onClick={togglePlaying} aria-label={playing ? 'Пауза' : 'Воспроизвести'}>
           {playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}<span>{playing ? 'Пауза' : 'Смотреть'}</span>
         </button>
-        <button type="button" className="lesson-replay-player__restart" onClick={() => { positionRef.current = 0; setPositionMs(0); setPlaying(false); }} aria-label="В начало"><RotateCcw size={16} /></button>
+        <button type="button" className="lesson-replay-player__restart" onClick={() => { seekReplayTo(0); setPlaying(false); }} aria-label="В начало"><RotateCcw size={16} /></button>
         <span className="lesson-replay-player__time">{formatClock(positionMs)} <em>/</em> {formatClock(durationMs)}</span>
         <div className="lesson-replay-player__speeds" role="group" aria-label="Скорость воспроизведения">
           {[1, 2, 4].map((value) => <button key={value} type="button" className={speed === value ? 'is-active' : ''} aria-pressed={speed === value} onClick={() => setSpeed(value)}>{value}×</button>)}

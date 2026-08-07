@@ -1588,10 +1588,11 @@ export const api = {
       `/api/lesson-replay/audio/${encodeURIComponent(String(audioId || '').trim())}?${params.toString()}`
     );
   },
-  prepareLessonReplayAudioSegment: async (sessionId, metadata = {}) => {
+  prepareLessonReplayAudioSegment: async (sessionId, metadata = {}, options = {}) => {
     const res = await apiFetch('/api/lesson-replay/audio/prepare', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: options?.signal,
       body: JSON.stringify({
         sessionId: String(sessionId || '').trim(),
         mimeType: String(metadata?.mimeType || '').trim(),
@@ -1607,15 +1608,16 @@ export const api = {
     }
     return parseJsonResponse(res);
   },
-  uploadPreparedLessonReplayAudioSegment: async (audioId, blob, metadata = {}) => {
+  uploadPreparedLessonReplayAudioSegment: async (audioId, blob, metadata = {}, options = {}) => {
     const res = await apiFetch(
       `/api/lesson-replay/audio/upload/${encodeURIComponent(String(audioId || '').trim())}`,
       {
         method: 'PUT',
-        headers: {
-          'Content-Type': String(metadata?.mimeType || blob?.type || 'audio/webm;codecs=opus'),
-        },
-        body: blob,
+         headers: {
+            'Content-Type': String(metadata?.mimeType || blob?.type || 'audio/webm;codecs=opus'),
+          },
+          signal: options?.signal,
+          body: blob,
       }
     );
     if (!res.ok) {
@@ -1625,10 +1627,11 @@ export const api = {
     }
     return parseJsonResponse(res);
   },
-  completeLessonReplayAudioSegment: async (audioId) => {
+  completeLessonReplayAudioSegment: async (audioId, options = {}) => {
     const res = await apiFetch('/api/lesson-replay/audio/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: options?.signal,
       body: JSON.stringify({ audioId: String(audioId || '').trim() }),
     });
     if (!res.ok) {

@@ -119,6 +119,7 @@ import {
   normalizePushErrorMessage,
 } from './utils/push';
 import { getCollabWsUrl, getNotificationsWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
+import { createSegmentedAudioRecorder } from './utils/segmentedAudioRecorder';
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
 import useWorkbookHelper from './hooks/useWorkbookHelper';
@@ -15295,6 +15296,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [telemostLessonFinishBusy, setTelemostLessonFinishBusy] = useState(false);
   const [telemostAudioCapture, setTelemostAudioCapture] = useState({ status: 'idle', message: '' });
   const telemostAudioCaptureRef = useRef(null);
+  const telemostAudioCaptureStartGenerationRef = useRef(0);
+  const telemostAudioCaptureStartingRef = useRef(0);
   const telemostLessonActivityMissesRef = useRef(0);
   const [callAutoStartToken, setCallAutoStartToken] = useState(0);
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
@@ -15512,35 +15515,43 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   });
 
   const stopTelemostAudioCapture = useCallback(() => {
+    telemostAudioCaptureStartGenerationRef.current += 1;
+    telemostAudioCaptureStartingRef.current = 0;
     const capture = telemostAudioCaptureRef.current;
-    telemostAudioCaptureRef.current = null;
     if (!capture) {
       setTelemostAudioCapture({ status: 'idle', message: '' });
       return Promise.resolve();
     }
+    if (capture.stopPromise) return capture.stopPromise;
     capture.cancelled = true;
-    window.clearTimeout(capture.stopTimerId);
-    if (capture.recorder?.state === 'recording') {
-      try { capture.recorder.stop(); } catch {
-        // The recorder may already have stopped between the state check and this call.
-        capture.closeGraph?.();
-      }
-    } else {
-      capture.closeGraph?.();
-    }
     setTelemostAudioCapture({ status: 'idle', message: '' });
-    return capture.stopPromise || Promise.resolve();
+    capture.stopPromise = (async () => {
+      if (!capture.controller) {
+        capture.closeGraph?.();
+        return;
+      }
+      await capture.controller.stop();
+      capture.closeGraph?.();
+    })().finally(() => {
+      if (telemostAudioCaptureRef.current === capture) telemostAudioCaptureRef.current = null;
+    });
+    return capture.stopPromise;
   }, []);
 
   const startTelemostAudioCapture = useCallback(async () => {
     if (
       !isTelemostLessonReplayActive
       || telemostAudioCaptureRef.current
+      || telemostAudioCaptureStartingRef.current
       || !navigator.mediaDevices?.getDisplayMedia
     ) return;
+    const startGeneration = telemostAudioCaptureStartGenerationRef.current + 1;
+    telemostAudioCaptureStartGenerationRef.current = startGeneration;
+    telemostAudioCaptureStartingRef.current = startGeneration;
     const mimeType = getTelemostReplayAudioMimeType();
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
     if (!mimeType || !AudioContextCtor) {
+      telemostAudioCaptureStartingRef.current = 0;
       setTelemostAudioCapture({
         status: 'error',
         message: 'Этот браузер не умеет записывать звук Телемоста.',
@@ -15561,6 +15572,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         selfBrowserSurface: 'exclude',
         systemAudio: 'include',
       });
+      if (telemostAudioCaptureStartGenerationRef.current !== startGeneration) {
+        displayStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const sharedAudioTracks = displayStream.getAudioTracks();
       if (sharedAudioTracks.length === 0) {
         displayStream.getTracks().forEach((track) => track.stop());
@@ -15577,6 +15592,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         });
       } catch {
         micStream = null;
+      }
+      if (telemostAudioCaptureStartGenerationRef.current !== startGeneration) {
+        displayStream.getTracks().forEach((track) => track.stop());
+        micStream?.getTracks?.().forEach((track) => track.stop());
+        return;
       }
       const audioContext = new AudioContextCtor();
       const destination = audioContext.createMediaStreamDestination();
@@ -15602,15 +15622,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         audioContext,
         destination,
         sources,
-        recorder: null,
-        stopTimerId: null,
+        controller: null,
         closeGraph: null,
         stopPromise: null,
-        resolveStopped: null,
       };
-      capture.stopPromise = new Promise((resolve) => {
-        capture.resolveStopped = resolve;
-      });
       capture.closeGraph = () => {
         if (capture.closed) return;
         capture.closed = true;
@@ -15625,54 +15640,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           }
         });
         capture.audioContext.close().catch(() => null);
-        capture.resolveStopped?.();
-        capture.resolveStopped = null;
-      };
-      const startSegment = () => {
-        if (capture.cancelled || capture.blocked) {
-          capture.closeGraph();
-          return;
-        }
-        const chunks = [];
-        const segmentStartedAt = Date.now();
-        capture.recorder = new MediaRecorder(destination.stream, {
-          mimeType,
-          audioBitsPerSecond: TELEMOST_AUDIO_BITRATE,
-        });
-        capture.recorder.ondataavailable = (event) => {
-          if (event.data?.size > 0) chunks.push(event.data);
-        };
-        capture.recorder.onstop = () => {
-          window.clearTimeout(capture.stopTimerId);
-          const durationMs = Math.max(250, Date.now() - segmentStartedAt);
-          const blob = chunks.length > 0 ? new Blob(chunks, { type: mimeType }) : null;
-          capture.recorder = null;
-          const uploadPromise = blob?.size
-            ? uploadLessonReplayAudioSegment(blob, {
-              occurredAt: new Date(segmentStartedAt).toISOString(),
-              durationMs,
-              mimeType,
-            })
-            : Promise.resolve({ saved: false });
-          if (!capture.cancelled && !capture.blocked) {
-            startSegment();
-            void uploadPromise.then((result) => {
-              if (!result?.disabled) return;
-              capture.blocked = true;
-              setTelemostAudioCapture({
-                status: 'error',
-                message: 'Хранилище звука сейчас недоступно или на сервере мало места.',
-              });
-              if (capture.recorder?.state === 'recording') capture.recorder.stop();
-            });
-          } else {
-            void uploadPromise.finally(() => capture.closeGraph());
-          }
-        };
-        capture.recorder.start();
-        capture.stopTimerId = window.setTimeout(() => {
-          if (capture.recorder?.state === 'recording') capture.recorder.stop();
-        }, TELEMOST_AUDIO_SEGMENT_MS);
       };
       const stopFromBrowser = () => {
         if (telemostAudioCaptureRef.current !== capture) return;
@@ -15683,7 +15650,32 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       });
       telemostAudioCaptureRef.current = capture;
       await audioContext.resume();
-      startSegment();
+      if (
+        capture.cancelled
+        || telemostAudioCaptureStartGenerationRef.current !== startGeneration
+      ) {
+        capture.closeGraph();
+        return;
+      }
+      capture.controller = createSegmentedAudioRecorder({
+        stream: destination.stream,
+        mimeType,
+        audioBitsPerSecond: TELEMOST_AUDIO_BITRATE,
+        segmentMs: TELEMOST_AUDIO_SEGMENT_MS,
+        onSegment: uploadLessonReplayAudioSegment,
+        onDisabled: () => {
+          capture.blocked = true;
+          setTelemostAudioCapture({
+            status: 'error',
+            message: 'Хранилище звука сейчас недоступно или на сервере мало места.',
+          });
+        },
+      });
+      void capture.controller.captureStopped.finally(capture.closeGraph);
+      if (capture.controller.disabled) {
+        if (telemostAudioCaptureRef.current === capture) telemostAudioCaptureRef.current = null;
+        return;
+      }
       setTelemostAudioCapture({
         status: 'recording',
         message: micStream
@@ -15693,11 +15685,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     } catch (error) {
       displayStream?.getTracks?.().forEach((track) => track.stop());
       micStream?.getTracks?.().forEach((track) => track.stop());
+      if (telemostAudioCaptureStartGenerationRef.current !== startGeneration) return;
       const cancelled = error?.name === 'NotAllowedError' || error?.name === 'AbortError';
       setTelemostAudioCapture({
         status: cancelled ? 'idle' : 'error',
         message: cancelled ? '' : 'Не удалось начать запись звука Телемоста.',
       });
+    } finally {
+      if (telemostAudioCaptureStartingRef.current === startGeneration) {
+        telemostAudioCaptureStartingRef.current = 0;
+      }
     }
   }, [
     isTelemostLessonReplayActive,
@@ -15806,8 +15803,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setTelemostLessonFinishBusy(true);
     try {
       await stopTelemostAudioCapture();
-      await api.finishLessonReplayLesson(studentId, telemostLessonReplay?.occurrenceKey || '');
       await finishLessonReplayNow();
+      await api.finishLessonReplayLesson(studentId, telemostLessonReplay?.occurrenceKey || '');
       setTelemostLessonReplay(null);
     } catch (error) {
       console.error('[lesson-replay] failed to finish Telemost lesson:', error);
