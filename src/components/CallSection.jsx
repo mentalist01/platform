@@ -6479,6 +6479,31 @@ const CallSection = ({
                 </>
               )}
 
+              {!isTeacher && isConnected && telemostUrl && (
+                <aside className="call-telemost-fallback" aria-label="Резервный звонок через Яндекс Телемост">
+                  <span className="call-telemost-fallback__icon" aria-hidden="true">
+                    <Signal size={17} />
+                  </span>
+                  <div className="call-telemost-fallback__copy">
+                    <p className="call-telemost-fallback__title">Проблемы со связью?</p>
+                    <p className="call-telemost-fallback__text">
+                      Если не слышно учителя или звонок прерывается, перейдите в Яндекс Телемост. Мы уведомим учителя, чтобы он подключился туда же.
+                    </p>
+                  </div>
+                  <a
+                    href={telemostUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleStudentTelemostOpen}
+                    className="call-telemost-fallback__action"
+                  >
+                    <Video size={16} />
+                    <span>Перейти в Телемост</span>
+                    <ExternalLink size={14} />
+                  </a>
+                </aside>
+              )}
+
               {isConnected && (
                 <div className={`${controlsWrapClass} call-controls-layout call-controls-layout--compact ${sceneStatusClass}`}>
                 <div className="call-controls-group call-controls-group--media">
@@ -6529,19 +6554,6 @@ const CallSection = ({
                   </button>
                 </div>
                 <div className="call-controls-group call-controls-group--utility">
-                  {!isTeacher && telemostUrl && (
-                    <a
-                      href={telemostUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={handleStudentTelemostOpen}
-                      className={`${compactControlButtonClass} ${neutralControlClass}`}
-                      aria-label="Перейти в Телемост"
-                      title="Перейти в Телемост"
-                    >
-                      <Video size={17} />
-                    </a>
-                  )}
                   {showInlineLessonChat && (
                     <button
                       type="button"
