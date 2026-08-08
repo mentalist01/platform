@@ -668,6 +668,7 @@ const ScheduleSection = ({
   const [testsDb, setTestsDb] = useState(null);
   const [testsDbError, setTestsDbError] = useState('');
   const [solvedByKey, setSolvedByKey] = useState({});
+  const [studentSolvedByTask, setStudentSolvedByTask] = useState({});
   const [mockExams, setMockExams] = useState([]);
   const [mockExamsLoading, setMockExamsLoading] = useState(false);
   const [mockExamsError, setMockExamsError] = useState('');
@@ -689,6 +690,7 @@ const ScheduleSection = ({
   const [lessonHistory, setLessonHistory] = useState([]);
   const [lessonHistoryTotal, setLessonHistoryTotal] = useState(0);
   const [lessonReplayStorageTotalBytes, setLessonReplayStorageTotalBytes] = useState(0);
+  const [lessonReplayStorageStatus, setLessonReplayStorageStatus] = useState('ready');
   const [lessonHistoryHasMore, setLessonHistoryHasMore] = useState(false);
   const [lessonHistoryNextOffset, setLessonHistoryNextOffset] = useState(null);
   const [lessonHistoryLoading, setLessonHistoryLoading] = useState(false);
@@ -830,17 +832,23 @@ const ScheduleSection = ({
   const loadStudentProgress = useCallback(async () => {
     if (!effectiveStudentId) {
       setStudentProgress({});
+      setStudentSolvedByTask({});
       return;
     }
     if (role === 'student' && progress && typeof progress === 'object' && Object.keys(progress).length > 0) {
       setStudentProgress(progress);
-      return;
     }
     try {
       const data = await api.getStudentData(requestStudentId);
       setStudentProgress(data?.progress && typeof data.progress === 'object' ? data.progress : {});
+      setStudentSolvedByTask(data?.solvedByTask && typeof data.solvedByTask === 'object'
+        ? data.solvedByTask
+        : {});
     } catch {
-      setStudentProgress({});
+      if (!(role === 'student' && progress && typeof progress === 'object')) {
+        setStudentProgress({});
+      }
+      setStudentSolvedByTask({});
     }
   }, [effectiveStudentId, progress, requestStudentId, role]);
 
@@ -942,6 +950,9 @@ const ScheduleSection = ({
     setHomeworkDraftSaving(false);
     setHomeworkDraftDiscarding(false);
     setHomeworkDraftNotice('');
+    setStudentSolvedByTask({});
+    setLessonReplayStorageTotalBytes(0);
+    setLessonReplayStorageStatus('ready');
   }, [effectiveStudentId]);
 
   useEffect(() => {
@@ -1099,6 +1110,10 @@ const ScheduleSection = ({
       if (studentDataResult.status === 'fulfilled') {
         const nextProgress = studentDataResult.value?.progress;
         setStudentProgress(nextProgress && typeof nextProgress === 'object' ? nextProgress : {});
+        const nextSolvedByTask = studentDataResult.value?.solvedByTask;
+        setStudentSolvedByTask(nextSolvedByTask && typeof nextSolvedByTask === 'object'
+          ? nextSolvedByTask
+          : {});
       }
     } finally {
       if (refreshDataRequestRef.current === requestId) setRefreshingData(false);
@@ -1196,28 +1211,14 @@ const ScheduleSection = ({
       setSolvedByKey({});
       return;
     }
-    let cancelled = false;
-    const loadSolved = async () => {
-      try {
-        const results = await Promise.all(
-          unique.map((item) =>
-            api.getSolvedQuestions(requestStudentId, item.taskNumber, item.levelId).catch(() => [])
-          )
-        );
-        if (cancelled) return;
-        const next = {};
-        unique.forEach((item, idx) => {
-          const list = Array.isArray(results[idx]) ? results[idx] : [];
-          next[item.key] = new Set(list.map((val) => String(val)));
-        });
-        setSolvedByKey(next);
-      } catch {
-        if (!cancelled) setSolvedByKey({});
-      }
-    };
-    loadSolved();
-    return () => { cancelled = true; };
-  }, [effectiveStudentId, homeworks, requestStudentId, solvedRefreshKey]);
+    const next = {};
+    unique.forEach((item) => {
+      const levelEntry = studentSolvedByTask?.[String(item.taskNumber)]?.[String(item.levelId)];
+      const list = Array.isArray(levelEntry?.solved) ? levelEntry.solved : [];
+      next[item.key] = new Set(list.map((value) => String(value)));
+    });
+    setSolvedByKey(next);
+  }, [effectiveStudentId, homeworks, solvedRefreshKey, studentSolvedByTask]);
 
   useEffect(() => {
     if (!effectiveStudentId) {
@@ -1533,7 +1534,14 @@ const ScheduleSection = ({
               <HardDrive size={15} className="text-violet-600" />
               Все записи ученика
             </span>
-            <strong className="text-sm text-violet-700">{formatLessonReplayStorageBytes(lessonReplayStorageTotalBytes)}</strong>
+            {lessonReplayStorageStatus === 'indexing' ? (
+              <strong className="inline-flex items-center gap-1.5 text-sm text-violet-700">
+                <RefreshCcw size={13} className="animate-spin" />
+                Считаем размер…
+              </strong>
+            ) : (
+              <strong className="text-sm text-violet-700">{formatLessonReplayStorageBytes(lessonReplayStorageTotalBytes)}</strong>
+            )}
           </div>
         )}
         {lessonHistoryLoading && lessonHistory.length === 0 ? (
@@ -2114,7 +2122,7 @@ const ScheduleSection = ({
     if (!['student', 'teacher'].includes(role) || !showLessonHistory || !effectiveStudentId) return undefined;
     let cancelled = false;
     setLessonHistoryLoading(true);
-    if (role === 'teacher') setLessonReplayStorageTotalBytes(0);
+    if (role === 'teacher') setLessonReplayStorageStatus('indexing');
     setLessonHistoryError('');
     setLessonHistoryErrorMode('');
     api.getLessonHistory(requestStudentId, { limit: LESSON_HISTORY_PAGE_SIZE, offset: 0 })
@@ -2123,9 +2131,16 @@ const ScheduleSection = ({
         const items = Array.isArray(data?.items) ? data.items : [];
         setLessonHistory(items);
         setLessonHistoryTotal(Number.isFinite(Number(data?.total)) ? Number(data.total) : items.length);
-        setLessonReplayStorageTotalBytes(role === 'teacher'
-          ? Math.max(0, Number(data?.replayStorageTotalBytes) || 0)
-          : 0);
+        if (role === 'teacher') {
+          const storageStatus = data?.replayStorageStatus === 'indexing' ? 'indexing' : 'ready';
+          setLessonReplayStorageStatus(storageStatus);
+          if (storageStatus === 'ready') {
+            setLessonReplayStorageTotalBytes(Math.max(0, Number(data?.replayStorageTotalBytes) || 0));
+          }
+        } else {
+          setLessonReplayStorageStatus('ready');
+          setLessonReplayStorageTotalBytes(0);
+        }
         setLessonHistoryHasMore(Boolean(data?.hasMore));
         setLessonHistoryNextOffset(data?.nextOffset !== null && Number.isFinite(Number(data?.nextOffset))
           ? Number(data.nextOffset)
@@ -2134,6 +2149,7 @@ const ScheduleSection = ({
       })
       .catch((loadError) => {
         if (cancelled) return;
+        if (role === 'teacher') setLessonReplayStorageStatus('ready');
         setLessonHistoryError(loadError?.message || 'Не удалось загрузить историю занятий');
         setLessonHistoryErrorMode('initial');
       })
@@ -2142,6 +2158,19 @@ const ScheduleSection = ({
       });
     return () => { cancelled = true; };
   }, [effectiveStudentId, lessonHistoryReloadKey, lessonTopicsRefreshKey, requestStudentId, role, showLessonHistory]);
+
+  useEffect(() => {
+    if (
+      role !== 'teacher'
+      || !showLessonHistory
+      || !effectiveStudentId
+      || lessonReplayStorageStatus !== 'indexing'
+    ) return undefined;
+    const timer = setTimeout(() => {
+      setLessonHistoryReloadKey((value) => value + 1);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [effectiveStudentId, lessonHistoryReloadKey, lessonReplayStorageStatus, role, showLessonHistory]);
 
   const handleLoadMoreLessonHistory = useCallback(async () => {
     if (lessonHistoryLoadingMore || !lessonHistoryHasMore || lessonHistoryNextOffset === null || !Number.isFinite(Number(lessonHistoryNextOffset))) return;
@@ -2163,7 +2192,11 @@ const ScheduleSection = ({
       });
       setLessonHistoryTotal(Number.isFinite(Number(data?.total)) ? Number(data.total) : lessonHistoryTotal);
       if (role === 'teacher') {
-        setLessonReplayStorageTotalBytes(Math.max(0, Number(data?.replayStorageTotalBytes) || 0));
+        const storageStatus = data?.replayStorageStatus === 'indexing' ? 'indexing' : 'ready';
+        setLessonReplayStorageStatus(storageStatus);
+        if (storageStatus === 'ready') {
+          setLessonReplayStorageTotalBytes(Math.max(0, Number(data?.replayStorageTotalBytes) || 0));
+        }
       }
       setLessonHistoryHasMore(Boolean(data?.hasMore));
       setLessonHistoryNextOffset(data?.nextOffset !== null && Number.isFinite(Number(data?.nextOffset))

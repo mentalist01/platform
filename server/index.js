@@ -97,6 +97,7 @@ import {
   createLessonReplay,
   normalizeLessonReplay,
   summarizeLessonReplay,
+  summarizeLessonReplayStorage,
 } from './lessonReplay.js';
 import {
   mergeLessonReplayStorageEntry,
@@ -192,8 +193,12 @@ const lessonReplayAudioUploadTickets = new Map();
 const lessonReplayStorageSummaryCacheByOccurrenceKey = new Map();
 const lessonReplayStorageIndexByHash = new Map();
 const lessonReplayStorageReconciledHashes = new Set();
+const lessonReplayStorageReconcileQueue = [];
+const lessonReplayStorageQueuedHashes = new Set();
 let lessonReplayStorageIndexPersistTimer = null;
 let lessonReplayStorageIndexDirty = false;
+let lessonReplayStorageReconcileTimer = null;
+let lessonReplayStorageReconcileRunning = false;
 const workbookHelperLaunchTickets = new Map();
 const workbookHelperExchangeAttempts = new Map();
 const workbookHelperContentAttempts = new Map();
@@ -2101,26 +2106,6 @@ const getLessonReplayAudioLocalFilePath = (occurrenceKey, audioId, mimeType) => 
   );
 };
 
-const getLessonReplayAudioFolderUsage = (occurrenceKey) => {
-  const folderPath = getLessonReplayAudioFolderPath(occurrenceKey);
-  let entries = [];
-  try {
-    entries = fs.readdirSync(folderPath, { withFileTypes: true });
-  } catch {
-    return { count: 0, bytes: 0 };
-  }
-  return entries.reduce((usage, entry) => {
-    if (!entry.isFile() || !/\.(?:webm|ogg|m4a)$/i.test(entry.name)) return usage;
-    try {
-      usage.count += 1;
-      usage.bytes += Math.max(0, Number(fs.statSync(path.join(folderPath, entry.name)).size) || 0);
-    } catch {
-      // Ignore a segment that disappeared while the folder was inspected.
-    }
-    return usage;
-  }, { count: 0, bytes: 0 });
-};
-
 const hasLessonReplayAudioDiskCapacity = (requiredBytes = 0) => {
   if (typeof fs.statfsSync !== 'function') return true;
   try {
@@ -2161,24 +2146,113 @@ const getLessonReplaySnapshotPath = (occurrenceKey, snapshotId, mimeType) => {
   );
 };
 
-const getLessonReplaySnapshotFolderUsage = (occurrenceKey) => {
-  const folderPath = getLessonReplaySnapshotFolderPath(occurrenceKey);
+const getLessonReplayFolderUsageAsync = async (folderPath, filePattern) => {
   let entries = [];
   try {
-    entries = fs.readdirSync(folderPath, { withFileTypes: true });
+    entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
   } catch {
     return { count: 0, bytes: 0 };
   }
-  return entries.reduce((usage, entry) => {
-    if (!entry.isFile() || !/\.(?:webp|jpe?g)$/i.test(entry.name)) return usage;
+  const files = entries.filter((entry) => entry.isFile() && filePattern.test(entry.name));
+  let bytes = 0;
+  for (const entry of files) {
     try {
-      usage.count += 1;
-      usage.bytes += Math.max(0, Number(fs.statSync(path.join(folderPath, entry.name)).size) || 0);
+      const stats = await fs.promises.stat(path.join(folderPath, entry.name));
+      bytes += Math.max(0, Number(stats.size) || 0);
     } catch {
-      // Ignore a frame that disappeared while the folder was inspected.
+      // Ignore a file that disappeared while the folder was inspected.
     }
-    return usage;
-  }, { count: 0, bytes: 0 });
+  }
+  return {
+    count: files.length,
+    bytes,
+  };
+};
+
+const getLessonReplayCompressedBytesAsync = async (occurrenceKey) => {
+  for (const candidate of [
+    getLessonReplayFilePath(occurrenceKey),
+    getLessonReplayBackupFilePath(occurrenceKey),
+  ]) {
+    try {
+      const stats = await fs.promises.stat(candidate);
+      return Math.max(0, Number(stats.size) || 0);
+    } catch {
+      // Try the backup or report an unknown size.
+    }
+  }
+  return 0;
+};
+
+const reconcileLessonReplayStorageSummary = async (occurrenceKey) => {
+  const normalizedKey = String(occurrenceKey || '').trim();
+  if (!normalizedKey) return null;
+  const occurrenceHash = getLessonReplayOccurrenceHash(normalizedKey);
+  const [dataBytes, snapshotUsage, audioUsage] = await Promise.all([
+    getLessonReplayCompressedBytesAsync(normalizedKey),
+    getLessonReplayFolderUsageAsync(
+      getLessonReplaySnapshotFolderPath(normalizedKey),
+      /\.(?:webp|jpe?g)$/i
+    ),
+    getLessonReplayFolderUsageAsync(
+      getLessonReplayAudioFolderPath(normalizedKey),
+      /\.(?:webm|ogg|m4a)$/i
+    ),
+  ]);
+  const latestIndexed = lessonReplayStorageIndexByHash.get(occurrenceHash);
+  lessonReplayStorageReconciledHashes.add(occurrenceHash);
+  return updateLessonReplayStorageIndex(normalizedKey, {
+    dataBytes: Math.max(dataBytes, Number(latestIndexed?.dataBytes) || 0),
+    snapshotBytes: Math.max(snapshotUsage.bytes, Number(latestIndexed?.snapshotBytes) || 0),
+    audioBytes: Math.max(audioUsage.bytes, Number(latestIndexed?.audioBytes) || 0),
+  });
+};
+
+const drainLessonReplayStorageReconcileQueue = async () => {
+  if (lessonReplayStorageReconcileRunning) return;
+  const next = lessonReplayStorageReconcileQueue.shift();
+  if (!next) return;
+  lessonReplayStorageReconcileRunning = true;
+  try {
+    await reconcileLessonReplayStorageSummary(next.occurrenceKey);
+  } catch (error) {
+    console.warn('[lesson-replay] failed to index stored media:', error?.message || error);
+  } finally {
+    lessonReplayStorageQueuedHashes.delete(next.hash);
+    lessonReplayStorageReconcileRunning = false;
+    lessonReplayStorageReconcileTimer = setTimeout(() => {
+      lessonReplayStorageReconcileTimer = null;
+      void drainLessonReplayStorageReconcileQueue();
+    }, 25);
+    if (typeof lessonReplayStorageReconcileTimer.unref === 'function') {
+      lessonReplayStorageReconcileTimer.unref();
+    }
+  }
+};
+
+const queueLessonReplayStorageReconciliation = (occurrenceKey, options = {}) => {
+  const normalizedKey = String(occurrenceKey || '').trim();
+  if (!normalizedKey) return false;
+  const hash = getLessonReplayOccurrenceHash(normalizedKey);
+  if (
+    lessonReplayStorageIndexByHash.has(hash)
+    || lessonReplayStorageReconciledHashes.has(hash)
+    || lessonReplayStorageQueuedHashes.has(hash)
+  ) return false;
+  lessonReplayStorageQueuedHashes.add(hash);
+  const item = { occurrenceKey: normalizedKey, hash };
+  if (options.priority === true) lessonReplayStorageReconcileQueue.unshift(item);
+  else lessonReplayStorageReconcileQueue.push(item);
+  if (!lessonReplayStorageReconcileRunning && !lessonReplayStorageReconcileTimer) {
+    lessonReplayStorageReconcileTimer = setTimeout(() => {
+      lessonReplayStorageReconcileTimer = null;
+      void drainLessonReplayStorageReconcileQueue();
+    }, 0);
+    if (typeof lessonReplayStorageReconcileTimer.unref === 'function') {
+      lessonReplayStorageReconcileTimer.unref();
+    }
+  }
+  return true;
 };
 
 const ensureLessonReplaySnapshotCapacity = (requiredBytes, protectedOccurrenceKey = '') => {
@@ -2354,14 +2428,15 @@ const persistLessonReplay = (normalized) => {
     }
   }
   const occurrenceHash = getLessonReplayOccurrenceHash(normalized.occurrence.key);
-  if (!lessonReplayStorageReconciledHashes.has(occurrenceHash)) {
-    // A legacy lesson may already have snapshots or audio. Backfill all counters
-    // before applying a partial data-size update so those bytes are never lost.
-    getLessonReplayStorageSummary(normalized.occurrence.key);
-  }
-  updateLessonReplayStorageIndex(normalized.occurrence.key, {
-    dataBytes: compressed.length,
-  });
+  const existingStorage = lessonReplayStorageIndexByHash.get(occurrenceHash);
+  const replayStorage = existingStorage
+    ? { dataBytes: compressed.length }
+    : summarizeLessonReplayStorage(normalized, {
+        normalized: true,
+        dataBytes: compressed.length,
+      });
+  updateLessonReplayStorageIndex(normalized.occurrence.key, replayStorage);
+  lessonReplayStorageReconciledHashes.add(occurrenceHash);
   const elapsedMs = Date.now() - startedAt;
   if (elapsedMs >= 200) {
     console.warn(`[perf] lesson replay persist took ${elapsedMs}ms (${raw.length} raw, ${compressed.length} gzip)`);
@@ -2451,41 +2526,21 @@ const getLessonReplaySummary = (occurrenceKey, replayOverride = null) => {
   return summarizeLessonReplay(replay, compressedBytes, { normalized: true });
 };
 
-const getLessonReplayStorageSummary = (occurrenceKey) => {
+const getLessonReplayStorageSummary = (occurrenceKey, options = {}) => {
   const normalizedKey = String(occurrenceKey || '').trim();
   if (!normalizedKey) return null;
   const occurrenceHash = getLessonReplayOccurrenceHash(normalizedKey);
-  if (
-    lessonReplayStorageReconciledHashes.has(occurrenceHash)
-    && lessonReplayStorageSummaryCacheByOccurrenceKey.has(normalizedKey)
-  ) {
+  if (lessonReplayStorageSummaryCacheByOccurrenceKey.has(normalizedKey)) {
     return lessonReplayStorageSummaryCacheByOccurrenceKey.get(normalizedKey);
   }
   const indexed = lessonReplayStorageIndexByHash.get(occurrenceHash);
-
-  // Reconcile once per process from file metadata. This repairs a sidecar that
-  // was not flushed before a restart, without inflating multi-megabyte replays.
-  const dataBytes = getLessonReplayCompressedBytes(normalizedKey);
-  const snapshotUsage = getLessonReplaySnapshotFolderUsage(normalizedKey);
-  const audioUsage = getLessonReplayAudioFolderUsage(normalizedKey);
-  const audioBytes = lessonReplayAudioS3
-    ? Math.max(audioUsage.bytes, Number(indexed?.audioBytes) || 0)
-    : audioUsage.bytes;
-  lessonReplayStorageReconciledHashes.add(occurrenceHash);
-  if (dataBytes <= 0 && snapshotUsage.bytes <= 0 && audioBytes <= 0) {
-    if (lessonReplayStorageIndexByHash.delete(occurrenceHash)) {
-      lessonReplayStorageIndexDirty = true;
-      scheduleLessonReplayStorageIndexPersistence();
-    }
-    lessonReplayStorageSummaryCacheByOccurrenceKey.set(normalizedKey, null);
-    return null;
+  if (indexed) {
+    lessonReplayStorageReconciledHashes.add(occurrenceHash);
+    lessonReplayStorageSummaryCacheByOccurrenceKey.set(normalizedKey, indexed);
+    return indexed;
   }
-  const storage = updateLessonReplayStorageIndex(normalizedKey, {
-    dataBytes,
-    snapshotBytes: snapshotUsage.bytes,
-    audioBytes,
-  });
-  return storage;
+  queueLessonReplayStorageReconciliation(normalizedKey, options);
+  return null;
 };
 
 const writeFilesDb = (data) => {
@@ -26720,7 +26775,19 @@ app.post(
         ) {
           return { duplicate: true, replay };
         }
-        const usage = getLessonReplaySnapshotFolderUsage(session.occurrenceKey);
+        const referencedSnapshotUsage = replay.events.reduce((usage, event) => {
+          if (event?.type !== 'screen') return usage;
+          usage.count += 1;
+          usage.bytes += Math.max(0, Number(event.payload?.sizeBytes) || 0);
+          return usage;
+        }, { count: 0, bytes: 0 });
+        const indexedSnapshotBytes = Number(
+          getLessonReplayStorageSummary(session.occurrenceKey)?.snapshotBytes
+        ) || 0;
+        const usage = {
+          count: referencedSnapshotUsage.count,
+          bytes: Math.max(referencedSnapshotUsage.bytes, indexedSnapshotBytes),
+        };
         if (usage.count >= LESSON_REPLAY_SNAPSHOT_MAX_FILES) {
           const limitError = new Error('Для этого урока сохранено максимальное количество снимков');
           limitError.statusCode = 413;
@@ -27517,25 +27584,37 @@ app.get('/api/lesson-history', async (req, res) => {
   if (!student) return;
   try {
     const history = await buildResolvedStudentLessonHistory(student, req.auth);
+    const page = paginateStudentLessonHistory(history, { offset, limit });
     const includeReplayStorage = isTeacherRole(req.auth);
     const replayStorageByKey = new Map();
     let replayStorageTotalBytes = 0;
+    let replayStoragePendingCount = 0;
     if (includeReplayStorage) {
+      page.items.forEach((entry) => {
+        getLessonReplayStorageSummary(entry?.key, { priority: true });
+      });
       history.forEach((entry) => {
         const storage = getLessonReplayStorageSummary(entry?.key);
-        if (!storage) return;
+        if (!storage) {
+          replayStoragePendingCount += 1;
+          return;
+        }
         replayStorageByKey.set(entry.key, storage);
         replayStorageTotalBytes += storage.totalBytes;
       });
     }
-    const page = paginateStudentLessonHistory(history, { offset, limit });
     return res.json({
       ...page,
       items: page.items.map((entry) => serializeStudentLessonHistoryEntry(
         entry,
         includeReplayStorage ? replayStorageByKey.get(entry.key) : null
       )),
-      ...(includeReplayStorage ? { replayStorageTotalBytes } : {}),
+      ...(includeReplayStorage ? {
+        replayStorageTotalBytes: replayStoragePendingCount > 0 ? null : replayStorageTotalBytes,
+        replayStorageKnownBytes: replayStorageTotalBytes,
+        replayStorageStatus: replayStoragePendingCount > 0 ? 'indexing' : 'ready',
+        replayStoragePendingCount,
+      } : {}),
     });
   } catch (error) {
     console.error('[lesson-history] failed to build history:', error);
