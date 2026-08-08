@@ -84034,18 +84034,59 @@ html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet[dat
 }
 
 html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode {
-  --mock-sheet-aura: 255 122 69;
-  --mock-sheet-aura-secondary: 167 139 250;
+  --mock-sheet-aura: 34 199 217;
+  --mock-sheet-aura-secondary: 99 102 241;
   border-color: var(--mock-sheet-edge) !important;
   background:
-    radial-gradient(ellipse 44% 72% at 91% 2%, rgb(var(--mock-sheet-aura) / 0.17), transparent 70%),
-    radial-gradient(ellipse 35% 52% at 5% 98%, rgb(var(--mock-sheet-aura-secondary) / 0.12), transparent 72%),
-    linear-gradient(145deg, #fffefd 0%, #fdfbff 56%, #faf9ff 100%) !important;
+    radial-gradient(ellipse 46% 76% at 91% 0%, rgb(var(--mock-sheet-aura) / 0.14), transparent 70%),
+    radial-gradient(ellipse 36% 54% at 5% 98%, rgb(var(--mock-sheet-aura-secondary) / 0.09), transparent 72%),
+    linear-gradient(145deg, #fcffff 0%, #fbfcff 56%, #fafaff 100%) !important;
   box-shadow:
     0 0 0 1px rgb(var(--mock-sheet-aura-secondary) / 0.1),
-    0 7px 18px rgb(44 30 74 / 0.075),
-    0 24px 58px rgb(var(--mock-sheet-aura) / 0.105),
+    0 7px 18px rgb(33 47 87 / 0.065),
+    0 24px 58px rgb(var(--mock-sheet-aura-secondary) / 0.075),
     inset 0 1px 0 rgb(255 255 255 / 0.88) !important;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block !important;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 91% 8%,
+      transparent 0 50px,
+      rgb(var(--mock-sheet-aura) / 0.11) 51px 52px,
+      transparent 53px 72px,
+      rgb(var(--mock-sheet-aura-secondary) / 0.075) 73px 74px,
+      transparent 75px),
+    linear-gradient(112deg, transparent 66%, rgb(255 255 255 / 0.28) 77%, transparent 88%);
+  content: '' !important;
+  opacity: 0.66;
+  pointer-events: none;
+  transform-origin: 91% 8%;
+  animation: mockTimerChronoLens 8s ease-in-out infinite;
+  animation-delay: calc(var(--mock-sheet-index) * -1.35s);
+  transition: opacity 220ms ease;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode:hover::after {
+  opacity: 0.92;
+}
+
+@keyframes mockTimerChronoLens {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.006);
+  }
 }
 
 html[data-theme] .progress-section--mocks .mock-student-card.mock-exam-sheet:hover,
@@ -85184,6 +85225,7 @@ html[data-theme='dark'] .progress-section--mocks .mock-student-card.mock-exam-sh
 
 @media (prefers-reduced-motion: reduce) {
   .progress-section--mocks .mock-student-card.mock-exam-sheet,
+  .progress-section--mocks .mock-student-card.mock-exam-sheet.mock-student-card--timer-mode::after,
   .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-start-button,
   .progress-section--mocks .mock-student-card.mock-exam-sheet .mock-start-button__arrow,
   .progress-section--mocks .mock-exam-sheet__launch::before,
