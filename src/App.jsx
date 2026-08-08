@@ -21077,6 +21077,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               pushReady={pushReady}
               pushError={pushError}
               onTogglePush={handleTogglePush}
+              createPythonWorker={createPyodideWorker}
               onStartLesson={user.role === 'teacher'
                 ? (studentId) => handleOpenTeacherLessonWorkspace('call-connect', studentId)
                 : null}

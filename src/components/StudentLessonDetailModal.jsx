@@ -58,6 +58,7 @@ const StudentLessonDetailModal = ({
   lesson,
   materials = [],
   replay = null,
+  createPythonWorker = null,
   topicText = '',
   loading = false,
   error = '',
@@ -162,7 +163,7 @@ const StudentLessonDetailModal = ({
       if (event.key !== 'Tab' || !dialogRef.current) return;
       const focusScope = fullscreenPlayer || dialogRef.current;
       const focusable = Array.from(focusScope.querySelectorAll(
-        'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+        'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
       ));
       if (focusable.length === 0) return;
       const first = focusable[0];
@@ -242,7 +243,11 @@ const StudentLessonDetailModal = ({
           </section>
 
           {!loading && !error && hasMeaningfulReplay && (
-            <LessonReplayPlayer key={replay?.occurrence?.key || 'lesson-replay'} replay={replay} />
+            <LessonReplayPlayer
+              key={replay?.occurrence?.key || 'lesson-replay'}
+              replay={replay}
+              createPythonWorker={createPythonWorker}
+            />
           )}
 
           {!loading && !error && normalizedMaterials.length > 0 && (

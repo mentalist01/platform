@@ -119,6 +119,56 @@ const normalizeBoardItem = (value) => {
       fontSize: clampNumber(value.fontSize, 10, 160, 22),
     };
   }
+  if (type === 'task') {
+    const answerCount = Math.round(clampNumber(value.answerCount, 1, 50, 1));
+    const normalizeAnswers = (answers) => Array.from(
+      { length: answerCount },
+      (_, index) => clampText(answers?.[index], 500)
+    );
+    const screenshots = (Array.isArray(value.screenshots) ? value.screenshots : [])
+      .slice(0, 8)
+      .map((image) => {
+        const assetUrl = normalizeBoardAssetUrl(image?.assetUrl || image?.imageUrl);
+        if (!assetUrl) return null;
+        return {
+          assetUrl,
+          name: clampText(image?.name, 240),
+          naturalWidth: clampNumber(image?.naturalWidth || image?.width, 1, 16_384, 1),
+          naturalHeight: clampNumber(image?.naturalHeight || image?.height, 1, 16_384, 1),
+          displayHeight: clampNumber(image?.displayHeight, 40, 720, 220),
+        };
+      })
+      .filter(Boolean);
+    const taskNumber = Number(value.taskNumber);
+    const questionNumber = Number(value.questionNumber);
+    return {
+      ...base,
+      x: clampNumber(value.x, -1_000_000, 1_000_000),
+      y: clampNumber(value.y, -1_000_000, 1_000_000),
+      width: clampNumber(value.width, 420, 1_600, 720),
+      height: clampNumber(value.height, 220, 4_000, 640),
+      heading: clampText(value.heading, 240),
+      taskNumber: Number.isFinite(taskNumber) ? Math.max(0, Math.round(taskNumber)) : null,
+      taskDisplayNumber: clampText(value.taskDisplayNumber, 40),
+      taskTitle: clampText(value.taskTitle, 240),
+      levelId: clampText(value.levelId, 80),
+      levelLabel: clampText(value.levelLabel, 120),
+      questionId: clampText(value.questionId, 160),
+      questionNumber: Number.isFinite(questionNumber) ? Math.max(1, Math.round(questionNumber)) : null,
+      questionLabel: clampText(value.questionLabel, 160),
+      questionText: clampText(value.questionText, 12_000),
+      screenshots,
+      answerCount,
+      answerLabels: Array.from(
+        { length: answerCount },
+        (_, index) => clampText(value.answerLabels?.[index] ?? index + 1, 40)
+      ),
+      userAnswers: normalizeAnswers(value.userAnswers),
+      studentAnswers: normalizeAnswers(value.studentAnswers),
+      checkState: ['correct', 'wrong'].includes(value.checkState) ? value.checkState : 'idle',
+      sourceStudentId: clampText(value.sourceStudentId, 160),
+    };
+  }
   if (type === 'image') {
     const assetUrl = normalizeBoardAssetUrl(value.assetUrl || value.imageUrl);
     // Inline data URLs are intentionally not copied into a replay. Existing board

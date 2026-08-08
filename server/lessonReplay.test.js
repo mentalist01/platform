@@ -80,6 +80,56 @@ test('keeps board assets as references and never stores inline images', () => {
   assert.equal(Object.hasOwn(event.payload.items[0], 'dataUrl'), false);
 });
 
+test('keeps task cards on the replay board without leaking solution fields', () => {
+  const assetUrl = `/uploads/board-asset-${'b'.repeat(64)}.png`;
+  const event = normalizeLessonReplayEvent({
+    type: 'board',
+    occurredAt: new Date(START_MS + 1000).toISOString(),
+    payload: {
+      items: [{
+        id: 'task-card-1',
+        type: 'task',
+        x: 25,
+        y: 50,
+        width: 760,
+        height: 820,
+        heading: 'Задание 17',
+        taskNumber: 17,
+        questionNumber: 3,
+        questionText: 'Найдите ответ.',
+        screenshots: [
+          { assetUrl, displayHeight: 260 },
+          { dataUrl: 'data:image/png;base64,AAAA', displayHeight: 100 },
+        ],
+        answerCount: 2,
+        answerLabels: ['A', 'B'],
+        userAnswers: ['12', '34'],
+        studentAnswers: ['12', ''],
+        checkState: 'wrong',
+        expectedAnswers: ['secret', 'secret'],
+        solution: 'must not be stored',
+      }],
+    },
+  }, eventContext);
+
+  assert.equal(event.payload.items.length, 1);
+  const task = event.payload.items[0];
+  assert.equal(task.type, 'task');
+  assert.equal(task.questionText, 'Найдите ответ.');
+  assert.deepEqual(task.userAnswers, ['12', '34']);
+  assert.deepEqual(task.studentAnswers, ['12', '']);
+  assert.deepEqual(task.screenshots, [{
+    assetUrl,
+    name: '',
+    naturalWidth: 1,
+    naturalHeight: 1,
+    displayHeight: 260,
+  }]);
+  assert.equal(task.checkState, 'wrong');
+  assert.equal(Object.hasOwn(task, 'expectedAnswers'), false);
+  assert.equal(Object.hasOwn(task, 'solution'), false);
+});
+
 test('compacts very long board strokes without losing endpoints', () => {
   const points = Array.from({ length: 2000 }, (_, index) => ({ x: index, y: index * 2 }));
   const event = normalizeLessonReplayEvent({

@@ -1,6 +1,12 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import Editor from '@monaco-editor/react';
 import {
+  Brush,
   Code2,
+  Eye,
+  GitBranch,
+  Hand,
+  History,
   ListChecks,
   Maximize2,
   Minimize2,
@@ -9,10 +15,15 @@ import {
   Pause,
   PenTool,
   Play,
+  PlayCircle,
   RotateCcw,
+  Sparkles,
+  Trash2,
+  Undo2,
   UserRound,
   Volume2,
   VolumeX,
+  X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -24,6 +35,11 @@ import {
   getReplayAudioDurationMs,
   getReplayTimelineDurationMs,
 } from '../utils/lessonReplayTimeline';
+import {
+  createLessonReplayBranch,
+  updateLessonReplayBranchBoard,
+  updateLessonReplayBranchCode,
+} from '../utils/lessonReplayTimeMachine';
 import './LessonReplayPlayer.css';
 
 const VIEW_LABELS = {
@@ -62,6 +78,8 @@ const SURFACE_TABS = {
 };
 
 const AUDIO_LOAD_TIMEOUT_MS = 12_000;
+const TIME_MACHINE_RUN_TIMEOUT_MS = 40_000;
+const TIME_MACHINE_OUTPUT_LIMIT = 20_000;
 
 const formatClock = (value) => {
   const totalSeconds = Math.max(0, Math.floor((Number(value) || 0) / 1000));
@@ -230,6 +248,19 @@ const getItemBounds = (item) => {
       maxY: Math.max(Number(item.start?.y) || 0, Number(item.end?.y) || 0),
     };
   }
+  if (item.type === 'text') {
+    const x = Number(item.x) || 0;
+    const y = Number(item.y) || 0;
+    const fontSize = Math.max(8, Number(item.fontSize) || 22);
+    const lines = String(item.text || '').split('\n').slice(0, 20);
+    const longestLine = Math.max(1, ...lines.map((line) => line.length));
+    return {
+      minX: x,
+      minY: y,
+      maxX: x + Math.max(12, longestLine * fontSize * 0.62),
+      maxY: y + Math.max(fontSize, lines.length * fontSize * 1.25),
+    };
+  }
   return {
     minX: Number(item.x) || 0,
     minY: Number(item.y) || 0,
@@ -271,6 +302,20 @@ const viewFromRecordedPosition = (fitView, recordedView) => {
     ? offsetY
     : (Number.isFinite(directY) ? directY : fitView.y + (fitView.height - height) / 2);
   return { x, y, width, height };
+};
+
+const getSvgViewportMetrics = (rect, view) => {
+  const scale = Math.max(0.0001, Math.min(
+    Math.max(1, rect.width) / Math.max(1, view.width),
+    Math.max(1, rect.height) / Math.max(1, view.height)
+  ));
+  const renderedWidth = view.width * scale;
+  const renderedHeight = view.height * scale;
+  return {
+    scale,
+    offsetX: (rect.width - renderedWidth) / 2,
+    offsetY: (rect.height - renderedHeight) / 2,
+  };
 };
 
 const ReplayBoardTask = ({ item }) => {
@@ -351,11 +396,53 @@ const ReplayBoardTask = ({ item }) => {
   );
 };
 
+const ReplayBoardItems = ({ items, arrowMarkerId }) => (
+  <>
+    {(Array.isArray(items) ? items : []).map((item) => {
+      const key = item.id;
+      if (item.type === 'stroke') {
+        const points = (item.points || []).map((point) => `${Number(point?.x) || 0},${Number(point?.y) || 0}`).join(' ');
+        return <polyline key={key} points={points} fill="none" stroke={item.color} strokeWidth={item.width || 3} strokeLinecap="round" strokeLinejoin="round" />;
+      }
+      if (item.type === 'line' || item.type === 'arrow') {
+        return <line key={key} x1={item.start?.x || 0} y1={item.start?.y || 0} x2={item.end?.x || 0} y2={item.end?.y || 0} stroke={item.color} strokeWidth={item.width || 3} strokeLinecap="round" markerEnd={item.type === 'arrow' ? `url(#${arrowMarkerId})` : undefined} />;
+      }
+      if (item.type === 'shape') {
+        if (item.shape === 'ellipse') return <ellipse key={key} cx={(item.x || 0) + (item.width || 1) / 2} cy={(item.y || 0) + (item.height || 1) / 2} rx={(item.width || 1) / 2} ry={(item.height || 1) / 2} fill="none" stroke={item.color} strokeWidth={item.strokeWidth || 3} />;
+        if (item.shape === 'diamond') {
+          const x = item.x || 0;
+          const y = item.y || 0;
+          const width = item.width || 1;
+          const height = item.height || 1;
+          return <polygon key={key} points={`${x + width / 2},${y} ${x + width},${y + height / 2} ${x + width / 2},${y + height} ${x},${y + height / 2}`} fill="none" stroke={item.color} strokeWidth={item.strokeWidth || 3} />;
+        }
+        return <rect key={key} x={item.x || 0} y={item.y || 0} width={item.width || 1} height={item.height || 1} rx="6" fill="none" stroke={item.color} strokeWidth={item.strokeWidth || 3} />;
+      }
+      if (item.type === 'text') {
+        return (
+          <text key={key} x={item.x || 0} y={(item.y || 0) + (item.fontSize || 22)} fill={item.color} fontSize={item.fontSize || 22} fontFamily="Inter, system-ui, sans-serif">
+            {String(item.text || '').split('\n').slice(0, 20).map((line, index) => (
+              <tspan key={`${key}-${index}`} x={item.x || 0} dy={index === 0 ? 0 : (item.fontSize || 22) * 1.25}>{line || ' '}</tspan>
+            ))}
+          </text>
+        );
+      }
+      if (item.type === 'task') return <ReplayBoardTask key={key} item={item} />;
+      if (item.type === 'image' && item.assetUrl) {
+        const source = resolveAuthenticatedUploadsUrl(item.assetUrl);
+        return <image key={key} href={source} x={item.x || 0} y={item.y || 0} width={item.width || 1} height={item.height || 1} preserveAspectRatio="none" transform={item.flipX ? `translate(${(item.x || 0) * 2 + (item.width || 1)} 0) scale(-1 1)` : undefined} />;
+      }
+      return null;
+    })}
+  </>
+);
+
 const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
   const normalizedItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
   const fitView = useMemo(() => getFitView(normalizedItems), [normalizedItems]);
   const [freeView, setFreeView] = useState(null);
   const pointerRef = useRef(null);
+  const arrowMarkerId = `lesson-replay-arrow-${useId().replace(/:/g, '')}`;
   const view = freeNavigation
     ? (freeView || fitView)
     : viewFromRecordedPosition(fitView, recordedView);
@@ -400,10 +487,11 @@ const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
           const origin = pointerRef.current;
           if (!freeNavigation || !origin) return;
           const rect = event.currentTarget.getBoundingClientRect();
+          const metrics = getSvgViewportMetrics(rect, origin.view);
           setFreeView({
             ...origin.view,
-            x: origin.view.x - ((event.clientX - origin.x) / Math.max(1, rect.width)) * origin.view.width,
-            y: origin.view.y - ((event.clientY - origin.y) / Math.max(1, rect.height)) * origin.view.height,
+            x: origin.view.x - ((event.clientX - origin.x) / metrics.scale),
+            y: origin.view.y - ((event.clientY - origin.y) / metrics.scale),
           });
         }}
         onPointerUp={() => { pointerRef.current = null; }}
@@ -415,48 +503,11 @@ const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
         }}
       >
         <defs>
-          <marker id="lesson-replay-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <marker id={arrowMarkerId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
           </marker>
         </defs>
-        {normalizedItems.map((item) => {
-          const key = item.id;
-          if (item.type === 'stroke') {
-            const points = (item.points || []).map((point) => `${Number(point?.x) || 0},${Number(point?.y) || 0}`).join(' ');
-            return <polyline key={key} points={points} fill="none" stroke={item.color} strokeWidth={item.width || 3} strokeLinecap="round" strokeLinejoin="round" />;
-          }
-          if (item.type === 'line' || item.type === 'arrow') {
-            return <line key={key} x1={item.start?.x || 0} y1={item.start?.y || 0} x2={item.end?.x || 0} y2={item.end?.y || 0} stroke={item.color} strokeWidth={item.width || 3} strokeLinecap="round" markerEnd={item.type === 'arrow' ? 'url(#lesson-replay-arrow)' : undefined} />;
-          }
-          if (item.type === 'shape') {
-            if (item.shape === 'ellipse') return <ellipse key={key} cx={(item.x || 0) + (item.width || 1) / 2} cy={(item.y || 0) + (item.height || 1) / 2} rx={(item.width || 1) / 2} ry={(item.height || 1) / 2} fill="none" stroke={item.color} strokeWidth={item.strokeWidth || 3} />;
-            if (item.shape === 'diamond') {
-              const x = item.x || 0;
-              const y = item.y || 0;
-              const width = item.width || 1;
-              const height = item.height || 1;
-              return <polygon key={key} points={`${x + width / 2},${y} ${x + width},${y + height / 2} ${x + width / 2},${y + height} ${x},${y + height / 2}`} fill="none" stroke={item.color} strokeWidth={item.strokeWidth || 3} />;
-            }
-            return <rect key={key} x={item.x || 0} y={item.y || 0} width={item.width || 1} height={item.height || 1} rx="6" fill="none" stroke={item.color} strokeWidth={item.strokeWidth || 3} />;
-          }
-          if (item.type === 'text') {
-            return (
-              <text key={key} x={item.x || 0} y={(item.y || 0) + (item.fontSize || 22)} fill={item.color} fontSize={item.fontSize || 22} fontFamily="Inter, system-ui, sans-serif">
-                {String(item.text || '').split('\n').slice(0, 20).map((line, index) => (
-                  <tspan key={`${key}-${index}`} x={item.x || 0} dy={index === 0 ? 0 : (item.fontSize || 22) * 1.25}>{line || ' '}</tspan>
-                ))}
-              </text>
-            );
-          }
-          if (item.type === 'task') {
-            return <ReplayBoardTask key={key} item={item} />;
-          }
-          if (item.type === 'image' && item.assetUrl) {
-            const source = resolveAuthenticatedUploadsUrl(item.assetUrl);
-            return <image key={key} href={source} x={item.x || 0} y={item.y || 0} width={item.width || 1} height={item.height || 1} preserveAspectRatio="none" transform={item.flipX ? `translate(${(item.x || 0) * 2 + (item.width || 1)} 0) scale(-1 1)` : undefined} />;
-          }
-          return null;
-        })}
+        <ReplayBoardItems items={normalizedItems} arrowMarkerId={arrowMarkerId} />
       </svg>
     </div>
   );
@@ -504,6 +555,441 @@ const ReplayCode = ({ event, runEvent, recordedView, freeNavigation }) => {
   );
 };
 
+const limitTimeMachineOutput = (value) => {
+  const text = String(value ?? '');
+  if (text.length <= TIME_MACHINE_OUTPUT_LIMIT) return text;
+  return `${text.slice(0, TIME_MACHINE_OUTPUT_LIMIT)}\n… вывод сокращён`;
+};
+
+const TimeMachineCodeEditor = ({ branch, onCodePatch, createPythonWorker }) => {
+  const [running, setRunning] = useState(false);
+  const [streamOutput, setStreamOutput] = useState('');
+  const [streamError, setStreamError] = useState('');
+  const workerRef = useRef(null);
+  const timeoutRef = useRef(null);
+  const runSequenceRef = useRef(0);
+  const code = branch?.code || {};
+  const isPython = String(code.language || 'python').toLowerCase() === 'python';
+
+  useEffect(() => () => {
+    if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+    workerRef.current?.terminate?.();
+    workerRef.current = null;
+  }, []);
+
+  const stopWorker = useCallback(() => {
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    workerRef.current?.terminate?.();
+    workerRef.current = null;
+  }, []);
+
+  const handleRun = useCallback(() => {
+    if (running || !isPython) return;
+    if (!String(code.code || '').trim()) {
+      onCodePatch({ output: '', error: 'Добавьте код перед запуском.', status: 'error' });
+      return;
+    }
+    if (typeof createPythonWorker !== 'function' || typeof Worker === 'undefined') {
+      onCodePatch({ output: '', error: 'Изолированный запуск Python недоступен в этом браузере.', status: 'error' });
+      return;
+    }
+
+    let worker = workerRef.current;
+    try {
+      if (!worker) {
+        worker = createPythonWorker();
+        workerRef.current = worker;
+      }
+    } catch (error) {
+      onCodePatch({ output: '', error: error?.message || 'Не удалось запустить Python.', status: 'error' });
+      return;
+    }
+
+    const runId = `lesson-replay-${branch.branchId}-${runSequenceRef.current + 1}`;
+    runSequenceRef.current += 1;
+    let outputBuffer = '';
+    let errorBuffer = '';
+    let finished = false;
+    setRunning(true);
+    setStreamOutput('');
+    setStreamError('');
+    const sourceRevision = branch.revision;
+    const runningRevision = sourceRevision + 1;
+    onCodePatch({ output: '', error: '', status: 'running' }, sourceRevision);
+
+    const removeWorkerListeners = () => {
+      worker.removeEventListener('message', handleWorkerMessage);
+      worker.removeEventListener('error', handleWorkerError);
+      worker.removeEventListener('messageerror', handleWorkerMessageError);
+    };
+    const finish = (output, error, terminate = false) => {
+      if (finished) return;
+      finished = true;
+      removeWorkerListeners();
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      if (terminate) stopWorker();
+      const nextOutput = limitTimeMachineOutput(output);
+      const nextError = limitTimeMachineOutput(error);
+      setStreamOutput(nextOutput);
+      setStreamError(nextError);
+      setRunning(false);
+      onCodePatch({
+        output: nextOutput,
+        error: nextError,
+        status: nextError ? 'error' : 'success',
+      }, runningRevision);
+    };
+
+    const handleWorkerMessage = (event) => {
+      const data = event.data || {};
+      if (data.id !== runId) return;
+      if (data.type === 'stdout' || data.type === 'stderr') {
+        const chunk = String(data.chunk ?? '');
+        if (data.type === 'stdout') {
+          outputBuffer = limitTimeMachineOutput(`${outputBuffer}${chunk}`);
+          setStreamOutput(outputBuffer);
+        } else {
+          errorBuffer = limitTimeMachineOutput(`${errorBuffer}${chunk}`);
+          setStreamError(errorBuffer);
+        }
+        return;
+      }
+      if (data.type === 'result') {
+        finish(data.output ?? outputBuffer, data.error ?? errorBuffer);
+      }
+    };
+    const handleWorkerError = () => finish('', 'Ошибка выполнения Python.', true);
+    const handleWorkerMessageError = () => finish('', 'Не удалось прочитать результат Python.', true);
+    worker.addEventListener('message', handleWorkerMessage);
+    worker.addEventListener('error', handleWorkerError);
+    worker.addEventListener('messageerror', handleWorkerMessageError);
+    timeoutRef.current = window.setTimeout(() => {
+      finish(outputBuffer, `${errorBuffer}${errorBuffer ? '\n' : ''}Превышено время выполнения (40 сек).`, true);
+    }, TIME_MACHINE_RUN_TIMEOUT_MS);
+    worker.postMessage({
+      id: runId,
+      source: String(code.code || ''),
+      input: String(code.input || ''),
+      files: [{
+        name: 'test.txt',
+        bytes: new TextEncoder().encode(String(code.testFile || '')),
+      }],
+      enableTurtle: false,
+    });
+  }, [branch.branchId, branch.revision, code.code, code.input, code.testFile, createPythonWorker, isPython, onCodePatch, running, stopWorker]);
+
+  const visibleOutput = running ? streamOutput : String(code.output || '');
+  const visibleError = running ? streamError : String(code.error || '');
+  return (
+    <div className="lesson-replay-player__time-machine-code">
+      <div className="lesson-replay-player__time-machine-editor">
+        <Editor
+          height="100%"
+          language={String(code.language || 'python')}
+          path={`inmemory://lesson-replay/${branch.branchId}.py`}
+          theme="vs-dark"
+          value={String(code.code || '')}
+          saveViewState={false}
+          onChange={(value) => onCodePatch({
+            code: value || '',
+            output: '',
+            error: '',
+            status: 'edited',
+          })}
+          options={{
+            ariaLabel: 'Код самостоятельной ветки',
+            automaticLayout: true,
+            readOnly: running,
+            fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, monospace',
+            fontSize: 13,
+            lineHeight: 21,
+            minimap: { enabled: false },
+            padding: { top: 14, bottom: 14 },
+            renderLineHighlight: 'line',
+            scrollBeyondLastLine: false,
+            tabSize: 4,
+          }}
+        />
+      </div>
+      <div className="lesson-replay-player__time-machine-console">
+        <label>
+          <span>Ввод для input()</span>
+          <textarea
+            value={String(code.input || '')}
+            onChange={(event) => onCodePatch({ input: event.target.value, status: 'edited' })}
+            disabled={running}
+            placeholder="Введите исходные данные"
+            spellCheck="false"
+          />
+        </label>
+        <section className={visibleError ? 'is-error' : ''} aria-live="polite">
+          <div>
+            <span>{visibleError ? 'Ошибка' : 'Результат'}</span>
+            <button
+              type="button"
+              onClick={handleRun}
+              disabled={running || !isPython || typeof createPythonWorker !== 'function'}
+              title={!isPython ? 'Запуск доступен только для Python' : undefined}
+            >
+              {running ? <Pause size={14} /> : <PlayCircle size={14} />}
+              {running ? 'Выполняется…' : 'Запустить'}
+            </button>
+          </div>
+          <pre>{visibleError || visibleOutput || (running ? 'Подготовка Python…' : 'Здесь появится результат')}</pre>
+        </section>
+      </div>
+    </div>
+  );
+};
+
+const TimeMachineBoard = ({ branchId, items, onItemsChange }) => {
+  const normalizedItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
+  const [view, setView] = useState(() => getFitView(Array.isArray(items) ? items : []));
+  const [tool, setTool] = useState('pen');
+  const [color, setColor] = useState('#7c3aed');
+  const [draftStroke, setDraftStroke] = useState(null);
+  const pointerRef = useRef(null);
+  const strokeSequenceRef = useRef((Array.isArray(items) ? items : []).reduce((maximum, item) => {
+    const prefix = `time-machine-stroke-${branchId}-`;
+    const id = String(item?.id || '');
+    if (!id.startsWith(prefix)) return maximum;
+    const sequence = Number(id.slice(prefix.length));
+    return Number.isFinite(sequence) ? Math.max(maximum, sequence) : maximum;
+  }, 0));
+  const arrowMarkerId = `lesson-time-machine-arrow-${useId().replace(/:/g, '')}`;
+
+  const zoomAtCenter = (factor) => {
+    setView((current) => {
+      const width = Math.max(40, Math.min(8000, current.width * factor));
+      const height = Math.max(30, Math.min(5000, current.height * factor));
+      return {
+        x: current.x + (current.width - width) / 2,
+        y: current.y + (current.height - height) / 2,
+        width,
+        height,
+      };
+    });
+  };
+
+  const toBoardPoint = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const metrics = getSvgViewportMetrics(rect, view);
+    const x = (event.clientX - rect.left - metrics.offsetX) / metrics.scale;
+    const y = (event.clientY - rect.top - metrics.offsetY) / metrics.scale;
+    return {
+      x: view.x + Math.min(view.width, Math.max(0, x)),
+      y: view.y + Math.min(view.height, Math.max(0, y)),
+    };
+  };
+
+  const finishPointer = (event) => {
+    const pointer = pointerRef.current;
+    if (!pointer) return;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    pointerRef.current = null;
+    if (pointer.kind !== 'draw') return;
+    const stroke = pointer.stroke;
+    if ((stroke.points || []).length === 1) {
+      stroke.points = [...stroke.points, { x: stroke.points[0].x + 0.5, y: stroke.points[0].y + 0.5 }];
+    }
+    setDraftStroke(null);
+    onItemsChange([...normalizedItems, stroke]);
+  };
+
+  const localItems = normalizedItems.filter((item) => item?.timeMachineBranch === branchId);
+  const undoLastStroke = () => {
+    const last = localItems[localItems.length - 1];
+    if (!last) return;
+    onItemsChange(normalizedItems.filter((item) => item?.id !== last.id));
+  };
+
+  return (
+    <div className="lesson-replay-player__time-machine-board-wrap">
+      <div className="lesson-replay-player__time-machine-board-tools" role="toolbar" aria-label="Инструменты доски ветки">
+        <button type="button" className={tool === 'pen' ? 'is-active' : ''} aria-pressed={tool === 'pen'} onClick={() => setTool('pen')} title="Рисовать"><Brush size={15} /></button>
+        <button type="button" className={tool === 'pan' ? 'is-active' : ''} aria-pressed={tool === 'pan'} onClick={() => setTool('pan')} title="Двигать доску"><Hand size={15} /></button>
+        <span className="lesson-replay-player__time-machine-colors" aria-label="Цвет линии">
+          {['#7c3aed', '#2563eb', '#dc2626', '#111827'].map((value) => (
+            <button key={value} type="button" className={color === value ? 'is-active' : ''} aria-label={`Цвет ${value}`} aria-pressed={color === value} onClick={() => { setColor(value); setTool('pen'); }} style={{ '--time-machine-color': value }} />
+          ))}
+        </span>
+        <button type="button" onClick={undoLastStroke} disabled={localItems.length === 0} title="Отменить последний штрих"><Undo2 size={15} /></button>
+        <button type="button" onClick={() => onItemsChange(normalizedItems.filter((item) => item?.timeMachineBranch !== branchId))} disabled={localItems.length === 0} title="Очистить мои штрихи"><Trash2 size={15} /></button>
+        <button type="button" onClick={() => zoomAtCenter(0.8)} title="Приблизить"><ZoomIn size={15} /></button>
+        <button type="button" onClick={() => zoomAtCenter(1.25)} title="Отдалить"><ZoomOut size={15} /></button>
+        <button type="button" onClick={() => setView(getFitView(normalizedItems))}>Вписать</button>
+      </div>
+      <svg
+        className={`lesson-replay-player__time-machine-board is-${tool}`}
+        viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
+        preserveAspectRatio="xMidYMid meet"
+        aria-label="Редактируемая доска самостоятельной ветки"
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          if (tool === 'pan') {
+            pointerRef.current = { kind: 'pan', x: event.clientX, y: event.clientY, view };
+            return;
+          }
+          const point = toBoardPoint(event);
+          strokeSequenceRef.current += 1;
+          const stroke = {
+            id: `time-machine-stroke-${branchId}-${strokeSequenceRef.current}`,
+            type: 'stroke',
+            points: [point],
+            color,
+            width: Math.max(2, view.width / 330),
+            timeMachineBranch: branchId,
+          };
+          pointerRef.current = { kind: 'draw', stroke };
+          setDraftStroke(stroke);
+        }}
+        onPointerMove={(event) => {
+          const pointer = pointerRef.current;
+          if (!pointer) return;
+          if (pointer.kind === 'pan') {
+            const rect = event.currentTarget.getBoundingClientRect();
+            const metrics = getSvgViewportMetrics(rect, pointer.view);
+            setView({
+              ...pointer.view,
+              x: pointer.view.x - ((event.clientX - pointer.x) / metrics.scale),
+              y: pointer.view.y - ((event.clientY - pointer.y) / metrics.scale),
+            });
+            return;
+          }
+          const point = toBoardPoint(event);
+          const points = pointer.stroke.points || [];
+          const previous = points[points.length - 1];
+          const minDistance = Math.max(0.5, view.width / 900);
+          if (previous && Math.hypot(point.x - previous.x, point.y - previous.y) < minDistance) return;
+          pointer.stroke = { ...pointer.stroke, points: [...points, point] };
+          setDraftStroke(pointer.stroke);
+        }}
+        onPointerUp={finishPointer}
+        onPointerCancel={(event) => {
+          if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+          pointerRef.current = null;
+          setDraftStroke(null);
+        }}
+        onWheel={(event) => {
+          event.preventDefault();
+          zoomAtCenter(event.deltaY > 0 ? 1.12 : 0.89);
+        }}
+      >
+        <defs>
+          <marker id={arrowMarkerId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
+          </marker>
+        </defs>
+        <ReplayBoardItems items={draftStroke ? [...normalizedItems, draftStroke] : normalizedItems} arrowMarkerId={arrowMarkerId} />
+      </svg>
+    </div>
+  );
+};
+
+const TimeMachineOriginalSurface = ({ surface, boardEvent, boardView, codeEvent, codeView, runEvent }) => (
+  surface === 'board'
+    ? <ReplayBoard items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation={false} />
+    : <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation={false} />
+);
+
+const TimeMachineWorkspace = ({
+  branch,
+  boardEvent,
+  boardView,
+  codeEvent,
+  codeView,
+  createPythonWorker,
+  branchEpoch,
+  onBranchBoardChange,
+  onBranchCodePatch,
+  onClose,
+  onResetBranch,
+  onStartBranch,
+  onSurfaceChange,
+  playing,
+  positionMs,
+  runEvent,
+  surface,
+}) => (
+  <div className="lesson-replay-player__time-machine">
+    <div className="lesson-replay-player__time-machine-bar">
+      <div className="lesson-replay-player__time-machine-heading">
+        <span><History size={14} /> Машина времени</span>
+        <strong>{branch ? `Ветка от ${formatClock(branch.metadata.positionMs)}` : 'Живая копия записи'}</strong>
+      </div>
+      <div className="lesson-replay-player__time-machine-surfaces" role="tablist" aria-label="Поверхность машины времени">
+        {['code', 'board'].map((value) => {
+          const Icon = SURFACE_TABS[value].icon;
+          return (
+            <button key={value} type="button" role="tab" aria-selected={surface === value} className={surface === value ? 'is-active' : ''} onClick={() => onSurfaceChange(value)}>
+              <Icon size={14} />{SURFACE_TABS[value].label}
+            </button>
+          );
+        })}
+      </div>
+      {branch && <button type="button" className="lesson-replay-player__time-machine-reset" onClick={onResetBranch}><RotateCcw size={14} /> Сбросить ветку</button>}
+      <button type="button" className="lesson-replay-player__time-machine-close" onClick={onClose} aria-label="Закрыть машину времени"><X size={17} /></button>
+    </div>
+
+    {!branch ? (
+      <div className="lesson-replay-player__time-machine-preview" data-surface={surface}>
+        <TimeMachineOriginalSurface surface={surface} boardEvent={boardEvent} boardView={boardView} codeEvent={codeEvent} codeView={codeView} runEvent={runEvent} />
+        {playing ? (
+          <div className="lesson-replay-player__time-machine-playing-note"><PlayCircle size={14} /> Останови запись в нужном месте — появится «Попробуй сам»</div>
+        ) : (
+          <div className="lesson-replay-player__time-machine-prompt" role="status">
+            <span><Sparkles size={17} /> Запись остановлена на {formatClock(positionMs)}</span>
+            <strong>Попробуй продолжить решение сам</strong>
+            <p>Создадим отдельную копию. Настоящие код и доска не изменятся.</p>
+            <button type="button" onClick={onStartBranch}><GitBranch size={16} /> Попробуй сам</button>
+          </div>
+        )}
+      </div>
+    ) : (
+      <div className="lesson-replay-player__time-machine-compare" data-surface={surface}>
+        <section className="lesson-replay-player__time-machine-pane is-original" aria-label="Оригинальная запись">
+          <header>
+            <span><Eye size={14} /> Оригинал-призрак</span>
+            <strong>{formatClock(positionMs)} · {playing ? 'запись идёт' : 'пауза'}</strong>
+          </header>
+          <div className="lesson-replay-player__time-machine-pane-content" aria-hidden="true">
+            <TimeMachineOriginalSurface surface={surface} boardEvent={boardEvent} boardView={boardView} codeEvent={codeEvent} codeView={codeView} runEvent={runEvent} />
+          </div>
+        </section>
+        <section className="lesson-replay-player__time-machine-pane is-branch" aria-label="Самостоятельная ветка ученика">
+          <header>
+            <span><GitBranch size={14} /> Моя ветка</span>
+            <strong>от {formatClock(branch.metadata.positionMs)} · версия {branch.revision}</strong>
+          </header>
+          <div className="lesson-replay-player__time-machine-pane-content">
+            {surface === 'board' ? (
+              <TimeMachineBoard
+                key={`${branch.branchId}-board`}
+                branchId={branch.branchId}
+                items={branch.board?.items}
+                onItemsChange={onBranchBoardChange}
+              />
+            ) : (
+              <TimeMachineCodeEditor key={`${branch.branchId}-${branchEpoch}`} branch={branch} onCodePatch={onBranchCodePatch} createPythonWorker={createPythonWorker} />
+            )}
+          </div>
+        </section>
+      </div>
+    )}
+  </div>
+);
+
 const ReplayScreen = ({ event, occurrence }) => {
   const snapshotId = String(event?.payload?.snapshotId || '').trim();
   const [failedSnapshotId, setFailedSnapshotId] = useState('');
@@ -535,7 +1021,7 @@ const getReplayAudioSource = (event, replay) => {
   return resolveAuthenticatedUploadsUrl(event.payload?.playbackUrl || event.payload?.url);
 };
 
-const LessonReplayPlayer = ({ replay }) => {
+const LessonReplayPlayer = ({ replay, createPythonWorker = null }) => {
   const events = useMemo(() => (
     materializeBoardReplayEvents(
       (Array.isArray(replay?.events) ? replay.events : [])
@@ -557,6 +1043,10 @@ const LessonReplayPlayer = ({ replay }) => {
   const [seekSequence, setSeekSequence] = useState(0);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
+  const [timeMachineOpen, setTimeMachineOpen] = useState(false);
+  const [timeMachineSurface, setTimeMachineSurface] = useState('code');
+  const [timeMachineBranch, setTimeMachineBranch] = useState(null);
+  const [timeMachineBranchEpoch, setTimeMachineBranchEpoch] = useState(0);
   const playerRef = useRef(null);
   const positionRef = useRef(0);
   const frameRef = useRef(null);
@@ -976,10 +1466,45 @@ const LessonReplayPlayer = ({ replay }) => {
     setPlaying((current) => !current);
   };
 
+  const openTimeMachine = () => {
+    const nextSurface = resolvedActiveTab === 'code' ? 'code' : 'board';
+    setTimeMachineSurface((current) => (timeMachineBranch ? current : nextSurface));
+    setTimeMachineOpen(true);
+  };
+
+  const startTimeMachineBranch = () => {
+    const anchorPositionMs = Math.min(durationMs, Math.max(0, Number(positionRef.current) || 0));
+    setPlaying(false);
+    seekReplayTo(anchorPositionMs);
+    setTimeMachineBranchEpoch((current) => current + 1);
+    setTimeMachineBranch(createLessonReplayBranch(replay, anchorPositionMs));
+  };
+
+  const updateTimeMachineCode = (patch, expectedRevision = null) => {
+    setTimeMachineBranch((current) => (
+      current && (expectedRevision === null || current.revision === expectedRevision)
+        ? updateLessonReplayBranchCode(current, patch)
+        : current
+    ));
+  };
+
+  const updateTimeMachineBoard = (items) => {
+    setTimeMachineBranch((current) => (
+      current ? updateLessonReplayBranchBoard(current, items) : current
+    ));
+  };
+
+  const resetTimeMachineBranch = () => {
+    setTimeMachineBranchEpoch((current) => current + 1);
+    setTimeMachineBranch((current) => (
+      current ? createLessonReplayBranch(replay, current.metadata.positionMs) : current
+    ));
+  };
+
   return (
     <section
       ref={playerRef}
-      className={`lesson-replay-player${isFullscreen ? ' is-fullscreen' : ''}${isFallbackFullscreen ? ' is-fullscreen-fallback' : ''}`}
+      className={`lesson-replay-player${isFullscreen ? ' is-fullscreen' : ''}${isFallbackFullscreen ? ' is-fullscreen-fallback' : ''}${timeMachineOpen ? ' is-time-machine' : ''}`}
       data-fullscreen-mode={isNativeFullscreen ? 'native' : (isFallbackFullscreen ? 'fallback' : 'inline')}
       aria-label="Воспроизведение хода занятия"
     >
@@ -1041,11 +1566,33 @@ const LessonReplayPlayer = ({ replay }) => {
         </button>
       </header>
 
+      {timeMachineOpen ? (
+        <TimeMachineWorkspace
+          branch={timeMachineBranch}
+          branchEpoch={timeMachineBranchEpoch}
+          boardEvent={boardEvent}
+          boardView={boardView}
+          codeEvent={codeEvent}
+          codeView={codeView}
+          createPythonWorker={createPythonWorker}
+          onBranchBoardChange={updateTimeMachineBoard}
+          onBranchCodePatch={updateTimeMachineCode}
+          onClose={() => setTimeMachineOpen(false)}
+          onResetBranch={resetTimeMachineBranch}
+          onStartBranch={startTimeMachineBranch}
+          onSurfaceChange={setTimeMachineSurface}
+          playing={playing}
+          positionMs={positionMs}
+          runEvent={runEvent}
+          surface={timeMachineSurface}
+        />
+      ) : (
+        <>
       <div className="lesson-replay-player__viewbar">
         <div className="lesson-replay-player__modes" role="group" aria-label="Режим просмотра">
-          <button type="button" className={mode === 'teacher' ? 'is-active' : ''} onClick={() => setMode('teacher')}><UserRound size={14} /> За учителем</button>
-          <button type="button" className={mode === 'student' ? 'is-active' : ''} onClick={() => setMode('student')}><UserRound size={14} /> За учеником</button>
-          <button type="button" className={mode === 'free' ? 'is-active' : ''} onClick={() => { setActiveTab(resolvedActiveTab); setMode('free'); }}><MousePointer2 size={14} /> Самостоятельно</button>
+          <button type="button" aria-pressed={mode === 'teacher'} className={mode === 'teacher' ? 'is-active' : ''} onClick={() => setMode('teacher')}><UserRound size={14} /> За учителем</button>
+          <button type="button" aria-pressed={mode === 'student'} className={mode === 'student' ? 'is-active' : ''} onClick={() => setMode('student')}><UserRound size={14} /> За учеником</button>
+          <button type="button" aria-pressed={mode === 'free'} className={mode === 'free' ? 'is-active' : ''} onClick={() => { setActiveTab(resolvedActiveTab); setMode('free'); }}><MousePointer2 size={14} /> Самостоятельно</button>
         </div>
         <span className="lesson-replay-player__mode-hint">
           {mode === 'free' ? 'Можно двигать доску и прокручивать код' : `Показываем перемещения ${followedRole === 'teacher' ? 'учителя' : 'ученика'}`}
@@ -1092,10 +1639,13 @@ const LessonReplayPlayer = ({ replay }) => {
           </div>
         </>
       )}
+        </>
+      )}
 
       <div className="lesson-replay-player__timeline">
         <div className="lesson-replay-player__markers" aria-hidden="true">
           {markers.map((event) => <i key={event.id} data-type={event.type} style={{ left: `${Math.min(100, Math.max(0, (event.offsetMs / durationMs) * 100))}%` }} />)}
+          {timeMachineBranch && <i className="is-time-machine-anchor" data-type="branch" style={{ left: `${Math.min(100, Math.max(0, (timeMachineBranch.metadata.positionMs / durationMs) * 100))}%` }} />}
         </div>
         <input
           type="range"
@@ -1105,6 +1655,7 @@ const LessonReplayPlayer = ({ replay }) => {
           value={Math.min(durationMs, Math.round(positionMs))}
           onChange={(event) => seekReplayTo(event.target.value)}
           aria-label="Позиция воспроизведения"
+          aria-valuetext={`${formatClock(positionMs)} из ${formatClock(durationMs)}`}
         />
       </div>
 
@@ -1113,6 +1664,14 @@ const LessonReplayPlayer = ({ replay }) => {
           {playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}<span>{playing ? 'Пауза' : 'Смотреть'}</span>
         </button>
         <button type="button" className="lesson-replay-player__restart" onClick={() => { seekReplayTo(0); setPlaying(false); }} aria-label="В начало"><RotateCcw size={16} /></button>
+        <button
+          type="button"
+          className={`lesson-replay-player__time-machine-toggle${timeMachineOpen ? ' is-active' : ''}`}
+          onClick={() => (timeMachineOpen ? setTimeMachineOpen(false) : openTimeMachine())}
+          aria-pressed={timeMachineOpen}
+        >
+          <History size={16} /><span>{timeMachineOpen ? 'Закрыть копию' : 'Машина времени'}</span>
+        </button>
         <span className="lesson-replay-player__time">{formatClock(positionMs)} <em>/</em> {formatClock(durationMs)}</span>
         <div className="lesson-replay-player__speeds" role="group" aria-label="Скорость воспроизведения">
           {[1, 2, 4].map((value) => <button key={value} type="button" className={speed === value ? 'is-active' : ''} aria-pressed={speed === value} onClick={() => setSpeed(value)}>{value}×</button>)}

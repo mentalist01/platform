@@ -541,6 +541,501 @@
   color: #fda4af;
 }
 
+.lesson-replay-player__time-machine {
+  min-height: 430px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-top: 1px solid rgba(124, 58, 237, 0.12);
+  border-bottom: 1px solid rgba(124, 58, 237, 0.12);
+  background: #f7f5ff;
+}
+
+.lesson-replay-player__time-machine-bar {
+  display: flex;
+  min-height: 54px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(124, 58, 237, 0.14);
+  background:
+    radial-gradient(circle at 0% 50%, rgba(192, 38, 211, 0.12), transparent 34%),
+    rgba(255, 255, 255, 0.94);
+}
+
+.lesson-replay-player__time-machine-heading {
+  min-width: 145px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lesson-replay-player__time-machine-heading span,
+.lesson-replay-player__time-machine-pane > header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #7c3aed;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lesson-replay-player__time-machine-heading strong {
+  color: #2f2042;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.lesson-replay-player__time-machine-surfaces {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid rgba(124, 58, 237, 0.14);
+  border-radius: 11px;
+  background: #f3efff;
+}
+
+.lesson-replay-player__time-machine-surfaces button,
+.lesson-replay-player__time-machine-reset,
+.lesson-replay-player__time-machine-close {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  color: #77628d;
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.lesson-replay-player__time-machine-surfaces button.is-active {
+  color: #6d28d9;
+  background: #fff;
+  box-shadow: 0 4px 11px rgba(76, 29, 149, 0.12);
+}
+
+.lesson-replay-player__time-machine-reset {
+  margin-left: auto;
+  border: 1px solid rgba(124, 58, 237, 0.14);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.lesson-replay-player__time-machine-close {
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
+  color: #6d28d9;
+  background: #f5f3ff;
+}
+
+.lesson-replay-player__time-machine-preview {
+  position: relative;
+  min-height: 375px;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: #fff;
+}
+
+.lesson-replay-player__time-machine-preview[data-surface="board"] {
+  background:
+    linear-gradient(rgba(124, 58, 237, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 58, 237, 0.04) 1px, transparent 1px),
+    #fff;
+  background-size: 24px 24px;
+}
+
+.lesson-replay-player__time-machine-preview > .lesson-replay-player__board-wrap,
+.lesson-replay-player__time-machine-preview > .lesson-replay-player__board-wrap .lesson-replay-player__board,
+.lesson-replay-player__time-machine-preview > .lesson-replay-player__code-layout,
+.lesson-replay-player__time-machine-preview > .lesson-replay-player__empty-surface {
+  width: 100%;
+  height: 100%;
+  min-height: 375px;
+}
+
+.lesson-replay-player__time-machine-preview > .lesson-replay-player__code-layout {
+  display: flex;
+  flex-direction: column;
+}
+
+.lesson-replay-player__time-machine-preview .lesson-replay-player__code {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.lesson-replay-player__time-machine-playing-note {
+  position: absolute;
+  z-index: 3;
+  right: 18px;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 1px solid rgba(196, 181, 253, 0.28);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(36, 25, 52, 0.82);
+  box-shadow: 0 8px 26px rgba(17, 12, 28, 0.2);
+  backdrop-filter: blur(12px);
+  font-size: 10px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.lesson-replay-player__time-machine-prompt {
+  position: absolute;
+  z-index: 3;
+  right: 18px;
+  bottom: 18px;
+  width: min(390px, calc(100% - 36px));
+  padding: 16px;
+  border: 1px solid rgba(196, 181, 253, 0.45);
+  border-radius: 17px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(217, 70, 239, 0.38), transparent 42%),
+    rgba(35, 24, 51, 0.92);
+  box-shadow: 0 18px 42px rgba(20, 12, 31, 0.3);
+  backdrop-filter: blur(16px);
+}
+
+.lesson-replay-player__time-machine-prompt > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #d8b4fe;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.lesson-replay-player__time-machine-prompt strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.lesson-replay-player__time-machine-prompt p {
+  margin: 5px 0 13px;
+  color: #ddd6e8;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.lesson-replay-player__time-machine-prompt button {
+  min-height: 39px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 11px;
+  color: #4c1d95;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.lesson-replay-player__time-machine-compare {
+  min-height: 375px;
+  height: clamp(375px, 48vw, 540px);
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.lesson-replay-player__time-machine-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+
+.lesson-replay-player__time-machine-pane + .lesson-replay-player__time-machine-pane {
+  border-left: 2px solid rgba(124, 58, 237, 0.22);
+}
+
+.lesson-replay-player__time-machine-pane > header {
+  min-height: 40px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(124, 58, 237, 0.12);
+  background: #fbfaff;
+}
+
+.lesson-replay-player__time-machine-pane > header strong {
+  color: #725e87;
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.lesson-replay-player__time-machine-pane.is-original {
+  position: relative;
+  background: #f6f3fa;
+}
+
+.lesson-replay-player__time-machine-pane.is-original::after {
+  position: absolute;
+  z-index: 3;
+  inset: 40px 0 0;
+  border: 1px dashed rgba(124, 58, 237, 0.16);
+  background: repeating-linear-gradient(135deg, transparent 0 12px, rgba(124, 58, 237, 0.025) 12px 24px);
+  content: '';
+  pointer-events: none;
+}
+
+.lesson-replay-player__time-machine-pane.is-original .lesson-replay-player__time-machine-pane-content {
+  opacity: 0.58;
+  filter: saturate(0.7);
+}
+
+.lesson-replay-player__time-machine-pane.is-branch > header {
+  background: linear-gradient(90deg, #f5f3ff, #fff);
+}
+
+.lesson-replay-player__time-machine-pane-content {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.lesson-replay-player__time-machine-pane-content > .lesson-replay-player__board-wrap,
+.lesson-replay-player__time-machine-pane-content > .lesson-replay-player__board-wrap .lesson-replay-player__board,
+.lesson-replay-player__time-machine-pane-content > .lesson-replay-player__code-layout,
+.lesson-replay-player__time-machine-pane-content > .lesson-replay-player__empty-surface {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.lesson-replay-player__time-machine-pane-content > .lesson-replay-player__code-layout {
+  display: flex;
+  flex-direction: column;
+}
+
+.lesson-replay-player__time-machine-pane-content .lesson-replay-player__code {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.lesson-replay-player__time-machine-code {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(220px, 1fr) auto;
+  overflow: hidden;
+  background: #12101a;
+}
+
+.lesson-replay-player__time-machine-editor {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lesson-replay-player__time-machine-console {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1.2fr);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: #191622;
+}
+
+.lesson-replay-player__time-machine-console > label,
+.lesson-replay-player__time-machine-console > section {
+  min-width: 0;
+  padding: 9px 11px 10px;
+}
+
+.lesson-replay-player__time-machine-console > section {
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.lesson-replay-player__time-machine-console label > span,
+.lesson-replay-player__time-machine-console section > div > span {
+  color: #a78bfa;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.lesson-replay-player__time-machine-console textarea {
+  width: 100%;
+  min-height: 58px;
+  margin-top: 6px;
+  resize: vertical;
+  border: 1px solid rgba(196, 181, 253, 0.16);
+  border-radius: 8px;
+  outline: none;
+  color: #eee8f8;
+  background: #110f18;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+}
+
+.lesson-replay-player__time-machine-console textarea:focus {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.16);
+}
+
+.lesson-replay-player__time-machine-console section > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.lesson-replay-player__time-machine-console section button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  background: #7c3aed;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.lesson-replay-player__time-machine-console section button:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.lesson-replay-player__time-machine-console pre {
+  max-height: 74px;
+  margin: 6px 0 0;
+  overflow: auto;
+  color: #d9d2e6;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.lesson-replay-player__time-machine-console section.is-error span,
+.lesson-replay-player__time-machine-console section.is-error pre {
+  color: #fda4af;
+}
+
+.lesson-replay-player__time-machine-board-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(124, 58, 237, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 58, 237, 0.045) 1px, transparent 1px),
+    #fff;
+  background-size: 24px 24px;
+}
+
+.lesson-replay-player__time-machine-board-tools {
+  position: absolute;
+  z-index: 4;
+  top: 9px;
+  right: 9px;
+  left: 9px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid rgba(124, 58, 237, 0.17);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.93);
+  box-shadow: 0 7px 20px rgba(76, 29, 149, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.lesson-replay-player__time-machine-board-tools > button {
+  min-width: 29px;
+  height: 29px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 8px;
+  color: #6d28d9;
+  background: transparent;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.lesson-replay-player__time-machine-board-tools > button.is-active {
+  color: #fff;
+  background: #7c3aed;
+}
+
+.lesson-replay-player__time-machine-board-tools > button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.lesson-replay-player__time-machine-colors {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  padding: 0 3px;
+}
+
+.lesson-replay-player__time-machine-colors button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--time-machine-color);
+  box-shadow: 0 0 0 1px rgba(56, 42, 73, 0.22);
+  cursor: pointer;
+}
+
+.lesson-replay-player__time-machine-colors button.is-active {
+  box-shadow: 0 0 0 2px #8b5cf6;
+}
+
+.lesson-replay-player__time-machine-board {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 330px;
+  touch-action: none;
+  user-select: none;
+}
+
+.lesson-replay-player__time-machine-board.is-pen { cursor: crosshair; }
+.lesson-replay-player__time-machine-board.is-pan { cursor: grab; }
+.lesson-replay-player__time-machine-board.is-pan:active { cursor: grabbing; }
+
 .lesson-replay-player__timeline {
   position: relative;
   padding: 16px 16px 8px;
@@ -593,6 +1088,16 @@
   background: #10b981;
 }
 
+.lesson-replay-player__markers i.is-time-machine-anchor {
+  width: 9px;
+  height: 9px;
+  top: -1px;
+  z-index: 2;
+  border: 2px solid #fff;
+  background: #c026d3;
+  box-shadow: 0 0 0 2px rgba(192, 38, 211, 0.25);
+}
+
 .lesson-replay-player__controls {
   display: flex;
   align-items: center;
@@ -629,6 +1134,27 @@
   border-radius: 11px;
   color: #745d8c;
   background: white;
+}
+
+.lesson-replay-player__time-machine-toggle {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid rgba(124, 58, 237, 0.18) !important;
+  border-radius: 11px;
+  color: #6d28d9;
+  background: #f7f4ff;
+  font-size: 10px !important;
+  font-weight: 850 !important;
+}
+
+.lesson-replay-player__time-machine-toggle.is-active {
+  color: #fff;
+  border-color: transparent !important;
+  background: linear-gradient(135deg, #6d28d9, #c026d3);
+  box-shadow: 0 7px 18px rgba(124, 58, 237, 0.2);
 }
 
 .lesson-replay-player__time {
@@ -683,6 +1209,14 @@
   .lesson-replay-player__controls { flex-wrap: wrap; }
   .lesson-replay-player__speeds { margin-left: 0; }
   .lesson-replay-player__time { margin-left: auto; }
+  .lesson-replay-player__time-machine-toggle span { display: none; }
+  .lesson-replay-player__time-machine-toggle { width: 36px; justify-content: center; padding: 0; }
+  .lesson-replay-player__time-machine-bar { flex-wrap: wrap; }
+  .lesson-replay-player__time-machine-heading { flex: 1 1 150px; }
+  .lesson-replay-player__time-machine-surfaces { order: 3; }
+  .lesson-replay-player__time-machine-reset { order: 4; margin-left: auto; }
+  .lesson-replay-player__time-machine-prompt { right: 10px; bottom: 10px; width: calc(100% - 20px); }
+  .lesson-replay-player__time-machine-playing-note { right: 10px; bottom: 10px; max-width: calc(100% - 20px); }
 }
 
 @media (max-width: 800px) {
@@ -698,6 +1232,21 @@
 
   .lesson-replay-player__split-pane + .lesson-replay-player__split-pane {
     border-top: 1px solid rgba(124, 58, 237, 0.16);
+    border-left: 0;
+  }
+
+  .lesson-replay-player__time-machine-compare {
+    height: auto;
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lesson-replay-player__time-machine-pane {
+    min-height: 360px;
+  }
+
+  .lesson-replay-player__time-machine-pane + .lesson-replay-player__time-machine-pane {
+    border-top: 2px solid rgba(124, 58, 237, 0.22);
     border-left: 0;
   }
 }
@@ -726,7 +1275,7 @@
   box-shadow: none;
 }
 
-.lesson-replay-player.is-fullscreen > :not(.lesson-replay-player__stage):not(.lesson-replay-player__split-stage) {
+.lesson-replay-player.is-fullscreen > :not(.lesson-replay-player__stage):not(.lesson-replay-player__split-stage):not(.lesson-replay-player__time-machine) {
   flex: 0 0 auto;
 }
 
@@ -757,12 +1306,41 @@
   flex: 1 1 auto;
 }
 
+.lesson-replay-player.is-fullscreen > .lesson-replay-player__time-machine {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-preview,
+.lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-compare {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
+}
+
+.lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-board,
+.lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-preview > .lesson-replay-player__board-wrap,
+.lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-preview > .lesson-replay-player__code-layout,
+.lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-preview > .lesson-replay-player__empty-surface {
+  height: 100%;
+  min-height: 0;
+}
+
 @media (max-width: 800px) {
   .lesson-replay-player.is-fullscreen .lesson-replay-player__split-stage {
     grid-template-rows: repeat(2, minmax(0, 1fr));
   }
 
   .lesson-replay-player.is-fullscreen .lesson-replay-player__split-pane {
+    min-height: 0;
+  }
+
+  .lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-compare {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  .lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-pane {
     min-height: 0;
   }
 }
