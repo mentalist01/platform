@@ -161,3 +161,46 @@ test('supports direct code patches and complete board replacements', () => {
   ]);
   assert.deepEqual(branch.board.items, []);
 });
+
+test('restores the selected actor viewport for the real code and board surfaces', () => {
+  const viewportReplay = {
+    occurrence: { key: 'viewport-lesson', studentId: 'student-9' },
+    events: [
+      { id: 'code', type: 'code', offsetMs: 1_000, payload: { code: 'print(1)' } },
+      {
+        id: 'student-board-view',
+        type: 'viewport',
+        offsetMs: 2_000,
+        actor: { role: 'student' },
+        payload: { surface: 'board', zoom: 1.7, offset: { x: 120, y: -45 }, width: 900, height: 520 },
+      },
+      {
+        id: 'student-code-view',
+        type: 'viewport',
+        offsetMs: 2_500,
+        actor: { role: 'student' },
+        payload: { surface: 'code', scrollTopRatio: 0.6, scrollLeftRatio: 0.2, cursorLine: 14, cursorColumn: 5 },
+      },
+      {
+        id: 'teacher-board-view',
+        type: 'viewport',
+        offsetMs: 3_000,
+        actor: { role: 'teacher' },
+        payload: { surface: 'board', zoom: 0.8, offset: { x: -20, y: 30 }, width: 1200, height: 700 },
+      },
+    ],
+  };
+
+  const studentBranch = createLessonReplayBranch(viewportReplay, 3_000, { actorRole: 'student' });
+  const teacherBranch = createLessonReplayBranch(viewportReplay, 3_000, { actorRole: 'teacher' });
+
+  assert.equal(studentBranch.board.viewport.zoom, 1.7);
+  assert.deepEqual(studentBranch.board.viewport.offset, { x: 120, y: -45 });
+  assert.equal(studentBranch.code.viewport.scrollTopRatio, 0.6);
+  assert.equal(studentBranch.code.viewport.cursorLine, 14);
+  assert.equal(teacherBranch.board.viewport.zoom, 0.8);
+  assert.equal(teacherBranch.code.viewport.scrollTopRatio, 0.6);
+
+  studentBranch.board.viewport.offset.x = 999;
+  assert.equal(viewportReplay.events[1].payload.offset.x, 120);
+});

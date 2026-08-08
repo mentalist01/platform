@@ -599,6 +599,7 @@
 }
 
 .lesson-replay-player__time-machine-surfaces button,
+.lesson-replay-player__time-machine-compare-toggle,
 .lesson-replay-player__time-machine-reset,
 .lesson-replay-player__time-machine-close {
   min-height: 32px;
@@ -627,6 +628,17 @@
   margin-left: auto;
   border: 1px solid rgba(124, 58, 237, 0.14);
   background: rgba(255, 255, 255, 0.86);
+}
+
+.lesson-replay-player__time-machine-compare-toggle {
+  border: 1px solid rgba(124, 58, 237, 0.14);
+  white-space: nowrap;
+}
+
+.lesson-replay-player__time-machine-compare-toggle.is-active {
+  color: #6d28d9;
+  border-color: #c4b5fd;
+  background: #f5f3ff;
 }
 
 .lesson-replay-player__time-machine-close {
@@ -754,8 +766,17 @@
   height: clamp(375px, 48vw, 540px);
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
+}
+
+.lesson-replay-player__time-machine-compare.is-comparing {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lesson-replay-player__time-machine-compare:not(.is-comparing) {
+  min-height: 560px;
+  height: clamp(560px, 68vh, 780px);
 }
 
 .lesson-replay-player__time-machine-pane {
@@ -819,6 +840,35 @@
   min-height: 0;
   flex: 1 1 auto;
   overflow: hidden;
+}
+
+.lesson-replay-player__time-machine-sandbox {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.lesson-replay-player__time-machine-sandbox > .collab-workspace-shell,
+.lesson-replay-player__time-machine-sandbox > [data-lesson-replay-board-sandbox] {
+  width: 100%;
+  height: 100% !important;
+  max-height: none !important;
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+.lesson-replay-player__time-machine-unavailable {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #64748b;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .lesson-replay-player__time-machine-pane-content > .lesson-replay-player__board-wrap,
@@ -1235,7 +1285,9 @@
     border-left: 0;
   }
 
-  .lesson-replay-player__time-machine-compare {
+  .lesson-replay-player__time-machine-compare,
+  .lesson-replay-player__time-machine-compare.is-comparing,
+  .lesson-replay-player__time-machine-compare:not(.is-comparing) {
     height: auto;
     max-height: none;
     grid-template-columns: minmax(0, 1fr);
@@ -1336,7 +1388,7 @@
     min-height: 0;
   }
 
-  .lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-compare {
+  .lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-compare.is-comparing {
     grid-template-rows: repeat(2, minmax(0, 1fr));
   }
 

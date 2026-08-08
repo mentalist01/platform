@@ -59,6 +59,7 @@ const StudentLessonDetailModal = ({
   materials = [],
   replay = null,
   createPythonWorker = null,
+  renderLessonReplaySandbox = null,
   topicText = '',
   loading = false,
   error = '',
@@ -247,6 +248,7 @@ const StudentLessonDetailModal = ({
               key={replay?.occurrence?.key || 'lesson-replay'}
               replay={replay}
               createPythonWorker={createPythonWorker}
+              renderLessonReplaySandbox={renderLessonReplaySandbox}
             />
           )}
 

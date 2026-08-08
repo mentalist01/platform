@@ -365,12 +365,16 @@ const estimateBoardTaskTextHeight = (value, width = BOARD_TASK_DEFAULT_WIDTH) =>
 
 const getBoardTaskStoredImageSource = (image) => {
   if (!image || typeof image !== 'object') return '';
-  return normalizeBoardAssetUrl(image.assetUrl || image.imageUrl);
+  const assetUrl = normalizeBoardAssetUrl(image.assetUrl || image.imageUrl);
+  if (assetUrl) return assetUrl;
+  const dataUrl = typeof image.dataUrl === 'string' ? image.dataUrl.trim() : '';
+  return /^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(dataUrl) ? dataUrl : '';
 };
 
 const getBoardTaskImageSource = (image) => {
   const source = getBoardTaskStoredImageSource(image);
-  return source ? resolveAuthenticatedUploadsUrl(source) : '';
+  if (!source || source.startsWith('data:')) return source;
+  return resolveAuthenticatedUploadsUrl(source);
 };
 
 const getBoardItemImageSources = (item) => {
@@ -666,6 +670,16 @@ const prepareBoardImageUpload = async (file, image) => {
     naturalHeight: height,
   };
 };
+const readBoardFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  if (!file || typeof FileReader === 'undefined') {
+    reject(new Error('Не удалось прочитать изображение'));
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+  reader.onerror = () => reject(new Error('Не удалось прочитать изображение'));
+  reader.readAsDataURL(file);
+});
 const prepareBoardRenderCanvas = (canvas, cssWidth, cssHeight) => {
   if (!canvas) return null;
   const width = Math.max(1, Math.round(Number(cssWidth) || canvas.clientWidth || 1));
@@ -867,10 +881,11 @@ const normalizeBoardStoredItem = (rawValue) => {
     const screenshots = (Array.isArray(source.screenshots) ? source.screenshots : [])
       .slice(0, BOARD_TASK_MAX_SCREENSHOTS)
       .map((image) => {
-        const assetUrl = getBoardTaskStoredImageSource(image);
-        if (!assetUrl) return null;
+        const storedSource = getBoardTaskStoredImageSource(image);
+        if (!storedSource) return null;
+        const isInlineImage = storedSource.startsWith('data:');
         return {
-          assetUrl,
+          ...(isInlineImage ? { dataUrl: storedSource } : { assetUrl: storedSource }),
           assetId: typeof image?.assetId === 'string' ? image.assetId.slice(0, 120) : '',
           name: typeof image?.name === 'string' ? image.name.slice(0, 240) : '',
           naturalWidth: Math.max(1, Number(image?.naturalWidth) || Number(image?.width) || 1),
@@ -977,7 +992,12 @@ const estimateBoardItemBytes = (item) => {
       ...(item.studentAnswers || []),
     ].reduce((sum, value) => sum + String(value || '').length * 2, 0);
     const imageReferenceBytes = screenshots.reduce((sum, image) => (
-      sum + String(image?.assetUrl || '').length + String(image?.assetId || '').length + String(image?.name || '').length * 2 + 48
+      sum
+      + String(image?.assetUrl || '').length
+      + String(image?.dataUrl || '').length
+      + String(image?.assetId || '').length
+      + String(image?.name || '').length * 2
+      + 48
     ), 0);
     return sharedBytes + 160 + textBytes + imageReferenceBytes;
   }
@@ -3473,9 +3493,16 @@ const CollabSection = ({
   openSaveToNotesToken = 0,
   onLessonReplayEvent = null,
   lessonReplayActive = false,
+  sandbox = null,
+  onSandboxStateChange = null,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
+  const isSandbox = Boolean(sandbox && typeof sandbox === 'object');
+  const sandboxId = isSandbox
+    ? (String(sandbox?.id || sandbox?.branchId || 'lesson-replay').trim() || 'lesson-replay')
+    : '';
+  const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
   const [status, setStatus] = useState('disconnected');
   const [peerCount, setPeerCount] = useState(0);
   const [remoteParticipants, setRemoteParticipants] = useState([]);
@@ -3570,7 +3597,8 @@ const CollabSection = ({
     ? window.matchMedia('(max-width: 767px)').matches
     : false;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
-  const roomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
+  const liveRoomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
+  const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
     return buildNotesSaveDraftStorageKey('code', ownerId, effectiveStudentId);
@@ -3613,6 +3641,7 @@ const CollabSection = ({
   const collabDocRef = useRef(null);
   const collabTestFileRef = useRef(null);
   const runMapRef = useRef(null);
+  const updateRunStateFromMapRef = useRef(null);
   const collabAwarenessRef = useRef(null);
   const collabTurtleCloseRef = useRef(null);
   const collabTurtlePayloadRef = useRef({ json: '', runId: '' });
@@ -3678,6 +3707,9 @@ const CollabSection = ({
   const collabCursorPendingRef = useRef(null);
   const collabCursorLastSyncAtRef = useRef(0);
   const remoteEditorCursorSeenRef = useRef(new Map());
+  const sandboxRef = useRef(sandbox);
+  const sandboxStateChangeRef = useRef(onSandboxStateChange);
+  const sandboxReadyRef = useRef(false);
   const lessonReplayEventRef = useRef(onLessonReplayEvent);
   const lessonReplayCodeTimerRef = useRef(null);
   const lessonReplayPendingCodeRef = useRef(null);
@@ -3687,8 +3719,54 @@ const CollabSection = ({
   const lessonReplayLastCodeViewportSignatureRef = useRef('');
   const lessonReplayLastCodeViewportAtRef = useRef(0);
   useEffect(() => {
-    lessonReplayEventRef.current = onLessonReplayEvent;
-  }, [onLessonReplayEvent]);
+    sandboxRef.current = sandbox;
+  }, [sandbox]);
+  useEffect(() => {
+    sandboxStateChangeRef.current = onSandboxStateChange;
+  }, [onSandboxStateChange]);
+  useEffect(() => {
+    lessonReplayEventRef.current = isSandbox ? null : onLessonReplayEvent;
+  }, [isSandbox, onLessonReplayEvent]);
+  const emitSandboxState = useCallback((overrides = {}) => {
+    if (!isSandbox || !sandboxReadyRef.current || typeof sandboxStateChangeRef.current !== 'function') return;
+    const seed = sandboxRef.current && typeof sandboxRef.current === 'object'
+      ? sandboxRef.current
+      : {};
+    const seedCode = seed.code && typeof seed.code === 'object' ? seed.code : seed;
+    const doc = collabDocRef.current;
+    const codeText = doc?.getText?.('monaco');
+    const testText = collabTestFileRef.current;
+    sandboxStateChangeRef.current({
+      id: sandboxId,
+      code: Object.prototype.hasOwnProperty.call(overrides, 'code')
+        ? String(overrides.code ?? '')
+        : (codeText ? codeText.toString() : String(seedCode.code || '')),
+      input: Object.prototype.hasOwnProperty.call(overrides, 'input')
+        ? String(overrides.input ?? '')
+        : String(runInputRef.current ?? seedCode.input ?? ''),
+      testFile: Object.prototype.hasOwnProperty.call(overrides, 'testFile')
+        ? String(overrides.testFile ?? '')
+        : (testText ? testText.toString() : String(seedCode.testFile || '')),
+      output: Object.prototype.hasOwnProperty.call(overrides, 'output')
+        ? String(overrides.output ?? '')
+        : String(runOutputRef.current ?? seedCode.output ?? ''),
+      error: Object.prototype.hasOwnProperty.call(overrides, 'error')
+        ? String(overrides.error ?? '')
+        : String(runErrorRef.current ?? seedCode.error ?? ''),
+      status: Object.prototype.hasOwnProperty.call(overrides, 'status')
+        ? String(overrides.status ?? '')
+        : String(runStatusRef.current ?? seedCode.status ?? 'idle'),
+    });
+  }, [isSandbox, sandboxId]);
+  const emitSandboxBoardItems = useCallback((items) => {
+    if (!isSandbox || typeof sandboxStateChangeRef.current !== 'function') return;
+    sandboxStateChangeRef.current({
+      id: sandboxId,
+      board: {
+        items: Array.isArray(items) ? items : [],
+      },
+    });
+  }, [isSandbox, sandboxId]);
   const flushLessonReplayCodeSnapshot = useCallback(() => {
     if (typeof window !== 'undefined') window.clearTimeout(lessonReplayCodeTimerRef.current);
     const payload = lessonReplayPendingCodeRef.current;
@@ -3758,10 +3836,6 @@ const CollabSection = ({
   const setCollabBoardMemorySnapshotRenderer = useCallback((renderer) => {
     collabBoardSnapshotRendererRef.current = typeof renderer === 'function' ? renderer : null;
   }, []);
-  const selectedStudent = useMemo(
-    () => (students || []).find((student) => student.id === activeStudentId),
-    [students, activeStudentId]
-  );
   const runTaskNumbers = useMemo(() => {
     const normalizedTask = normalizeTaskNumber(runTaskNumber);
     if (!Number.isFinite(normalizedTask)) return [];
@@ -3921,8 +3995,8 @@ const CollabSection = ({
     glyphMargin: false,
     lineNumbersMinChars: 2,
     lineDecorationsWidth: 6,
-    readOnly: !roomId,
-  }), [roomId, editorFontSize, isCollabFullscreen]);
+    readOnly: !roomId || sandboxReadOnly,
+  }), [roomId, sandboxReadOnly, editorFontSize, isCollabFullscreen]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
   const compactCollabHeight = '100%';
   const editorHeight = isCollabFullscreen
@@ -3978,11 +4052,9 @@ const CollabSection = ({
   const collabTitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-900') : 'text-gray-900';
   const collabSubtitleClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-300/90' : 'text-slate-600') : 'text-gray-500';
   const collabLabelClass = isCollabFullscreen ? (isFullscreenDark ? 'text-cyan-300' : 'text-violet-600') : 'text-purple-600';
-  const collabSessionTextClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-100' : 'text-slate-800') : 'text-gray-800';
   const collabHintClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-400/90' : 'text-slate-500') : 'text-gray-400';
   const collabToolbarClass = 'collab-code-toolbar--board-style';
   const collabToolbarDividerClass = 'collab-code-toolbar__divider';
-  const collabSessionValueClass = isCollabFullscreen ? (isFullscreenDark ? 'text-slate-50' : 'text-slate-800') : collabSessionTextClass;
   const collabIconButtonBase = 'collab-code-icon-button';
   const collabIconButtonDisabled = 'is-disabled';
   const collabIconButtonNeutral = 'is-neutral';
@@ -4678,6 +4750,13 @@ const CollabSection = ({
   }, [taskOptions, runTaskNumber]);
 
   useEffect(() => {
+    if (isSandbox) {
+      setTestingTaskFiles([]);
+      setTestingTaskFilesError('');
+      setTestingTaskFilesLoading(false);
+      setTestingTaskFilesLoaded(true);
+      return undefined;
+    }
     let cancelled = false;
     setTestingTaskFilesLoading(true);
     setTestingTaskFilesLoaded(false);
@@ -4699,10 +4778,10 @@ const CollabSection = ({
         }
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [isSandbox]);
 
   useEffect(() => {
-    if (!effectiveStudentId) {
+    if (isSandbox || !effectiveStudentId) {
       setTaskFiles([]);
       setTaskFilesError('');
       setTaskFilesLoading(false);
@@ -4731,7 +4810,7 @@ const CollabSection = ({
         }
       });
     return () => { cancelled = true; };
-  }, [effectiveStudentId]);
+  }, [effectiveStudentId, isSandbox]);
 
   useEffect(() => {
     if (!activeTaskFilesLoaded) return;
@@ -4929,7 +5008,8 @@ const CollabSection = ({
 
   useEffect(() => {
     runInputRef.current = runInput;
-  }, [runInput]);
+    if (isSandbox) emitSandboxState({ input: runInput });
+  }, [runInput, isSandbox, emitSandboxState]);
 
   useEffect(() => {
     testFileTextRef.current = testFileText;
@@ -5396,7 +5476,7 @@ const CollabSection = ({
   ]);
 
   useEffect(() => {
-    if (!effectiveStudentId || !saveTaskNumber || !saveCategory) {
+    if (isSandbox || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
       setFolders([]);
       setFoldersError('');
       setFoldersLoading(false);
@@ -5419,7 +5499,7 @@ const CollabSection = ({
         if (!cancelled) setFoldersLoading(false);
       });
     return () => { cancelled = true; };
-  }, [effectiveStudentId, saveTaskNumber, saveCategory]);
+  }, [effectiveStudentId, isSandbox, saveTaskNumber, saveCategory]);
 
   useEffect(() => {
     setSaveError('');
@@ -5777,6 +5857,7 @@ const CollabSection = ({
   }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText]);
 
   const handleUploadTaskFiles = async (fileList) => {
+    if (isSandbox) return;
     const filesToUpload = Array.from(fileList || []).filter(Boolean);
     if (!filesToUpload.length) return;
     if (!effectiveStudentId) {
@@ -5849,6 +5930,7 @@ const CollabSection = ({
   }, []);
 
   const handleCreateFolder = async () => {
+    if (isSandbox) return;
     const name = newFolderName.trim();
     if (!name) {
       setFoldersError('Введите название папки.');
@@ -5874,6 +5956,10 @@ const CollabSection = ({
     setSaveError('');
     setSaveSuccess('');
     setSaveNameError(false);
+    if (isSandbox) {
+      setSaveError('Локальная копия урока не сохраняется в реальные конспекты.');
+      return;
+    }
     if (!effectiveStudentId) {
       setSaveError('Сначала выберите ученика.');
       return;
@@ -6207,6 +6293,7 @@ const CollabSection = ({
       }
     }
   };
+  updateRunStateFromMapRef.current = updateRunStateFromMap;
 
   const publishRunState = (payload) => {
     const runMap = runMapRef.current;
@@ -7043,7 +7130,8 @@ const CollabSection = ({
 
   useEffect(() => {
     taskFilesSyncReadyRef.current = false;
-    if (!roomId || !editorReady || !wsUrl) {
+    sandboxReadyRef.current = false;
+    if (!roomId || !editorReady || (!isSandbox && !wsUrl)) {
       setStatus('disconnected');
       setPeerCount(0);
       setRemoteParticipants([]);
@@ -7078,8 +7166,139 @@ const CollabSection = ({
       setLocalTestFileSelection(null);
       setTestFileText('');
       clearDebugSession(false);
-      updateRunStateFromMap(null);
+      updateRunStateFromMapRef.current?.(null);
       return;
+    }
+
+    if (isSandbox) {
+      const seed = sandboxRef.current && typeof sandboxRef.current === 'object'
+        ? sandboxRef.current
+        : {};
+      const seedCode = seed.code && typeof seed.code === 'object' ? seed.code : seed;
+      const initialCode = String(seedCode.code || '');
+      const initialInput = String(seedCode.input || '');
+      const initialTestFile = normalizeCollabTextFileContent(seedCode.testFile || '');
+      const initialOutput = String(seedCode.output || '');
+      const initialError = String(seedCode.error || '');
+      const initialStatus = String(seedCode.status || 'idle') || 'idle';
+      const initialViewport = seedCode.viewport && typeof seedCode.viewport === 'object'
+        ? seedCode.viewport
+        : null;
+      const model = editorRef.current?.getModel?.();
+      if (!model) return undefined;
+
+      setStatus('connected');
+      setPeerCount(0);
+      setRemoteParticipants([]);
+      setRemoteEditorCursors([]);
+      setRemoteOutputSelections([]);
+      setRemoteTestFileSelections([]);
+      stopCollabOutputSelectionTracking();
+      stopCollabTestFileSelectionTracking();
+
+      const doc = new Y.Doc();
+      collabDocRef.current = doc;
+      collabAwarenessRef.current = null;
+      const ytext = doc.getText('monaco');
+      const testFileYText = doc.getText(COLLAB_TEST_FILE_DOC_KEY);
+      const runMap = doc.getMap('collabRun');
+      doc.transact(() => {
+        if (initialCode) ytext.insert(0, initialCode);
+        if (initialTestFile) testFileYText.insert(0, initialTestFile);
+        runMap.set('status', initialStatus);
+        runMap.set('output', initialOutput);
+        runMap.set('error', initialError);
+        runMap.set('author', 'Копия урока');
+        runMap.set('ts', null);
+        runMap.set('input', initialInput);
+      }, 'lesson-replay-sandbox-seed');
+
+      const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
+      let viewportFrameId = null;
+      let viewportRestoreFrameId = null;
+      if (initialViewport && typeof window !== 'undefined') {
+        viewportFrameId = window.requestAnimationFrame(() => {
+          viewportRestoreFrameId = window.requestAnimationFrame(() => {
+            const editor = editorRef.current;
+            const activeModel = editor?.getModel?.();
+            if (!editor || !activeModel) return;
+            const lineCount = Math.max(1, Number(activeModel.getLineCount?.()) || 1);
+            const cursorLine = Math.min(lineCount, Math.max(1, Number(initialViewport.cursorLine) || 1));
+            const cursorColumn = Math.max(1, Number(initialViewport.cursorColumn) || 1);
+            editor.setPosition?.({ lineNumber: cursorLine, column: cursorColumn });
+            const layout = editor.getLayoutInfo?.() || {};
+            const viewportHeight = Math.max(1, Number(layout.height) || 1);
+            const viewportWidth = Math.max(1, Number(layout.contentWidth) || Number(layout.width) || 1);
+            const maxScrollTop = Math.max(0, (Number(editor.getScrollHeight?.()) || viewportHeight) - viewportHeight);
+            const maxScrollLeft = Math.max(0, (Number(editor.getScrollWidth?.()) || viewportWidth) - viewportWidth);
+            const scrollTopRatio = Math.min(1, Math.max(0, Number(initialViewport.scrollTopRatio) || 0));
+            const scrollLeftRatio = Math.min(1, Math.max(0, Number(initialViewport.scrollLeftRatio) || 0));
+            editor.setScrollTop?.(maxScrollTop * scrollTopRatio);
+            editor.setScrollLeft?.(maxScrollLeft * scrollLeftRatio);
+          });
+        });
+      }
+      collabTestFileRef.current = testFileYText;
+      runMapRef.current = runMap;
+      taskFilesSyncReadyRef.current = true;
+      runInputRef.current = initialInput;
+      testFileTextRef.current = initialTestFile;
+      runOutputRef.current = initialOutput;
+      runErrorRef.current = initialError;
+      runStatusRef.current = initialStatus;
+      setRunInput(initialInput);
+      setTestFileText(initialTestFile);
+      updateRunStateFromMapRef.current?.(runMap);
+      setOutputPanelOpen(Boolean(initialOutput || initialError || initialStatus === 'running'));
+
+      const handleCodeChange = () => {
+        emitSandboxState({ code: ytext.toString() });
+      };
+      const handleTestFileChange = () => {
+        const nextTestFile = normalizeCollabTextFileContent(testFileYText.toString());
+        testFileTextRef.current = nextTestFile;
+        setTestFileText((current) => (current === nextTestFile ? current : nextTestFile));
+        emitSandboxState({ testFile: nextTestFile });
+      };
+      const handleRunMapChange = () => {
+        const nextOutput = typeof runMap.get('output') === 'string' ? runMap.get('output') : '';
+        const nextError = typeof runMap.get('error') === 'string' ? runMap.get('error') : '';
+        const nextStatus = typeof runMap.get('status') === 'string' ? runMap.get('status') : 'idle';
+        runOutputRef.current = nextOutput;
+        runErrorRef.current = nextError;
+        runStatusRef.current = nextStatus;
+        updateRunStateFromMapRef.current?.(runMap);
+        emitSandboxState({ output: nextOutput, error: nextError, status: nextStatus });
+      };
+
+      ytext.observe(handleCodeChange);
+      testFileYText.observe(handleTestFileChange);
+      runMap.observe(handleRunMapChange);
+      sandboxReadyRef.current = true;
+      emitSandboxState({
+        code: initialCode,
+        input: initialInput,
+        testFile: initialTestFile,
+        output: initialOutput,
+        error: initialError,
+        status: initialStatus,
+      });
+
+      return () => {
+        if (viewportFrameId !== null) window.cancelAnimationFrame(viewportFrameId);
+        if (viewportRestoreFrameId !== null) window.cancelAnimationFrame(viewportRestoreFrameId);
+        ytext.unobserve(handleCodeChange);
+        testFileYText.unobserve(handleTestFileChange);
+        runMap.unobserve(handleRunMapChange);
+        binding.destroy();
+        doc.destroy();
+        sandboxReadyRef.current = false;
+        taskFilesSyncReadyRef.current = false;
+        if (collabDocRef.current === doc) collabDocRef.current = null;
+        if (collabTestFileRef.current === testFileYText) collabTestFileRef.current = null;
+        if (runMapRef.current === runMap) runMapRef.current = null;
+        collabAwarenessRef.current = null;
+      };
     }
 
     setStatus('connecting');
@@ -7124,7 +7343,7 @@ const CollabSection = ({
     const runMap = doc.getMap('collabRun');
     runMapRef.current = runMap;
     const handleRunMapChange = (_event, transaction) => {
-      updateRunStateFromMap(runMap);
+      updateRunStateFromMapRef.current?.(runMap);
       const replayRunPayload = {
         status: typeof runMap.get('status') === 'string' ? runMap.get('status') : 'idle',
         input: typeof runMap.get('input') === 'string' ? runMap.get('input') : String(runMap.get('input') ?? ''),
@@ -7329,10 +7548,12 @@ const CollabSection = ({
       testFileSelectionRef.current = null;
       setLocalTestFileSelection(null);
       clearDebugSession(false);
-      updateRunStateFromMap(null);
+      updateRunStateFromMapRef.current?.(null);
     };
   }, [
     roomId,
+    isSandbox,
+    sandboxId,
     editorReady,
     wsUrl,
     localName,
@@ -7343,23 +7564,15 @@ const CollabSection = ({
     stopCollabTestFileSelectionTracking,
     scheduleLessonReplayCodeSnapshot,
     flushLessonReplayCodeSnapshot,
+    emitSandboxState,
     role,
   ]);
 
-  const statusLabel = status === 'connected'
+  const statusLabel = isSandbox
+    ? (sandboxReadOnly ? 'Запись урока' : 'Локальная копия')
+    : status === 'connected'
     ? 'Подключено'
     : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
-  const statusClass = status === 'connected'
-    ? (isCollabFullscreen
-      ? (isFullscreenDark
-        ? 'border-emerald-300/45 bg-emerald-500/16 text-emerald-100 shadow-[0_6px_16px_rgba(5,150,105,0.2)]'
-        : 'border-emerald-200 bg-emerald-50/95 text-emerald-700 shadow-[0_6px_14px_rgba(110,231,183,0.24)]')
-      : 'border-emerald-200 bg-emerald-50 text-emerald-700')
-    : (isCollabFullscreen
-      ? (isFullscreenDark
-        ? 'border-amber-300/45 bg-amber-500/18 text-amber-100 shadow-[0_6px_16px_rgba(217,119,6,0.2)]'
-        : 'border-amber-200 bg-amber-50/95 text-amber-700 shadow-[0_6px_14px_rgba(252,211,77,0.22)]')
-      : 'border-amber-200 bg-amber-50 text-amber-700');
   const SHOW_COLLAB_AUTOFORMAT = false;
   const isSplitCollabLayout = (isCollabFullscreen || isDesktopCollabCompact) && !isMobileViewport;
   const showEditorHeader = !isSplitCollabLayout && !useBoardGlassCodePanel;
@@ -7892,7 +8105,7 @@ const CollabSection = ({
     },
   ];
 
-  const saveModal = saveModalOpen ? (
+  const saveModal = !isSandbox && saveModalOpen ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
       <div className="surface-card modal-card rounded-3xl w-full max-w-3xl p-4 sm:p-5 md:p-6 shadow-2xl relative">
         <button
@@ -8097,7 +8310,7 @@ const CollabSection = ({
             <span className="collab-editor-pill">Python</span>
           </div>
           <div className="collab-editor-meta">
-            <span>{roomId ? 'Совместный документ' : 'Выберите ученика'}</span>
+            <span>{isSandbox ? 'Изолированная копия' : (roomId ? 'Совместный документ' : 'Выберите ученика')}</span>
             <span className={`collab-editor-connection collab-editor-connection--${status || 'idle'}`}>
               {roomId ? statusLabel : 'Комната не открыта'}
             </span>
@@ -8133,7 +8346,7 @@ const CollabSection = ({
               <Code2 size={21} />
             </span>
             <strong>Начните с первой строки</strong>
-            <span>Код синхронизируется со всеми участниками урока</span>
+            <span>{isSandbox ? 'Изменения остаются только в этой копии' : 'Код синхронизируется со всеми участниками урока'}</span>
             <kbd>F5&nbsp;&nbsp;Запустить</kbd>
           </div>
         )}
@@ -8531,11 +8744,11 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={() => taskFileInputRef.current?.click()}
-                  disabled={!effectiveStudentId || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING}
+                  disabled={isSandbox || !effectiveStudentId || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING}
                   className={`collab-task-files-upload inline-flex w-full items-center justify-center gap-1 rounded-xl border transition ${
                     isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                   } ${
-                    !effectiveStudentId || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
+                    isSandbox || !effectiveStudentId || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
                       ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                       : (isFullscreenDark
                         ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
@@ -8543,7 +8756,9 @@ const CollabSection = ({
                   }`}
                 >
                   {runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING ? <FileText size={13} /> : <Upload size={13} />}
-                  {runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
+                  {isSandbox
+                    ? 'Только локальная копия'
+                    : runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
                     ? 'Файлы из задач'
                     : (taskFileUploadBusy ? 'Загрузка...' : 'Загрузить файл')}
                 </button>
@@ -8993,8 +9208,17 @@ const CollabSection = ({
                     studentsLoading={studentsLoading}
                     theme={theme}
                     onMemorySnapshotRenderer={setCollabBoardMemorySnapshotRenderer}
-                    onLessonReplayEvent={onLessonReplayEvent}
-                    lessonReplayActive={lessonReplayActive}
+                    onLessonReplayEvent={isSandbox ? null : onLessonReplayEvent}
+                    lessonReplayActive={!isSandbox && lessonReplayActive}
+                    sandbox={isSandbox ? {
+                      id: `${sandboxId}-board`,
+                      items: Array.isArray(sandbox?.board?.items)
+                        ? sandbox.board.items
+                        : (Array.isArray(sandbox?.boardItems) ? sandbox.boardItems : []),
+                      viewport: sandbox?.board?.viewport || sandbox?.boardViewport || null,
+                      readOnly: sandboxReadOnly,
+                    } : null}
+                    onSandboxItemsChange={emitSandboxBoardItems}
                   />
                 </div>
                 {notesTopPaneResizeHandle}
@@ -9305,16 +9529,18 @@ const CollabSection = ({
         ? 'gap-1.5 md:justify-end'
         : (isDesktopCollabCompact ? 'gap-1.5' : 'gap-2')
     }`}>
-      {isTeacher && (!isCollabFullscreen || !activeStudentId) && renderStudentPicker()}
-      <button
-        type="button"
-        onClick={() => setSaveModalOpen(true)}
-        className="collab-code-action-icon"
-        title="Сохранить в конспекты"
-        aria-label="Сохранить в конспекты"
-      >
-        <Save size={19} />
-      </button>
+      {!isSandbox && isTeacher && (!isCollabFullscreen || !activeStudentId) && renderStudentPicker()}
+      {!isSandbox && (
+        <button
+          type="button"
+          onClick={() => setSaveModalOpen(true)}
+          className="collab-code-action-icon"
+          title="Сохранить в конспекты"
+          aria-label="Сохранить в конспекты"
+        >
+          <Save size={19} />
+        </button>
+      )}
       <span
         className={`collab-code-action-icon collab-code-status-icon ${status === 'connected' ? 'is-connected' : (status === 'connecting' ? 'is-connecting' : 'is-disconnected')}`}
         role="status"
@@ -9325,7 +9551,7 @@ const CollabSection = ({
           ? <CheckCircle size={19} />
           : (status === 'connecting' ? <RefreshCcw size={19} /> : <AlertCircle size={19} />)}
       </span>
-      {roomId && (
+      {roomId && !isSandbox && (
         <span
           className="collab-code-action-icon collab-code-online-icon"
           title={`Онлайн: ${peerCount}`}
@@ -9432,10 +9658,12 @@ const CollabSection = ({
               isCollabFullscreen ? 'text-lg sm:text-xl' : 'text-2xl'
             } ${collabTitleClass}`}>
               <Pencil size={isCollabFullscreen ? 18 : 24} className={collabLabelClass} />
-              Совместный код
+              {isSandbox ? 'Копия урока' : 'Совместный код'}
             </h2>
             <p className={`${collabSubtitleClass} ${isCollabFullscreen ? 'text-xs' : ''}`}>
-              Живой документ: изменения видны сразу.
+              {isSandbox
+                ? 'Настоящие инструменты кода и доски, отсоединённые от живого урока.'
+                : 'Живой документ: изменения видны сразу.'}
             </p>
           </div>
           {collabTopActions}
@@ -9585,17 +9813,19 @@ const CollabSection = ({
                 <span>Ввод и файлы</span>
                 <ChevronDown size={14} />
               </button>
-              <button
-                type="button"
-                onClick={() => setSaveModalOpen(true)}
-                disabled={!effectiveStudentId}
-                className={`${collabIconButtonBase} collab-code-pill-button is-menu is-files`}
-                title="Сохранить код в конспекты"
-                aria-label="Сохранить код в конспекты"
-              >
-                <Save size={15} />
-                <span>В конспекты</span>
-              </button>
+              {!isSandbox && (
+                <button
+                  type="button"
+                  onClick={() => setSaveModalOpen(true)}
+                  disabled={!effectiveStudentId}
+                  className={`${collabIconButtonBase} collab-code-pill-button is-menu is-files`}
+                  title="Сохранить код в конспекты"
+                  aria-label="Сохранить код в конспекты"
+                >
+                  <Save size={15} />
+                  <span>В конспекты</span>
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -9817,10 +10047,12 @@ const CollabSection = ({
                         <span aria-hidden="true" />
                         {statusLabel}
                       </span>
-                      <span className="collab-editor-statusbar__peers" title={`Участников онлайн: ${peerCount}`}>
-                        <Users size={12} aria-hidden="true" />
-                        {Math.max(0, Number(peerCount) || 0)}
-                      </span>
+                      {!isSandbox && (
+                        <span className="collab-editor-statusbar__peers" title={`Участников онлайн: ${peerCount}`}>
+                          <Users size={12} aria-hidden="true" />
+                          {Math.max(0, Number(peerCount) || 0)}
+                        </span>
+                      )}
                     </div>
                     <div className="collab-editor-statusbar__group collab-editor-statusbar__meta">
                       <span>{`Стр ${editorCursorPosition.lineNumber}, стлб ${editorCursorPosition.column}`}</span>
@@ -9945,11 +10177,17 @@ const BoardSection = ({
   onMemorySnapshotRenderer = null,
   onLessonReplayEvent = null,
   lessonReplayActive = false,
+  sandbox = null,
+  onSandboxItemsChange = null,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
-  const roomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
+  const sandboxSessionId = String(sandbox?.id || '').trim();
+  const isSandbox = Boolean(sandboxSessionId);
+  const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
+  const liveRoomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
+  const roomId = isSandbox ? `sandbox-${sandboxSessionId}` : liveRoomId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
   const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
@@ -10070,9 +10308,9 @@ const BoardSection = ({
   const minimapRenderTimerRef = useRef(null);
   const viewportHydratedRef = useRef(false);
   const viewportPersistTimerRef = useRef(null);
-  const lessonReplayEventRef = useRef(onLessonReplayEvent);
-  const lessonReplayActiveRef = useRef(Boolean(lessonReplayActive));
-  const lessonReplayPreviousActiveRef = useRef(Boolean(lessonReplayActive));
+  const lessonReplayEventRef = useRef(isSandbox ? null : onLessonReplayEvent);
+  const lessonReplayActiveRef = useRef(Boolean(!isSandbox && lessonReplayActive));
+  const lessonReplayPreviousActiveRef = useRef(Boolean(!isSandbox && lessonReplayActive));
   const lessonReplayBoardTimerRef = useRef(null);
   const lessonReplayPendingBoardRef = useRef(null);
   const lessonReplayLastBoardStateRef = useRef(null);
@@ -10081,17 +10319,22 @@ const BoardSection = ({
   const lessonReplayPendingBoardViewportRef = useRef(null);
   const lessonReplayLastBoardViewportSignatureRef = useRef('');
   const lessonReplayLastBoardViewportAtRef = useRef(0);
+  const sandboxConfigRef = useRef(sandbox);
+  const onSandboxItemsChangeRef = useRef(onSandboxItemsChange);
   const boardRevision = boardSnapshot.revision;
   const boardItemCount = boardSnapshot.itemCount;
   const boardTaskItems = boardItemsRef.current.filter((item) => item?.type === 'task');
 
-  useEffect(() => {
-    lessonReplayEventRef.current = onLessonReplayEvent;
-  }, [onLessonReplayEvent]);
+  sandboxConfigRef.current = sandbox;
+  onSandboxItemsChangeRef.current = onSandboxItemsChange;
 
   useEffect(() => {
-    lessonReplayActiveRef.current = Boolean(lessonReplayActive);
-  }, [lessonReplayActive]);
+    lessonReplayEventRef.current = isSandbox ? null : onLessonReplayEvent;
+  }, [isSandbox, onLessonReplayEvent]);
+
+  useEffect(() => {
+    lessonReplayActiveRef.current = Boolean(!isSandbox && lessonReplayActive);
+  }, [isSandbox, lessonReplayActive]);
 
   const flushLessonReplayBoardSnapshot = useCallback(() => {
     if (typeof window !== 'undefined') window.clearTimeout(lessonReplayBoardTimerRef.current);
@@ -10131,9 +10374,10 @@ const BoardSection = ({
   useEffect(() => () => flushLessonReplayBoardSnapshot(), [flushLessonReplayBoardSnapshot]);
 
   useEffect(() => {
+    const replayActive = Boolean(!isSandbox && lessonReplayActive);
     const wasActive = lessonReplayPreviousActiveRef.current;
-    lessonReplayPreviousActiveRef.current = Boolean(lessonReplayActive);
-    if (wasActive && !lessonReplayActive) {
+    lessonReplayPreviousActiveRef.current = replayActive;
+    if (wasActive && !replayActive) {
       const finalItems = yItemsRef.current?.toArray?.() || boardItemsRef.current || [];
       lessonReplayPendingBoardRef.current = finalItems;
       flushLessonReplayBoardSnapshot();
@@ -10144,13 +10388,13 @@ const BoardSection = ({
     if (typeof window === 'undefined') return undefined;
     window.clearTimeout(lessonReplayBoardTimerRef.current);
     lessonReplayBoardTimerRef.current = null;
-    if (!lessonReplayActive) return undefined;
+    if (!replayActive) return undefined;
     const timerId = window.setTimeout(() => {
       const currentItems = yItemsRef.current?.toArray?.() || boardItemsRef.current || [];
       scheduleLessonReplayBoardSnapshot(currentItems, 0);
     }, 0);
     return () => window.clearTimeout(timerId);
-  }, [flushLessonReplayBoardSnapshot, lessonReplayActive, roomId, scheduleLessonReplayBoardSnapshot]);
+  }, [flushLessonReplayBoardSnapshot, isSandbox, lessonReplayActive, roomId, scheduleLessonReplayBoardSnapshot]);
 
   const flushLessonReplayBoardViewport = useCallback(() => {
     if (typeof window !== 'undefined') window.clearTimeout(lessonReplayBoardViewportTimerRef.current);
@@ -10423,10 +10667,6 @@ const BoardSection = ({
     return { ok: !error, error };
   }, [getBoardCapacityError]);
 
-  const selectedStudent = useMemo(
-    () => (students || []).find((student) => student.id === activeStudentId),
-    [students, activeStudentId]
-  );
   const cursorVisibilityStorageKey = useMemo(
     () => `board-share-cursor-${userId || role || 'anon'}`,
     [userId, role]
@@ -10436,11 +10676,11 @@ const BoardSection = ({
     [userId, role]
   );
   const boardViewportStorageKey = useMemo(() => {
-    if (!roomId) return '';
+    if (isSandbox || !roomId) return '';
     const normalizedRole = role || 'user';
     const normalizedUserId = userId || 'anon';
     return `${BOARD_VIEWPORT_STORAGE_KEY_PREFIX}:${roomId}:${normalizedRole}:${normalizedUserId}`;
-  }, [roomId, role, userId]);
+  }, [isSandbox, roomId, role, userId]);
 
   const deleteItemsByIds = useCallback((ids) => {
     const yItems = yItemsRef.current;
@@ -10563,6 +10803,21 @@ const BoardSection = ({
 
   useEffect(() => {
     viewportHydratedRef.current = false;
+    if (isSandbox) {
+      const initialViewport = sandboxConfigRef.current?.viewport;
+      const initialZoom = Number(initialViewport?.zoom);
+      const initialOffsetX = Number(initialViewport?.offset?.x);
+      const initialOffsetY = Number(initialViewport?.offset?.y);
+      setZoom(Number.isFinite(initialZoom) && initialZoom > 0
+        ? Math.min(BOARD_MAX_ZOOM, Math.max(BOARD_MIN_ZOOM, initialZoom))
+        : 1);
+      setOffset({
+        x: Number.isFinite(initialOffsetX) ? initialOffsetX : 0,
+        y: Number.isFinite(initialOffsetY) ? initialOffsetY : 0,
+      });
+      viewportHydratedRef.current = true;
+      return;
+    }
     if (typeof window === 'undefined') {
       viewportHydratedRef.current = true;
       return;
@@ -10593,7 +10848,7 @@ const BoardSection = ({
       // Ignore malformed or unavailable localStorage entries for board viewport restore.
     }
     viewportHydratedRef.current = true;
-  }, [boardViewportStorageKey]);
+  }, [boardViewportStorageKey, isSandbox, sandboxSessionId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -10695,7 +10950,7 @@ const BoardSection = ({
   }, [zoom]);
 
   useEffect(() => {
-    if (!roomId || !viewportHydratedRef.current) return;
+    if (isSandbox || !roomId || !viewportHydratedRef.current) return;
     scheduleLessonReplayBoardViewport({
       surface: 'board',
       zoom: Math.max(0.05, Number(zoom) || 1),
@@ -10710,6 +10965,7 @@ const BoardSection = ({
     boardSize.height,
     boardSize.width,
     offset,
+    isSandbox,
     roomId,
     scheduleLessonReplayBoardViewport,
     zoom,
@@ -10741,7 +10997,7 @@ const BoardSection = ({
   }, [boardRevision, selectedImageId]);
 
   useEffect(() => {
-    if (!roomId || typeof window === 'undefined') return;
+    if (isSandbox || !roomId || typeof window === 'undefined') return;
     const match = String(window.location.hash || '').match(/^#board-item=([^&]+)$/);
     if (!match) return;
     let linkedId = '';
@@ -10769,7 +11025,7 @@ const BoardSection = ({
       x: (Number(linkedItem.x) || 0) + (Number(linkedItem.width) || 1) / 2 - boardSizeRef.current.width / currentZoom / 2,
       y: (Number(linkedItem.y) || 0) + (Number(linkedItem.height) || 1) / 2 - boardSizeRef.current.height / currentZoom / 2,
     });
-  }, [boardRevision, roomId]);
+  }, [boardRevision, isSandbox, roomId]);
 
   useEffect(() => {
     selectionRef.current = selectionBox;
@@ -10792,7 +11048,7 @@ const BoardSection = ({
   }, [boardRevision]);
 
   useEffect(() => {
-    if (!effectiveStudentId || !saveTaskNumber || !saveCategory) {
+    if (isSandbox || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
       setFolders([]);
       setFoldersError('');
       setFoldersLoading(false);
@@ -10815,7 +11071,7 @@ const BoardSection = ({
         if (!cancelled) setFoldersLoading(false);
       });
     return () => { cancelled = true; };
-  }, [effectiveStudentId, saveTaskNumber, saveCategory]);
+  }, [effectiveStudentId, isSandbox, saveTaskNumber, saveCategory]);
 
   useEffect(() => {
     setSaveFolderId('');
@@ -11090,6 +11346,7 @@ const BoardSection = ({
   };
 
   const handleCreateFolder = async () => {
+    if (isSandbox) return;
     const name = newFolderName.trim();
     if (!name) {
       setFoldersError('Введите название папки.');
@@ -11256,6 +11513,7 @@ const BoardSection = ({
   };
 
   const handleSaveBoardToNotes = async () => {
+    if (isSandbox) return;
     const boardItems = boardItemsRef.current;
     setSaveError('');
     setSaveSuccess('');
@@ -11457,7 +11715,7 @@ const BoardSection = ({
         answers,
       });
       const correct = result?.correct === true;
-      if (correct) {
+      if (correct && !isSandbox) {
         const answerPayload = answerCount <= 1
           ? answers[0]
           : JSON.stringify({ answers });
@@ -12875,7 +13133,7 @@ const BoardSection = ({
   }, [boardSize, renderBoard]);
 
   useEffect(() => {
-    if (!roomId || !wsUrl) {
+    if (!roomId || (!isSandbox && !wsUrl)) {
       setStatus('disconnected');
       setPeerCount(0);
       resetBoardData();
@@ -12891,13 +13149,13 @@ const BoardSection = ({
       return;
     }
 
-    setStatus('connecting');
+    setStatus(isSandbox ? 'local' : 'connecting');
     const doc = new Y.Doc();
     lastSummonIdRef.current = null;
     docRef.current = doc;
-    const provider = new WebsocketProvider(wsUrl, roomId, doc);
+    const provider = isSandbox ? null : new WebsocketProvider(wsUrl, liveRoomId, doc);
     providerRef.current = provider;
-    awarenessRef.current = provider.awareness;
+    awarenessRef.current = provider?.awareness || null;
     const yItems = doc.getArray('items');
     yItemsRef.current = yItems;
     const undoManager = new Y.UndoManager(yItems, {
@@ -12905,6 +13163,18 @@ const BoardSection = ({
     });
     undoManagerRef.current = undoManager;
     const duplicateRepairOrigin = Symbol('board-duplicate-repair');
+    const sandboxSeedOrigin = Symbol('board-sandbox-seed');
+
+    if (isSandbox) {
+      const initialItems = (Array.isArray(sandboxConfigRef.current?.items)
+        ? sandboxConfigRef.current.items
+        : [])
+        .map((item) => normalizeBoardStoredItem(item))
+        .filter(Boolean);
+      if (initialItems.length > 0) {
+        doc.transact(() => yItems.push(initialItems), sandboxSeedOrigin);
+      }
+    }
 
     const updateUndoState = () => {
       setUndoState({
@@ -12940,6 +13210,9 @@ const BoardSection = ({
         flushLessonReplayBoardSnapshot();
       }
       commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
+      if (isSandbox && typeof onSandboxItemsChangeRef.current === 'function') {
+        onSandboxItemsChangeRef.current(nextSnapshot.nextItems);
+      }
       if (shouldRecordReplay && lessonReplayActiveRef.current) {
         scheduleLessonReplayBoardSnapshot(nextSnapshot.nextItems);
       }
@@ -13080,56 +13353,65 @@ const BoardSection = ({
       }
     };
 
-    provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
-    provider.awareness.setLocalStateField('drawing', null);
-    provider.awareness.setLocalStateField('cursor', null);
-    provider.awareness.setLocalStateField('summon', null);
-    provider.on('connection-close', handleConnectionClose);
-    provider.on('status', handleStatus);
-    provider.awareness.on('change', handleAwareness);
+    if (provider) {
+      provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+      provider.awareness.setLocalStateField('drawing', null);
+      provider.awareness.setLocalStateField('cursor', null);
+      provider.awareness.setLocalStateField('summon', null);
+      provider.on('connection-close', handleConnectionClose);
+      provider.on('status', handleStatus);
+      provider.awareness.on('change', handleAwareness);
+    }
     yItems.observe(updateItems);
     undoManager.on('stack-item-added', updateUndoState);
     undoManager.on('stack-item-popped', updateUndoState);
     undoManager.on('stack-item-updated', updateUndoState);
     undoManager.on('stack-item-removed', updateUndoState);
     updateItems();
-    handleAwareness();
+    if (provider) handleAwareness();
     updateUndoState();
-    const lessonReplayBoardHeartbeatId = window.setInterval(() => {
-      if (!lessonReplayActiveRef.current) return;
-      scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
-    }, LESSON_REPLAY_BOARD_CHECKPOINT_MS);
+    const lessonReplayBoardHeartbeatId = isSandbox
+      ? null
+      : window.setInterval(() => {
+        if (!lessonReplayActiveRef.current) return;
+        scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
+      }, LESSON_REPLAY_BOARD_CHECKPOINT_MS);
 
     return () => {
       yItems.unobserve(updateItems);
-      window.clearInterval(lessonReplayBoardHeartbeatId);
-      scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
-      flushLessonReplayBoardSnapshot();
+      if (lessonReplayBoardHeartbeatId) window.clearInterval(lessonReplayBoardHeartbeatId);
+      if (!isSandbox) {
+        scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
+        flushLessonReplayBoardSnapshot();
+      }
       undoManager.off('stack-item-added', updateUndoState);
       undoManager.off('stack-item-popped', updateUndoState);
       undoManager.off('stack-item-updated', updateUndoState);
       undoManager.off('stack-item-removed', updateUndoState);
-      provider.awareness.off('change', handleAwareness);
-      provider.off('connection-close', handleConnectionClose);
-      provider.off('status', handleStatus);
-      provider.awareness.setLocalStateField('drawing', null);
-      provider.awareness.setLocalStateField('cursor', null);
-      provider.awareness.setLocalStateField('summon', null);
+      if (provider) {
+        provider.awareness.off('change', handleAwareness);
+        provider.off('connection-close', handleConnectionClose);
+        provider.off('status', handleStatus);
+        provider.awareness.setLocalStateField('drawing', null);
+        provider.awareness.setLocalStateField('cursor', null);
+        provider.awareness.setLocalStateField('summon', null);
+      }
       undoManagerRef.current = null;
       setUndoState({ canUndo: false, canRedo: false });
       setRemoteCursors([]);
       resetBoardData();
-      provider.destroy();
+      provider?.destroy();
       doc.destroy();
       providerRef.current = null;
       awarenessRef.current = null;
       docRef.current = null;
+      yItemsRef.current = null;
     };
-  }, [roomId, wsUrl, localName, localColor, isTeacher, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
+  }, [roomId, wsUrl, liveRoomId, localName, localColor, isTeacher, isSandbox, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
 
   useEffect(() => {
     const handlePaste = async (event) => {
-      if (!roomId || !yItemsRef.current) return;
+      if (sandboxReadOnly || !roomId || !yItemsRef.current) return;
       if (!shouldHandleBoardImagePaste(event)) return;
       const boardTaskPayload = readBoardTaskFromPasteEvent(event);
       if (boardTaskPayload) {
@@ -13187,15 +13469,22 @@ const BoardSection = ({
                   image.src = objectUrl;
                 });
                 const prepared = await prepareBoardImageUpload(file, image);
-                const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId);
-                const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
-                if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');
+                let storedImage;
+                if (isSandbox) {
+                  const dataUrl = await readBoardFileAsDataUrl(prepared.file);
+                  if (!dataUrl) throw new Error('Не удалось подготовить локальное изображение');
+                  storedImage = { dataUrl };
+                } else {
+                  const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId);
+                  const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
+                  if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');
+                  storedImage = { assetId: String(uploaded.id), assetUrl };
+                }
                 const naturalWidth = Math.max(1, Number(prepared.naturalWidth) || 1);
                 const naturalHeight = Math.max(1, Number(prepared.naturalHeight) || 1);
                 const contentWidth = width - BOARD_TASK_CARD_PADDING * 2;
                 uploadedScreenshots.push({
-                  assetId: String(uploaded.id),
-                  assetUrl,
+                  ...storedImage,
                   name: fileName.slice(0, 240),
                   naturalWidth,
                   naturalHeight,
@@ -13323,9 +13612,17 @@ const BoardSection = ({
           setPasteError(initialCapacity.error);
           return;
         }
-        const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId);
-        const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
-        if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');
+        let storedImage;
+        if (isSandbox) {
+          const dataUrl = await readBoardFileAsDataUrl(prepared.file);
+          if (!dataUrl) throw new Error('Не удалось подготовить локальное изображение');
+          storedImage = { dataUrl };
+        } else {
+          const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId);
+          const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
+          if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');
+          storedImage = { assetId: String(uploaded.id), assetUrl };
+        }
         if (!docInstance || docRef.current !== docInstance || !yItemsRef.current) return;
 
         const naturalWidth = Math.max(1, Number(prepared.naturalWidth) || 1);
@@ -13341,8 +13638,7 @@ const BoardSection = ({
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random()}`,
           type: 'image',
-          assetId: String(uploaded.id),
-          assetUrl,
+          ...storedImage,
           x,
           y,
           width: widthPx,
@@ -13378,7 +13674,7 @@ const BoardSection = ({
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [effectiveStudentId, roomId, userId, ensureBoardCanAddItems]);
+  }, [effectiveStudentId, isSandbox, roomId, sandboxReadOnly, userId, ensureBoardCanAddItems]);
 
   const schedulePreviewUpdate = () => {
     if (!awarenessRef.current) return;
@@ -14144,10 +14440,12 @@ const BoardSection = ({
     && selectedImageScreenBox
     && selectedImageScreenBox.top + selectedImageScreenBox.height + 420 > boardSize.height
   );
-  const statusLabel = status === 'connected'
+  const statusLabel = status === 'local'
+    ? (sandboxReadOnly ? 'Запись урока' : 'Локальная копия')
+    : (status === 'connected'
     ? 'Подключено'
-    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
-  const statusToneClass = status === 'connected' ? 'is-connected' : 'is-waiting';
+    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено'));
+  const statusToneClass = status === 'connected' || status === 'local' ? 'is-connected' : 'is-waiting';
   const boardShellClass = isFullscreen
     ? 'animate-fadeIn h-full min-h-0 flex flex-col overflow-hidden'
     : (embedded
@@ -14160,7 +14458,7 @@ const BoardSection = ({
       : 'board-surface-card board-surface-card--main relative overflow-visible rounded-none border-0 bg-transparent shadow-none flex min-h-0 flex-1 flex-col overflow-visible');
   const zoomLabel = `${Math.round((zoom || 1) * 100)}%`;
   const renderStudentPicker = () => {
-    if (!isTeacher || hideStudentPicker) return null;
+    if (isSandbox || !isTeacher || hideStudentPicker) return null;
     return (
       <div className="board-toolbar__student-picker">
         <span className="board-toolbar__student-picker-label">Ученик</span>
@@ -14175,10 +14473,10 @@ const BoardSection = ({
       </div>
     );
   };
-  const showBottomSummonButton = isTeacher && (!embedded || isFullscreen || showEmbeddedSummonButton);
-  const showBoardLoading = Boolean(roomId && status === 'connecting');
+  const showBottomSummonButton = !isSandbox && isTeacher && (!embedded || isFullscreen || showEmbeddedSummonButton);
+  const showBoardLoading = Boolean(!isSandbox && roomId && status === 'connecting');
 
-  const saveModal = saveModalOpen ? (
+  const saveModal = saveModalOpen && !isSandbox ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
       <div className="surface-card modal-card rounded-3xl w-full max-w-3xl p-4 sm:p-5 md:p-6 shadow-2xl relative">
         <button
@@ -14302,7 +14600,7 @@ const BoardSection = ({
   ) : null;
   const boardCardContent = (
     <>
-      {isTeacher && !hideStudentPicker && (
+      {!isSandbox && isTeacher && !hideStudentPicker && (
         <div className={`board-toolbar ${isFullscreen ? 'board-toolbar--fullscreen' : ''} ${embedded ? 'board-toolbar--embedded' : ''} ${!isFullscreen && !embedded ? 'board-toolbar--floating' : ''}`}>
           <div className="board-toolbar__strip board-toolbar__strip--actions">
             <div className="board-toolbar__actions">{renderStudentPicker()}</div>
@@ -14316,7 +14614,7 @@ const BoardSection = ({
 
       <div
         ref={containerRef}
-        tabIndex={roomId ? 0 : -1}
+        tabIndex={roomId && !sandboxReadOnly ? 0 : -1}
         role="application"
         aria-label="Доска урока. Нажмите, затем вставьте картинку через Ctrl+V."
         onFocus={() => { boardPasteFocusedRef.current = true; }}
@@ -14599,6 +14897,13 @@ const BoardSection = ({
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
             Выберите ученика, чтобы открыть доску.
           </div>
+        )}
+        {sandboxReadOnly && (
+          <div
+            className="absolute inset-0 z-[80] cursor-default"
+            role="img"
+            aria-label="Неизменяемая оригинальная запись доски"
+          />
         )}
         {showBoardLoading && (
           <div className="board-loading-overlay" role="status" aria-live="polite">
@@ -15001,16 +15306,18 @@ const BoardSection = ({
 
         <div ref={boardBottomControlsRef} className="board-bottom-controls">
           <div className="board-bottom-controls__pill board-bottom-controls__session" aria-label="Состояние доски">
-            <button
-              type="button"
-              onClick={() => setSaveModalOpen(true)}
-              disabled={!roomId}
-              className="board-bottom-controls__button"
-              aria-label="Сохранить в конспекты"
-              data-tooltip="Сохранить в конспекты"
-            >
-              <Save size={19} />
-            </button>
+            {!isSandbox && (
+              <button
+                type="button"
+                onClick={() => setSaveModalOpen(true)}
+                disabled={!roomId}
+                className="board-bottom-controls__button"
+                aria-label="Сохранить в конспекты"
+                data-tooltip="Сохранить в конспекты"
+              >
+                <Save size={19} />
+              </button>
+            )}
             {showBottomSummonButton && (
               <button
                 type="button"
@@ -15023,12 +15330,12 @@ const BoardSection = ({
                 <Users size={19} />
               </button>
             )}
-            <span className="board-bottom-controls__divider" aria-hidden="true" />
+            {!isSandbox && <span className="board-bottom-controls__divider" aria-hidden="true" />}
             <span className={`board-bottom-controls__session-status ${statusToneClass}`} aria-label={statusLabel}>
               <span className="board-bottom-controls__status-dot" aria-hidden="true" />
               <span className="board-bottom-controls__session-label">{statusLabel}</span>
             </span>
-            {roomId && (
+            {!isSandbox && roomId && (
               <span className="board-bottom-controls__online" aria-label={`Онлайн: ${peerCount}`}>
                 <Users size={15} aria-hidden="true" />
                 <span>{peerCount}</span>
@@ -15136,6 +15443,7 @@ const BoardSection = ({
     <div
       ref={boardRootRef}
       className={boardShellClass}
+      data-lesson-replay-board-sandbox={isSandbox ? 'true' : undefined}
       onFocusCapture={() => { boardPasteFocusedRef.current = true; }}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
@@ -15143,7 +15451,7 @@ const BoardSection = ({
         }
       }}
     >
-      {isTeacher && !activeStudentId && (
+      {!isSandbox && isTeacher && !activeStudentId && (
         <div className="mb-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
@@ -15166,6 +15474,91 @@ const BoardSection = ({
         ? saveModal
         : (typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null)}
     </div>
+  );
+};
+
+const LessonReplaySandboxSurface = ({
+  branch,
+  branchEpoch,
+  surface,
+  onBoardChange,
+  onCodeChange,
+  user,
+  theme,
+  tasks,
+  students,
+  withStudentId,
+}) => {
+  if (!branch) return null;
+
+  const sandboxId = `${branch.branchId}:${branchEpoch}`;
+  const replayStudentId = String(branch?.metadata?.studentId || user?.id || '').trim();
+  const replayStudent = (Array.isArray(students) ? students : [])
+    .find((student) => String(student?.id || '') === replayStudentId);
+  const replayStudentName = replayStudent?.name || replayStudent?.nickname || user?.name || 'Ученик';
+  const replayTeacherId = user?.role === 'teacher' ? user.id : user?.teacherId;
+  const handleSandboxStateChange = (patch) => {
+    if (!patch || typeof patch !== 'object') return;
+    if (Array.isArray(patch?.board?.items)) {
+      onBoardChange?.(patch.board.items);
+    }
+    const codePatch = {};
+    ['code', 'input', 'testFile', 'output', 'error', 'status'].forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) codePatch[key] = patch[key];
+    });
+    if (Object.keys(codePatch).length > 0) onCodeChange?.(codePatch);
+  };
+
+  if (surface === 'board') {
+    return (
+      <BoardSection
+        key={`${sandboxId}:board`}
+        role="student"
+        userId={replayStudentId}
+        userName={replayStudentName}
+        teacherId={replayTeacherId}
+        tasks={tasks}
+        students={students}
+        activeStudentId={replayStudentId}
+        onSelectStudent={() => {}}
+        studentsLoading={false}
+        hideStudentPicker
+        theme={theme}
+        onLessonReplayEvent={null}
+        lessonReplayActive={false}
+        sandbox={{
+          id: `${sandboxId}:board`,
+          items: branch?.board?.items,
+          viewport: branch?.board?.viewport,
+        }}
+        onSandboxItemsChange={onBoardChange}
+      />
+    );
+  }
+
+  return (
+    <CollabSection
+      key={`${sandboxId}:lesson`}
+      role="student"
+      userId={replayStudentId}
+      userName={replayStudentName}
+      teacherId={replayTeacherId}
+      theme={theme}
+      withStudentId={withStudentId}
+      tasks={tasks}
+      students={students}
+      activeStudentId={replayStudentId}
+      onSelectStudent={() => {}}
+      studentsLoading={false}
+      onLessonReplayEvent={null}
+      lessonReplayActive={false}
+      sandbox={{
+        id: `${sandboxId}:lesson`,
+        code: branch.code,
+        board: branch.board,
+      }}
+      onSandboxStateChange={handleSandboxStateChange}
+    />
   );
 };
 
@@ -21078,6 +21471,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               pushError={pushError}
               onTogglePush={handleTogglePush}
               createPythonWorker={createPyodideWorker}
+              renderLessonReplaySandbox={(sandboxProps) => (
+                <LessonReplaySandboxSurface
+                  {...sandboxProps}
+                  user={user}
+                  theme={theme}
+                  tasks={tasksWithTitles}
+                  students={currentStudentsWithNicknames}
+                  withStudentId={withStudentId}
+                />
+              )}
               onStartLesson={user.role === 'teacher'
                 ? (studentId) => handleOpenTeacherLessonWorkspace('call-connect', studentId)
                 : null}

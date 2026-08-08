@@ -52,7 +52,7 @@ const normalizeCodeState = (value = {}) => {
     testFile: String(source.testFile || ''),
     output: String(source.output || ''),
     error: String(source.error || ''),
-    status: String(source.status || ''),
+    status: String(source.status || 'idle'),
   };
 };
 
@@ -127,21 +127,37 @@ const getAnchorEvent = (events, positionMs) => {
   return anchorEvent;
 };
 
-export const getLessonReplayStateAt = (replay, rawPositionMs) => {
+export const getLessonReplayStateAt = (replay, rawPositionMs, options = {}) => {
   const positionMs = normalizePositionMs(rawPositionMs);
+  const actorRole = ['teacher', 'student'].includes(options?.actorRole)
+    ? options.actorRole
+    : '';
   const events = getOrderedReplayEvents(replay);
   let boardItems = [];
   let codeEvent = null;
   let runEvent = null;
+  let boardViewport = null;
+  let codeViewport = null;
+  let actorBoardViewport = null;
+  let actorCodeViewport = null;
 
   for (const event of events) {
     if (normalizeEventOffsetMs(event) > positionMs) break;
     if (event.type === 'board') boardItems = applyBoardReplayEvent(boardItems, event);
     else if (event.type === 'code') codeEvent = event;
     else if (event.type === 'run') runEvent = event;
+    else if (event.type === 'viewport' && event?.payload?.surface === 'board') {
+      boardViewport = cloneValue(event.payload);
+      if (actorRole && event?.actor?.role === actorRole) actorBoardViewport = cloneValue(event.payload);
+    } else if (event.type === 'viewport' && event?.payload?.surface === 'code') {
+      codeViewport = cloneValue(event.payload);
+      if (actorRole && event?.actor?.role === actorRole) actorCodeViewport = cloneValue(event.payload);
+    }
   }
 
   const code = normalizeCodeState(codeEvent?.payload);
+  const resolvedCodeViewport = actorCodeViewport || codeViewport;
+  if (resolvedCodeViewport) code.viewport = cloneValue(resolvedCodeViewport);
   if (
     runEvent
     && normalizeEventOffsetMs(runEvent) >= normalizeEventOffsetMs(codeEvent)
@@ -156,7 +172,12 @@ export const getLessonReplayStateAt = (replay, rawPositionMs) => {
 
   return {
     code,
-    board: normalizeBoardState({ items: boardItems }),
+    board: normalizeBoardState({
+      items: boardItems,
+      ...(actorBoardViewport || boardViewport
+        ? { viewport: cloneValue(actorBoardViewport || boardViewport) }
+        : {}),
+    }),
   };
 };
 
@@ -194,9 +215,9 @@ export const createLessonReplayBranchMetadata = (replay, rawPositionMs) => {
   };
 };
 
-export const createLessonReplayBranch = (replay, rawPositionMs) => {
+export const createLessonReplayBranch = (replay, rawPositionMs, options = {}) => {
   const metadata = createLessonReplayBranchMetadata(replay, rawPositionMs);
-  const state = getLessonReplayStateAt(replay, metadata.positionMs);
+  const state = getLessonReplayStateAt(replay, metadata.positionMs, options);
   return {
     branchId: metadata.branchId,
     metadata: cloneValue(metadata),

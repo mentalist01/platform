@@ -917,27 +917,40 @@ const TimeMachineWorkspace = ({
   onResetBranch,
   onStartBranch,
   onSurfaceChange,
+  onToggleCompare,
   playing,
   positionMs,
+  renderLessonReplaySandbox,
   runEvent,
+  showOriginal,
   surface,
 }) => (
   <div className="lesson-replay-player__time-machine">
     <div className="lesson-replay-player__time-machine-bar">
       <div className="lesson-replay-player__time-machine-heading">
-        <span><History size={14} /> Машина времени</span>
-        <strong>{branch ? `Ветка от ${formatClock(branch.metadata.positionMs)}` : 'Живая копия записи'}</strong>
+        <span>{branch ? <GitBranch size={14} /> : <History size={14} />} {branch ? 'Копия урока' : 'Машина времени'}</span>
+        <strong>{branch ? `Состояние на ${formatClock(branch.metadata.positionMs)}` : 'Живая запись урока'}</strong>
       </div>
       <div className="lesson-replay-player__time-machine-surfaces" role="tablist" aria-label="Поверхность машины времени">
         {['code', 'board'].map((value) => {
           const Icon = SURFACE_TABS[value].icon;
           return (
             <button key={value} type="button" role="tab" aria-selected={surface === value} className={surface === value ? 'is-active' : ''} onClick={() => onSurfaceChange(value)}>
-              <Icon size={14} />{SURFACE_TABS[value].label}
+              <Icon size={14} />{branch && value === 'code' ? 'Урок целиком' : SURFACE_TABS[value].label}
             </button>
           );
         })}
       </div>
+      {branch && (
+        <button
+          type="button"
+          className={`lesson-replay-player__time-machine-compare-toggle${showOriginal ? ' is-active' : ''}`}
+          onClick={onToggleCompare}
+          aria-pressed={showOriginal}
+        >
+          <Eye size={14} /> {showOriginal ? 'Скрыть оригинал' : 'Сравнить с оригиналом'}
+        </button>
+      )}
       {branch && <button type="button" className="lesson-replay-player__time-machine-reset" onClick={onResetBranch}><RotateCcw size={14} /> Сбросить ветку</button>}
       <button type="button" className="lesson-replay-player__time-machine-close" onClick={onClose} aria-label="Закрыть машину времени"><X size={17} /></button>
     </div>
@@ -950,39 +963,60 @@ const TimeMachineWorkspace = ({
         ) : (
           <div className="lesson-replay-player__time-machine-prompt" role="status">
             <span><Sparkles size={17} /> Запись остановлена на {formatClock(positionMs)}</span>
-            <strong>Попробуй продолжить решение сам</strong>
-            <p>Создадим отдельную копию. Настоящие код и доска не изменятся.</p>
-            <button type="button" onClick={onStartBranch}><GitBranch size={16} /> Попробуй сам</button>
+            <strong>Перейди внутрь урока и продолжи сам</strong>
+            <p>Откроется идентичный интерфейс урока, но код и доска будут безопасной копией этого момента.</p>
+            <button type="button" onClick={onStartBranch}><GitBranch size={16} /> Открыть копию урока</button>
           </div>
         )}
       </div>
     ) : (
-      <div className="lesson-replay-player__time-machine-compare" data-surface={surface}>
-        <section className="lesson-replay-player__time-machine-pane is-original" aria-label="Оригинальная запись">
-          <header>
-            <span><Eye size={14} /> Оригинал-призрак</span>
-            <strong>{formatClock(positionMs)} · {playing ? 'запись идёт' : 'пауза'}</strong>
-          </header>
-          <div className="lesson-replay-player__time-machine-pane-content" aria-hidden="true">
-            <TimeMachineOriginalSurface surface={surface} boardEvent={boardEvent} boardView={boardView} codeEvent={codeEvent} codeView={codeView} runEvent={runEvent} />
-          </div>
-        </section>
+      <div className={`lesson-replay-player__time-machine-compare${showOriginal ? ' is-comparing' : ''}`} data-surface={surface}>
+        {showOriginal && (
+          <section className="lesson-replay-player__time-machine-pane is-original" aria-label="Оригинальная запись">
+            <header>
+              <span><Eye size={14} /> Оригинал-призрак</span>
+              <strong>{formatClock(positionMs)} · {playing ? 'запись идёт' : 'пауза'}</strong>
+            </header>
+            <div className="lesson-replay-player__time-machine-pane-content" aria-hidden="true">
+              <TimeMachineOriginalSurface surface={surface} boardEvent={boardEvent} boardView={boardView} codeEvent={codeEvent} codeView={codeView} runEvent={runEvent} />
+            </div>
+          </section>
+        )}
         <section className="lesson-replay-player__time-machine-pane is-branch" aria-label="Самостоятельная ветка ученика">
           <header>
-            <span><GitBranch size={14} /> Моя ветка</span>
-            <strong>от {formatClock(branch.metadata.positionMs)} · версия {branch.revision}</strong>
+            <span><GitBranch size={14} /> Рабочая копия урока</span>
+            <strong>{formatClock(branch.metadata.positionMs)} · изменения только здесь</strong>
           </header>
           <div className="lesson-replay-player__time-machine-pane-content">
-            {surface === 'board' ? (
-              <TimeMachineBoard
-                key={`${branch.branchId}-board`}
-                branchId={branch.branchId}
-                items={branch.board?.items}
-                onItemsChange={onBranchBoardChange}
-              />
-            ) : (
-              <TimeMachineCodeEditor key={`${branch.branchId}-${branchEpoch}`} branch={branch} onCodePatch={onBranchCodePatch} createPythonWorker={createPythonWorker} />
-            )}
+            {typeof renderLessonReplaySandbox === 'function'
+              ? (
+                <div className="lesson-replay-player__time-machine-sandbox">
+                  {renderLessonReplaySandbox({
+                    branch,
+                    branchEpoch,
+                    onBoardChange: onBranchBoardChange,
+                    onCodeChange: onBranchCodePatch,
+                    surface,
+                  })}
+                </div>
+              )
+              : (
+                surface === 'board' ? (
+                  <TimeMachineBoard
+                    key={`${branch.branchId}-board`}
+                    branchId={branch.branchId}
+                    items={branch.board?.items}
+                    onItemsChange={onBranchBoardChange}
+                  />
+                ) : (
+                  <TimeMachineCodeEditor
+                    key={`${branch.branchId}-${branchEpoch}`}
+                    branch={branch}
+                    onCodePatch={onBranchCodePatch}
+                    createPythonWorker={createPythonWorker}
+                  />
+                )
+              )}
           </div>
         </section>
       </div>
@@ -1021,7 +1055,7 @@ const getReplayAudioSource = (event, replay) => {
   return resolveAuthenticatedUploadsUrl(event.payload?.playbackUrl || event.payload?.url);
 };
 
-const LessonReplayPlayer = ({ replay, createPythonWorker = null }) => {
+const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonReplaySandbox = null }) => {
   const events = useMemo(() => (
     materializeBoardReplayEvents(
       (Array.isArray(replay?.events) ? replay.events : [])
@@ -1047,6 +1081,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null }) => {
   const [timeMachineSurface, setTimeMachineSurface] = useState('code');
   const [timeMachineBranch, setTimeMachineBranch] = useState(null);
   const [timeMachineBranchEpoch, setTimeMachineBranchEpoch] = useState(0);
+  const [timeMachineShowOriginal, setTimeMachineShowOriginal] = useState(false);
   const playerRef = useRef(null);
   const positionRef = useRef(0);
   const frameRef = useRef(null);
@@ -1477,27 +1512,42 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null }) => {
     setPlaying(false);
     seekReplayTo(anchorPositionMs);
     setTimeMachineBranchEpoch((current) => current + 1);
-    setTimeMachineBranch(createLessonReplayBranch(replay, anchorPositionMs));
+    setTimeMachineShowOriginal(false);
+    setTimeMachineSurface('code');
+    setTimeMachineBranch(createLessonReplayBranch(replay, anchorPositionMs, {
+      actorRole: mode === 'student' ? 'student' : 'teacher',
+    }));
   };
 
   const updateTimeMachineCode = (patch, expectedRevision = null) => {
     setTimeMachineBranch((current) => (
       current && (expectedRevision === null || current.revision === expectedRevision)
-        ? updateLessonReplayBranchCode(current, patch)
+        ? (
+          patch && typeof patch === 'object' && !Array.isArray(patch)
+          && Object.keys(patch).every((key) => Object.is(current.code?.[key], patch[key]))
+            ? current
+            : updateLessonReplayBranchCode(current, patch)
+        )
         : current
     ));
   };
 
   const updateTimeMachineBoard = (items) => {
     setTimeMachineBranch((current) => (
-      current ? updateLessonReplayBranchBoard(current, items) : current
+      current && JSON.stringify(current.board?.items || []) !== JSON.stringify(Array.isArray(items) ? items : [])
+        ? updateLessonReplayBranchBoard(current, items)
+        : current
     ));
   };
 
   const resetTimeMachineBranch = () => {
     setTimeMachineBranchEpoch((current) => current + 1);
     setTimeMachineBranch((current) => (
-      current ? createLessonReplayBranch(replay, current.metadata.positionMs) : current
+      current
+        ? createLessonReplayBranch(replay, current.metadata.positionMs, {
+          actorRole: mode === 'student' ? 'student' : 'teacher',
+        })
+        : current
     ));
   };
 
@@ -1581,9 +1631,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null }) => {
           onResetBranch={resetTimeMachineBranch}
           onStartBranch={startTimeMachineBranch}
           onSurfaceChange={setTimeMachineSurface}
+          onToggleCompare={() => setTimeMachineShowOriginal((current) => !current)}
           playing={playing}
           positionMs={positionMs}
+          renderLessonReplaySandbox={renderLessonReplaySandbox}
           runEvent={runEvent}
+          showOriginal={timeMachineShowOriginal}
           surface={timeMachineSurface}
         />
       ) : (
