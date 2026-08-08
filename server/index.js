@@ -23849,6 +23849,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     finishAttempt,
     finishTimerExam,
     pauseTimerExam,
+    saveTimerProgress,
     resumeTimerExam,
     restartTimerExam,
   } = req.body || {};
@@ -23949,7 +23950,12 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     finishAttempt === true
     || isTimerFinishRequest
   );
-  const isTimerPauseRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && pauseTimerExam === true;
+  if (pauseTimerExam === true) {
+    return res.status(409).json({ error: 'Таймерный пробник нельзя поставить на паузу.' });
+  }
+  const isTimerProgressSaveRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER
+    && !startOnly
+    && saveTimerProgress === true;
   const isTimerResumeRequest = attemptMode === MOCK_ATTEMPT_MODE_TIMER && resumeTimerExam === true;
   const previousFinishedAt = normalizeMockTimerTimestamp(previousAttempt?.finishedAt);
   if (previousFinishedAt && !startOnly) {
@@ -23963,7 +23969,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     }
     return res.status(409).json({ error: 'Этот результат пробника уже заморожен.' });
   }
-  if (attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && !isTimerFinishRequest && !isTimerPauseRequest) {
+  if (attemptMode === MOCK_ATTEMPT_MODE_TIMER && !startOnly && !isTimerFinishRequest && !isTimerProgressSaveRequest) {
     return res.status(409).json({ error: 'Ответы в режиме таймера проверяются только после завершения экзамена.' });
   }
   if (attemptMode === MOCK_ATTEMPT_MODE_TIMER && previousTimerFinishedAt && !startOnly) {
@@ -24030,25 +24036,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     }
     return previousTimerExpiresAt || getMockTimerExpiresAt(timerStartedAt, timerDurationMs);
   })();
-  const timerRemainingOnPauseMs = attemptMode === MOCK_ATTEMPT_MODE_TIMER
-    ? (
-      previousTimerPausedAt && !isTimerResumeRequest
-        ? previousTimerRemainingMs
-        : Math.max(0, Date.parse(timerExpiresAt || '') - savedAtMs)
-    )
-    : 0;
-  const timerPausedAt = isTimerPauseRequest ? savedAt : '';
-  const timerRemainingMs = isTimerPauseRequest ? timerRemainingOnPauseMs : 0;
-  if (
-    attemptMode === MOCK_ATTEMPT_MODE_TIMER
-    && !startOnly
-    && !isTimerFinishRequest
-    && !isTimerPauseRequest
-    && timerExpiresAt
-    && Date.now() > Date.parse(timerExpiresAt)
-  ) {
-    return res.status(409).json({ error: 'Время таймерного режима истекло.' });
-  }
+  const timerPausedAt = '';
+  const timerRemainingMs = 0;
   const previousAwardedMilestones = getPreviouslyAwardedMockCoinMilestones(storedAttempt);
   const shouldResetTimerChestMilestones = Boolean(
     normalizeMockTimerTimestamp(storedAttempt?.timerRewardsRestoredAt)
@@ -24072,9 +24061,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     ? normalizeMockAttemptAnswers(exam, {})
     : (startOnly
         ? previousAttemptNormalized.answers
-        : mergeMockAttemptAnswers(exam, previousAttemptNormalized.answers, answers, {
-          preservePreviousNonEmpty: isTimerPauseRequest,
-        }));
+        : mergeMockAttemptAnswers(exam, previousAttemptNormalized.answers, answers));
   const scopedAnswersForSave = filterMockAttemptAnswersToTaskKeys(rawAnswersForSave, assignmentTargetTaskKeys);
   const normalizedAttemptBase = normalizeMockAttemptPayload(exam, scopedAnswersForSave, savedAt, {
     ...previousAttempt,

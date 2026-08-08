@@ -1,5 +1,7 @@
 export const MOCK_EXAM_MODE_CLASSIC = 'classic';
 export const MOCK_EXAM_MODE_TIMER = 'timer';
+export const MOCK_EXAM_TIMER_START_CONFIRMATION = 'Начать таймерный пробник? После запуска таймер нельзя будет поставить на паузу: он продолжит идти, даже если закрыть пробник.';
+export const MOCK_EXAM_TIMER_CLOSE_CONFIRMATION = 'Закрыть таймерный пробник? Он не поставится на паузу: таймер продолжит идти, даже если пробник закрыт.';
 
 export const isMockExamMode = (value) => {
   const normalized = String(value || '').trim().toLowerCase();

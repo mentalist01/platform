@@ -48,6 +48,7 @@ import { getProgressTopicStatus } from '../utils/progressTopicStatus';
 import {
   MOCK_EXAM_MODE_CLASSIC,
   MOCK_EXAM_MODE_TIMER,
+  MOCK_EXAM_TIMER_START_CONFIRMATION,
   getMockExamRequiredMode,
   normalizeMockExamMode,
 } from '../utils/mockExamMode';
@@ -2398,8 +2399,20 @@ const ProgressSection = ({
           || hasMockSolvedState(fetchedAttempt)
         );
         if (!freshScopeUnavailable && !fetchedAttemptIsLocked) {
+          const freshAttemptMode = normalizeMockAttemptMode(fetchedAttempt?.requiredMode, assignedMode);
+          if (
+            freshAttemptMode === MOCK_ATTEMPT_MODE_TIMER
+            && !window.confirm(MOCK_EXAM_TIMER_START_CONFIRMATION)
+          ) {
+            setActiveMockExam(null);
+            setActiveMockAttempt(null);
+            setActiveMockInitialTask(null);
+            setActiveMockTargetTaskKeys(null);
+            setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
+            return;
+          }
           fetchedAttempt = await api.startMockAttempt(mockAttemptStudentId, exam.id, {
-            mode: normalizeMockAttemptMode(fetchedAttempt?.requiredMode, assignedMode),
+            mode: freshAttemptMode,
           });
         }
       }
@@ -5324,6 +5337,7 @@ const ProgressSection = ({
               initialTaskNumber={activeMockInitialTask}
               targetTaskKeys={activeMockTargetTaskKeys}
               attemptMode={activeMockMode}
+              warnBeforeTimerClose={role === 'student'}
               theme={theme}
               MOCK_TASK_NUMBERS={MOCK_TASK_NUMBERS}
               getMockAnswerCountForTask={getMockAnswerCountForTask}

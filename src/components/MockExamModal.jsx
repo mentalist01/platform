@@ -15,6 +15,10 @@ import { buildDownloadUrl } from '../utils/downloadUrl';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
+import {
+  MOCK_EXAM_TIMER_CLOSE_CONFIRMATION,
+  MOCK_EXAM_TIMER_START_CONFIRMATION,
+} from '../utils/mockExamMode';
 import { Button } from './ui';
 
 const artifactImageModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
@@ -252,6 +256,7 @@ const MockExamModal = ({
   attemptMode = MOCK_ATTEMPT_MODE_CLASSIC,
   initialTaskNumber = null,
   targetTaskKeys = null,
+  warnBeforeTimerClose = false,
   onClose,
   onAttemptSaved,
   onRestartTimerAttempt,
@@ -1020,15 +1025,22 @@ const MockExamModal = ({
 
   const handleClose = async () => {
     if (restartingTimer || closing || isExiting) return;
+    if (
+      warnBeforeTimerClose
+      && isTimerMode
+      && !timerResultsVisible
+      && !timerExpired
+      && !window.confirm(MOCK_EXAM_TIMER_CLOSE_CONFIRMATION)
+    ) return;
     if (!isTimerMode || timerResultsVisible || !studentId) {
       closeWithAnimation();
       return;
     }
     setClosing(true);
     setSaveError('');
-    setSaveStatus('Ставим таймер на паузу...');
+    setSaveStatus('Сохраняем ответы. Таймер продолжает идти...');
     try {
-      const saved = await api.pauseMockAttempt(studentId, exam.id, {
+      const saved = await api.saveMockTimerProgress(studentId, exam.id, {
         answers,
         mode: effectiveAttemptMode,
         localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
@@ -1039,13 +1051,11 @@ const MockExamModal = ({
       skipNextDraftWriteRef.current = true;
       clearAnswerDraftForAttempt(activeAttempt);
       if (saved && typeof saved === 'object') clearAnswerDraftForAttempt(saved);
-      closeWithAnimation();
-    } catch (err) {
-      const message = typeof err?.message === 'string' ? err.message : '';
-      setSaveError(message || 'Не удалось поставить таймер на паузу. Попробуйте закрыть ещё раз.');
-      setSaveStatus('');
+    } catch {
+      // The local draft remains available if the server cannot save during closing.
     } finally {
       setClosing(false);
+      closeWithAnimation();
     }
   };
 
@@ -1073,6 +1083,7 @@ const MockExamModal = ({
 
   const handleRestartTimerExam = async () => {
     if (!canRestartTimerExam) return;
+    if (!window.confirm(MOCK_EXAM_TIMER_START_CONFIRMATION)) return;
     hasLocalAttemptChangesRef.current = false;
     setRestartingTimer(true);
     setSaveError('');
@@ -2002,7 +2013,7 @@ const MockExamModal = ({
                         disabled={closing || isExiting}
                         className={`w-full sm:w-auto xl:min-w-[9rem] ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
                       >
-                        {closing ? 'Пауза...' : 'Закрыть'}
+                        {closing ? 'Сохраняем...' : 'Закрыть'}
                       </Button>
                       <Button
                         onClick={handleCheck}
@@ -2037,7 +2048,7 @@ const MockExamModal = ({
                     disabled={closing || isExiting}
                     className={`w-full sm:w-auto ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
                   >
-                    {closing ? 'Пауза...' : 'Закрыть'}
+                    {closing ? 'Сохраняем...' : 'Закрыть'}
                   </Button>
                 </div>
               </div>
