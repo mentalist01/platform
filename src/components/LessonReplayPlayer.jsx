@@ -1302,10 +1302,18 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     ).replace(/[^a-zA-Z0-9._:-]+/g, '-').slice(0, 180);
     return `lesson-replay-follow-${occurrenceIdentity}-${followedRole}`;
   }, [followedRole, replay?.occurrence]);
+  const pauseReplayForManualNavigation = useCallback(() => {
+    setPlaying(false);
+  }, []);
   const followSandboxElement = useMemo(() => (
     typeof renderLessonReplaySandbox === 'function' && followBranch
       ? (
-        <div className="lesson-replay-player__time-machine-sandbox is-following" inert>
+        <div
+          className="lesson-replay-player__time-machine-sandbox is-following"
+          onKeyDownCapture={pauseReplayForManualNavigation}
+          onPointerDownCapture={pauseReplayForManualNavigation}
+          onWheelCapture={pauseReplayForManualNavigation}
+        >
           {renderLessonReplaySandbox({
             branch: followBranch,
             branchEpoch: 0,
@@ -1318,7 +1326,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         </div>
       )
       : null
-  ), [followBranch, followSandboxSessionId, renderLessonReplaySandbox]);
+  ), [followBranch, followSandboxSessionId, pauseReplayForManualNavigation, renderLessonReplaySandbox]);
 
   const seekReplayTo = useCallback((rawPositionMs) => {
     const nextPosition = Math.min(durationMs, Math.max(0, Number(rawPositionMs) || 0));

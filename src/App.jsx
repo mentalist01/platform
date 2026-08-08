@@ -4001,8 +4001,16 @@ const CollabSection = ({
     scrollbar: {
       verticalScrollbarSize: isCollabFullscreen ? 7 : 8,
       horizontalScrollbarSize: 6,
+      handleMouseWheel: true,
+      alwaysConsumeMouseWheel: false,
     },
     mouseWheelZoom: false,
+    mouseWheelScrollSensitivity: 1,
+    fastScrollSensitivity: 5,
+    contextmenu: true,
+    selectOnLineNumbers: true,
+    selectionClipboard: true,
+    copyWithSyntaxHighlighting: true,
     quickSuggestions: { other: true, comments: false, strings: true },
     suggestOnTriggerCharacters: true,
     acceptSuggestionOnEnter: 'on',
@@ -4015,6 +4023,7 @@ const CollabSection = ({
     lineNumbersMinChars: 2,
     lineDecorationsWidth: 6,
     readOnly: !roomId || sandboxReadOnly,
+    domReadOnly: false,
   }), [roomId, sandboxReadOnly, editorFontSize, isCollabFullscreen]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
   const compactCollabHeight = '100%';
@@ -7665,7 +7674,22 @@ const CollabSection = ({
         || sandboxReadOnlyStatus === 'running'
       ));
     }
+    return undefined;
+  }, [
+    editorMountVersion,
+    editorReady,
+    isSandbox,
+    sandboxReadOnly,
+    sandboxReadOnlyCode,
+    sandboxReadOnlyError,
+    sandboxReadOnlyInput,
+    sandboxReadOnlyOutput,
+    sandboxReadOnlyStatus,
+    sandboxReadOnlyTestFile,
+  ]);
 
+  useEffect(() => {
+    if (!isSandbox || !sandboxReadOnly || !sandboxReadyRef.current) return undefined;
     if (typeof window === 'undefined') return undefined;
     let viewport = {
       cursorLine: 1,
@@ -7736,12 +7760,6 @@ const CollabSection = ({
     editorReady,
     isSandbox,
     sandboxReadOnly,
-    sandboxReadOnlyCode,
-    sandboxReadOnlyError,
-    sandboxReadOnlyInput,
-    sandboxReadOnlyOutput,
-    sandboxReadOnlyStatus,
-    sandboxReadOnlyTestFile,
     sandboxReadOnlyViewportSignature,
   ]);
 
@@ -10493,6 +10511,14 @@ const BoardSection = ({
   const boardPasteFocusedRef = useRef(false);
   const drawStateRef = useRef({ drawing: false, points: [], start: null, end: null });
   const panStateRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
+  const sandboxNavigationPointersRef = useRef(new Map());
+  const sandboxPinchRef = useRef({
+    active: false,
+    initialDistance: 0,
+    initialZoom: 1,
+    worldX: 0,
+    worldY: 0,
+  });
   const dragImageRef = useRef({ active: false, id: null, offsetX: 0, offsetY: 0, x: null, y: null });
   const minimapRef = useRef(null);
   const minimapRenderTimerRef = useRef(null);
@@ -10510,12 +10536,14 @@ const BoardSection = ({
   const lessonReplayLastBoardViewportSignatureRef = useRef('');
   const lessonReplayLastBoardViewportAtRef = useRef(0);
   const sandboxConfigRef = useRef(sandbox);
+  const sandboxReadOnlyRef = useRef(sandboxReadOnly);
   const onSandboxItemsChangeRef = useRef(onSandboxItemsChange);
   const boardRevision = boardSnapshot.revision;
   const boardItemCount = boardSnapshot.itemCount;
   const boardTaskItems = boardItemsRef.current.filter((item) => item?.type === 'task');
 
   sandboxConfigRef.current = sandbox;
+  sandboxReadOnlyRef.current = sandboxReadOnly;
   onSandboxItemsChangeRef.current = onSandboxItemsChange;
 
   useEffect(() => {
@@ -10696,6 +10724,14 @@ const BoardSection = ({
     imageResizePreviewRef.current = null;
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
     panStateRef.current = { active: false, startX: 0, startY: 0, originX: 0, originY: 0 };
+    sandboxNavigationPointersRef.current.clear();
+    sandboxPinchRef.current = {
+      active: false,
+      initialDistance: 0,
+      initialZoom: 1,
+      worldX: 0,
+      worldY: 0,
+    };
     dragImageRef.current = { active: false, id: null, offsetX: 0, offsetY: 0, x: null, y: null };
     eraserStateRef.current = { active: false };
     selectingRef.current = { active: false, start: null, current: null };
@@ -10873,6 +10909,7 @@ const BoardSection = ({
   }, [isSandbox, roomId, role, userId]);
 
   const deleteItemsByIds = useCallback((ids) => {
+    if (sandboxReadOnlyRef.current) return false;
     const yItems = yItemsRef.current;
     const docInstance = docRef.current;
     if (!yItems || !docInstance || !Array.isArray(ids) || ids.length === 0) return false;
@@ -11167,6 +11204,40 @@ const BoardSection = ({
   ]);
 
   useEffect(() => {
+    if (!sandboxReadOnly) return;
+    imageResizeRef.current?.cleanup?.();
+    if (typeof window !== 'undefined' && imageDragRafRef.current) {
+      window.cancelAnimationFrame(imageDragRafRef.current);
+      imageDragRafRef.current = null;
+    }
+    if (typeof window !== 'undefined' && selectionMoveRafRef.current) {
+      window.cancelAnimationFrame(selectionMoveRafRef.current);
+      selectionMoveRafRef.current = null;
+    }
+    toolRef.current = 'move';
+    setTool('move');
+    setIsBrushPaletteOpen(false);
+    setIsShapePaletteOpen(false);
+    setTextDraft(null);
+    setSelectedIds([]);
+    setSelectionBox(null);
+    setSelectedImageId(null);
+    selectedIdsRef.current = [];
+    selectionRef.current = null;
+    selectingRef.current.active = false;
+    selectionDragRef.current.active = false;
+    dragImageRef.current.active = false;
+    pendingImageMoveRef.current = null;
+    pendingSelectionMoveRef.current = { dx: 0, dy: 0 };
+    eraserStateRef.current.active = false;
+    panStateRef.current.active = false;
+    sandboxNavigationPointersRef.current.clear();
+    sandboxPinchRef.current.active = false;
+    drawStateRef.current = { drawing: false, points: [], start: null, end: null };
+    textBoxDrawRef.current = { active: false, start: null, current: null };
+  }, [sandboxReadOnly]);
+
+  useEffect(() => {
     if (tool !== 'move' && tool !== 'select' && selectedImageId) setSelectedImageId(null);
   }, [tool, selectedImageId]);
 
@@ -11302,6 +11373,7 @@ const BoardSection = ({
     };
     const handleKeyDown = (event) => {
       if (event.code === 'Space') setIsSpaceDown(true);
+      if (sandboxReadOnlyRef.current) return;
       const key = String(event.key || '').toLowerCase();
       const code = event.code;
       const isDeleteKey = code === 'Delete' || key === 'delete' || code === 'Backspace' || key === 'backspace';
@@ -11780,6 +11852,7 @@ const BoardSection = ({
   };
 
   const updateImagePosition = (id, x, y) => {
+    if (sandboxReadOnlyRef.current) return;
     const yItems = yItemsRef.current;
     const docInstance = docRef.current;
     if (!yItems || !docInstance) return;
@@ -11798,6 +11871,7 @@ const BoardSection = ({
   };
 
   const scheduleImageMove = (id, x, y) => {
+    if (sandboxReadOnlyRef.current) return;
     pendingImageMoveRef.current = { id, x, y };
     if (imageDragRafRef.current) return;
     imageDragRafRef.current = requestAnimationFrame(() => {
@@ -11822,6 +11896,7 @@ const BoardSection = ({
   };
 
   const updateImageItem = (id, updater, { stopCapturing = true } = {}) => {
+    if (sandboxReadOnlyRef.current) return null;
     const yItems = yItemsRef.current;
     const docInstance = docRef.current;
     if (!id || !yItems || !docInstance || typeof updater !== 'function') return null;
@@ -11844,6 +11919,7 @@ const BoardSection = ({
   };
 
   const updateBoardTaskItem = (id, updater, { stopCapturing = true } = {}) => {
+    if (sandboxReadOnlyRef.current) return null;
     const yItems = yItemsRef.current;
     const docInstance = docRef.current;
     if (!id || !yItems || !docInstance || typeof updater !== 'function') return null;
@@ -11866,7 +11942,7 @@ const BoardSection = ({
   };
 
   const handleBoardTaskAnswerChange = (item, answerIndex, value) => {
-    if (!item?.id) return;
+    if (sandboxReadOnlyRef.current || !item?.id) return;
     const answerCount = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Number(item.answerCount) || 1));
     const nextValue = String(value ?? '').slice(0, 500);
     updateBoardTaskItem(item.id, (current) => {
@@ -11886,7 +11962,7 @@ const BoardSection = ({
   };
 
   const handleBoardTaskCheck = async (item) => {
-    if (!item?.id || taskCheckUiById?.[item.id]?.status === 'checking') return;
+    if (sandboxReadOnlyRef.current || !item?.id || taskCheckUiById?.[item.id]?.status === 'checking') return;
     const answerCount = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Number(item.answerCount) || 1));
     const answers = Array.from(
       { length: answerCount },
@@ -11942,6 +12018,7 @@ const BoardSection = ({
   };
 
   const applyImageCropPreset = (id, targetAspect) => {
+    if (sandboxReadOnlyRef.current) return;
     const item = boardItemsRef.current.find((entry) => entry?.id === id && entry.type === 'image');
     if (!item) return;
     const cacheEntry = imageCacheRef.current.get(getBoardImageSource(item));
@@ -12018,7 +12095,7 @@ const BoardSection = ({
   };
 
   const copySelectedImage = (item) => {
-    if (!item) return;
+    if (sandboxReadOnlyRef.current || !item) return;
     const copy = {
       ...item,
       id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -12043,6 +12120,7 @@ const BoardSection = ({
   };
 
   const moveImageLayer = (id, direction) => {
+    if (sandboxReadOnlyRef.current) return;
     const yItems = yItemsRef.current;
     const docInstance = docRef.current;
     if (!yItems || !docInstance) return;
@@ -12063,7 +12141,7 @@ const BoardSection = ({
   };
 
   const setSelectedImageHyperlink = (item) => {
-    if (!item || typeof window === 'undefined') return;
+    if (sandboxReadOnlyRef.current || !item || typeof window === 'undefined') return;
     const entered = window.prompt('Введите ссылку для изображения', item.hyperlink || 'https://');
     if (entered === null) return;
     const trimmed = entered.trim();
@@ -12113,7 +12191,7 @@ const BoardSection = ({
   };
 
   const startImageResize = (event, handle, item) => {
-    if (!item || item.locked || item.superLocked || typeof window === 'undefined') return;
+    if (sandboxReadOnlyRef.current || !item || item.locked || item.superLocked || typeof window === 'undefined') return;
     event.preventDefault();
     event.stopPropagation();
     const start = {
@@ -12209,6 +12287,7 @@ const BoardSection = ({
   };
 
   const eraseAtPoint = (point) => {
+    if (sandboxReadOnlyRef.current) return;
     const yItems = yItemsRef.current;
     const docInstance = docRef.current;
     if (!yItems || !docInstance) return;
@@ -12426,6 +12505,7 @@ const BoardSection = ({
   };
 
   const applySelectionMove = (dx, dy) => {
+    if (sandboxReadOnlyRef.current) return;
     const yItems = yItemsRef.current;
     const docInstance = docRef.current;
     const snapshot = selectionDragRef.current.items;
@@ -13407,7 +13487,7 @@ const BoardSection = ({
       commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
       if (
         isSandbox
-        && !sandboxReadOnly
+        && !sandboxReadOnlyRef.current
         && typeof onSandboxItemsChangeRef.current === 'function'
       ) {
         onSandboxItemsChangeRef.current(nextSnapshot.nextItems);
@@ -13642,7 +13722,7 @@ const BoardSection = ({
 
   useEffect(() => {
     const handlePaste = async (event) => {
-      if (sandboxReadOnly || !roomId || !yItemsRef.current) return;
+      if (sandboxReadOnlyRef.current || !roomId || !yItemsRef.current) return;
       if (!shouldHandleBoardImagePaste(event)) return;
       const boardTaskPayload = readBoardTaskFromPasteEvent(event);
       if (boardTaskPayload) {
@@ -13905,7 +13985,7 @@ const BoardSection = ({
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [effectiveStudentId, isSandbox, roomId, sandboxReadOnly, userId, ensureBoardCanAddItems]);
+  }, [effectiveStudentId, isSandbox, roomId, userId, ensureBoardCanAddItems]);
 
   const schedulePreviewUpdate = () => {
     if (!awarenessRef.current) return;
@@ -14017,6 +14097,10 @@ const BoardSection = ({
   }, []);
 
   const commitTextDraft = (draft = textDraft) => {
+    if (sandboxReadOnlyRef.current) {
+      setTextDraft(null);
+      return;
+    }
     const textValue = String(draft?.value || '').replace(/\r\n?/g, '\n').slice(0, 4000).trimEnd();
     setTextDraft(null);
     if (!yItemsRef.current || !docRef.current) return;
@@ -14088,6 +14172,7 @@ const BoardSection = ({
   };
 
   const openTextEditor = (point, editableText = null, initialBox = null) => {
+    if (sandboxReadOnlyRef.current) return;
     const fallbackPoint = getBoardViewportCenterPoint();
     const targetPoint = point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y))
       ? point
@@ -14120,6 +14205,63 @@ const BoardSection = ({
     }
   };
 
+  const getSandboxNavigationPointerPair = () => (
+    Array.from(sandboxNavigationPointersRef.current.values()).slice(0, 2)
+  );
+
+  const startSandboxPinch = () => {
+    const [first, second] = getSandboxNavigationPointerPair();
+    if (!first || !second) return false;
+    const distance = Math.hypot(
+      second.clientX - first.clientX,
+      second.clientY - first.clientY
+    );
+    if (!Number.isFinite(distance) || distance <= 0) return false;
+    const centerX = (first.clientX + second.clientX) / 2;
+    const centerY = (first.clientY + second.clientY) / 2;
+    const surfacePoint = getCanvasSurfacePoint(centerX, centerY);
+    const currentZoom = zoomRef.current || 1;
+    const screenX = surfacePoint?.x ?? boardSizeRef.current.width / 2;
+    const screenY = surfacePoint?.y ?? boardSizeRef.current.height / 2;
+    sandboxPinchRef.current = {
+      active: true,
+      initialDistance: distance,
+      initialZoom: currentZoom,
+      worldX: offsetRef.current.x + screenX / currentZoom,
+      worldY: offsetRef.current.y + screenY / currentZoom,
+    };
+    panStateRef.current.active = false;
+    return true;
+  };
+
+  const updateSandboxPinch = () => {
+    const [first, second] = getSandboxNavigationPointerPair();
+    if (!first || !second) return false;
+    if (!sandboxPinchRef.current.active && !startSandboxPinch()) return false;
+    const pinch = sandboxPinchRef.current;
+    const distance = Math.hypot(
+      second.clientX - first.clientX,
+      second.clientY - first.clientY
+    );
+    if (!Number.isFinite(distance) || distance <= 0 || pinch.initialDistance <= 0) return false;
+    const centerX = (first.clientX + second.clientX) / 2;
+    const centerY = (first.clientY + second.clientY) / 2;
+    const surfacePoint = getCanvasSurfacePoint(centerX, centerY);
+    const screenX = surfacePoint?.x ?? boardSizeRef.current.width / 2;
+    const screenY = surfacePoint?.y ?? boardSizeRef.current.height / 2;
+    const nextZoom = clamp(
+      pinch.initialZoom * (distance / pinch.initialDistance),
+      BOARD_MIN_ZOOM,
+      BOARD_MAX_ZOOM
+    );
+    setZoom(nextZoom);
+    setOffset({
+      x: pinch.worldX - screenX / nextZoom,
+      y: pinch.worldY - screenY / nextZoom,
+    });
+    return true;
+  };
+
   const handlePointerDown = (event) => {
     if (!roomId) return;
     boardPasteFocusedRef.current = true;
@@ -14129,6 +14271,30 @@ const BoardSection = ({
     const point = rememberBoardPointer(event);
     scheduleCursorUpdate(point);
     if (event.pointerType === 'touch') event.preventDefault();
+    if (sandboxReadOnly) {
+      event.preventDefault();
+      if (event.pointerType === 'touch') {
+        sandboxNavigationPointersRef.current.set(event.pointerId, {
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        if (sandboxNavigationPointersRef.current.size >= 2) {
+          startSandboxPinch();
+          return;
+        }
+      }
+      panStateRef.current = {
+        active: true,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: offsetRef.current.x,
+        originY: offsetRef.current.y,
+      };
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      return;
+    }
     if (isSpaceDown || event.button === 1 || event.button === 2) {
       panStateRef.current = {
         active: true,
@@ -14266,6 +14432,32 @@ const BoardSection = ({
   const handlePointerMove = (event) => {
     const point = rememberBoardPointer(event);
     scheduleCursorUpdate(point);
+    if (sandboxReadOnly) {
+      if (
+        event.pointerType === 'touch'
+        && sandboxNavigationPointersRef.current.has(event.pointerId)
+      ) {
+        sandboxNavigationPointersRef.current.set(event.pointerId, {
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
+      }
+      if (sandboxNavigationPointersRef.current.size >= 2) {
+        updateSandboxPinch();
+        return;
+      }
+      if (panStateRef.current.active) {
+        const dx = event.clientX - panStateRef.current.startX;
+        const dy = event.clientY - panStateRef.current.startY;
+        const currentZoom = zoomRef.current || 1;
+        setOffset({
+          x: panStateRef.current.originX - dx / currentZoom,
+          y: panStateRef.current.originY - dy / currentZoom,
+        });
+      }
+      return;
+    }
     if (eraserStateRef.current.active) {
       eraseAtPoint(point);
       return;
@@ -14327,7 +14519,31 @@ const BoardSection = ({
     schedulePreviewUpdate();
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (event) => {
+    if (sandboxReadOnly) {
+      const wasPinching = sandboxPinchRef.current.active;
+      if (event?.pointerType === 'touch') {
+        sandboxNavigationPointersRef.current.delete(event.pointerId);
+      }
+      if (sandboxNavigationPointersRef.current.size >= 2) {
+        startSandboxPinch();
+        return;
+      }
+      sandboxPinchRef.current.active = false;
+      if (wasPinching && sandboxNavigationPointersRef.current.size === 1) {
+        const [remaining] = sandboxNavigationPointersRef.current.values();
+        panStateRef.current = {
+          active: true,
+          startX: remaining.clientX,
+          startY: remaining.clientY,
+          originX: offsetRef.current.x,
+          originY: offsetRef.current.y,
+        };
+      } else {
+        panStateRef.current.active = false;
+      }
+      return;
+    }
     if (panStateRef.current.active) {
       panStateRef.current.active = false;
       return;
@@ -14495,25 +14711,28 @@ const BoardSection = ({
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
   };
 
-  const handlePointerLeave = () => {
-    handlePointerUp();
+  const handlePointerLeave = (event) => {
+    handlePointerUp(event);
     clearBoardPointer();
     scheduleCursorUpdate(null);
   };
 
   const handleUndo = () => {
+    if (sandboxReadOnlyRef.current) return;
     const undoManager = undoManagerRef.current;
     if (!undoManager?.undoStack?.length) return;
     undoManager.undo();
   };
 
   const handleRedo = () => {
+    if (sandboxReadOnlyRef.current) return;
     const undoManager = undoManagerRef.current;
     if (!undoManager?.redoStack?.length) return;
     undoManager.redo();
   };
 
   const handleClearBoard = () => {
+    if (sandboxReadOnlyRef.current) return;
     if (!yItemsRef.current || !docRef.current) return;
     if (!confirm('Очистить доску? Это удалит все элементы.')) return;
     docRef.current.transact(() => {
@@ -14847,7 +15066,9 @@ const BoardSection = ({
         ref={containerRef}
         tabIndex={roomId && !sandboxReadOnly ? 0 : -1}
         role="application"
-        aria-label="Доска урока. Нажмите, затем вставьте картинку через Ctrl+V."
+        aria-label={sandboxReadOnly
+          ? 'Запись доски. Перетаскивайте доску из любой точки и используйте колесо или жест щипка для масштаба.'
+          : 'Доска урока. Нажмите, затем вставьте картинку через Ctrl+V.'}
         onFocus={() => { boardPasteFocusedRef.current = true; }}
         onBlur={(event) => {
           if (!boardRootRef.current?.contains(event.relatedTarget)) {
@@ -14858,6 +15079,7 @@ const BoardSection = ({
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
       >
+        {!sandboxReadOnly && (
         <div className="board-tool-rail" role="toolbar" aria-label="Инструменты доски">
           <button
             type="button"
@@ -15111,6 +15333,7 @@ const BoardSection = ({
             <Eraser size={20} />
           </button>
         </div>
+        )}
 
         {!embedded && !isSandbox && (
           <button
@@ -15128,13 +15351,6 @@ const BoardSection = ({
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/70 text-sm text-slate-100">
             Выберите ученика, чтобы открыть доску.
           </div>
-        )}
-        {sandboxReadOnly && (
-          <div
-            className="absolute inset-0 z-[80] cursor-default"
-            role="img"
-            aria-label="Неизменяемая оригинальная запись доски"
-          />
         )}
         {showBoardLoading && (
           <div className="board-loading-overlay" role="status" aria-live="polite">
@@ -15163,11 +15379,13 @@ const BoardSection = ({
           className="absolute inset-0 w-full h-full"
           style={{
             touchAction: 'none',
-            cursor: isSpaceDown
+            cursor: sandboxReadOnly
+              ? (panStateRef.current.active ? 'grabbing' : 'grab')
+              : (isSpaceDown
               ? (panStateRef.current.active ? 'grabbing' : 'grab')
               : (tool === 'pen' || tool === 'line' || tool === 'arrow' || tool === 'shape' || tool === 'eraser'
                 ? 'crosshair'
-                : (tool === 'text' ? 'text' : (tool === 'move' ? 'grab' : 'default')))
+                : (tool === 'text' ? 'text' : (tool === 'move' ? 'grab' : 'default'))))
           }}
           onPointerDown={handlePointerDown}
           onPointerEnter={rememberBoardPointer}
@@ -15178,7 +15396,10 @@ const BoardSection = ({
           onWheel={handleWheel}
           onContextMenu={(e) => e.preventDefault()}
         />
-        <div className="board-task-controls-layer" aria-label="Интерактивные задания на доске">
+        <div
+          className={`board-task-controls-layer ${sandboxReadOnly ? 'pointer-events-none' : ''}`}
+          aria-label={sandboxReadOnly ? 'Записанные задания на доске' : 'Интерактивные задания на доске'}
+        >
           {boardTaskItems.map((taskItem) => {
             const displayItem = getSelectionDragPreviewItem(taskItem);
             const layout = getBoardTaskAnswerLayout(displayItem);
@@ -15213,6 +15434,7 @@ const BoardSection = ({
                       value={String(displayItem.userAnswers?.[field.answerIndex] ?? '')}
                       placeholder={`Ответ ${label}`}
                       aria-label={`Ответ ${label}`}
+                      disabled={sandboxReadOnly}
                       className="board-task-controls__input"
                       style={{
                         left: `${field.x}px`,
@@ -15236,7 +15458,7 @@ const BoardSection = ({
                     width: `${layout.button.width}px`,
                     height: `${layout.button.height}px`,
                   }}
-                  disabled={isChecking || status === 'correct'}
+                  disabled={sandboxReadOnly || isChecking || status === 'correct'}
                   onPointerDown={stopTaskControlPointer}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -15265,7 +15487,7 @@ const BoardSection = ({
             );
           })}
         </div>
-        {textDraft && (
+        {!sandboxReadOnly && textDraft && (
           <textarea
             ref={textEditorRef}
             autoFocus
@@ -15305,7 +15527,7 @@ const BoardSection = ({
             placeholder="Введите текст…"
           />
         )}
-        {(tool === 'move' || tool === 'select') && displaySelectedImage && selectedImageScreenBox && (
+        {!sandboxReadOnly && (tool === 'move' || tool === 'select') && displaySelectedImage && selectedImageScreenBox && (
           <div className="board-image-selection-layer" aria-label="Выбранное изображение">
             <div
               className={`board-image-selection ${isSelectedImageLocked ? 'is-locked' : ''}`}
@@ -15573,6 +15795,7 @@ const BoardSection = ({
               </span>
             )}
           </div>
+          {!sandboxReadOnly && (
           <div className="board-bottom-controls__pill board-bottom-controls__history" aria-label="История доски">
             <button
               type="button"
@@ -15596,6 +15819,7 @@ const BoardSection = ({
               <RefreshCcw size={20} />
             </button>
           </div>
+          )}
 
           <div className="board-bottom-controls__pill board-bottom-controls__navigation" aria-label="Навигация по доске">
             <button
@@ -15611,6 +15835,7 @@ const BoardSection = ({
             >
               <MapIcon size={21} />
             </button>
+            {!sandboxReadOnly && (
             <button
               type="button"
               onClick={handleClearBoard}
@@ -15621,6 +15846,7 @@ const BoardSection = ({
             >
               <Trash2 size={20} />
             </button>
+            )}
             <span className="board-bottom-controls__divider" aria-hidden="true" />
             <button
               type="button"

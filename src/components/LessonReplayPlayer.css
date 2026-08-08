@@ -676,10 +676,6 @@
   flex: 1 1 auto;
 }
 
-.lesson-replay-player__time-machine-sandbox.is-following {
-  user-select: none;
-}
-
 .lesson-replay-player__time-machine-paused {
   position: absolute;
   z-index: 5;
