@@ -43,17 +43,6 @@ const SHOW_SCHEDULE_SKILL_TREE = false;
 const DEFAULT_SCHEDULE_SUBJECT = 'Занятие';
 const SCHEDULE_LOOKAHEAD_WEEKS = 16;
 
-const formatOfflineHomeworkSavedAt = (value) => {
-  const date = new Date(value || '');
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
-
 const formatLessonReplayStorageBytes = (value) => {
   const bytes = Math.max(0, Number(value) || 0);
   if (bytes < 1024) return `${Math.round(bytes)} Б`;
@@ -4722,40 +4711,6 @@ const ScheduleSection = ({
         {role !== 'student' && (
           <div>
             <h3 className="text-lg font-bold text-gray-800">Домашние задания</h3>
-          </div>
-        )}
-
-        {role === 'student' && sortedHomeworks.length > 0 && !['idle', 'missing'].includes(offlineHomeworkState.status) && (
-          <div
-            className={`inline-flex w-fit max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold ${
-              offlineHomeworkState.status === 'offline'
-                ? 'border-amber-200 bg-amber-50 text-amber-700'
-                : offlineHomeworkState.status === 'error'
-                  ? 'border-rose-200 bg-rose-50 text-rose-700'
-                  : offlineHomeworkState.status === 'partial'
-                    ? 'border-sky-200 bg-sky-50 text-sky-700'
-                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            }`}
-            role="status"
-          >
-            {offlineHomeworkState.status === 'saving' ? (
-              <RefreshCcw size={13} className="shrink-0 animate-spin" />
-            ) : offlineHomeworkState.status === 'offline' ? (
-              <WifiOff size={13} className="shrink-0" />
-            ) : (
-              <HardDrive size={13} className="shrink-0" />
-            )}
-            <span className="truncate">
-              {offlineHomeworkState.status === 'saving'
-                ? 'Сохраняем условия для офлайн…'
-                : offlineHomeworkState.status === 'offline'
-                  ? `Открыта офлайн-копия${formatOfflineHomeworkSavedAt(offlineHomeworkState.savedAt) ? ` от ${formatOfflineHomeworkSavedAt(offlineHomeworkState.savedAt)}` : ''}`
-                  : offlineHomeworkState.status === 'partial'
-                    ? 'Условия доступны офлайн, но не все вложения загрузились'
-                    : offlineHomeworkState.status === 'error'
-                      ? 'Не удалось обновить офлайн-копию'
-                      : `Условия доступны офлайн${formatOfflineHomeworkSavedAt(offlineHomeworkState.savedAt) ? ` · ${formatOfflineHomeworkSavedAt(offlineHomeworkState.savedAt)}` : ''}`}
-            </span>
           </div>
         )}
 
