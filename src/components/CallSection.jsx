@@ -931,9 +931,9 @@ const MediaTile = ({
     ? 'absolute z-10 inline-flex items-center justify-center rounded-md border border-white/20 bg-black/45 text-white transition hover:bg-black/65'
     : 'absolute z-10 inline-flex items-center justify-center rounded-md border border-slate-200 bg-white/85 text-slate-700 transition hover:bg-white';
   const videoFillClass = isDarkTheme ? 'call-media-video h-full w-full bg-slate-950 object-cover' : 'call-media-video h-full w-full bg-slate-100 object-cover';
-  const videoOverlayClass = isDarkTheme
+  const videoOverlayClass = `${isDarkTheme
     ? 'call-media-overlay pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent'
-    : 'call-media-overlay pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/65 via-slate-900/20 to-transparent';
+    : 'call-media-overlay pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/65 via-slate-900/20 to-transparent'} ${isScreenShareTile ? 'call-media-overlay--screen' : ''}`;
   const overlayTitleClass = isDarkTheme ? 'truncate text-xs font-semibold text-white' : 'truncate text-xs font-semibold text-slate-50';
   const overlaySubtitleClass = isDarkTheme ? 'truncate text-[11px] text-slate-200' : 'truncate text-[11px] text-slate-100';
   const compactAvatarClass = isDarkTheme
