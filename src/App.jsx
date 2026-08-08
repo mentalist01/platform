@@ -21076,6 +21076,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               pushReady={pushReady}
               pushError={pushError}
               onTogglePush={handleTogglePush}
+              onStartLesson={user.role === 'teacher'
+                ? (studentId) => handleOpenTeacherLessonWorkspace('call-connect', studentId)
+                : null}
             />
           )}
           {view === 'review' && (user.role !== 'student' || studentCanSeeReview) && (
