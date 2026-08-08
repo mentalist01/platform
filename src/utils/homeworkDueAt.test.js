@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildHomeworkDueAtFromSchedule, resolveNextLessonStart } from './homeworkDueAt.js';
+import {
+  buildHomeworkDueAtFromSchedule,
+  isLessonStartInSchedule,
+  resolveNextLessonStart,
+} from './homeworkDueAt.js';
 
 test('uses the next recurring lesson instead of a fixed seven-day homework window', () => {
   const now = new Date(2026, 6, 30, 12, 0, 0); // Thursday
@@ -46,4 +50,24 @@ test('prefers the nearest explicit occurrence and falls back to seven days witho
 
   const fallback = buildHomeworkDueAtFromSchedule([], { now });
   assert.equal(fallback.getTime(), now.getTime() + (7 * 24 * 60 * 60 * 1000));
+});
+
+test('resolves schedule wall time with the stored calendar offset', () => {
+  const result = resolveNextLessonStart(
+    [{ date: '2026-08-11', time: '18:30' }],
+    {
+      now: new Date('2026-08-08T12:00:00.000Z'),
+      calendarOffsetMinutes: 180,
+    }
+  );
+
+  assert.equal(result?.toISOString(), '2026-08-11T15:30:00.000Z');
+  assert.equal(
+    isLessonStartInSchedule(
+      [{ date: '2026-08-11', time: '18:30' }],
+      '2026-08-11T15:30:00.000Z',
+      { calendarOffsetMinutes: 180 }
+    ),
+    true
+  );
 });

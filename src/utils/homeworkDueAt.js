@@ -1,5 +1,6 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LOOKAHEAD_WEEKS = 16;
+const MAX_TIME_ZONE_OFFSET_MINUTES = 14 * 60;
 
 export const HOMEWORK_DUE_AT_MODE_MANUAL = 'manual';
 export const HOMEWORK_DUE_AT_MODE_NEXT_LESSON = 'next-lesson';
@@ -45,6 +46,23 @@ const formatDayKey = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const formatUtcDayKey = (date) => {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const normalizeCalendarOffsetMinutes = (value) => {
+  if (value == null || value === '') return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return Math.max(
+    -MAX_TIME_ZONE_OFFSET_MINUTES,
+    Math.min(MAX_TIME_ZONE_OFFSET_MINUTES, Math.round(numeric))
+  );
+};
+
 const getWeekdayOrder = (date) => {
   const weekday = date.getDay();
   return weekday === 0 ? 7 : weekday;
@@ -66,11 +84,11 @@ const parseEntryTime = (value) => {
   return { hours, minutes };
 };
 
-const isEntryOnDay = (entry, date, dayKey) => {
+const isEntryOnDay = (entry, date, dayKey, weekdayOrder = getWeekdayOrder(date)) => {
   const explicitDay = String(entry?.date || '').trim();
   if (explicitDay) return Boolean(parseDayKey(explicitDay)) && explicitDay === dayKey;
-  const weekdayOrder = resolveEntryWeekdayOrder(entry);
-  if (weekdayOrder !== getWeekdayOrder(date)) return false;
+  const entryWeekdayOrder = resolveEntryWeekdayOrder(entry);
+  if (entryWeekdayOrder !== weekdayOrder) return false;
   const excludedDates = Array.isArray(entry?.excludedDates) ? entry.excludedDates : [];
   return !excludedDates.some((value) => String(value || '').trim() === dayKey);
 };
@@ -81,24 +99,41 @@ export const normalizeHomeworkDueAtMode = (value) => (
     : HOMEWORK_DUE_AT_MODE_MANUAL
 );
 
-export const isLessonStartInSchedule = (entries, value) => {
+export const isLessonStartInSchedule = (entries, value, { calendarOffsetMinutes } = {}) => {
   const target = value instanceof Date ? new Date(value) : new Date(value || '');
   if (Number.isNaN(target.getTime())) return false;
-  const targetDayKey = formatDayKey(target);
+  const offset = normalizeCalendarOffsetMinutes(calendarOffsetMinutes);
+  const shiftedTarget = offset == null
+    ? target
+    : new Date(target.getTime() + (offset * 60 * 1000));
+  const targetDayKey = offset == null ? formatDayKey(target) : formatUtcDayKey(shiftedTarget);
+  const targetWeekdayOrder = offset == null
+    ? getWeekdayOrder(target)
+    : (shiftedTarget.getUTCDay() || 7);
+  const targetHours = offset == null ? target.getHours() : shiftedTarget.getUTCHours();
+  const targetMinutes = offset == null ? target.getMinutes() : shiftedTarget.getUTCMinutes();
   return (Array.isArray(entries) ? entries : []).some((entry) => {
-    if (!entry || typeof entry !== 'object' || !isEntryOnDay(entry, target, targetDayKey)) return false;
+    if (
+      !entry
+      || typeof entry !== 'object'
+      || !isEntryOnDay(entry, target, targetDayKey, targetWeekdayOrder)
+    ) return false;
     const time = parseEntryTime(entry.time);
     return Boolean(
       time
-      && time.hours === target.getHours()
-      && time.minutes === target.getMinutes()
+      && time.hours === targetHours
+      && time.minutes === targetMinutes
     );
   });
 };
 
 export const resolveNextLessonStart = (
   entries,
-  { now = new Date(), lookaheadWeeks = DEFAULT_LOOKAHEAD_WEEKS } = {}
+  {
+    now = new Date(),
+    lookaheadWeeks = DEFAULT_LOOKAHEAD_WEEKS,
+    calendarOffsetMinutes,
+  } = {}
 ) => {
   const reference = now instanceof Date ? new Date(now) : new Date(now || '');
   if (Number.isNaN(reference.getTime())) return null;
@@ -107,6 +142,40 @@ export const resolveNextLessonStart = (
     ? Math.max(0, Math.trunc(Number(lookaheadWeeks)))
     : DEFAULT_LOOKAHEAD_WEEKS;
   const lastDayOffset = (normalizedWeeks * 7) + 6;
+  const offset = normalizeCalendarOffsetMinutes(calendarOffsetMinutes);
+  if (offset != null) {
+    const shiftedReference = new Date(reference.getTime() + (offset * 60 * 1000));
+    const startDayOrdinal = Math.trunc(Date.UTC(
+      shiftedReference.getUTCFullYear(),
+      shiftedReference.getUTCMonth(),
+      shiftedReference.getUTCDate()
+    ) / DAY_MS);
+    let nearest = null;
+
+    for (let dayOffset = 0; dayOffset <= lastDayOffset; dayOffset += 1) {
+      const date = new Date((startDayOrdinal + dayOffset) * DAY_MS);
+      const dayKey = formatUtcDayKey(date);
+      const weekdayOrder = date.getUTCDay() || 7;
+      schedule.forEach((entry) => {
+        if (!entry || typeof entry !== 'object' || !isEntryOnDay(entry, date, dayKey, weekdayOrder)) return;
+        const time = parseEntryTime(entry.time);
+        if (!time) return;
+        const start = new Date(Date.UTC(
+          date.getUTCFullYear(),
+          date.getUTCMonth(),
+          date.getUTCDate(),
+          time.hours,
+          time.minutes
+        ) - (offset * 60 * 1000));
+        if (start.getTime() <= reference.getTime()) return;
+        if (!nearest || start.getTime() < nearest.getTime()) nearest = start;
+      });
+      if (nearest) break;
+    }
+
+    return nearest;
+  }
+
   const startOfToday = new Date(reference);
   startOfToday.setHours(0, 0, 0, 0);
   let nearest = null;
@@ -132,11 +201,20 @@ export const resolveNextLessonStart = (
 
 export const buildHomeworkDueAtFromSchedule = (
   entries,
-  { now = new Date(), fallbackDays = 7, lookaheadWeeks = DEFAULT_LOOKAHEAD_WEEKS } = {}
+  {
+    now = new Date(),
+    fallbackDays = 7,
+    lookaheadWeeks = DEFAULT_LOOKAHEAD_WEEKS,
+    calendarOffsetMinutes,
+  } = {}
 ) => {
   const reference = now instanceof Date ? new Date(now) : new Date(now || '');
   const safeReference = Number.isNaN(reference.getTime()) ? new Date() : reference;
-  const nextLesson = resolveNextLessonStart(entries, { now: safeReference, lookaheadWeeks });
+  const nextLesson = resolveNextLessonStart(entries, {
+    now: safeReference,
+    lookaheadWeeks,
+    calendarOffsetMinutes,
+  });
   if (nextLesson) return nextLesson;
   const days = Number(fallbackDays);
   const normalizedDays = Number.isFinite(days) && days > 0 ? days : 7;

@@ -56,9 +56,16 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
 
   const hasStoredMode = String(latest.dueAtMode || '').trim() !== '';
   const storedMode = normalizeHomeworkDueAtMode(latest.dueAtMode);
+  const previousScheduleEntries = Array.isArray(previousSchedule)
+    ? previousSchedule
+    : (Array.isArray(data.schedule) ? data.schedule : []);
+  const calendarOffsetMinutes = Number.isFinite(Number(latest.dayPlan?.calendarOffsetMinutes))
+    ? Number(latest.dayPlan.calendarOffsetMinutes)
+    : undefined;
   const inferredAutomatic = !hasStoredMode && isLessonStartInSchedule(
-    Array.isArray(previousSchedule) ? previousSchedule : data.schedule,
-    latest.dueAt
+    previousScheduleEntries,
+    latest.dueAt,
+    { calendarOffsetMinutes }
   );
   const tracksNextLesson = storedMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON || inferredAutomatic;
   if (!tracksNextLesson) {
@@ -91,11 +98,42 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
     };
   };
   const currentDueAtMs = Date.parse(String(latest.dueAt || '').trim());
-  if (Number.isFinite(currentDueAtMs) && currentDueAtMs <= safeReference.getTime()) {
+  const nextEntryIds = new Set(nextSchedule.map((entry) => String(entry?.id || '').trim()).filter(Boolean));
+  const removedEntries = (Array.isArray(previousScheduleEntries) ? previousScheduleEntries : [])
+    .filter((entry) => {
+      const entryId = String(entry?.id || '').trim();
+      return entryId && !nextEntryIds.has(entryId);
+    });
+  const plannedLessonWasInRemovedEntries = isLessonStartInSchedule(
+    removedEntries,
+    latest.dueAt,
+    { calendarOffsetMinutes }
+  );
+  const plannedLessonStillExists = isLessonStartInSchedule(
+    nextSchedule,
+    latest.dueAt,
+    { calendarOffsetMinutes }
+  );
+  const legacyScheduleEntryWasRemoved = nextSchedule.length < previousScheduleEntries.length
+    && isLessonStartInSchedule(
+      previousScheduleEntries,
+      latest.dueAt,
+      { calendarOffsetMinutes }
+    );
+  const plannedLessonWasDeleted = !plannedLessonStillExists
+    && (plannedLessonWasInRemovedEntries || legacyScheduleEntryWasRemoved);
+  if (
+    Number.isFinite(currentDueAtMs)
+    && currentDueAtMs <= safeReference.getTime()
+    && !plannedLessonWasDeleted
+  ) {
     return migrateTrackingMode()
       || { studentData: { ...data, schedule: nextSchedule }, deadlineChanged: false };
   }
-  const nextLessonStart = resolveNextLessonStart(nextSchedule, { now: safeReference });
+  const nextLessonStart = resolveNextLessonStart(nextSchedule, {
+    now: safeReference,
+    calendarOffsetMinutes,
+  });
   if (!nextLessonStart) {
     return migrateTrackingMode()
       || { studentData: { ...data, schedule: nextSchedule }, deadlineChanged: false };
