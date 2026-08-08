@@ -166,10 +166,7 @@ import {
 import { synchronizeHomeworkDueAtWithSchedule } from '../src/utils/homeworkScheduleSync.js';
 import { snapshotHomeworkGoalTargets } from '../src/utils/homeworkStats.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
-import {
-  applyTeacherBaseNotes,
-  backfillTeacherBaseNotesInProgressDb,
-} from './teacherBaseNotes.js';
+import { applyTeacherBaseNotes } from './teacherBaseNotes.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -12165,18 +12162,6 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
   return payload;
 };
 
-const backfillTeacherBaseNotes = () => {
-  const result = backfillTeacherBaseNotesInProgressDb(readProgressDb());
-  if (!result.changed) return result;
-
-  createProgressBackup('teacher-base-notes');
-  writeProgressDb(result.db);
-  console.log(
-    `[teacher-base-notes] added ${result.addedNotes} note(s) for ${result.changedStudents} student(s)`
-  );
-  return result;
-};
-
 const createStudentNavSeenBaseline = (studentId, studentData) => {
   const summary = buildStudentNavNewSummary(studentId, studentData);
   const now = new Date().toISOString();
@@ -16400,7 +16385,6 @@ migrateFileNames();
 migrateTestsFileNames();
 migrateMockExamFileNames();
 ensureStudentIds();
-backfillTeacherBaseNotes();
 hydrateAuthSessions();
 readWorkbookHelperSessionsDb();
 

@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import {
   TEACHER_BASE_NOTE_TEXT,
   applyTeacherBaseNotes,
-  backfillTeacherBaseNotesInProgressDb,
   countSolvedTestingQuestions,
 } from './teacherBaseNotes.js';
 
@@ -78,28 +77,4 @@ test('a note on any task 19-21 prevents the automatic shared note', () => {
 
   assert.equal(result.changed, false);
   assert.deepEqual(result.notesByTask, { 20: 'Дополнить разбор' });
-});
-
-test('backfill updates all eligible students and is idempotent', () => {
-  const progressDb = {
-    first: {
-      notesByTask: {},
-      solvedByTask: { 1: { basic: { solved: makeSolved(10) } } },
-    },
-    second: {
-      notesByTask: { 2: 'Своя заметка' },
-      solvedByTask: { 2: { basic: { solved: makeSolved(10) } } },
-    },
-  };
-
-  const firstRun = backfillTeacherBaseNotesInProgressDb(progressDb);
-  assert.equal(firstRun.changed, true);
-  assert.equal(firstRun.changedStudents, 1);
-  assert.equal(firstRun.addedNotes, 1);
-  assert.equal(firstRun.db.first.notesByTask['1'], TEACHER_BASE_NOTE_TEXT);
-  assert.equal(firstRun.db.second.notesByTask['2'], 'Своя заметка');
-
-  const secondRun = backfillTeacherBaseNotesInProgressDb(firstRun.db);
-  assert.equal(secondRun.changed, false);
-  assert.equal(secondRun.db, firstRun.db);
 });

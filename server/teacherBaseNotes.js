@@ -79,35 +79,3 @@ export const applyTeacherBaseNotes = ({ notesByTask, solvedByTask } = {}) => {
     addedTaskNumbers,
   };
 };
-
-export const backfillTeacherBaseNotesInProgressDb = (progressDb) => {
-  const currentDb = progressDb && typeof progressDb === 'object' && !Array.isArray(progressDb)
-    ? progressDb
-    : {};
-  let nextDb = currentDb;
-  let changedStudents = 0;
-  let addedNotes = 0;
-
-  Object.entries(currentDb).forEach(([studentId, studentData]) => {
-    if (!studentData || typeof studentData !== 'object' || Array.isArray(studentData)) return;
-    const result = applyTeacherBaseNotes({
-      notesByTask: studentData.notesByTask,
-      solvedByTask: studentData.solvedByTask,
-    });
-    if (!result.changed) return;
-    if (nextDb === currentDb) nextDb = { ...currentDb };
-    nextDb[studentId] = {
-      ...studentData,
-      notesByTask: result.notesByTask,
-    };
-    changedStudents += 1;
-    addedNotes += result.addedTaskNumbers.length;
-  });
-
-  return {
-    db: nextDb,
-    changed: changedStudents > 0,
-    changedStudents,
-    addedNotes,
-  };
-};
