@@ -1900,6 +1900,15 @@ html[data-theme='dark'] .board-canvas-outline {
     transform: rotate(18deg) translateX(720%);
   }
 
+  .progress-topic-card--neutral {
+    --progress-topic-accent: #64748b;
+    --progress-topic-accent-2: #94a3b8;
+    --progress-topic-accent-deep: #475569;
+    --progress-topic-soft: rgba(100, 116, 139, 0.08);
+    --progress-topic-glow: rgba(148, 163, 184, 0.12);
+    --progress-topic-border: rgba(148, 163, 184, 0.22);
+  }
+
   .progress-topic-card--focus {
     --progress-topic-accent: #a855f7;
     --progress-topic-accent-2: #ec4899;

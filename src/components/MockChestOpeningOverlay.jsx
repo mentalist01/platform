@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { PackageOpen, Sparkles, X } from 'lucide-react';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import chestOpenImage from '../assets/mock-chest/chest-open.png';
-import ivanCoin from '../assets/ivan-coin-badge.png';
+import ivanCoin from '../assets/ivan-coin-badge-128.webp';
 import { ARTIFACT_CATALOG_METADATA } from '../data/artifactCatalog';
 import { PROFILE_THEME_CATALOG_BY_ID } from '../data/profileThemeCatalog';
 

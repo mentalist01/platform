@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import ivanCoin from '../assets/ivan-coin-badge.png';
+import ivanCoin from '../assets/ivan-coin-badge-128.webp';
 
 const COIN_GUIDE_ITEMS = [
   {

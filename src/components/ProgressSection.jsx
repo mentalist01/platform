@@ -44,6 +44,7 @@ import { Button, Card } from './ui';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import { loadOfflineHomeworkPackage } from '../utils/offlineHomework';
+import { getProgressTopicStatus } from '../utils/progressTopicStatus';
 import {
   MOCK_EXAM_MODE_CLASSIC,
   MOCK_EXAM_MODE_TIMER,
@@ -4236,9 +4237,11 @@ const ProgressSection = ({
                 gameTheoryTask: GAME_THEORY_TASK,
               });
               const hasXpBonus = xpStats.multiplier > 1.0001;
-              const statusKey = val >= 85 ? 'strong' : (val >= 60 ? 'active' : (val >= 40 ? 'practice' : 'focus'));
-              const statusLabel = val >= 85 ? 'Выполнено 85%+' : (val >= 60 ? 'В работе' : (val >= 40 ? 'Нужна практика' : 'Зона внимания'));
               const practiceIndicator = getTaskPracticeIndicator(task, val);
+              const { key: statusKey, label: statusLabel } = getProgressTopicStatus({
+                progress: val,
+                practiceKey: practiceIndicator?.key,
+              });
               const studentActionLabel = val <= 0
                 ? 'Начать практику'
                 : (practiceIndicator && ['due', 'stale'].includes(practiceIndicator.key)

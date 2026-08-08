@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Package2, Sparkles, X } from 'lucide-react';
 import CoinGuideIcon from './CoinGuideTooltip';
-import ivanCoin from '../assets/ivan-coin-badge.png';
+import ivanCoin from '../assets/ivan-coin-badge-128.webp';
 import artifactSpinMusic from '../assets/artefacts/music/spin.mp3';
 import { ARTIFACT_CATALOG_METADATA_BY_ID } from '../data/artifactCatalog';
 

@@ -22,7 +22,7 @@ import mascotDisapproval from './assets/mascot/disapproval.png';
 import mascotGreetings from './assets/mascot/greetings.png';
 import mascotPeeking from './assets/mascot/peeking.png';
 import mascotPondering from './assets/mascot/pondering.png';
-import ivanCoin from './assets/ivan-coin-badge.png';
+import ivanCoin from './assets/ivan-coin-badge-128.webp';
 import leagueBronze from './assets/leagues/bronze.png';
 import leagueSilver from './assets/leagues/silver.png';
 import leagueGold from './assets/leagues/gold.png';
@@ -30,21 +30,13 @@ import leagueRuby from './assets/leagues/ruby.png';
 import leagueDiamond from './assets/leagues/diamond.png';
 import leagueAbsolute from './assets/leagues/absolute.png';
 import leagueCelestial from './assets/leagues/celestial.png';
-import AdminPanel from './components/AdminPanel';
 import CallSection from './components/CallSection';
 import ImageViewer from './components/ImageViewer';
 import LoginPage from './components/LoginPage';
-import NotesSection from './components/NotesSection';
-import NewHomeworkModal from './components/NewHomeworkModal';
-import FinalReviewSection from './components/FinalReviewSection';
 import { LogoMark, PythonLogoIcon } from './components/Identity';
 import MobileStrategyGame from './components/MobileStrategyGame';
-import ProgressSection from './components/ProgressSection';
-import PythonSection from './components/PythonSection';
-import ScheduleSection from './components/ScheduleSection';
 import StudentGlobalSearch from './components/StudentGlobalSearch';
 import StudentTodayOverview from './components/StudentTodayOverview';
-import StudentLeaderboardSection from './components/StudentLeaderboardSection';
 import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
 import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
 import StudentPaymentReminder from './components/StudentPaymentReminder';
@@ -53,12 +45,9 @@ import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
 import StudentWeeklyRecap from './components/StudentWeeklyRecap';
 import SignupGuestChat from './components/SignupGuestChat';
-import TeacherCalendarSection from './components/TeacherCalendarSection';
-import TeacherFinanceSection from './components/TeacherFinanceSection';
 import HomeworkStatsPage from './components/HomeworkStatsPage';
 import TeacherLessonEndPrompt from './components/TeacherLessonEndPrompt';
 import TeacherLessonStartPrompt from './components/TeacherLessonStartPrompt';
-import TeacherPanel from './components/TeacherPanel';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import CoinGuideIcon from './components/CoinGuideTooltip';
 import TurtleCanvas from './components/TurtleCanvas';
@@ -134,7 +123,17 @@ import {
   withStoredAuthToken,
 } from './services/api';
 
+const AdminPanel = React.lazy(() => import('./components/AdminPanel'));
+const FinalReviewSection = React.lazy(() => import('./components/FinalReviewSection'));
+const NotesSection = React.lazy(() => import('./components/NotesSection'));
+const ProgressSection = React.lazy(() => import('./components/ProgressSection'));
+const PythonSection = React.lazy(() => import('./components/PythonSection'));
+const ScheduleSection = React.lazy(() => import('./components/ScheduleSection'));
 const StudentChatSection = React.lazy(() => import('./components/StudentChatSection'));
+const StudentLeaderboardSection = React.lazy(() => import('./components/StudentLeaderboardSection'));
+const TeacherCalendarSection = React.lazy(() => import('./components/TeacherCalendarSection'));
+const TeacherFinanceSection = React.lazy(() => import('./components/TeacherFinanceSection'));
+const TeacherPanel = React.lazy(() => import('./components/TeacherPanel'));
 const TeacherStudentChatsSection = React.lazy(() => import('./components/TeacherStudentChatsSection'));
 
 const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
@@ -3188,7 +3187,6 @@ const sanitizeAuthUserPayload = (value) => {
 
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_LESSON_SHARED_TASK_BYTES = 500 * 1024 * 1024;
-const HOMEWORK_POPUP_BG = '/homework-quest.png';
 
 const formatBytes = (bytes) => {
   if (!Number.isFinite(bytes)) return '0 МБ';
@@ -13487,7 +13485,7 @@ const BoardSection = ({
       ? boardItemsRef.current.find((item) => item?.id === draft.id && item.type === 'text')
       : null;
     if (!textValue.trim()) {
-      if (existingItem) removeBoardItemsByIds([existingItem.id]);
+      if (existingItem) deleteItemsByIds([existingItem.id]);
       return;
     }
     if (draft?.id && !existingItem) return;
@@ -15342,8 +15340,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
   const [goalCollapsed, setGoalCollapsed] = useState(user.role === 'student');
   const [goalPanelAnimClass, setGoalPanelAnimClass] = useState('');
-  const [_HOMEWORK_POPUP_ENTRY, setHomeworkPopupEntry] = useState(null);
-  const [homeworkPopupOpen, setHomeworkPopupOpen] = useState(false);
   const [paceForecastPopupOpen, setPaceForecastPopupOpen] = useState(false);
   const paceForecastTriggerRef = useRef(null);
   const paceForecastDialogRef = useRef(null);
@@ -15404,9 +15400,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const chatLiveReconnectTimerRef = useRef(null);
   const chatLiveSocketClosedManuallyRef = useRef(false);
   const prevGoalCollapsedRef = useRef(goalCollapsed);
-  const [isDesktopWide, setIsDesktopWide] = useState(
-    typeof window !== 'undefined' ? window.innerWidth > 1000 : true
-  );
   const [teacherSolvedNotifs, setTeacherSolvedNotifs] = useState([]);
   const [teacherSignupNotifs, setTeacherSignupNotifs] = useState([]);
   const [telemostJoinAlerts, setTelemostJoinAlerts] = useState([]);
@@ -18006,59 +17999,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   };
 
-  const getHomeworkSeenKey = () => `ege_homework_popup_${user.id}`;
-  const getHomeworkEntryId = (entry) => String(entry?.id || entry?.issuedAt || '').trim();
-  const readHomeworkPopupState = () => {
-    try {
-      const raw = localStorage.getItem(getHomeworkSeenKey());
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  };
-  const writeHomeworkPopupState = (state) => {
-    try {
-      localStorage.setItem(getHomeworkSeenKey(), JSON.stringify(state));
-    } catch { /* no-op */ }
-  };
-  const hasHomeworkContent = (entry) => {
-    if (!entry) return false;
-    const hasText = typeof entry.homeWork === 'string' && entry.homeWork.trim();
-    const hasLinks = (typeof entry.lessonLink === 'string' && entry.lessonLink.trim())
-      || (typeof entry.boardLink === 'string' && entry.boardLink.trim());
-    const hasGoals = Array.isArray(entry.goals) && entry.goals.length > 0;
-    return Boolean(hasText || hasLinks || hasGoals);
-  };
-  const _markHomeworkSeen = (entry) => {
-    const id = getHomeworkEntryId(entry);
-    if (id) {
-      writeHomeworkPopupState({ id, status: 'seen' });
-    }
-    setHomeworkPopupOpen(false);
-  };
-  const checkHomeworkPopup = async () => {
-    if (user.role !== 'student') return;
-    if (!hasStudentSeenTour(user.id)) return;
-    try {
-      const data = await api.getStudentNextLesson(user.id);
-      const latest = data?.latest || null;
-      if (!latest || !hasHomeworkContent(latest)) return;
-      const latestId = getHomeworkEntryId(latest);
-      if (!latestId) return;
-      const stored = readHomeworkPopupState();
-      if (stored?.id === latestId) {
-        if (stored.status === 'pending') {
-          setHomeworkPopupEntry(latest);
-          setHomeworkPopupOpen(true);
-        }
-        return;
-      }
-      writeHomeworkPopupState({ id: latestId, status: 'pending' });
-      setHomeworkPopupEntry(latest);
-      setHomeworkPopupOpen(true);
-    } catch { /* no-op */ }
-  };
-
   useEffect(() => {
     if (user.role === 'teacher') {
       const normalizedTeacherId = String(user.id || '').trim();
@@ -18324,22 +18264,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const timerId = setTimeout(() => setGoalPanelAnimClass(''), clearDelay);
     return () => clearTimeout(timerId);
   }, [goalCollapsed]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const update = () => {
-      setIsDesktopWide(window.innerWidth > 1000);
-    };
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-
-  useEffect(() => {
-    if (!isDesktopWide && homeworkPopupOpen) {
-      setHomeworkPopupOpen(false);
-    }
-  }, [isDesktopWide, homeworkPopupOpen]);
 
   useEffect(() => {
     studentStreakRef.current = studentStreak;
@@ -19398,15 +19322,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     refreshGoalState();
   }, [user.role, user.id, goalRefreshTick, goalTestsDb, goalTestsLoaded, taskTitles]);
 
-  useEffect(() => {
-    if (user.role !== 'student') return;
-    checkHomeworkPopup();
-    const intervalId = setInterval(() => {
-      checkHomeworkPopup();
-    }, 60000);
-    return () => clearInterval(intervalId);
-  }, [user.role, user.id]);
-
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
   const requiredGoalGoals = goalGoals.filter((goal) => !isOptionalHomeworkGoal(goal));
   const optionalGoalGoals = goalGoals.filter((goal) => isOptionalHomeworkGoal(goal));
@@ -20308,7 +20223,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         defaultMascot={mascotGreetings}
         enabled={!shouldShowRatingTour}
         onActiveChange={setStudentIntroTourActive}
-        onFinish={() => checkHomeworkPopup()}
       />
       {user.role === 'student' && view === 'rating' && (
         <StudentTour
@@ -20326,37 +20240,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           onActiveChange={setStudentRatingTourActive}
         />
       )}
-      {/*
-        Временно скрыто окно "квеста" (домашки).
-        Вернуть можно, раскомментировав блок ниже.
-      */}
-      {/*
-        {user.role === 'student' && isDesktopWide && homeworkPopupOpen && homeworkPopupEntry && (
-          <NewHomeworkModal
-            entry={homeworkPopupEntry}
-            open={homeworkPopupOpen}
-            testsDb={goalTestsDb}
-            solvedByTask={solvedByTask}
-            normalizeTaskNumber={normalizeTaskNumber}
-            isPythonTaskNumber={isPythonTaskNumber}
-            PYTHON_LEVEL_ID={PYTHON_LEVEL_ID}
-            normalizeGoalType={normalizeGoalType}
-            GOAL_TYPE_MOCK={GOAL_TYPE_MOCK}
-            getPythonTaskInfo={getPythonTaskInfo}
-            MOCK_TASKS={MOCK_TASKS}
-            formatTaskNumber={formatTaskNumber}
-            LEVELS={LEVELS}
-            HOMEWORK_POPUP_BG={HOMEWORK_POPUP_BG}
-            onClose={() => markHomeworkSeen(homeworkPopupEntry)}
-            onOpenTask={handleOpenTask}
-            onOpenSchedule={() => {
-              setView('schedule');
-              setMenuOpen(false);
-              markHomeworkSeen(homeworkPopupEntry);
-            }}
-          />
-        )}
-      */}
       {user.role === 'teacher' && activeStudentId && activeHomeworkLessonBasketItems.length > 0 && (
         <button
           type="button"
@@ -20674,6 +20557,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           data-tour="main"
         >
           <div className={mainContentShellClass}>
+          <React.Suspense fallback={(
+            <div className="surface-panel rounded-2xl p-6 text-sm font-semibold text-slate-500">
+              Загружаем раздел...
+            </div>
+          )}>
           {user.role === 'student' && !isStudentChatView && view !== 'collab' && view !== 'board' && view !== 'call' && (
             <div className="top-stats-strip mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
               <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
@@ -21815,6 +21703,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onTeachersChanged={loadTeachers}
             />
           )}
+          </React.Suspense>
           </div>
         </main>
         <StudentLeaderboardProfileModal
