@@ -93,6 +93,7 @@ import {
 } from './utils/homeworkLessonBasket';
 import { normalizeTelemostUrl } from './utils/telemost';
 import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
+import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
   isPushFeatureSupported,
@@ -12901,6 +12902,7 @@ const BoardSection = ({
       trackedOrigins: new Set([localOriginRef.current]),
     });
     undoManagerRef.current = undoManager;
+    const duplicateRepairOrigin = Symbol('board-duplicate-repair');
 
     const updateUndoState = () => {
       setUndoState({
@@ -12910,7 +12912,15 @@ const BoardSection = ({
     };
 
     const updateItems = (event, transaction) => {
-      const hasDelta = Array.isArray(event?.changes?.delta) && event.changes.delta.length > 0;
+      const repairedDuplicateCount = repairDuplicateBoardItems(yItems, {
+        doc,
+        origin: duplicateRepairOrigin,
+      });
+      const forceFullSnapshot = repairedDuplicateCount > 0
+        || transaction?.origin === duplicateRepairOrigin;
+      const hasDelta = !forceFullSnapshot
+        && Array.isArray(event?.changes?.delta)
+        && event.changes.delta.length > 0;
       const nextSnapshot = hasDelta
         ? applyBoardDelta(event.changes.delta)
         : {
