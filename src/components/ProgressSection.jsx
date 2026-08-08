@@ -43,6 +43,7 @@ import StudentWeeklyRecap from './StudentWeeklyRecap';
 import { Button, Card } from './ui';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
+import { loadOfflineHomeworkPackage } from '../utils/offlineHomework';
 import {
   MOCK_EXAM_MODE_CLASSIC,
   MOCK_EXAM_MODE_TIMER,
@@ -1431,8 +1432,17 @@ const ProgressSection = ({
         setTestsDb(data && typeof data === 'object' ? data : {});
         setTestsDbError('');
       })
-      .catch((err) => {
+      .catch(async (err) => {
         if (cancelled) return;
+        if (role === 'student' && effectiveStudentId) {
+          const offlinePackage = await loadOfflineHomeworkPackage(effectiveStudentId);
+          if (cancelled) return;
+          if (offlinePackage?.testsDb && typeof offlinePackage.testsDb === 'object') {
+            setTestsDb(offlinePackage.testsDb);
+            setTestsDbError('');
+            return;
+          }
+        }
         setTestsDb({});
         setTestsDbError(err?.message || err);
       });

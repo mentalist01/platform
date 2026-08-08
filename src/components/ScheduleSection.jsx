@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2 } from 'lucide-react';
-import { api, resolveAuthenticatedApiUrl } from '../services/api';
+import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, WifiOff } from 'lucide-react';
+import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
@@ -22,6 +22,11 @@ import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { getStudentUnpaidLessonOccurrences } from '../utils/studentPaymentReminder';
 import {
+  isOfflineHomeworkStorageSupported,
+  loadOfflineHomeworkPackage,
+  saveOfflineHomeworkPackage,
+} from '../utils/offlineHomework';
+import {
   HOMEWORK_DUE_AT_MODE_MANUAL,
   HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
   buildHomeworkDueAtFromSchedule,
@@ -37,6 +42,17 @@ const AUTO_REFRESH_INTERVAL_MS = 5000;
 const SHOW_SCHEDULE_SKILL_TREE = false;
 const DEFAULT_SCHEDULE_SUBJECT = 'Занятие';
 const SCHEDULE_LOOKAHEAD_WEEKS = 16;
+
+const formatOfflineHomeworkSavedAt = (value) => {
+  const date = new Date(value || '');
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
 const formatLessonReplayStorageBytes = (value) => {
   const bytes = Math.max(0, Number(value) || 0);
@@ -728,6 +744,13 @@ const ScheduleSection = ({
   const [lessonReminderError, setLessonReminderError] = useState('');
   const [homeworkChecklistBusy, setHomeworkChecklistBusy] = useState({});
   const [homeworkClock, setHomeworkClock] = useState(() => Date.now());
+  const [offlineHomeworkState, setOfflineHomeworkState] = useState({
+    status: 'idle',
+    savedAt: '',
+    assets: null,
+  });
+  const [homeworkDataSource, setHomeworkDataSource] = useState('none');
+  const [testsDataSource, setTestsDataSource] = useState('none');
   const lessonTopicsLoadedKeyRef = React.useRef('');
   const googleScheduleAutoSyncKeyRef = React.useRef('');
   const homeworkComposerRequestRef = React.useRef(0);
@@ -735,6 +758,7 @@ const ScheduleSection = ({
   const homeworkPrefillHandledRef = React.useRef('');
   const nextLessonRequestRef = React.useRef(0);
   const refreshDataRequestRef = React.useRef(0);
+  const offlineHomeworkSignatureRef = React.useRef('');
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const requestStudentId = role === 'teacher' ? effectiveStudentId : '';
@@ -754,6 +778,37 @@ const ScheduleSection = ({
       : {}),
     [mockExams]
   );
+
+  const restoreOfflineHomework = useCallback(async () => {
+    if (role !== 'student' || !effectiveStudentId || !isOfflineHomeworkStorageSupported()) {
+      return false;
+    }
+    const offlinePackage = await loadOfflineHomeworkPackage(effectiveStudentId);
+    const response = offlinePackage?.homeworkResponse;
+    if (!response || typeof response !== 'object') {
+      setOfflineHomeworkState({ status: 'missing', savedAt: '', assets: null });
+      return false;
+    }
+    const list = Array.isArray(response.homeworks) ? response.homeworks : [];
+    const latest = response.latest && typeof response.latest === 'object'
+      ? response.latest
+      : (list[0] || {});
+    setHomeworks(list);
+    setNextLesson(buildNextLessonData(latest));
+    setHomeworkDataSource('offline');
+    if (offlinePackage.testsDb && typeof offlinePackage.testsDb === 'object') {
+      setTestsDb(offlinePackage.testsDb);
+      setTestsDataSource('offline');
+      setTestsDbError('');
+    }
+    setOfflineHomeworkState({
+      status: 'offline',
+      savedAt: String(offlinePackage.savedAt || ''),
+      assets: offlinePackage.assets || null,
+    });
+    setError('');
+    return true;
+  }, [effectiveStudentId, role]);
 
   const loadNextLesson = useCallback(async () => {
     const requestId = nextLessonRequestRef.current + 1;
@@ -786,6 +841,7 @@ const ScheduleSection = ({
         issuedAt: '',
       });
       setEditingId(null);
+      setHomeworkDataSource('none');
       return;
     }
     setLoading(true);
@@ -797,13 +853,19 @@ const ScheduleSection = ({
       const safeData = buildNextLessonData(latest);
       setHomeworks(list);
       setNextLesson(safeData);
+      setHomeworkDataSource('online');
       setError('');
     } catch (err) {
-      if (nextLessonRequestRef.current === requestId) setError(err?.message || err);
+      if (nextLessonRequestRef.current !== requestId) return;
+      const restored = await restoreOfflineHomework();
+      if (!restored && nextLessonRequestRef.current === requestId) {
+        setHomeworkDataSource('none');
+        setError(err?.message || err);
+      }
     } finally {
       if (nextLessonRequestRef.current === requestId) setLoading(false);
     }
-  }, [GOAL_TYPE_TASK, effectiveStudentId, requestStudentId]);
+  }, [GOAL_TYPE_TASK, effectiveStudentId, requestStudentId, restoreOfflineHomework]);
 
   const loadHomeworkDraft = useCallback(async () => {
     const requestId = homeworkDraftRequestRef.current + 1;
@@ -953,6 +1015,10 @@ const ScheduleSection = ({
     setStudentSolvedByTask({});
     setLessonReplayStorageTotalBytes(0);
     setLessonReplayStorageStatus('ready');
+    offlineHomeworkSignatureRef.current = '';
+    setOfflineHomeworkState({ status: 'idle', savedAt: '', assets: null });
+    setHomeworkDataSource('none');
+    setTestsDataSource('none');
   }, [effectiveStudentId]);
 
   useEffect(() => {
@@ -1088,9 +1154,14 @@ const ScheduleSection = ({
         const safeData = buildNextLessonData(latest);
         setHomeworks(list);
         setNextLesson(safeData);
+        setHomeworkDataSource('online');
         setError('');
       } else {
-        setError(nextLessonResult.reason?.message || nextLessonResult.reason);
+        const restored = role === 'student' ? await restoreOfflineHomework() : false;
+        if (!restored) {
+          setHomeworkDataSource('none');
+          setError(nextLessonResult.reason?.message || nextLessonResult.reason);
+        }
       }
       if (scheduleResult.status === 'fulfilled') {
         setLessonSchedule(sortScheduleEntries(Array.isArray(scheduleResult.value) ? scheduleResult.value : []));
@@ -1118,11 +1189,12 @@ const ScheduleSection = ({
     } finally {
       if (refreshDataRequestRef.current === requestId) setRefreshingData(false);
     }
-  }, [effectiveStudentId, refreshingData, requestStudentId, role]);
+  }, [effectiveStudentId, refreshingData, requestStudentId, restoreOfflineHomework, role]);
 
   useEffect(() => {
     if (!effectiveStudentId) return;
     const poll = () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       handleRefreshData();
     };
@@ -1149,15 +1221,111 @@ const ScheduleSection = ({
       .then((data) => {
         if (cancelled) return;
         setTestsDb(data && typeof data === 'object' ? data : {});
+        setTestsDataSource('online');
         setTestsDbError('');
       })
-      .catch((err) => {
+      .catch(async (err) => {
         if (cancelled) return;
+        if (role === 'student' && effectiveStudentId) {
+          const offlinePackage = await loadOfflineHomeworkPackage(effectiveStudentId);
+          if (cancelled) return;
+          if (offlinePackage?.testsDb && typeof offlinePackage.testsDb === 'object') {
+            setTestsDb(offlinePackage.testsDb);
+            setTestsDataSource('offline');
+            setTestsDbError('');
+            setOfflineHomeworkState({
+              status: 'offline',
+              savedAt: String(offlinePackage.savedAt || ''),
+              assets: offlinePackage.assets || null,
+            });
+            return;
+          }
+        }
         setTestsDb({});
+        setTestsDataSource('none');
         setTestsDbError(err?.message || err);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [effectiveStudentId, role]);
+
+  useEffect(() => {
+    if (
+      role !== 'student'
+      || !effectiveStudentId
+      || homeworkDataSource !== 'online'
+      || testsDataSource !== 'online'
+      || !Array.isArray(homeworks)
+      || homeworks.length === 0
+      || !testsDb
+      || typeof testsDb !== 'object'
+      || !isOfflineHomeworkStorageSupported()
+    ) {
+      return undefined;
+    }
+
+    const homeworkResponse = {
+      homeworks,
+      latest: homeworks[0] || nextLesson || {},
+    };
+    let signature = '';
+    try {
+      signature = JSON.stringify([homeworkResponse, testsDb]);
+    } catch {
+      signature = `${homeworks.length}:${String(homeworks[0]?.id || '')}:${String(homeworks[0]?.updatedAt || '')}`;
+    }
+    if (offlineHomeworkSignatureRef.current === signature) return undefined;
+    offlineHomeworkSignatureRef.current = signature;
+
+    let cancelled = false;
+    setOfflineHomeworkState((current) => ({
+      ...current,
+      status: 'saving',
+    }));
+    saveOfflineHomeworkPackage({
+      studentId: effectiveStudentId,
+      homeworkResponse,
+      testsDb,
+      fetchAsset: authenticatedUploadsFetch,
+    })
+      .then((record) => {
+        if (cancelled) return;
+        setOfflineHomeworkState({
+          status: record?.assets?.failed > 0 ? 'partial' : 'ready',
+          savedAt: String(record?.savedAt || ''),
+          assets: record?.assets || null,
+        });
+      })
+      .catch((offlineError) => {
+        if (cancelled) return;
+        console.warn('[offline] homework save failed:', offlineError?.message || offlineError);
+        offlineHomeworkSignatureRef.current = '';
+        setOfflineHomeworkState((current) => ({
+          ...current,
+          status: 'error',
+        }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    effectiveStudentId,
+    homeworkDataSource,
+    homeworks,
+    nextLesson,
+    role,
+    testsDataSource,
+    testsDb,
+  ]);
+
+  useEffect(() => {
+    if (role !== 'student' || typeof window === 'undefined') return undefined;
+    const handleOnline = () => {
+      offlineHomeworkSignatureRef.current = '';
+      loadNextLesson();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [loadNextLesson, role]);
 
   useEffect(() => {
     if (!effectiveStudentId) {
@@ -4557,6 +4725,40 @@ const ScheduleSection = ({
           </div>
         )}
 
+        {role === 'student' && sortedHomeworks.length > 0 && !['idle', 'missing'].includes(offlineHomeworkState.status) && (
+          <div
+            className={`inline-flex w-fit max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold ${
+              offlineHomeworkState.status === 'offline'
+                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                : offlineHomeworkState.status === 'error'
+                  ? 'border-rose-200 bg-rose-50 text-rose-700'
+                  : offlineHomeworkState.status === 'partial'
+                    ? 'border-sky-200 bg-sky-50 text-sky-700'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
+            role="status"
+          >
+            {offlineHomeworkState.status === 'saving' ? (
+              <RefreshCcw size={13} className="shrink-0 animate-spin" />
+            ) : offlineHomeworkState.status === 'offline' ? (
+              <WifiOff size={13} className="shrink-0" />
+            ) : (
+              <HardDrive size={13} className="shrink-0" />
+            )}
+            <span className="truncate">
+              {offlineHomeworkState.status === 'saving'
+                ? 'Сохраняем условия для офлайн…'
+                : offlineHomeworkState.status === 'offline'
+                  ? `Открыта офлайн-копия${formatOfflineHomeworkSavedAt(offlineHomeworkState.savedAt) ? ` от ${formatOfflineHomeworkSavedAt(offlineHomeworkState.savedAt)}` : ''}`
+                  : offlineHomeworkState.status === 'partial'
+                    ? 'Условия доступны офлайн, но не все вложения загрузились'
+                    : offlineHomeworkState.status === 'error'
+                      ? 'Не удалось обновить офлайн-копию'
+                      : `Условия доступны офлайн${formatOfflineHomeworkSavedAt(offlineHomeworkState.savedAt) ? ` · ${formatOfflineHomeworkSavedAt(offlineHomeworkState.savedAt)}` : ''}`}
+            </span>
+          </div>
+        )}
+
         {loading ? (
           role === 'student' ? (
             <div className="student-today-homework-state">
@@ -4574,10 +4776,12 @@ const ScheduleSection = ({
         ) : sortedHomeworks.length === 0 ? (
           role === 'student' ? (
             <article className="student-today-homework-empty">
-              <span><BookOpen size={19} /></span>
+              <span>{offlineHomeworkState.status === 'missing' ? <WifiOff size={19} /> : <BookOpen size={19} />}</span>
               <div>
-                <strong>Домашка пока не назначена</strong>
-                <p>Когда преподаватель добавит задания, они появятся здесь.</p>
+                <strong>{offlineHomeworkState.status === 'missing' ? 'Офлайн-копии пока нет' : 'Домашка пока не назначена'}</strong>
+                <p>{offlineHomeworkState.status === 'missing'
+                  ? 'Откройте платформу один раз с интернетом — условия сохранятся автоматически.'
+                  : 'Когда преподаватель добавит задания, они появятся здесь.'}</p>
               </div>
             </article>
           ) : (

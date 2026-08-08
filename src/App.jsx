@@ -73,6 +73,7 @@ import {
   clearStoredSession,
 } from './utils/theme';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from './utils/monacoTheme';
+import { clearOfflineHomeworkPackage } from './utils/offlineHomework';
 import {
   MOCK_EXAM_MODE_TIMER,
   normalizeAssignedMockExamMode,
@@ -22237,6 +22238,9 @@ const MainApp = () => {
   };
 
   const handleLogout = () => {
+    if (user?.role === 'student' && user?.id) {
+      clearOfflineHomeworkPackage(user.id).catch(() => {});
+    }
     api.logout().catch(() => {});
     clearStoredSession();
     setUser(null);

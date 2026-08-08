@@ -1,3 +1,112 @@
+self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    const shellCache = await caches.open('ivan-ege-shell-v2');
+    const staticCache = await caches.open('ivan-ege-static-v2');
+    const shellUrl = new URL('/', self.location.origin).toString();
+    const shellResponse = await fetch(new Request(shellUrl, { cache: 'reload' }));
+    if (shellResponse.ok) {
+      await shellCache.put('/', shellResponse.clone());
+      const shellHtml = await shellResponse.text();
+      const buildAssetUrls = Array.from(shellHtml.matchAll(/(?:src|href)=["'](\/assets\/[^"']+)["']/g))
+        .map((match) => match[1]);
+      await Promise.all(buildAssetUrls.map(async (assetUrl) => {
+        const absoluteAssetUrl = new URL(assetUrl, self.location.origin).toString();
+        const response = await fetch(new Request(absoluteAssetUrl, { cache: 'reload' }));
+        if (!response.ok) throw new Error(`Failed to cache ${assetUrl}: ${response.status}`);
+        await staticCache.put(absoluteAssetUrl, response);
+      }));
+    }
+    await Promise.allSettled([
+      shellCache.add(new Request(new URL('/logo1.png', self.location.origin).toString(), { cache: 'reload' })),
+    ]);
+    await self.skipWaiting();
+  })());
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    const keepPrefixes = [
+      'ivan-ege-shell-v2',
+      'ivan-ege-static-v2',
+      'ivan-ege-homework-assets-v1-',
+    ];
+    const names = await caches.keys();
+    await Promise.all(names.map((name) => (
+      name.startsWith('ivan-ege-') && !keepPrefixes.some((prefix) => name.startsWith(prefix))
+        ? caches.delete(name)
+        : Promise.resolve(false)
+    )));
+    await self.clients.claim();
+  })());
+});
+
+const findPrivateHomeworkAsset = async (request) => {
+  const names = await caches.keys();
+  const homeworkCacheNames = names.filter((name) => name.startsWith('ivan-ege-homework-assets-v1-'));
+  for (const cacheName of homeworkCacheNames) {
+    const cache = await caches.open(cacheName);
+    const cached = await cache.match(request, { ignoreSearch: true });
+    if (cached) return cached;
+  }
+  return null;
+};
+
+const handleNavigationRequest = async (request) => {
+  const shellCache = await caches.open('ivan-ege-shell-v2');
+  try {
+    const response = await fetch(request);
+    if (response?.ok) {
+      await shellCache.put('/', response.clone());
+    }
+    return response;
+  } catch {
+    return (await shellCache.match(request)) || (await shellCache.match('/')) || Response.error();
+  }
+};
+
+const handleStaticRequest = async (request) => {
+  const staticCache = await caches.open('ivan-ege-static-v2');
+  const cached = await staticCache.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response?.ok) {
+    await staticCache.put(request, response.clone());
+  }
+  return response;
+};
+
+const handleHomeworkAssetRequest = async (request) => {
+  try {
+    return await fetch(request);
+  } catch {
+    return (await findPrivateHomeworkAsset(request)) || Response.error();
+  }
+};
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (!request || request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (request.mode === 'navigate') {
+    event.respondWith(handleNavigationRequest(request));
+    return;
+  }
+  if (url.pathname.startsWith('/api/')) return;
+  if (url.pathname.startsWith('/uploads/')) {
+    event.respondWith(handleHomeworkAssetRequest(request));
+    return;
+  }
+  if (
+    url.pathname.startsWith('/assets/')
+    || url.pathname.startsWith('/sounds/')
+    || /\.(?:js|css|png|jpe?g|webp|gif|svg|ico|woff2?|mp3|webm)$/i.test(url.pathname)
+  ) {
+    event.respondWith(handleStaticRequest(request));
+  }
+});
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
