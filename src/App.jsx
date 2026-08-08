@@ -687,6 +687,7 @@ const prepareBoardRenderCanvas = (canvas, cssWidth, cssHeight) => {
 };
 
 const CLIENT_BUILD_CHECK_INTERVAL_MS = 60 * 1000;
+const CLIENT_BUILD_RELOAD_ATTEMPT_STORAGE_KEY = 'ege_client_build_reload_attempt_fingerprint';
 
 const normalizeClientAssetFingerprintEntry = (value) => {
   const raw = String(value || '').trim();
@@ -22088,6 +22089,7 @@ const MainApp = () => {
   useEffect(() => {
     if (import.meta.env.DEV) return undefined;
     if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+    if (isNativeAppRuntime()) return undefined;
 
     let disposed = false;
     let checking = false;
@@ -22110,7 +22112,24 @@ const MainApp = () => {
           ? payload.fingerprint.trim()
           : '';
         if (!serverFingerprint) return;
-        if (serverFingerprint === currentFingerprint) return;
+        if (serverFingerprint === currentFingerprint) {
+          try {
+            window.sessionStorage.removeItem(CLIENT_BUILD_RELOAD_ATTEMPT_STORAGE_KEY);
+          } catch {
+            // Session storage is best-effort; a matching build needs no reload.
+          }
+          return;
+        }
+
+        try {
+          const attemptedFingerprint = window.sessionStorage.getItem(CLIENT_BUILD_RELOAD_ATTEMPT_STORAGE_KEY);
+          if (attemptedFingerprint === serverFingerprint) return;
+          window.sessionStorage.setItem(CLIENT_BUILD_RELOAD_ATTEMPT_STORAGE_KEY, serverFingerprint);
+        } catch {
+          // Without a persistent guard, reloading could trap the page in a reload loop.
+          return;
+        }
+
         reloadTriggered = true;
         window.location.reload();
       } catch {
