@@ -167,7 +167,8 @@ const parseNativePushLaunchUrl = (value) => {
 const PLATFORM_DOCUMENT_TITLE = 'Платформа';
 const CHAT_LIVE_RECONNECT_DELAY_MS = 2500;
 const PLATFORM_CHATS_ENABLED = true;
-const SESSION_SYNC_INTERVAL_MS = 5000;
+const SESSION_SYNC_INTERVAL_MS = 30_000;
+const BACKGROUND_NOTIFICATIONS_REFRESH_INTERVAL_MS = 30_000;
 
 const formatUnreadMessageTitle = (count) => {
   const safeCount = Math.max(1, Math.floor(Number(count) || 1));
@@ -18317,6 +18318,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     let cancelled = false;
 
     const fetchEvents = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       try {
         const events = await api.getTeacherSolvedEvents(user.id, null, 200);
         if (cancelled) return;
@@ -18343,7 +18345,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
 
     fetchEvents();
-    const interval = setInterval(fetchEvents, 15000);
+    const interval = setInterval(fetchEvents, BACKGROUND_NOTIFICATIONS_REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -18358,6 +18360,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     let cancelled = false;
 
     const fetchSignupUnread = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       try {
         const chats = await api.getSignupChats();
         if (cancelled) return;
@@ -18420,7 +18423,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
 
     fetchSignupUnread();
-    const interval = setInterval(fetchSignupUnread, 9000);
+    const interval = setInterval(fetchSignupUnread, BACKGROUND_NOTIFICATIONS_REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -18584,6 +18587,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     let cancelled = false;
 
     const fetchStudentNavNewSummary = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       try {
         const summary = await api.getStudentNavNewSummary();
         if (!cancelled) applyStudentNavNewSummary(summary);
@@ -18596,7 +18600,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
 
     fetchStudentNavNewSummary();
-    const interval = setInterval(fetchStudentNavNewSummary, 12000);
+    const interval = setInterval(fetchStudentNavNewSummary, BACKGROUND_NOTIFICATIONS_REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -22007,6 +22011,7 @@ const MainApp = () => {
 
     const syncSession = async () => {
       if (syncing) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       syncing = true;
       try {
         const session = await api.getCurrentSession();

@@ -167,6 +167,8 @@ import { synchronizeHomeworkDueAtWithSchedule } from '../src/utils/homeworkSched
 import { snapshotHomeworkGoalTargets } from '../src/utils/homeworkStats.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 import { applyTeacherBaseNotes } from './teacherBaseNotes.js';
+import { createAccessCodeLookupHash, getAccessCodeCandidates } from './accessCodeLookup.js';
+import { BoundedExecutionSlots, SlidingWindowRateLimiter } from './pythonExecutionLimiter.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -478,6 +480,7 @@ const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
 const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
 const TEACHER_NAME = process.env.TEACHER_NAME || '\u0423\u0447\u0438\u0442\u0435\u043b\u044c';
+const ACCESS_CODE_LOOKUP_SECRET = String(process.env.ACCESS_CODE_LOOKUP_SECRET || ADMIN_CODE).trim();
 const PAYMENT_NOTIFICATION_SECRET = String(
   process.env.MACRODROID_PAYMENT_SECRET
   || process.env.TBANK_PAYMENT_NOTIFICATION_SECRET
@@ -863,7 +866,12 @@ const TEACHER_SOLVED_EVENTS_READ_HARD_LIMIT = (() => {
 const PYTHON_RUN_TIMEOUT_MS = (() => {
   const parsed = Number(process.env.PYTHON_RUN_TIMEOUT_MS);
   if (Number.isFinite(parsed) && parsed >= 1000) return Math.floor(parsed);
-  return 5000;
+  return 3000;
+})();
+const PYTHON_RUN_TOTAL_TIMEOUT_MS = (() => {
+  const parsed = Number(process.env.PYTHON_RUN_TOTAL_TIMEOUT_MS);
+  if (Number.isFinite(parsed) && parsed >= PYTHON_RUN_TIMEOUT_MS) return Math.floor(parsed);
+  return 8000;
 })();
 const PYTHON_RUN_MAX_BUFFER_BYTES = (() => {
   const parsed = Number(process.env.PYTHON_RUN_MAX_BUFFER_BYTES);
@@ -878,7 +886,22 @@ const PYTHON_RUN_MAX_CODE_CHARS = (() => {
 const PYTHON_RUN_MAX_CONCURRENT = (() => {
   const parsed = Number(process.env.PYTHON_RUN_MAX_CONCURRENT);
   if (Number.isFinite(parsed) && parsed >= 1) return Math.floor(parsed);
-  return 2;
+  return 1;
+})();
+const PYTHON_RUN_MAX_QUEUE = (() => {
+  const parsed = Number(process.env.PYTHON_RUN_MAX_QUEUE);
+  if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed);
+  return 6;
+})();
+const PYTHON_RUN_RATE_LIMIT = (() => {
+  const parsed = Number(process.env.PYTHON_RUN_RATE_LIMIT);
+  if (Number.isFinite(parsed) && parsed >= 1) return Math.floor(parsed);
+  return 6;
+})();
+const PYTHON_RUN_RATE_WINDOW_MS = (() => {
+  const parsed = Number(process.env.PYTHON_RUN_RATE_WINDOW_MS);
+  if (Number.isFinite(parsed) && parsed >= 10_000) return Math.floor(parsed);
+  return 60_000;
 })();
 const PYTHON_RUNNER_SCRIPT = [
   'import ast',
@@ -941,8 +964,14 @@ const PYTHON_RUNNER_CANDIDATES = (() => {
 let cachedPythonRunner = null;
 let pythonRunnerResolved = false;
 let pythonRunnerResolvePromise = null;
-let pythonRunActiveCount = 0;
-const pythonRunQueue = [];
+const pythonExecutionSlots = new BoundedExecutionSlots({
+  maxConcurrent: PYTHON_RUN_MAX_CONCURRENT,
+  maxQueued: PYTHON_RUN_MAX_QUEUE,
+});
+const pythonRunRateLimiter = new SlidingWindowRateLimiter({
+  limit: PYTHON_RUN_RATE_LIMIT,
+  windowMs: PYTHON_RUN_RATE_WINDOW_MS,
+});
 let pushRuntimeEnabled = false;
 let pushRuntimeConfigError = '';
 let pushSweepInFlight = false;
@@ -1688,14 +1717,17 @@ const parseLoosePaymentNotificationBody = (body) => {
 app.use('/api/payment-notifications', express.text({ type: '*/*', limit: JSON_BODY_LIMIT }));
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
+let filesDbCache = null;
 const readFilesDb = () => {
+  if (Array.isArray(filesDbCache)) return filesDbCache;
   try {
     const raw = fs.readFileSync(dataFile, 'utf8');
     const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
+    filesDbCache = Array.isArray(data) ? data : [];
   } catch {
-    return [];
+    filesDbCache = [];
   }
+  return filesDbCache;
 };
 
 const normalizeUploadEntryName = (entry) => {
@@ -1759,35 +1791,44 @@ const migrateMockExamFileNames = () => {
   if (changed) writeMockExamsDb(exams);
 };
 
+let foldersDbCache = null;
 const readFoldersDb = () => {
+  if (Array.isArray(foldersDbCache)) return foldersDbCache;
   try {
     const raw = fs.readFileSync(foldersFile, 'utf8');
     const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
+    foldersDbCache = Array.isArray(data) ? data : [];
   } catch {
-    return [];
+    foldersDbCache = [];
   }
+  return foldersDbCache;
 };
 
+let studentsDbCache = null;
 const readStudentsDb = () => {
-  try {
-    const raw = fs.readFileSync(studentsFile, 'utf8');
-    const data = JSON.parse(raw);
-    const list = Array.isArray(data) ? data : [];
-    return purgeExpiredDeletedStudents(list);
-  } catch {
-    return [];
+  if (!Array.isArray(studentsDbCache)) {
+    try {
+      const raw = fs.readFileSync(studentsFile, 'utf8');
+      const data = JSON.parse(raw);
+      studentsDbCache = Array.isArray(data) ? data : [];
+    } catch {
+      studentsDbCache = [];
+    }
   }
+  return purgeExpiredDeletedStudents(studentsDbCache);
 };
 
+let teachersDbCache = null;
 const readTeachersDb = () => {
+  if (Array.isArray(teachersDbCache)) return teachersDbCache;
   try {
     const raw = fs.readFileSync(teachersFile, 'utf8');
     const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
+    teachersDbCache = Array.isArray(data) ? data : [];
   } catch {
-    return [];
+    teachersDbCache = [];
   }
+  return teachersDbCache;
 };
 
 const readTaskTitlesDb = () => {
@@ -1800,14 +1841,19 @@ const readTaskTitlesDb = () => {
   }
 };
 
+let progressDbCache = null;
 const readProgressDb = () => {
+  if (progressDbCache && typeof progressDbCache === 'object' && !Array.isArray(progressDbCache)) {
+    return progressDbCache;
+  }
   try {
     const raw = fs.readFileSync(progressFile, 'utf8');
     const data = JSON.parse(raw);
-    return data && typeof data === 'object' ? data : {};
+    progressDbCache = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
   } catch {
-    return {};
+    progressDbCache = {};
   }
+  return progressDbCache;
 };
 
 const normalizeHomeworkDraftsDb = (value) => {
@@ -2546,18 +2592,22 @@ const getLessonReplayStorageSummary = (occurrenceKey, options = {}) => {
 
 const writeFilesDb = (data) => {
   writeJsonFileAtomic(dataFile, data);
+  filesDbCache = Array.isArray(data) ? data : [];
 };
 
 const writeFoldersDb = (data) => {
   writeJsonFileAtomic(foldersFile, data);
+  foldersDbCache = Array.isArray(data) ? data : [];
 };
 
 const writeStudentsDb = (data) => {
   writeJsonFileAtomic(studentsFile, data);
+  studentsDbCache = Array.isArray(data) ? data : [];
 };
 
 const writeTeachersDb = (data) => {
   writeJsonFileAtomic(teachersFile, data);
+  teachersDbCache = Array.isArray(data) ? data : [];
 };
 
 const writeTaskTitlesDb = (data) => {
@@ -2566,6 +2616,7 @@ const writeTaskTitlesDb = (data) => {
 
 const writeProgressDb = (data) => {
   writeJsonFileAtomic(progressFile, data);
+  progressDbCache = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 };
 
 const writeHomeworkDraftsDb = (data) => {
@@ -4091,8 +4142,9 @@ const purgeExpiredDeletedStudents = (students = []) => {
   if (expired.length > 0) {
     writeStudentsDb(remaining);
     hardDeleteStudentData(expired.map((student) => student.id));
+    return remaining;
   }
-  return remaining;
+  return students;
 };
 
 const readTestsDb = () => {
@@ -6360,6 +6412,47 @@ const verifyCode = (code, stored) => {
   return crypto.timingSafeEqual(storedBuf, derived);
 };
 
+const verifyCodeAsync = (code, stored) => new Promise((resolve) => {
+  if (!code || typeof stored !== 'string') {
+    resolve(false);
+    return;
+  }
+  const [method, salt, hash] = stored.split('$');
+  if (method !== 'scrypt' || !salt || !hash) {
+    resolve(false);
+    return;
+  }
+  crypto.scrypt(code, salt, 64, (error, derived) => {
+    if (error) {
+      resolve(false);
+      return;
+    }
+    const storedBuf = Buffer.from(hash, 'base64');
+    resolve(storedBuf.length === derived.length && crypto.timingSafeEqual(storedBuf, derived));
+  });
+});
+
+const getAccessCodeLookupHash = (code) => (
+  createAccessCodeLookupHash(normalizeAccessCode(code), ACCESS_CODE_LOOKUP_SECRET)
+);
+
+const buildAccessCodeCredentials = (code) => {
+  const normalized = normalizeAccessCode(code);
+  return {
+    codeHash: hashCode(normalized),
+    codeHint: getCodeHint(normalized),
+    codeLookupHash: getAccessCodeLookupHash(normalized),
+  };
+};
+
+const findVerifiedAccessCodeRecord = async (records, code) => {
+  for (const record of Array.isArray(records) ? records : []) {
+    if (record?.codeHash && await verifyCodeAsync(code, record.codeHash)) return record;
+    if (record?.code && record.code === code) return record;
+  }
+  return null;
+};
+
 const getCodeHint = (code) => {
   const normalized = normalizeAccessCode(code);
   if (!normalized) return '';
@@ -6368,10 +6461,22 @@ const getCodeHint = (code) => {
 
 const ensureAdminAuth = () => {
   const existing = readAuthDb();
-  if (existing?.adminCodeHash) return existing;
   const seedCode = normalizeAccessCode(ADMIN_CODE) || 'admin-root';
+  if (existing?.adminCodeHash) {
+    if (!existing.adminCodeLookupHash && verifyCode(seedCode, existing.adminCodeHash)) {
+      const next = {
+        ...existing,
+        adminCodeLookupHash: getAccessCodeLookupHash(seedCode),
+        updatedAt: new Date().toISOString(),
+      };
+      writeAuthDb(next);
+      return next;
+    }
+    return existing;
+  }
   const next = {
     adminCodeHash: hashCode(seedCode),
+    adminCodeLookupHash: getAccessCodeLookupHash(seedCode),
     updatedAt: new Date().toISOString(),
   };
   writeAuthDb(next);
@@ -6573,6 +6678,7 @@ const resolveSessionUser = (sessionUser) => {
   if (role === 'student') {
     const student = readStudentsDb().find((entry) => entry.id === String(sessionUser.id) && !entry.deletedAt);
     if (!student) return null;
+    const storedProgress = readProgressDb()[student.id];
     return {
       id: student.id,
       name: student.name,
@@ -6580,7 +6686,7 @@ const resolveSessionUser = (sessionUser) => {
       teacherId: student.teacherId || null,
       grade: normalizeStudentGrade(student.grade),
       studyStatus: normalizeStudentStudyStatus(student.studyStatus, student.grade),
-      avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student.id)?.avatarDataUrl),
+      avatarDataUrl: normalizeStudentAvatarDataUrl(storedProgress?.avatarDataUrl || sessionUser.avatarDataUrl),
     };
   }
   if (role === 'lead') {
@@ -15761,24 +15867,6 @@ const runChildProcess = (command, args, options = {}) => new Promise((resolve) =
   child.on('close', (status, signal) => finish({ status, signal }));
 });
 
-const acquirePythonRunSlot = () => new Promise((resolve) => {
-  if (pythonRunActiveCount < PYTHON_RUN_MAX_CONCURRENT) {
-    pythonRunActiveCount += 1;
-    resolve();
-    return;
-  }
-  pythonRunQueue.push(resolve);
-});
-
-const releasePythonRunSlot = () => {
-  if (pythonRunActiveCount > 0) pythonRunActiveCount -= 1;
-  const next = pythonRunQueue.shift();
-  if (typeof next === 'function') {
-    pythonRunActiveCount += 1;
-    next();
-  }
-};
-
 const resolvePythonRunner = async () => {
   if (pythonRunnerResolved) return cachedPythonRunner;
   if (pythonRunnerResolvePromise) return pythonRunnerResolvePromise;
@@ -15808,14 +15896,18 @@ const invalidatePythonRunner = () => {
   pythonRunnerResolved = false;
 };
 
-const runPythonSourceForInput = async (runner, encodedSource, inputValue) => {
+const runPythonSourceForInput = async (runner, encodedSource, inputValue, timeoutMs = PYTHON_RUN_TIMEOUT_MS) => {
   if (!runner || !encodedSource) return { ok: false, launchError: true };
-  await acquirePythonRunSlot();
+  const waitStartedAtMs = Date.now();
+  const acquired = await pythonExecutionSlots.acquire(timeoutMs);
+  if (!acquired) return { ok: false, busy: true };
   try {
+    const executionTimeoutMs = timeoutMs - (Date.now() - waitStartedAtMs);
+    if (executionTimeoutMs < 250) return { ok: false, timeout: true };
     const args = [...runner.baseArgs, '-I', '-S', '-B', '-c', PYTHON_RUNNER_SCRIPT, encodedSource];
     const execution = await runChildProcess(runner.command, args, {
       input: String(inputValue ?? ''),
-      timeoutMs: PYTHON_RUN_TIMEOUT_MS,
+      timeoutMs: executionTimeoutMs,
       maxBufferBytes: PYTHON_RUN_MAX_BUFFER_BYTES,
       env: getPythonChildEnv(),
     });
@@ -15834,7 +15926,7 @@ const runPythonSourceForInput = async (runner, encodedSource, inputValue) => {
     }
     return { ok: true, output: String(execution.stdout ?? '') };
   } finally {
-    releasePythonRunSlot();
+    pythonExecutionSlots.release();
   }
 };
 
@@ -15877,13 +15969,24 @@ const validatePythonSolveResults = async (question, sourceRaw) => {
     return { ok: false, error: 'Проверка Python временно недоступна на сервере' };
   }
   const encodedSource = Buffer.from(source, 'utf8').toString('base64');
-  const timeoutMessage = `Превышено время выполнения (${Math.round(PYTHON_RUN_TIMEOUT_MS / 1000)} сек).`;
+  const timeoutMessage = `Превышено время выполнения (${Math.round(PYTHON_RUN_TOTAL_TIMEOUT_MS / 1000)} сек).`;
+  const startedAtMs = Date.now();
   for (let index = 0; index < tests.length; index += 1) {
+    const remainingMs = PYTHON_RUN_TOTAL_TIMEOUT_MS - (Date.now() - startedAtMs);
+    if (remainingMs < 250) return { ok: false, error: timeoutMessage };
     const expectedTest = tests[index] && typeof tests[index] === 'object' ? tests[index] : {};
     const expectedInput = String(expectedTest.input ?? '');
     const expectedOutput = normalizeOutputValue(expectedTest.output ?? '');
-    const execution = await runPythonSourceForInput(runner, encodedSource, expectedInput);
+    const execution = await runPythonSourceForInput(
+      runner,
+      encodedSource,
+      expectedInput,
+      Math.min(PYTHON_RUN_TIMEOUT_MS, remainingMs)
+    );
     if (!execution.ok) {
+      if (execution.busy) {
+        return { ok: false, busy: true, error: 'Сервер занят проверкой других решений. Повторите попытку через несколько секунд.' };
+      }
       if (execution.timeout) {
         return { ok: false, error: timeoutMessage };
       }
@@ -16132,13 +16235,19 @@ const normalizeTeacherName = (name) => {
 
 const isPlaceholderName = (value) => typeof value === 'string' && /^\?+$/.test(value.trim());
 
-const codeMatchesStudents = (code, students) => students.some((student) => {
+const codeMatchesStudents = (code, students) => getAccessCodeCandidates(
+  students,
+  getAccessCodeLookupHash(code)
+).some((student) => {
   if (student?.codeHash) return verifyCode(code, student.codeHash);
   if (student?.code) return student.code === code;
   return false;
 });
 
-const codeMatchesTeachers = (code, teachers) => teachers.some((teacher) => {
+const codeMatchesTeachers = (code, teachers) => getAccessCodeCandidates(
+  teachers,
+  getAccessCodeLookupHash(code)
+).some((teacher) => {
   if (teacher?.codeHash) return verifyCode(code, teacher.codeHash);
   return false;
 });
@@ -16165,8 +16274,7 @@ const migrateStudentCodes = (students) => {
     if (student?.code && !student?.codeHash) {
       const plain = normalizeAccessCode(student.code);
       if (plain) {
-        student.codeHash = hashCode(plain);
-        student.codeHint = getCodeHint(plain);
+        Object.assign(student, buildAccessCodeCredentials(plain));
       }
       delete student.code;
       changed = true;
@@ -16187,8 +16295,7 @@ const ensureDefaultTeacher = () => {
     const entry = {
       id: crypto.randomUUID(),
       name: TEACHER_NAME,
-      codeHash: hashCode(plainCode),
-      codeHint: getCodeHint(plainCode),
+      ...buildAccessCodeCredentials(plainCode),
       readSolvedEventIds: [],
       createdAt: new Date().toISOString(),
     };
@@ -16222,8 +16329,7 @@ const ensureDefaultStudent = () => {
       teacherId: defaultTeacherId,
       nickname: '',
       grade: DEFAULT_STUDENT_GRADE,
-      codeHash: hashCode(plainCode),
-      codeHint: getCodeHint(plainCode),
+      ...buildAccessCodeCredentials(plainCode),
       createdAt: new Date().toISOString(),
     };
     students.push(entry);
@@ -18006,7 +18112,8 @@ const handleUploadRequest = (req, res) => {
 app.get('/uploads/:storageName', handleUploadRequest);
 app.head('/uploads/:storageName', handleUploadRequest);
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res, next) => {
+  try {
   const { code } = req.body || {};
   const normalizedCode = normalizeAccessCode(code);
   if (!normalizedCode) return res.status(400).json({ error: 'Введите код доступа' });
@@ -18020,15 +18127,36 @@ app.post('/api/login', (req, res) => {
     });
   }
 
-  if (verifyCode(normalizedCode, adminAuth?.adminCodeHash)) {
+  const codeLookupHash = getAccessCodeLookupHash(normalizedCode);
+  const adminLookupHash = String(adminAuth?.adminCodeLookupHash || '').trim();
+  const shouldVerifyAdmin = !adminLookupHash || adminLookupHash === codeLookupHash;
+  if (shouldVerifyAdmin && await verifyCodeAsync(normalizedCode, adminAuth?.adminCodeHash)) {
+    if (!adminLookupHash) {
+      adminAuth = {
+        ...adminAuth,
+        adminCodeLookupHash: codeLookupHash,
+        updatedAt: new Date().toISOString(),
+      };
+      writeAuthDb(adminAuth);
+    }
     clearLoginFailures(clientKey);
     const session = createAuthSession({ id: 'admin1', name: ADMIN_NAME, role: 'admin' });
     return respondWithSession(res, session);
   }
 
   const teachers = readTeachersDb();
-  const teacher = teachers.find((entry) => entry?.codeHash && verifyCode(normalizedCode, entry.codeHash));
+  const teacher = await findVerifiedAccessCodeRecord(
+    getAccessCodeCandidates(teachers, codeLookupHash),
+    normalizedCode
+  );
   if (teacher) {
+    if (!teacher.codeLookupHash) {
+      const teacherIndex = teachers.findIndex((entry) => entry?.id === teacher.id);
+      if (teacherIndex >= 0) {
+        teachers[teacherIndex] = { ...teacher, codeLookupHash };
+        writeTeachersDb(teachers);
+      }
+    }
     clearLoginFailures(clientKey);
     const session = createAuthSession({
       id: teacher.id,
@@ -18040,20 +18168,23 @@ app.post('/api/login', (req, res) => {
   }
 
   const students = readStudentsDb();
-  const student = students.find((entry) => {
-    if (entry?.deletedAt) return false;
-    if (entry?.codeHash) return verifyCode(normalizedCode, entry.codeHash);
-    if (entry?.code) return entry.code === normalizedCode;
-    return false;
-  });
+  const student = await findVerifiedAccessCodeRecord(
+    getAccessCodeCandidates(students, codeLookupHash, (entry) => !entry?.deletedAt),
+    normalizedCode
+  );
   if (!student) {
-    const deletedMatch = students.find((entry) => {
-      if (!entry?.deletedAt) return false;
-      if (entry?.codeHash) return verifyCode(normalizedCode, entry.codeHash);
-      if (entry?.code) return entry.code === normalizedCode;
-      return false;
-    });
+    const deletedMatch = await findVerifiedAccessCodeRecord(
+      getAccessCodeCandidates(students, codeLookupHash, (entry) => Boolean(entry?.deletedAt)),
+      normalizedCode
+    );
     if (deletedMatch) {
+      if (!deletedMatch.codeLookupHash) {
+        const deletedIndex = students.findIndex((entry) => entry?.id === deletedMatch.id);
+        if (deletedIndex >= 0) {
+          students[deletedIndex] = { ...deletedMatch, codeLookupHash };
+          writeStudentsDb(students);
+        }
+      }
       return res.status(403).json({ error: 'Студент удалён. Обратитесь к учителю.' });
     }
     const blocked = registerLoginFailure(clientKey);
@@ -18066,6 +18197,13 @@ app.post('/api/login', (req, res) => {
     return res.status(401).json({ error: 'Неверный код доступа' });
   }
 
+  if (!student.codeLookupHash) {
+    const studentIndex = students.findIndex((entry) => entry?.id === student.id);
+    if (studentIndex >= 0) {
+      students[studentIndex] = { ...student, codeLookupHash };
+      writeStudentsDb(students);
+    }
+  }
   clearLoginFailures(clientKey);
   const session = createAuthSession({
     id: student.id,
@@ -18077,6 +18215,9 @@ app.post('/api/login', (req, res) => {
     avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student.id)?.avatarDataUrl),
   });
   return respondWithSession(res, session);
+  } catch (error) {
+    return next(error);
+  }
 });
 
 app.post('/api/signup/login', (req, res) => {
@@ -21976,7 +22117,11 @@ app.get('/api/students', (req, res) => {
     if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return;
     notesUsageByStudentId.set(studentId, (notesUsageByStudentId.get(studentId) || 0) + sizeBytes);
   });
-  const sanitized = students.map(({ codeHash, code, ...rest }) => {
+  const sanitized = students.map((studentEntry) => {
+    const rest = { ...studentEntry };
+    delete rest.codeHash;
+    delete rest.codeLookupHash;
+    delete rest.code;
     const data = getStudentData(rest.id);
     const xpTotal = normalizeXpTotal(data?.xpTotal);
     const coinsTotal = normalizeCoinsTotal(data?.coinsTotal);
@@ -22679,8 +22824,7 @@ app.post('/api/students', (req, res) => {
     grade: studentGrade,
     studyStatus: studentStudyStatus,
     informaticsEgeScore: studentGrade === STUDENT_GRADE_GRADUATE ? studentInformaticsEgeScore : null,
-    codeHash: hashCode(plainCode),
-    codeHint: getCodeHint(plainCode),
+    ...buildAccessCodeCredentials(plainCode),
     createdAt: new Date().toISOString(),
     deletedAt: null,
   };
@@ -22810,7 +22954,13 @@ app.patch('/api/task-titles', (req, res) => {
 app.get('/api/teachers', (_req, res) => {
   if (!isAdminRole(_req.auth)) return forbid(res);
   const teachers = readTeachersDb();
-  const sanitized = teachers.map(({ codeHash, readSolvedEventIds, ...rest }) => rest);
+  const sanitized = teachers.map((teacherEntry) => {
+    const rest = { ...teacherEntry };
+    delete rest.codeHash;
+    delete rest.codeLookupHash;
+    delete rest.readSolvedEventIds;
+    return rest;
+  });
   res.json(sanitized);
 });
 
@@ -22828,8 +22978,7 @@ app.post('/api/teachers', (req, res) => {
   const entry = {
     id: crypto.randomUUID(),
     name: teacherName,
-    codeHash: hashCode(plainCode),
-    codeHint: getCodeHint(plainCode),
+    ...buildAccessCodeCredentials(plainCode),
     readSolvedEventIds: [],
     createdAt: new Date().toISOString(),
   };
@@ -22894,8 +23043,7 @@ app.post('/api/teachers/:id/reset-code', (req, res) => {
   const plainCode = generateTeacherCode(teachers, students);
   const updated = {
     ...teachers[idx],
-    codeHash: hashCode(plainCode),
-    codeHint: getCodeHint(plainCode),
+    ...buildAccessCodeCredentials(plainCode),
   };
   teachers[idx] = updated;
   writeTeachersDb(teachers);
@@ -23251,8 +23399,7 @@ app.post('/api/students/:id/reset-code', (req, res) => {
   const plainCode = generateStudentCode(students, teachers);
   const updated = {
     ...students[idx],
-    codeHash: hashCode(plainCode),
-    codeHint: getCodeHint(plainCode),
+    ...buildAccessCodeCredentials(plainCode),
   };
   students[idx] = updated;
   writeStudentsDb(students);
@@ -24340,8 +24487,7 @@ app.patch('/api/teacher-code', (req, res) => {
 
   teachers[idx] = {
     ...teachers[idx],
-    codeHash: hashCode(next),
-    codeHint: getCodeHint(next),
+    ...buildAccessCodeCredentials(next),
   };
   writeTeachersDb(teachers);
   res.json({ ok: true });
@@ -24501,9 +24647,20 @@ app.post('/api/progress/solve', async (req, res) => {
     const providedValidation = validatePythonSolveResultsFromProvided(questionEntry, pythonResults);
     if (providedValidation.ok) validation = providedValidation;
     if (!validation) {
+      const rate = pythonRunRateLimiter.consume(`${req.auth?.role || 'user'}:${req.auth?.id || student.id}`);
+      if (!rate.allowed) {
+        const retryAfterSeconds = Math.max(1, Math.ceil(rate.retryAfterMs / 1000));
+        res.setHeader('Retry-After', String(retryAfterSeconds));
+        return res.status(429).json({
+          error: `Слишком много серверных проверок Python. Повторите попытку через ${retryAfterSeconds} сек.`,
+        });
+      }
       validation = await validatePythonSolveResults(questionEntry, code);
     }
     if (!validation.ok) {
+      if (validation.busy) {
+        return res.status(503).json({ error: validation.error });
+      }
       persistAnswerAttempt(false);
       return res.status(400).json({ error: validation.error || 'Тесты не пройдены' });
     }
@@ -25994,7 +26151,7 @@ const STUDENT_SEARCH_TEXT_EXTENSIONS = new Set([
   '.c', '.cpp', '.h', '.hpp', '.java', '.kt', '.go', '.rs', '.php', '.rb',
   '.sh', '.ps1', '.bat',
 ]);
-const STUDENT_SEARCH_PRIVATE_OBJECT_KEY_PATTERN = /^(?:answer.*|correct.*|expected.*|solution.*|output|codeHash|codeHint|storageName|url|imageDataUrl|avatarDataUrl)$/i;
+const STUDENT_SEARCH_PRIVATE_OBJECT_KEY_PATTERN = /^(?:answer.*|correct.*|expected.*|solution.*|output|codeHash|codeLookupHash|codeHint|storageName|url|imageDataUrl|avatarDataUrl)$/i;
 const studentSearchFileCache = new Map();
 let studentSearchFileCacheBytes = 0;
 

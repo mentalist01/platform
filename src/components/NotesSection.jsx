@@ -55,7 +55,7 @@ const mergeFolderLists = (lists) => {
   }
   return merged;
 };
-const AUTO_REFRESH_INTERVAL_MS = 5000;
+const AUTO_REFRESH_INTERVAL_MS = 30_000;
 const WORKBOOK_HELPER_TASK_NUMBERS = new Set([3, 9, 10, 12, 13, 18, 19, 20, 21, 22, 26, 27]);
 const TEXT_TO_WORKBOOK_TASK_NUMBERS = new Set([26, 27]);
 const DEFAULT_NOTES_CATEGORY = 'class';

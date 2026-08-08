@@ -38,7 +38,7 @@ import {
   normalizeAssignedMockExamMode as normalizeAssignedMockMode,
 } from '../utils/mockExamMode';
 
-const AUTO_REFRESH_INTERVAL_MS = 5000;
+const AUTO_REFRESH_INTERVAL_MS = 60_000;
 const SHOW_SCHEDULE_SKILL_TREE = false;
 const DEFAULT_SCHEDULE_SUBJECT = 'Занятие';
 const SCHEDULE_LOOKAHEAD_WEEKS = 16;
