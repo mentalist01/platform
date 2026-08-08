@@ -6,7 +6,6 @@ import {
   Eye,
   GitBranch,
   Hand,
-  History,
   ListChecks,
   Maximize2,
   Minimize2,
@@ -80,6 +79,7 @@ const SURFACE_TABS = {
 const AUDIO_LOAD_TIMEOUT_MS = 12_000;
 const TIME_MACHINE_RUN_TIMEOUT_MS = 40_000;
 const TIME_MACHINE_OUTPUT_LIMIT = 20_000;
+const NOOP = () => {};
 
 const formatClock = (value) => {
   const totalSeconds = Math.max(0, Math.floor((Number(value) || 0) / 1000));
@@ -915,9 +915,10 @@ const TimeMachineWorkspace = ({
   onBranchCodePatch,
   onClose,
   onResetBranch,
-  onStartBranch,
   onSurfaceChange,
   onToggleCompare,
+  followSandboxElement,
+  followedRole,
   playing,
   positionMs,
   renderLessonReplaySandbox,
@@ -928,46 +929,45 @@ const TimeMachineWorkspace = ({
   <div className="lesson-replay-player__time-machine">
     <div className="lesson-replay-player__time-machine-bar">
       <div className="lesson-replay-player__time-machine-heading">
-        <span>{branch ? <GitBranch size={14} /> : <History size={14} />} {branch ? 'Копия урока' : 'Машина времени'}</span>
-        <strong>{branch ? `Состояние на ${formatClock(branch.metadata.positionMs)}` : 'Живая запись урока'}</strong>
-      </div>
-      <div className="lesson-replay-player__time-machine-surfaces" role="tablist" aria-label="Поверхность машины времени">
-        {['code', 'board'].map((value) => {
-          const Icon = SURFACE_TABS[value].icon;
-          return (
-            <button key={value} type="button" role="tab" aria-selected={surface === value} className={surface === value ? 'is-active' : ''} onClick={() => onSurfaceChange(value)}>
-              <Icon size={14} />{branch && value === 'code' ? 'Урок целиком' : SURFACE_TABS[value].label}
-            </button>
-          );
-        })}
+        <span>{branch ? <GitBranch size={14} /> : <PlayCircle size={14} />} {branch ? 'Машина времени' : 'Повтор урока'}</span>
+        <strong>{branch
+          ? `Состояние на ${formatClock(branch.metadata.positionMs)}`
+          : (followedRole === 'free'
+            ? 'Копия повторяет запись'
+            : `Копия следует за ${followedRole === 'student' ? 'учеником' : 'учителем'}`)}</strong>
       </div>
       {branch && (
-        <button
-          type="button"
-          className={`lesson-replay-player__time-machine-compare-toggle${showOriginal ? ' is-active' : ''}`}
-          onClick={onToggleCompare}
-          aria-pressed={showOriginal}
-        >
-          <Eye size={14} /> {showOriginal ? 'Скрыть оригинал' : 'Сравнить с оригиналом'}
-        </button>
+        <>
+          <div className="lesson-replay-player__time-machine-surfaces" role="tablist" aria-label="Поверхность копии урока">
+            {['code', 'board'].map((value) => {
+              const Icon = SURFACE_TABS[value].icon;
+              return (
+                <button key={value} type="button" role="tab" aria-selected={surface === value} className={surface === value ? 'is-active' : ''} onClick={() => onSurfaceChange(value)}>
+                  <Icon size={14} />{value === 'code' ? 'Урок целиком' : SURFACE_TABS[value].label}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className={`lesson-replay-player__time-machine-compare-toggle${showOriginal ? ' is-active' : ''}`}
+            onClick={onToggleCompare}
+            aria-pressed={showOriginal}
+          >
+            <Eye size={14} /> {showOriginal ? 'Скрыть оригинал' : 'Сравнить с оригиналом'}
+          </button>
+        </>
       )}
       {branch && <button type="button" className="lesson-replay-player__time-machine-reset" onClick={onResetBranch}><RotateCcw size={14} /> Сбросить ветку</button>}
-      <button type="button" className="lesson-replay-player__time-machine-close" onClick={onClose} aria-label="Закрыть машину времени"><X size={17} /></button>
+      <button type="button" className="lesson-replay-player__time-machine-close" onClick={onClose} aria-label="Выйти из полноэкранной копии урока"><X size={17} /></button>
     </div>
 
     {!branch ? (
-      <div className="lesson-replay-player__time-machine-preview" data-surface={surface}>
-        <TimeMachineOriginalSurface surface={surface} boardEvent={boardEvent} boardView={boardView} codeEvent={codeEvent} codeView={codeView} runEvent={runEvent} />
-        {playing ? (
-          <div className="lesson-replay-player__time-machine-playing-note"><PlayCircle size={14} /> Останови запись в нужном месте — появится «Попробуй сам»</div>
-        ) : (
-          <div className="lesson-replay-player__time-machine-prompt" role="status">
-            <span><Sparkles size={17} /> Запись остановлена на {formatClock(positionMs)}</span>
-            <strong>Перейди внутрь урока и продолжи сам</strong>
-            <p>Откроется идентичный интерфейс урока, но код и доска будут безопасной копией этого момента.</p>
-            <button type="button" onClick={onStartBranch}><GitBranch size={16} /> Открыть копию урока</button>
-          </div>
-        )}
+      <div className="lesson-replay-player__time-machine-preview is-lesson-copy" data-surface="code" role="group" aria-label="Копия урока в режиме воспроизведения">
+        {followSandboxElement
+          ? followSandboxElement
+          : <TimeMachineOriginalSurface surface="code" boardEvent={boardEvent} boardView={boardView} codeEvent={codeEvent} codeView={codeView} runEvent={runEvent} />}
+        {!playing && <div className="lesson-replay-player__time-machine-paused"><Pause size={13} /> Пауза · {formatClock(positionMs)}</div>}
       </div>
     ) : (
       <div className={`lesson-replay-player__time-machine-compare${showOriginal ? ' is-comparing' : ''}`} data-surface={surface}>
@@ -996,6 +996,7 @@ const TimeMachineWorkspace = ({
                     branchEpoch,
                     onBoardChange: onBranchBoardChange,
                     onCodeChange: onBranchCodePatch,
+                    readOnly: false,
                     surface,
                   })}
                 </div>
@@ -1095,6 +1096,20 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const fullscreenRequestPendingRef = useRef(false);
   const isFullscreen = isNativeFullscreen || isFallbackFullscreen;
 
+  const closeLessonCopyState = useCallback(() => {
+    setTimeMachineOpen(false);
+    setTimeMachineBranch(null);
+    setTimeMachineShowOriginal(false);
+    setTimeMachineSurface('code');
+  }, []);
+
+  const openLessonCopyState = useCallback(() => {
+    setTimeMachineOpen(true);
+    setTimeMachineBranch(null);
+    setTimeMachineShowOriginal(false);
+    setTimeMachineSurface('code');
+  }, []);
+
   const audioEvents = useMemo(() => events.filter((event) => (
     event.type === 'audio'
     && (event.payload?.audioId || event.payload?.playbackUrl || event.payload?.url)
@@ -1151,13 +1166,18 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     const handleFullscreenChange = () => {
       const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || null;
       const playerIsFullscreen = fullscreenElement === playerRef.current;
-      fullscreenRequestPendingRef.current = false;
       setIsNativeFullscreen(playerIsFullscreen);
-      if (playerIsFullscreen) setIsFallbackFullscreen(false);
+      if (playerIsFullscreen) {
+        fullscreenRequestPendingRef.current = false;
+        setIsFallbackFullscreen(false);
+      } else if (!fullscreenRequestPendingRef.current) {
+        closeLessonCopyState();
+      }
     };
     const handleFullscreenError = () => {
       if (!fullscreenRequestPendingRef.current) return;
       fullscreenRequestPendingRef.current = false;
+      openLessonCopyState();
       setIsFallbackFullscreen(true);
     };
     handleFullscreenChange();
@@ -1171,7 +1191,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       document.removeEventListener('fullscreenerror', handleFullscreenError);
       document.removeEventListener('webkitfullscreenerror', handleFullscreenError);
     };
-  }, []);
+  }, [closeLessonCopyState, openLessonCopyState]);
 
   useLayoutEffect(() => {
     if (typeof document === 'undefined' || !isFallbackFullscreen) return undefined;
@@ -1188,13 +1208,14 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       if (isFallbackFullscreen) {
         event.preventDefault();
         setIsFallbackFullscreen(false);
+        closeLessonCopyState();
       }
       // Native fullscreen keeps the browser's default Escape action. Stopping
       // propagation only prevents the surrounding lesson modal from closing.
     };
     document.addEventListener('keydown', handleFullscreenEscape, true);
     return () => document.removeEventListener('keydown', handleFullscreenEscape, true);
-  }, [isFallbackFullscreen, isFullscreen]);
+  }, [closeLessonCopyState, isFallbackFullscreen, isFullscreen]);
 
   const toggleFullscreen = useCallback(async () => {
     if (typeof document === 'undefined') return;
@@ -1203,12 +1224,14 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     if (isFallbackFullscreen) {
       fullscreenRequestPendingRef.current = false;
       setIsFallbackFullscreen(false);
+      closeLessonCopyState();
       return;
     }
     const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || null;
     try {
       if (fullscreenElement === player) {
         fullscreenRequestPendingRef.current = false;
+        closeLessonCopyState();
         if (document.exitFullscreen) await document.exitFullscreen();
         else document.webkitExitFullscreen?.();
         return;
@@ -1217,6 +1240,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         if (document.exitFullscreen) await document.exitFullscreen();
         else document.webkitExitFullscreen?.();
       }
+      openLessonCopyState();
       fullscreenRequestPendingRef.current = true;
       if (player.requestFullscreen) {
         await player.requestFullscreen({ navigationUI: 'hide' });
@@ -1229,9 +1253,10 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       }
     } catch {
       fullscreenRequestPendingRef.current = false;
+      openLessonCopyState();
       setIsFallbackFullscreen(true);
     }
-  }, [isFallbackFullscreen]);
+  }, [closeLessonCopyState, isFallbackFullscreen, openLessonCopyState]);
 
   const state = useMemo(() => buildStateAt(events, positionMs), [events, positionMs]);
   const followedRole = mode === 'student' ? 'student' : 'teacher';
@@ -1250,6 +1275,50 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const resolvedActiveTab = mode === 'free'
     ? activeTab
     : (followedTab === 'screen' && !hasScreenEvents ? 'board' : followedTab);
+  const followSnapshotPositionMs = Math.max(
+    0,
+    Number(boardEvent?.offsetMs) || 0,
+    Number(codeEvent?.offsetMs) || 0,
+    Number(runEvent?.offsetMs) || 0,
+    Number(surfaceState.boardView?.offsetMs) || 0,
+    Number(surfaceState.codeView?.offsetMs) || 0
+  );
+  const followBranch = useMemo(() => {
+    const snapshot = createLessonReplayBranch(replay, followSnapshotPositionMs, {
+      actorRole: followedRole,
+    });
+    if (boardView && typeof boardView === 'object') snapshot.board.viewport = boardView;
+    if (codeView && typeof codeView === 'object') snapshot.code.viewport = codeView;
+    return snapshot;
+  }, [boardView, codeView, followSnapshotPositionMs, followedRole, replay]);
+  const followSandboxSessionId = useMemo(() => {
+    const occurrence = replay?.occurrence || {};
+    const occurrenceIdentity = String(
+      occurrence.key
+      || [occurrence.studentId, occurrence.dayKey, occurrence.time, occurrence.startMs]
+        .filter((value) => value !== undefined && value !== null && String(value).trim())
+        .join('-')
+      || 'lesson'
+    ).replace(/[^a-zA-Z0-9._:-]+/g, '-').slice(0, 180);
+    return `lesson-replay-follow-${occurrenceIdentity}-${followedRole}`;
+  }, [followedRole, replay?.occurrence]);
+  const followSandboxElement = useMemo(() => (
+    typeof renderLessonReplaySandbox === 'function' && followBranch
+      ? (
+        <div className="lesson-replay-player__time-machine-sandbox is-following" inert>
+          {renderLessonReplaySandbox({
+            branch: followBranch,
+            branchEpoch: 0,
+            onBoardChange: NOOP,
+            onCodeChange: NOOP,
+            readOnly: true,
+            sandboxSessionId: followSandboxSessionId,
+            surface: 'code',
+          })}
+        </div>
+      )
+      : null
+  ), [followBranch, followSandboxSessionId, renderLessonReplaySandbox]);
 
   const seekReplayTo = useCallback((rawPositionMs) => {
     const nextPosition = Math.min(durationMs, Math.max(0, Number(rawPositionMs) || 0));
@@ -1498,16 +1567,28 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
 
   const togglePlaying = () => {
     if (positionRef.current >= durationMs) seekReplayTo(0);
+    if (timeMachineBranch) setTimeMachineShowOriginal(true);
     setPlaying((current) => !current);
   };
 
-  const openTimeMachine = () => {
-    const nextSurface = resolvedActiveTab === 'code' ? 'code' : 'board';
-    setTimeMachineSurface((current) => (timeMachineBranch ? current : nextSurface));
-    setTimeMachineOpen(true);
+  const seekReplayFromControls = (rawPositionMs) => {
+    if (timeMachineBranch) setTimeMachineShowOriginal(true);
+    seekReplayTo(rawPositionMs);
+  };
+
+  const restartReplay = () => {
+    if (timeMachineBranch) setTimeMachineShowOriginal(true);
+    seekReplayTo(0);
+    setPlaying(false);
+  };
+
+  const toggleTimeMachineCompare = () => {
+    if (timeMachineShowOriginal && playing) setPlaying(false);
+    setTimeMachineShowOriginal((current) => !current);
   };
 
   const startTimeMachineBranch = () => {
+    if (playing) return;
     const anchorPositionMs = Math.min(durationMs, Math.max(0, Number(positionRef.current) || 0));
     setPlaying(false);
     seekReplayTo(anchorPositionMs);
@@ -1517,6 +1598,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     setTimeMachineBranch(createLessonReplayBranch(replay, anchorPositionMs, {
       actorRole: mode === 'student' ? 'student' : 'teacher',
     }));
+  };
+
+  const returnToReplay = () => {
+    setTimeMachineBranch(null);
+    setTimeMachineShowOriginal(false);
+    setTimeMachineSurface('code');
   };
 
   const updateTimeMachineCode = (patch, expectedRevision = null) => {
@@ -1560,7 +1647,10 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     >
       <header className="lesson-replay-player__header">
         <span className="lesson-replay-player__icon"><Play size={17} fill="currentColor" /></span>
-        <div><span>Ход занятия</span><strong>Воспроизведение урока</strong></div>
+        <div>
+          <span>{timeMachineOpen ? (timeMachineBranch ? 'Машина времени' : 'Копия урока') : 'Ход занятия'}</span>
+          <strong>{timeMachineOpen ? (timeMachineBranch ? 'Попробуй продолжить сам' : 'Повтор внутри урока') : 'Воспроизведение урока'}</strong>
+        </div>
         <button
           type="button"
           className={`lesson-replay-player__audio${audioEvents.length > 0 ? ' is-available' : ''}`}
@@ -1607,9 +1697,9 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           type="button"
           className="lesson-replay-player__fullscreen"
           onClick={toggleFullscreen}
-          aria-label={isFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть запись на весь экран'}
+          aria-label={isFullscreen ? 'Выйти из копии урока' : 'Открыть копию урока на весь экран'}
           aria-pressed={isFullscreen}
-          title={isFullscreen ? 'Выйти из полноэкранного режима' : 'На весь экран'}
+          title={isFullscreen ? 'Выйти из копии урока' : 'На весь экран'}
         >
           {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           <span>{isFullscreen ? 'Свернуть' : 'На весь экран'}</span>
@@ -1627,11 +1717,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           createPythonWorker={createPythonWorker}
           onBranchBoardChange={updateTimeMachineBoard}
           onBranchCodePatch={updateTimeMachineCode}
-          onClose={() => setTimeMachineOpen(false)}
+          onClose={toggleFullscreen}
           onResetBranch={resetTimeMachineBranch}
-          onStartBranch={startTimeMachineBranch}
           onSurfaceChange={setTimeMachineSurface}
-          onToggleCompare={() => setTimeMachineShowOriginal((current) => !current)}
+          onToggleCompare={toggleTimeMachineCompare}
+          followSandboxElement={followSandboxElement}
+          followedRole={mode === 'free' ? 'free' : followedRole}
           playing={playing}
           positionMs={positionMs}
           renderLessonReplaySandbox={renderLessonReplaySandbox}
@@ -1706,7 +1797,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           max={Math.max(1, Math.round(durationMs))}
           step="100"
           value={Math.min(durationMs, Math.round(positionMs))}
-          onChange={(event) => seekReplayTo(event.target.value)}
+          onChange={(event) => seekReplayFromControls(event.target.value)}
           aria-label="Позиция воспроизведения"
           aria-valuetext={`${formatClock(positionMs)} из ${formatClock(durationMs)}`}
         />
@@ -1716,15 +1807,27 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         <button type="button" className="lesson-replay-player__play" onClick={togglePlaying} aria-label={playing ? 'Пауза' : 'Воспроизвести'}>
           {playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}<span>{playing ? 'Пауза' : 'Смотреть'}</span>
         </button>
-        <button type="button" className="lesson-replay-player__restart" onClick={() => { seekReplayTo(0); setPlaying(false); }} aria-label="В начало"><RotateCcw size={16} /></button>
-        <button
-          type="button"
-          className={`lesson-replay-player__time-machine-toggle${timeMachineOpen ? ' is-active' : ''}`}
-          onClick={() => (timeMachineOpen ? setTimeMachineOpen(false) : openTimeMachine())}
-          aria-pressed={timeMachineOpen}
-        >
-          <History size={16} /><span>{timeMachineOpen ? 'Закрыть копию' : 'Машина времени'}</span>
-        </button>
+        <button type="button" className="lesson-replay-player__restart" onClick={restartReplay} aria-label="В начало"><RotateCcw size={16} /></button>
+        {timeMachineOpen && !timeMachineBranch && !playing && (
+          <button
+            type="button"
+            className="lesson-replay-player__time-machine-toggle"
+            onClick={startTimeMachineBranch}
+            aria-label={`Машина времени: попробовать самому с ${formatClock(positionMs)}`}
+            title="Машина времени"
+          >
+            <Sparkles size={16} /><span>Попробовать самому</span>
+          </button>
+        )}
+        {timeMachineOpen && timeMachineBranch && (
+          <button
+            type="button"
+            className="lesson-replay-player__time-machine-toggle is-active"
+            onClick={returnToReplay}
+          >
+            <PlayCircle size={16} /><span>Вернуться к записи</span>
+          </button>
+        )}
         <span className="lesson-replay-player__time">{formatClock(positionMs)} <em>/</em> {formatClock(durationMs)}</span>
         <div className="lesson-replay-player__speeds" role="group" aria-label="Скорость воспроизведения">
           {[1, 2, 4].map((value) => <button key={value} type="button" className={speed === value ? 'is-active' : ''} aria-pressed={speed === value} onClick={() => setSpeed(value)}>{value}×</button>)}

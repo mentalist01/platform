@@ -3503,6 +3503,19 @@ const CollabSection = ({
     ? (String(sandbox?.id || sandbox?.branchId || 'lesson-replay').trim() || 'lesson-replay')
     : '';
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
+  const sandboxReadOnlyCodeState = isSandbox && sandboxReadOnly
+    ? (sandbox?.code && typeof sandbox.code === 'object' ? sandbox.code : sandbox)
+    : null;
+  const sandboxReadOnlyCode = String(sandboxReadOnlyCodeState?.code ?? '');
+  const sandboxReadOnlyInput = String(sandboxReadOnlyCodeState?.input ?? '');
+  const sandboxReadOnlyTestFile = normalizeCollabTextFileContent(sandboxReadOnlyCodeState?.testFile ?? '');
+  const sandboxReadOnlyOutput = String(sandboxReadOnlyCodeState?.output ?? '');
+  const sandboxReadOnlyError = String(sandboxReadOnlyCodeState?.error ?? '');
+  const sandboxReadOnlyStatus = String(sandboxReadOnlyCodeState?.status || 'idle') || 'idle';
+  const sandboxReadOnlyViewportSignature = sandboxReadOnlyCodeState?.viewport
+    && typeof sandboxReadOnlyCodeState.viewport === 'object'
+    ? JSON.stringify(sandboxReadOnlyCodeState.viewport)
+    : '';
   const [status, setStatus] = useState('disconnected');
   const [peerCount, setPeerCount] = useState(0);
   const [remoteParticipants, setRemoteParticipants] = useState([]);
@@ -3710,6 +3723,7 @@ const CollabSection = ({
   const sandboxRef = useRef(sandbox);
   const sandboxStateChangeRef = useRef(onSandboxStateChange);
   const sandboxReadyRef = useRef(false);
+  const sandboxPlaybackSyncOriginRef = useRef(Symbol('lesson-replay-sandbox-playback-sync'));
   const lessonReplayEventRef = useRef(onLessonReplayEvent);
   const lessonReplayCodeTimerRef = useRef(null);
   const lessonReplayPendingCodeRef = useRef(null);
@@ -3728,7 +3742,12 @@ const CollabSection = ({
     lessonReplayEventRef.current = isSandbox ? null : onLessonReplayEvent;
   }, [isSandbox, onLessonReplayEvent]);
   const emitSandboxState = useCallback((overrides = {}) => {
-    if (!isSandbox || !sandboxReadyRef.current || typeof sandboxStateChangeRef.current !== 'function') return;
+    if (
+      !isSandbox
+      || sandboxReadOnly
+      || !sandboxReadyRef.current
+      || typeof sandboxStateChangeRef.current !== 'function'
+    ) return;
     const seed = sandboxRef.current && typeof sandboxRef.current === 'object'
       ? sandboxRef.current
       : {};
@@ -3757,16 +3776,16 @@ const CollabSection = ({
         ? String(overrides.status ?? '')
         : String(runStatusRef.current ?? seedCode.status ?? 'idle'),
     });
-  }, [isSandbox, sandboxId]);
+  }, [isSandbox, sandboxId, sandboxReadOnly]);
   const emitSandboxBoardItems = useCallback((items) => {
-    if (!isSandbox || typeof sandboxStateChangeRef.current !== 'function') return;
+    if (!isSandbox || sandboxReadOnly || typeof sandboxStateChangeRef.current !== 'function') return;
     sandboxStateChangeRef.current({
       id: sandboxId,
       board: {
         items: Array.isArray(items) ? items : [],
       },
     });
-  }, [isSandbox, sandboxId]);
+  }, [isSandbox, sandboxId, sandboxReadOnly]);
   const flushLessonReplayCodeSnapshot = useCallback(() => {
     if (typeof window !== 'undefined') window.clearTimeout(lessonReplayCodeTimerRef.current);
     const payload = lessonReplayPendingCodeRef.current;
@@ -4250,7 +4269,7 @@ const CollabSection = ({
   }, [applyBreakpointDecorations, applyDebugInlineHints, applyDebugInlayHints, setDebugStep, stopDebugPlayback]);
 
   const handleDebugStepBack = useCallback(() => {
-    if (!debugActive) return;
+    if (sandboxReadOnly || !debugActive) return;
     stopDebugPlayback();
     const trace = debugTraceRef.current;
     if (!Array.isArray(trace) || !trace.length) return;
@@ -4262,10 +4281,10 @@ const CollabSection = ({
       debugStepIndex: nextIndex,
       debugPlaying: false,
     });
-  }, [debugActive, setDebugStep, stopDebugPlayback]);
+  }, [debugActive, sandboxReadOnly, setDebugStep, stopDebugPlayback]);
 
   const handleDebugStepForward = useCallback(() => {
-    if (!debugActive) return;
+    if (sandboxReadOnly || !debugActive) return;
     stopDebugPlayback();
     const trace = debugTraceRef.current;
     if (!Array.isArray(trace) || !trace.length) return;
@@ -4277,10 +4296,10 @@ const CollabSection = ({
       debugStepIndex: nextIndex,
       debugPlaying: false,
     });
-  }, [debugActive, setDebugStep, stopDebugPlayback]);
+  }, [debugActive, sandboxReadOnly, setDebugStep, stopDebugPlayback]);
 
   const handleDebugContinue = useCallback(() => {
-    if (!debugActive) return;
+    if (sandboxReadOnly || !debugActive) return;
     const trace = debugTraceRef.current;
     if (!Array.isArray(trace) || trace.length === 0) return;
     const currentIndex = debugStepIndexRef.current;
@@ -4311,9 +4330,10 @@ const CollabSection = ({
         publishRunStateRef.current?.({ debugPlaying: false });
       }
     }, COLLAB_DEBUG_AUTOPLAY_MS);
-  }, [debugActive, findContinueTargetIndex, setDebugStep, stopDebugPlayback]);
+  }, [debugActive, findContinueTargetIndex, sandboxReadOnly, setDebugStep, stopDebugPlayback]);
 
   const handleStopDebug = useCallback(() => {
+    if (sandboxReadOnly) return;
     clearDebugSession(false);
     publishRunStateRef.current?.({
       debugActive: false,
@@ -4323,7 +4343,7 @@ const CollabSection = ({
       debugPlaying: false,
       debugSource: '',
     });
-  }, [clearDebugSession]);
+  }, [clearDebugSession, sandboxReadOnly]);
 
   const currentDebugStep = useMemo(() => {
     if (!debugActive) return null;
@@ -4498,6 +4518,7 @@ const CollabSection = ({
     debugGutterDisposableRef.current?.dispose?.();
     if (monaco?.editor?.MouseTargetType) {
       debugGutterDisposableRef.current = editor.onMouseDown((event) => {
+        if (sandboxRef.current?.readOnly) return;
         const type = event?.target?.type;
         const isGutterClick = type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN
           || type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
@@ -5704,6 +5725,7 @@ const CollabSection = ({
   };
 
   const handleTestFileTextChange = useCallback((value) => {
+    if (sandboxRef.current?.readOnly) return;
     const normalized = normalizeCollabTextFileContent(value);
     setTestFileText((prev) => (prev === normalized ? prev : normalized));
     const ytext = collabTestFileRef.current;
@@ -5897,7 +5919,7 @@ const CollabSection = ({
   };
 
   const handleToggleTaskFile = (fileId) => {
-    if (!fileId) return;
+    if (sandboxReadOnly || !fileId) return;
     setSelectedTaskFileIds((prev) => {
       if (prev.includes(fileId)) return prev.filter((id) => id !== fileId);
       return [...prev, fileId];
@@ -5905,7 +5927,7 @@ const CollabSection = ({
   };
 
   const handleToggleSelectAllTaskFiles = useCallback(() => {
-    if (!visibleTaskFiles.length) return;
+    if (sandboxReadOnly || !visibleTaskFiles.length) return;
     const visibleIds = visibleTaskFiles
       .map((file) => file?.id)
       .filter(Boolean);
@@ -5920,7 +5942,7 @@ const CollabSection = ({
       }
       return Array.from(next);
     });
-  }, [visibleTaskFiles]);
+  }, [sandboxReadOnly, visibleTaskFiles]);
   const handleTaskFilesListHeightStep = useCallback((direction) => {
     const stepDirection = Number(direction);
     if (!Number.isFinite(stepDirection) || stepDirection === 0) return;
@@ -6296,6 +6318,7 @@ const CollabSection = ({
   updateRunStateFromMapRef.current = updateRunStateFromMap;
 
   const publishRunState = (payload) => {
+    if (sandboxReadOnly) return;
     const runMap = runMapRef.current;
     const doc = collabDocRef.current;
     if (!runMap || !doc) {
@@ -6689,6 +6712,7 @@ const CollabSection = ({
   };
 
   const handleFormatCode = () => {
+    if (sandboxReadOnly) return;
     const editor = editorRef.current;
     const model = editor?.getModel?.();
     if (!editor || !model) return;
@@ -6733,7 +6757,7 @@ const CollabSection = ({
   };
 
   const handleRunCode = async (mode = 'all', debug = false) => {
-    if (!roomId || !editorRef.current) return;
+    if (sandboxReadOnly || !roomId || !editorRef.current) return;
     outputPanelDismissedRunTokenRef.current = null;
     setOutputPanelOpen(true);
     const requestedDebug = Boolean(debug);
@@ -6969,15 +6993,15 @@ const CollabSection = ({
       if (!isPlainF5 && !isCtrlEnter) return;
       event.preventDefault();
       event.stopPropagation();
-      if (event.repeat || runLoading || !roomId) return;
+      if (event.repeat || sandboxReadOnly || runLoading || !roomId) return;
       void handleRunCodeRef.current?.('all');
     };
     window.addEventListener('keydown', handleRunHotkey, true);
     return () => window.removeEventListener('keydown', handleRunHotkey, true);
-  }, [roomId, runLoading]);
+  }, [roomId, runLoading, sandboxReadOnly]);
 
   const handleStopRun = () => {
-    if (!runLoading) return;
+    if (sandboxReadOnly || !runLoading) return;
     stopDebugPlayback();
     runSessionRef.current += 1;
     if (runStreamTimerRef.current) {
@@ -7009,6 +7033,7 @@ const CollabSection = ({
   };
 
   const handleTopStop = useCallback(() => {
+    if (sandboxReadOnly) return;
     if (runLoading) {
       handleStopRun();
       return;
@@ -7016,7 +7041,7 @@ const CollabSection = ({
     if (debugActive) {
       handleStopDebug();
     }
-  }, [runLoading, debugActive, handleStopDebug, handleStopRun]);
+  }, [runLoading, debugActive, handleStopDebug, handleStopRun, sandboxReadOnly]);
 
   useEffect(() => {
     const isEditableTarget = (target) => {
@@ -7056,6 +7081,7 @@ const CollabSection = ({
       return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
     };
     const handleDebugHotkeys = (event) => {
+      if (sandboxReadOnly) return;
       if (isEditableTarget(event.target)) return;
       if (event.key === 'F10') {
         event.preventDefault();
@@ -7080,9 +7106,17 @@ const CollabSection = ({
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('keydown', handleDebugHotkeys);
     return () => window.removeEventListener('keydown', handleDebugHotkeys);
-  }, [debugActive, handleDebugStepForward, handleDebugContinue, handleDebugStepBack, handleStopDebug]);
+  }, [
+    debugActive,
+    handleDebugStepForward,
+    handleDebugContinue,
+    handleDebugStepBack,
+    handleStopDebug,
+    sandboxReadOnly,
+  ]);
 
   const handleClearRun = () => {
+    if (sandboxReadOnly) return;
     setOutputPanelOpen(false);
     outputPanelDismissedRunTokenRef.current = null;
     clearDebugSession(false);
@@ -7566,6 +7600,149 @@ const CollabSection = ({
     flushLessonReplayCodeSnapshot,
     emitSandboxState,
     role,
+  ]);
+
+  useEffect(() => {
+    if (!isSandbox || !sandboxReadOnly || !sandboxReadyRef.current) return undefined;
+
+    const doc = collabDocRef.current;
+    const codeText = doc?.getText?.('monaco');
+    const testFileText = collabTestFileRef.current;
+    const runMap = runMapRef.current;
+    if (!doc || !codeText || !testFileText || !runMap) return undefined;
+
+    let runStateChanged = false;
+    doc.transact(() => {
+      const currentCode = codeText.toString();
+      if (currentCode !== sandboxReadOnlyCode) {
+        if (codeText.length > 0) codeText.delete(0, codeText.length);
+        if (sandboxReadOnlyCode) codeText.insert(0, sandboxReadOnlyCode);
+      }
+
+      const currentTestFile = normalizeCollabTextFileContent(testFileText.toString());
+      if (currentTestFile !== sandboxReadOnlyTestFile) {
+        if (testFileText.length > 0) testFileText.delete(0, testFileText.length);
+        if (sandboxReadOnlyTestFile) testFileText.insert(0, sandboxReadOnlyTestFile);
+      }
+
+      [
+        ['input', sandboxReadOnlyInput],
+        ['output', sandboxReadOnlyOutput],
+        ['error', sandboxReadOnlyError],
+        ['status', sandboxReadOnlyStatus],
+      ].forEach(([key, value]) => {
+        const current = typeof runMap.get(key) === 'string'
+          ? runMap.get(key)
+          : String(runMap.get(key) ?? '');
+        if (current === value) return;
+        runMap.set(key, value);
+        runStateChanged = true;
+      });
+      if (runMap.get('author') !== 'Копия урока') {
+        runMap.set('author', 'Копия урока');
+        runStateChanged = true;
+      }
+      if (runMap.get('ts') !== null) {
+        runMap.set('ts', null);
+        runStateChanged = true;
+      }
+    }, sandboxPlaybackSyncOriginRef.current);
+
+    runInputRef.current = sandboxReadOnlyInput;
+    testFileTextRef.current = sandboxReadOnlyTestFile;
+    runOutputRef.current = sandboxReadOnlyOutput;
+    runErrorRef.current = sandboxReadOnlyError;
+    runStatusRef.current = sandboxReadOnlyStatus;
+    setRunInput((current) => (current === sandboxReadOnlyInput ? current : sandboxReadOnlyInput));
+    setTestFileText((current) => (
+      current === sandboxReadOnlyTestFile ? current : sandboxReadOnlyTestFile
+    ));
+    if (runStateChanged) {
+      updateRunStateFromMapRef.current?.(runMap);
+      setOutputPanelOpen(Boolean(
+        sandboxReadOnlyOutput
+        || sandboxReadOnlyError
+        || sandboxReadOnlyStatus === 'running'
+      ));
+    }
+
+    if (typeof window === 'undefined') return undefined;
+    let viewport = {
+      cursorLine: 1,
+      cursorColumn: 1,
+      scrollTopRatio: 0,
+      scrollLeftRatio: 0,
+    };
+    if (sandboxReadOnlyViewportSignature) {
+      try {
+        const recordedViewport = JSON.parse(sandboxReadOnlyViewportSignature);
+        if (recordedViewport && typeof recordedViewport === 'object') {
+          viewport = recordedViewport;
+        }
+      } catch {
+        // A malformed replay viewport falls back to the start of the editor.
+      }
+    }
+
+    let firstFrameId = null;
+    let secondFrameId = null;
+    const restoreViewport = () => {
+      const editor = editorRef.current;
+      const model = editor?.getModel?.();
+      if (!editor || !model) return;
+      const lineCount = Math.max(1, Number(model.getLineCount?.()) || 1);
+      const cursorLine = Math.min(lineCount, Math.max(1, Number(viewport.cursorLine) || 1));
+      const maxColumn = Math.max(1, Number(model.getLineMaxColumn?.(cursorLine)) || 1);
+      const cursorColumn = Math.min(maxColumn, Math.max(1, Number(viewport.cursorColumn) || 1));
+      editor.setPosition?.({ lineNumber: cursorLine, column: cursorColumn });
+
+      const layout = editor.getLayoutInfo?.() || {};
+      const viewportHeight = Math.max(1, Number(layout.height) || 1);
+      const viewportWidth = Math.max(1, Number(layout.contentWidth) || Number(layout.width) || 1);
+      const maxScrollTop = Math.max(
+        0,
+        (Number(editor.getScrollHeight?.()) || viewportHeight) - viewportHeight
+      );
+      const maxScrollLeft = Math.max(
+        0,
+        (Number(editor.getScrollWidth?.()) || viewportWidth) - viewportWidth
+      );
+      const rawScrollTopRatio = Number(viewport.scrollTopRatio);
+      const rawScrollLeftRatio = Number(viewport.scrollLeftRatio);
+      if (Number.isFinite(rawScrollTopRatio)) {
+        const scrollTopRatio = Math.min(1, Math.max(0, rawScrollTopRatio));
+        editor.setScrollTop?.(maxScrollTop * scrollTopRatio);
+      } else if (Number.isFinite(Number(viewport.firstVisibleLine))) {
+        const firstVisibleLine = Math.min(
+          lineCount,
+          Math.max(1, Math.round(Number(viewport.firstVisibleLine)))
+        );
+        editor.revealLineNearTop?.(firstVisibleLine);
+      }
+      if (Number.isFinite(rawScrollLeftRatio)) {
+        const scrollLeftRatio = Math.min(1, Math.max(0, rawScrollLeftRatio));
+        editor.setScrollLeft?.(maxScrollLeft * scrollLeftRatio);
+      }
+    };
+    firstFrameId = window.requestAnimationFrame(() => {
+      secondFrameId = window.requestAnimationFrame(restoreViewport);
+    });
+    return () => {
+      if (firstFrameId !== null) window.cancelAnimationFrame(firstFrameId);
+      if (secondFrameId !== null) window.cancelAnimationFrame(secondFrameId);
+    };
+  }, [
+    editorMountVersion,
+    editorReady,
+    isSandbox,
+    sandboxReadOnly,
+    sandboxReadOnlyCode,
+    sandboxReadOnlyError,
+    sandboxReadOnlyInput,
+    sandboxReadOnlyOutput,
+    sandboxReadOnlyStatus,
+    sandboxReadOnlyTestFile,
+    sandboxReadOnlyViewportSignature,
   ]);
 
   const statusLabel = isSandbox
@@ -8627,7 +8804,7 @@ const CollabSection = ({
                   onScroll={syncCollabTestFileOverlayScroll}
                   rows={auxTextareaRows}
                   spellCheck={false}
-                  disabled={!roomId}
+                  disabled={!roomId || sandboxReadOnly}
                   placeholder={roomId ? 'Введите содержимое test.txt.' : 'Выберите ученика, чтобы редактировать test.txt.'}
                   style={{
                     ...(testFileTextareaHeight ? { height: `${testFileTextareaHeight}px` } : {}),
@@ -8644,6 +8821,7 @@ const CollabSection = ({
               <textarea
                 value={runInput}
                 onChange={(e) => setRunInput(e.target.value)}
+                disabled={sandboxReadOnly}
                 rows={auxTextareaRows}
                 placeholder="Если нужен ввод, вставьте его сюда."
                 className={`w-full rounded-2xl border outline-none ${
@@ -8702,8 +8880,8 @@ const CollabSection = ({
               <select
                 value={runTaskNumber}
                 onChange={(e) => setRunTaskNumber(e.target.value)}
-                disabled={!effectiveStudentId || taskFileUploadBusy}
-                className={`collab-task-files-select rounded-xl border outline-none ${
+                disabled={sandboxReadOnly || !effectiveStudentId || taskFileUploadBusy}
+                className={`collab-task-files-select rounded-xl border outline-none disabled:cursor-not-allowed disabled:opacity-60 ${
                   isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                 } ${
                   isFullscreenDark
@@ -8720,8 +8898,8 @@ const CollabSection = ({
               <select
                 value={runTaskCategory}
                 onChange={(e) => setRunTaskCategory(e.target.value)}
-                disabled={!effectiveStudentId || taskFileUploadBusy}
-                className={`collab-task-files-select rounded-xl border outline-none ${
+                disabled={sandboxReadOnly || !effectiveStudentId || taskFileUploadBusy}
+                className={`collab-task-files-select rounded-xl border outline-none disabled:cursor-not-allowed disabled:opacity-60 ${
                   isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                 } ${
                   isFullscreenDark
@@ -8855,11 +9033,11 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={handleToggleSelectAllTaskFiles}
-                  disabled={activeTaskFilesLoading || !visibleTaskFiles.length}
+                  disabled={sandboxReadOnly || activeTaskFilesLoading || !visibleTaskFiles.length}
                   className={`collab-task-files-select-all inline-flex items-center rounded-xl border transition ${
                     isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
                   } ${
-                    activeTaskFilesLoading || !visibleTaskFiles.length
+                    sandboxReadOnly || activeTaskFilesLoading || !visibleTaskFiles.length
                       ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                       : (isFullscreenDark
                         ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
@@ -8902,7 +9080,9 @@ const CollabSection = ({
                       return (
                         <label
                           key={file.id}
-                          className={`collab-task-files-row flex cursor-pointer items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
+                          className={`collab-task-files-row flex items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
+                            sandboxReadOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                          } ${
                             isFullscreenDark
                               ? 'border-slate-800 text-slate-100'
                               : 'border-gray-200 text-gray-700'
@@ -8912,6 +9092,7 @@ const CollabSection = ({
                             type="checkbox"
                             checked={selectedTaskFileIds.includes(file.id)}
                             onChange={() => handleToggleTaskFile(file.id)}
+                            disabled={sandboxReadOnly}
                             className="collab-task-files-checkbox mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
                           />
                           <span className="min-w-0 flex-1">
@@ -8990,7 +9171,7 @@ const CollabSection = ({
       </div>
     </div>
   );
-  const collabBoardFullscreenButton = (
+  const collabBoardFullscreenButton = !isSandbox ? (
     <button
       type="button"
       onClick={toggleCollabFullscreen}
@@ -9000,7 +9181,7 @@ const CollabSection = ({
     >
       {isCollabFullscreen ? <Minimize2 size={17} /> : <Expand size={17} />}
     </button>
-  );
+  ) : null;
   const notesPdfPane = (
     <div className={`collab-top-pane ${canResizeTopPane ? 'collab-top-pane--resizable' : ''} rounded-xl border ${isCollabFullscreen ? 'px-1 pt-1 pb-0' : 'px-1 pt-0.5 pb-0'} ${isSplitCollabLayout ? 'space-y-0.5' : 'space-y-1'} ${
       isFullscreenDark
@@ -9695,7 +9876,7 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleFormatCode}
-                disabled={!roomId}
+                disabled={sandboxReadOnly || !roomId}
                 className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
               >
                 Автоформат
@@ -9749,9 +9930,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all')}
-                disabled={runLoading || !roomId}
+                disabled={sandboxReadOnly || runLoading || !roomId}
                 className={`${collabIconButtonBase} collab-code-pill-button is-run ${
-                  runLoading || !roomId ? collabIconButtonDisabled : collabIconButtonPrimary
+                  sandboxReadOnly || runLoading || !roomId ? collabIconButtonDisabled : collabIconButtonPrimary
                 }`}
                 title="Запустить код"
                 aria-label="Запустить код"
@@ -9764,9 +9945,9 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={() => handleRunCode('all', true)}
-                  disabled={runLoading || !roomId}
+                  disabled={sandboxReadOnly || runLoading || !roomId}
                   className={`${collabIconButtonBase} collab-code-pill-button is-debug ${
-                    runLoading || !roomId
+                    sandboxReadOnly || runLoading || !roomId
                       ? collabIconButtonDisabled
                       : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
                   }`}
@@ -9779,9 +9960,11 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={handleTopStop}
-                  disabled={!runLoading && !debugActive}
+                  disabled={sandboxReadOnly || (!runLoading && !debugActive)}
                   className={`${collabIconButtonBase} collab-code-pill-button is-stop is-icon-only ${
-                    !runLoading && !debugActive ? collabIconButtonDisabled : collabIconButtonDanger
+                    sandboxReadOnly || (!runLoading && !debugActive)
+                      ? collabIconButtonDisabled
+                      : collabIconButtonDanger
                   }`}
                   title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
                   aria-label="Остановить"
@@ -9791,9 +9974,9 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={handleClearRun}
-                  disabled={!canClearRunState}
+                  disabled={sandboxReadOnly || !canClearRunState}
                   className={`${collabIconButtonBase} collab-code-pill-button is-restart is-icon-only ${
-                    canClearRunState ? collabIconButtonNeutral : collabIconButtonDisabled
+                    !sandboxReadOnly && canClearRunState ? collabIconButtonNeutral : collabIconButtonDisabled
                   }`}
                   title="Очистить вывод и состояние запуска"
                   aria-label="Очистить вывод и состояние запуска"
@@ -9832,9 +10015,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all')}
-                disabled={runLoading || !roomId}
+                disabled={sandboxReadOnly || runLoading || !roomId}
                 className={`${collabIconButtonBase} ${
-                  runLoading || !roomId
+                  sandboxReadOnly || runLoading || !roomId
                     ? collabIconButtonDisabled
                     : collabIconButtonPrimary
                 }`}
@@ -9846,9 +10029,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('selection')}
-                disabled={runLoading || !roomId}
+                disabled={sandboxReadOnly || runLoading || !roomId}
                 className={`${collabIconButtonBase} ${
-                  runLoading || !roomId
+                  sandboxReadOnly || runLoading || !roomId
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -9860,9 +10043,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all', true)}
-                disabled={runLoading || !roomId}
+                disabled={sandboxReadOnly || runLoading || !roomId}
                 className={`${collabIconButtonBase} ${
-                  runLoading || !roomId
+                  sandboxReadOnly || runLoading || !roomId
                     ? collabIconButtonDisabled
                     : (debugActive
                       ? collabIconButtonPrimary
@@ -9899,9 +10082,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleDebugStepBack}
-                disabled={debugPlaying || debugStepIndex <= 0}
+                disabled={sandboxReadOnly || debugPlaying || debugStepIndex <= 0}
                 className={`${collabIconButtonBase} ${
-                  debugPlaying || debugStepIndex <= 0
+                  sandboxReadOnly || debugPlaying || debugStepIndex <= 0
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -9913,9 +10096,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleDebugStepForward}
-                disabled={debugPlaying || debugStepIndex >= debugTrace.length - 1}
+                disabled={sandboxReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1}
                 className={`${collabIconButtonBase} ${
-                  debugPlaying || debugStepIndex >= debugTrace.length - 1
+                  sandboxReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -9927,9 +10110,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleDebugContinue}
-                disabled={debugPlaying || debugStepIndex >= debugTrace.length - 1}
+                disabled={sandboxReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1}
                 className={`${collabIconButtonBase} ${
-                  debugPlaying || debugStepIndex >= debugTrace.length - 1
+                  sandboxReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1
                     ? collabIconButtonDisabled
                     : collabIconButtonPrimary
                 }`}
@@ -9944,9 +10127,9 @@ const CollabSection = ({
                   stopDebugPlayback();
                   publishRunStateRef.current?.({ debugPlaying: false });
                 }}
-                disabled={!debugPlaying}
+                disabled={sandboxReadOnly || !debugPlaying}
                 className={`${collabIconButtonBase} ${
-                  !debugPlaying
+                  sandboxReadOnly || !debugPlaying
                     ? collabIconButtonDisabled
                     : 'is-warning'
                 }`}
@@ -9964,9 +10147,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleTopStop}
-                disabled={!runLoading && !debugActive}
+                disabled={sandboxReadOnly || (!runLoading && !debugActive)}
                 className={`${collabIconButtonBase} ${
-                  !runLoading && !debugActive
+                  sandboxReadOnly || (!runLoading && !debugActive)
                     ? collabIconButtonDisabled
                     : collabIconButtonDanger
                 }`}
@@ -9978,9 +10161,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleClearRun}
-                disabled={!canClearRunState}
+                disabled={sandboxReadOnly || !canClearRunState}
                 className={`${collabIconButtonBase} ${
-                  !canClearRunState
+                  sandboxReadOnly || !canClearRunState
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -9997,7 +10180,7 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleFormatCode}
-                disabled={!roomId}
+                disabled={sandboxReadOnly || !roomId}
                 className={`inline-flex h-7 items-center rounded-lg border px-2 py-0 text-[10px] font-semibold transition disabled:opacity-50 ${
                   isCollabFullscreen
                     ? (isFullscreenDark
@@ -10186,6 +10369,12 @@ const BoardSection = ({
   const sandboxSessionId = String(sandbox?.id || '').trim();
   const isSandbox = Boolean(sandboxSessionId);
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
+  const sandboxReadOnlyItemsSignature = isSandbox && sandboxReadOnly
+    ? JSON.stringify(Array.isArray(sandbox?.items) ? sandbox.items : [])
+    : '';
+  const sandboxReadOnlyViewportSignature = isSandbox && sandboxReadOnly
+    ? JSON.stringify(sandbox?.viewport || null)
+    : '';
   const liveRoomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
   const roomId = isSandbox ? `sandbox-${sandboxSessionId}` : liveRoomId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
@@ -10253,6 +10442,7 @@ const BoardSection = ({
   const awarenessRef = useRef(null);
   const undoManagerRef = useRef(null);
   const localOriginRef = useRef(Symbol('board-origin'));
+  const sandboxPlaybackSyncOriginRef = useRef(Symbol('board-sandbox-playback-sync'));
   const previewRafRef = useRef(null);
   const cursorRafRef = useRef(null);
   const pendingCursorRef = useRef(null);
@@ -10848,7 +11038,12 @@ const BoardSection = ({
       // Ignore malformed or unavailable localStorage entries for board viewport restore.
     }
     viewportHydratedRef.current = true;
-  }, [boardViewportStorageKey, isSandbox, sandboxSessionId]);
+  }, [
+    boardViewportStorageKey,
+    isSandbox,
+    sandboxReadOnlyViewportSignature,
+    sandboxSessionId,
+  ]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -13210,7 +13405,11 @@ const BoardSection = ({
         flushLessonReplayBoardSnapshot();
       }
       commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
-      if (isSandbox && typeof onSandboxItemsChangeRef.current === 'function') {
+      if (
+        isSandbox
+        && !sandboxReadOnly
+        && typeof onSandboxItemsChangeRef.current === 'function'
+      ) {
         onSandboxItemsChangeRef.current(nextSnapshot.nextItems);
       }
       if (shouldRecordReplay && lessonReplayActiveRef.current) {
@@ -13407,7 +13606,39 @@ const BoardSection = ({
       docRef.current = null;
       yItemsRef.current = null;
     };
-  }, [roomId, wsUrl, liveRoomId, localName, localColor, isTeacher, isSandbox, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
+  }, [roomId, wsUrl, liveRoomId, localName, localColor, isTeacher, isSandbox, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
+
+  useEffect(() => {
+    if (!isSandbox || !sandboxReadOnly) return;
+    const doc = docRef.current;
+    const yItems = yItemsRef.current;
+    if (!doc || !yItems) return;
+
+    const nextItems = (Array.isArray(sandboxConfigRef.current?.items)
+      ? sandboxConfigRef.current.items
+      : [])
+      .map((item) => normalizeBoardStoredItem(item))
+      .filter(Boolean);
+    const currentItems = yItems.toArray()
+      .map((item) => normalizeBoardStoredItem(item))
+      .filter(Boolean);
+    if (JSON.stringify(currentItems) === JSON.stringify(nextItems)) return;
+
+    resetBoardInteractionState();
+    doc.transact(() => {
+      if (yItems.length > 0) yItems.delete(0, yItems.length);
+      if (nextItems.length > 0) yItems.push(nextItems);
+    }, sandboxPlaybackSyncOriginRef.current);
+    undoManagerRef.current?.clear();
+    undoManagerRef.current?.stopCapturing();
+    setUndoState({ canUndo: false, canRedo: false });
+  }, [
+    isSandbox,
+    resetBoardInteractionState,
+    sandboxReadOnly,
+    sandboxReadOnlyItemsSignature,
+    sandboxSessionId,
+  ]);
 
   useEffect(() => {
     const handlePaste = async (event) => {
@@ -14881,7 +15112,7 @@ const BoardSection = ({
           </button>
         </div>
 
-        {!embedded && (
+        {!embedded && !isSandbox && (
           <button
             type="button"
             onClick={toggleFullscreen}
@@ -15483,6 +15714,8 @@ const LessonReplaySandboxSurface = ({
   surface,
   onBoardChange,
   onCodeChange,
+  readOnly = false,
+  sandboxSessionId = '',
   user,
   theme,
   tasks,
@@ -15491,13 +15724,15 @@ const LessonReplaySandboxSurface = ({
 }) => {
   if (!branch) return null;
 
-  const sandboxId = `${branch.branchId}:${branchEpoch}`;
+  const sandboxId = String(sandboxSessionId || '').trim()
+    || `${branch.branchId}:${branchEpoch}`;
   const replayStudentId = String(branch?.metadata?.studentId || user?.id || '').trim();
   const replayStudent = (Array.isArray(students) ? students : [])
     .find((student) => String(student?.id || '') === replayStudentId);
   const replayStudentName = replayStudent?.name || replayStudent?.nickname || user?.name || 'Ученик';
   const replayTeacherId = user?.role === 'teacher' ? user.id : user?.teacherId;
   const handleSandboxStateChange = (patch) => {
+    if (readOnly) return;
     if (!patch || typeof patch !== 'object') return;
     if (Array.isArray(patch?.board?.items)) {
       onBoardChange?.(patch.board.items);
@@ -15530,8 +15765,9 @@ const LessonReplaySandboxSurface = ({
           id: `${sandboxId}:board`,
           items: branch?.board?.items,
           viewport: branch?.board?.viewport,
+          readOnly,
         }}
-        onSandboxItemsChange={onBoardChange}
+        onSandboxItemsChange={readOnly ? null : onBoardChange}
       />
     );
   }
@@ -15556,8 +15792,9 @@ const LessonReplaySandboxSurface = ({
         id: `${sandboxId}:lesson`,
         code: branch.code,
         board: branch.board,
+        readOnly,
       }}
-      onSandboxStateChange={handleSandboxStateChange}
+      onSandboxStateChange={readOnly ? null : handleSandboxStateChange}
     />
   );
 };

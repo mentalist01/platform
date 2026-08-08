@@ -569,6 +569,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  margin-right: auto;
 }
 
 .lesson-replay-player__time-machine-heading span,
@@ -625,7 +626,6 @@
 }
 
 .lesson-replay-player__time-machine-reset {
-  margin-left: auto;
   border: 1px solid rgba(124, 58, 237, 0.14);
   background: rgba(255, 255, 255, 0.86);
 }
@@ -663,6 +663,41 @@
     linear-gradient(90deg, rgba(124, 58, 237, 0.04) 1px, transparent 1px),
     #fff;
   background-size: 24px 24px;
+}
+
+.lesson-replay-player__time-machine-preview.is-lesson-copy {
+  display: flex;
+  min-height: 560px;
+  background: #f8fafc;
+}
+
+.lesson-replay-player__time-machine-preview > .lesson-replay-player__time-machine-sandbox {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.lesson-replay-player__time-machine-sandbox.is-following {
+  user-select: none;
+}
+
+.lesson-replay-player__time-machine-paused {
+  position: absolute;
+  z-index: 5;
+  right: 16px;
+  bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid rgba(196, 181, 253, 0.28);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(36, 25, 52, 0.78);
+  box-shadow: 0 8px 24px rgba(17, 12, 28, 0.18);
+  backdrop-filter: blur(10px);
+  font-size: 10px;
+  font-weight: 800;
+  pointer-events: none;
 }
 
 .lesson-replay-player__time-machine-preview > .lesson-replay-player__board-wrap,
