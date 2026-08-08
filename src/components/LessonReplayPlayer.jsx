@@ -1057,22 +1057,41 @@ const LessonReplayPlayer = ({ replay }) => {
         <div><span>{formatClock(currentEvent?.offsetMs || 0)}{actorName ? ` · ${actorName}` : ''}</span><strong>{currentLabel}</strong></div>
       </div>
 
-      <nav className="lesson-replay-player__tabs" aria-label="Содержимое записи">
-        {availableTabs.map((tab) => {
-          const Icon = SURFACE_TABS[tab].icon;
-          return <button key={tab} type="button" className={resolvedActiveTab === tab ? 'is-active' : ''} onClick={() => { setActiveTab(tab); setMode('free'); }}><Icon size={15} />{SURFACE_TABS[tab].label}</button>;
-        })}
-      </nav>
+      {mode === 'free' ? (
+        <div className="lesson-replay-player__split-stage">
+          <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--code">
+            <header><Code2 size={15} />{SURFACE_TABS.code.label}</header>
+            <div className="lesson-replay-player__split-content">
+              <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation />
+            </div>
+          </section>
+          <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--board">
+            <header><PenTool size={15} />{SURFACE_TABS.board.label}</header>
+            <div className="lesson-replay-player__split-content">
+              <ReplayBoard key="free" items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation />
+            </div>
+          </section>
+        </div>
+      ) : (
+        <>
+          <nav className="lesson-replay-player__tabs" aria-label="Содержимое записи">
+            {availableTabs.map((tab) => {
+              const Icon = SURFACE_TABS[tab].icon;
+              return <button key={tab} type="button" className={resolvedActiveTab === tab ? 'is-active' : ''} onClick={() => { setActiveTab(tab); setMode('free'); }}><Icon size={15} />{SURFACE_TABS[tab].label}</button>;
+            })}
+          </nav>
 
-      <div className="lesson-replay-player__stage" data-surface={resolvedActiveTab}>
-        {resolvedActiveTab === 'screen' ? (
-          <ReplayScreen event={screenEvent} occurrence={replay?.occurrence} />
-        ) : resolvedActiveTab === 'board' ? (
-          <ReplayBoard key={mode} items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation={mode === 'free'} />
-        ) : (
-          <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation={mode === 'free'} />
-        )}
-      </div>
+          <div className="lesson-replay-player__stage" data-surface={resolvedActiveTab}>
+            {resolvedActiveTab === 'screen' ? (
+              <ReplayScreen event={screenEvent} occurrence={replay?.occurrence} />
+            ) : resolvedActiveTab === 'board' ? (
+              <ReplayBoard key={mode} items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation={false} />
+            ) : (
+              <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation={false} />
+            )}
+          </div>
+        </>
+      )}
 
       <div className="lesson-replay-player__timeline">
         <div className="lesson-replay-player__markers" aria-hidden="true">

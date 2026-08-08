@@ -271,6 +271,81 @@
   background: #100d18;
 }
 
+.lesson-replay-player__split-stage {
+  display: grid;
+  height: clamp(340px, 40vw, 430px);
+  min-height: 340px;
+  max-height: 430px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border-top: 1px solid rgba(124, 58, 237, 0.1);
+  border-bottom: 1px solid rgba(124, 58, 237, 0.12);
+  background: #fff;
+}
+
+.lesson-replay-player__split-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lesson-replay-player__split-pane + .lesson-replay-player__split-pane {
+  border-left: 1px solid rgba(124, 58, 237, 0.16);
+}
+
+.lesson-replay-player__split-pane > header {
+  display: flex;
+  min-height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  color: #624277;
+  background: linear-gradient(180deg, #fff, #faf8ff);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.lesson-replay-player__split-pane > header svg {
+  color: #7c3aed;
+}
+
+.lesson-replay-player__split-content {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.lesson-replay-player__split-pane--board .lesson-replay-player__split-content {
+  background:
+    linear-gradient(rgba(124, 58, 237, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 58, 237, 0.04) 1px, transparent 1px),
+    #fff;
+  background-size: 24px 24px;
+}
+
+.lesson-replay-player__split-pane .lesson-replay-player__board-wrap,
+.lesson-replay-player__split-pane .lesson-replay-player__board,
+.lesson-replay-player__split-pane .lesson-replay-player__code-layout,
+.lesson-replay-player__split-pane .lesson-replay-player__empty-surface {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.lesson-replay-player__split-pane--code .lesson-replay-player__code-layout {
+  display: flex;
+  flex-direction: column;
+}
+
+.lesson-replay-player__split-pane--code .lesson-replay-player__code {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
 .lesson-replay-player__screen {
   position: relative;
   display: grid;
@@ -610,6 +685,23 @@
   .lesson-replay-player__time { margin-left: auto; }
 }
 
+@media (max-width: 800px) {
+  .lesson-replay-player__split-stage {
+    height: auto;
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lesson-replay-player__split-pane {
+    min-height: 300px;
+  }
+
+  .lesson-replay-player__split-pane + .lesson-replay-player__split-pane {
+    border-top: 1px solid rgba(124, 58, 237, 0.16);
+    border-left: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lesson-replay-player *,
   .lesson-replay-player *::before,
@@ -634,7 +726,7 @@
   box-shadow: none;
 }
 
-.lesson-replay-player.is-fullscreen > :not(.lesson-replay-player__stage) {
+.lesson-replay-player.is-fullscreen > :not(.lesson-replay-player__stage):not(.lesson-replay-player__split-stage) {
   flex: 0 0 auto;
 }
 
@@ -656,6 +748,23 @@
   min-height: 0;
   max-height: none;
   flex: 1 1 auto;
+}
+
+.lesson-replay-player.is-fullscreen .lesson-replay-player__split-stage {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
+}
+
+@media (max-width: 800px) {
+  .lesson-replay-player.is-fullscreen .lesson-replay-player__split-stage {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  .lesson-replay-player.is-fullscreen .lesson-replay-player__split-pane {
+    min-height: 0;
+  }
 }
 
 .lesson-replay-player.is-fullscreen .lesson-replay-player__board-wrap,
