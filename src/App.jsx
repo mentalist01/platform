@@ -15403,6 +15403,10 @@ const BoardSection = ({
           {boardTaskItems.map((taskItem) => {
             const displayItem = getSelectionDragPreviewItem(taskItem);
             const layout = getBoardTaskAnswerLayout(displayItem);
+            const taskZoom = Math.max(
+              BOARD_MIN_ZOOM,
+              Math.min(BOARD_MAX_ZOOM, Number(zoom) || 1)
+            );
             const taskUi = taskCheckUiById?.[taskItem.id] || null;
             const isChecking = taskUi?.status === 'checking';
             const status = ['correct', 'wrong'].includes(displayItem.checkState)
@@ -15417,11 +15421,11 @@ const BoardSection = ({
                 key={taskItem.id}
                 className={`board-task-controls is-${status}`}
                 style={{
-                  left: `${((Number(displayItem.x) || 0) - offset.x) * (zoom || 1)}px`,
-                  top: `${((Number(displayItem.y) || 0) - offset.y) * (zoom || 1)}px`,
+                  left: `${(Number(displayItem.x) || 0) - offset.x}px`,
+                  top: `${(Number(displayItem.y) || 0) - offset.y}px`,
                   width: `${Number(displayItem.width) || BOARD_TASK_DEFAULT_WIDTH}px`,
                   height: `${Number(displayItem.height) || 640}px`,
-                  transform: `scale(${zoom || 1})`,
+                  zoom: taskZoom,
                 }}
                 aria-label={displayItem.heading || 'Задание на доске'}
               >
