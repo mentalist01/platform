@@ -5,6 +5,7 @@ import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
+import TeacherHomeworkReviewModal from './TeacherHomeworkReviewModal';
 import HomeworkDayPlan from './HomeworkDayPlan';
 import { Button, Card } from './ui';
 import {
@@ -38,6 +39,7 @@ import {
   normalizeAssignedMockExamMode as normalizeAssignedMockMode,
 } from '../utils/mockExamMode';
 import { buildTeacherLessonBriefing } from '../utils/teacherLessonBriefing';
+import { buildTeacherHomeworkReviewItems } from '../utils/teacherHomeworkReview';
 
 const AUTO_REFRESH_INTERVAL_MS = 60_000;
 const SHOW_SCHEDULE_SKILL_TREE = false;
@@ -635,6 +637,10 @@ const ScheduleSection = ({
   createPythonWorker = null,
   renderLessonReplaySandbox = null,
   onStartLesson = null,
+  getAnswerCountForTask = null,
+  getExpectedAnswers = null,
+  GAME_THEORY_TASK = null,
+  withStudentId = (url) => url,
 }) => {
   const DEFAULT_HOMEWORK = '';
   const DEFAULT_GOAL = {
@@ -693,6 +699,7 @@ const ScheduleSection = ({
   const [homeworkDraftDiscarding, setHomeworkDraftDiscarding] = useState(false);
   const [homeworkDraftError, setHomeworkDraftError] = useState('');
   const [homeworkDraftNotice, setHomeworkDraftNotice] = useState('');
+  const [teacherHomeworkReviewOpen, setTeacherHomeworkReviewOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showLessonHistory, setShowLessonHistory] = useState(false);
@@ -2614,6 +2621,17 @@ const ScheduleSection = ({
   const nextHomeworkPendingShortLabel = nextHomeworkPendingGoal?.heading
     ? String(nextHomeworkPendingGoal.heading).split('·')[0].trim()
     : '';
+  const teacherHomeworkReviewItems = role === 'teacher'
+    ? buildTeacherHomeworkReviewItems({
+        goalViews: nextHomeworkGoalViews,
+        testsDb,
+        mockExamById,
+        mockAttemptsByExam,
+        levels: LEVELS,
+        formatTaskNumber,
+      })
+    : [];
+  const teacherHomeworkReviewPendingCount = teacherHomeworkReviewItems.filter((item) => !item.solved).length;
   const teacherNextLessonEntry = useMemo(() => {
     if (role !== 'teacher') return null;
     const now = new Date(homeworkClock);
@@ -2637,11 +2655,11 @@ const ScheduleSection = ({
       })
     : null;
 
-  const handleOpenBriefingHomework = () => {
-    const target = nextHomeworkFlyRef?.current;
-    if (!target || typeof target.scrollIntoView !== 'function') return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const handleOpenBriefingHomework = () => setTeacherHomeworkReviewOpen(true);
+
+  useEffect(() => {
+    setTeacherHomeworkReviewOpen(false);
+  }, [effectiveStudentId, nextHomeworkEntry?.id]);
 
   useEffect(() => {
     setShowHistory(false);
@@ -4413,7 +4431,13 @@ const ScheduleSection = ({
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white/90 px-4 text-sm font-bold text-violet-700 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <BookOpen size={16} />
-                К домашке
+                {teacherHomeworkReviewPendingCount > 0
+                  ? `Не сделано: ${teacherHomeworkReviewPendingCount}`
+                  : testsDb === null || mockExamsLoading
+                    ? 'Загружаем задания…'
+                    : teacherHomeworkReviewItems.length > 0
+                      ? 'Все задания выполнены'
+                      : 'Задания к домашке'}
               </button>
               <button
                 type="button"
@@ -4982,6 +5006,22 @@ const ScheduleSection = ({
           </div>
         )}
       </div>
+
+      {role === 'teacher' && (
+        <TeacherHomeworkReviewModal
+          open={teacherHomeworkReviewOpen}
+          studentId={effectiveStudentId}
+          studentLabel={selectedStudent ? getStudentLabel(selectedStudent) : ''}
+          items={teacherHomeworkReviewItems}
+          getAnswerCountForTask={getAnswerCountForTask}
+          getExpectedAnswers={getExpectedAnswers}
+          gameTheoryTask={GAME_THEORY_TASK}
+          withStudentId={withStudentId}
+          sourceLoading={testsDb === null || mockExamsLoading}
+          sourceError={[testsDbError, mockExamsError].filter(Boolean).join(' ')}
+          onClose={() => setTeacherHomeworkReviewOpen(false)}
+        />
+      )}
 
       {role === 'teacher' && homeworkComposerOpen && (
         <TeacherHomeworkComposer

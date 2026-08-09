@@ -21934,6 +21934,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               pushError={pushError}
               onTogglePush={handleTogglePush}
               createPythonWorker={createPyodideWorker}
+              getAnswerCountForTask={getAnswerCountForTask}
+              getExpectedAnswers={getExpectedAnswers}
+              GAME_THEORY_TASK={GAME_THEORY_TASK}
+              withStudentId={withStudentId}
               renderLessonReplaySandbox={(sandboxProps) => (
                 <LessonReplaySandboxSurface
                   {...sandboxProps}

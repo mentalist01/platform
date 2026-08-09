@@ -1,0 +1,115 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  buildTeacherHomeworkReviewItems,
+  getPendingTeacherHomeworkReviewItems,
+  mergeTeacherHomeworkReviewTaskProgress,
+} from './teacherHomeworkReview.js';
+
+test('buildTeacherHomeworkReviewItems keeps homework goal and target order', () => {
+  const items = buildTeacherHomeworkReviewItems({
+    goalViews: [
+      {
+        type: 'task',
+        taskNumber: 5,
+        levelId: 'basic',
+        assignmentTier: 'required',
+        targetStatus: [
+          { num: 2, questionId: 'q-2', solved: false },
+          { num: 1, questionId: 'q-1', solved: true },
+        ],
+      },
+      {
+        type: 'task',
+        taskNumber: 7,
+        levelId: 'advanced',
+        assignmentTier: 'optional',
+        targetStatus: [{ num: 1, questionId: 'q-7', solved: false }],
+      },
+    ],
+    testsDb: {
+      5: { basic: [{ id: 'q-1', question: 'One' }, { id: 'q-2', question: 'Two' }] },
+      7: { advanced: [{ id: 'q-7', question: 'Seven' }] },
+    },
+    levels: {
+      BASIC: { label: 'Базовый' },
+      ADVANCED: { label: 'Сложный' },
+    },
+    formatTaskNumber: String,
+  });
+
+  assert.deepEqual(items.map((item) => item.questionId), ['q-2', 'q-1', 'q-7']);
+  assert.deepEqual(items.map((item) => item.question.question), ['Two', 'One', 'Seven']);
+  assert.equal(items[1].solved, true);
+  assert.equal(items[2].optional, true);
+  assert.equal(items[2].levelLabel, 'Сложный');
+});
+
+test('buildTeacherHomeworkReviewItems marks an unfinished mock task with an answer as attempted', () => {
+  const items = buildTeacherHomeworkReviewItems({
+    goalViews: [{
+      type: 'mock',
+      mockExamId: 'mock-1',
+      targetStatus: [
+        { taskKey: '3', label: '3', solved: false },
+        { taskKey: '4', label: '4', solved: true },
+      ],
+    }],
+    mockExamById: {
+      'mock-1': {
+        title: 'Пробник августа',
+        tasks: {
+          3: { question: 'Mock three' },
+          4: { question: 'Mock four' },
+        },
+      },
+    },
+    mockAttemptsByExam: {
+      'mock-1': { answers: { 3: 'wrong answer', 4: '' } },
+    },
+    formatTaskNumber: String,
+  });
+
+  assert.equal(items[0].attempted, true);
+  assert.equal(items[0].mockExamTitle, 'Пробник августа');
+  assert.equal(items[1].solved, true);
+  assert.deepEqual(getPendingTeacherHomeworkReviewItems(items).map((item) => item.questionId), ['3']);
+});
+
+test('mergeTeacherHomeworkReviewTaskProgress refreshes solved and attempted states', () => {
+  const source = [
+    {
+      key: 'one',
+      sourceType: 'task',
+      taskNumber: 5,
+      levelId: 'basic',
+      questionId: 'q-1',
+      solved: false,
+      attempted: false,
+      studentAnswers: [],
+    },
+    {
+      key: 'two',
+      sourceType: 'task',
+      taskNumber: 5,
+      levelId: 'basic',
+      questionId: 'q-2',
+      solved: false,
+      attempted: false,
+      studentAnswers: [],
+    },
+  ];
+  const merged = mergeTeacherHomeworkReviewTaskProgress(source, {
+    '5|basic': {
+      solvedIds: new Set(['q-1']),
+      historyById: {
+        'q-2': [{ submittedAt: '2026-08-09T10:00:00.000Z', correct: false, answers: ['17'] }],
+      },
+    },
+  });
+
+  assert.equal(merged[0].solved, true);
+  assert.equal(merged[1].attempted, true);
+  assert.deepEqual(merged[1].studentAnswers, ['17']);
+  assert.deepEqual(getPendingTeacherHomeworkReviewItems(merged).map((item) => item.key), ['two']);
+});
