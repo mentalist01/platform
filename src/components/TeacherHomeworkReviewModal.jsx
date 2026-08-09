@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CheckCircle, ChevronLeft, ChevronRight, Copy, Download, History, ListChecks, RefreshCcw, X } from 'lucide-react';
+import { Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileCode2, History, ListChecks, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { writeBoardTaskToClipboard } from '../utils/boardTaskClipboard';
@@ -12,6 +12,34 @@ import {
 import { Button } from './ui';
 
 const BOARD_COPY_FEEDBACK_MS = 1800;
+const CODE_COPY_FEEDBACK_MS = 1800;
+
+const writeCodeToClipboard = async (value) => {
+  const code = String(value ?? '');
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(code);
+      return;
+    } catch {
+      // Fall back when clipboard permissions are restricted.
+    }
+  }
+  if (typeof document === 'undefined') throw new Error('Clipboard is unavailable');
+  const textarea = document.createElement('textarea');
+  textarea.value = code;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  let copied = false;
+  try {
+    textarea.select();
+    copied = document.execCommand('copy');
+  } finally {
+    textarea.remove();
+  }
+  if (!copied) throw new Error('Copy failed');
+};
 
 const normalizeAnswerHistoryPayload = (payload) => {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
@@ -130,7 +158,18 @@ const TeacherHomeworkReviewModal = ({
   const [expandedImage, setExpandedImage] = useState(null);
   const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
   const [questionBoardCopyState, setQuestionBoardCopyState] = useState('idle');
+  const [questionCodeState, setQuestionCodeState] = useState({
+    code: '',
+    input: '',
+    updatedAt: '',
+    loading: false,
+    error: '',
+  });
+  const [questionCodePreviewOpen, setQuestionCodePreviewOpen] = useState(false);
+  const [questionCodeReloadKey, setQuestionCodeReloadKey] = useState(0);
+  const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
   const questionBoardCopyResetTimerRef = useRef(null);
+  const questionCodeCopyResetTimerRef = useRef(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -218,7 +257,11 @@ const TeacherHomeworkReviewModal = ({
   }, [expandedImage, onClose, open]);
 
   const pendingItems = getPendingTeacherHomeworkReviewItems(resolvedItems);
-  const currentItemKey = pendingItems[currentIndex]?.key || '';
+  const currentPendingItem = pendingItems[currentIndex] || null;
+  const currentItemKey = currentPendingItem?.key || '';
+  const codeTaskNumber = currentPendingItem?.sourceType === 'task' ? currentPendingItem.taskNumber : null;
+  const codeLevelId = currentPendingItem?.sourceType === 'task' ? currentPendingItem.levelId : '';
+  const codeQuestionId = currentPendingItem?.sourceType === 'task' ? currentPendingItem.questionId : '';
   useEffect(() => {
     if (currentIndex < pendingItems.length) return;
     setCurrentIndex(Math.max(0, pendingItems.length - 1));
@@ -227,21 +270,67 @@ const TeacherHomeworkReviewModal = ({
   useEffect(() => {
     setQuestionImageStateByKey({});
     setQuestionBoardCopyState('idle');
+    setQuestionCodePreviewOpen(false);
+    setQuestionCodeCopyState('idle');
     if (questionBoardCopyResetTimerRef.current) {
       clearTimeout(questionBoardCopyResetTimerRef.current);
       questionBoardCopyResetTimerRef.current = null;
+    }
+    if (questionCodeCopyResetTimerRef.current) {
+      clearTimeout(questionCodeCopyResetTimerRef.current);
+      questionCodeCopyResetTimerRef.current = null;
     }
     return () => {
       if (questionBoardCopyResetTimerRef.current) {
         clearTimeout(questionBoardCopyResetTimerRef.current);
         questionBoardCopyResetTimerRef.current = null;
       }
+      if (questionCodeCopyResetTimerRef.current) {
+        clearTimeout(questionCodeCopyResetTimerRef.current);
+        questionCodeCopyResetTimerRef.current = null;
+      }
     };
   }, [currentItemKey, open]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    let active = true;
+    setQuestionCodeState({ code: '', input: '', updatedAt: '', loading: false, error: '' });
+    if (!studentId || !codeTaskNumber || !codeLevelId || !codeQuestionId) {
+      return () => { active = false; };
+    }
+
+    setQuestionCodeState({ code: '', input: '', updatedAt: '', loading: true, error: '' });
+    api.getQuestionCode(studentId, codeTaskNumber, codeLevelId, codeQuestionId)
+      .then((payload) => {
+        if (!active) return;
+        const code = typeof payload?.code === 'string' ? payload.code : '';
+        setQuestionCodeState({
+          code,
+          input: typeof payload?.input === 'string' ? payload.input : '',
+          updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+          loading: false,
+          error: '',
+        });
+        if (code.trim()) setQuestionCodePreviewOpen(true);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setQuestionCodeState({
+          code: '',
+          input: '',
+          updatedAt: '',
+          loading: false,
+          error: error?.message || 'Не удалось загрузить код ученика.',
+        });
+      });
+
+    return () => { active = false; };
+  }, [codeLevelId, codeQuestionId, codeTaskNumber, currentItemKey, open, questionCodeReloadKey, studentId]);
+
   if (!open || typeof document === 'undefined') return null;
 
-  const currentItem = pendingItems[currentIndex] || null;
+  const currentItem = currentPendingItem;
   const currentQuestion = currentItem?.question || {};
   const answerCountOverride = Math.floor(Number(currentQuestion?.answerCountOverride));
   const answerCount = Number.isFinite(answerCountOverride) && answerCountOverride > 0 && answerCountOverride <= 50
@@ -277,6 +366,7 @@ const TeacherHomeworkReviewModal = ({
   const title = currentItem?.sourceType === 'mock'
     ? `${currentItem.mockExamTitle} · задание ${currentItem.taskDisplay}`
     : `Задание ${currentItem?.taskDisplay || ''} · №${currentItem?.questionNumber || ''}`;
+  const questionCodeUpdatedAtLabel = formatAttemptTime(questionCodeState.updatedAt);
 
   const handleCopyQuestionToBoard = async () => {
     if (!currentItem) return;
@@ -305,6 +395,21 @@ const TeacherHomeworkReviewModal = ({
       setQuestionBoardCopyState('idle');
       questionBoardCopyResetTimerRef.current = null;
     }, BOARD_COPY_FEEDBACK_MS);
+  };
+
+  const handleCopyQuestionCode = async () => {
+    if (!questionCodeState.code) return;
+    try {
+      await writeCodeToClipboard(questionCodeState.code);
+      setQuestionCodeCopyState('copied');
+    } catch {
+      setQuestionCodeCopyState('error');
+    }
+    if (questionCodeCopyResetTimerRef.current) clearTimeout(questionCodeCopyResetTimerRef.current);
+    questionCodeCopyResetTimerRef.current = setTimeout(() => {
+      setQuestionCodeCopyState('idle');
+      questionCodeCopyResetTimerRef.current = null;
+    }, CODE_COPY_FEEDBACK_MS);
   };
 
   const modal = (
@@ -451,6 +556,19 @@ const TeacherHomeworkReviewModal = ({
                         )}
                       </div>
                       <div className="student-test-question-panel__toolbar-actions">
+                        {currentItem.sourceType === 'task' && (
+                          <button
+                            type="button"
+                            className={`student-test-code-preview-trigger ${questionCodePreviewOpen ? 'is-active' : ''}`}
+                            onClick={() => setQuestionCodePreviewOpen((value) => !value)}
+                            aria-expanded={questionCodePreviewOpen}
+                            aria-controls="teacher-homework-student-code-preview"
+                          >
+                            <FileCode2 size={16} aria-hidden="true" />
+                            <span>{questionCodePreviewOpen ? 'Скрыть код' : 'Код ученика'}</span>
+                            <ChevronDown size={15} aria-hidden="true" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           className={`teacher-board-task-copy ${questionBoardCopyState === 'copied' ? 'is-copied' : ''} ${questionBoardCopyState === 'error' ? 'is-error' : ''}`}
@@ -588,6 +706,68 @@ const TeacherHomeworkReviewModal = ({
                       </div>
                     </details>
                   </section>
+
+                  {questionCodePreviewOpen && currentItem.sourceType === 'task' && (
+                    <section className="student-test-code-panel student-test-panel-enter">
+                      <div className="student-test-code-launch-card is-preview-open">
+                        <div className="student-test-code-launch-card__main">
+                          <span className="student-test-code-launch-card__icon" aria-hidden="true">
+                            <FileCode2 size={18} />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="student-test-code-launch-card__title">Код ученика</div>
+                            <div className="student-test-code-launch-card__meta">
+                              {questionCodeUpdatedAtLabel
+                                ? `Сохранено ${questionCodeUpdatedAtLabel}`
+                                : 'Код для этого задания не сохранён'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="student-test-code-launch-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => { void handleCopyQuestionCode(); }}
+                            disabled={questionCodeState.loading || !questionCodeState.code}
+                            className={`student-test-code-launch-card__preview-toggle ${questionCodeCopyState === 'copied' ? 'is-copied' : ''}`}
+                          >
+                            {questionCodeCopyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
+                            <span>{questionCodeCopyState === 'copied'
+                              ? 'Скопировано'
+                              : (questionCodeCopyState === 'error' ? 'Не удалось' : 'Копировать')}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setQuestionCodePreviewOpen(false)}
+                            className="student-test-code-launch-card__preview-toggle"
+                          >
+                            <span>Скрыть код</span>
+                            <ChevronDown size={15} aria-hidden="true" />
+                          </button>
+                        </div>
+                        <div id="teacher-homework-student-code-preview" className="student-test-code-preview">
+                          {questionCodeState.loading ? (
+                            <div className="student-test-code-preview__message" role="status">
+                              <RefreshCcw size={16} className="animate-spin" />
+                              Загружаем сохранённый код…
+                            </div>
+                          ) : questionCodeState.error ? (
+                            <div className="student-test-code-preview__message is-error" role="alert">
+                              <span>{questionCodeState.error}</span>
+                              <button type="button" onClick={() => setQuestionCodeReloadKey((value) => value + 1)}>Повторить</button>
+                            </div>
+                          ) : (
+                            <div className="student-test-code-preview__editor">
+                              <pre className="m-0 min-h-[360px] max-h-[520px] overflow-auto bg-[#0b1120] p-4 font-mono text-[13px] leading-6 text-slate-100"><code>{questionCodeState.code || '# Код не сохранён'}</code></pre>
+                            </div>
+                          )}
+                          <div className="teacher-test-review-stdin">
+                            <strong>Ввод (stdin)</strong>
+                            <pre>{questionCodeState.input || '—'}</pre>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  )}
                 </>
               )}
             </div>
