@@ -35,6 +35,7 @@ import MockExamAnalysisModal from './MockExamAnalysisModal';
 import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
+import MockExamTimerConfirmDialog from './MockExamTimerConfirmDialog';
 import RandomMockGenerator from './RandomMockGenerator';
 import ProgressReviewModal from './ProgressReviewModal';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -44,11 +45,11 @@ import { Button, Card } from './ui';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import { loadOfflineHomeworkPackage } from '../utils/offlineHomework';
+import useMockExamTimerConfirmation from '../hooks/useMockExamTimerConfirmation';
 import { getProgressTopicStatus } from '../utils/progressTopicStatus';
 import {
   MOCK_EXAM_MODE_CLASSIC,
   MOCK_EXAM_MODE_TIMER,
-  MOCK_EXAM_TIMER_START_CONFIRMATION,
   getMockExamRequiredMode,
   normalizeMockExamMode,
 } from '../utils/mockExamMode';
@@ -722,6 +723,12 @@ const ProgressSection = ({
   const mockAttemptsOwnerRef = useRef('');
   const randomMockRequestRef = useRef({ requestId: '', levelId: '' });
   const timerChestFlightTimersRef = useRef([]);
+  const {
+    confirmationRequest: timerConfirmationRequest,
+    requestTimerConfirmation,
+    confirmTimerAction,
+    cancelTimerAction,
+  } = useMockExamTimerConfirmation();
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const mockAttemptStudentId = role === 'student' ? null : effectiveStudentId;
@@ -2402,7 +2409,10 @@ const ProgressSection = ({
           const freshAttemptMode = normalizeMockAttemptMode(fetchedAttempt?.requiredMode, assignedMode);
           if (
             freshAttemptMode === MOCK_ATTEMPT_MODE_TIMER
-            && !window.confirm(MOCK_EXAM_TIMER_START_CONFIRMATION)
+            && !await requestTimerConfirmation({
+              kind: 'start',
+              examTitle: exam?.title || '',
+            })
           ) {
             setActiveMockExam(null);
             setActiveMockAttempt(null);
@@ -5434,6 +5444,11 @@ const ProgressSection = ({
 
         </div>
       )}
+      <MockExamTimerConfirmDialog
+        request={timerConfirmationRequest}
+        onConfirm={confirmTimerAction}
+        onCancel={cancelTimerAction}
+      />
       {timerChestFlights.length > 0 && typeof document !== 'undefined' && createPortal(
         <div className="mock-timer-chest-flight-layer" aria-hidden="true">
           {timerChestFlights.map((flight) => (

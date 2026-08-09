@@ -91555,6 +91555,110 @@ html[data-theme='dark'] .telemost-join-alert__copy {
   }
 }
 
+/* Homework statistics: a calm analytics canvas with a compact horizontal timeline. */
+.homework-stats-page {
+  min-height: 100dvh;
+  isolation: isolate;
+  overscroll-behavior: contain;
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  background:
+    radial-gradient(circle at 12% 4%, rgba(139, 92, 246, 0.08), transparent 30rem),
+    radial-gradient(circle at 88% 16%, rgba(217, 70, 239, 0.055), transparent 34rem),
+    linear-gradient(180deg, #fbfbff 0%, #f8fafc 48%, #f5f3ff 100%);
+}
+
+html[data-theme='dark'] .homework-stats-page,
+.homework-stats-page--dark {
+  background:
+    radial-gradient(circle at 12% 4%, rgba(124, 58, 237, 0.13), transparent 32rem),
+    radial-gradient(circle at 88% 16%, rgba(192, 38, 211, 0.08), transparent 36rem),
+    #020617;
+}
+
+.homework-stats-chart {
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-color: rgba(139, 92, 246, 0.42) transparent;
+  scrollbar-width: thin;
+}
+
+.homework-stats-chart-button {
+  scroll-snap-align: center;
+}
+
+.homework-stats-chart::-webkit-scrollbar {
+  height: 7px;
+}
+
+.homework-stats-chart::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.homework-stats-chart::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.35);
+  background-clip: padding-box;
+}
+
+.homework-stats-chart::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.58);
+  background-clip: padding-box;
+}
+
+.homework-stats-page summary::-webkit-details-marker {
+  display: none;
+}
+
+.homework-stats-page--dark select {
+  color-scheme: dark;
+}
+
+.homework-stats-detail {
+  animation: homework-stats-detail-in 180ms ease-out;
+}
+
+@keyframes homework-stats-detail-in {
+  from {
+    opacity: 0.72;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 639px) {
+  .homework-stats-page > main {
+    padding-right: 0.625rem;
+    padding-left: 0.625rem;
+  }
+
+  .homework-stats-page > main > section {
+    border-radius: 1.35rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .homework-stats-detail {
+    animation: none;
+  }
+
+  .homework-stats-page *,
+  .homework-stats-page *::before,
+  .homework-stats-page *::after {
+    scroll-behavior: auto !important;
+  }
+
+  .homework-stats-page .animate-pulse,
+  .homework-stats-page .animate-spin {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
 /* Mock exam workspace: keep the timer, all 27 tasks and answer fields usable at once. */
 .mock-exam-launch .mock-exam-modal-card {
   height: calc(100svh - 0.5rem);
@@ -93026,5 +93130,552 @@ html[data-theme='dark'] .teacher-board-task-copy.is-error {
   .board-task-controls__input,
   .board-task-controls__check {
     transition: none;
+  }
+}
+/* Timer attempt confirmation: app-owned replacement for the browser confirm. */
+.mock-timer-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: clamp(16px, 4vw, 34px);
+  background:
+    radial-gradient(circle at 50% 38%, rgb(45 212 191 / 0.12), transparent 32%),
+    rgb(10 15 27 / 0.62);
+  backdrop-filter: blur(16px) saturate(1.08);
+  animation: mockTimerConfirmBackdropIn 180ms ease-out both;
+}
+
+.mock-timer-confirm--close {
+  background:
+    radial-gradient(circle at 50% 38%, rgb(251 146 60 / 0.12), transparent 32%),
+    rgb(10 15 27 / 0.64);
+}
+
+.mock-timer-confirm__card {
+  --timer-confirm-ink: #172033;
+  --timer-confirm-muted: #667085;
+  --timer-confirm-border: rgb(74 96 126 / 0.14);
+  position: relative;
+  isolation: isolate;
+  width: min(100%, 540px);
+  overflow: hidden;
+  border: 1px solid var(--timer-confirm-border);
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at 6% -8%, rgb(45 212 191 / 0.13), transparent 35%),
+    radial-gradient(circle at 103% 106%, rgb(99 102 241 / 0.12), transparent 38%),
+    linear-gradient(145deg, rgb(255 255 255 / 0.99), rgb(248 250 252 / 0.99));
+  padding: clamp(22px, 4vw, 30px);
+  color: var(--timer-confirm-ink);
+  box-shadow:
+    0 32px 90px rgb(3 10 24 / 0.3),
+    0 8px 28px rgb(3 10 24 / 0.12),
+    inset 0 1px 0 rgb(255 255 255 / 0.9);
+  outline: none;
+  animation: mockTimerConfirmCardIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__card {
+  background:
+    radial-gradient(circle at 6% -8%, rgb(251 146 60 / 0.13), transparent 35%),
+    radial-gradient(circle at 103% 106%, rgb(244 63 94 / 0.09), transparent 38%),
+    linear-gradient(145deg, rgb(255 255 255 / 0.99), rgb(250 250 249 / 0.99));
+}
+
+.mock-timer-confirm__ambient {
+  position: absolute;
+  top: -92px;
+  right: -76px;
+  z-index: -1;
+  width: 210px;
+  height: 210px;
+  border-radius: 999px;
+  background: rgb(45 212 191 / 0.09);
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__ambient {
+  background: rgb(251 146 60 / 0.1);
+}
+
+.mock-timer-confirm__close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgb(100 116 139 / 0.12);
+  border-radius: 13px;
+  background: rgb(255 255 255 / 0.7);
+  color: #64748b;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 0.06);
+  transition: transform 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.mock-timer-confirm__close:hover {
+  background: #fff;
+  color: #1e293b;
+  transform: translateY(-1px);
+}
+
+.mock-timer-confirm__close:focus-visible,
+.mock-timer-confirm__button:focus-visible {
+  outline: 3px solid rgb(20 184 166 / 0.32);
+  outline-offset: 3px;
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__close:focus-visible,
+.mock-timer-confirm--close .mock-timer-confirm__button:focus-visible {
+  outline-color: rgb(249 115 22 / 0.32);
+}
+
+.mock-timer-confirm__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  padding-right: 42px;
+}
+
+.mock-timer-confirm__icon {
+  position: relative;
+  display: grid;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 19px;
+  background: linear-gradient(145deg, #14b8a6, #0891b2 58%, #4f46e5);
+  color: #fff;
+  box-shadow:
+    0 14px 30px rgb(13 148 136 / 0.22),
+    inset 0 1px 0 rgb(255 255 255 / 0.3);
+}
+
+.mock-timer-confirm__icon::after {
+  position: absolute;
+  inset: -7px;
+  z-index: -1;
+  border-radius: 23px;
+  background: rgb(20 184 166 / 0.1);
+  content: '';
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__icon {
+  background: linear-gradient(145deg, #fb923c, #f97316 55%, #e11d48);
+  box-shadow:
+    0 14px 30px rgb(249 115 22 / 0.22),
+    inset 0 1px 0 rgb(255 255 255 / 0.3);
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__icon::after {
+  background: rgb(249 115 22 / 0.1);
+}
+
+.mock-timer-confirm__heading {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.mock-timer-confirm__eyebrow {
+  width: fit-content;
+  border-radius: 999px;
+  background: rgb(13 148 136 / 0.09);
+  padding: 5px 9px;
+  color: #0f766e;
+  font-size: 0.67rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__eyebrow {
+  background: rgb(249 115 22 / 0.1);
+  color: #c2410c;
+}
+
+.mock-timer-confirm__heading h2 {
+  margin: 0;
+  color: var(--timer-confirm-ink);
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.55rem, 5vw, 2rem);
+  font-weight: 900;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+}
+
+.mock-timer-confirm__exam-title {
+  max-width: 24rem;
+  overflow: hidden;
+  color: #7c8799;
+  font-size: 0.78rem;
+  font-weight: 720;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mock-timer-confirm__description {
+  margin: 20px 0 0;
+  color: var(--timer-confirm-muted);
+  font-size: 0.94rem;
+  font-weight: 620;
+  line-height: 1.58;
+}
+
+.mock-timer-confirm__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.mock-timer-confirm__fact {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid rgb(100 116 139 / 0.12);
+  border-radius: 18px;
+  padding: 13px;
+}
+
+.mock-timer-confirm__fact--time {
+  background: linear-gradient(145deg, #eefcf9, #ecfeff);
+}
+
+.mock-timer-confirm__fact--pause {
+  background: linear-gradient(145deg, #fff7ed, #fff1f2);
+}
+
+.mock-timer-confirm__fact-icon {
+  display: grid;
+  width: 35px;
+  height: 35px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.8);
+  color: #0f766e;
+  box-shadow: inset 0 0 0 1px rgb(13 148 136 / 0.1);
+}
+
+.mock-timer-confirm__fact--pause .mock-timer-confirm__fact-icon {
+  color: #e65b20;
+  box-shadow: inset 0 0 0 1px rgb(249 115 22 / 0.1);
+}
+
+.mock-timer-confirm__fact > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.mock-timer-confirm__fact strong {
+  overflow: hidden;
+  color: var(--timer-confirm-ink);
+  font-size: 0.94rem;
+  font-weight: 880;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mock-timer-confirm__fact small {
+  color: #758195;
+  font-size: 0.67rem;
+  font-weight: 680;
+  line-height: 1.2;
+}
+
+.mock-timer-confirm__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid rgb(13 148 136 / 0.12);
+  border-radius: 16px;
+  background: rgb(240 253 250 / 0.68);
+  padding: 11px 13px;
+  color: #37635f;
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__note {
+  border-color: rgb(249 115 22 / 0.13);
+  background: rgb(255 247 237 / 0.7);
+  color: #7c4b32;
+}
+
+.mock-timer-confirm__note > span {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #0f766e;
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__note > span {
+  color: #ea580c;
+}
+
+.mock-timer-confirm__note p {
+  margin: 0;
+  font-size: 0.76rem;
+  font-weight: 680;
+  line-height: 1.42;
+}
+
+.mock-timer-confirm__actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.mock-timer-confirm__button {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 16px;
+  padding: 0 17px;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 820;
+  line-height: 1.1;
+  transition: transform 160ms ease, filter 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.mock-timer-confirm__button:hover {
+  transform: translateY(-1px);
+}
+
+.mock-timer-confirm__button:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.mock-timer-confirm__button--cancel {
+  border: 1px solid rgb(100 116 139 / 0.16);
+  background: rgb(255 255 255 / 0.72);
+  color: #596579;
+  box-shadow: 0 7px 18px rgb(15 23 42 / 0.05);
+}
+
+.mock-timer-confirm__button--cancel:hover {
+  background: #fff;
+  color: #1e293b;
+  box-shadow: 0 9px 22px rgb(15 23 42 / 0.08);
+}
+
+.mock-timer-confirm__button--confirm {
+  background: linear-gradient(135deg, #0f766e, #0891b2 58%, #4f46e5);
+  color: #fff;
+  box-shadow:
+    0 12px 25px rgb(8 145 178 / 0.22),
+    inset 0 1px 0 rgb(255 255 255 / 0.24);
+}
+
+.mock-timer-confirm__button--confirm:hover {
+  filter: brightness(1.06) saturate(1.04);
+  box-shadow:
+    0 15px 30px rgb(8 145 178 / 0.28),
+    inset 0 1px 0 rgb(255 255 255 / 0.28);
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__button--confirm {
+  background: linear-gradient(135deg, #ea580c, #f97316 54%, #e11d48);
+  box-shadow:
+    0 12px 25px rgb(234 88 12 / 0.2),
+    inset 0 1px 0 rgb(255 255 255 / 0.24);
+}
+
+.mock-timer-confirm--close .mock-timer-confirm__button--confirm:hover {
+  box-shadow:
+    0 15px 30px rgb(234 88 12 / 0.27),
+    inset 0 1px 0 rgb(255 255 255 / 0.28);
+}
+
+html[data-theme='dark'] .mock-timer-confirm__card {
+  --timer-confirm-ink: #f3f7fc;
+  --timer-confirm-muted: #a8b3c4;
+  --timer-confirm-border: rgb(148 163 184 / 0.16);
+  background:
+    radial-gradient(circle at 6% -8%, rgb(45 212 191 / 0.15), transparent 35%),
+    radial-gradient(circle at 103% 106%, rgb(99 102 241 / 0.14), transparent 38%),
+    linear-gradient(145deg, rgb(18 27 41 / 0.99), rgb(12 20 33 / 0.99));
+  box-shadow:
+    0 36px 100px rgb(0 0 0 / 0.58),
+    inset 0 1px 0 rgb(255 255 255 / 0.05);
+}
+
+html[data-theme='dark'] .mock-timer-confirm--close .mock-timer-confirm__card {
+  background:
+    radial-gradient(circle at 6% -8%, rgb(251 146 60 / 0.17), transparent 35%),
+    radial-gradient(circle at 103% 106%, rgb(244 63 94 / 0.11), transparent 38%),
+    linear-gradient(145deg, rgb(27 27 34 / 0.99), rgb(20 20 28 / 0.99));
+}
+
+html[data-theme='dark'] .mock-timer-confirm__close,
+html[data-theme='dark'] .mock-timer-confirm__button--cancel {
+  border-color: rgb(148 163 184 / 0.16);
+  background: rgb(255 255 255 / 0.055);
+  color: #b7c1cf;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .mock-timer-confirm__close:hover,
+html[data-theme='dark'] .mock-timer-confirm__button--cancel:hover {
+  background: rgb(255 255 255 / 0.09);
+  color: #fff;
+}
+
+html[data-theme='dark'] .mock-timer-confirm__eyebrow {
+  background: rgb(45 212 191 / 0.13);
+  color: #5eead4;
+}
+
+html[data-theme='dark'] .mock-timer-confirm--close .mock-timer-confirm__eyebrow {
+  background: rgb(251 146 60 / 0.14);
+  color: #fdba74;
+}
+
+html[data-theme='dark'] .mock-timer-confirm__exam-title {
+  color: #8996a8;
+}
+
+html[data-theme='dark'] .mock-timer-confirm__fact {
+  border-color: rgb(148 163 184 / 0.12);
+}
+
+html[data-theme='dark'] .mock-timer-confirm__fact--time {
+  background: linear-gradient(145deg, rgb(13 148 136 / 0.12), rgb(8 145 178 / 0.09));
+}
+
+html[data-theme='dark'] .mock-timer-confirm__fact--pause {
+  background: linear-gradient(145deg, rgb(249 115 22 / 0.11), rgb(225 29 72 / 0.08));
+}
+
+html[data-theme='dark'] .mock-timer-confirm__fact-icon {
+  background: rgb(255 255 255 / 0.055);
+  color: #5eead4;
+}
+
+html[data-theme='dark'] .mock-timer-confirm__fact--pause .mock-timer-confirm__fact-icon {
+  color: #fdba74;
+}
+
+html[data-theme='dark'] .mock-timer-confirm__fact small {
+  color: #8f9bad;
+}
+
+html[data-theme='dark'] .mock-timer-confirm__note {
+  border-color: rgb(45 212 191 / 0.13);
+  background: rgb(45 212 191 / 0.06);
+  color: #a6c9c5;
+}
+
+html[data-theme='dark'] .mock-timer-confirm--close .mock-timer-confirm__note {
+  border-color: rgb(251 146 60 / 0.13);
+  background: rgb(251 146 60 / 0.06);
+  color: #d2b39e;
+}
+
+@keyframes mockTimerConfirmBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes mockTimerConfirmCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.965);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .mock-timer-confirm {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .mock-timer-confirm__card {
+    border-radius: 25px;
+    padding: 21px 18px 18px;
+  }
+
+  .mock-timer-confirm__close {
+    top: 15px;
+    right: 15px;
+  }
+
+  .mock-timer-confirm__header {
+    gap: 12px;
+    padding-right: 36px;
+  }
+
+  .mock-timer-confirm__icon {
+    width: 49px;
+    height: 49px;
+    border-radius: 17px;
+  }
+
+  .mock-timer-confirm__description {
+    margin-top: 17px;
+    font-size: 0.88rem;
+  }
+
+  .mock-timer-confirm__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mock-timer-confirm__actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mock-timer-confirm__button--confirm {
+    grid-row: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mock-timer-confirm,
+  .mock-timer-confirm__card,
+  .mock-timer-confirm__close,
+  .mock-timer-confirm__button {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .mock-timer-confirm {
+    background: rgb(0 0 0 / 0.72);
+  }
+
+  .mock-timer-confirm__card,
+  .mock-timer-confirm__close,
+  .mock-timer-confirm__icon,
+  .mock-timer-confirm__eyebrow,
+  .mock-timer-confirm__fact,
+  .mock-timer-confirm__fact-icon,
+  .mock-timer-confirm__note,
+  .mock-timer-confirm__button {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    box-shadow: none;
+    color: CanvasText;
   }
 }

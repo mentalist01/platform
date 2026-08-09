@@ -14,11 +14,9 @@ import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import MockChestOpeningOverlay from './MockChestOpeningOverlay';
+import MockExamTimerConfirmDialog from './MockExamTimerConfirmDialog';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
-import {
-  MOCK_EXAM_TIMER_CLOSE_CONFIRMATION,
-  MOCK_EXAM_TIMER_START_CONFIRMATION,
-} from '../utils/mockExamMode';
+import useMockExamTimerConfirmation from '../hooks/useMockExamTimerConfirmation';
 import { Button } from './ui';
 
 const artifactImageModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
@@ -292,6 +290,12 @@ const MockExamModal = ({
   const [displayAttempt, setDisplayAttempt] = useState(() => (
     initialAttempt && typeof initialAttempt === 'object' ? initialAttempt : {}
   ));
+  const {
+    confirmationRequest: timerConfirmationRequest,
+    requestTimerConfirmation,
+    confirmTimerAction,
+    cancelTimerAction,
+  } = useMockExamTimerConfirmation();
   const hasLocalAttemptChangesRef = useRef(false);
   const skipNextDraftWriteRef = useRef(false);
   const latestInitialAttemptRef = useRef(initialAttempt);
@@ -1030,7 +1034,11 @@ const MockExamModal = ({
       && isTimerMode
       && !timerResultsVisible
       && !timerExpired
-      && !window.confirm(MOCK_EXAM_TIMER_CLOSE_CONFIRMATION)
+      && !await requestTimerConfirmation({
+        kind: 'close',
+        examTitle: exam?.title || '',
+        remainingLabel: timerLabel,
+      })
     ) return;
     if (!isTimerMode || timerResultsVisible || !studentId) {
       closeWithAnimation();
@@ -1083,7 +1091,10 @@ const MockExamModal = ({
 
   const handleRestartTimerExam = async () => {
     if (!canRestartTimerExam) return;
-    if (!window.confirm(MOCK_EXAM_TIMER_START_CONFIRMATION)) return;
+    if (!await requestTimerConfirmation({
+      kind: 'restart',
+      examTitle: exam?.title || '',
+    })) return;
     hasLocalAttemptChangesRef.current = false;
     setRestartingTimer(true);
     setSaveError('');
@@ -1494,8 +1505,8 @@ const MockExamModal = ({
         role="dialog"
         aria-modal="true"
         aria-label={`Пробник «${exam.title || 'Без названия'}»`}
-        aria-hidden={finishConfirmOpen ? 'true' : undefined}
-        inert={finishConfirmOpen ? true : undefined}
+        aria-hidden={finishConfirmOpen || timerConfirmationRequest ? 'true' : undefined}
+        inert={finishConfirmOpen || timerConfirmationRequest ? true : undefined}
         tabIndex={-1}
         className={`modal-card mock-exam-modal-card ${isTimerMode ? 'mock-exam-modal--timer' : ''} relative flex h-[calc(100dvh-0.5rem)] max-h-none w-full max-w-[112rem] flex-col overflow-hidden rounded-[1.5rem] border p-3 shadow-2xl sm:h-[calc(100dvh-1rem)] sm:p-4 lg:h-[calc(100dvh-1.5rem)] ${shellClassName}`}
         style={shellStyle}
@@ -2057,6 +2068,12 @@ const MockExamModal = ({
         </div>
         )}
       </div>
+
+      <MockExamTimerConfirmDialog
+        request={timerConfirmationRequest}
+        onConfirm={confirmTimerAction}
+        onCancel={cancelTimerAction}
+      />
 
       {finishConfirmOpen && (
         <div
