@@ -128,6 +128,7 @@ const TeacherHomeworkReviewModal = ({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [expandedImage, setExpandedImage] = useState(null);
+  const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
   const [questionBoardCopyState, setQuestionBoardCopyState] = useState('idle');
   const questionBoardCopyResetTimerRef = useRef(null);
 
@@ -224,6 +225,7 @@ const TeacherHomeworkReviewModal = ({
   }, [currentIndex, pendingItems.length]);
 
   useEffect(() => {
+    setQuestionImageStateByKey({});
     setQuestionBoardCopyState('idle');
     if (questionBoardCopyResetTimerRef.current) {
       clearTimeout(questionBoardCopyResetTimerRef.current);
@@ -258,7 +260,11 @@ const TeacherHomeworkReviewModal = ({
   const answerHistory = Array.isArray(currentItem?.answerHistory) ? currentItem.answerHistory : [];
   const answerHistoryLatestFirst = answerHistory.slice().reverse();
   const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
-    .map((image) => ({ ...image, url: withStudentId(image?.url, studentId) }));
+    .map((image) => {
+      const rawUrl = image?.url || (image?.storageName ? `/uploads/${image.storageName}` : '');
+      return { ...image, url: withStudentId(rawUrl, studentId) };
+    })
+    .filter((image) => image.url);
   const extraFiles = (Array.isArray(currentQuestion?.files) ? currentQuestion.files : [])
     .map((file) => {
       const url = file?.url || (file?.storageName ? `/uploads/${file.storageName}` : '');
@@ -287,7 +293,7 @@ const TeacherHomeworkReviewModal = ({
         questionLabel: questionLabel?.text || '',
       },
       questionText: currentQuestion?.question || '',
-      screenshots: Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [],
+      screenshots,
       answerCount,
       answerLabels,
       studentAnswers,
@@ -468,16 +474,54 @@ const TeacherHomeworkReviewModal = ({
 
                     {screenshots.length > 0 && (
                       <div className="mb-5 space-y-3 md:mb-6">
-                        {screenshots.map((image, index) => (
-                          <button
-                            key={image.id || image.url || index}
-                            type="button"
-                            onClick={() => setExpandedImage(image)}
-                            className="student-test-screenshot block w-full overflow-hidden rounded-2xl border"
-                          >
-                            <img src={image.url} alt={image.name || 'Скриншот задания'} className="max-h-[65vh] w-full object-contain" />
-                          </button>
-                        ))}
+                        {screenshots.map((image, index) => {
+                          const imageKey = String(image.id || image.storageName || image.url || index);
+                          const imageState = questionImageStateByKey[imageKey] || {};
+                          const storedWidth = Number(image.width);
+                          const storedHeight = Number(image.height);
+                          const fallbackAspectRatio = storedWidth > 0 && storedHeight > 0
+                            ? Math.max(1.6, Math.min(5.8, storedWidth / storedHeight))
+                            : 3.8;
+                          return (
+                            <div
+                              key={imageKey}
+                              className={`student-test-screenshot ${imageState.loaded ? 'is-loaded' : 'is-loading'} max-h-[65vh] overflow-hidden rounded-2xl border`}
+                              style={{
+                                '--student-test-item-index': index,
+                                '--student-test-image-aspect': imageState.aspectRatio || fallbackAspectRatio,
+                              }}
+                              aria-busy={!imageState.loaded}
+                            >
+                              <div className="student-test-screenshot__loader" aria-hidden={Boolean(imageState.loaded)}>
+                                <RefreshCcw size={18} aria-hidden="true" />
+                                <span>Загрузка изображения задания…</span>
+                              </div>
+                              <img
+                                src={image.url}
+                                alt={image.name || 'Скриншот задания'}
+                                className="max-h-[65vh] w-full cursor-zoom-in object-contain"
+                                onLoad={(event) => {
+                                  const width = Number(event.currentTarget.naturalWidth);
+                                  const height = Number(event.currentTarget.naturalHeight);
+                                  setQuestionImageStateByKey((previous) => ({
+                                    ...previous,
+                                    [imageKey]: {
+                                      loaded: true,
+                                      aspectRatio: width > 0 && height > 0
+                                        ? Math.max(1.6, Math.min(5.8, width / height))
+                                        : fallbackAspectRatio,
+                                    },
+                                  }));
+                                }}
+                                onError={() => setQuestionImageStateByKey((previous) => ({
+                                  ...previous,
+                                  [imageKey]: { ...(previous?.[imageKey] || {}), loaded: true },
+                                }))}
+                                onClick={() => setExpandedImage(image)}
+                              />
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -501,9 +545,9 @@ const TeacherHomeworkReviewModal = ({
                       <p className="student-test-question-text mb-5 whitespace-pre-wrap text-[15px] font-medium leading-relaxed text-gray-900 md:mb-6 md:text-lg">
                         {currentQuestion.question}
                       </p>
-                    ) : (
+                    ) : screenshots.length === 0 ? (
                       <p className="mb-5 text-sm font-medium text-slate-500">Условие задания недоступно, но оно входит в домашнюю работу.</p>
-                    )}
+                    ) : null}
                   </section>
 
                   <section className={`student-test-answer-panel student-test-panel-enter space-y-4 ${currentItem.attempted ? 'student-test-answer-panel--wrong' : 'student-test-answer-panel--pending'}`}>
