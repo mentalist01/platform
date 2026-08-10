@@ -2235,6 +2235,10 @@ const isPythonTaskNumber = (value) => PYTHON_TASK_MAP.has(Number(value));
 
 const getPythonTaskInfo = (value) => PYTHON_TASK_MAP.get(Number(value)) || null;
 
+const PYODIDE_VERSION = '0.29.4';
+const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+const PYODIDE_SCRIPT_URL = `${PYODIDE_INDEX_URL}pyodide.js`;
+
 const ensurePyodideReady = (() => {
   let pyodidePromise = null;
   return async () => {
@@ -2245,20 +2249,20 @@ const ensurePyodideReady = (() => {
         return;
       }
       if (window.loadPyodide) {
-        window.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/' })
+        window.loadPyodide({ indexURL: PYODIDE_INDEX_URL })
           .then(resolve)
           .catch(reject);
         return;
       }
       const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js';
+      script.src = PYODIDE_SCRIPT_URL;
       script.async = true;
       script.onload = () => {
         if (!window.loadPyodide) {
           reject(new Error('Не удалось загрузить Pyodide.'));
           return;
         }
-        window.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/' })
+        window.loadPyodide({ indexURL: PYODIDE_INDEX_URL })
           .then(resolve)
           .catch(reject);
       };
@@ -2747,7 +2751,7 @@ const createPyodideWorker = () => {
       if (pyodidePromise) return pyodidePromise;
       pyodidePromise = new Promise((resolve, reject) => {
         try {
-          importScripts('https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js');
+          importScripts(${JSON.stringify(PYODIDE_SCRIPT_URL)});
         } catch (err) {
           reject(err);
           return;
@@ -2756,7 +2760,7 @@ const createPyodideWorker = () => {
           reject(new Error('Pyodide loader not available'));
           return;
         }
-        self.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/' })
+        self.loadPyodide({ indexURL: ${JSON.stringify(PYODIDE_INDEX_URL)} })
           .then(resolve)
           .catch(reject);
       });
