@@ -2308,6 +2308,45 @@ const COLLAB_BOARD_CODE_SPLIT_MAX = 72;
 const COLLAB_OUTPUT_PANEL_HEIGHT_DEFAULT = 220;
 const COLLAB_OUTPUT_PANEL_HEIGHT_MIN = 132;
 const COLLAB_OUTPUT_PANEL_HEIGHT_MAX = 460;
+const COLLAB_RUN_STATE_CACHE_LIMIT = 50;
+// The live Y.Doc is recreated when the lesson view unmounts. Keep the latest
+// visible result in this tab so navigation cannot briefly or permanently hide it.
+const collabRunStateCache = new Map();
+
+const getCachedCollabRunState = (roomId) => {
+  const key = String(roomId || '').trim();
+  return key ? (collabRunStateCache.get(key) || null) : null;
+};
+
+const cacheCollabRunState = (roomId, state = {}) => {
+  const key = String(roomId || '').trim();
+  if (!key) return;
+  const normalized = {
+    output: String(state.output || ''),
+    error: String(state.error || ''),
+    status: String(state.status || 'idle') || 'idle',
+    author: String(state.author || ''),
+    ts: Number.isFinite(Number(state.ts)) ? Number(state.ts) : null,
+    input: String(state.input || ''),
+  };
+  const hasVisibleResult = Boolean(
+    normalized.output
+    || normalized.error
+    || normalized.status === 'running'
+    || normalized.status === 'stopped'
+  );
+  if (!hasVisibleResult) {
+    collabRunStateCache.delete(key);
+    return;
+  }
+  collabRunStateCache.delete(key);
+  collabRunStateCache.set(key, normalized);
+  while (collabRunStateCache.size > COLLAB_RUN_STATE_CACHE_LIMIT) {
+    const oldestKey = collabRunStateCache.keys().next().value;
+    if (!oldestKey) break;
+    collabRunStateCache.delete(oldestKey);
+  }
+};
 
 const clampCollabEditorFontSize = (value) => {
   const nextValue = Number(value);
@@ -6194,13 +6233,29 @@ const CollabSection = ({
       setCollabSaveNotice(null);
       return;
     }
-    const output = typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? '');
-    const error = typeof runMap.get('error') === 'string' ? runMap.get('error') : String(runMap.get('error') ?? '');
-    const status = typeof runMap.get('status') === 'string' ? runMap.get('status') : 'idle';
-    const author = typeof runMap.get('author') === 'string' ? runMap.get('author') : '';
-    const input = typeof runMap.get('input') === 'string' ? runMap.get('input') : String(runMap.get('input') ?? '');
-    const tsRaw = runMap.get('ts');
+    const hasSharedRunState = ['output', 'error', 'status', 'author', 'ts', 'input']
+      .some((key) => runMap.has(key));
+    const cachedRunState = hasSharedRunState ? null : getCachedCollabRunState(roomId);
+    const output = cachedRunState
+      ? cachedRunState.output
+      : (typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? ''));
+    const error = cachedRunState
+      ? cachedRunState.error
+      : (typeof runMap.get('error') === 'string' ? runMap.get('error') : String(runMap.get('error') ?? ''));
+    const status = cachedRunState
+      ? cachedRunState.status
+      : (typeof runMap.get('status') === 'string' ? runMap.get('status') : 'idle');
+    const author = cachedRunState
+      ? cachedRunState.author
+      : (typeof runMap.get('author') === 'string' ? runMap.get('author') : '');
+    const input = cachedRunState
+      ? cachedRunState.input
+      : (typeof runMap.get('input') === 'string' ? runMap.get('input') : String(runMap.get('input') ?? ''));
+    const tsRaw = cachedRunState ? cachedRunState.ts : runMap.get('ts');
     const ts = Number.isFinite(Number(tsRaw)) ? Number(tsRaw) : null;
+    if (hasSharedRunState) {
+      cacheCollabRunState(roomId, { output, error, status, author, ts, input });
+    }
     setRunOutput(output);
     setRunError(error);
     setRunStatus(status || 'idle');
@@ -6214,7 +6269,7 @@ const CollabSection = ({
       runMap.get('turtleSceneTs'),
       author
     );
-    if (status === 'running') {
+    if (output || error || status === 'running') {
       revealOutputPanelForRun(ts);
     }
 
