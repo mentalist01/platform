@@ -23,7 +23,7 @@ const STUDENT_CODE_LAYOUT_STACKED = 'stacked';
 const STUDENT_CODE_LAYOUT_SIDE = 'side';
 const STUDENT_CODE_FONT_SIZE_MIN = 12;
 const STUDENT_CODE_FONT_SIZE_MAX = 24;
-const STUDENT_CODE_FONT_SIZE_DEFAULT = 14;
+const STUDENT_CODE_FONT_SIZE_DEFAULT = 15;
 const STUDENT_CODE_LAYOUT_ANIMATION_MS = 720;
 const STUDENT_CODE_CLOSE_ANIMATION_MS = 360;
 const STUDENT_TEST_CLOSE_ANIMATION_MS = 340;
@@ -721,6 +721,7 @@ const StudentTestModal = ({
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
   const [questionWorkbookSolutions, setQuestionWorkbookSolutions] = useState({});
   const [questionRunStateById, setQuestionRunStateById] = useState({});
+  const [questionTerminalQuestionId, setQuestionTerminalQuestionId] = useState('');
   const [questionTurtleWindowQuestionId, setQuestionTurtleWindowQuestionId] = useState('');
   const [questionTurtleWindowFullscreen, setQuestionTurtleWindowFullscreen] = useState(false);
   const [studentTestTourRestartToken, setStudentTestTourRestartToken] = useState(0);
@@ -1590,6 +1591,7 @@ const StudentTestModal = ({
     const key = String(questionId ?? '').trim();
     if (!key) return;
     closeQuestionTurtleWindow(false);
+    setQuestionTerminalQuestionId(key);
     const entry = getQuestionCodeEntry(key);
     setQuestionRunStateById((prev) => ({
       ...(prev || {}),
@@ -1727,6 +1729,7 @@ const StudentTestModal = ({
     setQuestionCodeAutoSavePendingById({});
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
+    setQuestionTerminalQuestionId('');
     setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
     questionMainThreadRuntimeFilesRef.current = [];
@@ -1809,6 +1812,7 @@ const StudentTestModal = ({
     setQuestionCodeAutoSavePendingById({});
     setQuestionCodeErrorById({});
     setQuestionRunStateById({});
+    setQuestionTerminalQuestionId('');
     setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
     setSolvedAnswerById({});
@@ -1854,6 +1858,7 @@ const StudentTestModal = ({
 
   useEffect(() => {
     activeQuestionIdRef.current = activeQuestionId;
+    setQuestionTerminalQuestionId('');
     setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
     setQuestionCodeCopyState('idle');
@@ -2570,6 +2575,7 @@ const StudentTestModal = ({
       status: '',
       turtleScene: null,
     };
+    const isQuestionTerminalVisible = questionTerminalQuestionId === currentId;
     const hasQuestionTurtleScene = Boolean(
       questionRunState.turtleScene?.used
       && Array.isArray(questionRunState.turtleScene.primitives)
@@ -2914,6 +2920,7 @@ const StudentTestModal = ({
     const handleOpenQuestionCodeFocus = () => {
       clearQuestionCodeCloseTimer();
       closeQuestionTurtleWindow(false);
+      setQuestionTerminalQuestionId('');
       setQuestionCodeClosing(false);
       setQuestionCodeOpen(true);
       if (currentId) loadQuestionCode(currentId);
@@ -3104,6 +3111,13 @@ const StudentTestModal = ({
           : (questionCodeAutoSavePending
               ? 'Изменения скоро сохранятся...'
               : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Код еще не сохранен')));
+    const codeFocusSaveStateClassName = [
+      'student-test-code-focus__save-state',
+      questionCodeLoading ? 'is-loading' : '',
+      !questionCodeLoading && (questionCodeSaving || questionCodeAutoSavePending) ? 'is-saving' : '',
+      !questionCodeLoading && !questionCodeSaving && !questionCodeAutoSavePending && questionCodeUpdatedAtLabel ? 'is-saved' : '',
+      !questionCodeLoading && !questionCodeSaving && !questionCodeAutoSavePending && !questionCodeUpdatedAtLabel ? 'is-idle' : '',
+    ].filter(Boolean).join(' ');
     const codeFocusAnswerStatusLabel = computedChecked
       ? (computedCorrect ? 'Ответ засчитан' : 'Ответ не подошел')
       : (isAnswerReady ? 'Можно проверять' : 'Введите ответ');
@@ -3176,7 +3190,7 @@ const StudentTestModal = ({
                   aria-label={questionCodeFocusFullscreen ? 'Выйти из режима Фулл фокус' : 'Включить режим Фулл фокус'}
                 >
                   {questionCodeFocusFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  <span>Фулл фокус</span>
+                  <span>Фокус</span>
                 </button>
                 {questionCodeFocusFullscreen && (
                   <>
@@ -3227,7 +3241,6 @@ const StudentTestModal = ({
                   {questionCodeMusicError}
                 </span>
               )}
-              <span className="student-test-code-focus__save-state">{codeFocusStatusLabel}</span>
               {!questionCodeFocusFullscreen && (
                 <button
                   type="button"
@@ -3241,20 +3254,19 @@ const StudentTestModal = ({
             </div>
           </header>
 
-          <nav className="student-test-code-focus__navigator" aria-label="Навигация по вопросам уровня">
-            <div className="student-test-code-focus__homework-row">
-              <div className="student-test-code-focus__nav-heading">
-                <span>Домашка</span>
-                <strong>
-                  {targetStatus.length > 0
-                    ? `${homeworkRemainingCount} осталось`
-                    : 'Весь уровень'}
-                </strong>
-                <span className="student-test-code-focus__nav-progress" aria-hidden="true">
-                  <i style={{ width: `${targetStatus.length > 0 ? homeworkProgressPercent : levelProgressPercent}%` }} />
-                </span>
-              </div>
-              {targetStatus.length > 0 ? (
+          <nav
+            className={`student-test-code-focus__navigator ${targetStatus.length > 0 ? 'has-homework' : ''}`}
+            aria-label="Навигация по вопросам уровня"
+          >
+            {targetStatus.length > 0 && (
+              <div className="student-test-code-focus__homework-row">
+                <div className="student-test-code-focus__nav-heading">
+                  <span>Домашка</span>
+                  <strong>{homeworkRemainingCount} осталось</strong>
+                  <span className="student-test-code-focus__nav-progress" aria-hidden="true">
+                    <i style={{ width: `${homeworkProgressPercent}%` }} />
+                  </span>
+                </div>
                 <div ref={questionCodeHomeworkStripRef} className="student-test-code-focus__homework-strip" aria-label="Вопросы из домашки">
                   {targetStatus.map((item, index) => {
                     const status = getQuestionStatusByNumber(item.num);
@@ -3275,17 +3287,13 @@ const StudentTestModal = ({
                     );
                   })}
                 </div>
-              ) : (
-                <div className="student-test-code-focus__homework-empty">
-                  В этом запуске доступны все вопросы выбранного уровня.
-                </div>
-              )}
-            </div>
+              </div>
+            )}
 
             <div className="student-test-code-focus__level-row">
               <div className="student-test-code-focus__nav-heading">
-                <span>Все задания</span>
-                <strong>{levelSolvedCount}/{levelQuestionNumbers.length} решено</strong>
+                <span>Прогресс</span>
+                <strong>{levelSolvedCount} из {levelQuestionNumbers.length}</strong>
                 <span className="student-test-code-focus__nav-progress" aria-hidden="true">
                   <i style={{ width: `${levelProgressPercent}%` }} />
                 </span>
@@ -3477,15 +3485,11 @@ const StudentTestModal = ({
               aria-label="Редактор кода"
             >
               <div className="student-test-code-focus__ide-topbar">
-                <div className="student-test-code-focus__window-dots" aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                </div>
                 <div className="student-test-code-focus__tab">
                   <Code2 size={15} />
                   <span>solution.py</span>
                 </div>
+                <span className={codeFocusSaveStateClassName}>{codeFocusStatusLabel}</span>
                 <div className="student-test-code-focus__tools">
                   <div className="student-test-code-focus__control-group" aria-label="Размер шрифта кода">
                     <button
@@ -3542,12 +3546,7 @@ const StudentTestModal = ({
                 </div>
               ) : (
                 <>
-                  <div className="student-test-code-focus__ide-grid">
-                    <div className="student-test-code-focus__activity" aria-hidden="true">
-                      <span className="is-active"><Code2 size={18} /></span>
-                      <span><Terminal size={18} /></span>
-                    </div>
-
+                  <div className={`student-test-code-focus__ide-grid ${isQuestionTerminalVisible ? 'is-terminal-visible' : ''}`}>
                     <div className="student-test-code-focus__editor-pane">
                       <Editor
                         height="100%"
@@ -3561,29 +3560,40 @@ const StudentTestModal = ({
                       />
                     </div>
 
-                    <aside className="student-test-code-focus__console-pane">
-                      <div className="student-test-code-focus__console-head">
-                        <span><Terminal size={15} /> Terminal</span>
-                        <div className="student-test-code-focus__console-actions">
-                          {hasQuestionTurtleScene && (
+                    {isQuestionTerminalVisible && (
+                      <aside className="student-test-code-focus__console-pane" aria-live="polite">
+                        <div className="student-test-code-focus__console-head">
+                          <span><Terminal size={15} /> Terminal</span>
+                          <div className="student-test-code-focus__console-actions">
+                            {hasQuestionTurtleScene && (
+                              <button
+                                type="button"
+                                className="student-test-code-focus__open-turtle"
+                                onClick={() => setQuestionTurtleWindowQuestionId(currentId)}
+                                title="Открыть рисунок Turtle"
+                              >
+                                <Maximize2 size={13} />
+                                <span>Рисунок</span>
+                              </button>
+                            )}
+                            {questionRunState.loading && <strong>running</strong>}
                             <button
                               type="button"
-                              className="student-test-code-focus__open-turtle"
-                              onClick={() => setQuestionTurtleWindowQuestionId(currentId)}
-                              title="Открыть рисунок Turtle"
+                              className="student-test-code-focus__console-close"
+                              onClick={() => setQuestionTerminalQuestionId('')}
+                              title="Закрыть терминал"
+                              aria-label="Закрыть терминал"
                             >
-                              <Maximize2 size={13} />
-                              <span>Рисунок</span>
+                              <X size={14} />
                             </button>
-                          )}
-                          {questionRunState.loading && <strong>running</strong>}
+                          </div>
                         </div>
-                      </div>
-                      <pre className="student-test-code-focus__terminal-output">
-                        {questionTerminalText}
-                      </pre>
-                      {questionCodeError && <div className="student-test-code-focus__error">{questionCodeError}</div>}
-                    </aside>
+                        <pre className="student-test-code-focus__terminal-output">
+                          {questionTerminalText}
+                        </pre>
+                        {questionCodeError && <div className="student-test-code-focus__error">{questionCodeError}</div>}
+                      </aside>
+                    )}
                   </div>
 
                   <div className={codeFocusAnswerCardClassName}>

@@ -93679,3 +93679,582 @@ html[data-theme='dark'] .mock-timer-confirm--close .mock-timer-confirm__note {
     color: CanvasText;
   }
 }
+
+/* Student code workspace v4: edge-to-edge panels and an on-demand terminal. */
+html .student-test-code-focus {
+  padding: 8px;
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace,
+html .student-test-code-focus .student-test-code-focus__workspace.is-side-by-side {
+  width: calc(100vw - 16px);
+  max-width: none;
+  height: calc(100dvh - 16px);
+  border: 1px solid var(--code-focus-border);
+  border-radius: 12px;
+  background: var(--code-focus-panel);
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.14);
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace::before,
+html .student-test-code-focus .student-test-code-focus__workspace::after {
+  display: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__workspace.is-focus-fullscreen,
+html .student-test-code-focus .student-test-code-focus__workspace:fullscreen {
+  width: 100vw;
+  height: 100dvh;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__header {
+  min-height: 54px;
+  padding: 7px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--code-focus-divider);
+  background: var(--code-focus-panel);
+}
+
+html .student-test-code-focus .student-test-code-focus__title {
+  gap: 9px;
+}
+
+html .student-test-code-focus .student-test-code-focus__title-icon {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--code-focus-accent-2);
+  background: var(--code-focus-blue-soft);
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__eyebrow {
+  color: var(--code-focus-accent);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+html .student-test-code-focus .student-test-code-focus__title h3 {
+  margin-top: 1px;
+  font-size: 16px;
+}
+
+html .student-test-code-focus .student-test-code-focus__header-actions,
+html .student-test-code-focus .student-test-code-focus__focus-tools {
+  gap: 5px;
+}
+
+html .student-test-code-focus .student-test-code-focus__focus-button,
+html .student-test-code-focus .student-test-code-focus__volume {
+  min-height: 32px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__focus-button {
+  padding: 0 10px;
+}
+
+html .student-test-code-focus .student-test-code-focus__close {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__navigator {
+  display: flex;
+  min-height: 50px;
+  grid-template-columns: none;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--code-focus-divider);
+  border-radius: 0;
+  background: var(--code-focus-panel-muted);
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-row,
+html .student-test-code-focus .student-test-code-focus__level-row {
+  min-height: 49px;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-row {
+  max-width: 42%;
+  flex: 1 1 36%;
+  border-right: 1px solid var(--code-focus-divider);
+}
+
+html .student-test-code-focus .student-test-code-focus__level-row {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+html .student-test-code-focus .student-test-code-focus__nav-heading {
+  min-width: 76px;
+  gap: 3px;
+  padding: 0;
+}
+
+html .student-test-code-focus .student-test-code-focus__nav-heading span {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+html .student-test-code-focus .student-test-code-focus__nav-progress {
+  height: 2px;
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-strip,
+html .student-test-code-focus .student-test-code-focus__level-strip {
+  gap: 5px;
+  padding: 3px 9px;
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-chip,
+html .student-test-code-focus .student-test-code-focus__level-dot,
+html .student-test-code-focus .student-test-code-focus__nav-arrow {
+  box-shadow: none;
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__homework-chip:hover,
+html .student-test-code-focus .student-test-code-focus__level-dot:hover,
+html .student-test-code-focus .student-test-code-focus__nav-arrow:hover:not(:disabled) {
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+html .student-test-code-focus .student-test-code-focus__level-dot,
+html .student-test-code-focus .student-test-code-focus__nav-arrow {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+html .student-test-code-focus .student-test-code-focus__body,
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side {
+  gap: 0;
+  padding: 0;
+  background: var(--code-focus-panel);
+}
+
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side {
+  grid-template-columns: minmax(340px, 0.72fr) minmax(0, 1.28fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+html .student-test-code-focus .student-test-code-focus__task,
+html .student-test-code-focus .student-test-code-focus__ide,
+html:not([data-theme='dark']) .student-test-code-focus .student-test-code-focus__task,
+html:not([data-theme='dark']) .student-test-code-focus .student-test-code-focus__ide {
+  border: 0;
+  border-radius: 0;
+  background: var(--code-focus-panel);
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__task:hover,
+html .student-test-code-focus .student-test-code-focus__ide:hover,
+html:not([data-theme='dark']) .student-test-code-focus .student-test-code-focus__task:hover,
+html:not([data-theme='dark']) .student-test-code-focus .student-test-code-focus__ide:hover {
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__task {
+  gap: 0;
+  padding: 0;
+}
+
+html .student-test-code-focus .student-test-code-focus__body:not(.is-side-by-side) .student-test-code-focus__task {
+  border-bottom: 1px solid var(--code-focus-divider);
+}
+
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__task {
+  border-right: 1px solid var(--code-focus-divider);
+  border-bottom: 0;
+}
+
+html .student-test-code-focus .student-test-code-focus__task-head {
+  min-height: 38px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--code-focus-divider);
+  background: var(--code-focus-panel-muted);
+}
+
+html .student-test-code-focus .student-test-code-focus__task-meta {
+  border-radius: 5px;
+  padding: 3px 6px;
+  color: var(--code-focus-muted);
+  background: transparent;
+}
+
+html .student-test-code-focus .student-test-code-focus__media,
+html .student-test-code-focus .student-test-code-focus__image-button {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__image-button:hover {
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__text-only {
+  border: 0;
+  border-radius: 0;
+}
+
+html .student-test-code-focus .student-test-code-focus__question-text {
+  max-height: 84px;
+  margin: 0;
+  border-width: 1px 0 0;
+  border-radius: 0;
+  padding: 9px 12px;
+}
+
+html .student-test-code-focus .student-test-code-focus__files {
+  min-height: 42px;
+  align-items: center;
+  padding: 6px 12px;
+  border-top: 1px solid var(--code-focus-divider);
+  background: var(--code-focus-panel);
+}
+
+html .student-test-code-focus .student-test-code-focus__files a {
+  min-height: 28px;
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__ide {
+  background: var(--code-focus-editor);
+}
+
+html .student-test-code-focus .student-test-code-focus__ide-topbar {
+  min-height: 46px;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--code-focus-divider);
+  background: var(--code-focus-panel-muted);
+}
+
+html .student-test-code-focus .student-test-code-focus__window-dots {
+  display: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__tab {
+  align-self: stretch;
+  min-height: 0;
+  border: 0;
+  border-bottom: 2px solid var(--code-focus-accent-2);
+  border-radius: 0;
+  padding: 0 7px;
+  color: var(--code-focus-text);
+  background: transparent;
+  box-shadow: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__tab:hover {
+  border-color: var(--code-focus-accent-2);
+  box-shadow: none;
+  transform: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__save-state {
+  min-height: 26px;
+  max-width: 210px;
+  flex: 0 1 auto;
+  border: 0;
+  padding: 0 4px;
+  color: var(--code-focus-muted);
+  background: transparent;
+  font-size: 10px;
+}
+
+html .student-test-code-focus .student-test-code-focus__save-state::before {
+  width: 6px;
+  height: 6px;
+  flex-basis: 6px;
+  margin-right: 6px;
+  background: var(--code-focus-muted);
+}
+
+html .student-test-code-focus .student-test-code-focus__save-state.is-loading::before,
+html .student-test-code-focus .student-test-code-focus__save-state.is-saving::before {
+  background: #f59e0b;
+}
+
+html .student-test-code-focus .student-test-code-focus__save-state.is-saved::before {
+  background: #10b981;
+}
+
+html .student-test-code-focus .student-test-code-focus__tools {
+  gap: 5px;
+}
+
+html .student-test-code-focus .student-test-code-focus__control-group,
+html .student-test-code-focus .student-test-code-focus__tool-button {
+  min-height: 32px;
+  border-radius: 8px;
+  box-shadow: none;
+  animation: none;
+}
+
+html .student-test-code-focus .student-test-code-focus__control-group {
+  border-color: var(--code-focus-border);
+  background: var(--code-focus-panel);
+}
+
+html .student-test-code-focus .student-test-code-focus__tool-button.is-layout {
+  border-color: color-mix(in srgb, var(--code-focus-accent-2) 35%, var(--code-focus-border));
+  color: var(--code-focus-accent-2);
+  background: var(--code-focus-panel);
+}
+
+html .student-test-code-focus .student-test-code-focus__tool-button.is-run {
+  border-color: #0f8c79;
+  color: #ffffff;
+  background: #0f8c79;
+}
+
+html .student-test-code-focus .student-test-code-focus__ide-grid,
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__ide-grid {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--code-focus-editor);
+}
+
+html .student-test-code-focus .student-test-code-focus__ide-grid.is-terminal-visible,
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__ide-grid.is-terminal-visible {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(150px, 0.36fr);
+}
+
+html .student-test-code-focus .student-test-code-focus__editor-pane,
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__editor-pane {
+  grid-column: 1;
+  grid-row: 1;
+  border: 0;
+  background: var(--code-focus-editor);
+}
+
+html .student-test-code-focus .student-test-code-focus__ide-grid.is-terminal-visible .student-test-code-focus__editor-pane,
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__ide-grid.is-terminal-visible .student-test-code-focus__editor-pane {
+  border-bottom: 1px solid var(--code-focus-divider);
+}
+
+html .student-test-code-focus .student-test-code-focus__console-pane,
+html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__console-pane {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+html .student-test-code-focus .student-test-code-focus__console-head {
+  min-height: 36px;
+  padding: 0 8px 0 11px;
+}
+
+html .student-test-code-focus .student-test-code-focus__console-close {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  color: #a9bbd5;
+  background: transparent;
+  cursor: pointer;
+}
+
+html .student-test-code-focus .student-test-code-focus__console-close:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+html .student-test-code-focus .student-test-code-focus__console-close:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-card {
+  min-height: 56px;
+  grid-template-columns: minmax(96px, auto) minmax(180px, 1fr) auto;
+  gap: 9px;
+  border: 0;
+  border-top: 1px solid var(--code-focus-divider);
+  border-radius: 0;
+  padding: 7px 64px 7px 11px;
+  background: var(--code-focus-panel-muted);
+  box-shadow: inset 3px 0 0 var(--code-focus-accent);
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-card.is-correct {
+  border-top-color: var(--code-focus-divider);
+  background: color-mix(in srgb, #10b981 6%, var(--code-focus-panel));
+  box-shadow: inset 3px 0 0 #10b981;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-card.is-wrong {
+  border-top-color: var(--code-focus-divider);
+  background: color-mix(in srgb, #ef4444 5%, var(--code-focus-panel));
+  box-shadow: inset 3px 0 0 #ef4444;
+}
+
+html .student-test-code-focus .student-test-code-focus__answer-body input,
+html .student-test-code-focus .student-test-code-focus__answer-actions button {
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+@media (max-width: 900px) {
+  html .student-test-code-focus {
+    padding: 0;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__workspace,
+  html .student-test-code-focus .student-test-code-focus__workspace.is-side-by-side {
+    width: 100vw;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__navigator {
+    display: flex;
+    grid-template-columns: none;
+    overflow-x: auto;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__homework-row {
+    min-width: 300px;
+    border-right: 1px solid var(--code-focus-divider);
+    border-bottom: 0;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__level-row {
+    min-width: 430px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__body,
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(150px, 30vh) minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__task {
+    border-right: 0;
+    border-bottom: 1px solid var(--code-focus-divider);
+  }
+}
+
+@media (max-width: 639px) {
+  html .student-test-code-focus .student-test-code-focus__header {
+    min-height: 48px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__title-icon {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__navigator {
+    min-height: 46px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__homework-row,
+  html .student-test-code-focus .student-test-code-focus__level-row {
+    min-height: 45px;
+    padding: 3px 8px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__body,
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side {
+    grid-template-rows: minmax(128px, 26vh) minmax(0, 1fr);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__task,
+  html .student-test-code-focus .student-test-code-focus__ide {
+    border-radius: 0;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__ide-topbar {
+    min-height: 42px;
+    gap: 4px;
+    padding: 0 6px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__tab {
+    display: inline-flex;
+    padding: 0 5px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__tab span,
+  html .student-test-code-focus .student-test-code-focus__save-state {
+    display: none;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__tools {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__control-group {
+    flex: 0 1 116px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__ide-grid.is-terminal-visible,
+  html .student-test-code-focus .student-test-code-focus__body.is-side-by-side .student-test-code-focus__ide-grid.is-terminal-visible {
+    grid-template-rows: minmax(190px, 1fr) minmax(120px, 0.34fr);
+  }
+
+  html .student-test-code-focus .student-test-code-focus__answer-card {
+    min-height: 76px;
+    padding: 5px 44px 5px 7px;
+  }
+}
+
+@media (max-width: 440px) {
+  html .student-test-code-focus .student-test-code-focus__eyebrow {
+    display: none;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__title h3 {
+    margin: 0;
+    font-size: 14px;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__tool-button.is-layout span,
+  html .student-test-code-focus .student-test-code-focus__font-size-label {
+    display: none;
+  }
+
+  html .student-test-code-focus .student-test-code-focus__control-group {
+    flex-basis: 74px;
+  }
+}
