@@ -390,6 +390,7 @@ const uploadsDir = resolveStoragePath(
   process.env.PLATFORM_UPLOADS_DIR || process.env.APP_UPLOADS_DIR || process.env.UPLOADS_DIR,
   defaultUploadsDir
 );
+const studentShareCardsDir = path.join(uploadsDir, 'student-share-cards');
 const jsonBackupsDir = resolveStoragePath(
   process.env.PLATFORM_JSON_BACKUPS_DIR || process.env.APP_JSON_BACKUPS_DIR,
   path.join(dataDir, 'json-backups')
@@ -514,6 +515,12 @@ const STUDENT_HELP_CODE_MAX_LENGTH = 20000;
 const STUDENT_HELP_REQUEST_RATE_LIMIT = 3;
 const STUDENT_HELP_REQUEST_RATE_WINDOW_MS = 60 * 1000;
 const STUDENT_HELP_TELEGRAM_TIMEOUT_MS = 12 * 1000;
+const STUDENT_SHARE_CARD_MAX_BYTES = 12 * 1024 * 1024;
+const STUDENT_SHARE_CARD_TTL_MS = 24 * 60 * 60 * 1000;
+const STUDENT_SHARE_CARD_RATE_LIMIT = 30;
+const STUDENT_SHARE_CARD_RATE_WINDOW_MS = 60 * 60 * 1000;
+const STUDENT_SHARE_CARD_TOKEN_PATTERN = /^[a-f0-9]{48}$/;
+const STUDENT_SHARE_CARD_FILE_PATTERN = /^([a-f0-9]{48})\.png$/;
 const STUDENT_CHAT_MESSAGES_PAGE_SIZE = 15;
 const STUDENT_CHAT_MESSAGES_MAX_PAGE_SIZE = 50;
 const STUDENT_CHAT_DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -1041,6 +1048,7 @@ const normalizeStreak = (value) => {
 
 
 fs.mkdirSync(uploadsDir, { recursive: true });
+fs.mkdirSync(studentShareCardsDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(collabDir, { recursive: true });
 fs.mkdirSync(boardSnapshotsDir, { recursive: true });
@@ -16724,6 +16732,15 @@ const lessonReplaySnapshotUpload = multer({
     fileSize: LESSON_REPLAY_SNAPSHOT_MAX_FILE_BYTES,
   },
 });
+const studentShareCardUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 1,
+    fields: 2,
+    fieldSize: 512,
+    fileSize: STUDENT_SHARE_CARD_MAX_BYTES,
+  },
+});
 
 const withWorkbookSolutionWriteLock = async (solutionKey, operation) => {
   const normalizedKey = String(solutionKey || '').trim();
@@ -18148,6 +18165,124 @@ const handleUploadRequest = (req, res) => {
 
 app.get('/uploads/:storageName', handleUploadRequest);
 app.head('/uploads/:storageName', handleUploadRequest);
+
+const studentShareCardRateByStudent = new Map();
+
+const getStudentShareCardFilePath = (token) => {
+  const normalizedToken = String(token || '').trim().toLowerCase();
+  if (!STUDENT_SHARE_CARD_TOKEN_PATTERN.test(normalizedToken)) return '';
+  return path.join(studentShareCardsDir, `${normalizedToken}.png`);
+};
+
+const getStudentShareCardState = (token) => {
+  const filePath = getStudentShareCardFilePath(token);
+  if (!filePath || !fs.existsSync(filePath)) return { status: 'missing', filePath: '' };
+  try {
+    const stat = fs.statSync(filePath);
+    const expiresAtMs = stat.mtimeMs + STUDENT_SHARE_CARD_TTL_MS;
+    if (!stat.isFile() || expiresAtMs <= Date.now()) {
+      fs.rmSync(filePath, { force: true });
+      return { status: 'expired', filePath: '' };
+    }
+    return { status: 'ready', filePath, stat, expiresAtMs };
+  } catch {
+    return { status: 'missing', filePath: '' };
+  }
+};
+
+const removeExpiredStudentShareCards = () => {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(studentShareCardsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const nowMs = Date.now();
+  entries.forEach((entry) => {
+    if (!entry.isFile() || !STUDENT_SHARE_CARD_FILE_PATTERN.test(entry.name)) return;
+    const filePath = path.join(studentShareCardsDir, entry.name);
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.mtimeMs + STUDENT_SHARE_CARD_TTL_MS <= nowMs) fs.rmSync(filePath, { force: true });
+    } catch {
+      // The file may already have been removed by another request.
+    }
+  });
+};
+
+const studentShareCardSweepInterval = setInterval(removeExpiredStudentShareCards, 60 * 60 * 1000);
+if (typeof studentShareCardSweepInterval.unref === 'function') studentShareCardSweepInterval.unref();
+removeExpiredStudentShareCards();
+
+const escapeStudentShareCardHtml = (value) => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const getStudentShareCardPublicOrigin = (req) => {
+  const configuredBase = String(process.env.APP_PUBLIC_URL || '').trim();
+  if (configuredBase) {
+    try {
+      return new URL(configuredBase).origin;
+    } catch {
+      // Fall back to the origin of the current request.
+    }
+  }
+  const host = String(req.get('host') || '').trim();
+  return host ? `${req.protocol || 'https'}://${host}` : '';
+};
+
+const sendStudentShareCardUnavailable = (res, state) => res
+  .status(state?.status === 'expired' ? 410 : 404)
+  .set('Cache-Control', 'no-store')
+  .send(state?.status === 'expired' ? 'Ссылка на карточку истекла' : 'Карточка не найдена');
+
+app.get('/shared-task/:token/card.png', (req, res) => {
+  const state = getStudentShareCardState(req.params.token);
+  if (state.status !== 'ready') return sendStudentShareCardUnavailable(res, state);
+  const maxAgeSeconds = Math.max(0, Math.floor((state.expiresAtMs - Date.now()) / 1000));
+  res.setHeader('Cache-Control', `public, max-age=${maxAgeSeconds}, immutable`);
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.sendFile(state.filePath);
+});
+
+app.get('/shared-task/:token', (req, res) => {
+  const state = getStudentShareCardState(req.params.token);
+  if (state.status !== 'ready') return sendStudentShareCardUnavailable(res, state);
+  const token = String(req.params.token || '').trim().toLowerCase();
+  const origin = getStudentShareCardPublicOrigin(req);
+  const pageUrl = `${origin}/shared-task/${token}`;
+  const imageUrl = `${pageUrl}/card.png`;
+  const title = 'Условие и код ученика';
+  const description = 'Карточка задания из учебной платформы «Иван на сотку»';
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'");
+  res.type('html').send(`<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>${escapeStudentShareCardHtml(title)}</title>
+  <meta name="description" content="${escapeStudentShareCardHtml(description)}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Иван на сотку">
+  <meta property="og:title" content="${escapeStudentShareCardHtml(title)}">
+  <meta property="og:description" content="${escapeStudentShareCardHtml(description)}">
+  <meta property="og:url" content="${escapeStudentShareCardHtml(pageUrl)}">
+  <meta property="og:image" content="${escapeStudentShareCardHtml(imageUrl)}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1280">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>html{color-scheme:light;background:#f3f0ff}body{margin:0;padding:24px;display:grid;place-items:start center;font-family:Inter,system-ui,sans-serif}.card{width:min(100%,1280px);filter:drop-shadow(0 24px 48px rgba(76,29,149,.16));border-radius:24px}p{color:#6b6480;text-align:center}</style>
+</head>
+<body><main><img class="card" src="${escapeStudentShareCardHtml(imageUrl)}" alt="Условие задания и код ученика"><p>Ссылка на карточку действует 24 часа.</p></main></body>
+</html>`);
+});
 
 app.post('/api/login', async (req, res, next) => {
   try {
@@ -19961,6 +20096,74 @@ app.get('/api/student-help/channels', (req, res) => {
     teacherName: findTeacherById(student.teacherId)?.name || 'преподаватель',
   });
 });
+
+const consumeStudentShareCardRate = (studentId) => {
+  const key = String(studentId || '').trim();
+  const nowMs = Date.now();
+  const recent = (studentShareCardRateByStudent.get(key) || [])
+    .filter((createdAtMs) => nowMs - createdAtMs < STUDENT_SHARE_CARD_RATE_WINDOW_MS);
+  if (recent.length >= STUDENT_SHARE_CARD_RATE_LIMIT) {
+    studentShareCardRateByStudent.set(key, recent);
+    return false;
+  }
+  recent.push(nowMs);
+  studentShareCardRateByStudent.set(key, recent);
+  return true;
+};
+
+app.post(
+  '/api/student-share-cards',
+  (req, res, next) => {
+    studentShareCardUpload.single('card')(req, res, (error) => {
+      if (!error) return next();
+      if (error?.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: 'Карточка получилась слишком большой' });
+      }
+      return res.status(400).json({ error: 'Не удалось загрузить карточку' });
+    });
+  },
+  (req, res) => {
+    if (!isStudentRole(req.auth)) return forbid(res);
+    const student = findStudentById(req.auth.id);
+    if (!student?.id) return res.status(404).json({ error: 'Ученик не найден' });
+    const file = req.file;
+    if (!file?.buffer || file.mimetype !== 'image/png') {
+      return res.status(400).json({ error: 'Карточка должна быть изображением PNG' });
+    }
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    if (file.buffer.length < 24 || !file.buffer.subarray(0, pngSignature.length).equals(pngSignature)) {
+      return res.status(400).json({ error: 'Файл карточки повреждён' });
+    }
+    const width = file.buffer.readUInt32BE(16);
+    const height = file.buffer.readUInt32BE(20);
+    if (width < 320 || width > 4096 || height < 180 || height > 20000) {
+      return res.status(400).json({ error: 'Некорректный размер карточки' });
+    }
+    if (!consumeStudentShareCardRate(student.id)) {
+      return res.status(429).json({ error: 'Слишком много карточек за последний час. Попробуйте позже.' });
+    }
+
+    removeExpiredStudentShareCards();
+    const token = crypto.randomBytes(24).toString('hex');
+    const filePath = getStudentShareCardFilePath(token);
+    try {
+      fs.writeFileSync(filePath, file.buffer, { flag: 'wx' });
+    } catch (error) {
+      console.error('[student-share-card] save failed:', error);
+      return res.status(500).json({ error: 'Не удалось подготовить ссылку для Telegram' });
+    }
+    const origin = getStudentShareCardPublicOrigin(req);
+    if (!origin) {
+      try { fs.rmSync(filePath, { force: true }); } catch {}
+      return res.status(500).json({ error: 'Не удалось определить адрес платформы' });
+    }
+    const expiresAt = new Date(Date.now() + STUDENT_SHARE_CARD_TTL_MS).toISOString();
+    return res.status(201).json({
+      shareUrl: `${origin}/shared-task/${token}`,
+      expiresAt,
+    });
+  }
+);
 
 app.post('/api/student-help-requests', async (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);

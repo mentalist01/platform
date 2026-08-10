@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Share2, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import useWorkbookHelper from '../hooks/useWorkbookHelper';
 import { buildDownloadUrl } from '../utils/downloadUrl';
@@ -34,6 +34,10 @@ const STUDENT_CODE_FOCUS_FULLSCREEN_DELAY_MS = 120;
 const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
 const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
 const STUDENT_CODE_COPY_FEEDBACK_MS = 1800;
+const STUDENT_TEACHER_SHARE_FEEDBACK_MS = 2600;
+const STUDENT_TELEGRAM_APP_FALLBACK_MS = 6000;
+const STUDENT_TEACHER_SHARE_MAX_SCREENSHOTS = 8;
+const STUDENT_TEACHER_SHARE_MAX_CODE_LENGTH = 16000;
 const MOCK_EXAM_SOURCE_BADGE_COLOR = '#0f766e';
 const TEST_WORKBOOK_EXTENSIONS = new Set(['xls', 'xlsx', 'xlsm', 'xlsb', 'ods', 'fods']);
 const TEXT_TO_WORKBOOK_TASK_NUMBERS = new Set([26, 27]);
@@ -97,8 +101,8 @@ const STUDENT_TEST_WINDOW_TOUR_STEPS = [
   {
     target: '[data-student-test-tour="teacher-help"]',
     fallback: '[data-student-test-tour="condition"]',
-    title: 'Не нужно пересказывать условие',
-    text: 'При отправке вопроса учитель автоматически получит текущее условие и сохранённый код. Вам останется описать трудность, а ответ придёт в раздел «Чаты».',
+    title: 'Поделиться заданием',
+    text: 'Здесь можно спросить учителя внутри платформы, отправить красивую карточку через Telegram или скопировать её для одного Ctrl+V.',
     accent: '#ec4899',
   },
   {
@@ -383,6 +387,399 @@ const createStudentHelpMultiImageSnapshot = async ({ screenshots, taskNumber, qu
       if (objectUrl) window.URL.revokeObjectURL(objectUrl);
     });
   }
+};
+
+const STUDENT_TEACHER_SHARE_PYTHON_KEYWORDS = new Set([
+  'and', 'as', 'assert', 'async', 'await', 'break', 'case', 'class', 'continue', 'def', 'del',
+  'elif', 'else', 'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is',
+  'lambda', 'match', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with',
+  'yield', 'False', 'None', 'True',
+]);
+const STUDENT_TEACHER_SHARE_PYTHON_BUILTINS = new Set([
+  'abs', 'all', 'any', 'bool', 'dict', 'enumerate', 'filter', 'float', 'input', 'int', 'isinstance',
+  'len', 'list', 'map', 'max', 'min', 'open', 'print', 'range', 'reversed', 'round', 'set', 'sorted',
+  'str', 'sum', 'tuple', 'type', 'zip',
+]);
+
+const buildStudentTeacherShareText = ({
+  taskNumber,
+  taskTitle,
+  questionNumber,
+  label,
+  conditionText,
+  screenshotCount,
+  code,
+  answer,
+}) => {
+  const sections = [
+    `Задание №${taskNumber} · вопрос №${questionNumber}`,
+    String(taskTitle || '').trim(),
+    String(label || '').trim(),
+  ].filter(Boolean);
+  const normalizedCondition = String(conditionText || '').trim();
+  if (normalizedCondition) sections.push(`УСЛОВИЕ\n${normalizedCondition}`);
+  if (screenshotCount > 0) {
+    sections.push(`К условию приложено ${screenshotCount} ${screenshotCount === 1 ? 'изображение' : 'изображения'}.`);
+  }
+  const normalizedAnswer = String(answer || '').trim();
+  if (normalizedAnswer) sections.push(`МОЙ ОТВЕТ\n${normalizedAnswer}`);
+  const normalizedCode = String(code || '').trimEnd();
+  sections.push(`МОЙ КОД · solution.py\n\`\`\`python\n${normalizedCode || '# Код пока не написан'}\n\`\`\``);
+  return sections.join('\n\n');
+};
+
+const splitStudentTeacherShareCodeLines = (value, maxCharacters = 88, maxLines = 150) => {
+  const source = String(value || '# Код пока не написан')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\t/g, '    ')
+    .slice(0, STUDENT_TEACHER_SHARE_MAX_CODE_LENGTH);
+  const displayLines = [];
+  const sourceLines = source.split('\n');
+  sourceLines.forEach((line, sourceIndex) => {
+    if (displayLines.length >= maxLines) return;
+    if (!line) {
+      displayLines.push({ text: '', number: sourceIndex + 1, continuation: false });
+      return;
+    }
+    let remainder = line;
+    let continuation = false;
+    while (remainder.length > 0 && displayLines.length < maxLines) {
+      displayLines.push({
+        text: remainder.slice(0, maxCharacters),
+        number: sourceIndex + 1,
+        continuation,
+      });
+      remainder = remainder.slice(maxCharacters);
+      continuation = true;
+    }
+  });
+  const wasTruncated = source.length < String(value || '').replace(/\r\n?/g, '\n').length
+    || sourceLines.some((_, index) => index + 1 > (displayLines.at(-1)?.number || 0));
+  if (wasTruncated && displayLines.length < maxLines) {
+    displayLines.push({ text: '# … часть кода не поместилась в карточку', number: null, continuation: true });
+  }
+  return displayLines.slice(0, maxLines);
+};
+
+const getStudentTeacherShareCodeTokens = (line) => {
+  const source = String(line || '');
+  const tokens = [];
+  const pattern = /#[^\n]*|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\b[A-Za-z_]\w*\b|\b\d+(?:\.\d+)?\b/g;
+  let cursor = 0;
+  let match = pattern.exec(source);
+  while (match) {
+    if (match.index > cursor) tokens.push({ text: source.slice(cursor, match.index), color: '#dbeafe' });
+    const token = match[0];
+    let color = '#dbeafe';
+    if (token.startsWith('#')) color = '#7dd3a7';
+    else if (token.startsWith("'") || token.startsWith('"')) color = '#fbbf8a';
+    else if (/^\d/.test(token)) color = '#f9d67a';
+    else if (STUDENT_TEACHER_SHARE_PYTHON_KEYWORDS.has(token)) color = '#c4a7ff';
+    else if (STUDENT_TEACHER_SHARE_PYTHON_BUILTINS.has(token)) color = '#67e8f9';
+    tokens.push({ text: token, color });
+    cursor = match.index + token.length;
+    match = pattern.exec(source);
+  }
+  if (cursor < source.length) tokens.push({ text: source.slice(cursor), color: '#dbeafe' });
+  return tokens;
+};
+
+const studentTeacherShareCanvasToBlob = (canvas) => new Promise((resolve, reject) => {
+  canvas.toBlob((blob) => {
+    if (blob) resolve(blob);
+    else reject(new Error('Не удалось подготовить карточку'));
+  }, 'image/png');
+});
+
+const createStudentTeacherShareCard = async ({
+  taskNumber,
+  taskTitle,
+  questionNumber,
+  label,
+  conditionText,
+  screenshots,
+  code,
+  answer,
+}) => {
+  if (typeof document === 'undefined') throw new Error('Canvas is unavailable');
+  const loadedScreenshots = [];
+  try {
+    for (const screenshot of (Array.isArray(screenshots) ? screenshots : []).slice(0, STUDENT_TEACHER_SHARE_MAX_SCREENSHOTS)) {
+      try {
+        const loaded = await loadStudentHelpSnapshotImage(screenshot);
+        if (loaded?.image?.naturalWidth > 0 && loaded?.image?.naturalHeight > 0) loadedScreenshots.push(loaded);
+      } catch {
+        // A textual card is still useful when a single attachment cannot be loaded.
+      }
+    }
+
+    const width = 1280;
+    const outerPadding = 34;
+    const contentX = 58;
+    const contentWidth = width - contentX * 2;
+    const headerHeight = 176;
+    const sectionTitleHeight = 54;
+    const sectionGap = 30;
+    const imageGap = 18;
+    const conditionTextSource = String(conditionText || '').trim();
+    const measureCanvas = document.createElement('canvas');
+    const measureContext = measureCanvas.getContext('2d');
+    if (!measureContext) throw new Error('Canvas is unavailable');
+    measureContext.font = '500 25px Inter, Arial, sans-serif';
+    const conditionLines = wrapStudentHelpCanvasText(measureContext, conditionTextSource.slice(0, 4000), contentWidth - 56)
+      .slice(0, 42);
+    const conditionTextHeight = conditionLines.length > 0 ? 42 + conditionLines.length * 36 : 0;
+
+    const naturalImageLayouts = loadedScreenshots.map(({ image }) => ({
+      image,
+      width: contentWidth,
+      height: Math.max(1, Math.round(image.naturalHeight * (contentWidth / image.naturalWidth))),
+    }));
+    const naturalImagesHeight = naturalImageLayouts.reduce((sum, item) => sum + item.height, 0)
+      + Math.max(0, naturalImageLayouts.length - 1) * imageGap;
+    const maxImagesHeight = 6800;
+    const imagesScale = naturalImagesHeight > maxImagesHeight
+      ? (maxImagesHeight - Math.max(0, naturalImageLayouts.length - 1) * imageGap) / Math.max(1, naturalImagesHeight)
+      : 1;
+    const imageLayouts = naturalImageLayouts.map((item) => ({
+      ...item,
+      width: Math.round(item.width * imagesScale),
+      height: Math.round(item.height * imagesScale),
+    }));
+    const imagesHeight = imageLayouts.reduce((sum, item) => sum + item.height, 0)
+      + Math.max(0, imageLayouts.length - 1) * imageGap;
+    const hasConditionContent = imageLayouts.length > 0 || conditionLines.length > 0;
+    const conditionHeight = sectionTitleHeight
+      + (hasConditionContent ? imagesHeight + conditionTextHeight + (imagesHeight > 0 && conditionTextHeight > 0 ? 22 : 0) : 100);
+
+    const codeLines = splitStudentTeacherShareCodeLines(String(code || ''));
+    const codeHeaderHeight = 70;
+    const codeLineHeight = 31;
+    const codeBodyPadding = 28;
+    const codeBlockHeight = codeHeaderHeight + codeBodyPadding * 2 + Math.max(1, codeLines.length) * codeLineHeight;
+
+    measureContext.font = '600 24px Inter, Arial, sans-serif';
+    const answerLines = wrapStudentHelpCanvasText(measureContext, String(answer || '').slice(0, 1200), contentWidth - 68)
+      .slice(0, 10);
+    const answerHeight = answerLines.length > 0 ? 92 + answerLines.length * 35 : 0;
+    const footerHeight = 78;
+    const height = outerPadding + headerHeight + conditionHeight + sectionGap + sectionTitleHeight + codeBlockHeight
+      + (answerHeight > 0 ? sectionGap + answerHeight : 0) + footerHeight + outerPadding;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas is unavailable');
+
+    const background = context.createLinearGradient(0, 0, width, height);
+    background.addColorStop(0, '#f4f1ff');
+    background.addColorStop(0.48, '#f8fafc');
+    background.addColorStop(1, '#eff6ff');
+    context.fillStyle = background;
+    context.fillRect(0, 0, width, height);
+    context.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    context.beginPath();
+    context.roundRect(outerPadding, outerPadding, width - outerPadding * 2, height - outerPadding * 2, 34);
+    context.fill();
+    context.strokeStyle = '#d8d2fe';
+    context.lineWidth = 2;
+    context.stroke();
+
+    const accent = context.createLinearGradient(contentX, 0, width - contentX, 0);
+    accent.addColorStop(0, '#7c3aed');
+    accent.addColorStop(0.56, '#9333ea');
+    accent.addColorStop(1, '#2563eb');
+    context.fillStyle = accent;
+    context.beginPath();
+    context.roundRect(contentX, 66, 206, 40, 20);
+    context.fill();
+    context.fillStyle = '#ffffff';
+    context.font = '800 17px Inter, Arial, sans-serif';
+    context.fillText('ДЛЯ УЧИТЕЛЯ', contentX + 28, 92);
+    context.fillStyle = '#0f172a';
+    context.font = '850 36px Inter, Arial, sans-serif';
+    context.fillText(`Задание №${taskNumber} · вопрос №${questionNumber}`, contentX, 142);
+    const subtitle = [String(taskTitle || '').trim(), String(label || '').trim()].filter(Boolean).join(' · ');
+    if (subtitle) {
+      context.fillStyle = '#64748b';
+      context.font = '650 20px Inter, Arial, sans-serif';
+      context.fillText(subtitle.slice(0, 90), contentX, 174);
+    }
+
+    let y = outerPadding + headerHeight;
+    context.fillStyle = '#7c3aed';
+    context.font = '850 19px Inter, Arial, sans-serif';
+    context.fillText('УСЛОВИЕ', contentX, y + 30);
+    if (imageLayouts.length > 0) {
+      context.fillStyle = '#94a3b8';
+      context.font = '650 16px Inter, Arial, sans-serif';
+      context.fillText(`${imageLayouts.length} ${imageLayouts.length === 1 ? 'изображение' : 'изображения'}`, contentX + 126, y + 30);
+    }
+    y += sectionTitleHeight;
+
+    if (!hasConditionContent) {
+      context.fillStyle = '#f8fafc';
+      context.beginPath();
+      context.roundRect(contentX, y, contentWidth, 82, 22);
+      context.fill();
+      context.fillStyle = '#64748b';
+      context.font = '600 23px Inter, Arial, sans-serif';
+      context.fillText('Условие находится в материалах задания.', contentX + 28, y + 50);
+      y += 100;
+    } else {
+      imageLayouts.forEach((layout, index) => {
+        const imageX = contentX + Math.round((contentWidth - layout.width) / 2);
+        context.save();
+        context.shadowColor = 'rgba(15, 23, 42, 0.13)';
+        context.shadowBlur = 18;
+        context.shadowOffsetY = 7;
+        context.fillStyle = '#ffffff';
+        context.beginPath();
+        context.roundRect(imageX - 5, y - 5, layout.width + 10, layout.height + 10, 18);
+        context.fill();
+        context.restore();
+        context.drawImage(layout.image, imageX, y, layout.width, layout.height);
+        if (imageLayouts.length > 1) {
+          context.fillStyle = 'rgba(15, 23, 42, 0.82)';
+          context.beginPath();
+          context.roundRect(imageX + 16, y + 16, 108, 34, 17);
+          context.fill();
+          context.fillStyle = '#ffffff';
+          context.font = '750 15px Inter, Arial, sans-serif';
+          context.fillText(`Часть ${index + 1}`, imageX + 35, y + 39);
+        }
+        y += layout.height + imageGap;
+      });
+      if (imageLayouts.length > 0) y -= imageGap;
+      if (conditionLines.length > 0) {
+        if (imageLayouts.length > 0) y += 22;
+        context.fillStyle = '#f8fafc';
+        context.beginPath();
+        context.roundRect(contentX, y, contentWidth, conditionTextHeight, 22);
+        context.fill();
+        context.strokeStyle = '#e2e8f0';
+        context.lineWidth = 1.5;
+        context.stroke();
+        context.fillStyle = '#1e293b';
+        context.font = '500 25px Inter, Arial, sans-serif';
+        let textY = y + 36;
+        conditionLines.forEach((line) => {
+          context.fillText(line, contentX + 28, textY);
+          textY += 36;
+        });
+        y += conditionTextHeight;
+      }
+    }
+
+    y += sectionGap;
+    context.fillStyle = '#7c3aed';
+    context.font = '850 19px Inter, Arial, sans-serif';
+    context.fillText('МОЙ КОД', contentX, y + 30);
+    context.fillStyle = '#94a3b8';
+    context.font = '650 16px Inter, Arial, sans-serif';
+    context.fillText('solution.py · текущая версия', contentX + 124, y + 30);
+    y += sectionTitleHeight;
+
+    const codeY = y;
+    context.fillStyle = '#0b1020';
+    context.beginPath();
+    context.roundRect(contentX, codeY, contentWidth, codeBlockHeight, 24);
+    context.fill();
+    context.fillStyle = '#ef4444';
+    context.beginPath();
+    context.arc(contentX + 28, codeY + 29, 7, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#f59e0b';
+    context.beginPath();
+    context.arc(contentX + 52, codeY + 29, 7, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#22c55e';
+    context.beginPath();
+    context.arc(contentX + 76, codeY + 29, 7, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#94a3b8';
+    context.font = '650 17px ui-monospace, SFMono-Regular, Consolas, monospace';
+    context.fillText('solution.py', contentX + 104, codeY + 36);
+    context.strokeStyle = '#1e293b';
+    context.beginPath();
+    context.moveTo(contentX, codeY + codeHeaderHeight);
+    context.lineTo(contentX + contentWidth, codeY + codeHeaderHeight);
+    context.stroke();
+
+    context.font = '500 20px ui-monospace, SFMono-Regular, Consolas, monospace';
+    let codeTextY = codeY + codeHeaderHeight + codeBodyPadding + 21;
+    codeLines.forEach((line) => {
+      context.fillStyle = '#64748b';
+      context.textAlign = 'right';
+      context.fillText(line.continuation ? '·' : String(line.number ?? ''), contentX + 61, codeTextY);
+      context.textAlign = 'left';
+      let codeX = contentX + 84;
+      getStudentTeacherShareCodeTokens(line.text).forEach((token) => {
+        context.fillStyle = token.color;
+        context.fillText(token.text, codeX, codeTextY);
+        codeX += context.measureText(token.text).width;
+      });
+      codeTextY += codeLineHeight;
+    });
+    y += codeBlockHeight;
+
+    if (answerLines.length > 0) {
+      y += sectionGap;
+      context.fillStyle = '#ecfdf5';
+      context.beginPath();
+      context.roundRect(contentX, y, contentWidth, answerHeight, 22);
+      context.fill();
+      context.strokeStyle = '#a7f3d0';
+      context.lineWidth = 1.5;
+      context.stroke();
+      context.fillStyle = '#047857';
+      context.font = '850 17px Inter, Arial, sans-serif';
+      context.fillText('МОЙ ОТВЕТ', contentX + 28, y + 34);
+      context.fillStyle = '#064e3b';
+      context.font = '650 24px Inter, Arial, sans-serif';
+      let answerY = y + 73;
+      answerLines.forEach((line) => {
+        context.fillText(line, contentX + 28, answerY);
+        answerY += 35;
+      });
+      y += answerHeight;
+    }
+
+    context.fillStyle = '#94a3b8';
+    context.font = '650 16px Inter, Arial, sans-serif';
+    context.fillText('Подготовлено для учителя · платформа «Иван на сотку»', contentX, height - outerPadding - 27);
+    context.textAlign = 'right';
+    context.fillText('Условие + текущий код в одном сообщении', width - contentX, height - outerPadding - 27);
+    context.textAlign = 'left';
+    return studentTeacherShareCanvasToBlob(canvas);
+  } finally {
+    loadedScreenshots.forEach(({ objectUrl }) => {
+      if (objectUrl && typeof window !== 'undefined') window.URL.revokeObjectURL(objectUrl);
+    });
+  }
+};
+
+const writeStudentTeacherShareToClipboard = async ({ cardPromise, textPromise }) => {
+  if (
+    typeof navigator !== 'undefined'
+    && navigator.clipboard?.write
+    && typeof ClipboardItem !== 'undefined'
+  ) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'image/png': cardPromise,
+          'text/plain': Promise.resolve(textPromise).then((value) => new Blob([value], { type: 'text/plain' })),
+        }),
+      ]);
+      return 'image';
+    } catch {
+      // Some browsers only allow copying text; preserve a useful fallback.
+    }
+  }
+  await writeStudentCodeToClipboard(await textPromise);
+  return 'text';
 };
 
 const clampStudentCodeFontSize = (value) => {
@@ -712,6 +1109,8 @@ const StudentTestModal = ({
   const [questionCodePreviewOpen, setQuestionCodePreviewOpen] = useState(false);
   const questionCodePanelRef = useRef(null);
   const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
+  const [questionShareCopyState, setQuestionShareCopyState] = useState('idle');
+  const [questionShareMenuAnchor, setQuestionShareMenuAnchor] = useState('');
   const [questionCodeClosing, setQuestionCodeClosing] = useState(false);
   const [questionCodeWorkspacePrefs, setQuestionCodeWorkspacePrefs] = useState(readStudentCodeWorkspacePrefs);
   const [questionCodeLayoutAnimating, setQuestionCodeLayoutAnimating] = useState(false);
@@ -734,6 +1133,8 @@ const StudentTestModal = ({
   const questionCodeAutoSaveTimersRef = useRef(new Map());
   const studentHelpRequestIdRef = useRef('');
   const studentHelpTriggerRef = useRef(null);
+  const questionShareToolbarRef = useRef(null);
+  const questionShareFocusRef = useRef(null);
   const studentHelpSuccessActionRef = useRef(null);
   const studentHelpCloseTimerRef = useRef(null);
   const studentHelpSolutionInputRef = useRef(null);
@@ -744,6 +1145,7 @@ const StudentTestModal = ({
   const questionCodeLayoutAnimationsRef = useRef([]);
   const questionCodeFocusFullscreenTimerRef = useRef(null);
   const questionCodeCopyResetTimerRef = useRef(null);
+  const questionShareCopyResetTimerRef = useRef(null);
   const questionCodeWorkspaceRef = useRef(null);
   const questionCodeHomeworkStripRef = useRef(null);
   const questionCodeLevelStripRef = useRef(null);
@@ -1862,11 +2264,36 @@ const StudentTestModal = ({
     setQuestionTurtleWindowFullscreen(false);
     setQuestionTurtleWindowQuestionId('');
     setQuestionCodeCopyState('idle');
+    setQuestionShareCopyState('idle');
+    setQuestionShareMenuAnchor('');
     if (questionCodeCopyResetTimerRef.current) {
       clearTimeout(questionCodeCopyResetTimerRef.current);
       questionCodeCopyResetTimerRef.current = null;
     }
+    if (questionShareCopyResetTimerRef.current) {
+      clearTimeout(questionShareCopyResetTimerRef.current);
+      questionShareCopyResetTimerRef.current = null;
+    }
   }, [activeQuestionId]);
+
+  useEffect(() => {
+    if (!questionShareMenuAnchor || typeof document === 'undefined') return undefined;
+    const handleShareMenuPointerDown = (event) => {
+      if (questionShareToolbarRef.current?.contains(event.target)) return;
+      if (questionShareFocusRef.current?.contains(event.target)) return;
+      setQuestionShareMenuAnchor('');
+    };
+    const handleShareMenuKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      setQuestionShareMenuAnchor('');
+    };
+    document.addEventListener('pointerdown', handleShareMenuPointerDown, true);
+    document.addEventListener('keydown', handleShareMenuKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handleShareMenuPointerDown, true);
+      document.removeEventListener('keydown', handleShareMenuKeyDown);
+    };
+  }, [questionShareMenuAnchor]);
 
   useEffect(() => {
     if (!questionTurtleWindowQuestionId) return undefined;
@@ -2077,6 +2504,10 @@ const StudentTestModal = ({
     if (questionCodeCopyResetTimerRef.current) {
       clearTimeout(questionCodeCopyResetTimerRef.current);
       questionCodeCopyResetTimerRef.current = null;
+    }
+    if (questionShareCopyResetTimerRef.current) {
+      clearTimeout(questionShareCopyResetTimerRef.current);
+      questionShareCopyResetTimerRef.current = null;
     }
     stopQuestionCodeFocusAudio();
     exitQuestionCodeFocusFullscreen({ updateState: false });
@@ -2929,6 +3360,7 @@ const StudentTestModal = ({
     const handleQuestionCodeChange = (value) => {
       const nextCode = value ?? '';
       if (questionCodeCopyState !== 'idle') setQuestionCodeCopyState('idle');
+      if (questionShareCopyState !== 'idle') setQuestionShareCopyState('idle');
       setQuestionCodeEntry(currentId, { code: nextCode, input: '' });
       clearQuestionCodeError(currentId);
       scheduleQuestionCodeAutoSave(currentId, { code: nextCode, input: '' });
@@ -2949,6 +3381,246 @@ const StudentTestModal = ({
         setQuestionCodeCopyState('idle');
         questionCodeCopyResetTimerRef.current = null;
       }, STUDENT_CODE_COPY_FEEDBACK_MS);
+    };
+
+    const prepareCurrentQuestionShare = () => {
+      if (!currentId) return null;
+      const requestedQuestionId = currentId;
+      setQuestionShareCopyState('preparing');
+      if (questionShareCopyResetTimerRef.current) {
+        clearTimeout(questionShareCopyResetTimerRef.current);
+        questionShareCopyResetTimerRef.current = null;
+      }
+
+      const codePromise = (async () => {
+        const cached = getQuestionCodeEntry(requestedQuestionId, questionCodeByIdRef.current);
+        if (cached.loaded) return cached.code;
+        const payload = await api.getQuestionCode(studentId, task.number, level, requestedQuestionId);
+        const loadedCode = typeof payload?.code === 'string' ? payload.code : '';
+        const liveEntry = getQuestionCodeEntry(requestedQuestionId, questionCodeByIdRef.current);
+        if (liveEntry.loaded) return liveEntry.code;
+        setQuestionCodeEntry(requestedQuestionId, {
+          code: loadedCode,
+          input: '',
+          updatedAt: typeof payload?.updatedAt === 'string' ? payload.updatedAt : '',
+        });
+        return loadedCode;
+      })();
+      const shareAnswer = answerCount > 1
+        ? answerValues
+            .map((value, index) => ({ label: answerLabels[index] || String(index + 1), value: String(value || '').trim() }))
+            .filter((entry) => entry.value)
+            .map((entry) => `${entry.label}: ${entry.value}`)
+            .join('\n')
+        : String(answerValue || '').trim();
+      const shareLabel = [currentMockExamSourceBadge?.text, currentQuestionLabel?.text]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .join(' · ');
+      const sharePayloadPromise = codePromise.then((currentCode) => ({
+        taskNumber: getTaskDisplayNumber(task),
+        taskTitle: task?.title,
+        questionNumber: currentQuestionNumber,
+        label: shareLabel,
+        conditionText: currentQuestion?.question,
+        screenshots,
+        code: currentCode,
+        answer: shareAnswer,
+      }));
+      const textPromise = sharePayloadPromise.then((payload) => buildStudentTeacherShareText({
+        ...payload,
+        screenshotCount: payload.screenshots.length,
+      }));
+      const cardPromise = sharePayloadPromise.then(createStudentTeacherShareCard);
+      return {
+        requestedQuestionId,
+        cardPromise,
+        textPromise,
+        title: `Задание №${getTaskDisplayNumber(task)} · вопрос №${currentQuestionNumber}`,
+      };
+    };
+
+    const finishCurrentQuestionShare = (requestedQuestionId, state) => {
+      if (activeQuestionIdRef.current === requestedQuestionId) setQuestionShareCopyState(state);
+      if (questionShareCopyResetTimerRef.current) clearTimeout(questionShareCopyResetTimerRef.current);
+      questionShareCopyResetTimerRef.current = setTimeout(() => {
+        if (activeQuestionIdRef.current === requestedQuestionId) setQuestionShareCopyState('idle');
+        questionShareCopyResetTimerRef.current = null;
+      }, STUDENT_TEACHER_SHARE_FEEDBACK_MS);
+    };
+
+    const handleCopyQuestionForTeacher = async () => {
+      if (!currentId || ['preparing', 'sharing'].includes(questionShareCopyState)) return;
+      setQuestionShareMenuAnchor('');
+      const prepared = prepareCurrentQuestionShare();
+      if (!prepared) return;
+
+      try {
+        const copyMode = await writeStudentTeacherShareToClipboard(prepared);
+        finishCurrentQuestionShare(prepared.requestedQuestionId, copyMode === 'image' ? 'copied' : 'text');
+      } catch {
+        finishCurrentQuestionShare(prepared.requestedQuestionId, 'error');
+      }
+    };
+
+    const handleShareQuestionToTelegram = async () => {
+      if (!currentId || ['preparing', 'sharing'].includes(questionShareCopyState)) return;
+      setQuestionShareMenuAnchor('');
+      const prepared = prepareCurrentQuestionShare();
+      if (!prepared) return;
+      try {
+        setQuestionShareCopyState('sharing');
+        const cardBlob = await prepared.cardPromise;
+        const result = await api.createStudentShareCard({ blob: cardBlob, title: prepared.title });
+        const shareUrl = String(result?.shareUrl || '').trim();
+        if (!/^https?:\/\//i.test(shareUrl)) throw new Error('Платформа не вернула ссылку на карточку');
+
+        const telegramText = `${prepared.title}\nУсловие и мой текущий код — в карточке.`;
+        const query = `url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(telegramText)}`;
+        const nativeTelegramUrl = `tg://msg_url?${query}`;
+        const webTelegramUrl = `https://t.me/share/url?${query}`;
+        let telegramTookFocus = false;
+        const markTelegramFocused = () => { telegramTookFocus = true; };
+        const markTelegramHidden = () => {
+          if (document.visibilityState === 'hidden') telegramTookFocus = true;
+        };
+        window.addEventListener('blur', markTelegramFocused, { once: true });
+        document.addEventListener('visibilitychange', markTelegramHidden);
+        window.location.href = nativeTelegramUrl;
+        window.setTimeout(() => {
+          window.removeEventListener('blur', markTelegramFocused);
+          document.removeEventListener('visibilitychange', markTelegramHidden);
+          if (!telegramTookFocus && document.visibilityState === 'visible') {
+            window.location.href = webTelegramUrl;
+          }
+        }, STUDENT_TELEGRAM_APP_FALLBACK_MS);
+        finishCurrentQuestionShare(prepared.requestedQuestionId, 'telegram');
+      } catch {
+        finishCurrentQuestionShare(prepared.requestedQuestionId, 'error');
+      }
+    };
+
+    const handleOpenStudentHelpFromShare = (anchor) => {
+      const shareRoot = anchor === 'focus'
+        ? questionShareFocusRef.current
+        : questionShareToolbarRef.current;
+      studentHelpTriggerRef.current = shareRoot?.querySelector('[data-question-share-button="true"]') || null;
+      setQuestionShareMenuAnchor('');
+      handleOpenStudentHelp();
+    };
+
+    const toggleQuestionShareMenu = (anchor) => {
+      setQuestionShareMenuAnchor((current) => (current === anchor ? '' : anchor));
+    };
+
+    const questionShareCopyLabel = ['preparing', 'sharing'].includes(questionShareCopyState)
+      ? 'Готовим…'
+      : questionShareCopyState === 'copied'
+        ? 'Скопировано'
+        : questionShareCopyState === 'telegram'
+          ? 'Выберите получателя'
+          : questionShareCopyState === 'shared'
+            ? 'Отправлено'
+            : questionShareCopyState === 'text'
+              ? 'Скопирован текст'
+              : questionShareCopyState === 'error'
+                ? 'Не получилось'
+                : 'Поделиться';
+    const questionShareCopyTitle = questionShareCopyState === 'copied'
+      ? 'Карточка скопирована — вставьте её в Telegram через Ctrl+V'
+      : questionShareCopyState === 'telegram'
+        ? 'Telegram открыт — выберите чат, карточка и текст уже подготовлены'
+        : questionShareCopyState === 'shared'
+          ? 'Карточка передана в выбранное приложение'
+      : questionShareCopyState === 'text'
+        ? 'Браузер скопировал запасной текстовый вариант'
+        : questionShareCopyState === 'error'
+          ? 'Не удалось подготовить отправку. Попробуйте ещё раз.'
+          : 'Поделиться условием и текущим кодом';
+
+    const renderQuestionShareMenu = (anchor, { focus = false } = {}) => {
+      const isOpen = questionShareMenuAnchor === anchor;
+      const isBusy = ['preparing', 'sharing'].includes(questionShareCopyState);
+      const isSuccessful = ['copied', 'telegram', 'shared', 'text'].includes(questionShareCopyState);
+      const rootRef = anchor === 'focus' ? questionShareFocusRef : questionShareToolbarRef;
+      const triggerClassName = focus
+        ? `student-test-code-focus__focus-button is-share is-${questionShareCopyState}`
+        : `student-test-share-trigger is-${questionShareCopyState}`;
+      return (
+        <div
+          ref={rootRef}
+          className={`student-test-share-menu ${focus ? 'is-focus' : ''} ${isOpen ? 'is-open' : ''}`}
+        >
+          <button
+            type="button"
+            className={triggerClassName}
+            onClick={() => toggleQuestionShareMenu(anchor)}
+            disabled={isBusy}
+            title={questionShareCopyTitle}
+            aria-label={questionShareCopyTitle}
+            aria-haspopup="menu"
+            aria-expanded={isOpen}
+            aria-live="polite"
+            data-question-share-button="true"
+            data-student-test-tour={focus ? undefined : 'teacher-help'}
+          >
+            {isBusy ? (
+              <RefreshCcw className="student-test-share-trigger__spinner" size={focus ? 15 : 16} aria-hidden="true" />
+            ) : isSuccessful ? (
+              <Check size={focus ? 15 : 16} aria-hidden="true" />
+            ) : (
+              <Share2 size={focus ? 15 : 16} aria-hidden="true" />
+            )}
+            <span>{questionShareCopyLabel}</span>
+            <ChevronDown className="student-test-share-trigger__chevron" size={14} aria-hidden="true" />
+          </button>
+          {isOpen && (
+            <div className="student-test-share-popover" role="menu" aria-label="Поделиться заданием">
+              <div className="student-test-share-popover__options">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="student-test-share-option is-platform"
+                  onClick={() => handleOpenStudentHelpFromShare(anchor)}
+                >
+                  <span className="student-test-share-option__icon" aria-hidden="true"><CircleHelp size={19} /></span>
+                  <span className="student-test-share-option__copy">
+                    <strong>Спросить учителя</strong>
+                    <small>Написать внутри платформы</small>
+                  </span>
+                  <ChevronRight size={17} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="student-test-share-option is-telegram"
+                  onClick={handleShareQuestionToTelegram}
+                >
+                  <span className="student-test-share-option__icon" aria-hidden="true"><Send size={19} /></span>
+                  <span className="student-test-share-option__copy">
+                    <strong>Отправить в Telegram</strong>
+                    <small>Открыть приложение и выбрать получателя</small>
+                  </span>
+                  <ChevronRight size={17} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="student-test-share-option is-copy"
+                  onClick={handleCopyQuestionForTeacher}
+                >
+                  <span className="student-test-share-option__icon" aria-hidden="true"><Copy size={19} /></span>
+                  <span className="student-test-share-option__copy">
+                    <strong>Скопировать условие и код</strong>
+                    <small>Потом вставить одним Ctrl+V</small>
+                  </span>
+                  <ChevronRight size={17} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
     };
 
     const handleToggleQuestionCodePreview = () => {
@@ -3181,6 +3853,7 @@ const StudentTestModal = ({
               </div>
             </div>
             <div className="student-test-code-focus__header-actions">
+              {renderQuestionShareMenu('focus', { focus: true })}
               <div className="student-test-code-focus__focus-tools" aria-label="Режим полной фокусировки">
                 <button
                   type="button"
@@ -3911,16 +4584,7 @@ const StudentTestModal = ({
                   <span>Решать в коде</span>
                   <Maximize2 size={15} aria-hidden="true" />
                 </button>
-                <button
-                  ref={studentHelpTriggerRef}
-                  type="button"
-                  className="student-test-help-trigger"
-                  onClick={handleOpenStudentHelp}
-                  data-student-test-tour="teacher-help"
-                >
-                  <CircleHelp size={16} aria-hidden="true" />
-                  <span>Спросить учителя</span>
-                </button>
+                {renderQuestionShareMenu('toolbar')}
               </div>
             </div>
             {screenshots.length > 0 && (

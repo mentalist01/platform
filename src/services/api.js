@@ -411,6 +411,18 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  createStudentShareCard: async ({ blob, title } = {}) => {
+    if (!(blob instanceof Blob)) throw new Error('Карточка не подготовлена');
+    const form = new FormData();
+    form.append('card', blob, 'student-task-card.png');
+    if (typeof title === 'string' && title.trim()) form.append('title', title.trim().slice(0, 180));
+    const res = await apiFetch('/api/student-share-cards', {
+      method: 'POST',
+      body: form,
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   sendStudentHelpRequest: async (payload) => {
     const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
     const res = await apiFetch('/api/student-help-requests', {
