@@ -6,6 +6,7 @@ import { Button, Card } from './ui';
 import ChatInfoDrawer from './ChatInfoDrawer';
 import ChatCodeBlock from './ChatCodeBlock';
 import LinkifiedText from './LinkifiedText';
+import OnlinePresenceDot from './OnlinePresenceDot';
 
 const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -895,7 +896,11 @@ const TeacherStudentChatsSection = ({
   notifyStatusText = '',
   notifyError = '',
   onToggleNotify = null,
+  onlineUserIds = new Set(),
 }) => {
+  const onlineIdSet = useMemo(() => (
+    onlineUserIds instanceof Set ? onlineUserIds : new Set(onlineUserIds || [])
+  ), [onlineUserIds]);
   const [chats, setChats] = useState([]);
   const [chatsLoading, setChatsLoading] = useState(false);
   const [chatsError, setChatsError] = useState('');
@@ -1978,6 +1983,8 @@ const TeacherStudentChatsSection = ({
   const selectedSubtitle = isGroupChatSelected
     ? `${groupParticipantsCount} учеников · ${selectedChat?.messageCount || 0} сообщений`
     : `${selectedChat?.messageCount || 0} сообщений`;
+  const selectedStudentIsOnline = !isGroupChatSelected
+    && onlineIdSet.has(String(selectedChat?.studentId || '').trim());
   const composerPlaceholder = isGroupChatSelected
     ? 'Написать в общий чат группы...'
     : 'Ответить ученику...';
@@ -2372,6 +2379,7 @@ const TeacherStudentChatsSection = ({
                 const unread = Number(chat?.unreadForTeacher) || 0;
                 const hasMessages = Number(chat?.messageCount) > 0;
                 const studentName = chat.studentName || 'Ученик';
+                const studentIsOnline = onlineIdSet.has(String(chat?.studentId || '').trim());
                 const accentIndex = getTeacherChatAccentIndex(chat.id || studentName);
                 return (
                   <button
@@ -2384,8 +2392,11 @@ const TeacherStudentChatsSection = ({
                     style={{ '--teacher-chat-accent-index': accentIndex }}
                   >
                     <div className="flex items-start gap-3">
-                      <span className={`teacher-chat-list-avatar teacher-chat-list-avatar--${accentIndex}`}>
-                        {getTeacherChatInitials(studentName)}
+                      <span className="relative shrink-0">
+                        <span className={`teacher-chat-list-avatar teacher-chat-list-avatar--${accentIndex}`}>
+                          {getTeacherChatInitials(studentName)}
+                        </span>
+                        {studentIsOnline && <OnlinePresenceDot className="absolute -bottom-0.5 -right-0.5" />}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-start justify-between gap-2">
@@ -2423,8 +2434,11 @@ const TeacherStudentChatsSection = ({
               <>
                 <div className="teacher-chat-thread-header flex flex-wrap items-center justify-between gap-3 border">
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className={`teacher-chat-thread-avatar ${isGroupChatSelected ? 'teacher-chat-thread-avatar--group' : ''}`}>
-                      {isGroupChatSelected ? <Users size={18} /> : getTeacherChatInitials(selectedTitle)}
+                    <span className="relative shrink-0">
+                      <span className={`teacher-chat-thread-avatar ${isGroupChatSelected ? 'teacher-chat-thread-avatar--group' : ''}`}>
+                        {isGroupChatSelected ? <Users size={18} /> : getTeacherChatInitials(selectedTitle)}
+                      </span>
+                      {selectedStudentIsOnline && <OnlinePresenceDot className="absolute -bottom-0.5 -right-0.5" />}
                     </span>
                     <div className="min-w-0">
                       <p className="teacher-chat-thread-title truncate text-sm font-black">

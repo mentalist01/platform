@@ -35,6 +35,7 @@ import ChatInfoDrawer from './ChatInfoDrawer';
 import ChatCodeBlock from './ChatCodeBlock';
 import LinkifiedText from './LinkifiedText';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
+import OnlinePresenceDot from './OnlinePresenceDot';
 
 const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -2321,7 +2322,12 @@ const StudentChatSection = ({
   ABSOLUTE_AURA_CROWN_STYLE,
   getLevelFromXp,
   getLevelProgressFromXp,
+  onlineUserIds = new Set(),
 }) => {
+  const onlineIdSet = useMemo(() => (
+    onlineUserIds instanceof Set ? onlineUserIds : new Set(onlineUserIds || [])
+  ), [onlineUserIds]);
+  const teacherIsOnline = onlineIdSet.has(String(user?.teacherId || '').trim());
   const [activeTab, setActiveTab] = useState('teacher');
   const [teacherChat, setTeacherChat] = useState(null);
   const [teacherMessages, setTeacherMessages] = useState([]);
@@ -3833,7 +3839,8 @@ const StudentChatSection = ({
                   <div className="student-chat-inline-kicker text-xs font-semibold uppercase tracking-[0.12em] text-purple-600">Диалог</div>
                   <h3 className="student-chat-inline-title text-lg font-bold text-slate-900">Чат с преподавателем</h3>
                 </div>
-                <span className="student-chat-inline-pill rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                <span className="student-chat-inline-pill inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                  {teacherIsOnline && <OnlinePresenceDot size="sm" />}
                   {teacherName}
                 </span>
               </div>
@@ -4040,6 +4047,7 @@ const StudentChatSection = ({
                   const hasMessages = Number(chat?.messageCount) > 0;
                   const notificationsEnabled = isDirectNotificationsEnabled(chat.id);
                   const peerName = chat?.peer?.displayName || chat.title || 'Ученик';
+                  const peerIsOnline = onlineIdSet.has(String(chat?.peer?.id || '').trim());
                   const peerAvatarDataUrl = String(chat?.peer?.avatarDataUrl || '').trim();
                   const accent = getChatAccent(chat.id || peerName);
                   const directCardStyle = {
@@ -4057,10 +4065,13 @@ const StudentChatSection = ({
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        <span className={`grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br ${accent.avatar} text-sm font-black text-white shadow-md shadow-slate-300/40`}>
-                          {peerAvatarDataUrl ? (
-                            <img src={peerAvatarDataUrl} alt={peerName} className="h-full w-full object-cover" />
-                          ) : getInitials(peerName)}
+                        <span className="relative shrink-0">
+                          <span className={`grid h-11 w-11 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br ${accent.avatar} text-sm font-black text-white shadow-md shadow-slate-300/40`}>
+                            {peerAvatarDataUrl ? (
+                              <img src={peerAvatarDataUrl} alt={peerName} className="h-full w-full object-cover" />
+                            ) : getInitials(peerName)}
+                          </span>
+                          {peerIsOnline && <OnlinePresenceDot className="absolute -bottom-0.5 -right-0.5" />}
                         </span>
                         <div className="min-w-0">
                           <p className="student-direct-chat-title truncate text-sm font-semibold">
@@ -4100,10 +4111,15 @@ const StudentChatSection = ({
                   key={`social-chat:${activeSocialChatId || selectedDirectChatId || 'direct'}`}
                   headerContent={(
                     <div className="student-chat-inline-header student-chat-inline-header--direct">
-                      <span className={`grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br ${getChatAccent(selectedDirectChatId || socialTitle).avatar} text-sm font-black text-white shadow-md shadow-slate-300/40`}>
-                        {String(selectedDirectChat?.peer?.avatarDataUrl || '').trim() ? (
-                          <img src={selectedDirectChat.peer.avatarDataUrl} alt={socialTitle} className="h-full w-full object-cover" />
-                        ) : getInitials(socialTitle)}
+                      <span className="relative shrink-0">
+                        <span className={`grid h-11 w-11 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br ${getChatAccent(selectedDirectChatId || socialTitle).avatar} text-sm font-black text-white shadow-md shadow-slate-300/40`}>
+                          {String(selectedDirectChat?.peer?.avatarDataUrl || '').trim() ? (
+                            <img src={selectedDirectChat.peer.avatarDataUrl} alt={socialTitle} className="h-full w-full object-cover" />
+                          ) : getInitials(socialTitle)}
+                        </span>
+                        {onlineIdSet.has(String(selectedDirectChat?.peer?.id || '').trim()) && (
+                          <OnlinePresenceDot className="absolute -bottom-0.5 -right-0.5" />
+                        )}
                       </span>
                       <div className="min-w-0">
                         <p className="student-chat-inline-title truncate text-sm font-extrabold text-slate-800">

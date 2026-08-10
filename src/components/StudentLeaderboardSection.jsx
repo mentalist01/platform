@@ -19,6 +19,7 @@ import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import StudentArtifactAltar from './StudentArtifactAltar';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 import StudentSearchSelect from './StudentSearchSelect';
+import OnlinePresenceDot from './OnlinePresenceDot';
 import { PROFILE_THEME_CATALOG, PROFILE_THEME_CATALOG_BY_ID } from '../data/profileThemeCatalog';
 
 const BONUS_TONE_CLASSNAME = {
@@ -340,6 +341,7 @@ const StudentLeaderboardSection = ({
   onSelectStudent,
   studentsLoading = false,
   onOpenDirectChat,
+  onlineUserIds = new Set(),
 }) => {
   const [leaderboard, setLeaderboard] = useState({
     items: [],
@@ -547,9 +549,10 @@ const StudentLeaderboardSection = ({
         league,
         isCurrent,
         isSelected,
+        isOnline: onlineUserIds instanceof Set && onlineUserIds.has(studentId),
       };
     });
-  }, [leaderboard.items, role, teacherSelectedStudentId, userId]);
+  }, [leaderboard.items, onlineUserIds, role, teacherSelectedStudentId, userId]);
 
   const currentStudentRow = role === 'student'
     ? (rows.find((row) => row.isCurrent) || null)
@@ -1931,6 +1934,7 @@ const StudentLeaderboardSection = ({
             <div className="student-leaderboard-row-copy min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2">
                 <div className="student-leaderboard-row-name truncate text-sm font-semibold text-slate-900">{row.displayName}</div>
+                {row.isOnline && <OnlinePresenceDot size="sm" />}
                 {row.profileTheme && (
                   <span
                     className="student-leaderboard-row-theme-badge shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black uppercase"

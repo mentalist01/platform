@@ -16278,6 +16278,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const telemostJoinAlertTimersRef = useRef(new Map());
   const [teacherStudentChatsUnreadTotal, setTeacherStudentChatsUnreadTotal] = useState(0);
   const [studentChatNavUnreadTotal, setStudentChatNavUnreadTotal] = useState(0);
+  const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
   const [incomingMessageSoundPulse, setIncomingMessageSoundPulse] = useState(0);
   const [studentScheduleNavNewTotal, setStudentScheduleNavNewTotal] = useState(0);
   const [studentProgressNavNewTotal, setStudentProgressNavNewTotal] = useState(0);
@@ -17200,6 +17201,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [user.id, user.role]);
 
   useEffect(() => {
+    setOnlineUserIds(new Set());
     if (typeof window === 'undefined' || typeof WebSocket === 'undefined' || !chatLiveWsUrl || !user?.role) {
       return undefined;
     }
@@ -17253,6 +17255,28 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             return;
           }
           const liveType = String(payload?.type || '').trim();
+          if (liveType === 'presence-snapshot') {
+            const nextOnlineUserIds = new Set(
+              (Array.isArray(payload?.users) ? payload.users : [])
+                .filter((entry) => entry?.role === 'student' || entry?.role === 'teacher')
+                .map((entry) => String(entry?.id || '').trim())
+                .filter(Boolean)
+            );
+            setOnlineUserIds(nextOnlineUserIds);
+            return;
+          }
+          if (liveType === 'presence-changed') {
+            const presenceUserId = String(payload?.user?.id || '').trim();
+            const presenceRole = String(payload?.user?.role || '').trim();
+            if (!presenceUserId || (presenceRole !== 'student' && presenceRole !== 'teacher')) return;
+            setOnlineUserIds((current) => {
+              const next = new Set(current);
+              if (payload?.online === true) next.add(presenceUserId);
+              else next.delete(presenceUserId);
+              return next;
+            });
+            return;
+          }
           if (liveType === 'telemost-join-requested') {
             enqueueTelemostJoinAlert(payload);
             const studentId = String(payload?.studentId || '').trim();
@@ -17314,6 +17338,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         socket.onclose = () => {
           if (chatLiveSocketRef.current === socket) {
             chatLiveSocketRef.current = null;
+            setOnlineUserIds(new Set());
           }
           scheduleReconnect();
         };
@@ -17329,6 +17354,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       chatLiveSocketClosedManuallyRef.current = true;
       clearReconnectTimer();
       closeCurrentSocket();
+      setOnlineUserIds(new Set());
     };
   }, [chatLiveWsUrl, enqueueTelemostJoinAlert, registerIncomingMessageSoundCandidates, user?.id, user?.role]);
 
@@ -22117,6 +22143,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
               getStudentLabel={getStudentLabel}
               onOpenDirectChat={PLATFORM_CHATS_ENABLED ? handleOpenStudentDirectChat : undefined}
+              onlineUserIds={onlineUserIds}
             />
           )}
           {view === 'python' && (
@@ -22304,6 +22331,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 ABSOLUTE_AURA_CROWN_STYLE={ABSOLUTE_AURA_CROWN_STYLE}
                 getLevelFromXp={getLevelFromXp}
                 getLevelProgressFromXp={getLevelProgressFromXp}
+                onlineUserIds={onlineUserIds}
               />
             </React.Suspense>
           )}
@@ -22420,6 +22448,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     notifyStatusText={teacherSignupNotifyStatusText}
                     notifyError={teacherSignupNotifyError}
                     onToggleNotify={handleToggleTeacherSignupNotify}
+                    onlineUserIds={onlineUserIds}
                   />
                 </React.Suspense>
               )}

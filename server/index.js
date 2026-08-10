@@ -30663,9 +30663,91 @@ const sendNotificationPayload = (ws, payload) => {
   } catch {}
 };
 
+const getNotificationPresenceUser = (auth) => {
+  const id = String(auth?.id || '').trim();
+  const role = String(auth?.role || '').trim();
+  if (!id || (role !== 'student' && role !== 'teacher')) return null;
+  return { id, role };
+};
+
+const canNotificationClientSeePresence = (viewerAuth, subjectAuth) => {
+  const subject = getNotificationPresenceUser(subjectAuth);
+  if (!viewerAuth || !subject) return false;
+  if (isAdminRole(viewerAuth)) return true;
+
+  if (isTeacherRole(viewerAuth)) {
+    if (subject.role === 'teacher') return subject.id === String(viewerAuth.id || '').trim();
+    return String(subjectAuth?.teacherId || '').trim() === String(viewerAuth.id || '').trim();
+  }
+
+  if (isStudentRole(viewerAuth)) {
+    const teacherId = String(viewerAuth.teacherId || '').trim();
+    if (!teacherId) return subject.id === String(viewerAuth.id || '').trim();
+    if (subject.role === 'teacher') return subject.id === teacherId;
+    return String(subjectAuth?.teacherId || '').trim() === teacherId;
+  }
+
+  return false;
+};
+
+const isNotificationUserOnline = (auth) => {
+  const subject = getNotificationPresenceUser(auth);
+  if (!subject) return false;
+  for (const client of notificationClientsBySocket.values()) {
+    const candidate = getNotificationPresenceUser(client?.auth);
+    if (
+      candidate
+      && candidate.id === subject.id
+      && candidate.role === subject.role
+      && client?.ws?.readyState === WS_OPEN_STATE
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const getVisibleNotificationPresenceUsers = (viewerAuth) => {
+  const visible = new Map();
+  notificationClientsBySocket.forEach((client) => {
+    const subject = getNotificationPresenceUser(client?.auth);
+    if (!subject || client?.ws?.readyState !== WS_OPEN_STATE) return;
+    if (!canNotificationClientSeePresence(viewerAuth, client.auth)) return;
+    visible.set(`${subject.role}:${subject.id}`, subject);
+  });
+  return Array.from(visible.values());
+};
+
+const sendNotificationPresenceSnapshot = (client) => {
+  if (!client?.auth) return;
+  sendNotificationPayload(client.ws, {
+    type: 'presence-snapshot',
+    users: getVisibleNotificationPresenceUsers(client.auth),
+  });
+};
+
+const broadcastNotificationPresenceChange = (subjectAuth, online, options = {}) => {
+  const user = getNotificationPresenceUser(subjectAuth);
+  if (!user) return;
+  notificationClientsBySocket.forEach((client) => {
+    if (options.excludeWs && client?.ws === options.excludeWs) return;
+    if (!canNotificationClientSeePresence(client?.auth, subjectAuth)) return;
+    sendNotificationPayload(client.ws, {
+      type: 'presence-changed',
+      user,
+      online: Boolean(online),
+    });
+  });
+};
+
 const cleanupNotificationClient = (ws) => {
   if (!ws) return;
+  const client = notificationClientsBySocket.get(ws);
+  if (!client) return;
   notificationClientsBySocket.delete(ws);
+  if (!isNotificationUserOnline(client.auth)) {
+    broadcastNotificationPresenceChange(client.auth, false);
+  }
 };
 
 const broadcastTelemostJoinRequested = (request) => {
@@ -31684,10 +31766,13 @@ notificationsWss.on('connection', (ws, _request, user) => {
     return;
   }
 
-  notificationClientsBySocket.set(ws, {
+  const wasOnline = isNotificationUserOnline(auth);
+  const client = {
     ws,
     auth,
-  });
+    isAlive: true,
+  };
+  notificationClientsBySocket.set(ws, client);
 
   sendNotificationPayload(ws, {
     type: 'ready',
@@ -31695,6 +31780,14 @@ notificationsWss.on('connection', (ws, _request, user) => {
       id: auth.id,
       role: auth.role,
     },
+  });
+  sendNotificationPresenceSnapshot(client);
+  if (!wasOnline) {
+    broadcastNotificationPresenceChange(auth, true, { excludeWs: ws });
+  }
+
+  ws.on('pong', () => {
+    client.isAlive = true;
   });
 
   ws.on('close', () => {
@@ -31705,6 +31798,40 @@ notificationsWss.on('connection', (ws, _request, user) => {
     cleanupNotificationClient(ws);
   });
 });
+
+const NOTIFICATION_HEARTBEAT_INTERVAL_MS = 30 * 1000;
+const notificationHeartbeatInterval = setInterval(() => {
+  notificationClientsBySocket.forEach((client) => {
+    const ws = client?.ws;
+    if (!ws || ws.readyState !== WS_OPEN_STATE) {
+      cleanupNotificationClient(ws);
+      return;
+    }
+    if (client.isAlive === false) {
+      cleanupNotificationClient(ws);
+      try {
+        ws.terminate();
+      } catch {
+        // The socket is already detached from presence; there is nothing else to clean up.
+      }
+      return;
+    }
+    client.isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      cleanupNotificationClient(ws);
+      try {
+        ws.terminate();
+      } catch {
+        // The failed ping already removed the client from presence.
+      }
+    }
+  });
+}, NOTIFICATION_HEARTBEAT_INTERVAL_MS);
+if (typeof notificationHeartbeatInterval.unref === 'function') {
+  notificationHeartbeatInterval.unref();
+}
 
 if (process.argv.includes('--rebalance-student-xp')) {
   const summary = runStudentXpFixes({ apply: process.argv.includes('--apply') });
