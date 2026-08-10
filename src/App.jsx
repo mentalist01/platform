@@ -13,7 +13,7 @@ import {
   ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
-  Camera, MousePointer2, Code2, ExternalLink, MoreHorizontal, MessageSquare, Users, Video, Wallet,
+  Camera, MousePointer2, Code2, ExternalLink, MoreHorizontal, MessageSquare, Mic, Users, Video, Wallet,
   Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp, Target,
   ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect, ListPlus
 } from 'lucide-react';  
