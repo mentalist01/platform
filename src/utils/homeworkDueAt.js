@@ -199,6 +199,24 @@ export const resolveNextLessonStart = (
   return nearest;
 };
 
+export const resolveHomeworkDueAtModeForSchedule = ({
+  dueAt,
+  dueAtMode,
+  entries,
+  now = new Date(),
+  calendarOffsetMinutes,
+} = {}) => {
+  const normalizedMode = normalizeHomeworkDueAtMode(dueAtMode);
+  if (normalizedMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON) return normalizedMode;
+
+  const deadline = dueAt instanceof Date ? new Date(dueAt) : new Date(dueAt || '');
+  if (Number.isNaN(deadline.getTime())) return normalizedMode;
+  const nextLesson = resolveNextLessonStart(entries, { now, calendarOffsetMinutes });
+  return nextLesson && nextLesson.getTime() === deadline.getTime()
+    ? HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+    : normalizedMode;
+};
+
 export const buildHomeworkDueAtFromSchedule = (
   entries,
   {

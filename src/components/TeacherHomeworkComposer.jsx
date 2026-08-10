@@ -1070,13 +1070,18 @@ const TeacherHomeworkComposer = ({
                         <CalendarDays size={11} /> Автоматически обновляется по ближайшему занятию
                       </span>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => onChangeForm?.({ dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON })}
-                        className="mt-1.5 text-left text-[10px] font-bold text-purple-600 hover:text-purple-800"
-                      >
-                        Использовать ближайшее занятие
-                      </button>
+                      <div className="mt-1.5 text-[10px] leading-relaxed">
+                        <span className="block font-semibold text-amber-700">
+                          Ручной срок не изменится вместе с расписанием.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onChangeForm?.({ dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON })}
+                          className="font-bold text-purple-600 hover:text-purple-800"
+                        >
+                          Использовать ближайшее занятие
+                        </button>
+                      </div>
                     )}
                   </div>
                   <label>

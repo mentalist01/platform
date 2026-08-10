@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  HOMEWORK_DUE_AT_MODE_MANUAL,
+  HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
   buildHomeworkDueAtFromSchedule,
   isLessonStartInSchedule,
   resolveNextLessonStart,
+  resolveHomeworkDueAtModeForSchedule,
 } from './homeworkDueAt.js';
 
 test('uses the next recurring lesson instead of a fixed seven-day homework window', () => {
@@ -70,4 +73,26 @@ test('resolves schedule wall time with the stored calendar offset', () => {
     ),
     true
   );
+});
+
+test('keeps the automatic mode when a manually touched deadline still equals the nearest lesson', () => {
+  const entries = [
+    { date: '2026-08-12', time: '20:00' },
+    { date: '2026-08-14', time: '20:00' },
+  ];
+  const common = {
+    dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL,
+    entries,
+    now: new Date('2026-08-10T10:00:00.000Z'),
+    calendarOffsetMinutes: 180,
+  };
+
+  assert.equal(resolveHomeworkDueAtModeForSchedule({
+    ...common,
+    dueAt: '2026-08-12T17:00:00.000Z',
+  }), HOMEWORK_DUE_AT_MODE_NEXT_LESSON);
+  assert.equal(resolveHomeworkDueAtModeForSchedule({
+    ...common,
+    dueAt: '2026-08-14T17:00:00.000Z',
+  }), HOMEWORK_DUE_AT_MODE_MANUAL);
 });

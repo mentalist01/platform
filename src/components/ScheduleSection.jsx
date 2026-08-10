@@ -32,6 +32,7 @@ import {
   HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
   buildHomeworkDueAtFromSchedule,
   normalizeHomeworkDueAtMode,
+  resolveHomeworkDueAtModeForSchedule,
 } from '../utils/homeworkDueAt';
 import {
   MOCK_EXAM_MODE_CLASSIC as MOCK_ATTEMPT_MODE_CLASSIC,
@@ -2723,7 +2724,11 @@ const ScheduleSection = ({
       ? 'border-purple-300/80 bg-gradient-to-br from-white via-purple-50/85 to-fuchsia-50/65 shadow-[0_12px_30px_rgba(147,51,234,0.12)]'
       : 'border-slate-200/90 bg-white';
     const cardTone = isEditing ? 'border-purple-400 bg-purple-50/70 ring-2 ring-purple-200/70' : sectionTone;
-    const sectionLabel = isNextSection ? 'Следующий урок' : 'Предыдущая домашка';
+    const tracksNextLesson = normalizeHomeworkDueAtMode(entry?.dueAtMode)
+      === HOMEWORK_DUE_AT_MODE_NEXT_LESSON;
+    const sectionLabel = isNextSection
+      ? (tracksNextLesson ? 'К следующему уроку' : 'Срок задан вручную')
+      : 'Предыдущая домашка';
     const summaryStatus = goalsSummary.goalCount === 0
       ? { label: 'Цели не заданы', tone: 'border-slate-200 bg-white text-slate-600' }
       : goalsSummary.requiredGoals.length === 0
@@ -2924,7 +2929,7 @@ const ScheduleSection = ({
                 <ListChecks size={20} />
               </span>
               <div className="min-w-0">
-                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-purple-500">К следующему уроку</div>
+                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-purple-500">{sectionLabel}</div>
                 <h4 className="student-today-homework__headline mt-1 text-xl font-black leading-tight text-slate-950 md:text-2xl">
                   Домашняя работа
                 </h4>
@@ -4157,12 +4162,18 @@ const ScheduleSection = ({
         setError(goalValidationError);
         return;
       }
+      const calendarOffsetMinutes = -new Date().getTimezoneOffset();
       const payload = {
         homeWork: form.homeWork,
         lessonLink: form.lessonLink,
         boardLink: form.boardLink,
         dueAt: dueAtIso,
-        dueAtMode: normalizeHomeworkDueAtMode(form.dueAtMode),
+        dueAtMode: resolveHomeworkDueAtModeForSchedule({
+          dueAt: dueAtIso,
+          dueAtMode: form.dueAtMode,
+          entries: editableLessonSchedule,
+          calendarOffsetMinutes,
+        }),
         daysToComplete: form.daysToComplete,
         goals: goalsPayload,
         dayPlan: form.dayPlanEnabled
@@ -4170,7 +4181,7 @@ const ScheduleSection = ({
               enabled: true,
               requestedSessionCount: Math.max(2, Math.min(7, Number(form.dayPlanSessionCount) || 3)),
               selectedWeekdays: Array.isArray(form.dayPlanWeekdays) ? form.dayPlanWeekdays : [],
-              calendarOffsetMinutes: -new Date().getTimezoneOffset(),
+              calendarOffsetMinutes,
               manualLayout: form.dayPlanManualLayout || null,
             }
           : { enabled: false },
