@@ -1822,11 +1822,11 @@ html[data-theme='dark'] .board-canvas-outline {
     border-color: var(--progress-topic-border) !important;
     background:
       radial-gradient(circle at 102% -8%, color-mix(in srgb, var(--progress-topic-soft), transparent 72%), transparent 38%),
-      radial-gradient(circle at -5% 112%, rgba(56, 189, 248, 0.015), transparent 36%),
+      radial-gradient(circle at -5% 112%, color-mix(in srgb, var(--progress-topic-accent), transparent 97%), transparent 36%),
       linear-gradient(145deg, #fff, rgba(255, 255, 255, 0.997) 58%, rgba(253, 254, 255, 0.992)) !important;
     box-shadow:
       0 16px 34px rgba(76, 29, 149, 0.075),
-      0 3px 10px rgba(56, 189, 248, 0.035),
+      0 3px 10px color-mix(in srgb, var(--progress-topic-accent), transparent 96%),
       inset 0 1px 0 rgba(255, 255, 255, 0.98),
       inset 0 0 0 1px rgba(255, 255, 255, 0.56);
     isolation: isolate;
@@ -1886,13 +1886,12 @@ html[data-theme='dark'] .board-canvas-outline {
     border-color: color-mix(in srgb, var(--progress-topic-accent), white 42%) !important;
     background:
       radial-gradient(circle at 102% -8%, color-mix(in srgb, var(--progress-topic-glow), transparent 58%), transparent 42%),
-      radial-gradient(circle at -5% 112%, rgba(56, 189, 248, 0.025), transparent 38%),
+      radial-gradient(circle at -5% 112%, color-mix(in srgb, var(--progress-topic-accent), transparent 95%), transparent 38%),
       linear-gradient(145deg, #fff, rgba(255, 254, 255, 0.998) 58%, rgba(252, 254, 255, 0.994)) !important;
     box-shadow:
-      0 22px 46px rgba(107, 33, 168, 0.12),
-      0 8px 22px rgba(56, 189, 248, 0.065),
-      0 0 0 3px color-mix(in srgb, var(--progress-topic-accent), transparent 90%),
-      inset 0 1px 0 rgba(255, 255, 255, 1);
+      0 22px 46px rgba(126, 34, 206, 0.18),
+      0 9px 26px rgba(168, 85, 247, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 1) !important;
   }
 
   .progress-topic-card:hover > .progress-topic-card__glint {
@@ -20774,7 +20773,7 @@ html[data-theme='dark'] .progress-topic-card {
   border-color: var(--progress-topic-border) !important;
   background:
     radial-gradient(circle at 102% -8%, var(--progress-topic-soft), transparent 42%),
-    radial-gradient(circle at -6% 112%, rgba(34, 211, 238, 0.09), transparent 36%),
+    radial-gradient(circle at -6% 112%, color-mix(in srgb, var(--progress-topic-accent), transparent 91%), transparent 36%),
     linear-gradient(145deg, rgba(27, 20, 48, 0.96), rgba(15, 23, 42, 0.94) 58%, rgba(12, 23, 42, 0.92)) !important;
   box-shadow:
     0 20px 42px rgba(2, 6, 23, 0.34),
@@ -20794,13 +20793,12 @@ html[data-theme='dark'] .progress-topic-card:hover {
   border-color: var(--progress-topic-accent) !important;
   background:
     radial-gradient(circle at 102% -8%, var(--progress-topic-glow), transparent 44%),
-    radial-gradient(circle at -6% 112%, rgba(34, 211, 238, 0.13), transparent 38%),
+    radial-gradient(circle at -6% 112%, color-mix(in srgb, var(--progress-topic-accent), transparent 87%), transparent 38%),
     linear-gradient(145deg, rgba(35, 23, 61, 0.98), rgba(15, 23, 42, 0.96) 58%, rgba(10, 27, 47, 0.94)) !important;
   box-shadow:
     0 24px 50px rgba(2, 6, 23, 0.46),
     0 8px 24px var(--progress-topic-soft),
-    0 0 0 3px color-mix(in srgb, var(--progress-topic-accent), transparent 84%),
-    inset 0 1px 0 rgba(216, 180, 254, 0.16);
+    inset 0 1px 0 rgba(216, 180, 254, 0.16) !important;
 }
 
 html[data-theme='dark'] .progress-topic-card--focus {
