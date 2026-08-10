@@ -702,6 +702,16 @@ const prepareBoardRenderCanvas = (canvas, cssWidth, cssHeight) => {
 
 const CLIENT_BUILD_CHECK_INTERVAL_MS = 60 * 1000;
 const CLIENT_BUILD_RELOAD_ATTEMPT_STORAGE_KEY = 'ege_client_build_reload_attempt_fingerprint';
+const clientBuildReloadBlockers = new Set();
+
+const setClientBuildReloadBlocked = (key, blocked) => {
+  const normalizedKey = String(key || '').trim();
+  if (!normalizedKey) return;
+  if (blocked) clientBuildReloadBlockers.add(normalizedKey);
+  else clientBuildReloadBlockers.delete(normalizedKey);
+};
+
+const isClientBuildReloadBlocked = () => clientBuildReloadBlockers.size > 0;
 
 const normalizeClientAssetFingerprintEntry = (value) => {
   const raw = String(value || '').trim();
@@ -16338,6 +16348,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       || Date.parse(telemostLessonReplay.autoFinishAt) > Date.now()
     )
   );
+  useEffect(() => {
+    const blockerKey = `active-call:${user.role}:${user.id}`;
+    setClientBuildReloadBlocked(
+      blockerKey,
+      isCallSessionActive || isTelemostLessonReplayActive
+    );
+    return () => setClientBuildReloadBlocked(blockerKey, false);
+  }, [isCallSessionActive, isTelemostLessonReplayActive, user.id, user.role]);
   const lessonReplayStudentId = callSessionStatus === 'connected'
     ? (user.role === 'student' ? user.id : activeStudentId)
     : (isTelemostLessonReplayActive
@@ -23025,6 +23043,10 @@ const MainApp = () => {
           return;
         }
 
+        // A deployment must never tear down an active lesson. Keep checking in
+        // the background and apply the pending build after the call finishes.
+        if (isClientBuildReloadBlocked()) return;
+
         try {
           const attemptedFingerprint = window.sessionStorage.getItem(CLIENT_BUILD_RELOAD_ATTEMPT_STORAGE_KEY);
           if (attemptedFingerprint === serverFingerprint) return;
@@ -23034,6 +23056,7 @@ const MainApp = () => {
           return;
         }
 
+        if (isClientBuildReloadBlocked()) return;
         reloadTriggered = true;
         window.location.reload();
       } catch {
