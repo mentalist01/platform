@@ -45,6 +45,7 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
   schedule,
   now = new Date(),
   buildDayPlan,
+  treatMissingPlannedLessonAsDeleted = false,
 } = {}) => {
   const data = studentData && typeof studentData === 'object' ? studentData : {};
   const nextSchedule = Array.isArray(schedule) ? schedule : [];
@@ -71,12 +72,6 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
   if (!tracksNextLesson) {
     return { studentData: { ...data, schedule: nextSchedule }, deadlineChanged: false };
   }
-  // Reading homework passes the stored schedule through unchanged. Rebuilding
-  // here is both unnecessary and timezone-sensitive on a UTC production server.
-  if (storedMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON && previousSchedule === schedule) {
-    return { studentData: { ...data, schedule: nextSchedule }, deadlineChanged: false };
-  }
-
   const reference = now instanceof Date ? new Date(now) : new Date(now || '');
   const safeReference = Number.isNaN(reference.getTime()) ? new Date() : reference;
   const migrateTrackingMode = () => {
@@ -121,7 +116,11 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
       { calendarOffsetMinutes }
     );
   const plannedLessonWasDeleted = !plannedLessonStillExists
-    && (plannedLessonWasInRemovedEntries || legacyScheduleEntryWasRemoved);
+    && (
+      plannedLessonWasInRemovedEntries
+      || legacyScheduleEntryWasRemoved
+      || Boolean(treatMissingPlannedLessonAsDeleted)
+    );
   if (
     Number.isFinite(currentDueAtMs)
     && currentDueAtMs <= safeReference.getTime()

@@ -28788,12 +28788,18 @@ const buildStoredHomeworkDayPlan = (config, homework, testsDb = {}) => {
   };
 };
 
-function synchronizeStudentHomeworkForSchedule(data, schedule, previousSchedule = data?.schedule) {
+function synchronizeStudentHomeworkForSchedule(
+  data,
+  schedule,
+  previousSchedule = data?.schedule,
+  options = {}
+) {
   let testsDb = null;
   return synchronizeHomeworkDueAtWithSchedule({
     studentData: data,
     previousSchedule,
     schedule,
+    treatMissingPlannedLessonAsDeleted: Boolean(options.treatMissingPlannedLessonAsDeleted),
     buildDayPlan: (config, homework) => {
       if (!testsDb) testsDb = readTestsDb();
       return buildStoredHomeworkDayPlan(config, homework, testsDb);
@@ -28898,8 +28904,9 @@ app.get('/api/student-next-lesson', async (req, res) => {
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   let storedData = getStudentData(student.id);
+  let calendarSync = null;
   try {
-    const calendarSync = await syncStudentScheduleFromGoogleCalendar(
+    calendarSync = await syncStudentScheduleFromGoogleCalendar(
       student,
       { role: 'system', id: 'google-calendar', name: 'Google Calendar' },
       {
@@ -28912,9 +28919,21 @@ app.get('/api/student-next-lesson', async (req, res) => {
   } catch (error) {
     console.warn('[homework] failed to refresh Google Calendar before reading homework:', error?.message || error);
   }
+  const latestStoredHomework = Array.isArray(storedData.homeworks) ? storedData.homeworks[0] : null;
+  const latestDueAt = new Date(String(latestStoredHomework?.dueAt || '').trim());
+  const latestDueDay = Number.isNaN(latestDueAt.getTime())
+    ? ''
+    : getDatePartsInCalendarTimeZone(latestDueAt)?.dayKey;
+  const googleRangeCoversHomeworkDeadline = Boolean(
+    calendarSync?.ok
+    && latestDueDay
+    && isDayKeyWithinRange(latestDueDay, calendarSync.weekStart, calendarSync.weekEnd)
+  );
   const synchronized = synchronizeStudentHomeworkForSchedule(
     storedData,
-    Array.isArray(storedData.schedule) ? storedData.schedule : []
+    Array.isArray(storedData.schedule) ? storedData.schedule : [],
+    storedData.schedule,
+    { treatMissingPlannedLessonAsDeleted: googleRangeCoversHomeworkDeadline }
   );
   const data = synchronized.deadlineChanged || synchronized.homeworkChanged
     ? setStudentData(student.id, synchronized.studentData)

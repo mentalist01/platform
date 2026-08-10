@@ -158,17 +158,9 @@ test('homework read and teacher refresh cascade deleted Google lessons into day 
   const removedLessonDay = shiftDayKey(todayKey, 2);
   const followingLessonDay = shiftDayKey(removedLessonDay, 7);
   const issuedDay = shiftDayKey(removedLessonDay, -5);
-  const removedEventId = `student-a-${removedLessonDay}@example.test`;
   const nextEventId = `student-a-${followingLessonDay}@example.test`;
   const secondRemovedEventId = `student-b-${removedLessonDay}@example.test`;
   const secondNextEventId = `student-b-${followingLessonDay}@example.test`;
-  const removedLesson = buildStoredGoogleLesson({
-    teacherId,
-    studentId,
-    studentName: 'Student A',
-    externalEventId: removedEventId,
-    date: removedLessonDay,
-  });
   const followingLesson = buildStoredGoogleLesson({
     teacherId,
     studentId,
@@ -318,7 +310,9 @@ test('homework read and teacher refresh cascade deleted Google lessons into day 
         progress: {},
         notes: '',
         mocks: [],
-        schedule: [removedLesson, followingLesson],
+        // Production can already contain the reconciled lesson schedule while
+        // the homework deadline is still stuck on the removed occurrence.
+        schedule: [followingLesson],
         solvedByTask: {},
         solvedEvents: [],
         nextLesson: nextLessonSnapshot,

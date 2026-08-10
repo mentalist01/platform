@@ -122,6 +122,36 @@ test('does not rebuild an automatic deadline when the schedule was only read', (
   assert.equal(result.studentData.homeworks[0].dayPlan, homework.dayPlan);
 });
 
+test('repairs a stale automatic deadline when the stored schedule already points to a later lesson', () => {
+  const homework = makeHomework({
+    dueAt: '2026-08-10T17:00:00.000Z',
+    dayPlan: {
+      enabled: true,
+      requestedSessionCount: 3,
+      selectedWeekdays: [1, 2, 3, 4, 5, 6, 7],
+      calendarOffsetMinutes: 180,
+      dueDay: '2026-08-10',
+    },
+  });
+  const schedule = [{ id: 'lesson-next', date: '2026-08-12', time: '20:00' }];
+  const result = synchronizeHomeworkDueAtWithSchedule({
+    studentData: { homeworks: [homework], nextLesson: { ...homework }, schedule },
+    previousSchedule: schedule,
+    schedule,
+    now: new Date('2026-08-10T10:00:00.000Z'),
+    buildDayPlan: (config, updatedHomework) => ({
+      ...config,
+      dueDay: '2026-08-12',
+      generatedFor: updatedHomework.dueAt,
+    }),
+  });
+
+  assert.equal(result.deadlineChanged, true);
+  assert.equal(result.studentData.homeworks[0].dueAt, '2026-08-12T17:00:00.000Z');
+  assert.equal(result.studentData.homeworks[0].dayPlan.dueDay, '2026-08-12');
+  assert.equal(result.studentData.nextLesson.dueAt, '2026-08-12T17:00:00.000Z');
+});
+
 test('does not roll an overdue automatic homework forward to another lesson', () => {
   const homework = makeHomework({
     dueAt: new Date(2026, 6, 28, 18, 30, 0).toISOString(),
@@ -165,6 +195,32 @@ test('extends an overdue plan when the lesson at its boundary was explicitly del
   assert.equal(result.deadlineChanged, true);
   assert.equal(result.studentData.homeworks[0].dueAt, '2026-08-06T09:30:00.000Z');
   assert.equal(result.studentData.homeworks[0].dayPlan.dueDay, '2026-08-06');
+});
+
+test('repairs an overdue stale deadline when an authoritative calendar range no longer contains it', () => {
+  const homework = makeHomework({
+    dueAt: '2026-08-10T17:00:00.000Z',
+    dayPlan: {
+      enabled: true,
+      requestedSessionCount: 3,
+      selectedWeekdays: [1, 2, 3, 4, 5, 6, 7],
+      calendarOffsetMinutes: 180,
+      dueDay: '2026-08-10',
+    },
+  });
+  const schedule = [{ id: 'lesson-next', date: '2026-08-12', time: '20:00' }];
+  const result = synchronizeHomeworkDueAtWithSchedule({
+    studentData: { homeworks: [homework], nextLesson: { ...homework }, schedule },
+    previousSchedule: schedule,
+    schedule,
+    now: new Date('2026-08-10T18:00:00.000Z'),
+    treatMissingPlannedLessonAsDeleted: true,
+    buildDayPlan: (config) => ({ ...config, dueDay: '2026-08-12' }),
+  });
+
+  assert.equal(result.deadlineChanged, true);
+  assert.equal(result.studentData.homeworks[0].dueAt, '2026-08-12T17:00:00.000Z');
+  assert.equal(result.studentData.homeworks[0].dayPlan.dueDay, '2026-08-12');
 });
 
 test('keeps the current deadline when no future lesson exists and preserves inferred tracking', () => {
