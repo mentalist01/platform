@@ -85,7 +85,7 @@ const buildGoogleStudentScheduleId = ({ teacherId, studentId, externalEventId, d
   return `google-student-${stableId}`;
 };
 
-const buildStoredGoogleLesson = ({ teacherId, studentId, externalEventId, date }) => ({
+const buildStoredGoogleLesson = ({ teacherId, studentId, studentName, externalEventId, date }) => ({
   id: buildGoogleStudentScheduleId({
     teacherId,
     studentId,
@@ -109,7 +109,7 @@ const buildStoredGoogleLesson = ({ teacherId, studentId, externalEventId, date }
   externalCalendarProvider: 'Google Calendar',
   externalEventId,
   externalCalendarName: 'Integration calendar',
-  googleCalendarTitle: 'Student A',
+  googleCalendarTitle: studentName,
   createdAt: `${date}T17:00:00.000Z`,
   updatedAt: `${date}T17:00:00.000Z`,
 });
@@ -148,27 +148,46 @@ const startFakeIcalServer = async (icalBody) => {
   };
 };
 
-test('teacher Google Calendar refresh cascades a deleted lesson into homework and its day plan', {
+test('homework read and teacher refresh cascade deleted Google lessons into day plans', {
   timeout: 40_000,
 }, async () => {
   const teacherId = 'teacher-a';
   const studentId = 'student-a';
+  const secondStudentId = 'student-b';
   const todayKey = new Date().toISOString().slice(0, 10);
   const removedLessonDay = shiftDayKey(todayKey, 2);
   const followingLessonDay = shiftDayKey(removedLessonDay, 7);
   const issuedDay = shiftDayKey(removedLessonDay, -5);
   const removedEventId = `student-a-${removedLessonDay}@example.test`;
   const nextEventId = `student-a-${followingLessonDay}@example.test`;
+  const secondRemovedEventId = `student-b-${removedLessonDay}@example.test`;
+  const secondNextEventId = `student-b-${followingLessonDay}@example.test`;
   const removedLesson = buildStoredGoogleLesson({
     teacherId,
     studentId,
+    studentName: 'Student A',
     externalEventId: removedEventId,
     date: removedLessonDay,
   });
   const followingLesson = buildStoredGoogleLesson({
     teacherId,
     studentId,
+    studentName: 'Student A',
     externalEventId: nextEventId,
+    date: followingLessonDay,
+  });
+  const secondRemovedLesson = buildStoredGoogleLesson({
+    teacherId,
+    studentId: secondStudentId,
+    studentName: 'Student B',
+    externalEventId: secondRemovedEventId,
+    date: removedLessonDay,
+  });
+  const secondFollowingLesson = buildStoredGoogleLesson({
+    teacherId,
+    studentId: secondStudentId,
+    studentName: 'Student B',
+    externalEventId: secondNextEventId,
     date: followingLessonDay,
   });
   const homework = {
@@ -206,6 +225,22 @@ test('teacher Google Calendar refresh cascades a deleted lesson into homework an
     ...homework,
     dayPlan: { ...homework.dayPlan },
   };
+  const secondHomework = {
+    ...homework,
+    id: 'homework-august-second',
+    checklistItems: homework.checklistItems.map((item) => ({
+      ...item,
+      id: `${item.id}-second`,
+    })),
+    dayPlan: {
+      ...homework.dayPlan,
+      sourceHomeworkId: 'homework-august-second',
+    },
+  };
+  const secondNextLessonSnapshot = {
+    ...secondHomework,
+    dayPlan: { ...secondHomework.dayPlan },
+  };
   const fakeIcal = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -217,6 +252,13 @@ test('teacher Google Calendar refresh cascades a deleted lesson into homework an
     `DTSTART:${toIcalUtc(followingLessonDay, 17)}`,
     `DTEND:${toIcalUtc(followingLessonDay, 18)}`,
     'SUMMARY:Student A',
+    'END:VEVENT',
+    'BEGIN:VEVENT',
+    `UID:${secondNextEventId}`,
+    `DTSTAMP:${toIcalUtc(todayKey, 10)}`,
+    `DTSTART:${toIcalUtc(followingLessonDay, 17)}`,
+    `DTEND:${toIcalUtc(followingLessonDay, 18)}`,
+    'SUMMARY:Student B',
     'END:VEVENT',
     'END:VCALENDAR',
     '',
@@ -250,6 +292,15 @@ test('teacher Google Calendar refresh cascades a deleted lesson into homework an
       createdAt: now,
       deletedAt: null,
       studyStatus: 'active',
+    }, {
+      id: secondStudentId,
+      name: 'Student B',
+      teacherId,
+      code: 'student-b-code',
+      grade: '11',
+      createdAt: now,
+      deletedAt: null,
+      studyStatus: 'active',
     }]));
     fs.writeFileSync(path.join(dataDir, 'tests.json'), JSON.stringify({}));
     fs.writeFileSync(path.join(dataDir, 'teacher-calendar-sync.json'), JSON.stringify({
@@ -272,6 +323,16 @@ test('teacher Google Calendar refresh cascades a deleted lesson into homework an
         solvedEvents: [],
         nextLesson: nextLessonSnapshot,
         homeworks: [homework],
+      },
+      [secondStudentId]: {
+        progress: {},
+        notes: '',
+        mocks: [],
+        schedule: [secondRemovedLesson, secondFollowingLesson],
+        solvedByTask: {},
+        solvedEvents: [],
+        nextLesson: secondNextLessonSnapshot,
+        homeworks: [secondHomework],
       },
     }));
 
@@ -298,6 +359,19 @@ test('teacher Google Calendar refresh cascades a deleted lesson into homework an
     await waitForServer(baseUrl, child, () => serverLogs);
 
     const authorization = await login(baseUrl, 'teacher-a-code');
+    const homeworkResponse = await fetch(
+      `${baseUrl}/api/student-next-lesson?studentId=${encodeURIComponent(studentId)}`,
+      { headers: { Authorization: authorization } }
+    );
+    await assertStatus(homeworkResponse, 200);
+    const homeworkResult = await homeworkResponse.json();
+    assert.equal(homeworkResult.latest.dueAt, `${followingLessonDay}T17:00:00.000Z`);
+    assert.equal(homeworkResult.latest.dayPlan.dueDay, followingLessonDay);
+
+    const afterHomeworkRead = JSON.parse(fs.readFileSync(path.join(dataDir, 'progress.json'), 'utf8'));
+    assert.deepEqual(afterHomeworkRead[studentId].schedule.map((entry) => entry.date), [followingLessonDay]);
+    assert.equal(afterHomeworkRead[studentId].homeworks[0].dueAt, `${followingLessonDay}T17:00:00.000Z`);
+
     const refreshResponse = await fetch(`${baseUrl}/api/teacher-calendar-sync/refresh`, {
       method: 'POST',
       headers: {
@@ -308,7 +382,7 @@ test('teacher Google Calendar refresh cascades a deleted lesson into homework an
     });
     await assertStatus(refreshResponse, 200);
     const refreshResult = await refreshResponse.json();
-    assert.equal(refreshResult.importedCount, 1);
+    assert.equal(refreshResult.importedCount, 2);
     assert.equal(refreshResult.updatedStudentCount, 1);
 
     const teacherScheduleResponse = await fetch(`${baseUrl}/api/teacher-schedule`, {
@@ -316,12 +390,13 @@ test('teacher Google Calendar refresh cascades a deleted lesson into homework an
     });
     await assertStatus(teacherScheduleResponse, 200);
     const teacherSchedule = await teacherScheduleResponse.json();
-    assert.deepEqual(
-      teacherSchedule
-        .filter((entry) => entry?.source === 'google-ical')
-        .map((entry) => `${entry.date}T${entry.time}`),
-      [`${followingLessonDay}T20:00`]
-    );
+    assert.deepEqual(teacherSchedule
+      .filter((entry) => entry?.source === 'google-ical')
+      .map((entry) => `${entry.subject}:${entry.date}T${entry.time}`)
+      .sort(), [
+        `Student A:${followingLessonDay}T20:00`,
+        `Student B:${followingLessonDay}T20:00`,
+      ]);
 
     const persistedDb = JSON.parse(fs.readFileSync(path.join(dataDir, 'progress.json'), 'utf8'));
     const persistedStudent = persistedDb[studentId];
@@ -334,6 +409,12 @@ test('teacher Google Calendar refresh cascades a deleted lesson into homework an
     assert.equal(persistedStudent.homeworks[0].dayPlan.dueDay, followingLessonDay);
     assert.equal(persistedStudent.nextLesson.dueAt, `${followingLessonDay}T17:00:00.000Z`);
     assert.equal(persistedStudent.nextLesson.dayPlan.dueDay, followingLessonDay);
+    const secondPersistedStudent = persistedDb[secondStudentId];
+    assert.deepEqual(secondPersistedStudent.schedule.map((entry) => entry.date), [followingLessonDay]);
+    assert.equal(secondPersistedStudent.homeworks[0].dueAt, `${followingLessonDay}T17:00:00.000Z`);
+    assert.equal(secondPersistedStudent.homeworks[0].dayPlan.dueDay, followingLessonDay);
+    assert.equal(secondPersistedStudent.nextLesson.dueAt, `${followingLessonDay}T17:00:00.000Z`);
+    assert.equal(secondPersistedStudent.nextLesson.dayPlan.dueDay, followingLessonDay);
   } finally {
     await stopServer(child);
     await stopHttpServer(calendarServer);

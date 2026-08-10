@@ -28893,11 +28893,25 @@ app.delete('/api/homework-composer-draft', (req, res) => {
   res.json({ deleted, draft: null });
 });
 
-app.get('/api/student-next-lesson', (req, res) => {
+app.get('/api/student-next-lesson', async (req, res) => {
   const { studentId } = req.query;
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
-  const storedData = getStudentData(student.id);
+  let storedData = getStudentData(student.id);
+  try {
+    const calendarSync = await syncStudentScheduleFromGoogleCalendar(
+      student,
+      { role: 'system', id: 'google-calendar', name: 'Google Calendar' },
+      {
+        force: false,
+        persist: true,
+        rangeMode: GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING,
+      }
+    );
+    if (calendarSync.changed) storedData = getStudentData(student.id);
+  } catch (error) {
+    console.warn('[homework] failed to refresh Google Calendar before reading homework:', error?.message || error);
+  }
   const synchronized = synchronizeStudentHomeworkForSchedule(
     storedData,
     Array.isArray(storedData.schedule) ? storedData.schedule : []
