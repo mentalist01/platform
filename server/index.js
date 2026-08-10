@@ -8647,10 +8647,12 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
     throw new Error('Не удалось определить период календаря.');
   }
 
-  const googleEntries = await fetchTeacherGoogleCalendarEntries(teacherId, {
-    force: Boolean(options.force),
-    throwOnError: true,
-  });
+  const googleEntries = Array.isArray(options.googleEntries)
+    ? options.googleEntries
+    : await fetchTeacherGoogleCalendarEntries(teacherId, {
+        force: Boolean(options.force),
+        throwOnError: true,
+      });
   const matchedEntries = googleEntries.filter((entry) => (
     isDayKeyWithinRange(entry?.date, syncRange.startDayKey, syncRange.endDayKey)
     && googleCalendarTitleMatchesStudent(entry?.subject, student)
@@ -8701,6 +8703,41 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
     schedule,
     changed,
     skippedReason: '',
+  };
+};
+
+const syncTeacherStudentSchedulesFromGoogleCalendar = async (
+  teacherId,
+  googleEntries,
+  auth,
+  options = {}
+) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  if (!normalizedTeacherId || !Array.isArray(googleEntries)) {
+    return { studentCount: 0, updatedStudentCount: 0 };
+  }
+
+  const students = readStudentsDb().filter((student) => (
+    isCurrentStudent(student)
+    && normalizeTeacherId(student?.teacherId) === normalizedTeacherId
+  ));
+  let updatedStudentCount = 0;
+
+  // Keep JSON-backed student updates sequential so two schedule reconciliations
+  // cannot overwrite each other with independently read progress snapshots.
+  for (const student of students) {
+    const result = await syncStudentScheduleFromGoogleCalendar(student, auth, {
+      googleEntries,
+      persist: true,
+      notify: options.notify !== false,
+      rangeMode: GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING,
+    });
+    if (result.changed) updatedStudentCount += 1;
+  }
+
+  return {
+    studentCount: students.length,
+    updatedStudentCount,
   };
 };
 
@@ -28032,7 +28069,11 @@ app.post('/api/teacher-calendar-sync/refresh', async (req, res) => {
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
   try {
+    const calendarSyncSettings = getTeacherCalendarSyncSettings(teacher.id);
     const events = await fetchTeacherGoogleCalendarEntries(teacher.id, { force: true, throwOnError: true });
+    const studentScheduleSync = calendarSyncSettings.enabled && calendarSyncSettings.icalUrl
+      ? await syncTeacherStudentSchedulesFromGoogleCalendar(teacher.id, events, req.auth)
+      : { studentCount: 0, updatedStudentCount: 0 };
     notifyScheduleSyncUpdate({
       scope: 'teacher-schedule',
       action: 'calendar-sync-refreshed',
@@ -28041,6 +28082,7 @@ app.post('/api/teacher-calendar-sync/refresh', async (req, res) => {
     return res.json({
       ok: true,
       importedCount: events.length,
+      updatedStudentCount: studentScheduleSync.updatedStudentCount,
       settings: buildTeacherCalendarSyncSettingsResponse(getTeacherCalendarSyncSettings(teacher.id)),
     });
   } catch (error) {
