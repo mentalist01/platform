@@ -31,6 +31,10 @@ import {
 } from '../utils/homeworkAssignmentTier';
 import { buildHomeworkDayPlan } from '../utils/homeworkDayPlan';
 import {
+  buildHomeworkDurationEstimate,
+  formatHomeworkDurationEstimate,
+} from '../utils/homeworkDurationEstimate';
+import {
   HOMEWORK_DUE_AT_MODE_MANUAL,
   HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
 } from '../utils/homeworkDueAt';
@@ -213,6 +217,8 @@ const TeacherHomeworkComposer = ({
   const [mobilePane, setMobilePane] = useState('compose');
   const [manualPlanDate, setManualPlanDate] = useState('');
   const [solvedQuestionIds, setSolvedQuestionIds] = useState(() => new Set());
+  const [questionTimingIndex, setQuestionTimingIndex] = useState({});
+  const [questionTimingState, setQuestionTimingState] = useState('loading');
   const composerBusy = saving || draftSaving || discarding;
   const restoredDraftDate = draftRestoredAt ? new Date(draftRestoredAt) : null;
   const restoredDraftLabel = restoredDraftDate && !Number.isNaN(restoredDraftDate.getTime())
@@ -240,6 +246,23 @@ const TeacherHomeworkComposer = ({
       document.body.style.overflow = previousOverflow;
     };
   }, [expandedImage, onClose, open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancelled = false;
+    api.getQuestionDifficulties()
+      .then((index) => {
+        if (cancelled) return;
+        setQuestionTimingIndex(index && typeof index === 'object' ? index : {});
+        setQuestionTimingState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setQuestionTimingIndex({});
+        setQuestionTimingState('error');
+      });
+    return () => { cancelled = true; };
+  }, [open]);
 
   const safeActiveGoalIndex = Math.min(activeGoalIndex, Math.max(0, goals.length - 1));
   const activeGoal = goals[safeActiveGoalIndex] || null;
@@ -385,6 +408,53 @@ const TeacherHomeworkComposer = ({
       targetQuestionIds: resolvedIds,
     };
   }).filter(Boolean);
+  const homeworkDurationEstimate = buildHomeworkDurationEstimate({
+    goals: plannerGoals,
+    testsDb,
+    timingIndex: questionTimingIndex,
+    taskGoalType: goalTypeTask,
+  });
+  const requiredDurationLabel = formatHomeworkDurationEstimate(
+    homeworkDurationEstimate.required.estimatedDurationMs
+  );
+  const optionalDurationLabel = formatHomeworkDurationEstimate(
+    homeworkDurationEstimate.optional.estimatedDurationMs
+  );
+  const totalDurationLabel = formatHomeworkDurationEstimate(
+    homeworkDurationEstimate.total.estimatedDurationMs
+  );
+  const durationEstimateTitle = (() => {
+    if (questionTimingState === 'loading') return 'Считаем нагрузку…';
+    if (questionTimingState === 'error') return 'Оценка времени недоступна';
+    if (homeworkDurationEstimate.total.selectedCount <= 0) return 'Выберите задания — оценим нагрузку';
+    if (homeworkDurationEstimate.total.estimatedCount <= 0) return 'Пока недостаточно данных';
+    return homeworkDurationEstimate.complete
+      ? `Примерно ${totalDurationLabel}`
+      : `Не менее ${totalDurationLabel}`;
+  })();
+  const durationEstimateDetails = (() => {
+    if (questionTimingState === 'loading') return 'Используем реальные решения учеников';
+    if (questionTimingState === 'error') return 'Не удалось загрузить статистику решений';
+    if (homeworkDurationEstimate.total.selectedCount <= 0) {
+      return 'В расчёт попадут выбранные номера';
+    }
+    if (homeworkDurationEstimate.total.estimatedCount <= 0) {
+      return 'Для этих номеров и уровней ещё нет замеров';
+    }
+    const details = [];
+    if (requiredDurationLabel && optionalDurationLabel) {
+      details.push(`${requiredDurationLabel} обязательно`, `+ ${optionalDurationLabel} дополнительно`);
+    } else if (optionalDurationLabel && !requiredDurationLabel) {
+      details.push(`${optionalDurationLabel} дополнительно`);
+    }
+    if (homeworkDurationEstimate.total.fallbackCount > 0) {
+      details.push(`по среднему номера и уровня: ${homeworkDurationEstimate.total.fallbackCount}`);
+    }
+    if (homeworkDurationEstimate.total.unknownCount > 0) {
+      details.push(`без данных: ${homeworkDurationEstimate.total.unknownCount}`);
+    }
+    return details.length > 0 ? details.join(' · ') : 'По времени конкретных заданий';
+  })();
   const selectedPlanWeekdays = asPositiveIntegers(form?.dayPlanWeekdays)
     .filter((weekday) => weekday >= 1 && weekday <= 7);
   const calendarOffsetMinutes = typeof Date !== 'undefined' ? -new Date().getTimezoneOffset() : 180;
@@ -1527,9 +1597,20 @@ const TeacherHomeworkComposer = ({
         )}
 
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 bg-[rgb(var(--surface))] px-4 py-3 sm:px-5 lg:px-6">
-          <div className="hidden items-center gap-2 text-xs text-[rgb(var(--ink-soft))] sm:flex">
-            <Target size={14} className="text-purple-500" />
-            Перед отправкой можно убрать любой перенесённый хвост.
+          <div
+            className="flex min-w-0 items-center gap-2.5 text-xs text-[rgb(var(--ink-soft))]"
+            aria-live="polite"
+            title="Оценка видна только учителю. Для задания без собственного замера используется среднее того же номера и уровня."
+          >
+            <span className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-purple-50 text-purple-600">
+              {questionTimingState === 'loading'
+                ? <Loader2 size={16} className="animate-spin" />
+                : <Clock3 size={16} />}
+            </span>
+            <span className="min-w-0">
+              <strong className="block truncate text-xs text-[rgb(var(--ink))]">{durationEstimateTitle}</strong>
+              <small className="mt-0.5 block truncate text-[10px] text-[rgb(var(--ink-soft))]">{durationEstimateDetails}</small>
+            </span>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <button
