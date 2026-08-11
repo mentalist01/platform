@@ -70405,6 +70405,7 @@ html[data-theme='dark'] .call-panel-root--prejoin[data-call-role='student'] .cal
   width: 100%;
   max-width: none;
   min-width: 0;
+  overflow: visible;
   align-self: auto;
   justify-self: auto;
   padding: 0.25rem;
