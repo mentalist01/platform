@@ -76,15 +76,15 @@ const HomeworkQuickStart = ({
   const isFinished = status === 'complete' || status === 'done';
   const cardTitle = isFinished
     ? 'Все короткие задания готовы'
-    : (status === 'paused' ? 'Хороший старт уже есть' : 'Одно задание из твоей домашки. Пять минут.');
+    : (status === 'paused' ? 'Хороший старт уже есть' : 'Самое лёгкое задание из твоей домашки.');
   const cardText = isFinished
     ? `Ты решил ${getSolvedTaskCountLabel(completedCount)} — короткая серия закрыта.`
     : (status === 'paused'
         ? `В серии уже ${completedCount}. Можно вернуться, когда захочется.`
-        : 'Без плана на весь вечер: просто реши одну маленькую задачу и посмотри, захочется ли ещё.');
+        : '');
   const primaryLabel = status === 'solving'
     ? 'Вернуться к заданию'
-    : (status === 'paused' ? 'Продолжить серию' : 'Решить одно задание');
+    : (status === 'paused' ? 'Продолжить серию' : 'Решить');
   const handlePrimary = status === 'idle' ? onStart : onResume;
   const praise = getPraise(completedCount);
   const showCelebration = status === 'celebrate' || status === 'complete';
@@ -250,7 +250,7 @@ const HomeworkQuickStart = ({
             Лёгкий старт
           </div>
           <h4 id="homework-quick-start-title">{cardTitle}</h4>
-          <p>{cardText}</p>
+          {cardText && <p>{cardText}</p>}
           {!isFinished && currentTask && (
             <div className="homework-quick-start__preview">
               <span>{status === 'paused' ? 'Следующее' : 'Сейчас'}</span>

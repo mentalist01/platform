@@ -205,10 +205,10 @@ const StudentTodayOverview = ({
     }
     return {
       eyebrow: 'Лёгкий старт',
-      title: 'Одно задание из твоей домашки. Пять минут.',
-      hint: 'Не нужно садиться за всю домашку. Реши одну маленькую задачу — дальше решишь по настроению.',
-      actionLabel: 'Решить за 5 минут',
-      previewLabel: quickHomeworkCurrentTask?.difficultyKnown ? 'Самое лёгкое' : 'Первый шаг',
+      title: 'Самое лёгкое задание из твоей домашки.',
+      hint: '',
+      actionLabel: 'Решить',
+      previewLabel: '',
     };
   })();
   const fallbackPrimaryTitle = hasHomework ? getGoalLabel(pendingGoal) : 'Выберите короткую практику';
@@ -286,15 +286,15 @@ const StudentTodayOverview = ({
               ) : null}
             </div>
             <strong className="mt-4 max-w-2xl text-xl font-black leading-tight md:text-2xl">{primaryTitle}</strong>
-            <span className="mt-1.5 text-sm text-purple-100">{primaryHint}</span>
+            {primaryHint ? <span className="mt-1.5 text-sm text-purple-100">{primaryHint}</span> : null}
             {showQuickHomework && !quickHomeworkFinished && quickHomeworkCurrentTask ? (
               <span className="student-today-overview__quick-preview">
-                <small>{quickHomeworkConfig.previewLabel}</small>
+                {quickHomeworkConfig.previewLabel ? <small>{quickHomeworkConfig.previewLabel}</small> : null}
                 <strong>{quickHomeworkTaskLabel}</strong>
                 {quickHomeworkCurrentTask.taskTitle ? <span>{quickHomeworkCurrentTask.taskTitle}</span> : null}
               </span>
             ) : null}
-            {deadline ? <span className="mt-1 text-[11px] text-purple-100/80">Дедлайн: {deadline.dateLabel}</span> : null}
+            {deadline && !showQuickHomework ? <span className="mt-1 text-[11px] text-purple-100/80">Дедлайн: {deadline.dateLabel}</span> : null}
             <span className="student-today-overview__primary-action pointer-events-none mt-auto inline-flex w-fit items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-black text-purple-700 shadow-[0_10px_22px_rgba(49,46,129,0.24)] transition group-hover:-translate-y-0.5 group-hover:bg-purple-50">
               {showQuickHomework && !quickHomeworkFinished ? <Play size={15} fill="currentColor" /> : null}
               {primaryActionLabel}
