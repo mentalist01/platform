@@ -4,7 +4,9 @@ import {
   CheckCircle2,
   Clock3,
   Code2,
+  Flame,
   MessageSquare,
+  Play,
   PlayCircle,
   Sparkles,
   Target,
@@ -79,6 +81,24 @@ const getGoalLabel = (goal) => {
   return 'Продолжить домашку';
 };
 
+const getQuickTaskLabel = (task) => {
+  if (!task) return '';
+  const taskPrefix = task.isPython
+    ? 'Python'
+    : `Задание ${task.taskDisplay || task.taskNumber}`;
+  const questionSuffix = task.questionNumber ? ` · №${task.questionNumber}` : '';
+  return `${taskPrefix}${questionSuffix}`;
+};
+
+const getSolvedTaskCountLabel = (count) => {
+  const value = Math.max(0, Number(count) || 0);
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${value} задание`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${value} задания`;
+  return `${value} заданий`;
+};
+
 const QuickAction = ({ icon, eyebrow, title, hint, badge, onClick, tone = 'python', actionLabel = 'Открыть', className = '' }) => (
   <button
     type="button"
@@ -116,6 +136,12 @@ const StudentTodayOverview = ({
   homeworkEntry,
   goals = [],
   chatUnreadCount = 0,
+  quickHomeworkStatus = 'idle',
+  quickHomeworkAvailableCount = 0,
+  quickHomeworkCompletedCount = 0,
+  quickHomeworkCurrentTask = null,
+  onStartQuickHomework,
+  onResumeQuickHomework,
   onContinueHomework,
   onOpenPractice,
   onOpenPython,
@@ -143,13 +169,64 @@ const StudentTodayOverview = ({
   );
   const hasOptionalHomework = Boolean(homeworkEntry && pendingOptionalGoal);
   const hasHomework = hasRequiredHomework || hasOptionalHomework;
-  const primaryTitle = hasHomework ? getGoalLabel(pendingGoal) : 'Выберите короткую практику';
-  const primaryHint = hasRequiredHomework
+  const quickHomeworkFinished = quickHomeworkStatus === 'done' && quickHomeworkAvailableCount <= 0;
+  const showQuickHomework = Boolean(
+    (quickHomeworkAvailableCount > 0 && quickHomeworkCurrentTask)
+    || (quickHomeworkFinished && quickHomeworkCompletedCount > 0)
+  );
+  const quickHomeworkTaskLabel = getQuickTaskLabel(quickHomeworkCurrentTask);
+  const quickHomeworkConfig = (() => {
+    if (quickHomeworkFinished) {
+      return {
+        eyebrow: 'Пять минут сработали',
+        title: 'Готово — ты отлично разогнался!',
+        hint: `В серии ${getSolvedTaskCountLabel(quickHomeworkCompletedCount)}. Все короткие задания из домашки уже решены.`,
+        actionLabel: 'Выбрать ещё практику',
+        previewLabel: '',
+      };
+    }
+    if (quickHomeworkStatus === 'solving') {
+      return {
+        eyebrow: 'Один короткий шаг',
+        title: 'Задание уже открыто',
+        hint: 'Вернись и доведи его до ответа — место сохранено.',
+        actionLabel: 'Вернуться к заданию',
+        previewLabel: 'Сейчас',
+      };
+    }
+    if (quickHomeworkStatus === 'paused') {
+      return {
+        eyebrow: 'Ты уже в ритме',
+        title: 'Ещё одно? Тоже около пяти минут.',
+        hint: `В серии уже ${getSolvedTaskCountLabel(quickHomeworkCompletedCount)}. Следующий маленький шаг ждёт.`,
+        actionLabel: 'Продолжить серию',
+        previewLabel: 'Следующее',
+      };
+    }
+    return {
+      eyebrow: 'Лёгкий старт',
+      title: 'Одно задание. Пять минут.',
+      hint: 'Не нужно садиться за всю домашку. Реши одну маленькую задачу — дальше решишь по настроению.',
+      actionLabel: 'Решить за 5 минут',
+      previewLabel: 'Первый шаг',
+    };
+  })();
+  const fallbackPrimaryTitle = hasHomework ? getGoalLabel(pendingGoal) : 'Выберите короткую практику';
+  const fallbackPrimaryHint = hasRequiredHomework
     ? `Обязательная часть: выполнено ${requiredCompletedCount} из ${requiredGoals.length} целей`
     : hasOptionalHomework
       ? 'Основная домашка готова — это дополнительное задание по желанию.'
-    : 'Начните с одной темы — платформа сохранит место, где вы остановились.';
-  const primaryAction = hasHomework ? onContinueHomework : onOpenPractice;
+      : 'Начните с одной темы — платформа сохранит место, где вы остановились.';
+  const primaryTitle = showQuickHomework ? quickHomeworkConfig.title : fallbackPrimaryTitle;
+  const primaryHint = showQuickHomework ? quickHomeworkConfig.hint : fallbackPrimaryHint;
+  const primaryAction = showQuickHomework
+    ? (quickHomeworkFinished
+        ? onOpenPractice
+        : (quickHomeworkStatus === 'idle' ? onStartQuickHomework : onResumeQuickHomework))
+    : (hasHomework ? onContinueHomework : onOpenPractice);
+  const primaryActionLabel = showQuickHomework
+    ? quickHomeworkConfig.actionLabel
+    : (hasHomework ? 'Продолжить' : 'Начать практику');
 
   return (
     <section className="student-today-overview mb-4 overflow-hidden rounded-[26px] border border-purple-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(245,243,255,0.94)_52%,rgba(240,249,255,0.92))] p-4 shadow-[0_18px_40px_rgba(99,102,241,0.13)] md:mb-6 md:p-5">
@@ -170,16 +247,31 @@ const StudentTodayOverview = ({
         <button
           type="button"
           onClick={primaryAction}
-          aria-label={`${hasHomework ? 'Продолжить' : 'Начать практику'}: ${primaryTitle}`}
-          className="student-today-overview__primary group relative w-full cursor-pointer overflow-hidden rounded-[22px] border border-purple-300/80 bg-gradient-to-br from-purple-600 via-violet-600 to-fuchsia-600 p-4 text-left text-white shadow-[0_16px_32px_rgba(124,58,237,0.24)] transition duration-200 hover:-translate-y-0.5 hover:border-purple-200 hover:shadow-[0_20px_42px_rgba(124,58,237,0.32)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-300/45 md:p-5"
+          aria-label={`${primaryActionLabel}: ${primaryTitle}`}
+          className={`student-today-overview__primary group relative w-full cursor-pointer overflow-hidden rounded-[22px] border border-purple-300/80 bg-gradient-to-br from-purple-600 via-violet-600 to-fuchsia-600 p-4 text-left text-white shadow-[0_16px_32px_rgba(124,58,237,0.24)] transition duration-200 hover:-translate-y-0.5 hover:border-purple-200 hover:shadow-[0_20px_42px_rgba(124,58,237,0.32)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-300/45 md:p-5 ${showQuickHomework ? 'student-today-overview__primary--quick-start' : ''} ${quickHomeworkFinished ? 'student-today-overview__primary--quick-finished' : ''}`}
         >
           <div aria-hidden className="absolute -right-12 -top-16 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
-          <div className="relative flex h-full min-h-[154px] flex-col">
+          {showQuickHomework && !quickHomeworkFinished ? (
+            <div className="student-today-overview__five-minute-visual" aria-hidden="true">
+              <Clock3 size={22} />
+              <strong>5</strong>
+              <span>минут</span>
+            </div>
+          ) : null}
+          <div className={`relative flex h-full min-h-[154px] flex-col ${showQuickHomework && !quickHomeworkFinished ? 'student-today-overview__primary-copy--quick' : ''}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/14 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
-                <Target size={12} />
-                {hasRequiredHomework ? 'Главное на сегодня' : hasOptionalHomework ? 'Дополнительно' : 'Практика на сегодня'}
+                {showQuickHomework ? <Clock3 size={12} /> : <Target size={12} />}
+                {showQuickHomework
+                  ? quickHomeworkConfig.eyebrow
+                  : (hasRequiredHomework ? 'Главное на сегодня' : hasOptionalHomework ? 'Дополнительно' : 'Практика на сегодня')}
               </span>
+              {showQuickHomework && quickHomeworkCompletedCount > 0 ? (
+                <span className="student-today-overview__quick-series">
+                  <Flame size={11} />
+                  Серия: {quickHomeworkCompletedCount}
+                </span>
+              ) : null}
               {deadline ? (
                 <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${
                   deadline.overdue
@@ -195,9 +287,17 @@ const StudentTodayOverview = ({
             </div>
             <strong className="mt-4 max-w-2xl text-xl font-black leading-tight md:text-2xl">{primaryTitle}</strong>
             <span className="mt-1.5 text-sm text-purple-100">{primaryHint}</span>
+            {showQuickHomework && !quickHomeworkFinished && quickHomeworkCurrentTask ? (
+              <span className="student-today-overview__quick-preview">
+                <small>{quickHomeworkConfig.previewLabel}</small>
+                <strong>{quickHomeworkTaskLabel}</strong>
+                {quickHomeworkCurrentTask.taskTitle ? <span>{quickHomeworkCurrentTask.taskTitle}</span> : null}
+              </span>
+            ) : null}
             {deadline ? <span className="mt-1 text-[11px] text-purple-100/80">Дедлайн: {deadline.dateLabel}</span> : null}
             <span className="student-today-overview__primary-action pointer-events-none mt-auto inline-flex w-fit items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-black text-purple-700 shadow-[0_10px_22px_rgba(49,46,129,0.24)] transition group-hover:-translate-y-0.5 group-hover:bg-purple-50">
-              {hasHomework ? 'Продолжить' : 'Начать практику'}
+              {showQuickHomework && !quickHomeworkFinished ? <Play size={15} fill="currentColor" /> : null}
+              {primaryActionLabel}
               <ArrowRight size={16} />
             </span>
           </div>

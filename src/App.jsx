@@ -46,6 +46,7 @@ import StudentNotificationsCenter from './components/StudentNotificationsCenter'
 import StudentWeeklyRecap from './components/StudentWeeklyRecap';
 import SignupGuestChat from './components/SignupGuestChat';
 import HomeworkStatsPage from './components/HomeworkStatsPage';
+import HomeworkQuickStart from './components/HomeworkQuickStart';
 import TeacherLessonEndPrompt from './components/TeacherLessonEndPrompt';
 import TeacherLessonStartPrompt from './components/TeacherLessonStartPrompt';
 import ThemeToggleButton from './components/ThemeToggleButton';
@@ -79,6 +80,11 @@ import {
 } from './utils/teacherStudentSelection';
 import { isCurrentStudent, normalizeStudentStudyStatus } from './utils/studentStudyStatus';
 import { resolveHomeworkTaskTargetDescriptors } from './utils/homeworkComposer';
+import {
+  buildHomeworkQuickTaskQueue,
+  completeHomeworkQuickTaskSession,
+  pickNextHomeworkQuickTask,
+} from './utils/homeworkQuickStart';
 import {
   getHomeworkGoalAssignmentTier,
   isOptionalHomeworkGoal,
@@ -16283,6 +16289,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
+  const [quickHomeworkSession, setQuickHomeworkSession] = useState({
+    status: 'idle',
+    currentTask: null,
+    completedKeys: [],
+    completedCount: 0,
+  });
   const [goalCollapsed, setGoalCollapsed] = useState(user.role === 'student');
   const [goalPanelAnimClass, setGoalPanelAnimClass] = useState('');
   const [paceForecastPopupOpen, setPaceForecastPopupOpen] = useState(false);
@@ -19749,8 +19761,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       levelId: pythonTask ? PYTHON_LEVEL_ID : levelId,
       targetQuestions: Array.isArray(targetQuestions) ? targetQuestions : null,
       section: pythonTask ? 'python' : 'progress',
-      questionIndex: null,
+      questionIndex: Number.isFinite(Number(options?.questionIndex))
+        ? Math.max(0, Math.trunc(Number(options.questionIndex)))
+        : null,
       subsectionId: String(options?.subsectionId || '').trim() || null,
+      quickHomework: options?.quickHomework === true,
     };
     setPendingOpenTask(nextTask);
     setPendingOpenMockExamId(null);
@@ -20315,6 +20330,136 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     || requiredGoalGoals[0]
     || optionalGoalGoals[0]
     || null;
+  const quickHomeworkQueue = buildHomeworkQuickTaskQueue(orderedGoalGoals).map((item) => {
+    const pythonTask = isPythonTaskNumber(item.taskNumber)
+      ? getPythonTaskInfo(item.taskNumber)
+      : null;
+    return {
+      ...item,
+      isPython: Boolean(pythonTask),
+      taskDisplay: pythonTask?.displayNumber || formatTaskNumber(item.taskNumber) || item.taskNumber,
+      taskTitle: item.taskTitle || pythonTask?.title || '',
+    };
+  });
+  const quickHomeworkNextTask = pickNextHomeworkQuickTask(
+    quickHomeworkQueue,
+    quickHomeworkSession.completedKeys,
+    quickHomeworkSession.currentTask?.key
+  );
+  const quickHomeworkPreviewTask = quickHomeworkSession.status === 'idle'
+    ? (quickHomeworkQueue[0] || null)
+    : (quickHomeworkSession.currentTask || quickHomeworkNextTask || null);
+  const quickHomeworkEntryKey = String(goalState?.entry?.id || '');
+
+  useEffect(() => {
+    setQuickHomeworkSession({
+      status: 'idle',
+      currentTask: null,
+      completedKeys: [],
+      completedCount: 0,
+    });
+  }, [quickHomeworkEntryKey, user.id]);
+
+  const openQuickHomeworkTask = (task, { reset = false } = {}) => {
+    if (!task) return;
+    setQuickHomeworkSession((current) => ({
+      status: 'solving',
+      currentTask: task,
+      completedKeys: reset ? [] : current.completedKeys,
+      completedCount: reset ? 0 : current.completedCount,
+    }));
+    handleOpenTask(
+      task.taskNumber,
+      task.levelId,
+      task.questionNumber ? [task.questionNumber] : null,
+      {
+        quickHomework: true,
+        questionIndex: task.isPython && task.questionNumber
+          ? Math.max(0, task.questionNumber - 1)
+          : null,
+      }
+    );
+  };
+
+  const handleStartQuickHomework = () => {
+    openQuickHomeworkTask(quickHomeworkQueue[0] || null, { reset: true });
+  };
+
+  const handleResumeQuickHomework = () => {
+    const task = quickHomeworkSession.currentTask
+      || pickNextHomeworkQuickTask(quickHomeworkQueue, quickHomeworkSession.completedKeys);
+    openQuickHomeworkTask(task);
+  };
+
+  const handleContinueQuickHomework = () => {
+    const nextTask = pickNextHomeworkQuickTask(
+      quickHomeworkQueue,
+      quickHomeworkSession.completedKeys,
+      quickHomeworkSession.currentTask?.key
+    );
+    if (!nextTask) {
+      setQuickHomeworkSession((current) => ({ ...current, status: 'done', currentTask: null }));
+      return;
+    }
+    openQuickHomeworkTask(nextTask);
+  };
+
+  const handlePauseQuickHomework = () => {
+    setQuickHomeworkSession((current) => {
+      if (current.status === 'complete') {
+        return { ...current, status: 'done', currentTask: null };
+      }
+      const nextTask = pickNextHomeworkQuickTask(
+        quickHomeworkQueue,
+        current.completedKeys,
+        current.currentTask?.key
+      );
+      return {
+        ...current,
+        status: nextTask ? 'paused' : 'done',
+        currentTask: nextTask,
+      };
+    });
+  };
+
+  const handleQuickHomeworkTaskSolved = (payload = {}) => {
+    if (quickHomeworkSession.status !== 'solving' || !quickHomeworkSession.currentTask) return false;
+    const completion = payload?.options && typeof payload.options === 'object' ? payload.options : {};
+    const currentTask = quickHomeworkSession.currentTask;
+    if (completion.quickQuestionSolved !== true) return false;
+    if (
+      completion.taskNumber != null
+      && Number(completion.taskNumber) !== Number(currentTask.taskNumber)
+    ) {
+      return false;
+    }
+    if (
+      completion.levelId
+      && String(completion.levelId) !== String(currentTask.levelId)
+    ) {
+      return false;
+    }
+    if (
+      currentTask.questionId
+      && completion.solvedQuestionId
+      && String(completion.solvedQuestionId) !== String(currentTask.questionId)
+    ) {
+      return false;
+    }
+    if (
+      !currentTask.questionId
+      && currentTask.questionNumber
+      && completion.solvedQuestionNumber
+      && Number(completion.solvedQuestionNumber) !== Number(currentTask.questionNumber)
+    ) {
+      return false;
+    }
+    setQuickHomeworkSession((current) => (
+      completeHomeworkQuickTaskSession(current, quickHomeworkQueue, currentTask)
+    ));
+    return true;
+  };
+
   const openHomeworkMockGoal = (goal) => {
     if (!goal?.mockExamId) return;
     const firstPendingTask = (goal.taskStatus || []).find((item) => !item?.solved)
@@ -20361,6 +20506,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     && goalState?.entry
     && !goalState.completed
     && goalGoals.length > 0;
+  const shouldShowQuickHomeworkCelebration = user.role === 'student'
+    && !['review', 'collab', 'board', 'call', 'chat'].includes(view)
+    && (
+      quickHomeworkSession.status === 'celebrate'
+      || quickHomeworkSession.status === 'complete'
+    );
 
   useLayoutEffect(() => {
     if (!goalFlyActiveRef.current) return;
@@ -21747,6 +21898,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               </div>
             </div>
           )}
+          {shouldShowQuickHomeworkCelebration && !studentTourActive && (
+            <HomeworkQuickStart
+              celebrationOnly
+              status={quickHomeworkSession.status}
+              availableCount={quickHomeworkQueue.length}
+              completedCount={quickHomeworkSession.completedCount}
+              currentTask={quickHomeworkPreviewTask}
+              nextTask={quickHomeworkNextTask}
+              onStart={handleStartQuickHomework}
+              onResume={handleResumeQuickHomework}
+              onContinue={handleContinueQuickHomework}
+              onPause={handlePauseQuickHomework}
+            />
+          )}
           {shouldShowGoalBlock && !studentTourActive && (
             <div ref={goalSummaryFlyRef} className={`goal-summary-strip ${goalCollapsed ? 'sticky top-0 z-30 mb-4' : 'mb-4'}`}>
               {goalCollapsed ? (
@@ -21982,6 +22147,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               goals={goalGoals}
               completedGoalCount={goalCompletedCount}
               chatUnreadCount={studentChatNavUnreadTotal}
+              quickHomeworkStatus={quickHomeworkSession.status}
+              quickHomeworkAvailableCount={quickHomeworkQueue.length}
+              quickHomeworkCompletedCount={quickHomeworkSession.completedCount}
+              quickHomeworkCurrentTask={quickHomeworkPreviewTask}
+              onStartQuickHomework={handleStartQuickHomework}
+              onResumeQuickHomework={handleResumeQuickHomework}
               onContinueHomework={() => {
                 if (!firstGoal) {
                   navigateToView('progress');
@@ -22138,6 +22309,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               homeworkLessonBasketItems={activeHomeworkLessonBasketItems}
               onAddToHomeworkLessonBasket={handleAddToHomeworkLessonBasket}
               onTaskStateChange={handleTaskStateChange}
+              onQuickHomeworkTaskSolved={handleQuickHomeworkTaskSolved}
               onStreakSaved={handleStreakSaved}
               onXpGain={handleXpGain}
               openMockExamId={pendingOpenMockExamId}
@@ -22245,6 +22417,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
               onTaskStateChange={handleTaskStateChange}
+              onQuickHomeworkTaskSolved={handleQuickHomeworkTaskSolved}
               homeworkLessonBasketItems={activeHomeworkLessonBasketItems}
               onAddToHomeworkLessonBasket={handleAddToHomeworkLessonBasket}
               onStreakSaved={handleStreakSaved}

@@ -615,6 +615,7 @@ const ProgressSection = ({
   homeworkLessonBasketItems = [],
   onAddToHomeworkLessonBasket,
   onTaskStateChange,
+  onQuickHomeworkTaskSolved,
   onStreakSaved,
   onMockAttemptSaved,
   onAssignMockReview,
@@ -4439,12 +4440,24 @@ const ProgressSection = ({
           withStudentId={withStudentId}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
+            const quickTaskHandled = onQuickHomeworkTaskSolved?.({
+              taskId,
+              score,
+              options,
+            }) === true;
             if (effectiveStudentId) {
               api.getStudentData(effectiveStudentId)
                 .then((data) => setStudentData(normalizeProgressSectionStudentData(data)))
                 .catch(() => {});
             }
-            // setActiveTask(null); // Убрали закрытие, чтобы можно было решать дальше
+            if (quickTaskHandled) {
+              setActiveTask(null);
+              setAutoLevel(null);
+              setAutoTargetQuestions(null);
+              setActiveLevel(null);
+              setActiveQuestionIndex(null);
+              setForceInitialLevelLaunch(false);
+            }
           }}
         />
       )}
