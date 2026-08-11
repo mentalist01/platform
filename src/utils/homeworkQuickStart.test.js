@@ -4,6 +4,7 @@ import {
   buildHomeworkQuickTaskQueue,
   completeHomeworkQuickTaskSession,
   pickNextHomeworkQuickTask,
+  rankHomeworkQuickTaskQueueByDifficulty,
 } from './homeworkQuickStart.js';
 
 test('buildHomeworkQuickTaskQueue keeps only unfinished atomic homework tasks', () => {
@@ -74,6 +75,86 @@ test('required homework targets come before optional targets', () => {
   ]);
 
   assert.deepEqual(queue.map((item) => item.questionId), ['required', 'optional']);
+});
+
+test('reliable difficulty orders quick homework from easiest to hardest', () => {
+  const queue = buildHomeworkQuickTaskQueue([{
+    type: 'task',
+    assignmentTier: 'required',
+    taskNumber: 8,
+    levelId: 'basic',
+    targetStatus: [
+      { num: 1, questionId: 'hard', solved: false },
+      { num: 2, questionId: 'easy', solved: false },
+      { num: 3, questionId: 'medium', solved: false },
+    ],
+  }]);
+  const ranked = rankHomeworkQuickTaskQueueByDifficulty(queue, {
+    8: {
+      basic: {
+        hard: { score: 78, sampleSize: 7 },
+        easy: { score: 12, sampleSize: 5 },
+        medium: { score: 43, sampleSize: 10 },
+      },
+    },
+  });
+
+  assert.deepEqual(ranked.map((item) => item.questionId), ['easy', 'medium', 'hard']);
+  assert.deepEqual(ranked.map((item) => item.difficultyScore), [12, 43, 78]);
+});
+
+test('unknown and provisional difficulty stays after reliable estimates in original order', () => {
+  const queue = buildHomeworkQuickTaskQueue([{
+    type: 'task',
+    taskNumber: 6,
+    levelId: 'basic',
+    targetStatus: [
+      { num: 1, questionId: 'unknown-first', solved: false },
+      { num: 2, questionId: 'known', solved: false },
+      { num: 3, questionId: 'provisional', solved: false },
+      { num: 4, questionId: 'unknown-last', solved: false },
+    ],
+  }]);
+  const ranked = rankHomeworkQuickTaskQueueByDifficulty(queue, {
+    6: {
+      basic: {
+        known: { score: 24, sampleSize: 5 },
+        provisional: { score: 3, sampleSize: 4 },
+      },
+    },
+  });
+
+  assert.deepEqual(
+    ranked.map((item) => item.questionId),
+    ['known', 'unknown-first', 'provisional', 'unknown-last']
+  );
+  assert.equal(ranked[0].difficultyKnown, true);
+  assert.equal(ranked[2].difficultyKnown, false);
+});
+
+test('required work remains before easier optional work', () => {
+  const queue = buildHomeworkQuickTaskQueue([
+    {
+      type: 'task',
+      assignmentTier: 'optional',
+      taskNumber: 9,
+      levelId: 'basic',
+      targetStatus: [{ num: 1, questionId: 'optional-easy', solved: false }],
+    },
+    {
+      type: 'task',
+      assignmentTier: 'required',
+      taskNumber: 4,
+      levelId: 'basic',
+      targetStatus: [{ num: 2, questionId: 'required-hard', solved: false }],
+    },
+  ]);
+  const ranked = rankHomeworkQuickTaskQueueByDifficulty(queue, {
+    9: { basic: { 'optional-easy': { score: 1, sampleSize: 8 } } },
+    4: { basic: { 'required-hard': { score: 90, sampleSize: 8 } } },
+  });
+
+  assert.deepEqual(ranked.map((item) => item.questionId), ['required-hard', 'optional-easy']);
 });
 
 test('malformed goals and targets are ignored', () => {

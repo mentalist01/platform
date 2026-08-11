@@ -1,3 +1,9 @@
+import {
+  QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE,
+  getQuestionDifficultyMeta,
+  hasEnoughQuestionDifficultyData,
+} from './questionDifficulty.js';
+
 const normalizeText = (value) => String(value ?? '').trim();
 
 const normalizePositiveNumber = (value) => {
@@ -64,6 +70,54 @@ export const buildHomeworkQuickTaskQueue = (goals = []) => {
 
   return queue;
 };
+
+const getAssignmentTierRank = (value) => (
+  normalizeText(value) === 'optional' ? 1 : 0
+);
+
+const getReliableDifficultyScore = (difficulty, minimumSampleSize) => {
+  if (!hasEnoughQuestionDifficultyData(difficulty, minimumSampleSize)) return null;
+  const numericScore = Number(difficulty?.score);
+  if (Number.isFinite(numericScore)) return Math.min(100, Math.max(0, numericScore));
+  const categoryMeta = getQuestionDifficultyMeta(difficulty);
+  return Number.isFinite(Number(categoryMeta?.minScore)) ? Number(categoryMeta.minScore) : null;
+};
+
+export const rankHomeworkQuickTaskQueueByDifficulty = (
+  queue = [],
+  difficultyIndex = {},
+  { minimumSampleSize = QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE } = {}
+) => (
+  (Array.isArray(queue) ? queue : [])
+    .map((item, originalIndex) => {
+      const taskKey = normalizeText(item?.taskNumber);
+      const levelKey = normalizeText(item?.levelId);
+      const questionKey = normalizeText(item?.questionId);
+      const difficulty = taskKey && levelKey && questionKey
+        ? difficultyIndex?.[taskKey]?.[levelKey]?.[questionKey]
+        : null;
+      const difficultyScore = getReliableDifficultyScore(difficulty, minimumSampleSize);
+      return {
+        item: {
+          ...item,
+          difficulty: difficultyScore === null ? null : difficulty,
+          difficultyScore,
+          difficultyKnown: difficultyScore !== null,
+        },
+        assignmentTierRank: getAssignmentTierRank(item?.assignmentTier),
+        difficultyScore,
+        difficultyKnown: difficultyScore !== null,
+        originalQuickOrder: originalIndex,
+      };
+    })
+    .sort((left, right) => (
+      left.assignmentTierRank - right.assignmentTierRank
+      || Number(right.difficultyKnown) - Number(left.difficultyKnown)
+      || ((left.difficultyScore ?? 0) - (right.difficultyScore ?? 0))
+      || left.originalQuickOrder - right.originalQuickOrder
+    ))
+    .map((entry) => entry.item)
+);
 
 export const pickNextHomeworkQuickTask = (queue = [], completedKeys = [], currentKey = '') => {
   const completed = new Set(

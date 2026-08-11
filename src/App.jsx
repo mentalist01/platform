@@ -84,6 +84,7 @@ import {
   buildHomeworkQuickTaskQueue,
   completeHomeworkQuickTaskSession,
   pickNextHomeworkQuickTask,
+  rankHomeworkQuickTaskQueueByDifficulty,
 } from './utils/homeworkQuickStart';
 import {
   getHomeworkGoalAssignmentTier,
@@ -16295,6 +16296,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     completedKeys: [],
     completedCount: 0,
   });
+  const [quickHomeworkDifficultyIndex, setQuickHomeworkDifficultyIndex] = useState({});
+  const [quickHomeworkDifficultyReady, setQuickHomeworkDifficultyReady] = useState(false);
   const [goalCollapsed, setGoalCollapsed] = useState(user.role === 'student');
   const [goalPanelAnimClass, setGoalPanelAnimClass] = useState('');
   const [paceForecastPopupOpen, setPaceForecastPopupOpen] = useState(false);
@@ -20330,7 +20333,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     || requiredGoalGoals[0]
     || optionalGoalGoals[0]
     || null;
-  const quickHomeworkQueue = buildHomeworkQuickTaskQueue(orderedGoalGoals).map((item) => {
+  const quickHomeworkCandidates = buildHomeworkQuickTaskQueue(orderedGoalGoals);
+  const quickHomeworkQueue = (quickHomeworkDifficultyReady
+    ? rankHomeworkQuickTaskQueueByDifficulty(
+        quickHomeworkCandidates,
+        quickHomeworkDifficultyIndex
+      )
+    : []).map((item) => {
     const pythonTask = isPythonTaskNumber(item.taskNumber)
       ? getPythonTaskInfo(item.taskNumber)
       : null;
@@ -20350,6 +20359,27 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? (quickHomeworkQueue[0] || null)
     : (quickHomeworkSession.currentTask || quickHomeworkNextTask || null);
   const quickHomeworkEntryKey = String(goalState?.entry?.id || '');
+
+  useEffect(() => {
+    if (user.role !== 'student' || !quickHomeworkEntryKey) {
+      setQuickHomeworkDifficultyIndex({});
+      setQuickHomeworkDifficultyReady(false);
+      return undefined;
+    }
+    let cancelled = false;
+    api.getQuestionDifficulties()
+      .then((payload) => {
+        if (cancelled) return;
+        setQuickHomeworkDifficultyIndex(
+          payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+        );
+        setQuickHomeworkDifficultyReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setQuickHomeworkDifficultyReady(true);
+      });
+    return () => { cancelled = true; };
+  }, [user.role, user.id, quickHomeworkEntryKey, goalRefreshTick]);
 
   useEffect(() => {
     setQuickHomeworkSession({

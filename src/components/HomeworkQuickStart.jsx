@@ -206,7 +206,7 @@ const HomeworkQuickStart = ({
 
             {!isFinished && nextTask && (
               <div className="homework-quick-celebration__next">
-                <span>Следующее — тоже короткое</span>
+                <span>{nextTask.difficultyKnown ? 'Следующее по лёгкости' : 'Следующее — тоже короткое'}</span>
                 <strong>{getTaskLabel(nextTask)}</strong>
                 {nextTask.taskTitle && <small>{nextTask.taskTitle}</small>}
               </div>

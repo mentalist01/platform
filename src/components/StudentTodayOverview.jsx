@@ -208,7 +208,7 @@ const StudentTodayOverview = ({
       title: 'Одно задание из твоей домашки. Пять минут.',
       hint: 'Не нужно садиться за всю домашку. Реши одну маленькую задачу — дальше решишь по настроению.',
       actionLabel: 'Решить за 5 минут',
-      previewLabel: 'Первый шаг',
+      previewLabel: quickHomeworkCurrentTask?.difficultyKnown ? 'Самое лёгкое' : 'Первый шаг',
     };
   })();
   const fallbackPrimaryTitle = hasHomework ? getGoalLabel(pendingGoal) : 'Выберите короткую практику';
