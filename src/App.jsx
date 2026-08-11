@@ -734,6 +734,10 @@ const getCurrentClientBuildFingerprint = () => {
     .filter((value) => value && (value.includes('/assets/') || value.includes('/src/')));
   return Array.from(new Set(entries)).join('|');
 };
+// Capture only the entry assets that came from index.html. Lazy sections can add
+// their own stylesheet links later; treating those as a new build causes false
+// reloads after ordinary in-app navigation.
+const INITIAL_CLIENT_BUILD_FINGERPRINT = getCurrentClientBuildFingerprint();
 const TASK_FILES_LIST_MIN_HEIGHT = 80;
 const TASK_FILES_LIST_MAX_HEIGHT = 320;
 const TASK_FILES_LIST_HEIGHT_STEP = 48;
@@ -23078,7 +23082,7 @@ const MainApp = () => {
 
     const checkForNewClientBuild = async () => {
       if (disposed || checking || reloadTriggered) return;
-      const currentFingerprint = getCurrentClientBuildFingerprint();
+      const currentFingerprint = INITIAL_CLIENT_BUILD_FINGERPRINT;
       if (!currentFingerprint) return;
 
       checking = true;
