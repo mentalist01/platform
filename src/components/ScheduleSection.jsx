@@ -4323,9 +4323,9 @@ const ScheduleSection = ({
       )}
 
       {role === 'teacher' && teacherLessonBriefing && (
-        <section className="relative overflow-hidden rounded-[26px] border border-violet-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(245,243,255,0.96)_48%,rgba(239,246,255,0.96))] p-4 shadow-[0_18px_44px_rgba(91,33,182,0.13)] md:p-5">
-          <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-52 w-52 rounded-full bg-violet-300/25 blur-3xl" />
-          <div aria-hidden className="pointer-events-none absolute -bottom-20 left-1/3 h-44 w-44 rounded-full bg-sky-300/20 blur-3xl" />
+        <section className="teacher-lesson-briefing relative overflow-hidden rounded-[26px] border border-violet-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(245,243,255,0.96)_48%,rgba(239,246,255,0.96))] p-4 shadow-[0_18px_44px_rgba(91,33,182,0.13)] md:p-5">
+          <div aria-hidden className="teacher-lesson-briefing__glow--violet pointer-events-none absolute -right-16 -top-20 h-52 w-52 rounded-full bg-violet-300/25 blur-3xl" />
+          <div aria-hidden className="teacher-lesson-briefing__glow--sky pointer-events-none absolute -bottom-20 left-1/3 h-44 w-44 rounded-full bg-sky-300/20 blur-3xl" />
           <div className="relative space-y-4">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex min-w-0 items-start gap-3">
@@ -4333,18 +4333,18 @@ const ScheduleSection = ({
                   <Target size={20} />
                 </span>
                 <div className="min-w-0">
-                  <div className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-600">Следующий урок</div>
-                  <h3 className="mt-1 truncate text-lg font-black text-slate-900 md:text-xl">
+                  <div className="teacher-lesson-briefing__eyebrow text-[10px] font-black uppercase tracking-[0.18em] text-violet-600">Следующий урок</div>
+                  <h3 className="teacher-lesson-briefing__student mt-1 truncate text-lg font-black text-slate-900 md:text-xl">
                     {teacherLessonBriefing.studentLabel}
                   </h3>
-                  <p className="mt-0.5 text-xs font-medium text-slate-500">
+                  <p className="teacher-lesson-briefing__subject mt-0.5 text-xs font-medium text-slate-500">
                     {teacherLessonBriefing.lesson.hasLesson
                       ? teacherLessonBriefing.lesson.subject
                       : 'Можно подготовить план и открыть урок вручную'}
                   </p>
                 </div>
               </div>
-              <div className={`inline-flex w-fit items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-bold shadow-sm ${
+              <div className={`teacher-lesson-briefing__date inline-flex w-fit items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-bold shadow-sm ${
                 teacherLessonBriefing.lesson.hasLesson
                   ? 'border-violet-200 bg-white/90 text-violet-700'
                   : 'border-slate-200 bg-white/75 text-slate-500'
@@ -4352,7 +4352,7 @@ const ScheduleSection = ({
                 <Clock3 size={16} />
                 <span>{teacherLessonBriefing.lesson.dayLabel}</span>
                 {teacherLessonBriefing.lesson.timeLabel && (
-                  <strong className="rounded-lg bg-violet-100 px-2 py-0.5 text-violet-800">
+                  <strong className="teacher-lesson-briefing__time rounded-lg bg-violet-100 px-2 py-0.5 text-violet-800">
                     {teacherLessonBriefing.lesson.timeLabel}
                   </strong>
                 )}
@@ -4360,15 +4360,25 @@ const ScheduleSection = ({
             </header>
 
             <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <div className="rounded-2xl border border-white/90 bg-white/78 p-3.5 shadow-sm backdrop-blur-sm md:p-4">
+              <div className="teacher-lesson-briefing__readiness rounded-2xl border border-white/90 bg-white/78 p-3.5 shadow-sm backdrop-blur-sm md:p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">Готовность по ДЗ</div>
-                    <div className="mt-1 text-base font-black text-slate-900">
+                    <div className="teacher-lesson-briefing__section-label text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">Готовность по ДЗ</div>
+                    <div className="teacher-lesson-briefing__status mt-1 text-base font-black text-slate-900">
                       {teacherLessonBriefing.homework.statusLabel}
                     </div>
                   </div>
-                  <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${
+                  <span
+                    data-tone={
+                      teacherLessonBriefing.homework.overdue
+                        ? 'rose'
+                        : teacherLessonBriefing.homework.complete
+                          ? 'emerald'
+                          : teacherLessonBriefing.homework.hasHomework
+                            ? 'amber'
+                            : 'slate'
+                    }
+                    className={`teacher-lesson-briefing__deadline rounded-full border px-2.5 py-1 text-[11px] font-black ${
                     teacherLessonBriefing.homework.overdue
                       ? 'border-rose-200 bg-rose-50 text-rose-700'
                       : teacherLessonBriefing.homework.complete
@@ -4376,7 +4386,8 @@ const ScheduleSection = ({
                         : teacherLessonBriefing.homework.hasHomework
                           ? 'border-amber-200 bg-amber-50 text-amber-700'
                           : 'border-slate-200 bg-slate-50 text-slate-500'
-                  }`}>
+                  }`}
+                  >
                     {teacherLessonBriefing.homework.overdue
                       ? 'Просрочено'
                       : teacherLessonBriefing.homework.complete
@@ -4387,7 +4398,7 @@ const ScheduleSection = ({
                   </span>
                 </div>
                 <div className="mt-3 flex items-center gap-3">
-                  <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
+                  <div className="teacher-lesson-briefing__progress-track h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
                     <div
                       className={`h-full rounded-full transition-[width] duration-500 ${
                         teacherLessonBriefing.homework.overdue
@@ -4399,7 +4410,7 @@ const ScheduleSection = ({
                       style={{ width: `${teacherLessonBriefing.homework.percent ?? 0}%` }}
                     />
                   </div>
-                  <strong className="w-10 text-right text-sm text-slate-700">
+                  <strong className="teacher-lesson-briefing__progress-value w-10 text-right text-sm text-slate-700">
                     {teacherLessonBriefing.homework.percent === null
                       ? '—'
                       : `${teacherLessonBriefing.homework.percent}%`}
@@ -4408,7 +4419,7 @@ const ScheduleSection = ({
                 {teacherLessonBriefing.focusLabels.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {teacherLessonBriefing.focusLabels.map((label) => (
-                      <span key={label} className="rounded-lg border border-violet-100 bg-violet-50/85 px-2 py-1 text-[11px] font-bold text-violet-700">
+                      <span key={label} className="teacher-lesson-briefing__focus-chip rounded-lg border border-violet-100 bg-violet-50/85 px-2 py-1 text-[11px] font-bold text-violet-700">
                         {label}
                       </span>
                     ))}
@@ -4416,15 +4427,15 @@ const ScheduleSection = ({
                 )}
               </div>
 
-              <div className="rounded-2xl border border-violet-100/90 bg-violet-950/[0.035] p-3.5 md:p-4">
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-violet-600">
+              <div className="teacher-lesson-briefing__plan rounded-2xl border border-violet-100/90 bg-violet-950/[0.035] p-3.5 md:p-4">
+                <div className="teacher-lesson-briefing__plan-title flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-violet-600">
                   <ListChecks size={15} />
                   План занятия
                 </div>
                 <ol className="mt-2.5 space-y-2">
                   {teacherLessonBriefing.planSteps.map((step, index) => (
-                    <li key={`${index}-${step}`} className="flex items-start gap-2.5 text-sm font-semibold leading-snug text-slate-700">
-                      <span className="inline-grid h-5 w-5 shrink-0 place-items-center rounded-full bg-white text-[10px] font-black text-violet-700 shadow-sm">
+                    <li key={`${index}-${step}`} className="teacher-lesson-briefing__plan-step flex items-start gap-2.5 text-sm font-semibold leading-snug text-slate-700">
+                      <span className="teacher-lesson-briefing__plan-index inline-grid h-5 w-5 shrink-0 place-items-center rounded-full bg-white text-[10px] font-black text-violet-700 shadow-sm">
                         {index + 1}
                       </span>
                       <span>{step}</span>
@@ -4439,7 +4450,7 @@ const ScheduleSection = ({
                 type="button"
                 onClick={handleOpenBriefingHomework}
                 disabled={!teacherLessonBriefing.homework.hasHomework}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white/90 px-4 text-sm font-bold text-violet-700 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-45"
+                className="teacher-lesson-briefing__secondary-action inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white/90 px-4 text-sm font-bold text-violet-700 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <BookOpen size={16} />
                 {teacherHomeworkReviewPendingCount > 0
@@ -4454,7 +4465,7 @@ const ScheduleSection = ({
                 type="button"
                 onClick={() => onStartLesson?.(effectiveStudentId)}
                 disabled={typeof onStartLesson !== 'function'}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-500/20 transition hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+                className="teacher-lesson-briefing__primary-action inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 text-sm font-black text-white shadow-lg shadow-violet-500/20 transition hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Начать урок с планом
                 <ArrowRight size={16} />

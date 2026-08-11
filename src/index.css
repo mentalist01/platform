@@ -24546,6 +24546,133 @@ html[data-theme='dark'] .schedule-shell__next-step {
   background: rgba(15, 23, 42, 0.78) !important;
 }
 
+html[data-theme='dark'] .teacher-lesson-briefing {
+  border-color: rgba(139, 92, 246, 0.48) !important;
+  background:
+    radial-gradient(circle at 94% -8%, rgba(124, 58, 237, 0.24), transparent 38%),
+    radial-gradient(circle at 8% 110%, rgba(14, 165, 233, 0.16), transparent 42%),
+    linear-gradient(145deg, #17142f 0%, #10182d 58%, #0a2230 100%) !important;
+  box-shadow:
+    0 28px 64px rgba(2, 6, 23, 0.52),
+    inset 0 1px 0 rgba(216, 180, 254, 0.1) !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__glow--violet {
+  background-color: rgba(139, 92, 246, 0.26) !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__glow--sky {
+  background-color: rgba(14, 165, 233, 0.2) !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing .teacher-lesson-briefing__eyebrow,
+html[data-theme='dark'] .teacher-lesson-briefing .teacher-lesson-briefing__plan-title {
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing .teacher-lesson-briefing__student,
+html[data-theme='dark'] .teacher-lesson-briefing .teacher-lesson-briefing__status {
+  color: #f8fafc !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing .teacher-lesson-briefing__subject,
+html[data-theme='dark'] .teacher-lesson-briefing .teacher-lesson-briefing__section-label {
+  color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__date {
+  border-color: rgba(167, 139, 250, 0.4) !important;
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.92)) !important;
+  color: #ddd6fe !important;
+  box-shadow:
+    0 10px 24px rgba(2, 6, 23, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__time {
+  background: rgba(124, 58, 237, 0.28) !important;
+  color: #ede9fe !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__readiness {
+  border-color: rgba(96, 165, 250, 0.25) !important;
+  background: linear-gradient(145deg, rgba(25, 41, 68, 0.92), rgba(15, 23, 42, 0.9)) !important;
+  box-shadow:
+    0 14px 32px rgba(2, 6, 23, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__deadline[data-tone='rose'] {
+  border-color: rgba(251, 113, 133, 0.42) !important;
+  background: rgba(159, 18, 57, 0.28) !important;
+  color: #fda4af !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__deadline[data-tone='emerald'] {
+  border-color: rgba(52, 211, 153, 0.4) !important;
+  background: rgba(6, 95, 70, 0.32) !important;
+  color: #6ee7b7 !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__deadline[data-tone='amber'] {
+  border-color: rgba(251, 191, 36, 0.4) !important;
+  background: rgba(146, 64, 14, 0.32) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__deadline[data-tone='slate'] {
+  border-color: rgba(100, 116, 139, 0.5) !important;
+  background: rgba(30, 41, 59, 0.78) !important;
+  color: #cbd5e1 !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__progress-track {
+  background: rgba(2, 6, 23, 0.72) !important;
+  box-shadow: inset 0 1px 3px rgba(2, 6, 23, 0.72);
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing .teacher-lesson-briefing__progress-value {
+  color: #cbd5e1 !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__focus-chip {
+  border-color: rgba(167, 139, 250, 0.26) !important;
+  background: rgba(91, 33, 182, 0.24) !important;
+  color: #d8b4fe !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__plan {
+  border-color: rgba(167, 139, 250, 0.24) !important;
+  background: linear-gradient(145deg, rgba(76, 29, 149, 0.2), rgba(15, 23, 42, 0.54)) !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing .teacher-lesson-briefing__plan-step {
+  color: #cbd5e1 !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__plan-index {
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  background: rgba(76, 29, 149, 0.48) !important;
+  color: #ede9fe !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__secondary-action {
+  border-color: rgba(167, 139, 250, 0.38) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+  color: #ddd6fe !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__secondary-action:hover:not(:disabled) {
+  border-color: rgba(196, 181, 253, 0.54) !important;
+  background: rgba(46, 36, 86, 0.9) !important;
+}
+
+html[data-theme='dark'] .teacher-lesson-briefing__primary-action {
+  box-shadow: 0 14px 30px rgba(124, 58, 237, 0.3) !important;
+}
+
 html[data-theme='dark'] .schedule-shell__lessons-card {
   border-color: rgba(56, 189, 248, 0.42) !important;
   background:
