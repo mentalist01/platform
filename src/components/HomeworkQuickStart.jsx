@@ -76,7 +76,7 @@ const HomeworkQuickStart = ({
   const isFinished = status === 'complete' || status === 'done';
   const cardTitle = isFinished
     ? 'Все короткие задания готовы'
-    : (status === 'paused' ? 'Хороший старт уже есть' : 'Одно задание. Пять минут.');
+    : (status === 'paused' ? 'Хороший старт уже есть' : 'Одно задание из твоей домашки. Пять минут.');
   const cardText = isFinished
     ? `Ты решил ${getSolvedTaskCountLabel(completedCount)} — короткая серия закрыта.`
     : (status === 'paused'
