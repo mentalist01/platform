@@ -15,6 +15,7 @@ import {
 import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
+import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import {
   QUESTION_INSERT_MODE_CUSTOM,
@@ -217,6 +218,7 @@ const TeacherPanel = ({
   const [testDb, setTestDb] = useState(null);
   const [testsLoading, setTestsLoading] = useState(false);
   const [testsError, setTestsError] = useState('');
+  const [questionDifficultyById, setQuestionDifficultyById] = useState({});
   const [selectedTask, setSelectedTask] = useState(1);
   const [selectedLevel, setSelectedLevel] = useState('basic');
   const [questionInsertMode, setQuestionInsertMode] = useState(QUESTION_INSERT_MODE_END);
@@ -383,6 +385,25 @@ const TeacherPanel = ({
     });
     return () => { cancelled = true; };
   }, [isTestsMode]);
+
+  useEffect(() => {
+    if (!isTestsMode || !selectedTask || !selectedLevel) {
+      setQuestionDifficultyById({});
+      return undefined;
+    }
+    let cancelled = false;
+    api.getQuestionDifficulties(selectedTask, selectedLevel)
+      .then((payload) => {
+        if (cancelled) return;
+        setQuestionDifficultyById(
+          payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setQuestionDifficultyById({});
+      });
+    return () => { cancelled = true; };
+  }, [isTestsMode, selectedTask, selectedLevel]);
 
   useEffect(() => {
     if (!isTestsMode) return undefined;
@@ -4135,6 +4156,11 @@ const TeacherPanel = ({
                       </span>
                     )}
                       <span className="teacher-question-card__level-pill">{selectedLevelLabel}</span>
+                      <QuestionDifficultyBadge
+                        difficulty={questionDifficultyById?.[String(q.id)]}
+                        showDetails
+                        showWhenEmpty
+                      />
                     </div>
                     <p className="teacher-question-card__text">{q.question || 'Вопрос без текста'}</p>
                     <div className="teacher-question-card__answer-row">

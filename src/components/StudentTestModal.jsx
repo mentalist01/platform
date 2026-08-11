@@ -4,15 +4,22 @@ import Editor from '@monaco-editor/react';
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Share2, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import useWorkbookHelper from '../hooks/useWorkbookHelper';
+import useQuestionSolveTimer from '../hooks/useQuestionSolveTimer';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import { normalizeTurtleScene, parseTurtleSceneJson } from '../utils/turtleScene';
+import {
+  QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE,
+  hasEnoughQuestionDifficultyData,
+} from '../utils/questionDifficulty';
+import { getLatestUnsolvedDurationMs } from '../utils/questionSolveTimer';
 import HEADLESS_TURTLE_SOURCE from '../python/headless_turtle.py?raw';
 import { Button } from './ui';
 import StudentTestWindowTour from './StudentTestWindowTour';
 import TurtleCanvas from './TurtleCanvas';
+import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 
 const STUDENT_TEST_ANSWER_DRAFT_PREFIX = 'student-test-answer-draft-v1';
 const STUDENT_HELP_DRAFT_PREFIX = 'student-help-draft-v1';
@@ -1087,6 +1094,7 @@ const StudentTestModal = ({
   const [solvedAnswerById, setSolvedAnswerById] = useState({});
   const [answerHistoryById, setAnswerHistoryById] = useState({});
   const [answerHistoryLoading, setAnswerHistoryLoading] = useState(false);
+  const [questionDifficultyById, setQuestionDifficultyById] = useState({});
   const [studentTestClosing, setStudentTestClosing] = useState(false);
   const [expandedImage, setExpandedImage] = useState(null);
   const [studentHelpOpen, setStudentHelpOpen] = useState(false);
@@ -1169,6 +1177,43 @@ const StudentTestModal = ({
   const activeQuestion = questions[currentIndex];
   const activeQuestionId = activeQuestion ? String(activeQuestion?.id ?? currentIndex) : '';
   const activeQuestionNumber = questionNumbers[currentIndex] ?? (currentIndex + 1);
+  const activeQuestionHistory = Array.isArray(answerHistoryById?.[activeQuestionId])
+    ? answerHistoryById[activeQuestionId]
+    : [];
+  const activeQuestionAlreadySolved = solvedIds.has(activeQuestionId)
+    || activeQuestionHistory.some((entry) => entry?.correct === true);
+  const activeQuestionTimerKey = stage === 'testing' && level && activeQuestionId
+    ? `${task?.number || task?.id}:${level}:${activeQuestionId}`
+    : '';
+  const getActiveQuestionSolveDurationMs = useQuestionSolveTimer({
+    questionKey: activeQuestionTimerKey,
+    studentId,
+    taskNumber: task?.number || task?.id,
+    levelId: level,
+    questionId: activeQuestionId,
+    initialDurationMs: getLatestUnsolvedDurationMs(activeQuestionHistory),
+    baselineReady: !studentId || !answerHistoryLoading,
+    enabled: Boolean(activeQuestionTimerKey) && !activeQuestionAlreadySolved,
+  });
+
+  useEffect(() => {
+    if (stage !== 'testing' || !task?.number || !level) {
+      setQuestionDifficultyById({});
+      return undefined;
+    }
+    let cancelled = false;
+    api.getQuestionDifficulties(task.number, level)
+      .then((payload) => {
+        if (cancelled) return;
+        setQuestionDifficultyById(
+          payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setQuestionDifficultyById({});
+      });
+    return () => { cancelled = true; };
+  }, [stage, task?.number, level]);
 
   useEffect(() => {
     if (!questionCodeOpen || !activeQuestionNumber || typeof window === 'undefined') return undefined;
@@ -1886,6 +1931,9 @@ const StudentTestModal = ({
             submittedAt: new Date(submittedAtMs).toISOString(),
             correct: entry.correct === true,
             answers,
+            solveDurationMs: Number.isFinite(Number(entry.solveDurationMs))
+              ? Math.max(0, Math.round(Number(entry.solveDurationMs)))
+              : 0,
           };
         })
         .filter(Boolean)
@@ -1908,7 +1956,13 @@ const StudentTestModal = ({
     }
   };
 
-  const addLocalAnswerHistoryAttempt = (questionId, answers, correct, submittedAt = new Date().toISOString()) => {
+  const addLocalAnswerHistoryAttempt = (
+    questionId,
+    answers,
+    correct,
+    submittedAt = new Date().toISOString(),
+    solveDurationMs = 0
+  ) => {
     const key = String(questionId ?? '').trim();
     if (!key) return;
     const values = (Array.isArray(answers) ? answers : [answers])
@@ -1921,6 +1975,7 @@ const StudentTestModal = ({
         submittedAt,
         correct: correct === true,
         answers: values,
+        solveDurationMs: Math.max(0, Math.round(Number(solveDurationMs) || 0)),
       };
       return {
         ...(prev || {}),
@@ -2110,7 +2165,7 @@ const StudentTestModal = ({
     setSolvedIds(new Set());
     setSolvedAnswerById({});
     setAnswerHistoryById({});
-    setAnswerHistoryLoading(false);
+    setAnswerHistoryLoading(Boolean(studentId));
     clearStudentHelpCloseTimer();
     setStudentHelpClosing(false);
     setStudentHelpOpen(false);
@@ -2156,6 +2211,8 @@ const StudentTestModal = ({
         setAnswerHistoryById(normalizeAnswerHistoryPayload(answerHistoryPayload));
       } catch (err) {
         console.error(err);
+      } finally {
+        setAnswerHistoryLoading(false);
       }
     }
     return true;
@@ -2593,8 +2650,11 @@ const StudentTestModal = ({
 
     let correct = false;
     let serverProgressApplied = false;
+    const solveDurationMs = getActiveQuestionSolveDurationMs.getElapsedMs();
+    getActiveQuestionSolveDurationMs.acknowledge?.(solveDurationMs);
     const levelConfig = Object.values(LEVELS).find(l => l.id === level);
     if (studentId) {
+      getActiveQuestionSolveDurationMs.pause?.();
       try {
         const resp = await api.solveQuestion({
           studentId,
@@ -2602,9 +2662,11 @@ const StudentTestModal = ({
           levelId: level,
           questionId: currentQuestion.id,
           ...(answerPayload ? { code: answerPayload } : {}),
+          solveDurationMs,
           localDay: getLocalDayKey(),
         });
         correct = true;
+        getActiveQuestionSolveDurationMs.clear?.();
         setSolvedIds((prev) => {
           const next = new Set(prev);
           next.add(String(currentQuestion.id));
@@ -2644,13 +2706,20 @@ const StudentTestModal = ({
           });
         }
         if (typeof resp?.taskProgress === 'number') {
-          onComplete(task.id, resp.taskProgress, { skipServer: true });
+          onComplete(task.id, resp.taskProgress, {
+            skipServer: true,
+            quickQuestionSolved: true,
+            taskNumber: task.number,
+            levelId: level,
+            solvedQuestionId: String(currentQuestion.id),
+            solvedQuestionNumber: questionNumbers[currentIndex] ?? (currentIndex + 1),
+          });
           serverProgressApplied = true;
         }
         try {
           await loadAnswerHistory(level, { silent: true });
         } catch {
-          addLocalAnswerHistoryAttempt(currentQuestion.id, submittedAnswerValues, true, submittedAt);
+          addLocalAnswerHistoryAttempt(currentQuestion.id, submittedAnswerValues, true, submittedAt, solveDurationMs);
         }
       } catch (err) {
         const message = String(err?.message || err || '');
@@ -2662,14 +2731,26 @@ const StudentTestModal = ({
         try {
           await loadAnswerHistory(level, { silent: true });
         } catch {
-          addLocalAnswerHistoryAttempt(currentQuestion.id, submittedAnswerValues, false, submittedAt);
+          addLocalAnswerHistoryAttempt(currentQuestion.id, submittedAnswerValues, false, submittedAt, solveDurationMs);
         }
+      } finally {
+        getActiveQuestionSolveDurationMs.resume?.();
       }
     } else {
       correct = fallbackCorrect;
-      addLocalAnswerHistoryAttempt(currentQuestion.id, submittedAnswerValues, correct, submittedAt);
+      if (correct) getActiveQuestionSolveDurationMs.clear?.();
+      addLocalAnswerHistoryAttempt(currentQuestion.id, submittedAnswerValues, correct, submittedAt, solveDurationMs);
     }
     setResults((prev) => ({ ...prev, [currentIndex]: correct }));
+    if (correct && studentId) {
+      api.getQuestionDifficulties(task.number, level)
+        .then((payload) => {
+          setQuestionDifficultyById(
+            payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+          );
+        })
+        .catch(() => {});
+    }
     
     // Если ответ верный, обновляем прогресс
     if (correct) {
@@ -2682,9 +2763,23 @@ const StudentTestModal = ({
         const prevContribution = (prevSolved / totalCount) * weight;
         const nextContribution = (nextSolved / totalCount) * weight;
         const nextProgress = Math.round(Math.max(0, currentMastery - prevContribution + nextContribution));
-        onComplete(task.id, Math.min(100, nextProgress), { skipServer: true });
+        onComplete(task.id, Math.min(100, nextProgress), {
+          skipServer: true,
+          quickQuestionSolved: true,
+          taskNumber: task.number,
+          levelId: level,
+          solvedQuestionId: String(currentQuestion.id),
+          solvedQuestionNumber: questionNumbers[currentIndex] ?? (currentIndex + 1),
+        });
       } else if (levelConfig?.maxScore > currentMastery) {
-        onComplete(task.id, levelConfig.maxScore, { skipServer: true });
+        onComplete(task.id, levelConfig.maxScore, {
+          skipServer: true,
+          quickQuestionSolved: true,
+          taskNumber: task.number,
+          levelId: level,
+          solvedQuestionId: String(currentQuestion.id),
+          solvedQuestionNumber: questionNumbers[currentIndex] ?? (currentIndex + 1),
+        });
       }
     }
   };
@@ -4047,6 +4142,11 @@ const StudentTestModal = ({
                     {currentQuestionLabel.text}
                   </span>
                 )}
+                <QuestionDifficultyBadge
+                  difficulty={questionDifficultyById?.[currentId]}
+                  theme={theme}
+                  minimumSampleSize={QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE}
+                />
                 <span className="student-test-code-focus__task-meta">
                   Задание {getTaskDisplayNumber(task)}
                 </span>
@@ -4557,7 +4657,18 @@ const StudentTestModal = ({
                     <span className="truncate">{currentQuestionLabel.text}</span>
                   </span>
                 )}
-                {!currentMockExamSourceBadge && !currentQuestionLabel && <span aria-hidden="true" />}
+                <QuestionDifficultyBadge
+                  difficulty={questionDifficultyById?.[currentId]}
+                  theme={theme}
+                  minimumSampleSize={QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE}
+                />
+                {!currentMockExamSourceBadge
+                  && !currentQuestionLabel
+                  && !hasEnoughQuestionDifficultyData(
+                    questionDifficultyById?.[currentId],
+                    QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE
+                  )
+                  && <span aria-hidden="true" />}
               </div>
               <div className="student-test-question-panel__toolbar-actions" data-student-test-tour="code-tools">
                 <button

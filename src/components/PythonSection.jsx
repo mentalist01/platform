@@ -5,6 +5,7 @@ import CoinGuideIcon from './CoinGuideTooltip';
 import ProgressReviewModal from './ProgressReviewModal';
 import PythonReviewModal from './PythonReviewModal';
 import PythonTestModal from './PythonTestModal';
+import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
 import TheoryRecordingEditor from './TheoryRecordingEditor';
@@ -430,6 +431,7 @@ const PythonSection = ({
   openTask,
   onOpenTaskHandled,
   onTaskStateChange,
+  onQuickHomeworkTaskSolved,
   homeworkLessonBasketItems = [],
   onAddToHomeworkLessonBasket,
   onStreakSaved,
@@ -512,6 +514,7 @@ const PythonSection = ({
   const [dataError, setDataError] = useState('');
   const [testsDb, setTestsDb] = useState(null);
   const [testsDbError, setTestsDbError] = useState('');
+  const [manageQuestionDifficultyById, setManageQuestionDifficultyById] = useState({});
   const [manageTaskNumber, setManageTaskNumber] = useState(taskList[0]?.number || '');
   const [cardTitle, setCardTitle] = useState('');
   const [cardDisplayNumber, setCardDisplayNumber] = useState('');
@@ -599,6 +602,25 @@ const PythonSection = ({
       });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (role !== 'teacher' || !manageTaskNumber) {
+      setManageQuestionDifficultyById({});
+      return undefined;
+    }
+    let cancelled = false;
+    api.getQuestionDifficulties(manageTaskNumber, PYTHON_LEVEL_ID)
+      .then((payload) => {
+        if (cancelled) return;
+        setManageQuestionDifficultyById(
+          payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setManageQuestionDifficultyById({});
+      });
+    return () => { cancelled = true; };
+  }, [role, manageTaskNumber, PYTHON_LEVEL_ID]);
 
   useEffect(() => {
     const normalizedCatalog = normalizePythonTaskCatalog(
@@ -2717,6 +2739,11 @@ const PythonSection = ({
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                               <span>{`Задача ${item.localNumber} в подразделе`}</span>
                               <span>{`Тестов: ${Array.isArray(q.tests) ? q.tests.length : (q.answer ? 1 : 0)}`}</span>
+                              <QuestionDifficultyBadge
+                                difficulty={manageQuestionDifficultyById?.[String(q.id)]}
+                                showDetails
+                                showWhenEmpty
+                              />
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5">
@@ -2892,10 +2919,20 @@ const PythonSection = ({
           ALLOW_MAIN_THREAD_PYTHON_FALLBACK={ALLOW_MAIN_THREAD_PYTHON_FALLBACK}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
+            const quickTaskHandled = onQuickHomeworkTaskSolved?.({
+              taskId,
+              score,
+              options,
+            }) === true;
             if (studentId) {
               api.getStudentData(studentId)
                 .then((data) => setStudentData(normalizeLoadedStudentData(data)))
                 .catch(() => {});
+            }
+            if (quickTaskHandled) {
+              setActiveTask(null);
+              setActiveQuestionIndex(null);
+              setActiveSubsectionId(null);
             }
           }}
         />

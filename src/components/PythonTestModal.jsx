@@ -27,6 +27,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { api } from '../services/api';
+import useQuestionSolveTimer from '../hooks/useQuestionSolveTimer';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { Button } from './ui';
@@ -42,6 +43,9 @@ import {
   THEORY_RECORDING_TYPE,
 } from '../utils/theoryRecording';
 import { getCollabWsUrl } from '../utils/runtimeUrls';
+import { QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE } from '../utils/questionDifficulty';
+import { getLatestUnsolvedDurationMs } from '../utils/questionSolveTimer';
+import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
 const COLLAB_SEED_DELAY_MS = 450;
@@ -269,6 +273,9 @@ const PythonTestModal = ({
   const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [solvedCodeById, setSolvedCodeById] = useState({});
+  const [answerHistoryById, setAnswerHistoryById] = useState({});
+  const [answerHistoryLoading, setAnswerHistoryLoading] = useState(Boolean(studentId));
+  const [questionDifficultyById, setQuestionDifficultyById] = useState({});
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeSavingById, setQuestionCodeSavingById] = useState({});
@@ -343,6 +350,43 @@ const PythonTestModal = ({
     () => String(questions[currentIndex]?.id ?? '').trim(),
     [questions, currentIndex]
   );
+  const activeQuestionHistory = Array.isArray(answerHistoryById?.[activeQuestionId])
+    ? answerHistoryById[activeQuestionId]
+    : [];
+  const activeQuestionAlreadySolved = solvedIds.has(activeQuestionId)
+    || activeQuestionHistory.some((entry) => entry?.correct === true);
+  const activeQuestionTimerKey = activeQuestionId
+    ? `${task?.number || task?.id}:${PYTHON_LEVEL_ID}:${activeQuestionId}`
+    : '';
+  const getActiveQuestionSolveDurationMs = useQuestionSolveTimer({
+    questionKey: activeQuestionTimerKey,
+    studentId,
+    taskNumber: task?.number || task?.id,
+    levelId: PYTHON_LEVEL_ID,
+    questionId: activeQuestionId,
+    initialDurationMs: getLatestUnsolvedDurationMs(activeQuestionHistory),
+    baselineReady: !studentId || !answerHistoryLoading,
+    enabled: Boolean(activeQuestionTimerKey) && !activeQuestionAlreadySolved,
+  });
+
+  useEffect(() => {
+    if (!task?.number || !PYTHON_LEVEL_ID) {
+      setQuestionDifficultyById({});
+      return undefined;
+    }
+    let cancelled = false;
+    api.getQuestionDifficulties(task.number, PYTHON_LEVEL_ID)
+      .then((payload) => {
+        if (cancelled) return;
+        setQuestionDifficultyById(
+          payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setQuestionDifficultyById({});
+      });
+    return () => { cancelled = true; };
+  }, [task?.number, PYTHON_LEVEL_ID]);
   const currentQuestionScrollText = typeof questions[currentIndex]?.question === 'string'
     ? questions[currentIndex].question
     : '';
@@ -949,6 +993,8 @@ const PythonTestModal = ({
     }
     setSolvedIds(new Set());
     setSolvedCodeById({});
+    setAnswerHistoryById({});
+    setAnswerHistoryLoading(Boolean(studentId));
     setQuestionCodeById({});
     setQuestionCodeLoadingById({});
     setQuestionCodeSavingById({});
@@ -981,6 +1027,16 @@ const PythonTestModal = ({
           }
         })
         .catch((err) => console.error(err));
+      api.getAnswerHistory(studentId, task.number, PYTHON_LEVEL_ID)
+        .then((payload) => {
+          setAnswerHistoryById(
+            payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+          );
+        })
+        .catch(() => setAnswerHistoryById({}))
+        .finally(() => setAnswerHistoryLoading(false));
+    } else {
+      setAnswerHistoryLoading(false);
     }
   }, [task?.number, subsectionModel, studentId, initialQuestionIndex, initialSubsectionId]);
 
@@ -1484,6 +1540,7 @@ const PythonTestModal = ({
       });
       return;
     }
+    getActiveQuestionSolveDurationMs.pause?.();
     try {
       const resultsList = [];
       for (const test of sanitizedTests) {
@@ -1530,32 +1587,60 @@ const PythonTestModal = ({
         && resultsList.length > 0
         && resultsList.every((item) => !String(item.error ?? '').trim());
       const shouldSubmit = allPassed || canSubmitWithoutExpected;
+      const solveDurationMs = getActiveQuestionSolveDurationMs.getElapsedMs();
+      getActiveQuestionSolveDurationMs.acknowledge?.(solveDurationMs);
+      const solvePayload = {
+        studentId,
+        taskNumber: task.number,
+        levelId: PYTHON_LEVEL_ID,
+        questionId: currentQuestion.id,
+        totalQuestions: questions.length,
+        levelMax: 100,
+        levelTotals: { [PYTHON_LEVEL_ID]: questions.length },
+        code: currentCode,
+        solveDurationMs,
+        localDay: getLocalDayKey(),
+        pythonResults: resultsList.map((item) => ({
+          input: String(item?.input ?? ''),
+          output: String(item?.output ?? ''),
+          error: String(item?.error ?? ''),
+        })),
+      };
+
+      if (!shouldSubmit && studentId && hasExpectedOutputs) {
+        try {
+          await api.solveQuestion(solvePayload);
+        } catch {
+          // An unsuccessful check is expected here; the server still records the attempt.
+        }
+        try {
+          const history = await api.getAnswerHistory(studentId, task.number, PYTHON_LEVEL_ID);
+          setAnswerHistoryById(
+            history && typeof history === 'object' && !Array.isArray(history) ? history : {}
+          );
+        } catch {
+          // The next modal opening will restore the persisted timer baseline.
+        }
+      }
 
       if (shouldSubmit) {
         if (studentId) {
           try {
-            const resp = await api.solveQuestion({
-              studentId,
-              taskNumber: task.number,
-              levelId: PYTHON_LEVEL_ID,
-              questionId: currentQuestion.id,
-              totalQuestions: questions.length,
-              levelMax: 100,
-              levelTotals: { [PYTHON_LEVEL_ID]: questions.length },
-              code: currentCode,
-              localDay: getLocalDayKey(),
-              pythonResults: resultsList.map((item) => ({
-                input: String(item?.input ?? ''),
-                output: String(item?.output ?? ''),
-                error: String(item?.error ?? ''),
-              })),
-            });
+            const resp = await api.solveQuestion(solvePayload);
             setSolvedIds((prev) => {
               const next = new Set(prev);
               next.add(currentId);
               return next;
             });
             setSolvedCodeById((prev) => ({ ...prev, [currentId]: currentCode }));
+            getActiveQuestionSolveDurationMs.clear?.();
+            api.getQuestionDifficulties(task.number, PYTHON_LEVEL_ID)
+              .then((payload) => {
+                setQuestionDifficultyById(
+                  payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+                );
+              })
+              .catch(() => {});
             if (typeof onStreakSaved === 'function') {
               if (resp?.streak) {
                 onStreakSaved(resp.streak);
@@ -1579,7 +1664,14 @@ const PythonTestModal = ({
               });
             }
             if (typeof resp?.taskProgress === 'number') {
-              onComplete(task.id, resp.taskProgress, { skipServer: true });
+              onComplete(task.id, resp.taskProgress, {
+                skipServer: true,
+                quickQuestionSolved: true,
+                taskNumber: task.number,
+                levelId: PYTHON_LEVEL_ID,
+                solvedQuestionId: currentId,
+                solvedQuestionNumber: currentIndex + 1,
+              });
               setRunnerLoading(false);
               return;
             }
@@ -1598,12 +1690,20 @@ const PythonTestModal = ({
           setRunnerError('Проверка без эталонных ответов доступна только для ученика.');
           return;
         }
+        if (!studentId) getActiveQuestionSolveDurationMs.clear?.();
         const totalCount = questions.length;
         if (totalCount > 0) {
           const prevSolved = solvedIds.size;
           const nextSolved = solvedIds.has(currentId) ? prevSolved : prevSolved + 1;
           const nextProgress = Math.round((nextSolved / totalCount) * 100);
-          onComplete(task.id, Math.min(100, nextProgress), { skipServer: true });
+          onComplete(task.id, Math.min(100, nextProgress), {
+            skipServer: true,
+            quickQuestionSolved: true,
+            taskNumber: task.number,
+            levelId: PYTHON_LEVEL_ID,
+            solvedQuestionId: currentId,
+            solvedQuestionNumber: currentIndex + 1,
+          });
         }
       }
     } catch (err) {
@@ -1615,6 +1715,7 @@ const PythonTestModal = ({
         ts: Date.now(),
       });
     } finally {
+      getActiveQuestionSolveDurationMs.resume?.();
       setRunnerLoading(false);
     }
   };
@@ -2193,6 +2294,11 @@ const PythonTestModal = ({
                 <CheckCircle2 size={12} />
                 {isSolved ? 'Решено ранее' : 'Ожидает решения'}
               </span>
+              <QuestionDifficultyBadge
+                difficulty={questionDifficultyById?.[activeQuestionId]}
+                theme={isDarkTheme ? 'dark' : 'light'}
+                minimumSampleSize={QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE}
+              />
             </div>
             {currentQuestion?.question ? (
               <div className="python-runtime-question-copy relative mt-2.5 min-h-0 flex-1 overflow-hidden rounded-[14px] border">

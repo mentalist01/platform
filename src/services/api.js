@@ -1075,6 +1075,20 @@ export const api = {
     const data = await parseJsonResponse(res);
     return data && typeof data === 'object' ? data : {};
   },
+  getQuestionDifficulties: async (taskNumber, levelId) => {
+    const params = new URLSearchParams();
+    if (taskNumber !== null && typeof taskNumber !== 'undefined' && String(taskNumber).trim()) {
+      params.set('taskNumber', String(taskNumber));
+    }
+    if (levelId) params.set('levelId', String(levelId));
+    const query = params.toString();
+    const res = await apiFetch(query
+      ? `/api/question-difficulty?${query}`
+      : '/api/question-difficulty');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const data = await parseJsonResponse(res);
+    return data && typeof data === 'object' ? data : {};
+  },
   saveTests: async (newDb) => {
     const res = await apiFetch('/api/tests', {
       method: 'PUT',

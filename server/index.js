@@ -169,6 +169,7 @@ import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js
 import { applyTeacherBaseNotes } from './teacherBaseNotes.js';
 import { createAccessCodeLookupHash, getAccessCodeCandidates } from './accessCodeLookup.js';
 import { BoundedExecutionSlots, SlidingWindowRateLimiter } from './pythonExecutionLimiter.js';
+import { buildQuestionDifficultyIndex } from './questionDifficulty.js';
 
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
@@ -849,6 +850,8 @@ const STUDENT_ANSWER_HISTORY_LIMIT = (() => {
   if (Number.isFinite(raw) && raw >= 1) return Math.min(100, Math.floor(raw));
   return 20;
 })();
+const STUDENT_SOLVE_DURATION_MAX_MS = 4 * 60 * 60 * 1000;
+const STUDENT_FIRST_SOLVE_WRONG_ATTEMPTS_MAX = 1_000_000;
 const STUDENT_XP_BALANCE_VERSION = 4;
 const STUDENT_RECENT_XP_REBALANCE_VERSION = 3;
 const STUDENT_BAD_RECENT_XP_REBALANCE_VERSION = 2;
@@ -11883,11 +11886,16 @@ const normalizeAnswerHistoryEntry = (entry) => {
     .map((value) => String(value ?? '').slice(0, 2000))
     .filter((value, index) => index < 50 || value.trim());
   if (answers.length <= 0) return null;
+  const rawSolveDurationMs = Number(entry.solveDurationMs);
+  const solveDurationMs = Number.isFinite(rawSolveDurationMs) && rawSolveDurationMs > 0
+    ? Math.min(STUDENT_SOLVE_DURATION_MAX_MS, Math.max(1, Math.round(rawSolveDurationMs)))
+    : 0;
   return {
     id: typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : crypto.randomUUID(),
     submittedAt: new Date(submittedAtMs).toISOString(),
     correct: entry.correct === true,
     answers,
+    ...(solveDurationMs > 0 ? { solveDurationMs } : {}),
   };
 };
 
@@ -11907,7 +11915,118 @@ const normalizeAnswerHistoryMap = (value) => {
   return normalized;
 };
 
-const appendAnswerHistoryEntry = (levelEntry, questionKey, rawValue, answerCount, correct, submittedAt = new Date().toISOString()) => {
+const isSafeProgressObjectKey = (value) => {
+  const key = String(value ?? '').trim();
+  return Boolean(key) && key !== '__proto__' && key !== 'prototype' && key !== 'constructor';
+};
+
+const normalizeFirstSolveTelemetryEntry = (entry) => {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  const rawSolveDurationMs = Number(entry.solveDurationMs);
+  if (!Number.isFinite(rawSolveDurationMs) || rawSolveDurationMs <= 0) return null;
+  const rawWrongAttempts = Number(entry.wrongAttempts);
+  if (!Number.isFinite(rawWrongAttempts) || rawWrongAttempts < 0) return null;
+  const solvedAtMs = typeof entry.solvedAt === 'string' ? Date.parse(entry.solvedAt) : Number.NaN;
+  if (!Number.isFinite(solvedAtMs)) return null;
+  return {
+    solveDurationMs: Math.min(
+      STUDENT_SOLVE_DURATION_MAX_MS,
+      Math.max(1, Math.round(rawSolveDurationMs))
+    ),
+    wrongAttempts: Math.min(
+      STUDENT_FIRST_SOLVE_WRONG_ATTEMPTS_MAX,
+      Math.max(0, Math.floor(rawWrongAttempts))
+    ),
+    solvedAt: new Date(solvedAtMs).toISOString(),
+  };
+};
+
+const normalizeFirstSolveTelemetryMap = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const normalized = {};
+  Object.entries(value).forEach(([questionKey, rawEntry]) => {
+    const qKey = String(questionKey ?? '').trim();
+    if (!isSafeProgressObjectKey(qKey)) return;
+    const entry = normalizeFirstSolveTelemetryEntry(rawEntry);
+    if (entry) normalized[qKey] = entry;
+  });
+  return normalized;
+};
+
+const normalizeSolvedByTaskTelemetry = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const normalized = {};
+  Object.entries(value).forEach(([taskKey, rawTaskEntry]) => {
+    if (!isSafeProgressObjectKey(taskKey)) return;
+    if (!rawTaskEntry || typeof rawTaskEntry !== 'object' || Array.isArray(rawTaskEntry)) return;
+    const taskEntry = {};
+    Object.entries(rawTaskEntry).forEach(([levelKey, rawLevelEntry]) => {
+      if (!isSafeProgressObjectKey(levelKey)) return;
+      if (!rawLevelEntry || typeof rawLevelEntry !== 'object' || Array.isArray(rawLevelEntry)) {
+        taskEntry[levelKey] = rawLevelEntry;
+        return;
+      }
+      if (!Object.prototype.hasOwnProperty.call(rawLevelEntry, 'firstSolveTelemetry')) {
+        taskEntry[levelKey] = rawLevelEntry;
+        return;
+      }
+      const firstSolveTelemetry = normalizeFirstSolveTelemetryMap(rawLevelEntry.firstSolveTelemetry);
+      const levelEntry = { ...rawLevelEntry };
+      if (Object.keys(firstSolveTelemetry).length > 0) {
+        levelEntry.firstSolveTelemetry = firstSolveTelemetry;
+      } else {
+        delete levelEntry.firstSolveTelemetry;
+      }
+      taskEntry[levelKey] = levelEntry;
+    });
+    normalized[taskKey] = taskEntry;
+  });
+  return normalized;
+};
+
+const captureFirstSolveTelemetry = (
+  levelEntry,
+  questionKey,
+  solveDurationMs,
+  solvedAt = new Date().toISOString()
+) => {
+  const qKey = String(questionKey ?? '').trim();
+  if (!isSafeProgressObjectKey(qKey)) return levelEntry;
+  const firstSolveTelemetry = normalizeFirstSolveTelemetryMap(levelEntry?.firstSolveTelemetry);
+  if (Object.prototype.hasOwnProperty.call(firstSolveTelemetry, qKey)) return levelEntry;
+
+  const history = normalizeAnswerHistoryMap(levelEntry?.answerHistory);
+  const questionHistory = Array.isArray(history[qKey]) ? history[qKey] : [];
+  // A prior correct answer means the immutable first-solve moment has already passed.
+  if (questionHistory.some((entry) => entry.correct === true)) return levelEntry;
+  const wrongAttempts = questionHistory.reduce(
+    (count, entry) => count + (entry.correct === false ? 1 : 0),
+    0
+  );
+  const telemetry = normalizeFirstSolveTelemetryEntry({
+    solveDurationMs,
+    wrongAttempts,
+    solvedAt,
+  });
+  if (!telemetry) return levelEntry;
+  return {
+    ...(levelEntry || {}),
+    firstSolveTelemetry: {
+      ...firstSolveTelemetry,
+      [qKey]: telemetry,
+    },
+  };
+};
+
+const appendAnswerHistoryEntry = (
+  levelEntry,
+  questionKey,
+  rawValue,
+  answerCount,
+  correct,
+  submittedAt = new Date().toISOString(),
+  solveDurationMs = 0
+) => {
   const qKey = String(questionKey || '').trim();
   if (!qKey) return levelEntry;
   const safeCount = Number.isFinite(Number(answerCount)) ? Math.max(1, Math.min(50, Math.floor(Number(answerCount)))) : 1;
@@ -11921,6 +12040,7 @@ const appendAnswerHistoryEntry = (levelEntry, questionKey, rawValue, answerCount
     submittedAt,
     correct: correct === true,
     answers,
+    solveDurationMs,
   });
   if (!nextEntry) return levelEntry;
   return {
@@ -12142,7 +12262,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
     || Object.prototype.hasOwnProperty.call(raw, 'navSeen')
   ) {
     const progress = raw.progress && typeof raw.progress === 'object' && !Array.isArray(raw.progress) ? raw.progress : {};
-    const solvedByTask = raw.solvedByTask && typeof raw.solvedByTask === 'object' ? raw.solvedByTask : {};
+    const solvedByTask = normalizeSolvedByTaskTelemetry(raw.solvedByTask);
     const solvedEvents = Array.isArray(raw.solvedEvents) ? raw.solvedEvents : [];
     const artifactInventory = normalizeArtifactInventory(raw.artifactInventory);
     const artifactLevels = normalizeArtifactLevels(raw.artifactLevels, artifactInventory);
@@ -12273,7 +12393,7 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     notesByTask: normalizeNotesByTaskMap(data.notesByTask),
     mocks: Array.isArray(data.mocks) ? data.mocks : [],
     schedule: Array.isArray(data.schedule) ? data.schedule : [],
-    solvedByTask: data.solvedByTask && typeof data.solvedByTask === 'object' ? data.solvedByTask : {},
+    solvedByTask: normalizeSolvedByTaskTelemetry(data.solvedByTask),
     solvedEvents: Array.isArray(data.solvedEvents) ? data.solvedEvents : [],
     weeklyTaskPracticeMilestones: normalizeWeeklyTaskPracticeMilestones(
       data.weeklyTaskPracticeMilestones
@@ -16054,17 +16174,17 @@ const validatePythonSolveResults = async (question, sourceRaw) => {
 const validatePythonSolveResultsFromProvided = (question, pythonResultsRaw) => {
   const tests = Array.isArray(question?.tests) ? question.tests : [];
   if (tests.length === 0) {
-    return { ok: false, error: 'Для этой задачи не заданы тесты' };
+    return { ok: false, conclusive: false, error: 'Для этой задачи не заданы тесты' };
   }
   const hasExpectedOutputs = tests.every((test) => (
     Object.prototype.hasOwnProperty.call(test || {}, 'output')
   ));
   if (!hasExpectedOutputs) {
-    return { ok: false, error: 'Для этой задачи не заданы эталонные ответы' };
+    return { ok: false, conclusive: false, error: 'Для этой задачи не заданы эталонные ответы' };
   }
   const pythonResults = Array.isArray(pythonResultsRaw) ? pythonResultsRaw : [];
   if (pythonResults.length !== tests.length) {
-    return { ok: false, error: 'Тесты не пройдены' };
+    return { ok: false, conclusive: false, error: 'Тесты не пройдены' };
   }
   for (let index = 0; index < tests.length; index += 1) {
     const expectedTest = tests[index] && typeof tests[index] === 'object' ? tests[index] : {};
@@ -16074,19 +16194,21 @@ const validatePythonSolveResultsFromProvided = (question, pythonResultsRaw) => {
     const expectedInput = String(expectedTest.input ?? '');
     const providedInput = String(providedResult.input ?? '');
     if (providedInput !== expectedInput) {
-      return { ok: false, error: 'Тесты не пройдены' };
+      return { ok: false, conclusive: false, error: 'Тесты не пройдены' };
     }
     const runtimeError = String(providedResult.error ?? '').trim();
     if (runtimeError) {
-      return { ok: false, error: `Ошибка выполнения кода на тесте ${index + 1}` };
+      return { ok: false, conclusive: true, error: `Ошибка выполнения кода на тесте ${index + 1}` };
     }
     const expectedOutput = normalizeOutputValue(expectedTest.output ?? '');
     const providedOutput = normalizeOutputValue(providedResult.output ?? '');
     if (providedOutput !== expectedOutput) {
-      return { ok: false, error: 'Тесты не пройдены' };
+      return { ok: false, conclusive: true, error: 'Тесты не пройдены' };
     }
   }
-  return { ok: true };
+  // Matching client-provided output is never proof of success: the submitted
+  // source still has to pass the authoritative server-side Python runner.
+  return { ok: true, conclusive: false };
 };
 
 const sanitizeTestsDbForStudent = (testsDb) => {
@@ -23668,6 +23790,30 @@ app.get('/api/tests', (req, res) => {
   return res.json(data || {});
 });
 
+app.get('/api/question-difficulty', (req, res) => {
+  const rawTaskNumber = String(req.query?.taskNumber ?? '').trim();
+  const levelId = String(req.query?.levelId ?? '').trim();
+  if (levelId && !rawTaskNumber) {
+    return res.status(400).json({ error: 'taskNumber required' });
+  }
+
+  let taskKey = '';
+  if (rawTaskNumber) {
+    const taskNumber = Number(rawTaskNumber);
+    if (!Number.isInteger(taskNumber) || taskNumber <= 0) {
+      return res.status(400).json({ error: 'Некорректный номер задания' });
+    }
+    taskKey = String(taskNumber);
+  }
+
+  const difficultyIndex = buildQuestionDifficultyIndex(readProgressDb());
+  res.setHeader('Cache-Control', 'no-store');
+  if (!taskKey) return res.json(difficultyIndex);
+  const taskDifficulty = difficultyIndex?.[taskKey] || {};
+  if (!levelId) return res.json(taskDifficulty);
+  return res.json(taskDifficulty?.[levelId] || {});
+});
+
 app.put('/api/tests', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const payload = req.body;
@@ -24817,6 +24963,7 @@ app.post('/api/progress/solve', async (req, res) => {
     questionId,
     code,
     pythonResults,
+    solveDurationMs,
     localDay
   } = req.body || {};
   if (!taskNumber || !levelId || !questionId) {
@@ -24860,7 +25007,15 @@ app.post('/api/progress/solve', async (req, res) => {
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
   let levelEntry = { ...(taskEntry[levelKey] || {}) };
   const persistAnswerAttempt = (correct) => {
-    levelEntry = appendAnswerHistoryEntry(levelEntry, qKey, code, answerCount, correct, submittedAt);
+    levelEntry = appendAnswerHistoryEntry(
+      levelEntry,
+      qKey,
+      code,
+      answerCount,
+      correct,
+      submittedAt,
+      solveDurationMs
+    );
     taskEntry[levelKey] = levelEntry;
     solvedByTask[taskKey] = taskEntry;
     setStudentData(student.id, { ...data, solvedByTask });
@@ -24872,7 +25027,7 @@ app.post('/api/progress/solve', async (req, res) => {
     }
     let validation = null;
     const providedValidation = validatePythonSolveResultsFromProvided(questionEntry, pythonResults);
-    if (providedValidation.ok) validation = providedValidation;
+    if (providedValidation.conclusive) validation = providedValidation;
     if (!validation) {
       const rate = pythonRunRateLimiter.consume(`${req.auth?.role || 'user'}:${req.auth?.id || student.id}`);
       if (!rate.allowed) {
@@ -24895,7 +25050,25 @@ app.post('/api/progress/solve', async (req, res) => {
     persistAnswerAttempt(false);
     return res.status(400).json({ error: 'Ответ неверный' });
   }
-  levelEntry = appendAnswerHistoryEntry(levelEntry, qKey, code, answerCount, true, submittedAt);
+  const solvedBeforeAttempt = Array.isArray(levelEntry.solved)
+    && levelEntry.solved.some((id) => String(id ?? '').trim() === qKey);
+  if (!solvedBeforeAttempt) {
+    levelEntry = captureFirstSolveTelemetry(
+      levelEntry,
+      qKey,
+      solveDurationMs,
+      submittedAt
+    );
+  }
+  levelEntry = appendAnswerHistoryEntry(
+    levelEntry,
+    qKey,
+    code,
+    answerCount,
+    true,
+    submittedAt,
+    solveDurationMs
+  );
   taskEntry[levelKey] = levelEntry;
   solvedByTask[taskKey] = taskEntry;
   const serverDayKey = new Date().toISOString().slice(0, 10);

@@ -8,6 +8,7 @@ import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monaco
 import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/questionLabel';
 import { getHomeworkLessonBasketItemKey } from '../utils/homeworkLessonBasket';
 import { writeBoardTaskToClipboard } from '../utils/boardTaskClipboard';
+import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import { Button } from './ui';
 
 const TEACHER_CODE_COPY_FEEDBACK_MS = 1800;
@@ -125,6 +126,7 @@ const ProgressReviewModal = ({
   const [answerHistoryById, setAnswerHistoryById] = useState({});
   const [answerHistoryLoading, setAnswerHistoryLoading] = useState(false);
   const [answerHistoryError, setAnswerHistoryError] = useState('');
+  const [questionDifficultyById, setQuestionDifficultyById] = useState({});
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
@@ -304,6 +306,28 @@ const ProgressReviewModal = ({
       }
     };
   }, [taskNumber, levelId, testDb, studentId]);
+
+  useEffect(() => {
+    if (!taskNumber || !levelId) {
+      setQuestionDifficultyById({});
+      return undefined;
+    }
+    let active = true;
+    setQuestionDifficultyById({});
+    api.getQuestionDifficulties(taskNumber, levelId)
+      .then((payload) => {
+        if (!active) return;
+        setQuestionDifficultyById(
+          payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+        );
+      })
+      .catch(() => {
+        if (active) setQuestionDifficultyById({});
+      });
+    return () => {
+      active = false;
+    };
+  }, [taskNumber, levelId]);
 
   useEffect(() => {
     document.body.classList.add('overflow-hidden');
@@ -680,15 +704,23 @@ const ProgressReviewModal = ({
             ) : (
               <>
                 <section className="student-test-question-panel student-test-panel-enter">
-                  <div className="student-test-question-panel__toolbar">
-                    {currentQuestionLabel ? (
-                      <span
-                        className="inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm"
-                        style={getQuestionLabelStyle(currentQuestionLabel)}
-                      >
-                        <span className="truncate">{currentQuestionLabel.text}</span>
-                      </span>
-                    ) : <span aria-hidden="true" />}
+                  <div className="student-test-question-panel__toolbar flex-wrap">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {currentQuestionLabel && (
+                        <span
+                          className="inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs font-bold shadow-sm"
+                          style={getQuestionLabelStyle(currentQuestionLabel)}
+                        >
+                          <span className="truncate">{currentQuestionLabel.text}</span>
+                        </span>
+                      )}
+                      <QuestionDifficultyBadge
+                        difficulty={questionDifficultyById?.[currentId]}
+                        theme={theme}
+                        showDetails
+                        showWhenEmpty
+                      />
+                    </div>
                     <div className="student-test-question-panel__toolbar-actions">
                       <button
                         type="button"
