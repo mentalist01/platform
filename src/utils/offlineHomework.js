@@ -6,6 +6,17 @@ const OFFLINE_SERVICE_WORKER_URL = '/sw-push.js';
 const OFFLINE_STATIC_CACHE_NAME = 'ivan-ege-static-v2';
 const OFFLINE_SHELL_CACHE_NAME = 'ivan-ege-shell-v2';
 
+const isPlatformOfflineWorker = (worker, origin) => {
+  const scriptUrl = typeof worker?.scriptURL === 'string' ? worker.scriptURL.trim() : '';
+  if (!scriptUrl || !origin) return false;
+  try {
+    const url = new URL(scriptUrl, origin);
+    return url.origin === origin && url.pathname === OFFLINE_SERVICE_WORKER_URL;
+  } catch {
+    return false;
+  }
+};
+
 const normalizeId = (value) => String(value || '').trim();
 
 const hasIndexedDb = () => (
@@ -390,4 +401,41 @@ export const registerOfflineServiceWorker = async () => {
   });
   await warmOfflineAppShell();
   return registration;
+};
+
+export const cleanupOfflineServiceWorkerForDevelopment = async ({
+  serviceWorkerContainer = typeof navigator === 'undefined' ? null : navigator.serviceWorker,
+  cacheStorage = typeof window === 'undefined' ? null : window.caches,
+  origin = typeof window === 'undefined' ? '' : window.location.origin,
+} = {}) => {
+  const controllerWasOfflineWorker = isPlatformOfflineWorker(
+    serviceWorkerContainer?.controller,
+    origin,
+  );
+  let unregistered = false;
+
+  if (serviceWorkerContainer && typeof serviceWorkerContainer.getRegistrations === 'function') {
+    const registrations = await serviceWorkerContainer.getRegistrations();
+    const offlineRegistrations = registrations.filter((registration) => (
+      [registration?.installing, registration?.waiting, registration?.active]
+        .some((worker) => isPlatformOfflineWorker(worker, origin))
+    ));
+    const results = await Promise.all(offlineRegistrations.map(async (registration) => {
+      try {
+        return await registration.unregister();
+      } catch {
+        return false;
+      }
+    }));
+    unregistered = results.some(Boolean);
+  }
+
+  if (cacheStorage && typeof cacheStorage.keys === 'function') {
+    const cacheNames = await cacheStorage.keys();
+    await Promise.all(cacheNames
+      .filter((name) => name === OFFLINE_STATIC_CACHE_NAME || name === OFFLINE_SHELL_CACHE_NAME)
+      .map((name) => cacheStorage.delete(name)));
+  }
+
+  return controllerWasOfflineWorker && unregistered;
 };

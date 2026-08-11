@@ -83,6 +83,15 @@ const handleHomeworkAssetRequest = async (request) => {
   }
 };
 
+const isDevelopmentModulePath = (pathname) => (
+  pathname.startsWith('/src/')
+  || pathname.startsWith('/@vite/')
+  || pathname.startsWith('/@react-refresh')
+  || pathname.startsWith('/@id/')
+  || pathname.startsWith('/@fs/')
+  || pathname.startsWith('/node_modules/.vite/')
+);
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (!request || request.method !== 'GET') return;
@@ -94,6 +103,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (url.pathname.startsWith('/api/')) return;
+  // A production service worker can remain registered when the same origin is
+  // later opened through Vite. Never let its cache serve stale ESM source files.
+  if (isDevelopmentModulePath(url.pathname)) return;
   if (url.pathname.startsWith('/uploads/')) {
     event.respondWith(handleHomeworkAssetRequest(request));
     return;
@@ -101,7 +113,7 @@ self.addEventListener('fetch', (event) => {
   if (
     url.pathname.startsWith('/assets/')
     || url.pathname.startsWith('/sounds/')
-    || /\.(?:js|css|png|jpe?g|webp|gif|svg|ico|woff2?|mp3|webm)$/i.test(url.pathname)
+    || /\.(?:png|jpe?g|webp|gif|svg|ico|woff2?|mp3|webm)$/i.test(url.pathname)
   ) {
     event.respondWith(handleStaticRequest(request));
   }
