@@ -97,9 +97,9 @@ const collapseDuplicatedCode = (value) => {
 };
 
 const buildRealtimeStatusLabel = (status) => {
-  if (status === 'connected') return 'Realtime: онлайн';
-  if (status === 'connecting') return 'Realtime: подключение...';
-  return 'Realtime: офлайн';
+  if (status === 'connected') return 'Онлайн';
+  if (status === 'connecting') return 'Подключение...';
+  return 'Офлайн';
 };
 
 const normalizeTheorySubsectionId = (value) => {
@@ -124,6 +124,17 @@ const getRuntimeViewportHeight = () => {
   if (Number.isFinite(innerHeight) && innerHeight > 0) return innerHeight;
   return 900;
 };
+
+const QUESTION_META_LINE_PATTERN = /^\s*((?:Задача|Тема|Условие|Формат ввода|Формат вывода|Ввод|Вывод|Пример|Примечание)(?:\s+№?\d+)?)\s*:\s*(.*)$/i;
+
+const buildDecoratedQuestionLines = (value) => String(value || '')
+  .replace(/\r\n?/g, '\n')
+  .split('\n')
+  .map((line) => {
+    const match = line.match(QUESTION_META_LINE_PATTERN);
+    if (!match) return { label: '', text: line };
+    return { label: match[1], text: match[2] };
+  });
 
 const THEORY_VARIANT_ORDER = [THEORY_RECORDING_TYPE, 'text', 'gdoc'];
 
@@ -1686,8 +1697,14 @@ const PythonTestModal = ({
   const questionCodeSaving = Boolean(questionCodeSavingById?.[currentId]);
   const questionCodeDirty = Boolean(questionCodeDirtyById?.[currentId]);
   const questionCodeError = questionCodeErrorById?.[currentId] || '';
-  const questionCodeUpdatedAtLabel = questionCodeEntry.updatedAt
-    ? new Date(questionCodeEntry.updatedAt).toLocaleString('ru-RU')
+  const questionCodeUpdatedAtDate = questionCodeEntry.updatedAt
+    ? new Date(questionCodeEntry.updatedAt)
+    : null;
+  const questionCodeUpdatedAtLabel = questionCodeUpdatedAtDate
+    ? questionCodeUpdatedAtDate.toLocaleString('ru-RU')
+    : '';
+  const questionCodeUpdatedAtTimeLabel = questionCodeUpdatedAtDate
+    ? questionCodeUpdatedAtDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     : '';
   const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
     .map((img) => ({ ...img, url: withStudentId(img?.url, studentId) }));
@@ -1708,7 +1725,6 @@ const PythonTestModal = ({
   const solvedVisibleCount = visibleQuestionItems.reduce((count, item) => (
     solvedIds.has(String(item.question?.id ?? item.questionIndex)) ? count + 1 : count
   ), 0);
-  const solvedAllTests = isSolved && testResults.length === 0;
   const activeTheorySubsectionId = activeSubsection?.id || PYTHON_DEFAULT_SUBSECTION_ID;
   const theoryVariants = resolveTheoryVariantsForSubsection(taskEntry, activeTheorySubsectionId);
   const availableTheoryTypes = getTheoryVariantList(theoryVariants);
@@ -1784,7 +1800,7 @@ const PythonTestModal = ({
         ? 'Сохраняем'
         : (questionCodeDirty
             ? 'Есть несохранённые изменения'
-            : (questionCodeUpdatedAtLabel ? `Сохранено ${questionCodeUpdatedAtLabel}` : 'Автосохранение включено')));
+            : (questionCodeUpdatedAtTimeLabel ? `Сохранено ${questionCodeUpdatedAtTimeLabel}` : 'Автосохранение')));
   const saveStateClass = questionCodeDirty
     ? (isDarkTheme
         ? 'border-amber-400/30 bg-amber-500/12 text-amber-200'
@@ -1864,10 +1880,6 @@ const PythonTestModal = ({
     : 'border-sky-100 bg-[#f2f8ff] text-slate-500';
   const hasSupportSidebarContent = Boolean(screenshots.length || extraFiles.length);
   const showPresenceChip = realtimePeerCount > 0;
-  const workspaceTitle = showPresenceChip ? 'Совместный редактор Python' : 'Редактор Python';
-  const workspaceDescription = showPresenceChip
-    ? 'Код синхронизируется в realtime и виден всем участникам комнаты.'
-    : 'Пишите решение, затем запускайте тесты и сразу проверяйте результат.';
   const isWideWorkspace = viewportWidth >= 1100;
   const isCompactRuntimeViewport = viewportWidth < 1500 || viewportHeight < 820;
   const isVeryCompactRuntimeViewport = viewportWidth < 1200 || viewportHeight < 760;
@@ -1882,22 +1894,23 @@ const PythonTestModal = ({
   const subsectionChipSizeClass = isCompactRuntimeViewport
     ? 'min-w-[178px] px-2.5 py-1.5'
     : 'min-w-[220px] px-3 py-2';
-  const workspaceGridClass = isQuestionExpanded
-    ? 'min-[1100px]:grid-rows-[minmax(300px,0.76fr)_minmax(120px,0.24fr)]'
+  const workspaceGridRowTemplate = isQuestionExpanded
+    ? 'minmax(300px, 76fr) minmax(120px, 24fr)'
     : (hasSupportSidebarContent
         ? (
             isCompactRuntimeViewport
-              ? 'min-[1100px]:grid-rows-[minmax(0,0.58fr)_minmax(190px,0.42fr)]'
-              : 'min-[1100px]:grid-rows-[minmax(320px,0.6fr)_minmax(210px,0.4fr)]'
+              ? 'minmax(0, 58fr) minmax(190px, 42fr)'
+              : 'minmax(320px, 60fr) minmax(210px, 40fr)'
           )
         : (
             isCompactRuntimeViewport
-              ? 'min-[1100px]:grid-rows-[minmax(190px,0.44fr)_minmax(220px,0.56fr)]'
-              : 'min-[1100px]:grid-rows-[minmax(240px,0.46fr)_minmax(260px,0.54fr)]'
+              ? 'minmax(190px, 36fr) minmax(240px, 64fr)'
+              : 'minmax(220px, 38fr) minmax(280px, 62fr)'
           ));
   const workspaceGridStyle = isWideWorkspace
     ? {
-        gridTemplateColumns: `clamp(360px, ${(workspaceSplitRatio * 100).toFixed(2)}%, 680px) 10px minmax(480px, 1fr)`,
+        gridTemplateColumns: `clamp(400px, ${(workspaceSplitRatio * 100).toFixed(2)}%, 820px) 12px minmax(520px, 1fr)`,
+        gridTemplateRows: workspaceGridRowTemplate,
       }
     : undefined;
   const handleSelectSubsection = (subsectionId) => {
@@ -1939,38 +1952,49 @@ const PythonTestModal = ({
                   <BookOpen size={18} />
                 </div>
                 <div className="min-w-0">
-                  <div className={`text-[11px] font-bold uppercase tracking-[0.28em] ${overlineTextClass}`}>Тема</div>
-                  <h2 className={`mt-0.5 truncate font-bold leading-tight ${
-                    isCompactRuntimeViewport ? 'text-[1.05rem] md:text-[1.12rem]' : 'text-[1.2rem]'
-                  } ${primaryTextClass}`}>{task.title}</h2>
-                  <p className={`mt-0.5 truncate text-[11px] ${secondaryTextClass}`}>
-                    {activeSubsection ? `${activeSubsection.title} · ` : ''}{`${totalVisibleQuestions} задач`}
+                  <div className="python-runtime-topic-heading flex min-w-0 items-center gap-2">
+                    <div className={`python-runtime-topic-label shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] ${overlineTextClass}`}>Тема</div>
+                    <h2 className={`min-w-0 truncate font-bold leading-tight ${
+                      isCompactRuntimeViewport ? 'text-[1.05rem] md:text-[1.12rem]' : 'text-[1.2rem]'
+                    } ${primaryTextClass}`}>{task.title}</h2>
+                  </div>
+                  <p className="python-runtime-topic-meta mt-1 flex min-w-0 items-center gap-1.5">
+                    <span className={`python-runtime-topic-scope truncate text-[10px] font-semibold ${secondaryTextClass}`}>
+                      {activeSubsection?.title || 'Все задачи'}
+                    </span>
+                    <span className={`python-runtime-topic-count shrink-0 text-[10px] font-semibold ${mutedTextClass}`}>
+                      {`${totalVisibleQuestions} задач`}
+                    </span>
                   </p>
                 </div>
               </div>
               <div className={`python-runtime-progress-card rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
                 <div className="flex items-center justify-between gap-2.5">
-                  <div className={`text-[10px] font-bold uppercase tracking-[0.2em] ${mutedTextClass}`}>Прогресс темы</div>
+                  <div className="python-runtime-progress-summary flex items-center gap-1.5">
+                    <span className={`python-runtime-progress-label text-[10px] font-semibold ${mutedTextClass}`}>Прогресс темы</span>
+                    <span className={`python-runtime-progress-count text-[11px] font-bold ${secondaryTextClass}`}>
+                      {`${solvedVisibleCount} / ${visibleQuestionItems.length || 0}`}
+                    </span>
+                  </div>
                   <div className={`text-base font-black ${primaryTextClass}`}>{currentMastery}%</div>
                 </div>
-                <div className={`mt-1.5 h-1.5 overflow-hidden rounded-full ${isDarkTheme ? 'bg-slate-700/70' : 'bg-slate-200/80'}`}>
+                <div
+                  className={`mt-1.5 h-1.5 overflow-hidden rounded-full ${isDarkTheme ? 'bg-slate-700/70' : 'bg-slate-200/80'}`}
+                  role="progressbar"
+                  aria-label="Прогресс темы"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow={Math.max(0, Math.min(100, currentMastery))}
+                >
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-sky-400 transition-all duration-500"
+                    className="h-full rounded-full bg-gradient-to-r from-violet-600 via-purple-500 to-fuchsia-500 transition-all duration-500"
                     style={{ width: `${Math.max(0, Math.min(100, currentMastery))}%` }}
                   />
                 </div>
               </div>
-              <div className={`python-runtime-overview-card grid grid-cols-2 gap-1.5 rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
-                <div>
-                  <div className={`text-[9px] font-bold uppercase tracking-[0.2em] ${mutedTextClass}`}>Решено</div>
-                  <div className={`mt-0.5 text-base font-black ${primaryTextClass}`}>{`${solvedVisibleCount}/${visibleQuestionItems.length || 0}`}</div>
-                  <div className={`text-[10px] ${mutedTextClass}`}>в разделе</div>
-                </div>
-                <div>
-                  <div className={`text-[9px] font-bold uppercase tracking-[0.2em] ${mutedTextClass}`}>Сейчас</div>
-                  <div className={`mt-0.5 text-base font-black ${primaryTextClass}`}>{`${currentQuestionDisplayIndex}/${totalVisibleQuestions}`}</div>
-                  <div className={`text-[10px] ${mutedTextClass}`}>текущая задача</div>
-                </div>
+              <div className={`python-runtime-overview-card flex items-center justify-center gap-2 rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
+                <span className={`text-[11px] font-semibold ${mutedTextClass}`}>Задача</span>
+                <span className={`text-sm font-black ${primaryTextClass}`}>{`${currentQuestionDisplayIndex} / ${totalVisibleQuestions}`}</span>
               </div>
               <button
                 type="button"
@@ -2065,11 +2089,7 @@ const PythonTestModal = ({
                         } ${useDenseTaskChips ? 'h-6 w-6 rounded-[9px] text-[9px]' : 'mt-0.5 h-7 w-7 rounded-[10px] text-[10px]'}`}>
                           {solved ? <CheckCircle2 size={14} /> : item.localNumber}
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className={`${isDenseQuestionNav ? 'text-[9px] tracking-[0.16em]' : 'text-[10px] tracking-[0.2em]'} font-bold uppercase opacity-70`}>{`Задача ${item.localNumber}`}</div>
-                          <div className={`${isDenseQuestionNav ? 'mt-0 text-[12px]' : 'mt-0.5 text-[13px]'} truncate font-semibold`}>{label}</div>
-                        </div>
-                        {!isDenseQuestionNav && <ChevronRight size={14} className="mt-0.5 shrink-0 opacity-55" />}
+                        <div className={`${isDenseQuestionNav ? 'text-[12px]' : 'text-[13px]'} min-w-0 flex-1 truncate font-semibold`}>{label}</div>
                       </div>
                     </button>
                   );
@@ -2082,7 +2102,7 @@ const PythonTestModal = ({
         <div className="python-runtime-workspace flex-1 min-h-0 overflow-hidden pr-0 md:pr-1">
           <div
             ref={workspaceGridRef}
-            className={`python-runtime-workspace-grid grid h-full min-h-0 ${isCompactRuntimeViewport ? 'gap-2' : 'gap-3'} ${workspaceGridClass}`}
+            className={`python-runtime-workspace-grid grid h-full min-h-0 ${isCompactRuntimeViewport ? 'gap-2' : 'gap-3'}`}
             style={workspaceGridStyle}
           >
             <div className={`python-runtime-briefing-column min-h-0 flex flex-col ${isCompactRuntimeViewport ? 'gap-2' : 'gap-2.5'} overflow-hidden min-[1100px]:col-start-1 min-[1100px]:row-start-1`}>
@@ -2093,7 +2113,9 @@ const PythonTestModal = ({
                   <FileText size={16} />
                 </span>
                 <div className="min-w-0">
-                  <div className={`text-[10px] font-bold uppercase tracking-[0.16em] ${overlineTextClass}`}>Условие задачи</div>
+                  <div className="python-runtime-section-tags flex flex-wrap items-center gap-1.5">
+                    <span className={`python-runtime-section-label text-[9px] font-bold uppercase tracking-[0.14em] ${overlineTextClass}`}>Условие</span>
+                  </div>
                   <div className={`mt-0.5 truncate text-sm font-bold ${primaryTextClass}`}>
                     {currentQuestion?.title || `Задача ${currentQuestionDisplayIndex}`}
                   </div>
@@ -2167,7 +2189,7 @@ const PythonTestModal = ({
               )}
             </div>
             <div className="python-runtime-question-status mt-2 flex flex-wrap items-center gap-2">
-              <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${solvedStateClass}`}>
+              <span data-state={isSolved ? 'solved' : 'pending'} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${solvedStateClass}`}>
                 <CheckCircle2 size={12} />
                 {isSolved ? 'Решено ранее' : 'Ожидает решения'}
               </span>
@@ -2179,7 +2201,18 @@ const PythonTestModal = ({
                   onScroll={refreshQuestionScrollState}
                   className={`python-runtime-scrollbar h-full min-h-0 overflow-y-auto whitespace-pre-wrap px-3.5 pb-10 pt-3 pr-3 text-[14px] font-medium leading-6 md:text-[15px] md:leading-6 ${primaryTextClass}`}
                 >
-                  {currentQuestion.question}
+                  {buildDecoratedQuestionLines(currentQuestion.question).map((line, lineIndex) => (
+                    line.label ? (
+                      <div className="python-runtime-question-copy-line python-runtime-question-copy-line--labeled" key={`question-line-${lineIndex}`}>
+                        <span className="python-runtime-question-copy-label">{line.label}</span>
+                        <span className="python-runtime-question-copy-text">{line.text || '—'}</span>
+                      </div>
+                    ) : (
+                      <div className={`python-runtime-question-copy-line ${line.text ? '' : 'python-runtime-question-copy-line--spacer'}`} key={`question-line-${lineIndex}`}>
+                        {line.text || '\u00a0'}
+                      </div>
+                    )
+                  ))}
                 </div>
                 {(isQuestionExpanded || (questionScrollState.hasOverflow && !questionScrollState.atEnd)) && (
                   <div
@@ -2200,7 +2233,7 @@ const PythonTestModal = ({
                         : 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-cyan-100/70'
                     }`}
                     >
-                      {isQuestionExpanded ? 'Свернуть' : 'Ещё'}
+                      {isQuestionExpanded ? 'Свернуть' : 'Читать полностью'}
                       {isQuestionExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                     </button>
                   </div>
@@ -2424,21 +2457,18 @@ const PythonTestModal = ({
                 <span className="python-runtime-panel-icon python-runtime-panel-icon--editor inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] border">
                   <Code2 size={16} />
                 </span>
-                <div className="min-w-0">
-                  <div className={`text-[10px] font-bold uppercase tracking-[0.16em] ${mutedTextClass}`}>Рабочая зона</div>
-                  <div className={`mt-0.5 truncate text-sm font-bold md:text-base ${primaryTextClass}`}>
-                    {workspaceTitle}
-                  </div>
-                  <div className={`mt-0.5 truncate text-[11px] min-[1100px]:hidden ${secondaryTextClass}`}>{workspaceDescription}</div>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className={`truncate text-sm font-bold md:text-base ${primaryTextClass}`}>Решение</span>
+                  <span className={`python-runtime-panel-tag text-[9px] font-bold uppercase tracking-[0.12em] ${mutedTextClass}`}>Код</span>
                 </div>
               </div>
               <div className="python-runtime-editor-controls flex min-w-0 flex-wrap items-center gap-1.5">
                 <div className="python-runtime-editor-statuses flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span data-state={realtimeStatus} className={`python-runtime-status python-runtime-status--realtime inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${realtimeStateClass}`}>
+                  <span data-state={realtimeStatus} title="Состояние совместного редактора" className={`python-runtime-status python-runtime-status--realtime inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${realtimeStateClass}`}>
                     <RealtimeStatusIcon size={11} className={realtimeStatus === 'connecting' ? 'animate-spin' : ''} />
                     {realtimeStatusLabel}
                   </span>
-                  <span data-state={questionCodeDirty ? 'dirty' : ((questionCodeSaving || questionCodeLoading) ? 'saving' : 'saved')} className={`python-runtime-status python-runtime-status--save inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${saveStateClass}`}>
+                  <span data-state={questionCodeDirty ? 'dirty' : ((questionCodeSaving || questionCodeLoading) ? 'saving' : 'saved')} title={questionCodeUpdatedAtLabel ? `Последнее сохранение: ${questionCodeUpdatedAtLabel}` : 'Код сохраняется автоматически'} className={`python-runtime-status python-runtime-status--save inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${saveStateClass}`}>
                     <CheckCircle2 size={11} />
                     {saveStateLabel}
                   </span>
@@ -2481,8 +2511,8 @@ const PythonTestModal = ({
             )}
             <div className={`python-runtime-editor-frame mt-2.5 min-h-0 flex-1 overflow-hidden rounded-[24px] border ${editorFrameClass}`}>
               <div className={`python-runtime-editor-filebar flex items-center justify-between gap-3 border-b px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] ${editorHeaderClass}`}>
-                <span>main.py</span>
-                <span>{questionCodeDirty ? 'Изменения ждут сохранения' : 'Автосохранение'}</span>
+                <span className="python-runtime-editor-file">main.py</span>
+                <span className="python-runtime-editor-language">Python 3</span>
               </div>
               <div className="h-full min-h-0">
                 <Editor
@@ -2511,11 +2541,9 @@ const PythonTestModal = ({
                 <span className="python-runtime-panel-icon python-runtime-panel-icon--tests inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] border">
                   <TestTube2 size={16} />
                 </span>
-                <div className="min-w-0">
-                  <div className={`text-[10px] font-bold uppercase tracking-[0.16em] ${mutedTextClass}`}>Проверка</div>
-                  <div className={`mt-0.5 truncate text-sm font-bold md:text-base ${primaryTextClass}`}>
-                    Тесты задачи
-                  </div>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className={`truncate text-sm font-bold md:text-base ${primaryTextClass}`}>Тесты</span>
+                  <span className={`python-runtime-panel-tag text-[9px] font-bold uppercase tracking-[0.12em] ${mutedTextClass}`}>Проверка</span>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -2540,7 +2568,7 @@ const PythonTestModal = ({
               <div className="python-runtime-scrollbar mt-2.5 min-h-0 space-y-2 overflow-y-auto pr-1">
                 {testsToShow.map((item, idx) => {
                   const result = testResults[idx];
-                  const passed = result?.passed ?? (solvedAllTests ? true : undefined);
+                  const passed = result?.passed;
                   const testCardClass = passed === undefined
                     ? (isDarkTheme ? 'border-slate-700/60 bg-slate-800/35' : 'border-slate-200 bg-slate-50')
                     : (passed
@@ -2565,6 +2593,7 @@ const PythonTestModal = ({
                     <div
                       key={`${idx}-${item.input}`}
                       style={{ '--python-test-i': `${idx}` }}
+                      data-result={passed === undefined ? 'idle' : (passed ? 'passed' : 'failed')}
                       className={`python-runtime-test-card rounded-[14px] border px-2.5 py-2 text-[11px] md:text-xs ${testCardClass}`}
                       title={rowTitle}
                     >
@@ -2576,7 +2605,7 @@ const PythonTestModal = ({
                           <span className={`truncate font-bold ${primaryTextClass}`}>{`Тест ${idx + 1}`}</span>
                         </div>
                         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusTextClass} ${passed === undefined ? softCardClass : ''}`}>
-                          {passed === undefined ? 'Не запускался' : (passed ? 'OK' : 'Ошибка')}
+                          {passed === undefined ? 'Не проверено' : (passed ? 'Пройден' : 'Ошибка')}
                         </span>
                       </div>
                       <div className="python-runtime-test-details mt-2 grid grid-cols-3 gap-1.5">
@@ -2607,25 +2636,16 @@ const PythonTestModal = ({
           isCompactRuntimeViewport ? 'py-2 md:px-3' : 'py-2.5 md:px-3.5 md:py-3'
         } pb-[calc(env(safe-area-inset-bottom)+0.25rem)] ${footerClass}`}>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="python-runtime-footer-status flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-              <span className={isDarkTheme ? 'text-slate-300' : 'text-slate-600'}>
-                Прогресс темы: <span className={`font-semibold ${isDarkTheme ? 'text-violet-200' : 'text-purple-700'}`}>{currentMastery}%</span>
+            <div className="python-runtime-footer-status flex flex-wrap items-center gap-2 text-xs sm:text-sm" aria-live="polite">
+              <span className={`python-runtime-footer-tests ${mutedTextClass}`}>
+                {`Тесты: ${passedTestCount} / ${testsToShow.length}`}
               </span>
-              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${softCardClass} ${secondaryTextClass}`}>
-                {`${currentQuestionDisplayIndex}/${totalVisibleQuestions}`}
-              </span>
-              <span className={`python-runtime-footer-note ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+              <span data-state={isSolved ? 'solved' : 'pending'} className={`python-runtime-footer-note ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                {isSolved ? <CheckCircle2 className="python-runtime-footer-note-icon" size={15} /> : <CircleDashed className="python-runtime-footer-note-icon" size={15} />}
                 {isSolved ? 'Задача решена, можно идти дальше.' : 'Сначала запусти тесты и проверь решение.'}
               </span>
             </div>
             <div className="python-runtime-footer-actions flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              <Button
-                variant="secondary"
-                onClick={onClose}
-                className={`python-runtime-action python-runtime-action--secondary w-full sm:w-auto ${isDarkTheme ? '!border-slate-700 !bg-slate-800/70 !text-slate-200 hover:!bg-slate-700' : ''}`}
-              >
-                Закрыть
-              </Button>
             <Button
               onClick={(event) => {
                 const rect = event?.currentTarget?.getBoundingClientRect?.();
@@ -2647,6 +2667,7 @@ const PythonTestModal = ({
             <Button
               variant={isSolved ? 'success' : 'secondary'}
               onClick={handleNext}
+              data-state={isSolved ? 'solved' : 'pending'}
               className={`python-runtime-action python-runtime-action--next w-full sm:w-auto ${isDarkTheme && !isSolved ? '!border-slate-700 !bg-slate-800/70 !text-slate-200 hover:!bg-slate-700' : ''}`}
             >
               <ChevronRight size={16} />
