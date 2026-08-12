@@ -310,8 +310,9 @@ const BOARD_TASK_CARD_PADDING = 22;
 const BOARD_TASK_CARD_HEADER_HEIGHT = 62;
 const BOARD_TASK_ANSWER_FIELD_HEIGHT = 44;
 const BOARD_TASK_ANSWER_FIELD_GAP = 10;
-const BOARD_TASK_CODE_LAYOUT_VERSION = 2;
+const BOARD_TASK_CODE_LAYOUT_VERSION = 3;
 const BOARD_TASK_LEGACY_CODE_EXPANSION = 226;
+const BOARD_TASK_COMPACT_LAYOUT_REDUCTION = 38;
 
 const getBoardParticipantLabel = (participantRole, participantName = '') => {
   const roleLabel = participantRole === 'teacher'
@@ -347,10 +348,10 @@ const getBoardTaskAnswerLayout = (item) => {
   const width = Math.max(BOARD_TASK_MIN_WIDTH, Number(item?.width) || BOARD_TASK_DEFAULT_WIDTH);
   const panelX = BOARD_TASK_CARD_PADDING;
   const panelWidth = width - BOARD_TASK_CARD_PADDING * 2;
-  const gridTopOffset = 48;
+  const gridTopOffset = 40;
   const gridHeight = rows * BOARD_TASK_ANSWER_FIELD_HEIGHT
     + Math.max(0, rows - 1) * BOARD_TASK_ANSWER_FIELD_GAP;
-  const panelHeight = gridTopOffset + gridHeight + 66;
+  const panelHeight = gridTopOffset + gridHeight + 58;
   const panelY = Math.max(BOARD_TASK_CARD_HEADER_HEIGHT + BOARD_TASK_CARD_PADDING, (Number(item?.height) || panelHeight) - panelHeight - BOARD_TASK_CARD_PADDING);
   const columnGap = 12;
   const fieldWidth = columns === 1 ? panelWidth : (panelWidth - columnGap) / 2;
@@ -374,13 +375,13 @@ const getBoardTaskAnswerLayout = (item) => {
     fields,
     button: {
       x: panelX,
-      y: panelY + gridTopOffset + gridHeight + 14,
+      y: panelY + gridTopOffset + gridHeight + 10,
       width: 142,
       height: 42,
     },
     codeButton: {
       x: panelX + 154,
-      y: panelY + gridTopOffset + gridHeight + 14,
+      y: panelY + gridTopOffset + gridHeight + 10,
       width: 154,
       height: 42,
     },
@@ -952,8 +953,10 @@ const normalizeBoardStoredItem = (rawValue) => {
       { length: answerCount },
       (_, index) => String(values?.[index] ?? '').slice(0, 500)
     );
+    const storedCodeLayoutVersion = Number(source.codePanelLayoutVersion) || 0;
     const hasLegacyExpandedCode = Object.prototype.hasOwnProperty.call(source, 'studentCode')
-      && Number(source.codePanelLayoutVersion) < BOARD_TASK_CODE_LAYOUT_VERSION;
+      && storedCodeLayoutVersion < 2;
+    const needsCompactLayout = storedCodeLayoutVersion < BOARD_TASK_CODE_LAYOUT_VERSION;
     const rawHeight = Number(source.height) || 640;
     return {
       ...base,
@@ -963,7 +966,9 @@ const normalizeBoardStoredItem = (rawValue) => {
       width: Math.max(BOARD_TASK_MIN_WIDTH, Math.min(BOARD_TASK_MAX_WIDTH, Number(source.width) || BOARD_TASK_DEFAULT_WIDTH)),
       height: Math.max(220, Math.min(
         BOARD_TASK_MAX_HEIGHT,
-        rawHeight - (hasLegacyExpandedCode ? BOARD_TASK_LEGACY_CODE_EXPANSION : 0)
+        rawHeight
+          - (hasLegacyExpandedCode ? BOARD_TASK_LEGACY_CODE_EXPANSION : 0)
+          - (needsCompactLayout ? BOARD_TASK_COMPACT_LAYOUT_REDUCTION : 0)
       )),
       heading: typeof source.heading === 'string' ? source.heading.slice(0, 240) : '',
       taskNumber: Number.isFinite(Number(source.taskNumber)) ? Number(source.taskNumber) : null,
@@ -14139,7 +14144,7 @@ const BoardSection = ({
           const textHeight = estimateBoardTaskTextHeight(boardTaskPayload.questionText, width);
           const provisionalLayout = getBoardTaskAnswerLayout({ width, height: 1200, answerCount });
           const fixedHeight = BOARD_TASK_CARD_HEADER_HEIGHT
-            + BOARD_TASK_CARD_PADDING * 3
+            + BOARD_TASK_CARD_PADDING * 2
             + textHeight
             + provisionalLayout.panelHeight;
           const availableImageHeight = Math.max(0, BOARD_TASK_MAX_HEIGHT - fixedHeight);
@@ -14156,7 +14161,7 @@ const BoardSection = ({
             Math.min(
               BOARD_TASK_MAX_HEIGHT,
               BOARD_TASK_CARD_HEADER_HEIGHT
-                + BOARD_TASK_CARD_PADDING * 3
+                + BOARD_TASK_CARD_PADDING * 2
                 + Math.max(24, imagesHeight + textHeight)
                 + provisionalLayout.panelHeight
             )
