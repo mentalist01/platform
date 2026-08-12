@@ -39,6 +39,7 @@ import {
   updateLessonReplayBranchBoard,
   updateLessonReplayBranchCode,
 } from '../utils/lessonReplayTimeMachine';
+import { getActiveReplayScreenEvent } from '../utils/lessonReplaySurfaces';
 import './LessonReplayPlayer.css';
 
 const VIEW_LABELS = {
@@ -1071,7 +1072,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [positionMs, setPositionMs] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [mode, setMode] = useState('teacher');
+  const [mode, setMode] = useState('free');
   const [activeTab, setActiveTab] = useState('board');
   const [audioMuted, setAudioMuted] = useState(false);
   const [audioBuffering, setAudioBuffering] = useState(false);
@@ -1265,16 +1266,18 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const boardEvent = state.board;
   const codeEvent = state.code;
   const runEvent = state.run;
-  const screenEvent = surfaceState.screen || (mode === 'free' ? state.screen : null);
+  const freeScreenEvent = useMemo(
+    () => getActiveReplayScreenEvent(events, positionMs, 'student'),
+    [events, positionMs]
+  );
+  const screenEvent = mode === 'free' ? freeScreenEvent : surfaceState.screen;
   const boardView = surfaceState.boardView?.payload || boardEvent?.payload?.viewport || boardEvent?.payload?.view;
   const codeView = surfaceState.codeView?.payload || codeEvent?.payload?.editor || codeEvent?.payload?.view;
-  const hasScreenEvents = events.some((event) => event.type === 'screen' && (event.payload?.snapshotId || event.payload?.active !== false));
-  const availableTabs = hasScreenEvents ? ['board', 'code', 'screen'] : ['board', 'code'];
-
+  const availableTabs = screenEvent ? ['board', 'code', 'screen'] : ['board', 'code'];
   const followedTab = getFollowSurface(events, positionMs, followedRole);
   const resolvedActiveTab = mode === 'free'
-    ? activeTab
-    : (followedTab === 'screen' && !hasScreenEvents ? 'board' : followedTab);
+    ? (availableTabs.includes(activeTab) ? activeTab : 'board')
+    : (followedTab === 'screen' && !screenEvent ? 'board' : followedTab);
   const followSnapshotPositionMs = Math.max(
     0,
     Number(boardEvent?.offsetMs) || 0,
@@ -1285,12 +1288,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   );
   const followBranch = useMemo(() => {
     const snapshot = createLessonReplayBranch(replay, followSnapshotPositionMs, {
-      actorRole: followedRole,
+      actorRole: mode === 'free' ? '' : followedRole,
     });
     if (boardView && typeof boardView === 'object') snapshot.board.viewport = boardView;
     if (codeView && typeof codeView === 'object') snapshot.code.viewport = codeView;
     return snapshot;
-  }, [boardView, codeView, followSnapshotPositionMs, followedRole, replay]);
+  }, [boardView, codeView, followSnapshotPositionMs, followedRole, mode, replay]);
   const followSandboxSessionId = useMemo(() => {
     const occurrence = replay?.occurrence || {};
     const occurrenceIdentity = String(
@@ -1300,8 +1303,8 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         .join('-')
       || 'lesson'
     ).replace(/[^a-zA-Z0-9._:-]+/g, '-').slice(0, 180);
-    return `lesson-replay-follow-${occurrenceIdentity}-${followedRole}`;
-  }, [followedRole, replay?.occurrence]);
+    return `lesson-replay-follow-${occurrenceIdentity}-${mode === 'free' ? 'free' : followedRole}`;
+  }, [followedRole, mode, replay?.occurrence]);
   const pauseReplayForManualNavigation = useCallback(() => {
     setPlaying(false);
   }, []);
@@ -1604,7 +1607,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     setTimeMachineShowOriginal(false);
     setTimeMachineSurface('code');
     setTimeMachineBranch(createLessonReplayBranch(replay, anchorPositionMs, {
-      actorRole: mode === 'student' ? 'student' : 'teacher',
+      actorRole: mode === 'free' ? '' : followedRole,
     }));
   };
 
@@ -1640,7 +1643,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     setTimeMachineBranch((current) => (
       current
         ? createLessonReplayBranch(replay, current.metadata.positionMs, {
-          actorRole: mode === 'student' ? 'student' : 'teacher',
+          actorRole: mode === 'free' ? '' : followedRole,
         })
         : current
     ));
@@ -1742,12 +1745,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         <>
       <div className="lesson-replay-player__viewbar">
         <div className="lesson-replay-player__modes" role="group" aria-label="Режим просмотра">
+          <button type="button" aria-pressed={mode === 'free'} className={mode === 'free' ? 'is-active' : ''} onClick={() => setMode('free')}><MousePointer2 size={14} /> Самостоятельно</button>
           <button type="button" aria-pressed={mode === 'teacher'} className={mode === 'teacher' ? 'is-active' : ''} onClick={() => setMode('teacher')}><UserRound size={14} /> За учителем</button>
           <button type="button" aria-pressed={mode === 'student'} className={mode === 'student' ? 'is-active' : ''} onClick={() => setMode('student')}><UserRound size={14} /> За учеником</button>
-          <button type="button" aria-pressed={mode === 'free'} className={mode === 'free' ? 'is-active' : ''} onClick={() => { setActiveTab(resolvedActiveTab); setMode('free'); }}><MousePointer2 size={14} /> Самостоятельно</button>
         </div>
         <span className="lesson-replay-player__mode-hint">
-          {mode === 'free' ? 'Можно двигать доску и прокручивать код' : `Показываем перемещения ${followedRole === 'teacher' ? 'учителя' : 'ученика'}`}
+          {mode === 'free' ? 'Выбирайте доску, код или экран ученика' : `Показываем перемещения ${followedRole === 'teacher' ? 'учителя' : 'ученика'}`}
         </span>
       </div>
 
@@ -1756,41 +1759,25 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         <div><span>{formatClock(currentEvent?.offsetMs || 0)}{actorName ? ` · ${actorName}` : ''}</span><strong>{currentLabel}</strong></div>
       </div>
 
-      {mode === 'free' ? (
-        <div className="lesson-replay-player__split-stage">
-          <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--code">
-            <header><Code2 size={15} />{SURFACE_TABS.code.label}</header>
-            <div className="lesson-replay-player__split-content">
-              <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation />
-            </div>
-          </section>
-          <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--board">
-            <header><PenTool size={15} />{SURFACE_TABS.board.label}</header>
-            <div className="lesson-replay-player__split-content">
-              <ReplayBoard key="free" items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation />
-            </div>
-          </section>
-        </div>
-      ) : (
-        <>
-          <nav className="lesson-replay-player__tabs" aria-label="Содержимое записи">
-            {availableTabs.map((tab) => {
-              const Icon = SURFACE_TABS[tab].icon;
-              return <button key={tab} type="button" className={resolvedActiveTab === tab ? 'is-active' : ''} onClick={() => { setActiveTab(tab); setMode('free'); }}><Icon size={15} />{SURFACE_TABS[tab].label}</button>;
-            })}
-          </nav>
+      <nav className="lesson-replay-player__tabs" aria-label="Материалы записи">
+        {availableTabs.map((tab) => {
+          const Icon = SURFACE_TABS[tab].icon;
+          const label = tab === 'screen'
+            ? `Экран ${mode === 'teacher' ? 'учителя' : 'ученика'}`
+            : SURFACE_TABS[tab].label;
+          return <button key={tab} type="button" aria-pressed={resolvedActiveTab === tab} className={resolvedActiveTab === tab ? 'is-active' : ''} onClick={() => { setActiveTab(tab); setMode('free'); }}><Icon size={15} />{label}</button>;
+        })}
+      </nav>
 
-          <div className="lesson-replay-player__stage" data-surface={resolvedActiveTab}>
-            {resolvedActiveTab === 'screen' ? (
-              <ReplayScreen event={screenEvent} occurrence={replay?.occurrence} />
-            ) : resolvedActiveTab === 'board' ? (
-              <ReplayBoard key={mode} items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation={false} />
-            ) : (
-              <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation={false} />
-            )}
-          </div>
-        </>
-      )}
+      <div className="lesson-replay-player__stage" data-surface={resolvedActiveTab}>
+        {resolvedActiveTab === 'screen' ? (
+          <ReplayScreen event={screenEvent} occurrence={replay?.occurrence} />
+        ) : resolvedActiveTab === 'board' ? (
+          <ReplayBoard key={mode} items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation={mode === 'free'} />
+        ) : (
+          <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation={mode === 'free'} />
+        )}
+      </div>
         </>
       )}
 
