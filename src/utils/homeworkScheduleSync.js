@@ -34,6 +34,11 @@ const buildNextLessonSnapshot = (existing, homework) => {
     goals: Array.isArray(homework.goals) ? homework.goals : [],
     checklistItems: Array.isArray(homework.checklistItems) ? homework.checklistItems : [],
   };
+  if (homework.calendarOffsetMinutes != null) {
+    nextLesson.calendarOffsetMinutes = homework.calendarOffsetMinutes;
+  } else {
+    delete nextLesson.calendarOffsetMinutes;
+  }
   if (homework.dayPlan) nextLesson.dayPlan = homework.dayPlan;
   else delete nextLesson.dayPlan;
   return nextLesson;
@@ -46,6 +51,7 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
   now = new Date(),
   buildDayPlan,
   treatMissingPlannedLessonAsDeleted = false,
+  calendarOffsetMinutes: defaultCalendarOffsetMinutes,
 } = {}) => {
   const data = studentData && typeof studentData === 'object' ? studentData : {};
   const nextSchedule = Array.isArray(schedule) ? schedule : [];
@@ -60,9 +66,12 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
   const previousScheduleEntries = Array.isArray(previousSchedule)
     ? previousSchedule
     : (Array.isArray(data.schedule) ? data.schedule : []);
-  const calendarOffsetMinutes = Number.isFinite(Number(latest.dayPlan?.calendarOffsetMinutes))
-    ? Number(latest.dayPlan.calendarOffsetMinutes)
-    : undefined;
+  const storedCalendarOffset = latest.calendarOffsetMinutes ?? latest.dayPlan?.calendarOffsetMinutes;
+  const calendarOffsetMinutes = storedCalendarOffset != null
+    && storedCalendarOffset !== ''
+    && Number.isFinite(Number(storedCalendarOffset))
+      ? Number(storedCalendarOffset)
+      : defaultCalendarOffsetMinutes;
   const inferredAutomatic = !hasStoredMode && isLessonStartInSchedule(
     previousScheduleEntries,
     latest.dueAt,
@@ -93,6 +102,7 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
     };
   };
   const currentDueAtMs = Date.parse(String(latest.dueAt || '').trim());
+  const canReliablyResolveScheduleWallTime = Number.isFinite(Number(calendarOffsetMinutes));
   const nextEntryIds = new Set(nextSchedule.map((entry) => String(entry?.id || '').trim()).filter(Boolean));
   const removedEntries = (Array.isArray(previousScheduleEntries) ? previousScheduleEntries : [])
     .filter((entry) => {
@@ -125,6 +135,7 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
     Number.isFinite(currentDueAtMs)
     && currentDueAtMs <= safeReference.getTime()
     && !plannedLessonWasDeleted
+    && !canReliablyResolveScheduleWallTime
   ) {
     return migrateTrackingMode()
       || { studentData: { ...data, schedule: nextSchedule }, deadlineChanged: false };
@@ -151,6 +162,7 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
     ...latest,
     dueAt,
     dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
+    ...(canReliablyResolveScheduleWallTime ? { calendarOffsetMinutes } : {}),
     daysToComplete: calculateDaysToComplete(latest.issuedAt, dueAt, latest.daysToComplete),
     deadlineAdjustedAt: safeReference.toISOString(),
   };

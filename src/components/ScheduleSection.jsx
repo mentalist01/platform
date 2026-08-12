@@ -104,8 +104,20 @@ const resolveHomeworkDueAt = (entry) => {
   return new Date(issuedAt.getTime() + (normalizedDays * HOMEWORK_DAY_MS));
 };
 
+const getHomeworkCalendarOffsetMinutes = (value) => {
+  const stored = Number(value);
+  if (value != null && value !== '' && Number.isFinite(stored)) {
+    return Math.max(-14 * 60, Math.min(14 * 60, Math.round(stored)));
+  }
+  return -new Date().getTimezoneOffset();
+};
+
 const buildDefaultHomeworkDueAt = (days = 7, scheduleEntries = [], now = new Date()) => (
-  buildHomeworkDueAtFromSchedule(scheduleEntries, { now, fallbackDays: days })
+  buildHomeworkDueAtFromSchedule(scheduleEntries, {
+    now,
+    fallbackDays: days,
+    calendarOffsetMinutes: getHomeworkCalendarOffsetMinutes(),
+  })
 );
 
 const buildNextLessonData = (latest, fallback = {}) => ({
@@ -123,6 +135,9 @@ const buildNextLessonData = (latest, fallback = {}) => ({
   targetQuestionIds: Array.isArray(latest?.targetQuestionIds) ? latest.targetQuestionIds : [],
   goals: Array.isArray(latest?.goals) ? latest.goals : [],
   dayPlan: latest?.dayPlan && typeof latest.dayPlan === 'object' ? latest.dayPlan : null,
+  calendarOffsetMinutes: getHomeworkCalendarOffsetMinutes(
+    latest?.calendarOffsetMinutes ?? latest?.dayPlan?.calendarOffsetMinutes
+  ),
 });
 
 const toDateTimeLocalValue = (value) => {
@@ -4009,6 +4024,15 @@ const ScheduleSection = ({
     if (!entry) return;
     const goals = normalizeEntryGoals(entry);
     const storedDayPlan = entry?.dayPlan && typeof entry.dayPlan === 'object' ? entry.dayPlan : null;
+    const tracksNextLesson = normalizeHomeworkDueAtMode(entry?.dueAtMode)
+      === HOMEWORK_DUE_AT_MODE_NEXT_LESSON;
+    const automaticDueAt = buildDefaultHomeworkDueAt(
+      Number(entry.daysToComplete) || 7,
+      editableLessonSchedule
+    );
+    const displayedDueAt = tracksNextLesson && automaticDueAt
+      ? automaticDueAt
+      : resolveHomeworkDueAt(entry);
     homeworkComposerRequestRef.current += 1;
     setEditingId(entry.id || null);
     setHomeworkCarryoverSummary(null);
@@ -4018,7 +4042,7 @@ const ScheduleSection = ({
       homeWork: entry.homeWork || '',
       lessonLink: entry.lessonLink || '',
       boardLink: entry.boardLink || '',
-      dueAt: toDateTimeLocalValue(resolveHomeworkDueAt(entry)),
+      dueAt: toDateTimeLocalValue(displayedDueAt),
       dueAtMode: normalizeHomeworkDueAtMode(entry.dueAtMode),
       daysToComplete: Number(entry.daysToComplete) || 7,
       issuedAt: entry.issuedAt || '',
@@ -4162,7 +4186,7 @@ const ScheduleSection = ({
         setError(goalValidationError);
         return;
       }
-      const calendarOffsetMinutes = -new Date().getTimezoneOffset();
+      const calendarOffsetMinutes = getHomeworkCalendarOffsetMinutes();
       const payload = {
         homeWork: form.homeWork,
         lessonLink: form.lessonLink,
@@ -4174,6 +4198,7 @@ const ScheduleSection = ({
           entries: editableLessonSchedule,
           calendarOffsetMinutes,
         }),
+        calendarOffsetMinutes,
         daysToComplete: form.daysToComplete,
         goals: goalsPayload,
         dayPlan: form.dayPlanEnabled

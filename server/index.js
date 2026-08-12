@@ -29123,6 +29123,31 @@ const normalizeHomeworkDayPlanOffset = (value) => {
   return Math.max(-14 * 60, Math.min(14 * 60, numeric));
 };
 
+const getCalendarOffsetMinutesAt = (value = new Date()) => {
+  const timestamp = value instanceof Date ? value.getTime() : Date.parse(String(value || '').trim());
+  if (!Number.isFinite(timestamp)) return normalizeHomeworkDayPlanOffset();
+  const parts = getDatePartsInCalendarTimeZone(new Date(timestamp));
+  if (!parts?.dayKey || !parts?.time) return normalizeHomeworkDayPlanOffset();
+  const wallClockAsUtcMs = Date.parse(`${parts.dayKey}T${parts.time}:00.000Z`);
+  if (!Number.isFinite(wallClockAsUtcMs)) return normalizeHomeworkDayPlanOffset();
+  const timestampAtMinuteStart = Math.floor(timestamp / (60 * 1000)) * 60 * 1000;
+  return normalizeHomeworkDayPlanOffset(
+    Math.round((wallClockAsUtcMs - timestampAtMinuteStart) / (60 * 1000))
+  );
+};
+
+const normalizeHomeworkCalendarOffset = (value, fallbackDate = new Date()) => {
+  if (value != null && String(value).trim() !== '' && Number.isFinite(Number(value))) {
+    return normalizeHomeworkDayPlanOffset(value);
+  }
+  return getCalendarOffsetMinutesAt(fallbackDate);
+};
+
+const resolveScheduledHomeworkDueAt = (schedule, { now = new Date(), calendarOffsetMinutes } = {}) => {
+  const offset = normalizeHomeworkCalendarOffset(calendarOffsetMinutes, now);
+  return resolveNextLessonStart(schedule, { now, calendarOffsetMinutes: offset })?.toISOString() || '';
+};
+
 const buildStoredHomeworkDayPlan = (config, homework, testsDb = {}) => {
   if (!config || typeof config !== 'object' || Array.isArray(config) || config.enabled === false) {
     return null;
@@ -29175,6 +29200,10 @@ function synchronizeStudentHomeworkForSchedule(
     studentData: data,
     previousSchedule,
     schedule,
+    calendarOffsetMinutes: normalizeHomeworkCalendarOffset(
+      options.calendarOffsetMinutes,
+      options.now
+    ),
     treatMissingPlannedLessonAsDeleted: Boolean(options.treatMissingPlannedLessonAsDeleted),
     buildDayPlan: (config, homework) => {
       if (!testsDb) testsDb = readTestsDb();
@@ -29361,7 +29390,7 @@ app.get('/api/student-next-lesson', async (req, res) => {
 
 app.patch('/api/student-next-lesson', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan, calendarOffsetMinutes } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
@@ -29377,13 +29406,16 @@ app.patch('/api/student-next-lesson', (req, res) => {
   const daysValue = Number(daysToComplete);
   const fallbackDays = Number.isFinite(daysValue) && daysValue > 0 ? Math.round(daysValue) : 7;
   const normalizedDueAtMode = normalizeHomeworkDueAtMode(dueAtMode);
+  const normalizedCalendarOffsetMinutes = normalizeHomeworkCalendarOffset(calendarOffsetMinutes, issuedAt);
   const scheduledDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
-    ? resolveNextLessonStart(data.schedule, { now: new Date(issuedAt) })?.toISOString() || ''
+    ? resolveScheduledHomeworkDueAt(data.schedule, {
+        now: new Date(issuedAt),
+        calendarOffsetMinutes: normalizedCalendarOffsetMinutes,
+      })
     : '';
-  // The browser resolves the student's wall-clock schedule. Prefer that exact
-  // instant so a UTC server cannot mistake today's already-started lesson for
-  // the next one and collapse a multi-day plan into today.
-  const normalizedDueAt = payloadDueAt || scheduledDueAt || calculateHomeworkDueAt(issuedAt, fallbackDays);
+  const normalizedDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+    ? (scheduledDueAt || payloadDueAt || calculateHomeworkDueAt(issuedAt, fallbackDays))
+    : (payloadDueAt || calculateHomeworkDueAt(issuedAt, fallbackDays));
   if (Date.parse(normalizedDueAt) < Date.parse(issuedAt)) {
     return res.status(400).json({ error: 'Срок домашки не может быть раньше даты выдачи' });
   }
@@ -29480,6 +29512,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
     updatedAt: new Date().toISOString(),
     dueAt: normalizedDueAt,
     dueAtMode: normalizedDueAtMode,
+    calendarOffsetMinutes: normalizedCalendarOffsetMinutes,
     daysToComplete: normalizedDays,
     homeWork: payloadHomeWork,
     lessonLink: payloadLessonLink,
@@ -29507,6 +29540,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
     updatedAt: newEntry.updatedAt,
     dueAt: newEntry.dueAt,
     dueAtMode: newEntry.dueAtMode,
+    calendarOffsetMinutes: newEntry.calendarOffsetMinutes,
     daysToComplete: newEntry.daysToComplete,
     taskNumber: newEntry.taskNumber,
     levelId: newEntry.levelId,
@@ -29530,7 +29564,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
 app.patch('/api/student-next-lesson/:id', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan, calendarOffsetMinutes } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
@@ -29595,14 +29629,28 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   const normalizedDueAtMode = Object.prototype.hasOwnProperty.call(req.body || {}, 'dueAtMode')
     ? normalizeHomeworkDueAtMode(dueAtMode)
     : normalizeHomeworkDueAtMode(existing.dueAtMode);
+  const normalizedCalendarOffsetMinutes = normalizeHomeworkCalendarOffset(
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'calendarOffsetMinutes')
+      ? calendarOffsetMinutes
+      : (existing.calendarOffsetMinutes ?? existing.dayPlan?.calendarOffsetMinutes),
+    existing.issuedAt
+  );
   const scheduledDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
-    ? resolveNextLessonStart(data.schedule)?.toISOString() || ''
+    ? resolveScheduledHomeworkDueAt(data.schedule, {
+        now: new Date(),
+        calendarOffsetMinutes: normalizedCalendarOffsetMinutes,
+      })
     : '';
-  const normalizedDueAt = (hasDueAtField && payloadDueAt) || scheduledDueAt || (hasDueAtField
-    ? (payloadDueAt || calculateHomeworkDueAt(existing.issuedAt, fallbackDays))
-    : (hasDaysField
-        ? calculateHomeworkDueAt(existing.issuedAt, fallbackDays)
-        : (resolveHomeworkDueAt(existing) || calculateHomeworkDueAt(existing.issuedAt, fallbackDays))));
+  const normalizedDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+    ? (scheduledDueAt
+        || (hasDueAtField && payloadDueAt)
+        || resolveHomeworkDueAt(existing)
+        || calculateHomeworkDueAt(existing.issuedAt, fallbackDays))
+    : ((hasDueAtField && payloadDueAt) || (hasDueAtField
+        ? (payloadDueAt || calculateHomeworkDueAt(existing.issuedAt, fallbackDays))
+        : (hasDaysField
+            ? calculateHomeworkDueAt(existing.issuedAt, fallbackDays)
+            : (resolveHomeworkDueAt(existing) || calculateHomeworkDueAt(existing.issuedAt, fallbackDays)))));
   if (Date.parse(normalizedDueAt) < Date.parse(existing.issuedAt)) {
     return res.status(400).json({ error: 'Срок домашки не может быть раньше даты выдачи' });
   }
@@ -29681,6 +29729,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     updatedAt: new Date().toISOString(),
     dueAt: normalizedDueAt,
     dueAtMode: normalizedDueAtMode,
+    calendarOffsetMinutes: normalizedCalendarOffsetMinutes,
     daysToComplete: normalizedDays,
     taskNumber: normalizedTaskNumber,
     levelId: normalizedLevelId,
@@ -29725,6 +29774,10 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
         updatedAt: latestEntry.updatedAt,
         dueAt: resolveHomeworkDueAt(latestEntry),
         dueAtMode: normalizeHomeworkDueAtMode(latestEntry.dueAtMode),
+        calendarOffsetMinutes: normalizeHomeworkCalendarOffset(
+          latestEntry.calendarOffsetMinutes ?? latestEntry.dayPlan?.calendarOffsetMinutes,
+          latestEntry.issuedAt
+        ),
         daysToComplete: latestEntry.daysToComplete,
         taskNumber: latestEntry.taskNumber ?? null,
         levelId: latestEntry.levelId ?? null,

@@ -152,7 +152,53 @@ test('repairs a stale automatic deadline when the stored schedule already points
   assert.equal(result.studentData.nextLesson.dueAt, '2026-08-12T17:00:00.000Z');
 });
 
-test('does not roll an overdue automatic homework forward to another lesson', () => {
+test('uses the homework-level calendar offset when day planning is disabled', () => {
+  const homework = makeHomework({
+    dueAt: '2026-08-12T20:00:00.000Z',
+    calendarOffsetMinutes: 180,
+    dayPlan: undefined,
+  });
+  const schedule = [
+    { id: 'lesson-finished', date: '2026-08-12', time: '20:00' },
+    { id: 'lesson-next', date: '2026-08-14', time: '20:00' },
+  ];
+
+  const result = synchronizeHomeworkDueAtWithSchedule({
+    studentData: { homeworks: [homework], nextLesson: { ...homework }, schedule },
+    previousSchedule: schedule,
+    schedule,
+    now: new Date('2026-08-12T18:24:00.000Z'),
+  });
+
+  assert.equal(result.deadlineChanged, true);
+  assert.equal(result.studentData.homeworks[0].dueAt, '2026-08-14T17:00:00.000Z');
+  assert.equal(result.studentData.nextLesson.dueAt, '2026-08-14T17:00:00.000Z');
+});
+
+test('uses a server-provided calendar offset when legacy homework has no day plan', () => {
+  const homework = makeHomework({
+    dueAt: '2026-08-12T20:00:00.000Z',
+    dayPlan: undefined,
+  });
+  const schedule = [
+    { id: 'lesson-finished', date: '2026-08-12', time: '20:00' },
+    { id: 'lesson-next', date: '2026-08-14', time: '20:00' },
+  ];
+
+  const result = synchronizeHomeworkDueAtWithSchedule({
+    studentData: { homeworks: [homework], nextLesson: { ...homework }, schedule },
+    previousSchedule: schedule,
+    schedule,
+    now: new Date('2026-08-12T18:24:00.000Z'),
+    calendarOffsetMinutes: 180,
+  });
+
+  assert.equal(result.deadlineChanged, true);
+  assert.equal(result.studentData.homeworks[0].dueAt, '2026-08-14T17:00:00.000Z');
+  assert.equal(result.studentData.homeworks[0].calendarOffsetMinutes, 180);
+});
+
+test('does not roll an overdue legacy automatic homework forward without a calendar offset', () => {
   const homework = makeHomework({
     dueAt: new Date(2026, 6, 28, 18, 30, 0).toISOString(),
   });
