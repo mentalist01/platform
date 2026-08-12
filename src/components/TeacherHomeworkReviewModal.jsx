@@ -387,6 +387,7 @@ const TeacherHomeworkReviewModal = ({
       answerCount,
       answerLabels,
       studentAnswers,
+      studentCode: questionCodeState.code,
       sourceStudentId: studentId,
     });
     setQuestionBoardCopyState(copied ? 'copied' : 'error');

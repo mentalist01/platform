@@ -54,6 +54,7 @@ const taskFixture = {
   answerLabels: ['19', '20.1', '20.2', '21'],
   expectedAnswers: ['7', ' 8 ', '9', '10'],
   studentAnswers: ['7', '11'],
+  studentCode: 'print("student solution")\n',
   sourceStudentId: ' student-42 ',
   arbitraryHtml: '<script>alert(1)</script>',
 };
@@ -85,6 +86,7 @@ test('normalizes a board task into a bounded, allow-listed payload', () => {
     answerCount: 4,
     answerLabels: ['19', '20.1', '20.2', '21'],
     studentAnswers: ['7', '11', '', ''],
+    studentCode: 'print("student solution")\n',
     sourceStudentId: 'student-42',
   });
   assert.equal('arbitraryHtml' in normalized, false);

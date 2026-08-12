@@ -10,6 +10,7 @@ const MAX_SCREENSHOTS = 12;
 const MAX_SCREENSHOT_URL_LENGTH = 8_192;
 const MAX_ANSWER_COUNT = 100;
 const MAX_ANSWER_LENGTH = 20_000;
+const MAX_CODE_LENGTH = 20_000;
 const MAX_STORAGE_ENTRIES_TO_SCAN = 200;
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
@@ -143,6 +144,7 @@ export const normalizeBoardTaskClipboardPayload = (value) => {
     answerCount,
     answerLabels,
     studentAnswers,
+    studentCode: normalizeText(value.studentCode ?? value.code, MAX_CODE_LENGTH, { trim: false }),
     sourceStudentId: normalizeText(value.sourceStudentId ?? value.studentId, 240),
   };
 };

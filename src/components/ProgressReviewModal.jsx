@@ -562,6 +562,7 @@ const ProgressReviewModal = ({
       answerCount,
       answerLabels,
       studentAnswers: studentAnswerValues,
+      studentCode: questionCodeEntry.code,
       sourceStudentId: studentId,
     });
     setQuestionBoardCopyState(copied ? 'copied' : 'error');

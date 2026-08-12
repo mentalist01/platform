@@ -310,6 +310,27 @@ const BOARD_TASK_CARD_PADDING = 22;
 const BOARD_TASK_CARD_HEADER_HEIGHT = 62;
 const BOARD_TASK_ANSWER_FIELD_HEIGHT = 44;
 const BOARD_TASK_ANSWER_FIELD_GAP = 10;
+const BOARD_TASK_CODE_LAYOUT_VERSION = 2;
+const BOARD_TASK_LEGACY_CODE_EXPANSION = 226;
+
+const getBoardParticipantLabel = (participantRole, participantName = '') => {
+  const roleLabel = participantRole === 'teacher'
+    ? 'Учитель'
+    : (participantRole === 'student' ? 'Ученик' : 'Участник');
+  const name = String(participantName || '').trim();
+  return name && name.toLocaleLowerCase('ru-RU') !== roleLabel.toLocaleLowerCase('ru-RU')
+    ? `${roleLabel} ${name}`
+    : roleLabel;
+};
+
+const getBoardCodePresenceMessage = (presence) => {
+  if (!presence) return '';
+  const participant = getBoardParticipantLabel(presence.role, presence.name);
+  if (presence.action === 'editing') return `${participant} редактирует код…`;
+  if (presence.action === 'saving') return `${participant} сохраняет код…`;
+  if (presence.action === 'saved') return `${participant} сохранил код`;
+  return `${participant} открыл код`;
+};
 
 const getBoardTaskAnswerOrder = (answerCount) => {
   const count = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Number(answerCount) || 1));
@@ -355,6 +376,12 @@ const getBoardTaskAnswerLayout = (item) => {
       x: panelX,
       y: panelY + gridTopOffset + gridHeight + 14,
       width: 142,
+      height: 42,
+    },
+    codeButton: {
+      x: panelX + 154,
+      y: panelY + gridTopOffset + gridHeight + 14,
+      width: 154,
       height: 42,
     },
   };
@@ -563,12 +590,18 @@ const drawBoardTaskCard = (ctx, item, resolveImage = () => null, options = {}) =
     ctx.font = '800 14px Inter, Arial, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.fillText('Проверить', x + layout.button.x + 24, y + layout.button.y + layout.button.height / 2);
+    ctx.fillStyle = '#ede9fe';
+    ctx.beginPath();
+    ctx.roundRect(x + layout.codeButton.x, y + layout.codeButton.y, layout.codeButton.width, layout.codeButton.height, 11);
+    ctx.fill();
+    ctx.fillStyle = '#6d28d9';
+    ctx.fillText('Код к заданию', x + layout.codeButton.x + 20, y + layout.codeButton.y + layout.codeButton.height / 2);
     if (status !== 'idle') {
       ctx.fillStyle = accentColor;
       ctx.font = '800 14px Inter, Arial, sans-serif';
       ctx.fillText(
         status === 'correct' ? 'Верно!' : 'Пока неверно',
-        x + layout.button.x + layout.button.width + 18,
+        x + layout.codeButton.x + layout.codeButton.width + 18,
         y + layout.button.y + layout.button.height / 2
       );
     }
@@ -919,13 +952,19 @@ const normalizeBoardStoredItem = (rawValue) => {
       { length: answerCount },
       (_, index) => String(values?.[index] ?? '').slice(0, 500)
     );
+    const hasLegacyExpandedCode = Object.prototype.hasOwnProperty.call(source, 'studentCode')
+      && Number(source.codePanelLayoutVersion) < BOARD_TASK_CODE_LAYOUT_VERSION;
+    const rawHeight = Number(source.height) || 640;
     return {
       ...base,
       type: 'task',
       x: Number(source.x) || 0,
       y: Number(source.y) || 0,
       width: Math.max(BOARD_TASK_MIN_WIDTH, Math.min(BOARD_TASK_MAX_WIDTH, Number(source.width) || BOARD_TASK_DEFAULT_WIDTH)),
-      height: Math.max(220, Math.min(BOARD_TASK_MAX_HEIGHT, Number(source.height) || 640)),
+      height: Math.max(220, Math.min(
+        BOARD_TASK_MAX_HEIGHT,
+        rawHeight - (hasLegacyExpandedCode ? BOARD_TASK_LEGACY_CODE_EXPANSION : 0)
+      )),
       heading: typeof source.heading === 'string' ? source.heading.slice(0, 240) : '',
       taskNumber: Number.isFinite(Number(source.taskNumber)) ? Number(source.taskNumber) : null,
       taskDisplayNumber: typeof source.taskDisplayNumber === 'string' || typeof source.taskDisplayNumber === 'number'
@@ -946,6 +985,11 @@ const normalizeBoardStoredItem = (rawValue) => {
       ),
       userAnswers: normalizeAnswers(source.userAnswers),
       studentAnswers: normalizeAnswers(source.studentAnswers),
+      studentCode: typeof source.studentCode === 'string' ? source.studentCode.slice(0, 20000) : '',
+      codeSavedAt: typeof source.codeSavedAt === 'string' ? source.codeSavedAt.slice(0, 80) : '',
+      codeSavedByName: typeof source.codeSavedByName === 'string' ? source.codeSavedByName.slice(0, 120) : '',
+      codeSavedByRole: ['teacher', 'student'].includes(source.codeSavedByRole) ? source.codeSavedByRole : '',
+      codePanelLayoutVersion: BOARD_TASK_CODE_LAYOUT_VERSION,
       checkState: ['correct', 'wrong'].includes(source.checkState) ? source.checkState : 'idle',
       sourceStudentId: typeof source.sourceStudentId === 'string' ? source.sourceStudentId.slice(0, 160) : '',
     };
@@ -1011,6 +1055,10 @@ const estimateBoardItemBytes = (item) => {
       ...(item.answerLabels || []),
       ...(item.userAnswers || []),
       ...(item.studentAnswers || []),
+      item.studentCode,
+      item.codeSavedAt,
+      item.codeSavedByName,
+      item.codeSavedByRole,
     ].reduce((sum, value) => sum + String(value || '').length * 2, 0);
     const imageReferenceBytes = screenshots.reduce((sum, image) => (
       sum
@@ -10529,6 +10577,9 @@ const BoardSection = ({
   const [saveSuccess, setSaveSuccess] = useState('');
   const [saveNameError, setSaveNameError] = useState(false);
   const [taskCheckUiById, setTaskCheckUiById] = useState({});
+  const [taskCodeUiById, setTaskCodeUiById] = useState({});
+  const [openTaskCodeId, setOpenTaskCodeId] = useState('');
+  const [remoteTaskCodePresenceById, setRemoteTaskCodePresenceById] = useState({});
 
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
@@ -10538,6 +10589,8 @@ const BoardSection = ({
   const yItemsRef = useRef(null);
   const providerRef = useRef(null);
   const awarenessRef = useRef(null);
+  const taskCodePresenceRef = useRef({ taskId: '', action: '', publishedAt: 0 });
+  const taskCodePresenceIdleTimerRef = useRef(null);
   const undoManagerRef = useRef(null);
   const localOriginRef = useRef(Symbol('board-origin'));
   const sandboxPlaybackSyncOriginRef = useRef(Symbol('board-sandbox-playback-sync'));
@@ -10634,6 +10687,30 @@ const BoardSection = ({
     lessonReplayActiveRef.current = Boolean(!isSandbox && lessonReplayActive);
   }, [isSandbox, lessonReplayActive]);
 
+  useEffect(() => {
+    const awareness = awarenessRef.current;
+    if (!awareness) return undefined;
+    if (!openTaskCodeId) {
+      awareness.setLocalStateField('taskCodePresence', null);
+      taskCodePresenceRef.current = { taskId: '', action: '', publishedAt: Date.now() };
+      return undefined;
+    }
+    const presence = {
+      taskId: openTaskCodeId,
+      action: 'open',
+      name: localName,
+      role: isTeacher ? 'teacher' : 'student',
+      ts: Date.now(),
+    };
+    awareness.setLocalStateField('taskCodePresence', presence);
+    taskCodePresenceRef.current = { taskId: openTaskCodeId, action: 'open', publishedAt: presence.ts };
+    return () => {
+      if (taskCodePresenceIdleTimerRef.current) clearTimeout(taskCodePresenceIdleTimerRef.current);
+      taskCodePresenceIdleTimerRef.current = null;
+      awareness.setLocalStateField('taskCodePresence', null);
+    };
+  }, [isTeacher, localName, openTaskCodeId]);
+
   const flushLessonReplayBoardSnapshot = useCallback(() => {
     if (typeof window !== 'undefined') window.clearTimeout(lessonReplayBoardTimerRef.current);
     lessonReplayBoardTimerRef.current = null;
@@ -10729,6 +10806,12 @@ const BoardSection = ({
     setIsImageMoreOpen(false);
     setTextDraft(null);
     setTaskCheckUiById({});
+    setTaskCodeUiById({});
+    setOpenTaskCodeId('');
+    setRemoteTaskCodePresenceById({});
+    if (taskCodePresenceIdleTimerRef.current) clearTimeout(taskCodePresenceIdleTimerRef.current);
+    taskCodePresenceIdleTimerRef.current = null;
+    taskCodePresenceRef.current = { taskId: '', action: '', publishedAt: 0 };
     linkedBoardObjectRef.current = '';
   }, [roomId]);
 
@@ -12009,9 +12092,15 @@ const BoardSection = ({
         const raw = yItems.get(index);
         const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
         if (item?.id !== id || item.type !== 'task') continue;
-        const next = updater({ ...item });
+        const normalizedItem = normalizeBoardStoredItem(item) || item;
+        const next = updater({ ...normalizedItem });
         if (!next) break;
-        updated = { ...next, id: item.id, type: 'task' };
+        updated = {
+          ...next,
+          id: item.id,
+          type: 'task',
+          codePanelLayoutVersion: BOARD_TASK_CODE_LAYOUT_VERSION,
+        };
         yItems.delete(index, 1);
         yItems.insert(index, [updated]);
         break;
@@ -12039,6 +12128,139 @@ const BoardSection = ({
       delete next[item.id];
       return next;
     });
+  };
+
+  const handleBoardTaskCodeChange = (item, value) => {
+    if (sandboxReadOnlyRef.current || !item?.id) return;
+    const studentCode = String(value ?? '').slice(0, 20000);
+    updateBoardTaskItem(item.id, (current) => ({
+      ...current,
+      studentCode,
+      codeSavedAt: '',
+      codeSavedByName: '',
+      codeSavedByRole: '',
+    }), { stopCapturing: false });
+    setTaskCodeUiById((current) => ({
+      ...current,
+      [item.id]: { status: 'dirty', message: 'Есть несохранённые изменения' },
+    }));
+    const now = Date.now();
+    if (
+      awarenessRef.current
+      && (taskCodePresenceRef.current.taskId !== item.id
+        || taskCodePresenceRef.current.action !== 'editing'
+        || now - taskCodePresenceRef.current.publishedAt >= 450)
+    ) {
+      const presence = {
+        taskId: item.id,
+        action: 'editing',
+        name: localName,
+        role: isTeacher ? 'teacher' : 'student',
+        ts: now,
+      };
+      awarenessRef.current.setLocalStateField('taskCodePresence', presence);
+      taskCodePresenceRef.current = { taskId: item.id, action: 'editing', publishedAt: now };
+    }
+    if (taskCodePresenceIdleTimerRef.current) clearTimeout(taskCodePresenceIdleTimerRef.current);
+    taskCodePresenceIdleTimerRef.current = setTimeout(() => {
+      if (openTaskCodeId !== item.id || !awarenessRef.current) return;
+      const presence = {
+        taskId: item.id,
+        action: 'open',
+        name: localName,
+        role: isTeacher ? 'teacher' : 'student',
+        ts: Date.now(),
+      };
+      awarenessRef.current.setLocalStateField('taskCodePresence', presence);
+      taskCodePresenceRef.current = { taskId: item.id, action: 'open', publishedAt: presence.ts };
+    }, 1400);
+  };
+
+  const handleBoardTaskCodeSave = async (item) => {
+    if (sandboxReadOnlyRef.current || !item?.id || taskCodeUiById?.[item.id]?.status === 'saving') return;
+    const latest = boardItemsRef.current.find((entry) => entry?.id === item.id && entry.type === 'task') || item;
+    const studentId = latest.sourceStudentId || effectiveStudentId;
+    if (!studentId || !latest.taskNumber || !latest.levelId || !latest.questionId) {
+      setTaskCodeUiById((current) => ({
+        ...current,
+        [item.id]: { status: 'error', message: 'Не удалось связать код с вопросом' },
+      }));
+      return;
+    }
+    setTaskCodeUiById((current) => ({ ...current, [item.id]: { status: 'saving', message: '' } }));
+    if (awarenessRef.current) {
+      const presence = {
+        taskId: item.id,
+        action: 'saving',
+        name: localName,
+        role: isTeacher ? 'teacher' : 'student',
+        ts: Date.now(),
+      };
+      awarenessRef.current.setLocalStateField('taskCodePresence', presence);
+      taskCodePresenceRef.current = { taskId: item.id, action: 'saving', publishedAt: presence.ts };
+    }
+    try {
+      const savedCode = String(latest.studentCode || '');
+      const payload = isSandbox
+        ? { updatedAt: new Date().toISOString() }
+        : await api.saveQuestionCode(studentId, latest.taskNumber, latest.levelId, latest.questionId, {
+            code: savedCode,
+            input: '',
+          });
+      const codeSavedAt = typeof payload?.updatedAt === 'string' ? payload.updatedAt : new Date().toISOString();
+      const currentCode = String(
+        boardItemsRef.current.find((entry) => entry?.id === item.id && entry.type === 'task')?.studentCode || ''
+      );
+      if (currentCode === savedCode) {
+        updateBoardTaskItem(item.id, (current) => ({
+          ...current,
+          codeSavedAt,
+          codeSavedByName: localName,
+          codeSavedByRole: isTeacher ? 'teacher' : 'student',
+        }));
+        setTaskCodeUiById((current) => ({
+          ...current,
+          [item.id]: { status: 'saved', message: 'Код сохранён в тестированиях' },
+        }));
+        if (awarenessRef.current) {
+          const presence = {
+            taskId: item.id,
+            action: 'saved',
+            name: localName,
+            role: isTeacher ? 'teacher' : 'student',
+            ts: Date.now(),
+          };
+          awarenessRef.current.setLocalStateField('taskCodePresence', presence);
+          taskCodePresenceRef.current = { taskId: item.id, action: 'saved', publishedAt: presence.ts };
+          if (taskCodePresenceIdleTimerRef.current) clearTimeout(taskCodePresenceIdleTimerRef.current);
+          taskCodePresenceIdleTimerRef.current = setTimeout(() => {
+            if (openTaskCodeId !== item.id || !awarenessRef.current) return;
+            const openPresence = { ...presence, action: 'open', ts: Date.now() };
+            awarenessRef.current.setLocalStateField('taskCodePresence', openPresence);
+            taskCodePresenceRef.current = { taskId: item.id, action: 'open', publishedAt: openPresence.ts };
+          }, 1800);
+        }
+      } else {
+        setTaskCodeUiById((current) => ({
+          ...current,
+          [item.id]: { status: 'dirty', message: 'Код изменился во время сохранения — сохраните ещё раз' },
+        }));
+      }
+    } catch (error) {
+      setTaskCodeUiById((current) => ({
+        ...current,
+        [item.id]: { status: 'error', message: error?.message || 'Не удалось сохранить код' },
+      }));
+      if (awarenessRef.current && openTaskCodeId === item.id) {
+        awarenessRef.current.setLocalStateField('taskCodePresence', {
+          taskId: item.id,
+          action: 'open',
+          name: localName,
+          role: isTeacher ? 'teacher' : 'student',
+          ts: Date.now(),
+        });
+      }
+    }
   };
 
   const handleBoardTaskCheck = async (item) => {
@@ -13611,6 +13833,7 @@ const BoardSection = ({
       const cursors = [];
       const activePreviewClientIds = new Set();
       let incomingSummon = null;
+      const taskCodePresenceById = {};
       states.forEach((state, clientId) => {
         if (clientId === provider.awareness.clientID) return;
         const clientKey = String(clientId);
@@ -13687,6 +13910,21 @@ const BoardSection = ({
         if (summon?.ts && (!incomingSummon || summon.ts > (incomingSummon.ts || 0))) {
           incomingSummon = summon;
         }
+        const taskCodePresence = state?.taskCodePresence;
+        const presenceTaskId = String(taskCodePresence?.taskId || '').trim();
+        const presenceAction = String(taskCodePresence?.action || '').trim();
+        if (presenceTaskId && ['open', 'editing', 'saving', 'saved'].includes(presenceAction)) {
+          const candidate = {
+            taskId: presenceTaskId,
+            action: presenceAction,
+            name: remoteName,
+            role: taskCodePresence?.role === 'teacher' ? 'teacher' : 'student',
+            ts: Number(taskCodePresence?.ts) || 0,
+          };
+          if (!taskCodePresenceById[presenceTaskId] || candidate.ts >= taskCodePresenceById[presenceTaskId].ts) {
+            taskCodePresenceById[presenceTaskId] = candidate;
+          }
+        }
       });
       remotePreviewStateRef.current.forEach((_, clientKey) => {
         if (!activePreviewClientIds.has(clientKey)) {
@@ -13695,6 +13933,7 @@ const BoardSection = ({
       });
       setRemotePreviews(previews);
       setRemoteCursors(cursors);
+      setRemoteTaskCodePresenceById(taskCodePresenceById);
       if (!isTeacher && incomingSummon?.id && incomingSummon.id !== lastSummonIdRef.current) {
         lastSummonIdRef.current = incomingSummon.id;
         const nextZoom = clamp(Number(incomingSummon.zoom) || 1, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM);
@@ -13717,6 +13956,7 @@ const BoardSection = ({
       provider.awareness.setLocalStateField('drawing', null);
       provider.awareness.setLocalStateField('cursor', null);
       provider.awareness.setLocalStateField('summon', null);
+      provider.awareness.setLocalStateField('taskCodePresence', null);
       provider.on('connection-close', handleConnectionClose);
       provider.on('status', handleStatus);
       provider.awareness.on('change', handleAwareness);
@@ -13754,10 +13994,12 @@ const BoardSection = ({
         provider.awareness.setLocalStateField('drawing', null);
         provider.awareness.setLocalStateField('cursor', null);
         provider.awareness.setLocalStateField('summon', null);
+        provider.awareness.setLocalStateField('taskCodePresence', null);
       }
       undoManagerRef.current = null;
       setUndoState({ canUndo: false, canRedo: false });
       setRemoteCursors([]);
+      setRemoteTaskCodePresenceById({});
       resetBoardData();
       provider?.destroy();
       doc.destroy();
@@ -13948,6 +14190,11 @@ const BoardSection = ({
             answerLabels: boardTaskPayload.answerLabels,
             userAnswers: Array.from({ length: answerCount }, () => ''),
             studentAnswers: boardTaskPayload.studentAnswers,
+            studentCode: boardTaskPayload.studentCode || '',
+            codeSavedAt: '',
+            codeSavedByName: '',
+            codeSavedByRole: '',
+            codePanelLayoutVersion: BOARD_TASK_CODE_LAYOUT_VERSION,
             checkState: 'idle',
             sourceStudentId: boardTaskPayload.sourceStudentId || effectiveStudentId || '',
             authorId: userId,
@@ -15488,6 +15735,24 @@ const BoardSection = ({
               Math.min(BOARD_MAX_ZOOM, Number(zoom) || 1)
             );
             const taskUi = taskCheckUiById?.[taskItem.id] || null;
+            const taskCodeUi = taskCodeUiById?.[taskItem.id] || null;
+            const isCodeOpen = openTaskCodeId === taskItem.id;
+            const isCodeSaved = Boolean(displayItem.codeSavedAt);
+            const remoteCodePresence = remoteTaskCodePresenceById?.[taskItem.id] || null;
+            const remoteCodePresenceMessage = getBoardCodePresenceMessage(remoteCodePresence);
+            const savedByMessage = isCodeSaved && displayItem.codeSavedByRole
+              ? `${getBoardParticipantLabel(displayItem.codeSavedByRole, displayItem.codeSavedByName)} сохранил код`
+              : (isCodeSaved ? 'Код сохранён в тестированиях' : '');
+            const displayedCodeStatus = taskCodeUi?.status === 'saving' || taskCodeUi?.status === 'error'
+              ? taskCodeUi
+              : (remoteCodePresenceMessage
+                ? { status: remoteCodePresence?.action === 'saved' ? 'saved' : 'active', message: remoteCodePresenceMessage }
+                : (isCodeSaved
+                  ? { status: 'saved', message: savedByMessage || 'Код сохранён в тестированиях' }
+                  : taskCodeUi));
+            const codeButtonDetail = remoteCodePresenceMessage
+              ? remoteCodePresenceMessage
+              : (isCodeSaved ? savedByMessage : '');
             const isChecking = taskUi?.status === 'checking';
             const status = ['correct', 'wrong'].includes(displayItem.checkState)
               ? displayItem.checkState
@@ -15509,6 +15774,85 @@ const BoardSection = ({
                 }}
                 aria-label={displayItem.heading || 'Задание на доске'}
               >
+                <button
+                  type="button"
+                  className={`board-task-controls__open-code ${isCodeSaved ? 'has-code' : ''}`}
+                  title={remoteCodePresenceMessage || savedByMessage || 'Открыть редактор кода ученика'}
+                  style={{
+                    left: `${layout.codeButton.x}px`,
+                    top: `${layout.codeButton.y}px`,
+                    width: `${layout.codeButton.width}px`,
+                    height: `${layout.codeButton.height}px`,
+                  }}
+                  onPointerDown={stopTaskControlPointer}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpenTaskCodeId((current) => current === taskItem.id ? '' : taskItem.id);
+                  }}
+                >
+                  <Code2 size={15} />
+                  <span className="board-task-controls__open-code-copy">
+                    <strong>{remoteCodePresence ? `${getBoardParticipantLabel(remoteCodePresence.role)} в коде` : (isCodeSaved ? 'Открыть код' : 'Код к заданию')}</strong>
+                    {codeButtonDetail && <small>{codeButtonDetail}</small>}
+                  </span>
+                </button>
+                {isCodeOpen && (
+                  <section
+                    className="board-task-controls__code-popover"
+                    style={{
+                      left: '12px',
+                      top: `${BOARD_TASK_CARD_HEADER_HEIGHT + 12}px`,
+                      width: `${Math.max(280, Number(displayItem.width) - 24)}px`,
+                      height: `${Math.max(230, Number(displayItem.height) - BOARD_TASK_CARD_HEADER_HEIGHT - 24)}px`,
+                    }}
+                    onPointerDown={stopTaskControlPointer}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <header className="board-task-controls__code-header">
+                      <div>
+                        <strong>Код к заданию</strong>
+                        <span>{remoteCodePresenceMessage || savedByMessage || 'Изменения сразу видны на общей доске'}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="board-task-controls__close-code"
+                        aria-label="Закрыть код к заданию"
+                        onClick={() => setOpenTaskCodeId('')}
+                      >
+                        <X size={17} />
+                      </button>
+                    </header>
+                    <textarea
+                      value={String(displayItem.studentCode || '')}
+                      placeholder="# Вставьте или напишите код к заданию"
+                      aria-label="Код к заданию"
+                      disabled={sandboxReadOnly}
+                      spellCheck={false}
+                      autoFocus
+                      className="board-task-controls__code"
+                      onFocus={() => { boardPasteFocusedRef.current = true; }}
+                      onChange={(event) => handleBoardTaskCodeChange(taskItem, event.target.value)}
+                    />
+                    <footer className="board-task-controls__code-footer">
+                      <div
+                        className={`board-task-controls__code-status is-${displayedCodeStatus?.status || 'idle'}`}
+                        role="status"
+                        aria-live="polite"
+                      >
+                        {displayedCodeStatus?.message || 'После изменения нажмите «Сохранить код»'}
+                      </div>
+                      <button
+                        type="button"
+                        className={`board-task-controls__save-code is-${taskCodeUi?.status || 'idle'}`}
+                        disabled={sandboxReadOnly || taskCodeUi?.status === 'saving'}
+                        onClick={() => { void handleBoardTaskCodeSave(taskItem); }}
+                      >
+                        {taskCodeUi?.status === 'saving' ? <RefreshCcw size={14} className="animate-spin" /> : <Save size={14} />}
+                        <span>{taskCodeUi?.status === 'saving' ? 'Сохраняем' : 'Сохранить код'}</span>
+                      </button>
+                    </footer>
+                  </section>
+                )}
                 {layout.fields.map((field) => {
                   const label = displayItem.answerLabels?.[field.answerIndex] || field.answerIndex + 1;
                   return (
@@ -15555,10 +15899,10 @@ const BoardSection = ({
                 <div
                   className={`board-task-controls__result ${taskUi?.status === 'error' ? 'is-error' : ''}`}
                   style={{
-                    left: `${layout.button.x + layout.button.width + 16}px`,
+                    left: `${layout.codeButton.x + layout.codeButton.width + 16}px`,
                     top: `${layout.button.y}px`,
                     height: `${layout.button.height}px`,
-                    maxWidth: `${layout.panelWidth - layout.button.width - 16}px`,
+                    maxWidth: `${Math.max(0, layout.panelWidth - layout.codeButton.x - layout.codeButton.width + layout.panelX - 16)}px`,
                   }}
                   role="status"
                   aria-live="polite"

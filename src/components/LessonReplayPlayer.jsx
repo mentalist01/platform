@@ -335,7 +335,8 @@ const ReplayBoardTask = ({ item }) => {
   const fieldWidth = (width - padding * 2 - gap * (columns - 1)) / columns;
   const fieldHeight = 44;
   const rowGap = 10;
-  const panelHeight = 48 + rows * fieldHeight + Math.max(0, rows - 1) * rowGap + 66;
+  const gridTopOffset = 48;
+  const panelHeight = gridTopOffset + rows * fieldHeight + Math.max(0, rows - 1) * rowGap + 66;
   const panelY = height - panelHeight - padding;
   const status = ['correct', 'wrong'].includes(item?.checkState) ? item.checkState : 'idle';
   const accent = status === 'correct' ? '#16a34a' : (status === 'wrong' ? '#dc2626' : '#7c3aed');
@@ -380,7 +381,7 @@ const ReplayBoardTask = ({ item }) => {
         const row = Math.floor(position / columns);
         const column = position % columns;
         const fieldX = x + padding + column * (fieldWidth + gap);
-        const fieldY = y + panelY + 48 + row * (fieldHeight + rowGap);
+        const fieldY = y + panelY + gridTopOffset + row * (fieldHeight + rowGap);
         const value = String(item.userAnswers?.[answerIndex] ?? '');
         const label = item.answerLabels?.[answerIndex] || answerIndex + 1;
         return (
@@ -392,7 +393,9 @@ const ReplayBoardTask = ({ item }) => {
       })}
       <rect x={x + padding} y={y + panelY + panelHeight - 58} width="142" height="42" rx="11" fill={accent} />
       <text x={x + padding + 71} y={y + panelY + panelHeight - 32} textAnchor="middle" fill="#fff" fontSize="14" fontWeight="800">Проверить</text>
-      {status !== 'idle' && <text x={x + padding + 160} y={y + panelY + panelHeight - 32} fill={accent} fontSize="14" fontWeight="800">{status === 'correct' ? 'Верно!' : 'Пока неверно'}</text>}
+      <rect x={x + padding + 154} y={y + panelY + panelHeight - 58} width="154" height="42" rx="11" fill="#ede9fe" />
+      <text x={x + padding + 231} y={y + panelY + panelHeight - 32} textAnchor="middle" fill="#6d28d9" fontSize="13" fontWeight="800">Код к заданию</text>
+      {status !== 'idle' && <text x={x + padding + 326} y={y + panelY + panelHeight - 32} fill={accent} fontSize="14" fontWeight="800">{status === 'correct' ? 'Верно!' : 'Пока неверно'}</text>}
     </g>
   );
 };

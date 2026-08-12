@@ -165,6 +165,10 @@ const normalizeBoardItem = (value) => {
       ),
       userAnswers: normalizeAnswers(value.userAnswers),
       studentAnswers: normalizeAnswers(value.studentAnswers),
+      studentCode: clampText(value.studentCode, 20_000),
+      codeSavedAt: clampText(value.codeSavedAt, 80),
+      codeSavedByName: clampText(value.codeSavedByName, 120),
+      codeSavedByRole: ['teacher', 'student'].includes(value.codeSavedByRole) ? value.codeSavedByRole : '',
       checkState: ['correct', 'wrong'].includes(value.checkState) ? value.checkState : 'idle',
       sourceStudentId: clampText(value.sourceStudentId, 160),
     };

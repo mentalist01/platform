@@ -105,6 +105,7 @@ test('keeps task cards on the replay board without leaking solution fields', () 
         answerLabels: ['A', 'B'],
         userAnswers: ['12', '34'],
         studentAnswers: ['12', ''],
+        studentCode: 'print(42)',
         checkState: 'wrong',
         expectedAnswers: ['secret', 'secret'],
         solution: 'must not be stored',
@@ -118,6 +119,7 @@ test('keeps task cards on the replay board without leaking solution fields', () 
   assert.equal(task.questionText, 'Найдите ответ.');
   assert.deepEqual(task.userAnswers, ['12', '34']);
   assert.deepEqual(task.studentAnswers, ['12', '']);
+  assert.equal(task.studentCode, 'print(42)');
   assert.deepEqual(task.screenshots, [{
     assetUrl,
     name: '',
