@@ -1176,7 +1176,7 @@ const TeacherHomeworkComposer = ({
                   </label>
                 </section>
 
-                <section className={`rounded-2xl border p-4 transition ${
+                <section hidden aria-hidden="true" className={`rounded-2xl border p-4 transition ${
                   form?.dayPlanEnabled
                     ? 'border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-purple-50'
                     : 'border-slate-200 bg-[rgb(var(--surface))]'

@@ -29152,13 +29152,22 @@ const buildStoredHomeworkDayPlan = (config, homework, testsDb = {}) => {
   if (!config || typeof config !== 'object' || Array.isArray(config) || config.enabled === false) {
     return null;
   }
+  const planningMode = String(config.planningMode || '').trim();
+  const plansEveryDay = planningMode === 'student-every-day';
+  const planningStartedAt = plansEveryDay
+    ? (normalizeHomeworkDueAt(config.planningStartedAt) || new Date().toISOString())
+    : '';
   const rawSessionCount = Number(config.requestedSessionCount ?? config.sessionCount);
-  const requestedSessionCount = Number.isFinite(rawSessionCount) && rawSessionCount > 0
-    ? Math.min(7, Math.max(2, Math.trunc(rawSessionCount)))
-    : 3;
-  const selectedWeekdays = Array.isArray(config.selectedWeekdays)
-    ? config.selectedWeekdays
-    : (Array.isArray(config.weekdays) ? config.weekdays : []);
+  const requestedSessionCount = plansEveryDay
+    ? null
+    : (Number.isFinite(rawSessionCount) && rawSessionCount > 0
+        ? Math.min(7, Math.max(2, Math.trunc(rawSessionCount)))
+        : 3);
+  const selectedWeekdays = plansEveryDay
+    ? [1, 2, 3, 4, 5, 6, 7]
+    : (Array.isArray(config.selectedWeekdays)
+        ? config.selectedWeekdays
+        : (Array.isArray(config.weekdays) ? config.weekdays : []));
   const calendarOffsetMinutes = normalizeHomeworkDayPlanOffset(config.calendarOffsetMinutes);
   const planGoals = (Array.isArray(homework?.goals) ? homework.goals : []).map((goal) => {
     if (normalizeGoalType(goal) === GOAL_TYPE_MOCK) return goal;
@@ -29176,14 +29185,18 @@ const buildStoredHomeworkDayPlan = (config, homework, testsDb = {}) => {
   });
   const generated = buildHomeworkDayPlan({
     homework: { ...homework, goals: planGoals },
+    ...(plansEveryDay ? { issuedAt: planningStartedAt } : {}),
     selectedWeekdays,
     sessionCount: requestedSessionCount,
+    includeEmptyDays: plansEveryDay,
+    includeIssuedDay: plansEveryDay,
     calendarOffsetMinutes,
-    manualLayout: config.manualLayout,
+    manualLayout: plansEveryDay ? null : config.manualLayout,
   });
   return {
     ...generated,
     enabled: true,
+    ...(plansEveryDay ? { planningMode, planningStartedAt } : {}),
     calendarOffsetMinutes,
     generatedAt: new Date().toISOString(),
   };
@@ -29390,7 +29403,7 @@ app.get('/api/student-next-lesson', async (req, res) => {
 
 app.patch('/api/student-next-lesson', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan, calendarOffsetMinutes } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, calendarOffsetMinutes } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
@@ -29523,14 +29536,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
     goals: normalizedGoals,
     checklistItems,
   };
-  const normalizedDayPlan = buildStoredHomeworkDayPlan(dayPlan, newEntryBase, testsDb);
-  if (normalizedDayPlan?.reason === 'range-too-large') {
-    return res.status(400).json({ error: 'Для авторазбивки выберите срок не дальше одного года' });
-  }
-  const newEntry = {
-    ...newEntryBase,
-    ...(normalizedDayPlan ? { dayPlan: normalizedDayPlan } : {}),
-  };
+  const newEntry = { ...newEntryBase };
   const updatedHomeworks = [newEntry, ...existingHomeworks];
   const nextLesson = {
     homeWork: newEntry.homeWork,
@@ -29564,7 +29570,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
 app.patch('/api/student-next-lesson/:id', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, dayPlan, calendarOffsetMinutes } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, calendarOffsetMinutes } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
@@ -29749,11 +29755,9 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   const existingDayPlan = existing.dayPlan && typeof existing.dayPlan === 'object'
     ? existing.dayPlan
     : null;
-  const normalizedDayPlan = typeof dayPlan === 'undefined'
-    ? (existingDayPlan && hasPlanSourceUpdate
-        ? buildStoredHomeworkDayPlan(existingDayPlan, updatedEntryBase, testsDb)
-        : existingDayPlan)
-    : buildStoredHomeworkDayPlan(dayPlan, updatedEntryBase, testsDb);
+  const normalizedDayPlan = existingDayPlan && hasPlanSourceUpdate
+    ? buildStoredHomeworkDayPlan(existingDayPlan, updatedEntryBase, testsDb)
+    : existingDayPlan;
   if (normalizedDayPlan?.reason === 'range-too-large') {
     return res.status(400).json({ error: 'Для авторазбивки выберите срок не дальше одного года' });
   }
@@ -29856,6 +29860,86 @@ app.patch('/api/student-next-lesson/:id/checklist', (req, res) => {
         ...(data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : {}),
         dueAt: updatedEntry.dueAt,
         checklistItems,
+      }
+    : data.nextLesson;
+  setStudentData(student.id, { ...data, nextLesson, homeworks });
+  res.json({ homework: decorateHomeworkEntry(updatedEntry) });
+});
+
+app.patch('/api/student-next-lesson/:id/day-plan', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const { id } = req.params;
+  const student = ensureStudentAccess(req, res, req.auth?.id);
+  if (!student) return;
+  const data = getStudentData(student.id);
+  let homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
+
+  if (id === 'legacy' && homeworks.length === 0) {
+    const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
+      ? data.nextLesson
+      : null;
+    const hasLegacyContent = Boolean(
+      legacyNextLesson?.homeWork
+      || legacyNextLesson?.lessonLink
+      || legacyNextLesson?.boardLink
+      || legacyNextLesson?.taskNumber
+      || (Array.isArray(legacyNextLesson?.goals) && legacyNextLesson.goals.length > 0)
+    );
+    if (hasLegacyContent) {
+      const issuedAt = legacyNextLesson?.issuedAt || new Date().toISOString();
+      homeworks = [{
+        ...legacyNextLesson,
+        id: 'legacy',
+        issuedAt,
+        dueAt: resolveHomeworkDueAt({ ...legacyNextLesson, issuedAt }),
+        daysToComplete: Number(legacyNextLesson?.daysToComplete) || 7,
+        checklistItems: normalizeHomeworkChecklistItems('legacy', legacyNextLesson?.homeWork, legacyNextLesson?.checklistItems),
+      }];
+    }
+  }
+
+  const homeworkIndex = homeworks.findIndex((entry) => String(entry?.id || '') === String(id || ''));
+  if (homeworkIndex < 0) {
+    return res.status(404).json({ error: 'Домашка не найдена' });
+  }
+
+  const existing = homeworks[homeworkIndex] || {};
+  const calendarOffsetMinutes = normalizeHomeworkCalendarOffset(
+    req.body?.calendarOffsetMinutes,
+    existing.issuedAt
+  );
+  const nextLessonDueAt = resolveScheduledHomeworkDueAt(data.schedule, {
+    now: new Date(),
+    calendarOffsetMinutes,
+  });
+  const dayPlan = buildStoredHomeworkDayPlan({
+    enabled: true,
+    planningMode: 'student-every-day',
+    planningStartedAt: new Date().toISOString(),
+    calendarOffsetMinutes,
+  }, {
+    ...existing,
+    dueAt: nextLessonDueAt || resolveHomeworkDueAt(existing),
+  }, readTestsDb());
+  if (dayPlan?.reason === 'range-too-large') {
+    return res.status(400).json({ error: 'Не удалось распланировать домашку на такой большой срок' });
+  }
+  if (!dayPlan || !Array.isArray(dayPlan.dayPlan) || dayPlan.dayPlan.length === 0) {
+    return res.status(400).json({ error: 'Не удалось определить дни до следующего занятия' });
+  }
+
+  const updatedEntry = {
+    ...existing,
+    dayPlan,
+    updatedAt: new Date().toISOString(),
+  };
+  homeworks[homeworkIndex] = updatedEntry;
+  const nextLesson = homeworkIndex === 0
+    ? {
+        ...(data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : {}),
+        dueAt: resolveHomeworkDueAt(existing),
+        calendarOffsetMinutes,
+        dayPlan,
       }
     : data.nextLesson;
   setStudentData(student.id, { ...data, nextLesson, homeworks });

@@ -518,6 +518,7 @@ export const buildHomeworkSessionDates = ({
   weekdays,
   selectedWeekdays,
   sessionCount,
+  includeIssuedDay = false,
   calendarOffsetMinutes = 0,
 } = {}) => {
   const offset = normalizeCalendarOffsetMinutes(calendarOffsetMinutes);
@@ -545,7 +546,10 @@ export const buildHomeworkSessionDates = ({
     };
   }
 
-  const rangeOrdinals = listOrdinals(range.startOrdinal, range.dueOrdinal);
+  const rangeOrdinals = listOrdinals(
+    includeIssuedDay ? range.issuedOrdinal : range.startOrdinal,
+    range.dueOrdinal
+  );
   let candidates = normalizedWeekdays.length > 0
     ? rangeOrdinals.filter((ordinal) => normalizedWeekdays.includes(getWeekdayFromOrdinal(ordinal)))
     : rangeOrdinals;
@@ -889,6 +893,8 @@ export const buildHomeworkDayPlan = ({
   weekdays,
   selectedWeekdays,
   sessionCount,
+  includeEmptyDays = false,
+  includeIssuedDay = false,
   calendarOffsetMinutes = 0,
   manualLayout,
 } = {}) => {
@@ -909,6 +915,7 @@ export const buildHomeworkDayPlan = ({
     weekdays,
     selectedWeekdays,
     sessionCount,
+    includeIssuedDay,
     calendarOffsetMinutes,
   });
   const effectiveManualLayout = manualLayout === undefined
@@ -935,8 +942,12 @@ export const buildHomeworkDayPlan = ({
         ...(pinnedItemKeys.has(item.layoutKey) ? { pinned: true } : {}),
       })));
   } else {
-    const desiredDateCount = Math.min(dateResult.dates.length, items.length);
-    planDates = pickEvenlySpaced(dateResult.dates, desiredDateCount);
+    const desiredDateCount = includeEmptyDays
+      ? dateResult.dates.length
+      : Math.min(dateResult.dates.length, items.length);
+    planDates = includeEmptyDays
+      ? [...dateResult.dates]
+      : pickEvenlySpaced(dateResult.dates, desiredDateCount);
     itemParts = partitionByAssignmentTier(items, planDates.length);
   }
   const sourceHomeworkId = normalizeText(sourceHomework?.id);

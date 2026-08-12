@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CheckCircle, ChevronRight, Clock3, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, WifiOff } from 'lucide-react';
+import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, WifiOff } from 'lucide-react';
 import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -759,6 +759,8 @@ const ScheduleSection = ({
   const [lessonReminderSaving, setLessonReminderSaving] = useState(false);
   const [lessonReminderError, setLessonReminderError] = useState('');
   const [homeworkChecklistBusy, setHomeworkChecklistBusy] = useState({});
+  const [homeworkDayPlanBusy, setHomeworkDayPlanBusy] = useState({});
+  const [visibleHomeworkDayPlans, setVisibleHomeworkDayPlans] = useState({});
   const [homeworkClock, setHomeworkClock] = useState(() => Date.now());
   const [offlineHomeworkState, setOfflineHomeworkState] = useState({
     status: 'idle',
@@ -2681,6 +2683,52 @@ const ScheduleSection = ({
     setShowHistory(false);
   }, [effectiveStudentId, totalHomeworkCount]);
 
+  useEffect(() => {
+    setVisibleHomeworkDayPlans({});
+    setHomeworkDayPlanBusy({});
+  }, [effectiveStudentId]);
+
+  const handlePlanHomeworkByDay = async (entry) => {
+    if (role !== 'student' || !entry?.id) return;
+    const homeworkId = String(entry.id);
+    if (homeworkDayPlanBusy[homeworkId]) return;
+    setHomeworkDayPlanBusy((prev) => ({ ...prev, [homeworkId]: true }));
+    try {
+      let plannedEntry = entry;
+      if (
+        entry?.dayPlan?.planningMode !== 'student-every-day'
+        || !entry?.dayPlan?.enabled
+        || !Array.isArray(entry?.dayPlan?.dayPlan)
+      ) {
+        const result = await api.planStudentHomeworkByDay(
+          homeworkId,
+          getHomeworkCalendarOffsetMinutes()
+        );
+        if (result?.homework && typeof result.homework === 'object') {
+          plannedEntry = result.homework;
+          setHomeworks((prev) => prev.map((homework) => (
+            String(homework?.id || '') === homeworkId
+              ? { ...homework, ...plannedEntry }
+              : homework
+          )));
+          if (String(homeworks?.[0]?.id || '') === homeworkId) {
+            setNextLesson(buildNextLessonData(plannedEntry));
+          }
+        }
+      }
+      setVisibleHomeworkDayPlans((prev) => ({ ...prev, [homeworkId]: true }));
+      setError('');
+    } catch (err) {
+      setError(err?.message || err);
+    } finally {
+      setHomeworkDayPlanBusy((prev) => {
+        const next = { ...prev };
+        delete next[homeworkId];
+        return next;
+      });
+    }
+  };
+
   const handleToggleHomeworkChecklistItem = async (entry, item) => {
     if (role !== 'student' || !entry?.id || !item?.id) return;
     const busyKey = `${entry.id}:${item.id}`;
@@ -2795,7 +2843,12 @@ const ScheduleSection = ({
         ? [primaryRequiredGoal, ...requiredGoalViews.filter((goalView) => goalView !== primaryRequiredGoal)]
         : requiredGoalViews;
       const orderedGoalViews = [...orderedRequiredGoalViews, ...optionalGoalViews];
-      const dayPlanEnabled = Boolean(entry?.dayPlan?.enabled);
+      const homeworkId = String(entry?.id || '');
+      const dayPlanAvailable = Boolean(
+        entry?.dayPlan?.enabled && Array.isArray(entry?.dayPlan?.dayPlan) && entry.dayPlan.dayPlan.length > 0
+      );
+      const dayPlanVisible = role === 'student' && Boolean(visibleHomeworkDayPlans[homeworkId]);
+      const dayPlanBusy = Boolean(homeworkDayPlanBusy[homeworkId]);
 
       const renderCurrentGoalBlock = (goalView, goalIndex) => {
         if (!goalView) return null;
@@ -3001,7 +3054,34 @@ const ScheduleSection = ({
             </div>
           </header>
 
-          {dayPlanEnabled && (
+          {role === 'student' && (
+            <div className="relative mt-3 flex justify-end">
+              {dayPlanVisible ? (
+                <button
+                  type="button"
+                  onClick={() => setVisibleHomeworkDayPlans((prev) => ({ ...prev, [homeworkId]: false }))}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
+                  aria-expanded="true"
+                >
+                  <EyeOff size={13} />
+                  Скрыть план по дням
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handlePlanHomeworkByDay(entry)}
+                  disabled={dayPlanBusy}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-white/70 px-2.5 py-1.5 text-[11px] font-semibold text-slate-500 transition hover:border-purple-200 hover:bg-purple-50/60 hover:text-purple-700 disabled:cursor-wait disabled:opacity-60"
+                  aria-expanded="false"
+                >
+                  <CalendarDays size={13} className={dayPlanBusy ? 'animate-pulse' : ''} />
+                  {dayPlanBusy ? 'Планируем…' : 'Распланировать по дням'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {dayPlanVisible && dayPlanAvailable && (
             <div className="relative mt-4">
               <HomeworkDayPlan
                 entry={entry}
@@ -3017,7 +3097,7 @@ const ScheduleSection = ({
             </div>
           )}
 
-          {dayPlanEnabled && (
+          {dayPlanVisible && dayPlanAvailable && (
             <div className="student-today-homework__full-heading relative mt-7 flex items-center gap-2.5 px-1">
               <span className="inline-grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-purple-200 bg-purple-50 text-purple-700">
                 <ListChecks size={16} />
@@ -3031,7 +3111,7 @@ const ScheduleSection = ({
             </div>
           )}
 
-          <div className={`relative grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)] ${dayPlanEnabled ? 'mt-2' : 'mt-4'}`}>
+          <div className={`relative grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)] ${dayPlanVisible && dayPlanAvailable ? 'mt-2' : 'mt-4'}`}>
             <section className="student-today-homework__goal-panel rounded-[20px] border border-purple-200/80 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/60 p-4">
               {orderedGoalViews.length > 0 ? (
                 orderedGoalViews.map((goalView, goalIndex) => renderCurrentGoalBlock(goalView, goalIndex))
@@ -4201,15 +4281,6 @@ const ScheduleSection = ({
         calendarOffsetMinutes,
         daysToComplete: form.daysToComplete,
         goals: goalsPayload,
-        dayPlan: form.dayPlanEnabled
-          ? {
-              enabled: true,
-              requestedSessionCount: Math.max(2, Math.min(7, Number(form.dayPlanSessionCount) || 3)),
-              selectedWeekdays: Array.isArray(form.dayPlanWeekdays) ? form.dayPlanWeekdays : [],
-              calendarOffsetMinutes,
-              manualLayout: form.dayPlanManualLayout || null,
-            }
-          : { enabled: false },
       };
       const updated = editingId
         ? await api.updateStudentHomework(effectiveStudentId, editingId, payload)

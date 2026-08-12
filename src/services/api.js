@@ -1336,6 +1336,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  planStudentHomeworkByDay: async (homeworkId, calendarOffsetMinutes) => {
+    const res = await apiFetch(`/api/student-next-lesson/${encodeURIComponent(homeworkId)}/day-plan`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarOffsetMinutes }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   deleteStudentHomework: async (studentId, homeworkId) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);

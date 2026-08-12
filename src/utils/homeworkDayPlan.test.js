@@ -465,6 +465,28 @@ test('weekday plans use no more non-empty days than there are work items', () =>
   );
 });
 
+test('student planning keeps every calendar day through the next lesson', () => {
+  const result = buildHomeworkDayPlan({
+    goals: [{
+      type: 'mock',
+      mockExamId: 'exam',
+      targetTaskKeys: ['first', 'second'],
+    }],
+    issuedAt: '2026-07-01',
+    dueAt: '2026-07-05',
+    selectedWeekdays: [1, 2, 3, 4, 5, 6, 7],
+    includeEmptyDays: true,
+    includeIssuedDay: true,
+  });
+
+  assert.deepEqual(
+    result.dayPlan.map((day) => day.date),
+    ['2026-07-01', '2026-07-02', '2026-07-03', '2026-07-04', '2026-07-05']
+  );
+  assert.deepEqual(result.dayPlan.map((day) => day.itemCount), [1, 1, 0, 0, 0]);
+  assert.equal(result.summary.sessionCount, 5);
+});
+
 test('legacy root task and multiline homework text remain schedulable', () => {
   const result = buildHomeworkDayPlan({
     homework: {
