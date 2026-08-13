@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { LogoMark } from './Identity';
 import { Button } from './ui';
 import { api } from '../services/api';
@@ -53,6 +54,7 @@ const LoginPage = ({ onLogin }) => {
   const initialApiBaseUrl = getConfiguredApiBaseUrl();
   const [mode, setMode] = useState(MODE_CHOICE);
   const [code, setCode] = useState('');
+  const [isCodeVisible, setIsCodeVisible] = useState(false);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -74,6 +76,7 @@ const LoginPage = ({ onLogin }) => {
   const handleBack = () => {
     resetState();
     setCode('');
+    setIsCodeVisible(false);
     setName('');
     setMode(MODE_CHOICE);
   };
@@ -188,6 +191,7 @@ const LoginPage = ({ onLogin }) => {
               disabled={loading}
               onClick={() => {
                 resetState();
+                setIsCodeVisible(false);
                 setMode(MODE_STUDENT);
               }}
             >
@@ -207,14 +211,36 @@ const LoginPage = ({ onLogin }) => {
 
         {mode === MODE_STUDENT && (
           <form onSubmit={handleStudentSubmit} className="space-y-4">
-            <input
-              type="password"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              required
-              placeholder="Код доступа"
-              className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-            />
+            <div className="relative">
+              <input
+                type={isCodeVisible ? 'text' : 'password'}
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                required
+                autoComplete="current-password"
+                placeholder="Код доступа"
+                className="access-code-input w-full rounded-xl border border-gray-200 bg-gray-50 py-3 pl-4 pr-12 outline-none focus:border-purple-500"
+              />
+              <button
+                type="button"
+                onPointerDown={() => setIsCodeVisible(true)}
+                onPointerUp={() => setIsCodeVisible(false)}
+                onPointerCancel={() => setIsCodeVisible(false)}
+                onPointerLeave={() => setIsCodeVisible(false)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') setIsCodeVisible(true);
+                }}
+                onKeyUp={() => setIsCodeVisible(false)}
+                onBlur={() => setIsCodeVisible(false)}
+                onContextMenu={(event) => event.preventDefault()}
+                className="absolute inset-y-0 right-2 my-auto grid h-8 w-8 place-items-center rounded-full bg-transparent text-gray-400 transition-colors hover:bg-purple-100 hover:text-purple-600 active:!translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
+                aria-label="Зажмите, чтобы показать код"
+                aria-pressed={isCodeVisible}
+                title="Зажмите, чтобы показать код"
+              >
+                {isCodeVisible ? <Eye size={18} /> : <EyeOff size={18} />}
+              </button>
+            </div>
             {error && <div className="text-red-500 text-sm text-center">{error}</div>}
             <Button type="submit" className="w-full py-3" disabled={loading || !code.trim()}>
               {loading ? 'Вход...' : 'Войти'}

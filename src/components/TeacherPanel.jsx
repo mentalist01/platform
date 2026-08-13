@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, FileText, GripVertical, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, X } from 'lucide-react';
+import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, EyeOff, FileText, GripVertical, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import {
@@ -234,6 +234,7 @@ const TeacherPanel = ({
   const [resettingBoardStudentId, setResettingBoardStudentId] = useState(null);
   const [restoringStudentId, setRestoringStudentId] = useState(null);
   const [teacherCodeForm, setTeacherCodeForm] = useState({ current: '', next: '', repeat: '' });
+  const [teacherCodeVisibility, setTeacherCodeVisibility] = useState({ current: false, next: false, repeat: false });
   const [teacherCodeError, setTeacherCodeError] = useState('');
   const [teacherCodeSuccess, setTeacherCodeSuccess] = useState('');
   const [teacherCodeSaving, setTeacherCodeSaving] = useState(false);
@@ -2381,6 +2382,7 @@ const TeacherPanel = ({
     try {
       await api.updateTeacherCode(teacherId, current, next);
       setTeacherCodeForm({ current: '', next: '', repeat: '' });
+      setTeacherCodeVisibility({ current: false, next: false, repeat: false });
       setTeacherCodeSuccess('Код обновлён');
     } catch (err) {
       setTeacherCodeError(err?.message || err);
@@ -3422,7 +3424,12 @@ const TeacherPanel = ({
           </div>
           <button
             type="button"
-            onClick={() => setIsTeacherCodeExpanded((prev) => !prev)}
+            onClick={() => {
+              if (isTeacherCodeExpanded) {
+                setTeacherCodeVisibility({ current: false, next: false, repeat: false });
+              }
+              setIsTeacherCodeExpanded((prev) => !prev);
+            }}
             className="teacher-panel-toggle"
             aria-expanded={isTeacherCodeExpanded}
           >
@@ -3436,27 +3443,46 @@ const TeacherPanel = ({
         ) : (
           <>
             <div className="teacher-code-card__form">
-              <input
-                type="password"
-                value={teacherCodeForm.current}
-                onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, current: e.target.value }))}
-                placeholder="Текущий код"
-                className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-              />
-              <input
-                type="password"
-                value={teacherCodeForm.next}
-                onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, next: e.target.value }))}
-                placeholder="Новый код"
-                className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-              />
-              <input
-                type="password"
-                value={teacherCodeForm.repeat}
-                onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, repeat: e.target.value }))}
-                placeholder="Повторите код"
-                className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
-              />
+              {[
+                { key: 'current', placeholder: 'Текущий код' },
+                { key: 'next', placeholder: 'Новый код' },
+                { key: 'repeat', placeholder: 'Повторите код' },
+              ].map(({ key: fieldKey, placeholder }) => {
+                const isVisible = Boolean(teacherCodeVisibility[fieldKey]);
+                return (
+                  <div key={fieldKey} className="relative min-w-0">
+                    <input
+                      type={isVisible ? 'text' : 'password'}
+                      value={teacherCodeForm[fieldKey]}
+                      onChange={(e) => setTeacherCodeForm((prev) => ({ ...prev, [fieldKey]: e.target.value }))}
+                      autoComplete={fieldKey === 'current' ? 'current-password' : 'new-password'}
+                      placeholder={placeholder}
+                      className="access-code-input w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pl-4 pr-11 outline-none focus:border-purple-500"
+                    />
+                    <button
+                      type="button"
+                      onPointerDown={() => setTeacherCodeVisibility((prev) => ({ ...prev, [fieldKey]: true }))}
+                      onPointerUp={() => setTeacherCodeVisibility((prev) => ({ ...prev, [fieldKey]: false }))}
+                      onPointerCancel={() => setTeacherCodeVisibility((prev) => ({ ...prev, [fieldKey]: false }))}
+                      onPointerLeave={() => setTeacherCodeVisibility((prev) => ({ ...prev, [fieldKey]: false }))}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          setTeacherCodeVisibility((prev) => ({ ...prev, [fieldKey]: true }));
+                        }
+                      }}
+                      onKeyUp={() => setTeacherCodeVisibility((prev) => ({ ...prev, [fieldKey]: false }))}
+                      onBlur={() => setTeacherCodeVisibility((prev) => ({ ...prev, [fieldKey]: false }))}
+                      onContextMenu={(event) => event.preventDefault()}
+                      className="absolute inset-y-0 right-1.5 my-auto grid h-8 w-8 place-items-center rounded-full bg-transparent text-gray-400 transition-colors hover:bg-purple-100 hover:text-purple-600 active:!translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
+                      aria-label={`Зажмите, чтобы показать: ${placeholder.toLowerCase()}`}
+                      aria-pressed={isVisible}
+                      title="Зажмите, чтобы показать код"
+                    >
+                      {isVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+                    </button>
+                  </div>
+                );
+              })}
               <Button onClick={handleChangeTeacherCode} disabled={teacherCodeSaving} className="teacher-code-card__button">
                 {teacherCodeSaving ? 'Сохранение...' : 'Обновить код'}
               </Button>
