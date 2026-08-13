@@ -23933,17 +23933,60 @@ app.get('/api/mock-exams', (req, res) => {
 });
 
 app.get('/api/mock-exams/task-analytics', (req, res) => {
-  if (!isStaffRole(req.auth)) return forbid(res);
   const requestedExamId = typeof req.query?.examId === 'string' ? req.query.examId.trim() : '';
+  const requestedHomeworkId = typeof req.query?.homeworkId === 'string' ? req.query.homeworkId.trim() : '';
+  if (!isStudentRole(req.auth) && !isStaffRole(req.auth)) return forbid(res);
+  if (isStudentRole(req.auth) && (!requestedExamId || !requestedHomeworkId)) {
+    return res.status(400).json({ error: 'examId and homeworkId required' });
+  }
   const mockExams = readMockExamsDb();
-  const selectedExams = requestedExamId
-    ? mockExams.filter((exam) => String(exam?.id || '') === requestedExamId)
+  const visibleMockExams = isStudentRole(req.auth)
+    ? mockExams.filter((exam) => isMockExamVisibleToStudent(exam, req.auth.id))
     : mockExams;
+  const selectedExams = requestedExamId
+    ? visibleMockExams.filter((exam) => String(exam?.id || '') === requestedExamId)
+    : visibleMockExams;
   if (requestedExamId && selectedExams.length === 0) {
     return res.status(404).json({ error: 'Mock exam not found' });
   }
 
   const progressDb = readProgressDb();
+  if (isStudentRole(req.auth)) {
+    const studentData = getStudentData(req.auth.id);
+    const homeworkEntry = getStudentHomeworkNavItems(studentData)
+      .find((entry) => String(entry?.id || '') === requestedHomeworkId);
+    const homeworkGoal = getNormalizedHomeworkGoals(homeworkEntry)
+      .find((goal) => (
+        normalizeGoalType(goal) === GOAL_TYPE_MOCK
+        && String(goal?.mockExamId || '').trim() === requestedExamId
+      ));
+    const homeworkAssignment = homeworkEntry && homeworkGoal
+      ? {
+          id: requestedHomeworkId,
+          targetTaskKeys: uniqueStrings(homeworkGoal.targetTaskKeys).slice(0, 200),
+        }
+      : null;
+    if (!homeworkAssignment) {
+      return res.status(404).json({ error: 'Mock exam not found' });
+    }
+    const analytics = buildMockExamTaskAnalyticsIndex(progressDb, selectedExams);
+    const allowedTaskKeys = new Set(uniqueStrings(homeworkAssignment.targetTaskKeys));
+    const sanitized = Object.fromEntries(Object.entries(analytics).map(([examId, tasks]) => [
+      examId,
+      Object.fromEntries(Object.entries(tasks || {})
+        .filter(([taskKey]) => allowedTaskKeys.size === 0 || allowedTaskKeys.has(String(taskKey)))
+        .map(([taskKey, entry]) => [taskKey, {
+          score: entry?.score,
+          category: entry?.category,
+          sampleSize: entry?.sampleSize,
+          provisional: entry?.provisional,
+          averageActiveDurationMs: entry?.averageActiveDurationMs,
+          averageDurationMs: entry?.averageDurationMs,
+        }])),
+    ]));
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(requestedExamId ? (sanitized[requestedExamId] || {}) : sanitized);
+  }
   const allowedStudentIds = isTeacherRole(req.auth)
     ? new Set(readStudentsDb()
         .filter((student) => !student?.deletedAt && String(student?.teacherId || '') === String(req.auth.id || ''))

@@ -83,6 +83,7 @@ import { resolveHomeworkTaskTargetDescriptors } from './utils/homeworkComposer';
 import {
   buildHomeworkQuickTaskQueue,
   completeHomeworkQuickTaskSession,
+  buildHomeworkTimePlans,
   pickNextHomeworkQuickTask,
   rankHomeworkQuickTaskQueueByDifficulty,
 } from './utils/homeworkQuickStart';
@@ -16641,11 +16642,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
   const [quickHomeworkSession, setQuickHomeworkSession] = useState({
     status: 'idle',
+    mode: null,
+    budgetMinutes: null,
+    planTasks: [],
+    estimatedDurationMs: 0,
     currentTask: null,
     completedKeys: [],
     completedCount: 0,
   });
   const [quickHomeworkDifficultyIndex, setQuickHomeworkDifficultyIndex] = useState({});
+  const [quickHomeworkMockAnalytics, setQuickHomeworkMockAnalytics] = useState({});
   const [quickHomeworkDifficultyReady, setQuickHomeworkDifficultyReady] = useState(false);
   const [goalCollapsed, setGoalCollapsed] = useState(user.role === 'student');
   const [goalPanelAnimClass, setGoalPanelAnimClass] = useState('');
@@ -20490,6 +20496,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   type: GOAL_TYPE_MOCK,
                   assignmentTier: getHomeworkGoalAssignmentTier(goal),
                   mockExamId,
+                  mode: normalizeAssignedMockExamMode(goal?.mode),
                   targetTaskKeys: Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [],
                   continuationOfHomeworkId: String(goal?.continuationOfHomeworkId || '').trim(),
                 };
@@ -20701,10 +20708,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     || optionalGoalGoals[0]
     || null;
   const quickHomeworkCandidates = buildHomeworkQuickTaskQueue(orderedGoalGoals);
-  const quickHomeworkQueue = (quickHomeworkDifficultyReady
+  const quickHomeworkMockExamIds = Array.from(new Set(
+    quickHomeworkCandidates
+      .filter((item) => item?.kind === 'mock' && item.mockExamId)
+      .map((item) => String(item.mockExamId))
+  ));
+  const quickHomeworkMockExamIdsKey = quickHomeworkMockExamIds.join('|');
+  const quickHomeworkCandidatesWithAnalytics = quickHomeworkCandidates.map((item) => ({
+    ...item,
+    analytics: item.kind === 'mock'
+      ? quickHomeworkMockAnalytics?.[String(item.mockExamId)]?.[String(item.taskKey)]
+      : quickHomeworkDifficultyIndex?.[String(item.taskNumber)]?.[String(item.levelId)]?.[String(item.questionId)],
+  }));
+  const quickHomeworkRankedQueue = (quickHomeworkDifficultyReady
     ? rankHomeworkQuickTaskQueueByDifficulty(
-        quickHomeworkCandidates,
-        quickHomeworkDifficultyIndex
+        quickHomeworkCandidatesWithAnalytics,
+        quickHomeworkDifficultyIndex,
+        { minimumSampleSize: 1 }
       )
     : []).map((item) => {
     const pythonTask = isPythonTaskNumber(item.taskNumber)
@@ -20717,6 +20737,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       taskTitle: item.taskTitle || pythonTask?.title || '',
     };
   });
+  const quickHomeworkPlanOptions = quickHomeworkDifficultyReady
+    ? buildHomeworkTimePlans(quickHomeworkRankedQueue)
+    : { availablePlans: [], fallbackTask: null, measuredTaskCount: 0 };
+  const quickHomeworkFallbackQueue = quickHomeworkPlanOptions.fallbackTask
+    ? [quickHomeworkPlanOptions.fallbackTask]
+    : [];
+  const quickHomeworkQueue = quickHomeworkSession.planTasks?.length > 0
+    ? quickHomeworkSession.planTasks
+    : quickHomeworkFallbackQueue;
   const quickHomeworkNextTask = pickNextHomeworkQuickTask(
     quickHomeworkQueue,
     quickHomeworkSession.completedKeys,
@@ -20730,15 +20759,33 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   useEffect(() => {
     if (user.role !== 'student' || !quickHomeworkEntryKey) {
       setQuickHomeworkDifficultyIndex({});
+      setQuickHomeworkMockAnalytics({});
       setQuickHomeworkDifficultyReady(false);
       return undefined;
     }
     let cancelled = false;
-    api.getQuestionDifficulties()
-      .then((payload) => {
+    setQuickHomeworkDifficultyReady(false);
+    const assignedMockExamIds = quickHomeworkMockExamIdsKey
+      ? quickHomeworkMockExamIdsKey.split('|')
+      : [];
+    Promise.all([
+      api.getQuestionDifficulties().catch(() => ({})),
+      Promise.all(assignedMockExamIds.map(async (examId) => {
+        const analytics = await api.getMockExamTaskAnalytics(examId, quickHomeworkEntryKey).catch(() => ({}));
+        return [examId, analytics];
+      })).then((entries) => Object.fromEntries(entries)),
+    ])
+      .then(([questionPayload, mockPayload]) => {
         if (cancelled) return;
         setQuickHomeworkDifficultyIndex(
-          payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
+          questionPayload && typeof questionPayload === 'object' && !Array.isArray(questionPayload)
+            ? questionPayload
+            : {}
+        );
+        setQuickHomeworkMockAnalytics(
+          mockPayload && typeof mockPayload === 'object' && !Array.isArray(mockPayload)
+            ? mockPayload
+            : {}
         );
         setQuickHomeworkDifficultyReady(true);
       })
@@ -20746,25 +20793,43 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         if (!cancelled) setQuickHomeworkDifficultyReady(true);
       });
     return () => { cancelled = true; };
-  }, [user.role, user.id, quickHomeworkEntryKey, goalRefreshTick]);
+  }, [user.role, user.id, quickHomeworkEntryKey, quickHomeworkMockExamIdsKey, goalRefreshTick]);
 
   useEffect(() => {
     setQuickHomeworkSession({
       status: 'idle',
+      mode: null,
+      budgetMinutes: null,
+      planTasks: [],
+      estimatedDurationMs: 0,
       currentTask: null,
       completedKeys: [],
       completedCount: 0,
     });
   }, [quickHomeworkEntryKey, user.id]);
 
-  const openQuickHomeworkTask = (task, { reset = false } = {}) => {
+  const openQuickHomeworkTask = (task, { reset = false, plan = null } = {}) => {
     if (!task) return;
     setQuickHomeworkSession((current) => ({
       status: 'solving',
+      mode: reset ? (plan ? 'timed' : 'fallback') : current.mode,
+      budgetMinutes: reset ? (plan?.budgetMinutes || null) : current.budgetMinutes,
+      planTasks: reset
+        ? (Array.isArray(plan?.tasks) && plan.tasks.length > 0 ? plan.tasks : [task])
+        : current.planTasks,
+      estimatedDurationMs: reset ? (plan?.estimatedDurationMs || task.estimatedDurationMs || 0) : current.estimatedDurationMs,
       currentTask: task,
       completedKeys: reset ? [] : current.completedKeys,
       completedCount: reset ? 0 : current.completedCount,
     }));
+    if (task.kind === 'mock') {
+      handleOpenMockGoal(task.mockExamId, task.taskKey, {
+        fromHomework: true,
+        mode: task.mode,
+        targetTaskKeys: [task.taskKey],
+      });
+      return;
+    }
     handleOpenTask(
       task.taskNumber,
       task.levelId,
@@ -20779,7 +20844,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   };
 
   const handleStartQuickHomework = () => {
-    openQuickHomeworkTask(quickHomeworkQueue[0] || null, { reset: true });
+    openQuickHomeworkTask(quickHomeworkFallbackQueue[0] || null, { reset: true });
+  };
+
+  const handleStartQuickHomeworkPlan = (plan) => {
+    const selectedPlan = quickHomeworkPlanOptions.availablePlans.find((item) => (
+      plan?.key
+        ? String(item?.key || '') === String(plan.key)
+        : Number(item?.budgetMinutes) === Number(plan?.budgetMinutes)
+    ));
+    if (!selectedPlan?.tasks?.length) return;
+    openQuickHomeworkTask(selectedPlan.tasks[0], { reset: true, plan: selectedPlan });
   };
 
   const handleResumeQuickHomework = () => {
@@ -20804,7 +20879,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const handlePauseQuickHomework = () => {
     setQuickHomeworkSession((current) => {
       if (current.status === 'complete') {
-        return { ...current, status: 'done', currentTask: null };
+        return {
+          status: 'idle',
+          mode: null,
+          budgetMinutes: null,
+          planTasks: [],
+          estimatedDurationMs: 0,
+          currentTask: null,
+          completedKeys: [],
+          completedCount: 0,
+        };
       }
       const nextTask = pickNextHomeworkQuickTask(
         quickHomeworkQueue,
@@ -20849,6 +20933,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       && completion.solvedQuestionNumber
       && Number(completion.solvedQuestionNumber) !== Number(currentTask.questionNumber)
     ) {
+      return false;
+    }
+    setQuickHomeworkSession((current) => (
+      completeHomeworkQuickTaskSession(current, quickHomeworkQueue, currentTask)
+    ));
+    return true;
+  };
+
+  const handleQuickHomeworkMockTaskSolved = ({ examId, taskKey } = {}) => {
+    if (quickHomeworkSession.status !== 'solving' || !quickHomeworkSession.currentTask) return false;
+    const currentTask = quickHomeworkSession.currentTask;
+    if (currentTask.kind !== 'mock') return false;
+    if (String(currentTask.mockExamId) !== String(examId) || String(currentTask.taskKey) !== String(taskKey)) {
       return false;
     }
     setQuickHomeworkSession((current) => (
@@ -22303,6 +22400,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               completedCount={quickHomeworkSession.completedCount}
               currentTask={quickHomeworkPreviewTask}
               nextTask={quickHomeworkNextTask}
+              mode={quickHomeworkSession.mode}
+              budgetMinutes={quickHomeworkSession.budgetMinutes}
+              plannedCount={quickHomeworkSession.planTasks?.length || 0}
               onStart={handleStartQuickHomework}
               onResume={handleResumeQuickHomework}
               onContinue={handleContinueQuickHomework}
@@ -22548,7 +22648,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               quickHomeworkAvailableCount={quickHomeworkQueue.length}
               quickHomeworkCompletedCount={quickHomeworkSession.completedCount}
               quickHomeworkCurrentTask={quickHomeworkPreviewTask}
+              quickHomeworkPlans={quickHomeworkPlanOptions.availablePlans}
+              quickHomeworkMode={quickHomeworkSession.mode}
+              quickHomeworkBudgetMinutes={quickHomeworkSession.budgetMinutes}
+              quickHomeworkPlannedCount={quickHomeworkSession.planTasks?.length || 0}
               onStartQuickHomework={handleStartQuickHomework}
+              onStartQuickHomeworkPlan={handleStartQuickHomeworkPlan}
               onResumeQuickHomework={handleResumeQuickHomework}
               onContinueHomework={() => {
                 if (!firstGoal) {
@@ -22707,6 +22812,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onAddToHomeworkLessonBasket={handleAddToHomeworkLessonBasket}
               onTaskStateChange={handleTaskStateChange}
               onQuickHomeworkTaskSolved={handleQuickHomeworkTaskSolved}
+              onQuickHomeworkMockTaskSolved={handleQuickHomeworkMockTaskSolved}
               onStreakSaved={handleStreakSaved}
               onXpGain={handleXpGain}
               openMockExamId={pendingOpenMockExamId}

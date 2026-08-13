@@ -13,6 +13,11 @@ import {
 
 const getTaskLabel = (task) => {
   if (!task) return 'Следующее задание из домашки';
+  if (task.kind === 'mock') {
+    const examTitle = String(task.mockExamTitle || '').trim();
+    const taskLabel = task.taskKey || task.taskNumber;
+    return `${examTitle || 'Пробник'} · задание ${taskLabel}`;
+  }
   const taskPrefix = task.isPython
     ? 'Python'
     : `Задание ${task.taskDisplay || task.taskNumber}`;
@@ -68,25 +73,47 @@ const HomeworkQuickStart = ({
   onResume,
   onContinue,
   onPause,
+  mode = null,
+  budgetMinutes = null,
+  plannedCount = 0,
   celebrationOnly = false,
 }) => {
   const dialogRef = React.useRef(null);
   const onPauseRef = React.useRef(onPause);
   const sessionStarted = completedCount > 0 || status !== 'idle';
   const isFinished = status === 'complete' || status === 'done';
+  const normalizedBudgetMinutes = Math.max(0, Math.round(Number(budgetMinutes) || 0));
+  const normalizedPlannedCount = Math.max(0, Math.floor(Number(plannedCount) || 0));
+  const isTimedSession = mode === 'timed' && normalizedBudgetMinutes > 0;
+  const timedProgressLabel = normalizedPlannedCount > 0
+    ? `${completedCount} из ${normalizedPlannedCount}`
+    : getSolvedTaskCountLabel(completedCount);
   const cardTitle = isFinished
-    ? 'Все короткие задания готовы'
-    : (status === 'paused' ? 'Хороший старт уже есть' : 'Самое лёгкое задание из твоей домашки.');
-  const cardText = isFinished
-    ? `Ты решил ${getSolvedTaskCountLabel(completedCount)} — короткая серия закрыта.`
+    ? (isTimedSession ? `План на ${normalizedBudgetMinutes} минут выполнен` : 'Лёгкий старт выполнен')
     : (status === 'paused'
-        ? `В серии уже ${completedCount}. Можно вернуться, когда захочется.`
+        ? (isTimedSession ? `Продолжить план на ${normalizedBudgetMinutes} минут?` : 'Хороший старт уже есть')
+        : (isTimedSession ? `План на ${normalizedBudgetMinutes} минут` : 'Самое лёгкое задание из твоей домашки.'));
+  const cardText = isFinished
+    ? (isTimedSession
+        ? `Готово ${timedProgressLabel} запланированных заданий. Можно остановиться или вернуться к остальной домашке позже.`
+        : `Ты решил ${getSolvedTaskCountLabel(completedCount)}. Первый шаг сделан, а результат сохранён.`)
+    : (status === 'paused'
+        ? (isTimedSession
+            ? `Выполнено ${timedProgressLabel}. Следующее задание плана ждёт.`
+            : `В серии уже ${completedCount}. Можно вернуться, когда захочется.`)
         : '');
   const primaryLabel = status === 'solving'
     ? 'Вернуться к заданию'
-    : (status === 'paused' ? 'Продолжить серию' : 'Решить');
+    : (status === 'paused' ? (isTimedSession ? 'Продолжить план' : 'Продолжить серию') : 'Решить');
   const handlePrimary = status === 'idle' ? onStart : onResume;
   const praise = getPraise(completedCount);
+  const celebrationPraise = isTimedSession
+    ? {
+        eyebrow: 'План продолжается',
+        title: `${timedProgressLabel} — готово`,
+        text: 'Хороший темп. Следующее задание уже подобрано в пределах выбранного времени.',
+      }
+    : praise;
   const showCelebration = status === 'celebrate' || status === 'complete';
 
   React.useEffect(() => {
@@ -187,26 +214,39 @@ const HomeworkQuickStart = ({
             </div>
             <div className="homework-quick-celebration__eyebrow">
               <Sparkles size={14} />
-              {isFinished ? 'Всё готово' : praise.eyebrow}
+              {isFinished ? (isTimedSession ? 'План выполнен' : 'Лёгкий старт готов') : celebrationPraise.eyebrow}
             </div>
             <h3 id="homework-quick-celebration-title">
-              {isFinished ? 'Ты закрыл все короткие задания!' : praise.title}
+              {isFinished
+                ? (isTimedSession
+                    ? `План на ${normalizedBudgetMinutes} минут выполнен`
+                    : 'Первое задание готово!')
+                : celebrationPraise.title}
             </h3>
             <p>
               {isFinished
-                ? `Начинал с одной задачки на пять минут, а в серии получилось ${completedCount}. Отличная работа.`
-                : praise.text}
+                ? (isTimedSession
+                    ? `Выполнено ${timedProgressLabel} запланированных заданий. Остальную домашку можно продолжить позже.`
+                    : 'Лёгкий старт получился: одно задание домашки уже выполнено.')
+                : celebrationPraise.text}
             </p>
 
-            <div className="homework-quick-celebration__streak" aria-label={`Заданий в серии: ${completedCount}`}>
+            <div
+              className="homework-quick-celebration__streak"
+              aria-label={isTimedSession
+                ? `Заданий плана выполнено: ${completedCount}${normalizedPlannedCount > 0 ? ` из ${normalizedPlannedCount}` : ''}`
+                : `Заданий в серии: ${completedCount}`}
+            >
               <Flame size={17} />
-              <span>Серия</span>
+              <span>{isTimedSession ? 'Выполнено' : 'Серия'}</span>
               <strong>{completedCount}</strong>
             </div>
 
             {!isFinished && nextTask && (
               <div className="homework-quick-celebration__next">
-                <span>{nextTask.difficultyKnown ? 'Следующее по лёгкости' : 'Следующее — тоже короткое'}</span>
+                <span>{isTimedSession
+                  ? 'Следующее задание плана'
+                  : (nextTask.difficultyKnown ? 'Следующее по лёгкости' : 'Следующее — тоже короткое')}</span>
                 <strong>{getTaskLabel(nextTask)}</strong>
                 {nextTask.taskTitle && <small>{nextTask.taskTitle}</small>}
               </div>
@@ -215,7 +255,7 @@ const HomeworkQuickStart = ({
             <div className="homework-quick-celebration__actions">
               {!isFinished && nextTask && (
                 <button type="button" className="homework-quick-celebration__continue" onClick={onContinue}>
-                  Давай ещё одно <ArrowRight size={17} />
+                  {isTimedSession ? 'Продолжить план' : 'Давай ещё одно'} <ArrowRight size={17} />
                 </button>
               )}
               <button
@@ -226,7 +266,7 @@ const HomeworkQuickStart = ({
                 {isFinished ? 'Отлично!' : 'На сегодня хватит'}
               </button>
             </div>
-            {!isFinished && <small className="homework-quick-celebration__note">Можно остановиться — результат уже сохранён.</small>}
+            {!isFinished && <small className="homework-quick-celebration__note">Можно остановиться — выполненные задания уже сохранены.</small>}
           </section>
         </div>,
         document.body
@@ -241,13 +281,13 @@ const HomeworkQuickStart = ({
       <section className={`homework-quick-start homework-quick-start--${status}`} aria-labelledby="homework-quick-start-title">
         <div className="homework-quick-start__visual" aria-hidden>
           <span className="homework-quick-start__clock"><Clock3 size={22} /></span>
-          <span className="homework-quick-start__five">5</span>
+          <span className="homework-quick-start__five">{isTimedSession ? normalizedBudgetMinutes : 5}</span>
           <span className="homework-quick-start__minutes">мин</span>
         </div>
         <div className="homework-quick-start__copy">
           <div className="homework-quick-start__eyebrow">
             <Sparkles size={13} />
-            Лёгкий старт
+            {isTimedSession ? 'Быстрый план' : 'Лёгкий старт'}
           </div>
           <h4 id="homework-quick-start-title">{cardTitle}</h4>
           {cardText && <p>{cardText}</p>}

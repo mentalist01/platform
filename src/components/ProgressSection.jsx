@@ -628,6 +628,7 @@ const ProgressSection = ({
   onAddToHomeworkLessonBasket,
   onTaskStateChange,
   onQuickHomeworkTaskSolved,
+  onQuickHomeworkMockTaskSolved,
   onStreakSaved,
   onMockAttemptSaved,
   onAssignMockReview,
@@ -1609,6 +1610,13 @@ const ProgressSection = ({
   useEffect(() => {
     if (role !== 'student' || !openTask) return;
     if (openTask.section === 'python' || isPythonTaskNumber(openTask.taskNumber)) {
+      mockAttemptRequestIdRef.current += 1;
+      setActiveMockExam(null);
+      setActiveMockAttempt(null);
+      setActiveMockInitialTask(null);
+      setActiveMockTargetTaskKeys(null);
+      setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
+      setStartingMockExamId(null);
       onOpenTaskHandled?.();
       return;
     }
@@ -1618,6 +1626,13 @@ const ProgressSection = ({
       return;
     }
     setSection('progress');
+    mockAttemptRequestIdRef.current += 1;
+    setActiveMockExam(null);
+    setActiveMockAttempt(null);
+    setActiveMockInitialTask(null);
+    setActiveMockTargetTaskKeys(null);
+    setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
+    setStartingMockExamId(null);
     setActiveLevel(null);
     setForceInitialLevelLaunch(false);
     setActiveTask(target);
@@ -5437,6 +5452,11 @@ const ProgressSection = ({
               getLocalDayKey={getLocalDayKey}
               withStudentId={withStudentId}
               onAttemptSaved={(examId, attempt, meta) => {
+                let quickHomeworkHandled = false;
+                const previousSolvedForQuickHomework = activeMockAttempt?.solved
+                  && typeof activeMockAttempt.solved === 'object'
+                  ? activeMockAttempt.solved
+                  : {};
                 setActiveMockAttempt(attempt);
                 setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, activeMockMode));
                 const attemptOwnerKey = String(effectiveStudentId || '').trim();
@@ -5468,6 +5488,29 @@ const ProgressSection = ({
                   String(attempt?.finishedAt || '').trim()
                   || String(attempt?.status || '').trim().toLowerCase() === 'finished'
                 );
+                if (role === 'student' && typeof onQuickHomeworkMockTaskSolved === 'function') {
+                  const nextSolved = attempt?.solved && typeof attempt.solved === 'object'
+                    ? attempt.solved
+                    : {};
+                  Object.entries(nextSolved).forEach(([taskKey, solved]) => {
+                    if (
+                      !quickHomeworkHandled
+                      && solved === true
+                      && previousSolvedForQuickHomework?.[taskKey] !== true
+                    ) {
+                      quickHomeworkHandled = onQuickHomeworkMockTaskSolved({ examId, taskKey, attempt }) === true;
+                    }
+                  });
+                }
+                if (quickHomeworkHandled) {
+                  mockAttemptRequestIdRef.current += 1;
+                  setActiveMockExam(null);
+                  setActiveMockAttempt(null);
+                  setActiveMockInitialTask(null);
+                  setActiveMockTargetTaskKeys(null);
+                  setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
+                  setStartingMockExamId(null);
+                }
                 if (attemptFinished) {
                   api.getTests(role === 'student' ? null : effectiveStudentId)
                     .then((data) => {

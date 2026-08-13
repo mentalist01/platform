@@ -1106,9 +1106,10 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getMockExamTaskAnalytics: async (examId) => {
+  getMockExamTaskAnalytics: async (examId, homeworkId) => {
     const params = new URLSearchParams();
     if (examId) params.set('examId', String(examId));
+    if (homeworkId) params.set('homeworkId', String(homeworkId));
     const query = params.toString();
     const res = await apiFetch(query
       ? `/api/mock-exams/task-analytics?${query}`
