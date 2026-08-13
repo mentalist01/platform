@@ -62,6 +62,19 @@ const MOCK_EXAM_COACH_NOTES = [
   },
 ];
 
+const MOCK_TASK_ACTIVE_DURATION_MAX_MS = 4 * 60 * 60 * 1000;
+
+const normalizeMockTaskDurationsMs = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.entries(value).reduce((result, [taskKey, rawDurationMs]) => {
+    const key = String(taskKey || '').trim();
+    const durationMs = Number(rawDurationMs);
+    if (!key || !Number.isFinite(durationMs) || durationMs <= 0) return result;
+    result[key] = Math.min(MOCK_TASK_ACTIVE_DURATION_MAX_MS, Math.max(1, Math.round(durationMs)));
+    return result;
+  }, {});
+};
+
 const getMockAnswerFieldLabel = (taskNumber, index) => {
   const numericTaskNumber = Number(taskNumber);
   if (numericTaskNumber === 20) return `20.${index + 1}`;
@@ -310,6 +323,12 @@ const MockExamModal = ({
   const finishConfirmDialogRef = useRef(null);
   const finishConfirmTriggerRef = useRef(null);
   const finishConfirmRestoreFrameRef = useRef(null);
+  const taskDurationStateRef = useRef({
+    durations: {},
+    activeTaskKey: '',
+    segmentStartedAt: null,
+    environmentActive: true,
+  });
   const normalizedTargetTaskKeys = useMemo(
     () => normalizeMockExamTaskKeys(targetTaskKeys),
     [targetTaskKeys]
@@ -363,6 +382,30 @@ const MockExamModal = ({
     : timerDurationMs);
   const timerExpired = isTimerMode && (timerPaused || Number.isFinite(timerExpiresAtMs)) && timerRemainingMs <= 0;
   const timerLabel = formatMockTimerDuration(timerRemainingMs);
+
+  const commitActiveTaskDuration = useCallback(() => {
+    const state = taskDurationStateRef.current;
+    if (!state.activeTaskKey || state.segmentStartedAt === null) return;
+    const segmentDurationMs = Math.max(0, performance.now() - state.segmentStartedAt);
+    state.durations[state.activeTaskKey] = Math.min(
+      MOCK_TASK_ACTIVE_DURATION_MAX_MS,
+      Math.max(0, Math.round((state.durations[state.activeTaskKey] || 0) + segmentDurationMs))
+    );
+    state.segmentStartedAt = null;
+  }, []);
+
+  const startActiveTaskDuration = useCallback(() => {
+    const state = taskDurationStateRef.current;
+    if (!state.environmentActive || !state.activeTaskKey || state.segmentStartedAt !== null) return;
+    state.segmentStartedAt = performance.now();
+  }, []);
+
+  const getTaskDurationsForSave = useCallback(() => {
+    commitActiveTaskDuration();
+    const durations = normalizeMockTaskDurationsMs(taskDurationStateRef.current.durations);
+    startActiveTaskDuration();
+    return durations;
+  }, [commitActiveTaskDuration, startActiveTaskDuration]);
 
   useEffect(() => {
     const focusFrame = window.requestAnimationFrame(() => modalCardRef.current?.focus());
@@ -419,6 +462,12 @@ const MockExamModal = ({
     const nextAttempt = latestInitialAttemptRef.current && typeof latestInitialAttemptRef.current === 'object'
       ? latestInitialAttemptRef.current
       : {};
+    taskDurationStateRef.current = {
+      durations: normalizeMockTaskDurationsMs(nextAttempt?.taskDurationsMs),
+      activeTaskKey: '',
+      segmentStartedAt: null,
+      environmentActive: document.visibilityState !== 'hidden' && document.hasFocus(),
+    };
     setDisplayAttempt(nextAttempt);
     const nextMode = normalizeMockAttemptMode(nextAttempt?.mode, normalizeMockAttemptMode(attemptMode));
     const nextDraftAttemptKey = buildMockExamDraftAttemptKey({
@@ -535,6 +584,9 @@ const MockExamModal = ({
 
   useEffect(() => {
     if (questionScrollRef.current) questionScrollRef.current.scrollTop = 0;
+    commitActiveTaskDuration();
+    taskDurationStateRef.current.activeTaskKey = selectedTask == null ? '' : String(selectedTask);
+    startActiveTaskDuration();
     const previousTask = previousSelectedTaskRef.current;
     previousSelectedTaskRef.current = selectedTask;
     if (previousTask === selectedTask) return undefined;
@@ -552,7 +604,31 @@ const MockExamModal = ({
       });
     });
     return () => window.cancelAnimationFrame(frameId);
-  }, [selectedTask]);
+  }, [commitActiveTaskDuration, exam?.id, selectedTask, startActiveTaskDuration]);
+
+  useEffect(() => {
+    const setEnvironmentActive = (active) => {
+      const state = taskDurationStateRef.current;
+      if (state.environmentActive === active) return;
+      commitActiveTaskDuration();
+      state.environmentActive = active;
+      if (active) startActiveTaskDuration();
+    };
+    const handleVisibility = () => setEnvironmentActive(document.visibilityState !== 'hidden' && document.hasFocus());
+    const handleFocus = () => setEnvironmentActive(document.visibilityState !== 'hidden');
+    const handleBlur = () => setEnvironmentActive(false);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('pagehide', handleBlur);
+    return () => {
+      commitActiveTaskDuration();
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('pagehide', handleBlur);
+    };
+  }, [commitActiveTaskDuration, startActiveTaskDuration]);
 
   useEffect(() => {
     const picker = compactTaskPickerRef.current;
@@ -826,6 +902,7 @@ const MockExamModal = ({
     try {
       const saved = await api.saveMockAttempt(studentId, exam.id, {
         answers,
+        taskDurationsMs: getTaskDurationsForSave(),
         mode: effectiveAttemptMode,
         localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
       });
@@ -962,6 +1039,7 @@ const MockExamModal = ({
     try {
       const saved = await api.saveMockAttempt(studentId, exam.id, {
         answers,
+        taskDurationsMs: getTaskDurationsForSave(),
         mode: effectiveAttemptMode,
         finishAttempt: true,
         ...(isTimerMode ? { finishTimerExam: true } : {}),
@@ -1050,6 +1128,7 @@ const MockExamModal = ({
     try {
       const saved = await api.saveMockTimerProgress(studentId, exam.id, {
         answers,
+        taskDurationsMs: getTaskDurationsForSave(),
         mode: effectiveAttemptMode,
         localDay: typeof getLocalDayKey === 'function' ? getLocalDayKey() : undefined,
       });

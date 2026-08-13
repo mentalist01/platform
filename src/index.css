@@ -59080,6 +59080,161 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   scrollbar-width: thin;
 }
 
+.teacher-homework-review-controls {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.teacher-homework-review-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 11px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.teacher-homework-review-filter button {
+  display: inline-flex;
+  min-height: 29px;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 9px;
+  color: #64748b;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 850;
+  transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.teacher-homework-review-filter button:hover,
+.teacher-homework-review-filter button.is-active {
+  color: #6d28d9;
+  background: #f5f3ff;
+}
+
+.teacher-homework-review-filter button.is-active {
+  box-shadow: 0 3px 9px rgba(109, 40, 217, 0.12);
+}
+
+.teacher-homework-review-filter small {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 5px;
+  color: #64748b;
+  background: rgba(148, 163, 184, 0.13);
+  font-size: 9px;
+}
+
+.teacher-homework-review-filter button.is-active small {
+  color: #6d28d9;
+  background: rgba(139, 92, 246, 0.14);
+}
+
+.teacher-homework-review-sort {
+  display: inline-flex;
+  min-height: 35px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 11px;
+  padding: 0 8px 0 10px;
+  color: #7c3aed;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.teacher-homework-review-sort select {
+  max-width: 210px;
+  border: 0;
+  outline: 0;
+  color: #475569;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.student-test-question-button.teacher-homework-review-question-button {
+  width: auto;
+  min-width: 68px;
+  height: 42px;
+  flex-basis: auto;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px;
+}
+
+.teacher-homework-review-question-button > span {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.teacher-homework-review-question-button > small {
+  max-width: 76px;
+  overflow: hidden;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.78;
+}
+
+.teacher-homework-review-status-chip,
+.teacher-homework-review-time-chip {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #b45309;
+  background: #fffbeb;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.teacher-homework-review-status-chip.is-completed {
+  border-color: rgba(16, 185, 129, 0.28);
+  color: #047857;
+  background: #ecfdf5;
+}
+
+.teacher-homework-review-time-chip {
+  border-color: rgba(148, 163, 184, 0.24);
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.teacher-homework-review-time-chip.has-time {
+  border-color: rgba(14, 165, 233, 0.25);
+  color: #0369a1;
+  background: #f0f9ff;
+}
+
+.teacher-homework-review-attempt-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #0369a1;
+  background: #f0f9ff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
 .teacher-test-review-level-button {
   display: inline-flex;
   min-height: 32px;
@@ -61823,6 +61978,42 @@ html[data-theme='dark'] .teacher-test-review-level-button {
   background: rgba(17, 28, 47, 0.9);
 }
 
+html[data-theme='dark'] .teacher-homework-review-filter,
+html[data-theme='dark'] .teacher-homework-review-sort {
+  border-color: rgba(100, 116, 139, 0.38);
+  background: rgba(17, 28, 47, 0.92);
+}
+
+html[data-theme='dark'] .teacher-homework-review-filter button,
+html[data-theme='dark'] .teacher-homework-review-sort select {
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .teacher-homework-review-filter button:hover,
+html[data-theme='dark'] .teacher-homework-review-filter button.is-active {
+  color: #ddd6fe;
+  background: rgba(76, 29, 149, 0.35);
+}
+
+html[data-theme='dark'] .teacher-homework-review-status-chip {
+  border-color: rgba(251, 191, 36, 0.28);
+  color: #fcd34d;
+  background: rgba(120, 53, 15, 0.27);
+}
+
+html[data-theme='dark'] .teacher-homework-review-status-chip.is-completed {
+  border-color: rgba(52, 211, 153, 0.3);
+  color: #6ee7b7;
+  background: rgba(6, 78, 59, 0.25);
+}
+
+html[data-theme='dark'] .teacher-homework-review-time-chip,
+html[data-theme='dark'] .teacher-homework-review-attempt-time {
+  border-color: rgba(56, 189, 248, 0.27);
+  color: #7dd3fc;
+  background: rgba(7, 89, 133, 0.25);
+}
+
 html[data-theme='dark'] .teacher-test-review-level-button:hover:not(:disabled),
 html[data-theme='dark'] .teacher-test-review-level-button.is-active {
   border-color: rgba(167, 139, 250, 0.48);
@@ -63385,6 +63576,37 @@ html[data-theme='dark'] .student-test-code-focus__music-error {
 
   .teacher-test-review-levels {
     gap: 6px;
+  }
+
+  .teacher-homework-review-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .teacher-homework-review-filter {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .teacher-homework-review-filter button {
+    flex: 0 0 auto;
+    padding-inline: 7px;
+  }
+
+  .teacher-homework-review-sort {
+    max-width: 100%;
+  }
+
+  .teacher-homework-review-sort select {
+    min-width: 0;
+    max-width: calc(100vw - 80px);
+  }
+
+  .student-test-question-button.teacher-homework-review-question-button {
+    width: auto;
+    min-width: 62px;
+    height: 40px;
+    flex-basis: auto;
   }
 
   .teacher-test-review-level-button {

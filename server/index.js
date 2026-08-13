@@ -11711,6 +11711,36 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
   return solved;
 };
 
+const normalizeMockTaskDurationsMs = (exam, value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const taskKeys = new Set(Object.keys(exam?.tasks || {}).map((key) => String(key)));
+  return Object.entries(value).reduce((result, [taskKey, rawDurationMs]) => {
+    const key = String(taskKey || '').trim();
+    const durationMs = Number(rawDurationMs);
+    if (!key || !taskKeys.has(key) || !Number.isFinite(durationMs) || durationMs <= 0) return result;
+    result[key] = Math.min(STUDENT_SOLVE_DURATION_MAX_MS, Math.max(1, Math.round(durationMs)));
+    return result;
+  }, {});
+};
+
+const mergeMockTaskDurationsMs = (exam, previous, next) => {
+  const previousDurations = normalizeMockTaskDurationsMs(exam, previous);
+  const nextDurations = normalizeMockTaskDurationsMs(exam, next);
+  return Object.entries(nextDurations).reduce((result, [taskKey, durationMs]) => ({
+    ...result,
+    [taskKey]: Math.max(Number(result[taskKey]) || 0, durationMs),
+  }), previousDurations);
+};
+
+const filterMockTaskDurationsToTaskKeys = (durations, targetTaskKeys = []) => {
+  const allowedKeys = new Set(uniqueStrings(targetTaskKeys));
+  if (allowedKeys.size === 0) return durations;
+  return Object.entries(durations || {}).reduce((result, [taskKey, durationMs]) => {
+    if (allowedKeys.has(String(taskKey))) result[taskKey] = durationMs;
+    return result;
+  }, {});
+};
+
 const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => {
   const answers = normalizeMockAttemptAnswers(exam, rawAnswers);
   const finishedAt = normalizeMockTimerTimestamp(meta?.finishedAt);
@@ -11812,6 +11842,7 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
   const homeworkId = typeof meta?.homeworkId === 'string' ? meta.homeworkId.trim().slice(0, 200) : '';
   const homeworkIssuedAt = normalizeMockTimerTimestamp(meta?.homeworkIssuedAt);
   const targetTaskKeys = uniqueStrings(meta?.targetTaskKeys).slice(0, 200);
+  const taskDurationsMs = normalizeMockTaskDurationsMs(exam, meta?.taskDurationsMs);
   return {
     answers,
     solved,
@@ -11845,6 +11876,7 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     ...(homeworkId ? { homeworkId } : {}),
     ...(homeworkIssuedAt ? { homeworkIssuedAt } : {}),
     ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
+    ...(Object.keys(taskDurationsMs).length > 0 ? { taskDurationsMs } : {}),
   };
 };
 
@@ -22587,6 +22619,7 @@ app.get('/api/students/leaderboard', (req, res) => {
       publicName: alias || anonNameById.get(student.id) || 'Аноним',
       grade,
       isGraduate,
+      isStudying: isCurrentStudent(student),
       informaticsEgeScore,
       level,
       xpTotal,
@@ -24233,6 +24266,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     studentId,
     examId,
     answers,
+    taskDurationsMs,
     localDay,
     mode,
     startOnly,
@@ -24453,6 +24487,18 @@ app.put('/api/mock-exams/attempt', (req, res) => {
         ? previousAttemptNormalized.answers
         : mergeMockAttemptAnswers(exam, previousAttemptNormalized.answers, answers));
   const scopedAnswersForSave = filterMockAttemptAnswersToTaskKeys(rawAnswersForSave, assignmentTargetTaskKeys);
+  const previousTaskDurationsMs = canRestartTimerAttempt || startsNewHomeworkAttempt
+    ? {}
+    : previousAttempt?.taskDurationsMs;
+  const mergedTaskDurationsMs = mergeMockTaskDurationsMs(
+    exam,
+    previousTaskDurationsMs,
+    taskDurationsMs
+  );
+  const scopedTaskDurationsMs = filterMockTaskDurationsToTaskKeys(
+    mergedTaskDurationsMs,
+    assignmentTargetTaskKeys
+  );
   const normalizedAttemptBase = normalizeMockAttemptPayload(exam, scopedAnswersForSave, savedAt, {
     ...previousAttempt,
     ...(startsNewHomeworkAttempt ? {
@@ -24465,6 +24511,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     mode: attemptMode,
     modeLockedAt,
     attemptId,
+    taskDurationsMs: scopedTaskDurationsMs,
     rewardsDisabled: examRewardsDisabled,
     ...(homeworkAssignment ? {
       homeworkId: homeworkAssignment.id,

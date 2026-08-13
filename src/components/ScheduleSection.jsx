@@ -4549,13 +4549,16 @@ const ScheduleSection = ({
                 className="teacher-lesson-briefing__secondary-action inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white/90 px-4 text-sm font-bold text-violet-700 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <BookOpen size={16} />
-                {teacherHomeworkReviewPendingCount > 0
-                  ? `Не сделано: ${teacherHomeworkReviewPendingCount}`
-                  : testsDb === null || mockExamsLoading
-                    ? 'Загружаем задания…'
-                    : teacherHomeworkReviewItems.length > 0
-                      ? 'Все задания выполнены'
-                      : 'Задания к домашке'}
+                {testsDb === null || mockExamsLoading
+                  ? 'Загружаем задания…'
+                  : teacherHomeworkReviewItems.length > 0
+                    ? 'Посмотреть сделанную домашку'
+                    : 'Задания к домашке'}
+                {teacherHomeworkReviewPendingCount > 0 && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-800">
+                    Не сделано: {teacherHomeworkReviewPendingCount}
+                  </span>
+                )}
               </button>
               <button
                 type="button"

@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildTeacherHomeworkReviewItems,
+  filterTeacherHomeworkReviewItems,
   getPendingTeacherHomeworkReviewItems,
   mergeTeacherHomeworkReviewTaskProgress,
+  sortTeacherHomeworkReviewItems,
 } from './teacherHomeworkReview.js';
 
 test('buildTeacherHomeworkReviewItems keeps homework goal and target order', () => {
@@ -103,13 +105,57 @@ test('mergeTeacherHomeworkReviewTaskProgress refreshes solved and attempted stat
     '5|basic': {
       solvedIds: new Set(['q-1']),
       historyById: {
-        'q-2': [{ submittedAt: '2026-08-09T10:00:00.000Z', correct: false, answers: ['17'] }],
+        'q-1': [{ submittedAt: '2026-08-09T09:00:00.000Z', correct: true, answers: ['12'], solveDurationMs: 42_000 }],
+        'q-2': [{ submittedAt: '2026-08-09T10:00:00.000Z', correct: false, answers: ['17'], solveDurationMs: 75_000 }],
       },
     },
   });
 
   assert.equal(merged[0].solved, true);
+  assert.equal(merged[0].solveDurationMs, 42_000);
   assert.equal(merged[1].attempted, true);
+  assert.equal(merged[1].solveDurationMs, 75_000);
   assert.deepEqual(merged[1].studentAnswers, ['17']);
   assert.deepEqual(getPendingTeacherHomeworkReviewItems(merged).map((item) => item.key), ['two']);
+});
+
+test('review filters and sorts timed work with missing telemetry last', () => {
+  const items = [
+    { key: 'slow', solved: true, solveDurationMs: 180_000 },
+    { key: 'pending', solved: false, solveDurationMs: null },
+    { key: 'fast', solved: true, solveDurationMs: 35_000 },
+  ];
+
+  assert.deepEqual(
+    filterTeacherHomeworkReviewItems(items, 'completed').map((item) => item.key),
+    ['slow', 'fast']
+  );
+  assert.deepEqual(
+    sortTeacherHomeworkReviewItems(items, 'fastest').map((item) => item.key),
+    ['fast', 'slow', 'pending']
+  );
+  assert.deepEqual(
+    sortTeacherHomeworkReviewItems(items, 'slowest').map((item) => item.key),
+    ['slow', 'fast', 'pending']
+  );
+});
+
+test('mock review items include saved time for every exam task', () => {
+  const items = buildTeacherHomeworkReviewItems({
+    goalViews: [{
+      type: 'mock',
+      mockExamId: 'mock-1',
+      targetStatus: [{ taskKey: '7', label: '7', solved: true }],
+    }],
+    mockExamById: { 'mock-1': { title: 'Пробник', tasks: { 7: { question: 'Seven' } } } },
+    mockAttemptsByExam: {
+      'mock-1': {
+        answers: { 7: '42' },
+        taskDurationsMs: { 7: 91_500 },
+      },
+    },
+    formatTaskNumber: String,
+  });
+
+  assert.equal(items[0].solveDurationMs, 91_500);
 });

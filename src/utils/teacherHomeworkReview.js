@@ -27,6 +27,25 @@ const normalizeMockAnswers = (attempt, taskKey) => {
   return typeof answers === 'undefined' || answers === null ? [] : [String(answers)];
 };
 
+const normalizeSolveDurationMs = (value) => {
+  const durationMs = Number(value);
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
+  return Math.max(1, Math.round(durationMs));
+};
+
+const getHistorySolveDurationMs = (history) => {
+  const entries = Array.isArray(history) ? history : [];
+  const firstCorrect = entries.find((entry) => (
+    entry?.correct === true && normalizeSolveDurationMs(entry?.solveDurationMs) !== null
+  ));
+  if (firstCorrect) return normalizeSolveDurationMs(firstCorrect.solveDurationMs);
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const durationMs = normalizeSolveDurationMs(entries[index]?.solveDurationMs);
+    if (durationMs !== null) return durationMs;
+  }
+  return null;
+};
+
 export const buildTeacherHomeworkReviewItems = ({
   goalViews = [],
   testsDb = {},
@@ -66,6 +85,7 @@ export const buildTeacherHomeworkReviewItems = ({
           attempted: hasAnswerValue(studentAnswers),
           studentAnswers,
           answerHistory: [],
+          solveDurationMs: normalizeSolveDurationMs(attempt?.taskDurationsMs?.[taskKey]),
           optional: goalView?.assignmentTier === 'optional',
         });
       });
@@ -99,6 +119,7 @@ export const buildTeacherHomeworkReviewItems = ({
         attempted: false,
         studentAnswers: [],
         answerHistory: [],
+        solveDurationMs: null,
         optional: goalView?.assignmentTier === 'optional',
       });
     });
@@ -127,6 +148,7 @@ export const mergeTeacherHomeworkReviewTaskProgress = (items, scopeResults = {})
       attempted: history.length > 0,
       studentAnswers,
       answerHistory: history,
+      solveDurationMs: getHistorySolveDurationMs(history),
     };
   })
 );
@@ -134,3 +156,27 @@ export const mergeTeacherHomeworkReviewTaskProgress = (items, scopeResults = {})
 export const getPendingTeacherHomeworkReviewItems = (items) => (
   (Array.isArray(items) ? items : []).filter((item) => !item?.solved)
 );
+
+export const filterTeacherHomeworkReviewItems = (items, filter = 'all') => {
+  const list = Array.isArray(items) ? items : [];
+  if (filter === 'completed') return list.filter((item) => item?.solved);
+  if (filter === 'pending') return list.filter((item) => !item?.solved);
+  return list;
+};
+
+export const sortTeacherHomeworkReviewItems = (items, sort = 'assignment') => {
+  const list = (Array.isArray(items) ? items : []).map((item, index) => ({ item, index }));
+  if (!['fastest', 'slowest'].includes(sort)) return list.map(({ item }) => item);
+  const direction = sort === 'fastest' ? 1 : -1;
+  return list
+    .sort((left, right) => {
+      const leftDuration = normalizeSolveDurationMs(left.item?.solveDurationMs);
+      const rightDuration = normalizeSolveDurationMs(right.item?.solveDurationMs);
+      if (leftDuration === null && rightDuration === null) return left.index - right.index;
+      if (leftDuration === null) return 1;
+      if (rightDuration === null) return -1;
+      if (leftDuration !== rightDuration) return (leftDuration - rightDuration) * direction;
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+};

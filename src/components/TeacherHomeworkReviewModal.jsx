@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileCode2, History, ListChecks, RefreshCcw, X } from 'lucide-react';
+import { ArrowDownUp, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileCode2, History, ListChecks, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { writeBoardTaskToClipboard } from '../utils/boardTaskClipboard';
 import { normalizeQuestionLabel, getQuestionLabelStyle } from '../utils/questionLabel';
 import {
+  filterTeacherHomeworkReviewItems,
   getPendingTeacherHomeworkReviewItems,
   mergeTeacherHomeworkReviewTaskProgress,
+  sortTeacherHomeworkReviewItems,
 } from '../utils/teacherHomeworkReview';
 import { Button } from './ui';
 
@@ -60,6 +62,9 @@ const normalizeAnswerHistoryPayload = (payload) => {
           submittedAt,
           correct: entry.correct === true,
           answers,
+          solveDurationMs: Number.isFinite(Number(entry.solveDurationMs)) && Number(entry.solveDurationMs) > 0
+            ? Math.round(Number(entry.solveDurationMs))
+            : null,
         };
       })
       .filter(Boolean)
@@ -97,6 +102,18 @@ const formatAttemptTime = (value) => {
     hour: '2-digit',
     minute: '2-digit',
   });
+};
+
+const formatSolveDuration = (value, fallback = 'Нет данных') => {
+  const durationMs = Number(value);
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return fallback;
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours} ч ${minutes} мин`;
+  if (minutes > 0) return `${minutes} мин ${String(seconds).padStart(2, '0')} сек`;
+  return `${seconds} сек`;
 };
 
 const AnswerPreview = ({ title, status, values, answerCount, tone }) => {
@@ -146,13 +163,15 @@ const TeacherHomeworkReviewModal = ({
 }) => {
   const itemSignature = useMemo(() => (
     (Array.isArray(items) ? items : [])
-      .map((item) => `${item?.key}:${item?.solved ? 1 : 0}:${item?.attempted ? 1 : 0}:${JSON.stringify(item?.studentAnswers || [])}`)
+      .map((item) => `${item?.key}:${item?.solved ? 1 : 0}:${item?.attempted ? 1 : 0}:${item?.solveDurationMs || 0}:${JSON.stringify(item?.studentAnswers || [])}`)
       .join('|')
   ), [items]);
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const [resolvedItems, setResolvedItems] = useState(items);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [itemFilter, setItemFilter] = useState('all');
+  const [itemSort, setItemSort] = useState('assignment');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [expandedImage, setExpandedImage] = useState(null);
@@ -177,6 +196,8 @@ const TeacherHomeworkReviewModal = ({
     const sourceItems = Array.isArray(itemsRef.current) ? itemsRef.current : [];
     setResolvedItems(sourceItems);
     setCurrentIndex(0);
+    setItemFilter('all');
+    setItemSort('assignment');
     setLoadError('');
 
     const taskScopes = Array.from(new Map(
@@ -257,15 +278,24 @@ const TeacherHomeworkReviewModal = ({
   }, [expandedImage, onClose, open]);
 
   const pendingItems = getPendingTeacherHomeworkReviewItems(resolvedItems);
-  const currentPendingItem = pendingItems[currentIndex] || null;
-  const currentItemKey = currentPendingItem?.key || '';
-  const codeTaskNumber = currentPendingItem?.sourceType === 'task' ? currentPendingItem.taskNumber : null;
-  const codeLevelId = currentPendingItem?.sourceType === 'task' ? currentPendingItem.levelId : '';
-  const codeQuestionId = currentPendingItem?.sourceType === 'task' ? currentPendingItem.questionId : '';
+  const completedCount = Math.max(0, resolvedItems.length - pendingItems.length);
+  const visibleItems = sortTeacherHomeworkReviewItems(
+    filterTeacherHomeworkReviewItems(resolvedItems, itemFilter),
+    itemSort
+  );
+  const currentReviewItem = visibleItems[currentIndex] || null;
+  const currentItemKey = currentReviewItem?.key || '';
+  const codeTaskNumber = currentReviewItem?.sourceType === 'task' ? currentReviewItem.taskNumber : null;
+  const codeLevelId = currentReviewItem?.sourceType === 'task' ? currentReviewItem.levelId : '';
+  const codeQuestionId = currentReviewItem?.sourceType === 'task' ? currentReviewItem.questionId : '';
   useEffect(() => {
-    if (currentIndex < pendingItems.length) return;
-    setCurrentIndex(Math.max(0, pendingItems.length - 1));
-  }, [currentIndex, pendingItems.length]);
+    if (currentIndex < visibleItems.length) return;
+    setCurrentIndex(Math.max(0, visibleItems.length - 1));
+  }, [currentIndex, visibleItems.length]);
+
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [itemFilter, itemSort]);
 
   useEffect(() => {
     setQuestionImageStateByKey({});
@@ -330,7 +360,7 @@ const TeacherHomeworkReviewModal = ({
 
   if (!open || typeof document === 'undefined') return null;
 
-  const currentItem = currentPendingItem;
+  const currentItem = currentReviewItem;
   const currentQuestion = currentItem?.question || {};
   const answerCountOverride = Math.floor(Number(currentQuestion?.answerCountOverride));
   const answerCount = Number.isFinite(answerCountOverride) && answerCountOverride > 0 && answerCountOverride <= 50
@@ -345,7 +375,10 @@ const TeacherHomeworkReviewModal = ({
     Array.isArray(rawExpectedAnswers) ? rawExpectedAnswers : [rawExpectedAnswers],
     answerCount
   );
-  const studentAnswers = normalizeAnswerValues(currentItem?.studentAnswers, answerCount);
+  const storedStudentAnswers = normalizeAnswerValues(currentItem?.studentAnswers, answerCount);
+  const studentAnswers = currentItem?.solved && storedStudentAnswers.every((value) => !value.trim())
+    ? expectedAnswers
+    : storedStudentAnswers;
   const answerHistory = Array.isArray(currentItem?.answerHistory) ? currentItem.answerHistory : [];
   const answerHistoryLatestFirst = answerHistory.slice().reverse();
   const screenshots = (Array.isArray(currentQuestion?.screenshots) ? currentQuestion.screenshots : [])
@@ -367,6 +400,7 @@ const TeacherHomeworkReviewModal = ({
     ? `${currentItem.mockExamTitle} · задание ${currentItem.taskDisplay}`
     : `Задание ${currentItem?.taskDisplay || ''} · №${currentItem?.questionNumber || ''}`;
   const questionCodeUpdatedAtLabel = formatAttemptTime(questionCodeState.updatedAt);
+  const currentSolveDurationLabel = formatSolveDuration(currentItem?.solveDurationMs);
 
   const handleCopyQuestionToBoard = async () => {
     if (!currentItem) return;
@@ -423,9 +457,9 @@ const TeacherHomeworkReviewModal = ({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                   <span className="rounded-lg bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase text-amber-800 sm:text-[11px]">
-                    Не выполнено к занятию
+                    Выполненная домашняя работа
                   </span>
-                  <span className="student-test-xp-badge">Просмотр ученика</span>
+                  <span className="student-test-xp-badge">Режим тестирования</span>
                 </div>
                 <h2 className="student-test-title mt-1.5 truncate">
                   Домашка · {studentLabel || 'Ученик'}
@@ -435,11 +469,11 @@ const TeacherHomeworkReviewModal = ({
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <div className="student-test-progress-summary hidden sm:block">
                 <div className="flex items-center justify-between gap-4 text-xs">
-                  <span>Осталось</span>
-                  <strong>{pendingItems.length}</strong>
+                  <span>Выполнено</span>
+                  <strong>{completedCount} из {resolvedItems.length}</strong>
                 </div>
                 <div className="student-test-progress-track mt-1.5">
-                  <div className="student-test-progress-fill bg-amber-500" style={{ width: pendingItems.length ? '100%' : '0%' }} />
+                  <div className="student-test-progress-fill bg-emerald-500" style={{ width: resolvedItems.length ? `${(completedCount / resolvedItems.length) * 100}%` : '0%' }} />
                 </div>
               </div>
               <button onClick={onClose} className="student-test-close" type="button" aria-label="Закрыть">
@@ -449,34 +483,57 @@ const TeacherHomeworkReviewModal = ({
           </header>
 
           <div className="student-test-navigation shrink-0">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
               <span className="student-test-question-caption">
                 {currentItem
-                  ? `Задание ${currentIndex + 1} из ${pendingItems.length}`
+                  ? `Номер ${currentIndex + 1} из ${visibleItems.length}`
                   : sourceLoading
                     ? 'Загружаем задания…'
-                    : 'Невыполненных заданий нет'}
+                    : 'В выбранной группе заданий нет'}
               </span>
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-700">
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-400" aria-hidden="true" />
-                Жёлтые — ученик уже пытался решить
-              </span>
+              <div className="teacher-homework-review-controls" aria-label="Фильтр и сортировка заданий">
+                <div className="teacher-homework-review-filter" role="group" aria-label="Показывать задания">
+                  {[
+                    ['all', 'Все', resolvedItems.length],
+                    ['completed', 'Сделано', completedCount],
+                    ['pending', 'Не сделано', pendingItems.length],
+                  ].map(([value, label, count]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={itemFilter === value ? 'is-active' : ''}
+                      onClick={() => setItemFilter(value)}
+                      aria-pressed={itemFilter === value}
+                    >
+                      {label} <small>{count}</small>
+                    </button>
+                  ))}
+                </div>
+                <label className="teacher-homework-review-sort">
+                  <ArrowDownUp size={14} aria-hidden="true" />
+                  <span className="sr-only">Сортировка заданий</span>
+                  <select value={itemSort} onChange={(event) => setItemSort(event.target.value)}>
+                    <option value="assignment">По порядку домашки</option>
+                    <option value="fastest">Сначала самые быстрые</option>
+                    <option value="slowest">Сначала самые долгие</option>
+                  </select>
+                </label>
+              </div>
             </div>
-            {pendingItems.length > 0 && (
+            {visibleItems.length > 0 && (
               <div className="student-test-question-list mt-2 flex gap-2 overflow-x-auto">
-                {pendingItems.map((item, index) => (
+                {visibleItems.map((item, index) => (
                   <button
                     key={item.key}
                     type="button"
                     onClick={() => setCurrentIndex(index)}
-                    className={`student-test-question-button ${index === currentIndex ? 'is-current' : ''} ${item.attempted ? 'is-wrong' : ''}`}
+                    className={`student-test-question-button teacher-homework-review-question-button ${index === currentIndex ? 'is-current' : ''} ${item.solved ? 'is-correct' : item.attempted ? 'is-wrong' : ''}`}
                     style={{ '--student-test-item-index': index }}
-                    title={item.attempted
-                      ? `${item.sourceType === 'mock' ? 'Пробник' : `Задание ${item.taskDisplay}`}, №${item.questionNumber}: были попытки`
-                      : `${item.sourceType === 'mock' ? 'Пробник' : `Задание ${item.taskDisplay}`}, №${item.questionNumber}`}
+                    title={`${item.sourceType === 'mock' ? 'Пробник' : `Задание ${item.taskDisplay}`}, №${item.questionNumber}: ${item.solved ? 'выполнено' : item.attempted ? 'были попытки' : 'нет ответа'}, ${formatSolveDuration(item.solveDurationMs).toLowerCase()}`}
                     aria-current={index === currentIndex ? 'step' : undefined}
                   >
-                    {index + 1}
+                    <span>№{item.questionNumber}</span>
+                    <small>{formatSolveDuration(item.solveDurationMs, '—')}</small>
                   </button>
                 ))}
               </div>
@@ -493,7 +550,7 @@ const TeacherHomeworkReviewModal = ({
             type="button"
             onClick={() => setCurrentIndex((index) => Math.max(0, index - 1))}
             disabled={!currentItem || currentIndex === 0}
-            className={`student-test-side-nav student-test-side-nav--prev ${pendingItems[currentIndex - 1]?.attempted ? 'is-wrong' : 'is-pending'}`}
+            className={`student-test-side-nav student-test-side-nav--prev ${visibleItems[currentIndex - 1]?.solved ? 'is-correct' : visibleItems[currentIndex - 1]?.attempted ? 'is-wrong' : 'is-pending'}`}
             aria-label="Предыдущее задание"
           >
             <span className="student-test-side-nav__glow" aria-hidden="true" />
@@ -502,9 +559,9 @@ const TeacherHomeworkReviewModal = ({
           </button>
           <button
             type="button"
-            onClick={() => setCurrentIndex((index) => Math.min(pendingItems.length - 1, index + 1))}
-            disabled={!currentItem || currentIndex >= pendingItems.length - 1}
-            className={`student-test-side-nav student-test-side-nav--next ${pendingItems[currentIndex + 1]?.attempted ? 'is-wrong' : 'is-pending'}`}
+            onClick={() => setCurrentIndex((index) => Math.min(visibleItems.length - 1, index + 1))}
+            disabled={!currentItem || currentIndex >= visibleItems.length - 1}
+            className={`student-test-side-nav student-test-side-nav--next ${visibleItems[currentIndex + 1]?.solved ? 'is-correct' : visibleItems[currentIndex + 1]?.attempted ? 'is-wrong' : 'is-pending'}`}
             aria-label="Следующее задание"
           >
             <span className="student-test-side-nav__glow" aria-hidden="true" />
@@ -531,8 +588,8 @@ const TeacherHomeworkReviewModal = ({
                   ) : (
                     <>
                       <CheckCircle size={36} className="mx-auto text-emerald-500" />
-                      <h3 className="mt-3 text-lg font-black text-slate-900">Все задания выполнены</h3>
-                      <p className="mt-1 text-sm text-slate-500">К этой домашке у ученика не осталось невыполненных тестовых заданий.</p>
+                      <h3 className="mt-3 text-lg font-black text-slate-900">Нет заданий для показа</h3>
+                      <p className="mt-1 text-sm text-slate-500">Измените фильтр, чтобы открыть выполненные или невыполненные номера.</p>
                     </>
                   )}
                 </section>
@@ -546,6 +603,13 @@ const TeacherHomeworkReviewModal = ({
                         </span>
                         <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">
                           {currentItem.levelLabel}
+                        </span>
+                        <span className={`teacher-homework-review-status-chip ${currentItem.solved ? 'is-completed' : 'is-pending'}`}>
+                          {currentItem.solved ? 'Выполнено' : currentItem.attempted ? 'Есть попытка' : 'Не выполнено'}
+                        </span>
+                        <span className={`teacher-homework-review-time-chip ${currentItem.solveDurationMs ? 'has-time' : ''}`} title="Активное время ученика на этом номере">
+                          <Clock3 size={14} aria-hidden="true" />
+                          {currentSolveDurationLabel}
                         </span>
                         {currentItem.optional && (
                           <span className="inline-flex rounded-full border border-fuchsia-200 bg-fuchsia-50 px-3 py-1 text-xs font-bold text-fuchsia-700">Дополнительно</span>
@@ -673,10 +737,10 @@ const TeacherHomeworkReviewModal = ({
                     <div className="teacher-test-review-answer-grid">
                       <AnswerPreview
                         title="Ответ ученика"
-                        status={currentItem.attempted ? 'Последняя попытка неверная' : 'Нет ответа'}
+                        status={currentItem.solved ? 'Верный ответ' : currentItem.attempted ? 'Последняя попытка неверная' : 'Нет ответа'}
                         values={studentAnswers}
                         answerCount={answerCount}
-                        tone={currentItem.attempted ? 'is-wrong' : 'is-empty'}
+                        tone={currentItem.solved ? 'is-correct' : currentItem.attempted ? 'is-wrong' : 'is-empty'}
                       />
                       <AnswerPreview
                         title="Правильный ответ"
@@ -698,6 +762,7 @@ const TeacherHomeworkReviewModal = ({
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span className={`font-bold ${entry.correct ? 'text-green-600' : 'text-red-600'}`}>{entry.correct ? 'Верно' : 'Неверно'}</span>
                               <span className="text-gray-400">{formatAttemptTime(entry.submittedAt)}</span>
+                              <span className="teacher-homework-review-attempt-time"><Clock3 size={12} />{formatSolveDuration(entry.solveDurationMs)}</span>
                             </div>
                             <div className="mt-1 break-words font-mono text-[11px] leading-5 text-gray-700">{formatAnswerValues(entry.answers, answerCount)}</div>
                           </div>
@@ -775,16 +840,16 @@ const TeacherHomeworkReviewModal = ({
           </div>
 
           <footer className="student-test-footer shrink-0">
-            <div className="teacher-test-review-footer-summary mr-auto">Не выполнено: <strong>{pendingItems.length}</strong></div>
+            <div className="teacher-test-review-footer-summary mr-auto">Выполнено: <strong>{completedCount} из {resolvedItems.length}</strong></div>
             <Button variant="secondary" onClick={onClose}>Закрыть</Button>
             <Button
               onClick={() => {
-                if (!currentItem || currentIndex >= pendingItems.length - 1) onClose?.();
+                if (!currentItem || currentIndex >= visibleItems.length - 1) onClose?.();
                 else setCurrentIndex((index) => index + 1);
               }}
               className="student-test-primary-action is-ready"
             >
-              {!currentItem || currentIndex >= pendingItems.length - 1 ? 'Закрыть просмотр' : 'Следующее задание'}
+              {!currentItem || currentIndex >= visibleItems.length - 1 ? 'Закрыть просмотр' : 'Следующее задание'}
             </Button>
           </footer>
         </div>
