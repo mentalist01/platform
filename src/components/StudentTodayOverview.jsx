@@ -272,7 +272,7 @@ const StudentTodayOverview = ({
         </span>
         <span className="student-today-overview__time-plan-copy">
           <small>{isPrimaryPlan ? 'Самый лёгкий старт' : 'Можно взять побольше'}</small>
-          <strong>Всего ≈{planMinutes} минут</strong>
+          <strong>Сделать {taskCountLabel} за ≈{planMinutes} минут</strong>
           <span>{taskCountLabel} — и можно отдыхать</span>
         </span>
         <ArrowRight size={isPrimaryPlan ? 20 : 16} aria-hidden="true" />
@@ -312,7 +312,7 @@ const StudentTodayOverview = ({
             id="quick-homework-time-plan-title"
             className="mt-4 max-w-2xl text-xl font-black leading-tight md:text-2xl"
           >
-            Выбери свой темп
+            Выбери свой темп решения домашки
           </h3>
         ) : (
           <strong className="mt-4 max-w-2xl text-xl font-black leading-tight md:text-2xl">
@@ -321,7 +321,6 @@ const StudentTodayOverview = ({
         )}
         {timePlanPicker ? (
           <>
-            <span className="mt-1.5 text-sm text-purple-100">Начни с малого: только задания из твоей домашки, без лишнего.</span>
             <div className="student-today-overview__time-plans mt-auto pt-4" aria-label="Выберите длительность домашней работы">
               {availableTimePlans.map(renderTimePlanButton)}
             </div>
