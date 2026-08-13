@@ -29303,6 +29303,237 @@ html[data-theme='light'] .student-profile-info-chip--self {
   color: rgb(4, 120, 87) !important;
 }
 
+.student-artifact-altar--disclosure {
+  overflow: hidden;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.student-artifact-altar--collapsed:hover {
+  border-color: rgba(245, 158, 11, 0.62) !important;
+  box-shadow:
+    0 22px 50px rgba(245, 158, 11, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78) !important;
+}
+
+.student-artifact-altar__summary {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.student-artifact-altar__summary-preview {
+  display: flex;
+  min-width: 250px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+}
+
+.student-artifact-altar__summary-artifacts {
+  display: flex;
+  align-items: center;
+  min-width: 132px;
+  padding-left: 0.3rem;
+}
+
+.student-artifact-altar__summary-artifact,
+.student-artifact-altar__summary-more {
+  position: relative;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  place-items: center;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.94);
+  border-radius: 15px;
+  background: linear-gradient(145deg, rgba(255, 251, 235, 0.98), rgba(254, 243, 199, 0.94));
+  box-shadow: 0 8px 20px rgba(146, 64, 14, 0.15);
+}
+
+.student-artifact-altar__summary-artifact:not(:first-child),
+.student-artifact-altar__summary-more {
+  margin-left: -10px;
+}
+
+.student-artifact-altar__summary-artifact {
+  z-index: calc(5 - var(--artifact-summary-index));
+}
+
+.student-artifact-altar__summary-artifact img {
+  width: 90%;
+  height: 90%;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 7px rgba(15, 23, 42, 0.2));
+}
+
+.student-artifact-altar__summary-artifact > span {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  min-width: 17px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #92400e;
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.student-artifact-altar__summary-artifact--secret img {
+  filter: brightness(0) saturate(0) opacity(0.72) drop-shadow(0 0 8px rgba(244, 63, 94, 0.35));
+}
+
+.student-artifact-altar__summary-artifact[data-rank='SS'],
+.student-artifact-altar__summary-artifact[data-rank='S'] {
+  background: linear-gradient(145deg, rgba(255, 228, 240, 0.98), rgba(254, 215, 226, 0.94));
+  box-shadow: 0 8px 22px rgba(244, 63, 94, 0.2);
+}
+
+.student-artifact-altar__summary-more {
+  z-index: 0;
+  border-color: rgba(253, 230, 138, 0.9);
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.student-artifact-altar__summary-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.student-artifact-altar__summary-metrics span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.student-artifact-altar__summary-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.55rem;
+}
+
+.student-artifact-altar__disclosure-button {
+  display: inline-flex;
+  min-width: 154px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f59e0b, #ea580c);
+  padding: 0.65rem 0.9rem;
+  color: white;
+  box-shadow: 0 10px 20px rgba(234, 88, 12, 0.2);
+  font-size: 12px;
+  font-weight: 800;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.student-artifact-altar__disclosure-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 13px 24px rgba(234, 88, 12, 0.27);
+}
+
+.student-artifact-altar__disclosure-button:focus-visible {
+  outline: 3px solid rgba(245, 158, 11, 0.28);
+  outline-offset: 2px;
+}
+
+.student-artifact-altar__disclosure-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.student-artifact-altar__disclosure-button svg {
+  transition: transform 180ms ease;
+}
+
+.student-artifact-altar__disclosure-button[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.student-artifact-altar__tour-target {
+  animation: artifactAltarDisclosureIn 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes artifactAltarDisclosureIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+html[data-theme='dark'] .student-artifact-altar__summary-status,
+html[data-theme='dark'] .student-artifact-altar__summary-artifact > span {
+  border-color: rgba(251, 191, 36, 0.22) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+  color: rgba(252, 211, 77, 0.96) !important;
+}
+
+html[data-theme='dark'] .student-artifact-altar__summary-artifact,
+html[data-theme='dark'] .student-artifact-altar__summary-more {
+  border-color: rgba(71, 85, 105, 0.9);
+  background: linear-gradient(145deg, rgba(51, 65, 85, 0.94), rgba(15, 23, 42, 0.96));
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.4);
+}
+
+html[data-theme='dark'] .student-artifact-altar__summary-metrics span {
+  color: rgba(203, 213, 225, 0.78);
+}
+
+@media (max-width: 1023px) {
+  .student-artifact-altar__summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .student-artifact-altar__summary-preview {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 639px) {
+  .student-artifact-altar__summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.9rem;
+  }
+
+  .student-artifact-altar__summary-preview {
+    grid-column: auto;
+    grid-row: auto;
+    min-width: 0;
+    justify-content: space-between;
+  }
+
+  .student-artifact-altar__summary-actions {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .student-artifact-altar__disclosure-button {
+    min-width: 0;
+  }
+}
+
 html[data-theme='light'] .student-profile-rating-button {
   border-color: rgba(109, 40, 217, 0.72) !important;
   background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 52%, #2563eb 100%) !important;

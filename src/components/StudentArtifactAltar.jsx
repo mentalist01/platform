@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Package2, Sparkles, X } from 'lucide-react';
+import { ChevronDown, Package2, Sparkles, X } from 'lucide-react';
 import CoinGuideIcon from './CoinGuideTooltip';
 import ivanCoin from '../assets/ivan-coin-badge-128.webp';
 import artifactSpinMusic from '../assets/artefacts/music/spin.mp3';
@@ -487,9 +487,11 @@ const StudentArtifactAltar = ({
   const [upgradeFlash, setUpgradeFlash] = useState(null);
   const [upgradeShowcase, setUpgradeShowcase] = useState(null);
   const [duplicateCoinFlights, setDuplicateCoinFlights] = useState([]);
+  const [isExpanded, setIsExpanded] = useState(false);
   const isSpinStageActive = altarPhase === 'spinning';
   const canSpin = typeof onSpin === 'function' && !spinning && !isSpinStageActive && coinsTotal >= spinCost;
   const spinButtonBusy = spinning || isSpinStageActive;
+  const isDisclosureLocked = spinButtonBusy;
 
   const collectedArtifacts = useMemo(() => (
     collection
@@ -549,6 +551,14 @@ const StudentArtifactAltar = ({
         },
       }))
   ), []);
+
+  const summaryPreviewArtifacts = useMemo(() => {
+    if (collectedArtifacts.length > 0) {
+      return collectedArtifacts.slice(0, 3).map((artifact) => ({ ...artifact, collected: true }));
+    }
+    return legendaryTeasers.slice(0, 3).map((artifact) => ({ ...artifact, collected: false }));
+  }, [collectedArtifacts, legendaryTeasers]);
+  const hiddenCollectedCount = Math.max(0, uniqueOwned - summaryPreviewArtifacts.length);
 
   const spinCycleRef = useRef(false);
   const spinStartedAtRef = useRef(0);
@@ -1204,28 +1214,81 @@ const StudentArtifactAltar = ({
 
   return (
     <>
-    <div className="student-artifact-altar rounded-[28px] border border-amber-200/80 bg-[radial-gradient(circle_at_top,rgba(255,244,214,0.95),rgba(255,255,255,0.94)_52%,rgba(255,248,233,0.98))] px-4 py-4 shadow-[0_22px_50px_rgba(245,158,11,0.12)]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="student-artifact-altar__header-copy">
-          <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Алтарь артефактов</div>
+    <div
+      className={`student-artifact-altar student-artifact-altar--disclosure rounded-[28px] border border-amber-200/80 bg-[radial-gradient(circle_at_top,rgba(255,244,214,0.95),rgba(255,255,255,0.94)_52%,rgba(255,248,233,0.98))] px-4 py-4 shadow-[0_22px_50px_rgba(245,158,11,0.12)] ${isExpanded ? 'student-artifact-altar--expanded' : 'student-artifact-altar--collapsed'}`}
+      data-tour="rating-altar"
+    >
+      <div className="student-artifact-altar__summary">
+        <div className="student-artifact-altar__summary-copy student-artifact-altar__header-copy min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Алтарь артефактов</div>
+            <span className="student-artifact-altar__summary-status inline-flex items-center gap-1 rounded-full border border-amber-200/80 bg-white/75 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-amber-700">
+              <Package2 size={11} />
+              {`Коллекция ${uniqueOwned}/${ARTIFACT_CATALOG.length}`}
+            </span>
+          </div>
           <div className="mt-1 text-base font-semibold text-slate-900">
-            Выбивай артефакты за монеты и собирай свою коллекцию
+            Крути алтарь и собирай артефакты с игровыми бонусами
           </div>
           <div className="mt-1 text-xs text-slate-600">
-            Одна крутка стоит {spinCost} монет.
+            {uniqueOwned > 0
+              ? `Открыто ${uniqueOwned} из ${ARTIFACT_CATALOG.length} · экземпляров ${totalOwned} · круток ${totalPulls}`
+              : `${ARTIFACT_CATALOG.length} артефактов пяти рангов · одна крутка стоит ${spinCost} монет`}
           </div>
         </div>
-        <div
-          ref={walletRef}
-          className={`student-artifact-altar__wallet inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/90 px-3 py-1.5 text-sm font-semibold text-amber-700 shadow-sm ${duplicateCoinFlights.length > 0 ? 'student-artifact-altar__wallet--receiving' : ''}`}
-          data-tour="rating-coins"
-        >
-          <CoinGuideIcon className="h-4 w-4 object-contain" />
-          <span>{`${Math.max(0, Math.floor(Number(coinsTotal) || 0)).toLocaleString('ru-RU')} монет`}</span>
+
+        <div className="student-artifact-altar__summary-preview" data-tour={!isExpanded ? 'rating-artifacts' : undefined}>
+          <div className="student-artifact-altar__summary-artifacts" aria-label={uniqueOwned > 0 ? 'Артефакты из коллекции' : 'Секретные артефакты алтаря'}>
+            {summaryPreviewArtifacts.map((artifact, index) => (
+              <div
+                key={`artifact-summary-${artifact.id}`}
+                className={`student-artifact-altar__summary-artifact ${artifact.collected ? '' : 'student-artifact-altar__summary-artifact--secret'}`}
+                data-rank={artifact.rank}
+                style={{ '--artifact-summary-index': index }}
+                title={artifact.collected ? artifact.name : `Секретный ${artifact.rank}-ранг`}
+              >
+                <img src={artifact.src} alt="" loading="lazy" decoding="async" />
+                <span>{artifact.rank}</span>
+              </div>
+            ))}
+            {hiddenCollectedCount > 0 && (
+              <div className="student-artifact-altar__summary-more" aria-label={`Ещё ${hiddenCollectedCount} артефактов`}>
+                {`+${hiddenCollectedCount}`}
+              </div>
+            )}
+          </div>
+          <div className="student-artifact-altar__summary-metrics">
+            <span><Package2 size={13} />{`${uniqueOwned}/${ARTIFACT_CATALOG.length} открыто`}</span>
+            <span><Sparkles size={13} />{`${spinCost} за крутку`}</span>
+          </div>
+        </div>
+
+        <div className="student-artifact-altar__summary-actions">
+          <div
+            ref={walletRef}
+            className={`student-artifact-altar__wallet inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white/90 px-3 py-1.5 text-sm font-semibold text-amber-700 shadow-sm ${duplicateCoinFlights.length > 0 ? 'student-artifact-altar__wallet--receiving' : ''}`}
+            data-tour="rating-coins"
+          >
+            <CoinGuideIcon className="h-4 w-4 object-contain" />
+            <span>{`${Math.max(0, Math.floor(Number(coinsTotal) || 0)).toLocaleString('ru-RU')} монет`}</span>
+          </div>
+          <button
+            type="button"
+            className="student-artifact-altar__disclosure-button"
+            onClick={() => setIsExpanded((current) => !current)}
+            disabled={isDisclosureLocked}
+            aria-expanded={isExpanded}
+            aria-controls="student-artifact-altar-content"
+            data-tour={!isExpanded ? 'rating-altar-spin' : undefined}
+          >
+            <span>{isExpanded ? 'Скрыть алтарь' : 'Открыть алтарь'}</span>
+            <ChevronDown size={17} aria-hidden="true" />
+          </button>
         </div>
       </div>
 
-      <div className="student-artifact-altar__tour-target mt-4 flow-root" data-tour="rating-altar">
+      {isExpanded && (
+      <div id="student-artifact-altar-content" className="student-artifact-altar__tour-target mt-4 flow-root">
       {legendaryTeasers.length > 0 && (
         <div className="student-artifact-altar__legendary-teaser rounded-[26px] border p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -1606,6 +1669,7 @@ const StudentArtifactAltar = ({
         </div>
       </div>
       </div>
+      )}
     </div>
     {duplicateCoinFlights.length > 0 && (typeof document !== 'undefined'
       ? createPortal(

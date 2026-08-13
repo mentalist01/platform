@@ -3534,7 +3534,7 @@ const STUDENT_RATING_TOUR_STEPS = [
   {
     id: 'rating-spin',
     title: 'Крутка',
-    text: 'Кнопка призыва запускает выпадение. Если монет не хватает, подсказка покажет, сколько ещё нужно.',
+    text: 'Открой алтарь, а затем запускай призыв. Если монет не хватает, подсказка покажет, сколько ещё нужно.',
     emotion: 'pondering',
     target: '[data-tour="rating-altar-spin"]',
     fallback: '[data-tour="rating-altar"]',
@@ -3544,7 +3544,7 @@ const STUDENT_RATING_TOUR_STEPS = [
   {
     id: 'rating-artifacts',
     title: 'Коллекция',
-    text: 'Найденные артефакты остаются здесь. Открывай карточки, чтобы посмотреть описание, ранг и бонусы.',
+    text: 'В свернутой витрине виден прогресс коллекции. Открой алтарь, чтобы посмотреть описание, ранг и бонусы каждого артефакта.',
     emotion: 'peeking',
     target: '[data-tour="rating-artifacts"]',
     fallback: '[data-tour="rating-altar"]',
