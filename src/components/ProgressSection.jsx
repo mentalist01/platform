@@ -334,7 +334,19 @@ const WEEKLY_TASK_PRACTICE_ICON_BY_KEY = {
   stale: History,
 };
 
+const isWeeklyTaskReviewActive = (indicator) => Boolean(
+  indicator?.phase === 'refresh'
+  && [
+    'due',
+    'stale',
+    'building-low',
+    'building-mid',
+    'building-high',
+  ].includes(indicator?.key)
+);
+
 const WeeklyTaskPracticeBadge = ({ indicator, compact = false, summary = false }) => {
+  if (!indicator || indicator.key === 'new') return null;
   const label = compact ? indicator.compactLabel : indicator.label;
   const toneClass = WEEKLY_TASK_PRACTICE_CLASS_BY_KEY[indicator.key]
     || WEEKLY_TASK_PRACTICE_CLASS_BY_KEY.unknown;
@@ -658,6 +670,7 @@ const ProgressSection = ({
   const [autoTargetQuestions, setAutoTargetQuestions] = useState(null);
   const [activeLevel, setActiveLevel] = useState(null);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(null);
+  const [activeReviewMode, setActiveReviewMode] = useState(false);
   const [mobileLevelPickerTaskId, setMobileLevelPickerTaskId] = useState(null);
   const [mobileLevelPopupView, setMobileLevelPopupView] = useState(null);
   const [mobileLevelPopupClosing, setMobileLevelPopupClosing] = useState(false);
@@ -4234,8 +4247,13 @@ const ProgressSection = ({
                               <div className="text-center text-[12.5px] font-semibold leading-[1.05rem] text-slate-700 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
                                 {node.title}
                               </div>
-                              <div className="mt-1.5 flex justify-center">
-                                <WeeklyTaskPracticeBadge indicator={practiceIndicator} compact />
+                              <div
+                                className={`mt-1.5 flex justify-center ${practiceIndicator?.key === 'new' ? 'min-h-5' : ''}`}
+                                aria-hidden={practiceIndicator?.key === 'new' ? 'true' : undefined}
+                              >
+                                {practiceIndicator?.key !== 'new' && (
+                                  <WeeklyTaskPracticeBadge indicator={practiceIndicator} compact />
+                                )}
                               </div>
                             </div>
                           </div>
@@ -4268,13 +4286,14 @@ const ProgressSection = ({
               });
               const studentActionLabel = val <= 0
                 ? 'Начать практику'
-                : (practiceIndicator && ['due', 'stale'].includes(practiceIndicator.key)
-                    ? 'Повторить тему'
+                : (isWeeklyTaskReviewActive(practiceIndicator)
+                    ? (practiceIndicator.currentCount > 0 ? 'Продолжить повторение' : 'Повторить тему')
                     : 'Продолжить практику');
               const openTopic = () => {
                 if (role === 'teacher') setReviewTask(task);
                 else {
                   setForceInitialLevelLaunch(false);
+                  setActiveReviewMode(isWeeklyTaskReviewActive(practiceIndicator));
                   setActiveLevel(null);
                   setActiveQuestionIndex(null);
                   setActiveTask(task);
@@ -4363,11 +4382,14 @@ const ProgressSection = ({
                         </button>
                       )}
                     </div>
-                    {practiceIndicator && (
-                      <div className="mt-2.5 flex">
+                    <div
+                      className={`mt-2.5 flex ${practiceIndicator?.key === 'new' ? 'min-h-[2.1rem]' : ''}`}
+                      aria-hidden={practiceIndicator?.key === 'new' ? 'true' : undefined}
+                    >
+                      {practiceIndicator?.key !== 'new' && (
                         <WeeklyTaskPracticeBadge indicator={practiceIndicator} summary />
-                      </div>
-                    )}
+                      )}
+                    </div>
                     <div className="progress-topic-progress mt-3">
                       <div
                         className="progress-topic-progress__track overflow-hidden rounded-full"
@@ -4406,6 +4428,7 @@ const ProgressSection = ({
             setAutoTargetQuestions(null);
             setActiveLevel(null);
             setActiveQuestionIndex(null);
+            setActiveReviewMode(false);
             setForceInitialLevelLaunch(false);
           }}
           progress={progressMap}
@@ -4419,6 +4442,18 @@ const ProgressSection = ({
           onStreakSaved={onStreakSaved}
           onXpGain={onXpGain}
           forceInitialLevelLaunch={forceInitialLevelLaunch}
+          reviewMode={activeReviewMode || isWeeklyTaskReviewActive(
+            getTaskPracticeIndicator(
+              activeTask,
+              Math.max(0, Math.min(100, Number(progressMap[activeTask.id] || 0)))
+            )
+          )}
+          onPracticeAttempt={() => {
+            if (!effectiveStudentId) return;
+            api.getStudentData(effectiveStudentId)
+              .then((data) => setStudentData(normalizeProgressSectionStudentData(data)))
+              .catch(() => {});
+          }}
           LEVELS={LEVELS}
           LEVEL_WEIGHTS={LEVEL_WEIGHTS}
           GAME_THEORY_TASK={GAME_THEORY_TASK}

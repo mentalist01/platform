@@ -3,6 +3,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const WEEKLY_TASK_PRACTICE_TARGET = 10;
 export const WEEKLY_TASK_PRACTICE_REFRESH_TARGET = 5;
 export const WEEKLY_TASK_PRACTICE_WINDOW_DAYS = 7;
+export const WEEKLY_TASK_PRACTICE_SRS_INTERVALS = Object.freeze([30, 60, 90, 120]);
+export const WEEKLY_TASK_PRACTICE_WEAK_INTERVAL_DAYS = 14;
 
 const isObjectRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -75,6 +77,45 @@ const getHistoricalSolvedQuestionKeysByTask = (studentData, gameTheoryTask) => {
   return result;
 };
 
+const getAnswerAttemptsByTask = (studentData, gameTheoryTask, referenceDay) => {
+  const result = new Map();
+  const solvedByTask = isObjectRecord(studentData?.solvedByTask) ? studentData.solvedByTask : {};
+
+  Object.entries(solvedByTask).forEach(([rawTaskNumber, rawLevels]) => {
+    const taskNumber = normalizeTaskNumber(rawTaskNumber, gameTheoryTask);
+    if (!Number.isFinite(taskNumber) || !isObjectRecord(rawLevels)) return;
+    const taskKey = String(taskNumber);
+    const attempts = result.get(taskKey) || [];
+
+    Object.entries(rawLevels).forEach(([levelId, rawLevel]) => {
+      if (String(levelId || '').startsWith('_') || !isObjectRecord(rawLevel?.answerHistory)) return;
+      Object.entries(rawLevel.answerHistory).forEach(([questionId, rawEntries]) => {
+        const questionKey = getQuestionPracticeKey(levelId, questionId);
+        if (!questionKey || !Array.isArray(rawEntries)) return;
+        rawEntries.forEach((entry) => {
+          const timestamp = parseTimestamp(entry?.submittedAt);
+          const storedDayNumber = getDayNumberFromDayKey(entry?.localDay);
+          const dayNumber = Number.isFinite(storedDayNumber)
+            ? storedDayNumber
+            : getLocalDayNumber(timestamp);
+          if (!Number.isFinite(timestamp) || !Number.isFinite(dayNumber) || dayNumber > referenceDay) return;
+          attempts.push({
+            questionKey,
+            timestamp,
+            dayNumber,
+            iso: new Date(timestamp).toISOString(),
+            correct: entry?.correct === true,
+          });
+        });
+      });
+    });
+
+    if (attempts.length > 0) result.set(taskKey, attempts);
+  });
+
+  return result;
+};
+
 const normalizeIsoTimestamp = (value) => {
   const timestamp = parseTimestamp(value);
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : '';
@@ -83,6 +124,33 @@ const normalizeIsoTimestamp = (value) => {
 const normalizeDayNumber = (value) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.trunc(numeric) : null;
+};
+
+const normalizeSrsLevel = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(
+    0,
+    Math.min(WEEKLY_TASK_PRACTICE_SRS_INTERVALS.length - 1, Math.trunc(numeric))
+  );
+};
+
+const getSrsIntervalForLevel = (level) => (
+  WEEKLY_TASK_PRACTICE_SRS_INTERVALS[normalizeSrsLevel(level)]
+  || WEEKLY_TASK_PRACTICE_SRS_INTERVALS[0]
+);
+
+const inferSrsLevel = (rawLevel, rawIntervalDays) => {
+  if (Number.isFinite(Number(rawLevel))) return normalizeSrsLevel(rawLevel);
+  const intervalDays = Number(rawIntervalDays);
+  if (!Number.isFinite(intervalDays)) return 0;
+  let closestLevel = 0;
+  WEEKLY_TASK_PRACTICE_SRS_INTERVALS.forEach((candidate, index) => {
+    if (Math.abs(candidate - intervalDays) < Math.abs(
+      WEEKLY_TASK_PRACTICE_SRS_INTERVALS[closestLevel] - intervalDays
+    )) closestLevel = index;
+  });
+  return closestLevel;
 };
 
 const getQualificationDay = (qualifiedAt, rawDayNumber) => {
@@ -154,6 +222,27 @@ export const normalizeWeeklyTaskPracticeMilestones = (
     );
     const tracked = Boolean(rawMilestone.tracked || established);
     if (!tracked) return;
+    const srsLevel = inferSrsLevel(rawMilestone.srsLevel, rawMilestone.intervalDays);
+    const rawIntervalDays = Number(rawMilestone.intervalDays);
+    const intervalDays = established && Number.isFinite(rawIntervalDays) && rawIntervalDays > 0
+      ? Math.max(1, Math.trunc(rawIntervalDays))
+      : getSrsIntervalForLevel(srsLevel);
+    const rawNextDueDay = normalizeDayNumber(rawMilestone.nextDueDay);
+    const nextDueDay = established && Number.isFinite(rawNextDueDay)
+      ? rawNextDueDay
+      : (established && Number.isFinite(latestQualification.qualifiedDay)
+          ? latestQualification.qualifiedDay + intervalDays
+          : null);
+    const hasLastReviewScore = rawMilestone.lastReviewScore !== null
+      && typeof rawMilestone.lastReviewScore !== 'undefined'
+      && String(rawMilestone.lastReviewScore).trim() !== '';
+    const rawLastReviewScore = Number(rawMilestone.lastReviewScore);
+    const lastReviewScore = hasLastReviewScore && Number.isFinite(rawLastReviewScore)
+      ? Math.max(0, Math.min(WEEKLY_TASK_PRACTICE_REFRESH_TARGET, Math.trunc(rawLastReviewScore)))
+      : null;
+    const lastReviewRating = ['strong', 'medium', 'weak'].includes(rawMilestone.lastReviewRating)
+      ? rawMilestone.lastReviewRating
+      : '';
     result[String(taskNumber)] = {
       tracked: true,
       established,
@@ -162,6 +251,14 @@ export const normalizeWeeklyTaskPracticeMilestones = (
       initialQualifiedDay: Number.isFinite(initialQualifiedDay) ? initialQualifiedDay : null,
       qualifiedAt,
       qualifiedDay: latestQualification.qualifiedDay,
+      ...(established ? {
+        srsLevel,
+        intervalDays,
+        nextDueDay: Number.isFinite(nextDueDay) ? nextDueDay : null,
+        reviewCount: Math.max(0, Math.trunc(Number(rawMilestone.reviewCount) || 0)),
+        lastReviewScore,
+        lastReviewRating,
+      } : {}),
     };
   });
 
@@ -204,6 +301,7 @@ const removeQuestionFromWindow = (questionCounts, questionKey) => {
 
 const getStatsForEvents = (
   rawEvents,
+  rawAttempts,
   referenceDay,
   initialTarget,
   refreshTarget,
@@ -219,10 +317,6 @@ const getStatsForEvents = (
   let windowStart = 0;
   let computedInitialQualifiedAt = '';
   let computedInitialQualifiedDay = null;
-  let computedRefreshQualifiedAt = '';
-  let computedRefreshQualifiedDay = null;
-  let computedQualifiedAt = '';
-  let computedQualifiedDay = null;
 
   events.forEach((event, eventIndex) => {
     questionCounts.set(event.questionKey, (questionCounts.get(event.questionKey) || 0) + 1);
@@ -233,17 +327,9 @@ const getStatsForEvents = (
       removeQuestionFromWindow(questionCounts, events[windowStart].questionKey);
       windowStart += 1;
     }
-    if (questionCounts.size >= refreshTarget) {
-      computedRefreshQualifiedAt = event.iso;
-      computedRefreshQualifiedDay = event.dayNumber;
-    }
     if (!computedInitialQualifiedAt && questionCounts.size >= initialTarget) {
       computedInitialQualifiedAt = event.iso;
       computedInitialQualifiedDay = event.dayNumber;
-    }
-    if (computedInitialQualifiedAt && questionCounts.size >= refreshTarget) {
-      computedQualifiedAt = event.iso;
-      computedQualifiedDay = event.dayNumber;
     }
   });
 
@@ -296,6 +382,21 @@ const getStatsForEvents = (
   const hasEstablishedPractice = hasStoredEstablishedPractice
     || hasLegacyPractice
     || Boolean(computedInitialQualifiedAt);
+  const storedReviewCount = Math.max(
+    0,
+    Math.trunc(Number(normalizedStoredMilestone.reviewCount) || 0)
+  );
+  const storedInitialCompletionIsCurrent = !hasLegacyPractice
+    && storedReviewCount === 0
+    && Number.isFinite(storedInitialQualifiedDay)
+    && storedInitialQualifiedDay >= currentWindowStart
+    && currentQuestionKeys.size >= initialTarget;
+  const isReviewPhase = (hasStoredEstablishedPractice && !storedInitialCompletionIsCurrent)
+    || hasLegacyPractice
+    || (
+      Number.isFinite(computedInitialQualifiedDay)
+      && computedInitialQualifiedDay < currentWindowStart
+    );
   const hasTrackedPractice = hasStoredTrackedPractice
     || events.length > 0
     || hasEstablishedPractice;
@@ -303,35 +404,54 @@ const getStatsForEvents = (
   const initialQualifiedDay = storedInitialQualifiedAt
     ? storedInitialQualifiedDay
     : computedInitialQualifiedDay;
-  const refreshQualification = hasEstablishedPractice
-    ? getLatestQualification(
-        storedQualification,
-        {
-          qualifiedAt: computedRefreshQualifiedAt,
-          qualifiedDay: computedRefreshQualifiedDay,
-        }
-      )
-    : {
-        qualifiedAt: computedRefreshQualifiedAt,
-        qualifiedDay: computedRefreshQualifiedDay,
-      };
   const qualification = hasEstablishedPractice
     ? getLatestQualification(
         storedQualification,
-        {
-          qualifiedAt: computedQualifiedAt,
-          qualifiedDay: computedQualifiedDay,
-        },
-        {
-          qualifiedAt: initialQualifiedAt,
-          qualifiedDay: initialQualifiedDay,
-        },
-        {
-          qualifiedAt: computedRefreshQualifiedAt,
-          qualifiedDay: computedRefreshQualifiedDay,
-        }
+        { qualifiedAt: initialQualifiedAt, qualifiedDay: initialQualifiedDay }
       )
     : { qualifiedAt: '', qualifiedDay: null };
+  const srsLevel = inferSrsLevel(
+    normalizedStoredMilestone.srsLevel,
+    normalizedStoredMilestone.intervalDays
+  );
+  const storedIntervalDays = Number(normalizedStoredMilestone.intervalDays);
+  const intervalDays = Number.isFinite(storedIntervalDays) && storedIntervalDays > 0
+    ? Math.max(1, Math.trunc(storedIntervalDays))
+    : getSrsIntervalForLevel(srsLevel);
+  const storedNextDueDay = normalizeDayNumber(normalizedStoredMilestone.nextDueDay);
+  const nextDueDay = Number.isFinite(storedNextDueDay)
+    ? storedNextDueDay
+    : (Number.isFinite(qualification.qualifiedDay)
+        ? qualification.qualifiedDay + intervalDays
+        : null);
+  const earliestAttemptDay = (Array.isArray(rawAttempts) ? rawAttempts : []).reduce(
+    (earliest, attempt) => (
+      Number.isFinite(attempt?.dayNumber) ? Math.min(earliest, attempt.dayNumber) : earliest
+    ),
+    Number.POSITIVE_INFINITY
+  );
+  const reviewDueDay = Number.isFinite(nextDueDay)
+    ? nextDueDay
+    : (hasLegacyPractice && Number.isFinite(earliestAttemptDay) ? earliestAttemptDay : null);
+  const reviewAttempts = Array.isArray(rawAttempts) ? [...rawAttempts] : [];
+  const attemptQuestionKeys = new Set(reviewAttempts.map((attempt) => attempt.questionKey));
+  events.forEach((event) => {
+    if (attemptQuestionKeys.has(event.questionKey)) return;
+    reviewAttempts.push({ ...event, correct: true });
+  });
+  const reviewStats = isReviewPhase
+    ? getSrsReviewStats(
+        reviewAttempts,
+        reviewDueDay,
+        referenceDay,
+        refreshTarget,
+        windowDays
+      )
+    : { currentCount: 0, qualifiedAt: '', qualifiedDay: null, score: null, rating: '' };
+  const effectiveQualification = getLatestQualification(
+    qualification,
+    { qualifiedAt: reviewStats.qualifiedAt, qualifiedDay: reviewStats.qualifiedDay }
+  );
 
   return {
     target: initialTarget,
@@ -339,13 +459,27 @@ const getStatsForEvents = (
     refreshTarget,
     windowDays,
     referenceDay,
-    currentCount: currentQuestionKeys.size,
+    currentCount: isReviewPhase ? reviewStats.currentCount : currentQuestionKeys.size,
+    initialCurrentCount: currentQuestionKeys.size,
     initialQualifiedAt,
     initialQualifiedDay,
-    refreshQualifiedAt: refreshQualification.qualifiedAt,
-    refreshQualifiedDay: refreshQualification.qualifiedDay,
-    qualifiedAt: qualification.qualifiedAt,
-    qualifiedDay: qualification.qualifiedDay,
+    refreshQualifiedAt: reviewStats.qualifiedAt,
+    refreshQualifiedDay: reviewStats.qualifiedDay,
+    qualifiedAt: effectiveQualification.qualifiedAt,
+    qualifiedDay: effectiveQualification.qualifiedDay,
+    srsLevel,
+    intervalDays,
+    nextDueDay,
+    pendingReviewScore: reviewStats.score,
+    pendingReviewRating: reviewStats.rating,
+    reviewCount: storedReviewCount,
+    lastReviewScore: normalizedStoredMilestone.lastReviewScore !== null
+      && typeof normalizedStoredMilestone.lastReviewScore !== 'undefined'
+      && String(normalizedStoredMilestone.lastReviewScore).trim() !== ''
+      && Number.isFinite(Number(normalizedStoredMilestone.lastReviewScore))
+      ? Number(normalizedStoredMilestone.lastReviewScore)
+      : null,
+    lastReviewRating: normalizedStoredMilestone.lastReviewRating || '',
     lastSolvedAt: events.length > 0 ? events[events.length - 1].iso : '',
     recordedSolutionCount: events.length,
     recordedQuestionCount: recordedQuestionKeys.size,
@@ -357,11 +491,74 @@ const getStatsForEvents = (
   };
 };
 
+const getSrsReviewStats = (rawAttempts, dueDay, referenceDay, target, windowDays) => {
+  if (!Number.isFinite(dueDay) || referenceDay < dueDay) {
+    return { currentCount: 0, qualifiedAt: '', qualifiedDay: null, score: null, rating: '' };
+  }
+  const attempts = rawAttempts
+    .filter((entry) => entry.dayNumber >= dueDay && entry.dayNumber <= referenceDay)
+    .sort((left, right) => left.timestamp - right.timestamp);
+  let windowStart = 0;
+  const windowAttemptsByQuestion = new Map();
+  let qualification = null;
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index];
+    const questionAttempts = windowAttemptsByQuestion.get(attempt.questionKey) || [];
+    questionAttempts.push(attempt);
+    windowAttemptsByQuestion.set(attempt.questionKey, questionAttempts);
+    while (
+      windowStart <= index
+      && attempt.dayNumber - attempts[windowStart].dayNumber >= windowDays
+    ) {
+      const expiredAttempt = attempts[windowStart];
+      const currentQuestionAttempts = windowAttemptsByQuestion.get(expiredAttempt.questionKey) || [];
+      if (currentQuestionAttempts[0] === expiredAttempt) currentQuestionAttempts.shift();
+      if (currentQuestionAttempts.length > 0) {
+        windowAttemptsByQuestion.set(expiredAttempt.questionKey, currentQuestionAttempts);
+      } else {
+        windowAttemptsByQuestion.delete(expiredAttempt.questionKey);
+      }
+      windowStart += 1;
+    }
+    if (windowAttemptsByQuestion.size >= target) {
+      const evaluated = [...windowAttemptsByQuestion.values()]
+        .map(([firstAttempt]) => firstAttempt)
+        .filter(Boolean)
+        .sort((left, right) => left.timestamp - right.timestamp)
+        .slice(0, target);
+      const score = evaluated.reduce(
+        (total, entry) => total + (entry.correct === true ? 1 : 0),
+        0
+      );
+      qualification = {
+        qualifiedAt: attempt.iso,
+        qualifiedDay: attempt.dayNumber,
+        score,
+        rating: score >= 4 ? 'strong' : (score === 3 ? 'medium' : 'weak'),
+      };
+      break;
+    }
+  }
+
+  const currentWindowStart = Math.max(dueDay, referenceDay - windowDays + 1);
+  return {
+    currentCount: new Set(
+      attempts
+        .filter((entry) => entry.dayNumber >= currentWindowStart)
+        .map((entry) => entry.questionKey)
+    ).size,
+    qualifiedAt: qualification?.qualifiedAt || '',
+    qualifiedDay: qualification?.qualifiedDay ?? null,
+    score: qualification?.score ?? null,
+    rating: qualification?.rating || '',
+  };
+};
+
 /**
  * Builds per-task practice stats from successful answer submissions.
  * A new topic becomes fresh after 10 different correct solutions during any
- * rolling seven local calendar days. Once established, five are enough to
- * refresh it again.
+ * rolling seven local calendar days. Once established, a review evaluates
+ * the first attempt on five different questions in the active seven-day window.
  */
 export const buildWeeklyTaskPracticeStats = (
   studentData,
@@ -396,7 +593,8 @@ export const buildWeeklyTaskPracticeStats = (
   let earliestRecordedTimestamp = Number.POSITIVE_INFINITY;
 
   // solvedEvents is created only when a question is solved correctly for the first
-  // time. Repeated correct answers and incorrect attempts do not refresh practice.
+  // time. It drives the initial ten-question qualification; answerHistory above is
+  // used for SRS reviews, including repeated and incorrect attempts.
   // Mock exams belong to a separate product flow and are intentionally not mixed into
   // the student's weekly practice for the topic cards.
   const solvedEvents = Array.isArray(studentData?.solvedEvents) ? studentData.solvedEvents : [];
@@ -445,6 +643,11 @@ export const buildWeeklyTaskPracticeStats = (
     studentData,
     gameTheoryTask
   );
+  const answerAttemptsByTask = getAnswerAttemptsByTask(
+    studentData,
+    gameTheoryTask,
+    referenceDay
+  );
   const storedMilestones = normalizeWeeklyTaskPracticeMilestones(
     studentData?.weeklyTaskPracticeMilestones,
     { gameTheoryTask }
@@ -459,6 +662,7 @@ export const buildWeeklyTaskPracticeStats = (
   const statsByTask = {};
   const taskKeys = new Set([
     ...eventsByTask.keys(),
+    ...answerAttemptsByTask.keys(),
     ...historicalQuestionKeysByTask.keys(),
     ...Object.keys(storedMilestones),
     ...positiveProgressByTask.keys(),
@@ -470,6 +674,7 @@ export const buildWeeklyTaskPracticeStats = (
       && historicalQuestionKeys.size <= 0;
     statsByTask[taskKey] = getStatsForEvents(
       events,
+      answerAttemptsByTask.get(taskKey) || [],
       referenceDay,
       safeTarget,
       safeRefreshTarget,
@@ -510,6 +715,10 @@ export const buildWeeklyTaskPracticeMilestones = (
     if (!Number.isFinite(taskNumber) || !isObjectRecord(stats)) return;
     const taskKey = String(taskNumber);
     const previous = result[taskKey] || {};
+    const reviewTarget = Math.max(
+      1,
+      Math.trunc(Number(stats.refreshTarget) || WEEKLY_TASK_PRACTICE_REFRESH_TARGET)
+    );
     const established = Boolean(
       stats.hasEstablishedPractice
       || previous.established
@@ -526,11 +735,18 @@ export const buildWeeklyTaskPracticeMilestones = (
     const initialQualifiedDay = previous.initialQualifiedAt
       ? getQualificationDay(initialQualifiedAt, previous.initialQualifiedDay)
       : getQualificationDay(initialQualifiedAt, stats.initialQualifiedDay);
-    const qualification = getLatestQualification(
+    const previousQualification = getLatestQualification(
       {
         qualifiedAt: previous.qualifiedAt,
         qualifiedDay: previous.qualifiedDay,
       },
+      {
+        qualifiedAt: initialQualifiedAt,
+        qualifiedDay: initialQualifiedDay,
+      }
+    );
+    const qualification = getLatestQualification(
+      previousQualification,
       {
         qualifiedAt: stats.qualifiedAt,
         qualifiedDay: stats.qualifiedDay,
@@ -540,14 +756,81 @@ export const buildWeeklyTaskPracticeMilestones = (
         qualifiedDay: initialQualifiedDay,
       }
     );
+    const previousLevel = inferSrsLevel(previous.srsLevel, previous.intervalDays);
+    const reviewQualifiedAt = normalizeIsoTimestamp(stats.refreshQualifiedAt);
+    const reviewQualifiedDay = getQualificationDay(
+      reviewQualifiedAt,
+      stats.refreshQualifiedDay
+    );
+    const previousQualifiedTimestamp = parseTimestamp(previousQualification.qualifiedAt);
+    const reviewQualifiedTimestamp = parseTimestamp(reviewQualifiedAt);
+    const hasNewReview = established
+      && Number.isFinite(reviewQualifiedTimestamp)
+      && (!Number.isFinite(previousQualifiedTimestamp)
+        || reviewQualifiedTimestamp > previousQualifiedTimestamp);
+    let srsLevel = previousLevel;
+    let intervalDays = Number(previous.intervalDays) > 0
+      ? Math.max(1, Math.trunc(Number(previous.intervalDays)))
+      : getSrsIntervalForLevel(srsLevel);
+    let nextQualification = qualification;
+    let reviewCount = Math.max(0, Math.trunc(Number(previous.reviewCount) || 0));
+    let lastReviewScore = previous.lastReviewScore !== null
+      && typeof previous.lastReviewScore !== 'undefined'
+      && String(previous.lastReviewScore).trim() !== ''
+      && Number.isFinite(Number(previous.lastReviewScore))
+      ? Math.max(0, Math.min(reviewTarget, Math.trunc(Number(previous.lastReviewScore))))
+      : null;
+    let lastReviewRating = ['strong', 'medium', 'weak'].includes(previous.lastReviewRating)
+      ? previous.lastReviewRating
+      : '';
+
+    if (hasNewReview) {
+      const rating = stats.pendingReviewRating;
+      if (rating === 'strong') {
+        srsLevel = Math.min(
+          WEEKLY_TASK_PRACTICE_SRS_INTERVALS.length - 1,
+          srsLevel + 1
+        );
+        intervalDays = getSrsIntervalForLevel(srsLevel);
+      } else if (rating === 'weak') {
+        srsLevel = Math.max(0, srsLevel - 1);
+        intervalDays = WEEKLY_TASK_PRACTICE_WEAK_INTERVAL_DAYS;
+      }
+      nextQualification = {
+        qualifiedAt: reviewQualifiedAt,
+        qualifiedDay: reviewQualifiedDay,
+      };
+      reviewCount += 1;
+      lastReviewScore = Math.max(
+        0,
+        Math.min(reviewTarget, Math.trunc(Number(stats.pendingReviewScore) || 0))
+      );
+      lastReviewRating = rating;
+    }
+    const storedNextDueDay = normalizeDayNumber(previous.nextDueDay);
+    const nextDueDay = hasNewReview && Number.isFinite(reviewQualifiedDay)
+      ? reviewQualifiedDay + intervalDays
+      : (Number.isFinite(storedNextDueDay)
+          ? storedNextDueDay
+          : (Number.isFinite(nextQualification.qualifiedDay)
+              ? nextQualification.qualifiedDay + intervalDays
+              : null));
     result[taskKey] = {
       tracked: true,
       established,
       legacy: established && Boolean(previous.legacy || stats.hasLegacyPractice),
       initialQualifiedAt,
       initialQualifiedDay: Number.isFinite(initialQualifiedDay) ? initialQualifiedDay : null,
-      qualifiedAt: qualification.qualifiedAt,
-      qualifiedDay: qualification.qualifiedDay,
+      qualifiedAt: nextQualification.qualifiedAt,
+      qualifiedDay: nextQualification.qualifiedDay,
+      ...(established ? {
+        srsLevel,
+        intervalDays,
+        nextDueDay: Number.isFinite(nextDueDay) ? nextDueDay : null,
+        reviewCount,
+        lastReviewScore,
+        lastReviewRating,
+      } : {}),
     };
   });
 
@@ -577,12 +860,21 @@ export const getWeeklyTaskPracticeStats = (statsByTask, taskNumber, gameTheoryTa
       ? Number(meta.referenceDay)
       : getLocalDayNumber(new Date()),
     currentCount: 0,
+    initialCurrentCount: 0,
     initialQualifiedAt: '',
     initialQualifiedDay: null,
     refreshQualifiedAt: '',
     refreshQualifiedDay: null,
     qualifiedAt: '',
     qualifiedDay: null,
+    srsLevel: 0,
+    intervalDays: WEEKLY_TASK_PRACTICE_SRS_INTERVALS[0],
+    nextDueDay: null,
+    pendingReviewScore: null,
+    pendingReviewRating: '',
+    reviewCount: 0,
+    lastReviewScore: null,
+    lastReviewRating: '',
     lastSolvedAt: '',
     recordedSolutionCount: 0,
     recordedQuestionCount: 0,
@@ -766,9 +1058,11 @@ export const getWeeklyTaskPracticeIndicator = (
   const remainingUnseenQuestionCount = normalizedAvailableCount === null
     ? null
     : Math.max(0, normalizedAvailableCount - solvedQuestionCount);
-  const maximumReachableCurrentCount = remainingUnseenQuestionCount === null
+  const maximumReachableCurrentCount = normalizedAvailableCount === null
     ? null
-    : currentCount + remainingUnseenQuestionCount;
+    : (phase === 'refresh'
+        ? normalizedAvailableCount
+        : currentCount + remainingUnseenQuestionCount);
   if (
     maximumReachableCurrentCount !== null
     && maximumReachableCurrentCount < target
@@ -871,9 +1165,20 @@ export const getWeeklyTaskPracticeIndicator = (
   const qualifiedDay = Number.isFinite(storedQualifiedDay)
     ? storedQualifiedDay
     : getLocalDayNumber(qualifiedAt);
+  const storedNextDueDay = normalizeDayNumber(stats?.nextDueDay);
+  const intervalDays = Math.max(
+    1,
+    Math.trunc(Number(stats?.intervalDays) || WEEKLY_TASK_PRACTICE_SRS_INTERVALS[0])
+  );
+  const nextDueDay = Number.isFinite(storedNextDueDay)
+    ? storedNextDueDay
+    : (Number.isFinite(qualifiedDay) ? qualifiedDay + intervalDays : null);
   const elapsedDays = Number.isFinite(referenceDay) && Number.isFinite(qualifiedDay)
     ? Math.max(0, referenceDay - qualifiedDay)
     : 0;
+  const overdueDays = Number.isFinite(referenceDay) && Number.isFinite(nextDueDay)
+    ? referenceDay - nextDueDay
+    : Number.NEGATIVE_INFINITY;
   const exactDate = formatExactDate(qualifiedAt);
   const sharedTitle = phase === 'initial'
     ? `Последняя полноценная практика: ${exactDate}. Тогда за ${windowDays} дней было решено не менее ${target} разных заданий. Сейчас: ${currentCount} из ${target}.`
@@ -882,27 +1187,29 @@ export const getWeeklyTaskPracticeIndicator = (
     ? `Недельная норма выполнена ${formatAgo(elapsedDays)}`
     : `Тема освежена ${formatAgo(elapsedDays)}`;
 
-  if (elapsedDays >= 60) {
-    const elapsed = formatElapsed(elapsedDays);
+  if (overdueDays >= 30) {
+    const elapsed = formatElapsed(Math.max(1, overdueDays));
     return {
       ...base,
       key: 'stale',
       label: 'Давно без практики',
       detail: completedPracticeDetail,
-      compactLabel: `Давно · ${elapsed}`,
-      ariaLabel: `Давно не решал: полноценная практика была ${formatAgo(elapsedDays)}`,
+      compactLabel: `Просрочено · ${elapsed}`,
+      ariaLabel: `Повторение темы просрочено на ${elapsed}`,
       title: sharedTitle,
     };
   }
-  if (elapsedDays >= 30) {
-    const elapsed = formatElapsed(elapsedDays);
+  if (overdueDays >= 0) {
+    const elapsed = overdueDays > 0 ? formatElapsed(overdueDays) : 'сегодня';
     return {
       ...base,
       key: 'due',
       label: 'Пора повторить тему',
       detail: completedPracticeDetail,
-      compactLabel: `Повторить · ${elapsed}`,
-      ariaLabel: `Пора повторить тему: полноценная практика была ${formatAgo(elapsedDays)}`,
+      compactLabel: overdueDays > 0 ? `Повторить · ${elapsed}` : 'Повторить сегодня',
+      ariaLabel: overdueDays > 0
+        ? `Пора повторить тему: срок наступил ${formatAgo(overdueDays)}`
+        : 'Пора повторить тему сегодня',
       title: sharedTitle,
     };
   }

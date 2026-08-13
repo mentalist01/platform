@@ -11890,12 +11890,14 @@ const normalizeAnswerHistoryEntry = (entry) => {
   const solveDurationMs = Number.isFinite(rawSolveDurationMs) && rawSolveDurationMs > 0
     ? Math.min(STUDENT_SOLVE_DURATION_MAX_MS, Math.max(1, Math.round(rawSolveDurationMs)))
     : 0;
+  const localDay = normalizeDayKey(entry.localDay);
   return {
     id: typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : crypto.randomUUID(),
     submittedAt: new Date(submittedAtMs).toISOString(),
     correct: entry.correct === true,
     answers,
     ...(solveDurationMs > 0 ? { solveDurationMs } : {}),
+    ...(localDay ? { localDay } : {}),
   };
 };
 
@@ -12025,7 +12027,8 @@ const appendAnswerHistoryEntry = (
   answerCount,
   correct,
   submittedAt = new Date().toISOString(),
-  solveDurationMs = 0
+  solveDurationMs = 0,
+  localDay = ''
 ) => {
   const qKey = String(questionKey || '').trim();
   if (!qKey) return levelEntry;
@@ -12041,6 +12044,7 @@ const appendAnswerHistoryEntry = (
     correct: correct === true,
     answers,
     solveDurationMs,
+    localDay,
   });
   if (!nextEntry) return levelEntry;
   return {
@@ -25003,6 +25007,18 @@ app.post('/api/progress/solve', async (req, res) => {
   }
   const answerCount = getAnswerCountForQuestion(questionEntry, taskNum);
   const submittedAt = new Date().toISOString();
+  const serverDayKey = new Date().toISOString().slice(0, 10);
+  const clientDayKey = normalizeDayKey(localDay);
+  const resolvedDayKey = (() => {
+    if (!clientDayKey) return serverDayKey;
+    const serverNum = dayKeyToNumber(serverDayKey);
+    const clientNum = dayKeyToNumber(clientDayKey);
+    if (!Number.isFinite(serverNum) || !Number.isFinite(clientNum)) return serverDayKey;
+    const diff = clientNum - serverNum;
+    if (diff < -1 || diff > 1) return serverDayKey;
+    return clientDayKey;
+  })();
+  const practiceReferenceDate = new Date(submittedAt);
   const solvedByTask = { ...(data.solvedByTask || {}) };
   const taskEntry = { ...(solvedByTask[taskKey] || {}) };
   let levelEntry = { ...(taskEntry[levelKey] || {}) };
@@ -25014,11 +25030,29 @@ app.post('/api/progress/solve', async (req, res) => {
       answerCount,
       correct,
       submittedAt,
-      solveDurationMs
+      solveDurationMs,
+      resolvedDayKey
     );
     taskEntry[levelKey] = levelEntry;
     solvedByTask[taskKey] = taskEntry;
-    setStudentData(student.id, { ...data, solvedByTask });
+    const attemptPracticeStats = buildWeeklyTaskPracticeStats({
+      ...data,
+      solvedByTask,
+    }, {
+      gameTheoryTask: GAME_THEORY_TASK,
+      referenceDate: practiceReferenceDate,
+      referenceDayKey: resolvedDayKey,
+    });
+    const weeklyTaskPracticeMilestones = buildWeeklyTaskPracticeMilestones(
+      attemptPracticeStats,
+      data.weeklyTaskPracticeMilestones,
+      { gameTheoryTask: GAME_THEORY_TASK }
+    );
+    setStudentData(student.id, {
+      ...data,
+      solvedByTask,
+      weeklyTaskPracticeMilestones,
+    });
   };
   const isPythonLevel = isPythonTaskNumber(taskNum) || levelKey === PYTHON_LEVEL_ID;
   if (isPythonLevel) {
@@ -25067,22 +25101,11 @@ app.post('/api/progress/solve', async (req, res) => {
     answerCount,
     true,
     submittedAt,
-    solveDurationMs
+    solveDurationMs,
+    resolvedDayKey
   );
   taskEntry[levelKey] = levelEntry;
   solvedByTask[taskKey] = taskEntry;
-  const serverDayKey = new Date().toISOString().slice(0, 10);
-  const clientDayKey = normalizeDayKey(localDay);
-  const resolvedDayKey = (() => {
-    if (!clientDayKey) return serverDayKey;
-    const serverNum = dayKeyToNumber(serverDayKey);
-    const clientNum = dayKeyToNumber(clientDayKey);
-    if (!Number.isFinite(serverNum) || !Number.isFinite(clientNum)) return serverDayKey;
-    const diff = clientNum - serverNum;
-    if (diff < -1 || diff > 1) return serverDayKey;
-    return clientDayKey;
-  })();
-  const practiceReferenceDate = new Date(submittedAt);
   const baselinePracticeStats = buildWeeklyTaskPracticeStats(data, {
     gameTheoryTask: GAME_THEORY_TASK,
     referenceDate: practiceReferenceDate,

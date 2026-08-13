@@ -1061,8 +1061,10 @@ const StudentTestModal = ({
   onQuestionChange,
   onStreakSaved,
   onXpGain,
+  onPracticeAttempt,
   onThemeToggle,
   forceInitialLevelLaunch = false,
+  reviewMode = false,
   LEVELS,
   LEVEL_WEIGHTS,
   GAME_THEORY_TASK,
@@ -2735,6 +2737,7 @@ const StudentTestModal = ({
         }
       } finally {
         getActiveQuestionSolveDurationMs.resume?.();
+        onPracticeAttempt?.();
       }
     } else {
       correct = fallbackCorrect;
@@ -2980,7 +2983,8 @@ const StudentTestModal = ({
     );
     const expectedAnswers = getExpectedAnswers(currentQuestion, answerCount);
     const currentId = String(currentQuestion?.id ?? currentIndex);
-    const isSolved = solvedIds.has(currentId);
+    const wasSolved = solvedIds.has(currentId);
+    const isSolved = wasSolved && !reviewMode;
     const solvedStoredAnswers = parseStoredSolvedAnswers(solvedAnswerById?.[currentId], answerCount);
     const solvedAnswerValues = Array.from({ length: answerCount }, (_, index) => {
       const expected = String(expectedAnswers[index] ?? '');
