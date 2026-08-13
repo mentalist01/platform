@@ -98005,6 +98005,47 @@ html .student-test-code-focus .student-test-code-focus__answer-actions button {
   gap: 9px;
 }
 
+.student-today-overview__plan-loading {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.student-today-overview__plan-loading > span {
+  display: block;
+  height: 78px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.student-today-overview__plan-loading > .student-today-overview__plan-loading-primary {
+  height: 102px;
+  grid-column: 1 / -1;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.student-today-overview__plan-loading > span::after {
+  display: block;
+  width: 45%;
+  height: 100%;
+  content: '';
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.26), transparent);
+  animation: student-today-plan-shimmer 1.15s ease-in-out infinite;
+  transform: translateX(-120%);
+}
+
+@keyframes student-today-plan-shimmer {
+  to { transform: translateX(280%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student-today-overview__plan-loading > span::after {
+    animation: none;
+  }
+}
+
 .student-today-overview__time-plan {
   display: grid;
   min-width: 0;
@@ -98173,6 +98214,16 @@ html .student-test-code-focus .student-test-code-focus__answer-actions button {
 
   .student-today-overview__time-plans {
     grid-template-columns: 1fr;
+  }
+
+  .student-today-overview__plan-loading {
+    grid-template-columns: 1fr;
+  }
+
+  .student-today-overview__plan-loading > span,
+  .student-today-overview__plan-loading > .student-today-overview__plan-loading-primary {
+    height: 68px;
+    grid-column: 1;
   }
 
   .student-today-overview__time-plan {

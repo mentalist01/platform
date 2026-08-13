@@ -16640,6 +16640,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [goalState, setGoalState] = useState(null);
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
+  const [homeworkSyncTick, setHomeworkSyncTick] = useState(0);
   const [quickHomeworkSession, setQuickHomeworkSession] = useState({
     status: 'idle',
     mode: null,
@@ -16653,6 +16654,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [quickHomeworkDifficultyIndex, setQuickHomeworkDifficultyIndex] = useState({});
   const [quickHomeworkMockAnalytics, setQuickHomeworkMockAnalytics] = useState({});
   const [quickHomeworkDifficultyReady, setQuickHomeworkDifficultyReady] = useState(false);
+  const [goalStateReady, setGoalStateReady] = useState(user.role !== 'student');
+  const quickHomeworkDifficultyRequestRef = useRef(null);
   const [goalCollapsed, setGoalCollapsed] = useState(user.role === 'student');
   const [goalPanelAnimClass, setGoalPanelAnimClass] = useState('');
   const [paceForecastPopupOpen, setPaceForecastPopupOpen] = useState(false);
@@ -17759,6 +17762,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 live: true,
               }]);
             }
+            return;
+          }
+          if (
+            liveType === 'homework-assigned'
+            && user?.role === 'student'
+            && String(payload?.studentId || '').trim() === String(user?.id || '').trim()
+          ) {
+            setGoalStateReady(false);
+            setHomeworkSyncTick((current) => current + 1);
             return;
           }
           if (!PLATFORM_CHATS_ENABLED || !liveType.startsWith('student-chat-')) return;
@@ -19460,6 +19472,28 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   useEffect(() => {
     if (user.role !== 'student') {
+      quickHomeworkDifficultyRequestRef.current = null;
+      return undefined;
+    }
+    const request = api.getQuestionDifficulties().catch(() => ({}));
+    quickHomeworkDifficultyRequestRef.current = request;
+    return () => {
+      if (quickHomeworkDifficultyRequestRef.current === request) {
+        quickHomeworkDifficultyRequestRef.current = null;
+      }
+    };
+  }, [user.role, user.id, goalRefreshTick]);
+
+  useEffect(() => {
+    if (user.role === 'student') {
+      setGoalStateReady(false);
+    } else {
+      setGoalStateReady(true);
+    }
+  }, [user.role, user.id]);
+
+  useEffect(() => {
+    if (user.role !== 'student') {
       stopXpGainAnimation();
       setSolvedByTask({});
       setStudentSolvedEvents([]);
@@ -20478,7 +20512,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [egeDeadlineStats, hasForecastDuration, testingForecast.remaining, testingForecast.total]);
 
   const refreshGoalState = async () => {
-    if (user.role !== 'student') return;
+    if (user.role !== 'student' || !goalTestsLoaded) return;
     try {
       const data = await api.getStudentNextLesson(user.id);
       const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
@@ -20688,13 +20722,42 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       });
     } catch {
       setGoalState(null);
+    } finally {
+      setGoalStateReady(true);
     }
   };
 
   useEffect(() => {
+    if (user.role !== 'student' || view !== 'schedule') return undefined;
+    let lastRefreshAt = 0;
+    const requestRefresh = () => {
+      const now = Date.now();
+      if (now - lastRefreshAt < 1500) return;
+      lastRefreshAt = now;
+      setHomeworkSyncTick((current) => current + 1);
+    };
+    const handleFocus = () => requestRefresh();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') requestRefresh();
+    };
+    setGoalStateReady(false);
+    requestRefresh();
+    const timerId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') requestRefresh();
+    }, 15_000);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(timerId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user.role, user.id, view]);
+
+  useEffect(() => {
     if (user.role !== 'student') return;
     refreshGoalState();
-  }, [user.role, user.id, goalRefreshTick, goalTestsDb, goalTestsLoaded, taskTitles]);
+  }, [user.role, user.id, goalRefreshTick, homeworkSyncTick, goalTestsDb, goalTestsLoaded, taskTitles]);
 
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
   const requiredGoalGoals = goalGoals.filter((goal) => !isOptionalHomeworkGoal(goal));
@@ -20768,8 +20831,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const assignedMockExamIds = quickHomeworkMockExamIdsKey
       ? quickHomeworkMockExamIdsKey.split('|')
       : [];
+    const questionDifficultyRequest = quickHomeworkDifficultyRequestRef.current
+      || api.getQuestionDifficulties().catch(() => ({}));
     Promise.all([
-      api.getQuestionDifficulties().catch(() => ({})),
+      questionDifficultyRequest,
       Promise.all(assignedMockExamIds.map(async (examId) => {
         const analytics = await api.getMockExamTaskAnalytics(examId, quickHomeworkEntryKey).catch(() => ({}));
         return [examId, analytics];
@@ -22652,6 +22717,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               quickHomeworkMode={quickHomeworkSession.mode}
               quickHomeworkBudgetMinutes={quickHomeworkSession.budgetMinutes}
               quickHomeworkPlannedCount={quickHomeworkSession.planTasks?.length || 0}
+              quickHomeworkLoading={quickHomeworkSession.status === 'idle' && (
+                !goalStateReady
+                || Boolean(goalState && !quickHomeworkDifficultyReady)
+              )}
               onStartQuickHomework={handleStartQuickHomework}
               onStartQuickHomeworkPlan={handleStartQuickHomeworkPlan}
               onResumeQuickHomework={handleResumeQuickHomework}

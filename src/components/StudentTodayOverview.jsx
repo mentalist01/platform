@@ -149,6 +149,7 @@ const StudentTodayOverview = ({
   quickHomeworkMode = null,
   quickHomeworkBudgetMinutes = null,
   quickHomeworkPlannedCount = 0,
+  quickHomeworkLoading = false,
   onStartQuickHomework,
   onStartQuickHomeworkPlan,
   onResumeQuickHomework,
@@ -182,6 +183,7 @@ const StudentTodayOverview = ({
   const quickHomeworkFinished = quickHomeworkStatus === 'done' && quickHomeworkAvailableCount <= 0;
   const availableTimePlans = Array.isArray(quickHomeworkPlans) ? quickHomeworkPlans : [];
   const showTimePlanPicker = quickHomeworkStatus === 'idle' && availableTimePlans.length > 0;
+  const showQuickHomeworkLoading = quickHomeworkStatus === 'idle' && quickHomeworkLoading;
   const normalizedBudgetMinutes = Math.max(0, Math.round(Number(quickHomeworkBudgetMinutes) || 0));
   const normalizedPlannedCount = Math.max(0, Math.floor(Number(quickHomeworkPlannedCount) || 0));
   const isTimedQuickHomework = quickHomeworkMode === 'timed' && normalizedBudgetMinutes > 0;
@@ -346,6 +348,28 @@ const StudentTodayOverview = ({
     </>
   );
 
+  const renderQuickHomeworkLoading = () => (
+    <>
+      <div aria-hidden className="absolute -right-12 -top-16 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
+      <div className="relative flex h-full min-h-[246px] flex-col" aria-live="polite" aria-busy="true">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/14 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
+            <Clock3 size={12} />Быстрый план
+          </span>
+        </div>
+        <h3 className="mt-4 max-w-2xl text-xl font-black leading-tight md:text-2xl">
+          Собираем план домашки
+        </h3>
+        <span className="mt-1.5 text-sm text-purple-100">Подбираем задания и считаем примерное время…</span>
+        <div className="student-today-overview__plan-loading mt-auto pt-4" aria-hidden="true">
+          <span className="student-today-overview__plan-loading-primary" />
+          <span />
+          <span />
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <section className="student-today-overview mb-4 overflow-hidden rounded-[26px] border border-purple-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(245,243,255,0.94)_52%,rgba(240,249,255,0.92))] p-4 shadow-[0_18px_40px_rgba(99,102,241,0.13)] md:mb-6 md:p-5">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
@@ -362,7 +386,11 @@ const StudentTodayOverview = ({
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)]">
-        {showTimePlanPicker ? (
+        {showQuickHomeworkLoading ? (
+          <section className={`${primaryCardClass} student-today-overview__primary--plan-loading`} aria-label="Собираем быстрый план домашней работы">
+            {renderQuickHomeworkLoading()}
+          </section>
+        ) : showTimePlanPicker ? (
           <section className={primaryCardClass} aria-labelledby="quick-homework-time-plan-title">
             {renderPrimaryCardContent(true)}
           </section>

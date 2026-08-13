@@ -29708,6 +29708,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
   notifyStudentAboutNewHomework(student, newEntry).catch((error) => {
     console.error(`[push] post-save "new homework" notify failed for student ${student.id}:`, error);
   });
+  broadcastHomeworkAssigned(student, newEntry);
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
@@ -31530,6 +31531,26 @@ const broadcastTelemostJoinRequested = (request) => {
     sendNotificationPayload(client.ws, {
       type: 'telemost-join-requested',
       ...request,
+    });
+    deliveredCount += 1;
+  });
+  return deliveredCount;
+};
+
+const broadcastHomeworkAssigned = (student, entry) => {
+  const studentId = String(student?.id || '').trim();
+  const homeworkId = String(entry?.id || '').trim();
+  if (!studentId || !homeworkId) return 0;
+  let deliveredCount = 0;
+  notificationClientsBySocket.forEach((client) => {
+    if (!client?.auth || !isStudentRole(client.auth)) return;
+    if (String(client.auth.id || '').trim() !== studentId) return;
+    if (client.ws?.readyState !== WS_OPEN_STATE) return;
+    sendNotificationPayload(client.ws, {
+      type: 'homework-assigned',
+      studentId,
+      homeworkId,
+      issuedAt: String(entry?.issuedAt || '').trim(),
     });
     deliveredCount += 1;
   });
