@@ -1220,20 +1220,29 @@ const StudentArtifactAltar = ({
     >
       <div className="student-artifact-altar__summary">
         <div className="student-artifact-altar__summary-copy student-artifact-altar__header-copy min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Алтарь артефактов</div>
-            <span className="student-artifact-altar__summary-status inline-flex items-center gap-1 rounded-full border border-amber-200/80 bg-white/75 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-amber-700">
-              <Package2 size={11} />
-              {`Коллекция ${uniqueOwned}/${ARTIFACT_CATALOG.length}`}
-            </span>
+          <div className="student-artifact-altar__summary-emblem" aria-hidden="true">
+            <span className="student-artifact-altar__summary-emblem-orbit" />
+            <Sparkles size={20} />
           </div>
-          <div className="mt-1 text-base font-semibold text-slate-900">
-            Крути алтарь и собирай артефакты с игровыми бонусами
-          </div>
-          <div className="mt-1 text-xs text-slate-600">
-            {uniqueOwned > 0
-              ? `Открыто ${uniqueOwned} из ${ARTIFACT_CATALOG.length} · экземпляров ${totalOwned} · круток ${totalPulls}`
-              : `${ARTIFACT_CATALOG.length} артефактов пяти рангов · одна крутка стоит ${spinCost} монет`}
+          <div className="student-artifact-altar__summary-copy-body min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="student-artifact-altar__summary-eyebrow text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Алтарь артефактов</div>
+              <span className="student-artifact-altar__summary-status inline-flex items-center gap-1 rounded-full border border-amber-200/80 bg-white/75 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-amber-700">
+                <Package2 size={11} />
+                {`Коллекция ${uniqueOwned}/${ARTIFACT_CATALOG.length}`}
+              </span>
+            </div>
+            <div className="student-artifact-altar__summary-title mt-1">
+              <span>Пробуди алтарь.</span>
+              <strong>Собери силу артефактов</strong>
+            </div>
+            <div className="student-artifact-altar__summary-stats mt-2" aria-label="Прогресс коллекции артефактов">
+              <span><strong>{uniqueOwned}</strong>{` из ${ARTIFACT_CATALOG.length} открыто`}</span>
+              <i aria-hidden="true" />
+              <span><strong>{totalOwned}</strong> экземпляров</span>
+              <i aria-hidden="true" />
+              <span><strong>{totalPulls}</strong> круток</span>
+            </div>
           </div>
         </div>
 

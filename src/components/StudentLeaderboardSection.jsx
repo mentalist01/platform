@@ -8,8 +8,10 @@ import {
   LockKeyhole,
   Palette,
   Package2,
+  PenLine,
   RefreshCcw,
   Sparkles,
+  UserRoundCheck,
 } from 'lucide-react';
 import CoinGuideIcon from './CoinGuideTooltip';
 import { api } from '../services/api';
@@ -291,7 +293,7 @@ const getClientChestState = (chest, nowMs) => {
 };
 
 const LeaderboardAliasRewardChip = () => (
-  <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-amber-300 bg-amber-100 px-1.5 text-[11px] font-black leading-none text-amber-800 shadow-sm">
+  <span className="leaderboard-alias-card__reward inline-flex h-5 shrink-0 items-center gap-1 rounded-md border px-1.5 text-[11px] font-black leading-none shadow-sm">
     <span>{`+${LEADERBOARD_ALIAS_COIN_REWARD}`}</span>
     <CoinGuideIcon className="h-3.5 w-3.5" />
   </span>
@@ -362,6 +364,7 @@ const StudentLeaderboardSection = ({
   const [profileThemeError, setProfileThemeError] = useState('');
   const [profileThemeSuccess, setProfileThemeSuccess] = useState('');
   const [isLeagueRangesOpen, setIsLeagueRangesOpen] = useState(false);
+  const [isRatingExtrasOpen, setIsRatingExtrasOpen] = useState(false);
   const [spinLoading, setSpinLoading] = useState(false);
   const [spinError, setSpinError] = useState('');
   const [chestActionId, setChestActionId] = useState('');
@@ -740,6 +743,10 @@ const StudentLeaderboardSection = ({
   const currentChestList = Array.isArray(currentChestPanel.chests)
     ? currentChestPanel.chests
     : (Array.isArray(currentChestPanel.visibleChests) ? currentChestPanel.visibleChests : []);
+  const hasChestRequiringAttention = currentChestList.some((chest) => {
+    const state = getClientChestState(chest, chestTimerNow);
+    return state === 'opening' || state === 'ready';
+  });
   const currentStudentMainName = (() => {
     const fromLeaderboard = typeof currentStudentMeta?.mainName === 'string'
       ? currentStudentMeta.mainName.trim()
@@ -795,6 +802,10 @@ const StudentLeaderboardSection = ({
         return index >= 0 ? index + 1 : null;
       })()
     : null;
+
+  useEffect(() => {
+    if (hasChestRequiringAttention) setIsRatingExtrasOpen(true);
+  }, [hasChestRequiringAttention]);
 
   useEffect(() => {
     if (role !== 'student') return undefined;
@@ -1360,7 +1371,6 @@ const StudentLeaderboardSection = ({
     return (
       <div
         className={`mock-timer-chest-panel mt-3 ${isChestVaultEmpty ? 'mock-timer-chest-panel--empty' : ''}`}
-        data-tour="rating-timer-chests"
       >
         <div className="mock-timer-chest-panel__top">
           <div>
@@ -2065,11 +2075,6 @@ const StudentLeaderboardSection = ({
             <div className="student-leaderboard-chip mt-2 inline-flex items-center rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-700">
               {`Недельный период: ${weekRangeLabel}`}
             </div>
-            {role === 'student' && (
-              <div className="student-leaderboard-copy mt-2 text-xs text-slate-500">
-                Нажмите на ученика в рейтинге, чтобы открыть его полный профиль.
-              </div>
-            )}
           </div>
           <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
             {renderTeacherStudentPicker()}
@@ -2087,19 +2092,7 @@ const StudentLeaderboardSection = ({
         {role === 'student' && (
           <div className="mt-3 space-y-2">
             <div className="student-leaderboard-league-card rounded-2xl border border-purple-200 bg-white px-3 py-2.5" data-tour="rating-league">
-              <div className="flex items-center justify-between gap-3">
-                <div className="student-leaderboard-kicker text-[11px] font-semibold uppercase text-purple-500">Ваша лига</div>
-                <button
-                  type="button"
-                  onClick={() => setIsLeagueRangesOpen((prev) => !prev)}
-                  data-tour="rating-league-ranges"
-                  className="inline-flex items-center rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-[11px] font-semibold text-purple-700 hover:bg-purple-100"
-                  aria-expanded={isLeagueRangesOpen}
-                >
-                  {isLeagueRangesOpen ? 'Скрыть лиги' : 'Все лиги'}
-                </button>
-              </div>
-              <div className="mt-2 flex items-center gap-3">
+              <div className="flex items-center gap-3">
                 <div
                   className={`relative flex h-11 w-11 shrink-0 items-center justify-center overflow-visible rounded-full border ${
                     currentLeague.id === 'blank'
@@ -2134,17 +2127,55 @@ const StudentLeaderboardSection = ({
                   )}
                 </div>
                 <div className="min-w-0">
+                  <div className="student-leaderboard-kicker text-[10px] font-semibold uppercase text-purple-500">Ваша лига</div>
                   <div className="student-leaderboard-heading truncate text-base font-bold text-slate-900">{currentLeague.label}</div>
                   <div className="student-leaderboard-row-meta text-[11px] text-slate-500">
                     {`${currentStudentRow?.xpTotalLabel || '0'} XP${currentStudentRow ? ` - Уровень ${currentStudentRow.level}` : ''}`}
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setIsLeagueRangesOpen((prev) => !prev)}
+                  data-tour="rating-league-ranges"
+                  className="ml-auto inline-flex shrink-0 items-center rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-[11px] font-semibold text-purple-700 hover:bg-purple-100"
+                  aria-expanded={isLeagueRangesOpen}
+                >
+                  {isLeagueRangesOpen ? 'Скрыть лиги' : 'Все лиги'}
+                </button>
               </div>
             </div>
 
-            {renderProfileThemePicker()}
-
-            {renderMockTimerChestPanel()}
+            <div className="student-leaderboard-extras" data-tour="rating-timer-chests">
+              <button
+                type="button"
+                onClick={() => setIsRatingExtrasOpen((prev) => !prev)}
+                className="student-leaderboard-extras__toggle"
+                aria-expanded={isRatingExtrasOpen}
+                aria-controls="rating-student-extras"
+              >
+                <span className="student-leaderboard-extras__icon" aria-hidden="true">
+                  <Palette size={14} />
+                </span>
+                <span className="student-leaderboard-extras__copy">
+                  <strong>Настройки и сундуки</strong>
+                  <small>
+                    {currentChestList.length > 0
+                      ? `${formatChestCountLabel(currentChestList.length)} · оформление ${currentProfileTheme?.name || 'стандартное'}`
+                      : `Сундуков нет · оформление ${currentProfileTheme?.name || 'стандартное'}`}
+                  </small>
+                </span>
+                <span className="student-leaderboard-extras__action">
+                  <span>{isRatingExtrasOpen ? 'Скрыть' : 'Показать'}</span>
+                  <ChevronDown size={15} aria-hidden="true" />
+                </span>
+              </button>
+              {isRatingExtrasOpen && (
+                <div id="rating-student-extras" className="student-leaderboard-extras__content">
+                  {renderProfileThemePicker()}
+                  {renderMockTimerChestPanel()}
+                </div>
+              )}
+            </div>
 
             {isLeagueRangesOpen && (
               <div className="rounded-2xl border border-purple-200 bg-white px-3 py-2.5">
@@ -2216,28 +2247,32 @@ const StudentLeaderboardSection = ({
       {renderTeacherArtifactBonuses()}
 
       {needsAliasPrompt && (
-        <div className="rounded-3xl border border-amber-200 bg-amber-50/70 p-4 shadow-soft" data-tour="rating-name">
-          <div className="student-leaderboard-kicker text-xs font-bold uppercase text-amber-700">Имя в рейтинге</div>
-          <div className="student-leaderboard-heading mt-1 text-sm font-semibold text-slate-900">
-            Сейчас вы отображаетесь как «{currentStudentMeta?.publicName || 'Аноним'}».
-          </div>
-          <div className="student-leaderboard-copy mt-1 text-xs text-slate-600">
-            Вы можете выбрать, как показываться в рейтинге: под основным именем или под псевдонимом.
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
+        <div className="leaderboard-alias-card rounded-2xl border p-4 shadow-soft" data-tour="rating-name">
+          <div className="leaderboard-alias-card__layout">
+            <span className="leaderboard-alias-card__emblem" aria-hidden="true"><UserRoundCheck size={18} /></span>
+            <div className="leaderboard-alias-card__copy min-w-0">
+              <div className="leaderboard-alias-card__eyebrow student-leaderboard-kicker">Имя в рейтинге</div>
+              <div className="leaderboard-alias-card__title student-leaderboard-heading">
+                Сейчас:
+                <strong>{`«${currentStudentMeta?.publicName || 'Аноним'}»`}</strong>
+              </div>
+              <div className="leaderboard-alias-card__description student-leaderboard-copy">
+                Выбери, как тебя показывать другим.
+              </div>
+            </div>
+            <div className="leaderboard-alias-card__choices">
             <button
               type="button"
               onClick={handleUseMainName}
               disabled={aliasSaving || !currentStudentMainName}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+              className="leaderboard-alias-card__choice"
             >
+              <UserRoundCheck size={15} />
+              <span>{aliasSaving ? 'Сохраняем...' : 'Использовать имя'}</span>
               {aliasSaving
-                ? 'Сохраняем...'
+                ? null
                 : (
-                  <>
-                    <span>Использовать имя</span>
-                    {hasAliasRewardAvailable && <LeaderboardAliasRewardChip />}
-                  </>
+                  hasAliasRewardAvailable && <LeaderboardAliasRewardChip />
                 )}
             </button>
             <button
@@ -2249,15 +2284,17 @@ const StudentLeaderboardSection = ({
                 setAliasSuccess('');
               }}
               disabled={aliasSaving}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+              className="leaderboard-alias-card__choice leaderboard-alias-card__choice--nickname"
             >
+              <PenLine size={15} />
               <span>Создать никнейм</span>
               {hasAliasRewardAvailable && <LeaderboardAliasRewardChip />}
             </button>
+            </div>
           </div>
           {aliasMode === 'custom' && (
-            <>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="leaderboard-alias-card__editor mt-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
                   type="text"
                   value={aliasInput}
@@ -2277,19 +2314,19 @@ const StudentLeaderboardSection = ({
                   }}
                   placeholder="Например: Вектор"
                   maxLength={6}
-                  className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-500"
+                  className="leaderboard-alias-card__input w-full rounded-xl px-3 py-2 text-sm outline-none"
                 />
                 <button
                   type="button"
                   onClick={handleSaveAlias}
                   disabled={aliasSaving}
-                  className="inline-flex shrink-0 items-center justify-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+                  className="leaderboard-alias-card__save inline-flex shrink-0 items-center justify-center rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-60"
                 >
                   {aliasSaving ? 'Сохраняем...' : 'Сохранить псевдоним'}
                 </button>
               </div>
-              <div className="mt-1 text-[11px] text-slate-500">Только русские буквы, 2-6 символов.</div>
-            </>
+              <div className="mt-1 text-[11px] text-slate-500">Никнейм увидят остальные участники рейтинга.</div>
+            </div>
           )}
           {aliasError && <div className="mt-2 text-xs text-rose-600">{aliasError}</div>}
           {aliasSuccess && <div className="mt-2 text-xs text-emerald-700">{aliasSuccess}</div>}
