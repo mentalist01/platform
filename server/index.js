@@ -64,6 +64,7 @@ import {
   normalizeMockExamFollowupHistory,
   normalizeMockExamFollowupQueue,
 } from './mockExamFollowup.js';
+import { buildMockExamTaskAnalyticsIndex } from './mockExamTaskAnalytics.js';
 import {
   expandTeacherFinanceMonthOccurrences,
   summarizeCurrentTeacherStudentsSchedule,
@@ -23929,6 +23930,35 @@ app.get('/api/mock-exams', (req, res) => {
   res.json((Array.isArray(list) ? list : [])
     .filter((exam) => !isPersonalRandomMockExam(exam))
     .map((exam) => serializeMockExamEntry(exam)));
+});
+
+app.get('/api/mock-exams/task-analytics', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const requestedExamId = typeof req.query?.examId === 'string' ? req.query.examId.trim() : '';
+  const mockExams = readMockExamsDb();
+  const selectedExams = requestedExamId
+    ? mockExams.filter((exam) => String(exam?.id || '') === requestedExamId)
+    : mockExams;
+  if (requestedExamId && selectedExams.length === 0) {
+    return res.status(404).json({ error: 'Mock exam not found' });
+  }
+
+  const progressDb = readProgressDb();
+  const allowedStudentIds = isTeacherRole(req.auth)
+    ? new Set(readStudentsDb()
+        .filter((student) => !student?.deletedAt && String(student?.teacherId || '') === String(req.auth.id || ''))
+        .map((student) => String(student.id || '').trim())
+        .filter(Boolean))
+    : null;
+  const scopedProgressDb = allowedStudentIds
+    ? Object.entries(progressDb).reduce((result, [studentId, studentData]) => {
+        if (allowedStudentIds.has(String(studentId))) result[studentId] = studentData;
+        return result;
+      }, {})
+    : progressDb;
+  const analytics = buildMockExamTaskAnalyticsIndex(scopedProgressDb, selectedExams);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json(requestedExamId ? (analytics[requestedExamId] || {}) : analytics);
 });
 
 app.post('/api/mock-exams/random', (req, res) => {

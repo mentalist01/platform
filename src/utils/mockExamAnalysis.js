@@ -110,6 +110,7 @@ const buildSectionAnalysis = (tasks) => {
 export const buildMockExamAnalysis = ({
   exam,
   attempt,
+  taskAnalytics = {},
   taskCatalog = [],
   targetTaskKeys = null,
   getAnswerCountForTask = () => 1,
@@ -137,6 +138,14 @@ export const buildMockExamAnalysis = ({
   const solved = attempt?.solved && typeof attempt.solved === 'object' && !Array.isArray(attempt.solved)
     ? attempt.solved
     : {};
+  const taskDurationsMs = attempt?.taskDurationsMs
+    && typeof attempt.taskDurationsMs === 'object'
+    && !Array.isArray(attempt.taskDurationsMs)
+    ? attempt.taskDurationsMs
+    : {};
+  const analyticsByTask = taskAnalytics && typeof taskAnalytics === 'object' && !Array.isArray(taskAnalytics)
+    ? taskAnalytics
+    : {};
   const mode = normalizeText(attempt?.mode || exam?.access?.mode).toLowerCase() || 'classic';
   const resultsVisible = mode !== TIMER_MODE || Boolean(normalizeText(attempt?.timerFinishedAt));
 
@@ -156,6 +165,15 @@ export const buildMockExamAnalysis = ({
           : 'unanswered';
     const primaryWeight = getTaskWeight(taskKey);
     const section = getTaskSection(taskKey);
+    const rawActiveDurationMs = Number(taskDurationsMs[taskKey]);
+    const activeDurationMs = Number.isFinite(rawActiveDurationMs) && rawActiveDurationMs > 0
+      ? Math.round(rawActiveDurationMs)
+      : null;
+    const aggregate = analyticsByTask[taskKey]
+      && typeof analyticsByTask[taskKey] === 'object'
+      && !Array.isArray(analyticsByTask[taskKey])
+      ? analyticsByTask[taskKey]
+      : null;
     return {
       taskKey,
       taskNumber: Number.isFinite(Number(taskKey)) ? Number(taskKey) : taskKey,
@@ -171,6 +189,8 @@ export const buildMockExamAnalysis = ({
       lostPrimary: resultsVisible && !isCorrect ? primaryWeight : 0,
       sectionId: section.id,
       sectionLabel: section.label,
+      activeDurationMs,
+      analytics: aggregate,
     };
   });
 

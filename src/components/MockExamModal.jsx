@@ -17,6 +17,7 @@ import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamTimerConfirmDialog from './MockExamTimerConfirmDialog';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import useMockExamTimerConfirmation from '../hooks/useMockExamTimerConfirmation';
+import { subscribeQuestionSolveEnvironment } from '../hooks/useQuestionSolveTimer';
 import { Button } from './ui';
 
 const artifactImageModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
@@ -614,19 +615,10 @@ const MockExamModal = ({
       state.environmentActive = active;
       if (active) startActiveTaskDuration();
     };
-    const handleVisibility = () => setEnvironmentActive(document.visibilityState !== 'hidden' && document.hasFocus());
-    const handleFocus = () => setEnvironmentActive(document.visibilityState !== 'hidden');
-    const handleBlur = () => setEnvironmentActive(false);
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('blur', handleBlur);
-    window.addEventListener('pagehide', handleBlur);
+    const unsubscribe = subscribeQuestionSolveEnvironment(setEnvironmentActive);
     return () => {
       commitActiveTaskDuration();
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('pagehide', handleBlur);
+      unsubscribe();
     };
   }, [commitActiveTaskDuration, startActiveTaskDuration]);
 

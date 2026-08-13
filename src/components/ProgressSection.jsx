@@ -693,6 +693,7 @@ const ProgressSection = ({
   const [mockExamsError, setMockExamsError] = useState('');
   const [mockExamsLoading, setMockExamsLoading] = useState(false);
   const [mockAttemptsByExam, setMockAttemptsByExam] = useState({});
+  const [mockTaskAnalyticsByExam, setMockTaskAnalyticsByExam] = useState({});
   const [mockAttemptsLoading, setMockAttemptsLoading] = useState(false);
   const [restoringMockTimerRewardsExamId, setRestoringMockTimerRewardsExamId] = useState(null);
   const [continuingMockTimerExamId, setContinuingMockTimerExamId] = useState(null);
@@ -1493,6 +1494,22 @@ const ProgressSection = ({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    if (role !== 'teacher') {
+      setMockTaskAnalyticsByExam({});
+      return () => { cancelled = true; };
+    }
+    api.getMockExamTaskAnalytics()
+      .then((data) => {
+        if (!cancelled) setMockTaskAnalyticsByExam(data && typeof data === 'object' ? data : {});
+      })
+      .catch(() => {
+        if (!cancelled) setMockTaskAnalyticsByExam({});
+      });
+    return () => { cancelled = true; };
+  }, [role, solvedRefreshKey]);
+
+  useEffect(() => {
     const attemptOwnerKey = String(effectiveStudentId || '').trim();
     if (!effectiveStudentId) {
       mockAttemptsOwnerRef.current = '';
@@ -2220,6 +2237,17 @@ const ProgressSection = ({
     const saved = await api.updateMockExam(nextExam.id, payload);
     setMockExams((prev) => (prev || []).map((exam) => (exam.id === saved.id ? saved : exam)));
     setMockEditorExam(saved);
+    if (role === 'teacher') {
+      try {
+        const analytics = await api.getMockExamTaskAnalytics(saved.id);
+        setMockTaskAnalyticsByExam((previous) => ({
+          ...previous,
+          [saved.id]: analytics && typeof analytics === 'object' ? analytics : {},
+        }));
+      } catch {
+        setMockTaskAnalyticsByExam((previous) => ({ ...previous, [saved.id]: {} }));
+      }
+    }
     return saved;
   };
 
@@ -5338,6 +5366,7 @@ const ProgressSection = ({
               getMockAnswerCountForTask={getMockAnswerCountForTask}
               getExpectedAnswers={getExpectedAnswers}
               allowsPartialAnswers={allowsPartialAnswers}
+              taskAnalytics={mockTaskAnalyticsByExam?.[mockEditorExam.id] || {}}
             />
           )}
 
@@ -5346,6 +5375,9 @@ const ProgressSection = ({
               open
               exam={mockAnalysisExam}
               attempt={mockAnalysisAttempt}
+              taskAnalytics={role === 'teacher'
+                ? (mockTaskAnalyticsByExam?.[mockAnalysisExam.id] || {})
+                : {}}
               targetTaskKeys={Array.isArray(mockAnalysisAttempt?.targetTaskKeys)
                 && mockAnalysisAttempt.targetTaskKeys.length > 0
                 ? mockAnalysisAttempt.targetTaskKeys
@@ -5414,6 +5446,14 @@ const ProgressSection = ({
                   ...(previousCacheOwner === attemptOwnerKey ? prev : {}),
                   [examId]: attempt,
                 }));
+                if (role === 'teacher') {
+                  api.getMockExamTaskAnalytics(examId)
+                    .then((data) => setMockTaskAnalyticsByExam((previous) => ({
+                      ...previous,
+                      [examId]: data && typeof data === 'object' ? data : {},
+                    })))
+                    .catch(() => {});
+                }
                 const timerChestsGained = Math.max(0, Math.floor(Number(attempt?.timerChestsGained) || 0));
                 if (timerChestsGained > 0) {
                   triggerTimerChestFlight(timerChestsGained, meta?.sourceRect);

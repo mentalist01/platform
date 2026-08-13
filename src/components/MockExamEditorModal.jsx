@@ -14,6 +14,8 @@ import {
 } from '../utils/mockExamBadges';
 import { Button } from './ui';
 import { resolveUploadsUrl } from '../utils/runtimeUrls';
+import { formatDifficultyDuration } from '../utils/questionDifficulty';
+import MockExamTaskDifficultyBadge from './MockExamTaskDifficultyBadge';
 
 const getAttachmentKey = (item) => String(item?.storageName || item?.id || item?.url || item?.name || '').trim();
 const buildAttachmentSignature = (items = []) => (
@@ -44,6 +46,7 @@ const MockExamEditorModal = ({
   getMockAnswerCountForTask,
   getExpectedAnswers,
   allowsPartialAnswers,
+  taskAnalytics = {},
 }) => {
   const [title, setTitle] = useState(exam?.title || '');
   const [badges, setBadges] = useState(() => normalizeMockExamBadges(exam?.badges));
@@ -107,6 +110,7 @@ const MockExamEditorModal = ({
   }, [exam?.id, selectedTask]);
 
   const currentTaskEntry = exam?.tasks?.[String(selectedTask)] || null;
+  const currentTaskAnalytics = taskAnalytics?.[String(selectedTask)] || null;
   const requiredAnswerCount = getMockAnswerCountForTask(selectedTask);
   const initialAnswers = normalizeAnswerValues(
     getExpectedAnswers(currentTaskEntry, requiredAnswerCount),
@@ -310,8 +314,14 @@ const MockExamEditorModal = ({
 
       const finalScreens = [...existingScreenshots, ...uploadedScreens];
       const finalFiles = [...existingFiles, ...uploadedFiles];
+      const previousTaskEntry = exam?.tasks?.[String(selectedTask)] || null;
+      const taskIdentity = previousTaskEntry?.id || Date.now();
+      const analyticsVersion = taskDirty
+        ? Date.now()
+        : (previousTaskEntry?.analyticsVersion || taskIdentity);
       const taskEntry = {
-        id: exam?.tasks?.[String(selectedTask)]?.id || Date.now(),
+        id: taskIdentity,
+        analyticsVersion,
         question: question.trim(),
         screenshots: finalScreens,
         files: finalFiles,
@@ -593,6 +603,9 @@ const MockExamEditorModal = ({
                           key={item.taskNumber}
                           type="button"
                           onClick={() => requestTaskChange(item.taskNumber)}
+                          title={taskAnalytics?.[String(item.taskNumber)]
+                            ? `Среднее активное время: ${formatDifficultyDuration(taskAnalytics[String(item.taskNumber)].averageDurationMs)}`
+                            : undefined}
                           className={`rounded-md border px-1 py-1 text-[11px] font-semibold transition-colors ${
                             isCurrent
                               ? 'border-purple-500 bg-purple-600 text-white'
@@ -610,7 +623,35 @@ const MockExamEditorModal = ({
               </div>
 
               <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-500">
-                Добавьте текст, фото, файлы и правильные ответы для задания {selectedTask}.
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-gray-700">Метрики задания {selectedTask}</span>
+                  <MockExamTaskDifficultyBadge
+                    analytics={currentTaskAnalytics}
+                    showWhenEmpty
+                  />
+                </div>
+                {currentTaskAnalytics ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="rounded-xl border border-white bg-white px-2.5 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Среднее время</span>
+                      <strong className="mt-1 block text-sm text-gray-800">
+                        {formatDifficultyDuration(currentTaskAnalytics.averageDurationMs)}
+                      </strong>
+                    </div>
+                    <div className="rounded-xl border border-white bg-white px-2.5 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Точность</span>
+                      <strong className="mt-1 block text-sm text-gray-800">{`${currentTaskAnalytics.accuracyPercent}%`}</strong>
+                    </div>
+                    <div className="rounded-xl border border-white bg-white px-2.5 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Решений</span>
+                      <strong className="mt-1 block text-sm text-gray-800">{currentTaskAnalytics.sampleSize}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 leading-relaxed">
+                    Среднее время и сложность появятся после первых решений с активным таймером.
+                  </p>
+                )}
               </div>
             </div>
 

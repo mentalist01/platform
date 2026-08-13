@@ -128,3 +128,25 @@ test('homework recommendation includes every problem task', () => {
 
   assert.equal(analysis.recommendedTaskKeys.length, 8);
 });
+
+test('task analysis exposes the student active time and teacher aggregate', () => {
+  const analysis = buildMockExamAnalysis({
+    exam: { id: 'timed', tasks: { 1: { answer: '42' } } },
+    attempt: {
+      mode: 'classic',
+      answers: { 1: '42' },
+      solved: { 1: true },
+      taskDurationsMs: { 1: 95_000 },
+    },
+    taskAnalytics: {
+      1: { sampleSize: 6, averageDurationMs: 120_000, category: 'medium' },
+    },
+    getAnswerCountForTask,
+    getExpectedAnswers,
+    getPrimaryScoreFromSolved,
+    getSecondaryScoreFromPrimary,
+  });
+
+  assert.equal(analysis.tasks[0].activeDurationMs, 95_000);
+  assert.equal(analysis.tasks[0].analytics.averageDurationMs, 120_000);
+});

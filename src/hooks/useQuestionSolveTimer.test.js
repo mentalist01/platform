@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  QUESTION_SOLVE_IDLE_TIMEOUT_MS,
   isQuestionSolveEnvironmentActive,
   subscribeQuestionSolveEnvironment,
 } from './useQuestionSolveTimer.js';
@@ -49,4 +50,41 @@ test('environment subscription handles visibility, focus, blur and page lifecycl
   unsubscribe();
   windowObject.dispatchEvent(new Event('blur'));
   assert.equal(states.length, 6);
+});
+
+test('environment subscription pauses after twenty minutes of inactivity and resumes on activity', () => {
+  const documentObject = new EventTarget();
+  const windowObject = new EventTarget();
+  Object.defineProperties(documentObject, {
+    visibilityState: { value: 'visible', writable: true },
+    hasFocus: { value: () => true },
+  });
+  const states = [];
+  const scheduledDelays = [];
+  let idleCallback = null;
+  const unsubscribe = subscribeQuestionSolveEnvironment(
+    (active) => states.push(active),
+    {
+      documentObject,
+      windowObject,
+      setTimeoutFn: (callback, delay) => {
+        idleCallback = callback;
+        scheduledDelays.push(delay);
+        return scheduledDelays.length;
+      },
+      clearTimeoutFn: () => {},
+    }
+  );
+
+  assert.equal(scheduledDelays[0], QUESTION_SOLVE_IDLE_TIMEOUT_MS);
+  idleCallback();
+  assert.deepEqual(states, [false]);
+
+  documentObject.dispatchEvent(new Event('keydown'));
+  assert.deepEqual(states, [false, true]);
+  assert.equal(scheduledDelays.at(-1), 20 * 60 * 1000);
+
+  unsubscribe();
+  documentObject.dispatchEvent(new Event('pointerdown'));
+  assert.equal(states.length, 2);
 });

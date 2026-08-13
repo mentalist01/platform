@@ -18,6 +18,8 @@ import {
 
 import { resolveAuthenticatedUploadsUrl } from '../services/api';
 import { buildMockExamAnalysis } from '../utils/mockExamAnalysis';
+import { formatDifficultyDuration } from '../utils/questionDifficulty';
+import MockExamTaskDifficultyBadge from './MockExamTaskDifficultyBadge';
 
 const FILTERS = [
   { id: 'all', label: 'Все' },
@@ -77,6 +79,7 @@ const MockExamAnalysisModal = ({
   open,
   exam,
   attempt,
+  taskAnalytics = {},
   studentLabel = '',
   taskCatalog = [],
   targetTaskKeys = null,
@@ -95,6 +98,7 @@ const MockExamAnalysisModal = ({
   const analysis = useMemo(() => buildMockExamAnalysis({
     exam,
     attempt,
+    taskAnalytics,
     taskCatalog,
     targetTaskKeys,
     getAnswerCountForTask,
@@ -109,6 +113,7 @@ const MockExamAnalysisModal = ({
     getPrimaryScoreFromSolved,
     getSecondaryScoreFromPrimary,
     taskCatalog,
+    taskAnalytics,
     targetTaskKeys,
   ]);
 
@@ -372,7 +377,23 @@ const MockExamAnalysisModal = ({
                                   ? 'Ответ сохранён, результат скрыт'
                                   : `Потеряно: ${task.primaryWeight} ${task.primaryWeight === 1 ? 'первичный балл' : 'первичных балла'}`}
                             </small>
+                            {(task.activeDurationMs || task.analytics?.averageDurationMs) && (
+                              <small className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-bold text-indigo-600">
+                                {task.activeDurationMs && (
+                                  <span>{`Ученик: ${formatDifficultyDuration(task.activeDurationMs)}`}</span>
+                                )}
+                                {task.analytics?.averageDurationMs && (
+                                  <span>{`Среднее: ${formatDifficultyDuration(task.analytics.averageDurationMs)}`}</span>
+                                )}
+                              </small>
+                            )}
                           </span>
+                          {task.analytics && (
+                            <MockExamTaskDifficultyBadge
+                              analytics={task.analytics}
+                              className="hidden lg:inline-flex"
+                            />
+                          )}
                           <span className={`hidden shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-black sm:inline-flex ${status.tone}`}>
                             <StatusIcon size={12} /> {status.label}
                           </span>

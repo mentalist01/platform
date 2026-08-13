@@ -1106,6 +1106,17 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getMockExamTaskAnalytics: async (examId) => {
+    const params = new URLSearchParams();
+    if (examId) params.set('examId', String(examId));
+    const query = params.toString();
+    const res = await apiFetch(query
+      ? `/api/mock-exams/task-analytics?${query}`
+      : '/api/mock-exams/task-analytics');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const data = await parseJsonResponse(res);
+    return data && typeof data === 'object' ? data : {};
+  },
   createRandomMockExam: async (requestId, options = {}) => {
     const levelId = String(options?.levelId || 'basic').trim().toLowerCase();
     const res = await apiFetch('/api/mock-exams/random', {

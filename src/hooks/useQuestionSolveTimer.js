@@ -5,6 +5,18 @@ import {
   buildQuestionSolveTimerStorageKey,
 } from '../utils/questionSolveTimer.js';
 
+export const QUESTION_SOLVE_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
+
+const QUESTION_SOLVE_ACTIVITY_EVENTS = [
+  'keydown',
+  'pointerdown',
+  'touchstart',
+  'input',
+  'change',
+  'scroll',
+];
+const QUESTION_SOLVE_ACTIVITY_LISTENER_OPTIONS = { capture: true, passive: true };
+
 export const isQuestionSolveEnvironmentActive = ({
   documentObject = typeof document === 'undefined' ? null : document,
 } = {}) => {
@@ -23,27 +35,76 @@ export const subscribeQuestionSolveEnvironment = (
   {
     documentObject = typeof document === 'undefined' ? null : document,
     windowObject = typeof window === 'undefined' ? null : window,
+    idleTimeoutMs = QUESTION_SOLVE_IDLE_TIMEOUT_MS,
+    setTimeoutFn = typeof setTimeout === 'function' ? setTimeout : null,
+    clearTimeoutFn = typeof clearTimeout === 'function' ? clearTimeout : null,
   } = {}
 ) => {
   if (typeof onActiveChange !== 'function') return () => {};
   const disposers = [];
-  const listen = (target, eventName, handler) => {
+  let idleTimerId = null;
+  let idle = false;
+  const listen = (target, eventName, handler, options) => {
     if (!target || typeof target.addEventListener !== 'function') return;
-    target.addEventListener(eventName, handler);
-    disposers.push(() => target.removeEventListener?.(eventName, handler));
+    target.addEventListener(eventName, handler, options);
+    disposers.push(() => target.removeEventListener?.(eventName, handler, options));
   };
-  const reportCurrent = () => onActiveChange(
-    isQuestionSolveEnvironmentActive({ documentObject })
-  );
-  const reportInactive = () => onActiveChange(false);
+  const clearIdleTimer = () => {
+    if (idleTimerId === null) return;
+    clearTimeoutFn?.(idleTimerId);
+    idleTimerId = null;
+  };
+  const scheduleIdleTimer = () => {
+    clearIdleTimer();
+    if (
+      !isQuestionSolveEnvironmentActive({ documentObject })
+      || typeof setTimeoutFn !== 'function'
+      || !Number.isFinite(Number(idleTimeoutMs))
+      || Number(idleTimeoutMs) <= 0
+    ) return;
+    idleTimerId = setTimeoutFn(() => {
+      idleTimerId = null;
+      idle = true;
+      onActiveChange(false);
+    }, Number(idleTimeoutMs));
+  };
+  const reportCurrent = () => {
+    const environmentActive = isQuestionSolveEnvironmentActive({ documentObject });
+    if (!environmentActive) {
+      clearIdleTimer();
+      onActiveChange(false);
+      return;
+    }
+    idle = false;
+    onActiveChange(true);
+    scheduleIdleTimer();
+  };
+  const reportInactive = () => {
+    clearIdleTimer();
+    onActiveChange(false);
+  };
+  const reportActivity = () => {
+    if (!isQuestionSolveEnvironmentActive({ documentObject })) return;
+    idle = false;
+    onActiveChange(true);
+    scheduleIdleTimer();
+  };
 
   listen(documentObject, 'visibilitychange', reportCurrent);
   listen(windowObject, 'focus', reportCurrent);
   listen(windowObject, 'blur', reportInactive);
   listen(windowObject, 'pagehide', reportInactive);
   listen(windowObject, 'pageshow', reportCurrent);
+  QUESTION_SOLVE_ACTIVITY_EVENTS.forEach((eventName) => {
+    listen(documentObject, eventName, reportActivity, QUESTION_SOLVE_ACTIVITY_LISTENER_OPTIONS);
+  });
 
-  return () => disposers.forEach((dispose) => dispose());
+  if (!idle) scheduleIdleTimer();
+
+  return () => {
+    clearIdleTimer();
+    disposers.forEach((dispose) => dispose());
+  };
 };
 
 const getFallbackTimerKey = (questionKey) => {
