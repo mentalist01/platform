@@ -16716,6 +16716,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [teacherStudentChatsUnreadTotal, setTeacherStudentChatsUnreadTotal] = useState(0);
   const [studentChatNavUnreadTotal, setStudentChatNavUnreadTotal] = useState(0);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
+  const [lastOnlineAtByUserId, setLastOnlineAtByUserId] = useState(() => new Map());
   const [incomingMessageSoundPulse, setIncomingMessageSoundPulse] = useState(0);
   const [studentScheduleNavNewTotal, setStudentScheduleNavNewTotal] = useState(0);
   const [studentProgressNavNewTotal, setStudentProgressNavNewTotal] = useState(0);
@@ -17647,6 +17648,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   useEffect(() => {
     setOnlineUserIds(new Set());
+    setLastOnlineAtByUserId(new Map());
     if (typeof window === 'undefined' || typeof WebSocket === 'undefined' || !chatLiveWsUrl || !user?.role) {
       return undefined;
     }
@@ -17708,6 +17710,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 .filter(Boolean)
             );
             setOnlineUserIds(nextOnlineUserIds);
+            setLastOnlineAtByUserId(new Map(
+              (Array.isArray(payload?.lastOnline) ? payload.lastOnline : [])
+                .map((entry) => [
+                  String(entry?.id || '').trim(),
+                  typeof entry?.lastOnlineAt === 'string' ? entry.lastOnlineAt.trim() : '',
+                ])
+                .filter(([id, lastOnlineAt]) => id && lastOnlineAt)
+            ));
             return;
           }
           if (liveType === 'presence-changed') {
@@ -17720,6 +17730,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               else next.delete(presenceUserId);
               return next;
             });
+            if (payload?.online !== true && typeof payload?.lastOnlineAt === 'string' && payload.lastOnlineAt.trim()) {
+              setLastOnlineAtByUserId((current) => {
+                const next = new Map(current);
+                next.set(presenceUserId, payload.lastOnlineAt.trim());
+                return next;
+              });
+            }
             return;
           }
           if (liveType === 'telemost-join-requested') {
@@ -17800,6 +17817,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       clearReconnectTimer();
       closeCurrentSocket();
       setOnlineUserIds(new Set());
+      setLastOnlineAtByUserId(new Map());
     };
   }, [chatLiveWsUrl, enqueueTelemostJoinAlert, registerIncomingMessageSoundCandidates, user?.id, user?.role]);
 
@@ -22776,6 +22794,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               getStudentLabel={getStudentLabel}
               onOpenDirectChat={PLATFORM_CHATS_ENABLED ? handleOpenStudentDirectChat : undefined}
               onlineUserIds={onlineUserIds}
+              lastOnlineAtByUserId={lastOnlineAtByUserId}
             />
           )}
           {view === 'python' && (

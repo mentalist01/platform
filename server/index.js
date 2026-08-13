@@ -22620,6 +22620,7 @@ app.get('/api/students/leaderboard', (req, res) => {
       grade,
       isGraduate,
       isStudying: isCurrentStudent(student),
+      lastOnlineAt: normalizeIsoTimestamp(student.lastOnlineAt, ''),
       informaticsEgeScore,
       level,
       xpTotal,
@@ -31365,6 +31366,27 @@ const isNotificationUserOnline = (auth) => {
   return false;
 };
 
+const recordStudentLastOnlineAt = (auth, value = new Date().toISOString()) => {
+  if (!isStudentRole(auth)) return '';
+  const studentId = String(auth?.id || '').trim();
+  const lastOnlineAt = normalizeIsoTimestamp(value, '');
+  if (!studentId || !lastOnlineAt) return '';
+
+  const students = readStudentsDb();
+  const studentIndex = students.findIndex((student) => String(student?.id || '').trim() === studentId);
+  if (studentIndex < 0) return '';
+
+  const previousLastOnlineAt = normalizeIsoTimestamp(students[studentIndex]?.lastOnlineAt, '');
+  if (previousLastOnlineAt === lastOnlineAt) return lastOnlineAt;
+  const nextStudents = [...students];
+  nextStudents[studentIndex] = {
+    ...students[studentIndex],
+    lastOnlineAt,
+  };
+  writeStudentsDb(nextStudents);
+  return lastOnlineAt;
+};
+
 const getVisibleNotificationPresenceUsers = (viewerAuth) => {
   const visible = new Map();
   notificationClientsBySocket.forEach((client) => {
@@ -31376,17 +31398,32 @@ const getVisibleNotificationPresenceUsers = (viewerAuth) => {
   return Array.from(visible.values());
 };
 
+const getVisibleStudentLastOnlineEntries = (viewerAuth) => readStudentsDb()
+  .filter((student) => isActiveStudent(student))
+  .filter((student) => canNotificationClientSeePresence(viewerAuth, {
+    id: student.id,
+    role: 'student',
+    teacherId: student.teacherId,
+  }))
+  .map((student) => ({
+    id: String(student.id || '').trim(),
+    lastOnlineAt: normalizeIsoTimestamp(student.lastOnlineAt, ''),
+  }))
+  .filter((entry) => entry.id && entry.lastOnlineAt);
+
 const sendNotificationPresenceSnapshot = (client) => {
   if (!client?.auth) return;
   sendNotificationPayload(client.ws, {
     type: 'presence-snapshot',
     users: getVisibleNotificationPresenceUsers(client.auth),
+    lastOnline: getVisibleStudentLastOnlineEntries(client.auth),
   });
 };
 
 const broadcastNotificationPresenceChange = (subjectAuth, online, options = {}) => {
   const user = getNotificationPresenceUser(subjectAuth);
   if (!user) return;
+  const lastOnlineAt = normalizeIsoTimestamp(options.lastOnlineAt, '');
   notificationClientsBySocket.forEach((client) => {
     if (options.excludeWs && client?.ws === options.excludeWs) return;
     if (!canNotificationClientSeePresence(client?.auth, subjectAuth)) return;
@@ -31394,6 +31431,7 @@ const broadcastNotificationPresenceChange = (subjectAuth, online, options = {}) 
       type: 'presence-changed',
       user,
       online: Boolean(online),
+      ...(lastOnlineAt ? { lastOnlineAt } : {}),
     });
   });
 };
@@ -31404,7 +31442,8 @@ const cleanupNotificationClient = (ws) => {
   if (!client) return;
   notificationClientsBySocket.delete(ws);
   if (!isNotificationUserOnline(client.auth)) {
-    broadcastNotificationPresenceChange(client.auth, false);
+    const lastOnlineAt = recordStudentLastOnlineAt(client.auth);
+    broadcastNotificationPresenceChange(client.auth, false, { lastOnlineAt });
   }
 };
 
@@ -32425,6 +32464,7 @@ notificationsWss.on('connection', (ws, _request, user) => {
   }
 
   const wasOnline = isNotificationUserOnline(auth);
+  const lastOnlineAt = wasOnline ? '' : recordStudentLastOnlineAt(auth);
   const client = {
     ws,
     auth,
@@ -32441,7 +32481,7 @@ notificationsWss.on('connection', (ws, _request, user) => {
   });
   sendNotificationPresenceSnapshot(client);
   if (!wasOnline) {
-    broadcastNotificationPresenceChange(auth, true, { excludeWs: ws });
+    broadcastNotificationPresenceChange(auth, true, { excludeWs: ws, lastOnlineAt });
   }
 
   ws.on('pong', () => {

@@ -28,6 +28,7 @@ import {
   isLeaderboardRowStudying,
   normalizeLeaderboardGrade,
 } from '../utils/studentLeaderboardFilters';
+import { formatLastOnlineAt, normalizeLastOnlineAt } from '../utils/studentPresence';
 
 const BONUS_TONE_CLASSNAME = {
   xp: 'border-violet-200 bg-violet-50/90 text-violet-700',
@@ -337,6 +338,7 @@ const StudentLeaderboardSection = ({
   studentsLoading = false,
   onOpenDirectChat,
   onlineUserIds = new Set(),
+  lastOnlineAtByUserId = new Map(),
 }) => {
   const [leaderboard, setLeaderboard] = useState({
     items: [],
@@ -368,6 +370,7 @@ const StudentLeaderboardSection = ({
   const [chestPressFeedback, setChestPressFeedback] = useState({ id: '', nonce: 0 });
   const [chestOpeningRewards, setChestOpeningRewards] = useState([]);
   const [chestTimerNow, setChestTimerNow] = useState(() => Date.now());
+  const [presenceNow, setPresenceNow] = useState(() => Date.now());
   const [studentProfileState, setStudentProfileState] = useState({
     open: false,
     studentId: '',
@@ -391,6 +394,11 @@ const StudentLeaderboardSection = ({
         chestPressTimerRef.current = null;
       }
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setPresenceNow(Date.now()), 60 * 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const loadLeaderboard = useCallback(async ({ silent = false } = {}) => {
@@ -493,6 +501,10 @@ const StudentLeaderboardSection = ({
       const isSelected = role === 'teacher'
         && Boolean(teacherSelectedStudentId)
         && studentId === teacherSelectedStudentId;
+      const liveLastOnlineAt = lastOnlineAtByUserId instanceof Map
+        ? lastOnlineAtByUserId.get(studentId)
+        : null;
+      const lastOnlineAt = normalizeLastOnlineAt(liveLastOnlineAt || entry?.lastOnlineAt);
       return {
         studentId,
         displayName,
@@ -548,9 +560,11 @@ const StudentLeaderboardSection = ({
         isCurrent,
         isSelected,
         isOnline: onlineUserIds instanceof Set && onlineUserIds.has(studentId),
+        lastOnlineAt,
+        lastOnlineLabel: formatLastOnlineAt(lastOnlineAt, presenceNow),
       };
     });
-  }, [leaderboard.items, onlineUserIds, role, teacherSelectedStudentId, userId]);
+  }, [leaderboard.items, lastOnlineAtByUserId, onlineUserIds, presenceNow, role, teacherSelectedStudentId, userId]);
 
   const currentStudentRow = role === 'student'
     ? (rows.find((row) => row.isCurrent) || null)
@@ -1975,6 +1989,11 @@ const StudentLeaderboardSection = ({
                   </span>
                 )}
               </div>
+              {!row.isOnline && (
+                <div className="student-leaderboard-row-meta truncate text-[10px] text-slate-400">
+                  {`Последний раз онлайн: ${row.lastOnlineLabel || 'нет данных'}`}
+                </div>
+              )}
               {row.showTeacherIdentity && (
                 <div className="student-leaderboard-row-meta truncate text-[11px] text-slate-500">{`Имя: ${row.mainName || '—'} • Имя2: ${row.nickname || '—'}`}</div>
               )}
