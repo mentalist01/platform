@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildHomeworkDurationEstimate,
+  estimateHomeworkDuration,
   formatHomeworkDurationEstimate,
+  formatHomeworkDurationMinutes,
 } from './homeworkDurationEstimate.js';
 
 const testsDb = {
@@ -14,6 +16,117 @@ const testsDb = {
     basic: [{ id: 'other-task' }],
   },
 };
+
+test('sums measured durations for required homework tasks', () => {
+  const result = estimateHomeworkDuration({
+    goalViews: [{
+      type: 'task',
+      taskNumber: 11,
+      levelId: 'basic',
+      targetStatus: [{ questionId: 'a' }, { questionId: 'b' }],
+    }],
+    questionDifficultyIndex: {
+      11: {
+        basic: {
+          a: { averageActiveDurationMs: 4 * 60_000 },
+          b: { averageDurationMs: 6 * 60_000 },
+        },
+      },
+    },
+  });
+
+  assert.equal(result.requiredMinutes, 10);
+  assert.equal(result.optionalMinutes, 0);
+  assert.equal(result.measuredItemCount, 2);
+  assert.equal(result.coveragePercent, 100);
+  assert.equal(result.usedFallback, false);
+});
+
+test('fills missing targets from the median of the same goal', () => {
+  const result = estimateHomeworkDuration({
+    goalViews: [{
+      type: 'task',
+      taskNumber: 11,
+      levelId: 'basic',
+      targetStatus: [{ questionId: 'a' }, { questionId: 'b' }, { questionId: 'c' }],
+    }],
+    questionDifficultyIndex: {
+      11: {
+        basic: {
+          a: { averageActiveDurationMs: 4 * 60_000 },
+          b: { averageActiveDurationMs: 8 * 60_000 },
+        },
+      },
+    },
+  });
+
+  assert.equal(result.requiredMinutes, 18);
+  assert.equal(result.measuredItemCount, 2);
+  assert.equal(result.coveragePercent, 67);
+  assert.equal(result.usedFallback, true);
+});
+
+test('keeps optional workload separate and supports mock analytics', () => {
+  const result = estimateHomeworkDuration({
+    goalViews: [
+      {
+        type: 'task',
+        taskNumber: 1,
+        levelId: 'basic',
+        targetStatus: [{ questionId: 'required' }],
+      },
+      {
+        type: 'mock',
+        mockExamId: 'exam-1',
+        assignmentTier: 'optional',
+        targetStatus: [{ taskKey: '1' }, { taskKey: '2' }],
+      },
+    ],
+    questionDifficultyIndex: {
+      1: { basic: { required: { averageActiveDurationMs: 5 * 60_000 } } },
+    },
+    mockTaskAnalyticsByExam: {
+      'exam-1': {
+        1: { averageActiveDurationMs: 7 * 60_000 },
+        2: { averageActiveDurationMs: 9 * 60_000 },
+      },
+    },
+  });
+
+  assert.equal(result.requiredMinutes, 5);
+  assert.equal(result.optionalMinutes, 16);
+  assert.equal(result.itemCount, 3);
+});
+
+test('uses data-driven global fallback when the assigned question has no history', () => {
+  const result = estimateHomeworkDuration({
+    goalViews: [{
+      type: 'task',
+      taskNumber: 2,
+      levelId: 'basic',
+      targetStatus: [{ questionId: 'new-question' }],
+    }],
+    questionDifficultyIndex: {
+      1: {
+        basic: {
+          a: { averageActiveDurationMs: 3 * 60_000 },
+          b: { averageActiveDurationMs: 7 * 60_000 },
+        },
+      },
+    },
+  });
+
+  assert.equal(result.requiredMinutes, 5);
+  assert.equal(result.measuredItemCount, 0);
+  assert.equal(result.usedFallback, true);
+});
+
+test('formats rounded homework duration for compact UI', () => {
+  assert.equal(formatHomeworkDurationMinutes(37), '35 мин');
+  assert.equal(formatHomeworkDurationMinutes(60), '1 ч');
+  assert.equal(formatHomeworkDurationMinutes(87), '1 ч 25 мин');
+  assert.equal(formatHomeworkDurationMinutes(0), '');
+});
 
 test('uses the concrete question timing before a task-level fallback', () => {
   const result = buildHomeworkDurationEstimate({

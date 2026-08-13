@@ -41,6 +41,10 @@ import {
 } from '../utils/mockExamMode';
 import { buildTeacherLessonBriefing } from '../utils/teacherLessonBriefing';
 import { buildTeacherHomeworkReviewItems } from '../utils/teacherHomeworkReview';
+import {
+  estimateHomeworkDuration,
+  formatHomeworkDurationMinutes,
+} from '../utils/homeworkDurationEstimate';
 
 const AUTO_REFRESH_INTERVAL_MS = 60_000;
 const SHOW_SCHEDULE_SKILL_TREE = false;
@@ -716,6 +720,9 @@ const ScheduleSection = ({
   const [homeworkDraftError, setHomeworkDraftError] = useState('');
   const [homeworkDraftNotice, setHomeworkDraftNotice] = useState('');
   const [teacherHomeworkReviewOpen, setTeacherHomeworkReviewOpen] = useState(false);
+  const [questionDifficultyIndex, setQuestionDifficultyIndex] = useState({});
+  const [mockTaskAnalyticsByExam, setMockTaskAnalyticsByExam] = useState({});
+  const [homeworkDurationAnalyticsLoading, setHomeworkDurationAnalyticsLoading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showLessonHistory, setShowLessonHistory] = useState(false);
@@ -1066,6 +1073,38 @@ const ScheduleSection = ({
   useEffect(() => {
     loadStudentProgress();
   }, [loadStudentProgress, solvedRefreshKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (role !== 'teacher') {
+      setQuestionDifficultyIndex({});
+      setMockTaskAnalyticsByExam({});
+      setHomeworkDurationAnalyticsLoading(false);
+      return () => { cancelled = true; };
+    }
+    setHomeworkDurationAnalyticsLoading(true);
+    Promise.allSettled([
+      api.getQuestionDifficulties(),
+      api.getMockExamTaskAnalytics(),
+    ])
+      .then(([questionResult, mockResult]) => {
+        if (cancelled) return;
+        setQuestionDifficultyIndex(
+          questionResult.status === 'fulfilled' && questionResult.value && typeof questionResult.value === 'object'
+            ? questionResult.value
+            : {}
+        );
+        setMockTaskAnalyticsByExam(
+          mockResult.status === 'fulfilled' && mockResult.value && typeof mockResult.value === 'object'
+            ? mockResult.value
+            : {}
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setHomeworkDurationAnalyticsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [role]);
 
   useEffect(() => {
     if (!effectiveStudentId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
@@ -2811,6 +2850,14 @@ const ScheduleSection = ({
     const completedChecklistCount = checklistItems.filter((item) => Boolean(item.completedAt)).length;
     const lessonUrl = normalizeHttpUrl(entry?.lessonLink);
     const boardUrl = normalizeHttpUrl(entry?.boardLink);
+    const durationEstimate = role === 'teacher'
+      ? estimateHomeworkDuration({
+          goalViews,
+          questionDifficultyIndex,
+          mockTaskAnalyticsByExam,
+        })
+      : null;
+    const durationEstimateLoading = role === 'teacher' && homeworkDurationAnalyticsLoading;
 
     const openGoal = (goalView) => {
       if (!goalView) return;
@@ -3010,6 +3057,24 @@ const ScheduleSection = ({
                   <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold ${summaryStatus.tone}`}>
                     {summaryStatus.label}
                   </span>
+                  {role === 'teacher' && (
+                    <span
+                      className="student-today-homework__duration-chip inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-bold text-sky-700"
+                      title={durationEstimate?.usedFallback
+                        ? 'Оценка по среднему активному времени решения. Для заданий без истории использовано среднее по похожим заданиям. Чек-лист и перерывы не включены.'
+                        : 'По среднему активному времени решения этих заданий учениками. Чек-лист и перерывы не включены.'}
+                    >
+                      <Clock3 size={11} />
+                      {durationEstimateLoading
+                        ? 'Считаем время…'
+                        : durationEstimate
+                          ? `Примерно ${formatHomeworkDurationMinutes(durationEstimate.totalMinutes)} всего`
+                          : 'Время пока не рассчитано'}
+                      {!durationEstimateLoading && durationEstimate?.optionalMinutes > 0
+                        ? ` · ${formatHomeworkDurationMinutes(durationEstimate.optionalMinutes)} дополнительно`
+                        : ''}
+                    </span>
+                  )}
                   {dateText ? <span className="text-[10px] font-medium text-slate-400">Выдано {dateText}</span> : null}
                 </div>
               </div>

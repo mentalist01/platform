@@ -3,6 +3,14 @@ import {
   normalizeHomeworkAssignmentTier,
 } from './homeworkAssignmentTier.js';
 
+const MINUTE_MS = 60 * 1000;
+
+const FALLBACK_DURATION_MS = Object.freeze({
+  standard: 5 * MINUTE_MS,
+  python: 12 * MINUTE_MS,
+  mock: 8 * MINUTE_MS,
+});
+
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 const getPositiveDuration = (value) => {
@@ -171,9 +179,163 @@ export const buildHomeworkDurationEstimate = ({
 export const formatHomeworkDurationEstimate = (durationMs) => {
   const numericDurationMs = Number(durationMs);
   if (!Number.isFinite(numericDurationMs) || numericDurationMs <= 0) return '';
-  const totalMinutes = Math.max(1, Math.round(numericDurationMs / 60_000));
+  const totalMinutes = Math.max(1, Math.round(numericDurationMs / MINUTE_MS));
   if (totalMinutes < 60) return `${totalMinutes} мин`;
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return minutes > 0 ? `${hours} ч ${minutes} мин` : `${hours} ч`;
+};
+
+const normalizeDurationMs = (value) => {
+  const durationMs = Number(value);
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
+  return Math.max(1, Math.round(durationMs));
+};
+
+const getAnalyticsDurationMs = (analytics) => normalizeDurationMs(
+  analytics?.averageActiveDurationMs ?? analytics?.averageDurationMs
+);
+
+const median = (values) => {
+  const normalized = (Array.isArray(values) ? values : [])
+    .map(normalizeDurationMs)
+    .filter((value) => value !== null)
+    .sort((left, right) => left - right);
+  if (normalized.length === 0) return null;
+  const middle = Math.floor(normalized.length / 2);
+  return normalized.length % 2 === 0
+    ? Math.round((normalized[middle - 1] + normalized[middle]) / 2)
+    : normalized[middle];
+};
+
+const isPythonGoal = (goal) => (
+  String(goal?.levelId || '').trim().toLowerCase() === 'python'
+  || Number(goal?.taskNumber) >= 100
+);
+
+const isMockGoal = (goal) => Boolean(
+  String(goal?.mockExamId || '').trim()
+  || String(goal?.type || '').trim().toLowerCase().includes('mock')
+);
+
+const isOptionalGoal = (goal) => (
+  goal?.optional === true
+  || String(goal?.assignmentTier || '').trim().toLowerCase() === 'optional'
+);
+
+const collectQuestionAnalyticsDurations = (index) => {
+  const byKind = { standard: [], python: [] };
+  if (!isRecord(index)) return byKind;
+  Object.entries(index).forEach(([taskKey, levels]) => {
+    if (!isRecord(levels)) return;
+    Object.entries(levels).forEach(([levelId, questions]) => {
+      if (!isRecord(questions)) return;
+      const kind = String(levelId).trim().toLowerCase() === 'python' || Number(taskKey) >= 100
+        ? 'python'
+        : 'standard';
+      Object.values(questions).forEach((analytics) => {
+        const durationMs = getAnalyticsDurationMs(analytics);
+        if (durationMs !== null) byKind[kind].push(durationMs);
+      });
+    });
+  });
+  return byKind;
+};
+
+const collectMockAnalyticsDurations = (index) => {
+  const durations = [];
+  if (!isRecord(index)) return durations;
+  Object.values(index).forEach((tasks) => {
+    if (!isRecord(tasks)) return;
+    Object.values(tasks).forEach((analytics) => {
+      const durationMs = getAnalyticsDurationMs(analytics);
+      if (durationMs !== null) durations.push(durationMs);
+    });
+  });
+  return durations;
+};
+
+const getDirectDurationMs = ({
+  goal,
+  target,
+  questionDifficultyIndex,
+  mockTaskAnalyticsByExam,
+}) => {
+  if (isMockGoal(goal)) {
+    const examId = String(goal?.mockExamId || '').trim();
+    const taskKey = String(target?.taskKey ?? target?.taskNumber ?? target?.num ?? '').trim();
+    return getAnalyticsDurationMs(mockTaskAnalyticsByExam?.[examId]?.[taskKey]);
+  }
+  const taskKey = String(goal?.taskNumber ?? '').trim();
+  const levelId = String(goal?.levelId || '').trim();
+  const questionId = String(target?.questionId ?? target?.id ?? '').trim();
+  if (!taskKey || !levelId || !questionId) return null;
+  return getAnalyticsDurationMs(questionDifficultyIndex?.[taskKey]?.[levelId]?.[questionId]);
+};
+
+export const estimateHomeworkDuration = ({
+  goalViews = [],
+  questionDifficultyIndex = {},
+  mockTaskAnalyticsByExam = {},
+} = {}) => {
+  const goals = (Array.isArray(goalViews) ? goalViews : []).filter(Boolean);
+  const questionDurations = collectQuestionAnalyticsDurations(questionDifficultyIndex);
+  const globalFallbacks = {
+    standard: median(questionDurations.standard) || FALLBACK_DURATION_MS.standard,
+    python: median(questionDurations.python) || FALLBACK_DURATION_MS.python,
+    mock: median(collectMockAnalyticsDurations(mockTaskAnalyticsByExam)) || FALLBACK_DURATION_MS.mock,
+  };
+  const items = [];
+
+  goals.forEach((goal) => {
+    const targets = Array.isArray(goal?.targetStatus) ? goal.targetStatus : [];
+    if (targets.length === 0) return;
+    const kind = isMockGoal(goal) ? 'mock' : (isPythonGoal(goal) ? 'python' : 'standard');
+    const directDurations = targets.map((target) => getDirectDurationMs({
+      goal,
+      target,
+      questionDifficultyIndex,
+      mockTaskAnalyticsByExam,
+    }));
+    const goalFallbackMs = median(directDurations) || globalFallbacks[kind];
+    targets.forEach((target, index) => {
+      const directDurationMs = directDurations[index];
+      items.push({
+        durationMs: directDurationMs || goalFallbackMs,
+        measured: directDurationMs !== null,
+        optional: isOptionalGoal(goal),
+      });
+    });
+  });
+
+  if (items.length === 0) return null;
+  const requiredItems = items.filter((item) => !item.optional);
+  const optionalItems = items.filter((item) => item.optional);
+  const requiredDurationMs = requiredItems.reduce((sum, item) => sum + item.durationMs, 0);
+  const optionalDurationMs = optionalItems.reduce((sum, item) => sum + item.durationMs, 0);
+  const measuredItemCount = items.filter((item) => item.measured).length;
+
+  return {
+    requiredMinutes: requiredDurationMs / MINUTE_MS,
+    optionalMinutes: optionalDurationMs / MINUTE_MS,
+    totalMinutes: (requiredDurationMs + optionalDurationMs) / MINUTE_MS,
+    requiredItemCount: requiredItems.length,
+    optionalItemCount: optionalItems.length,
+    itemCount: items.length,
+    measuredItemCount,
+    coveragePercent: Math.round((measuredItemCount / items.length) * 100),
+    usedFallback: measuredItemCount < items.length,
+  };
+};
+
+export const formatHomeworkDurationMinutes = (value) => {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes <= 0) return '';
+  const roundedMinutes = minutes < 10
+    ? Math.max(1, Math.round(minutes))
+    : Math.max(5, Math.round(minutes / 5) * 5);
+  if (roundedMinutes < 60) return `${roundedMinutes} мин`;
+  const hours = Math.floor(roundedMinutes / 60);
+  const remainder = roundedMinutes % 60;
+  return remainder > 0 ? `${hours} ч ${remainder} мин` : `${hours} ч`;
 };
