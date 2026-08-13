@@ -21,6 +21,13 @@ import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 import StudentSearchSelect from './StudentSearchSelect';
 import OnlinePresenceDot from './OnlinePresenceDot';
 import { PROFILE_THEME_CATALOG, PROFILE_THEME_CATALOG_BY_ID } from '../data/profileThemeCatalog';
+import {
+  STUDENT_GRADE_GRADUATE,
+  filterStudentLeaderboardRows,
+  gradesMatch,
+  isLeaderboardRowStudying,
+  normalizeLeaderboardGrade,
+} from '../utils/studentLeaderboardFilters';
 
 const BONUS_TONE_CLASSNAME = {
   xp: 'border-violet-200 bg-violet-50/90 text-violet-700',
@@ -130,23 +137,11 @@ const formatLeaderboardDayCount = (value) => {
   return `${days.toLocaleString('ru-RU')} ${suffix}`;
 };
 
-const STUDENT_GRADE_GRADUATE = 'graduate';
-
-const normalizeLeaderboardGrade = (value) => {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  if (normalized === STUDENT_GRADE_GRADUATE || normalized === 'graduates' || normalized === 'выпускник' || normalized === 'выпускники') {
-    return STUDENT_GRADE_GRADUATE;
-  }
-  return Number(value) === 10 ? 10 : 11;
-};
-
 const normalizeEgeScore = (value) => {
   const score = Number(value);
   if (!Number.isInteger(score) || score < 0 || score > 100) return null;
   return score;
 };
-
-const gradesMatch = (left, right) => normalizeLeaderboardGrade(left) === normalizeLeaderboardGrade(right);
 
 const compareLeaderboardNumberDesc = (left, right) => {
   const diff = Number(right || 0) - Number(left || 0);
@@ -350,7 +345,8 @@ const StudentLeaderboardSection = ({
     selectedStudent: null,
   });
   const [selectedMetricId, setSelectedMetricId] = useState('xp');
-  const [audienceFilter, setAudienceFilter] = useState('all');
+  const [audienceFilter, setAudienceFilter] = useState('students');
+  const [onlineOnly, setOnlineOnly] = useState(false);
   const [altar, setAltar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -467,6 +463,7 @@ const StudentLeaderboardSection = ({
       const nickname = typeof entry?.nickname === 'string' ? entry.nickname.trim() : '';
       const grade = normalizeLeaderboardGrade(entry?.grade);
       const isGraduate = Boolean(entry?.isGraduate) || grade === STUDENT_GRADE_GRADUATE;
+      const isStudying = isLeaderboardRowStudying(entry);
       const informaticsEgeScore = isGraduate ? normalizeEgeScore(entry?.informaticsEgeScore) : null;
       const course = entry?.course && typeof entry.course === 'object' ? entry.course : {};
       const python = entry?.python && typeof entry.python === 'object' ? entry.python : {};
@@ -504,6 +501,7 @@ const StudentLeaderboardSection = ({
         nickname,
         grade,
         isGraduate,
+        isStudying,
         informaticsEgeScore,
         showTeacherIdentity: role === 'teacher',
         xpTotal,
@@ -563,22 +561,25 @@ const StudentLeaderboardSection = ({
     : null;
 
   useEffect(() => {
-    setAudienceFilter((current) => {
-      if (role === 'student') {
-        return current === 'grade' || current === 'all' ? current : 'all';
-      }
-      return current === 'grade' ? 'all' : current;
-    });
+    setAudienceFilter('students');
+    setOnlineOnly(false);
   }, [role]);
 
-  const visibleRows = useMemo(() => {
-    if (audienceFilter === 'all') return rows;
-    if (role === 'student') {
-      return rows.filter((row) => gradesMatch(row.grade, currentStudentGrade));
-    }
-    if (audienceFilter === 'graduates') return rows.filter((row) => row.isGraduate);
-    return rows.filter((row) => !row.isGraduate);
-  }, [audienceFilter, currentStudentGrade, role, rows]);
+  const audienceRows = useMemo(() => filterStudentLeaderboardRows(rows, {
+    audienceFilter,
+    currentStudentGrade,
+  }), [audienceFilter, currentStudentGrade, rows]);
+
+  const visibleRows = useMemo(() => filterStudentLeaderboardRows(rows, {
+    audienceFilter,
+    currentStudentGrade,
+    onlineOnly,
+  }), [audienceFilter, currentStudentGrade, onlineOnly, rows]);
+
+  const onlineRowsCount = useMemo(
+    () => audienceRows.reduce((count, row) => count + (row.isOnline ? 1 : 0), 0),
+    [audienceRows]
+  );
 
   const graduateRowsCount = useMemo(
     () => rows.reduce((count, row) => count + (row.isGraduate ? 1 : 0), 0),
@@ -591,19 +592,25 @@ const StudentLeaderboardSection = ({
       : 0
   ), [currentStudentGrade, role, rows]);
 
+  const studyingRowsCount = useMemo(
+    () => rows.reduce((count, row) => count + (row.isStudying ? 1 : 0), 0),
+    [rows]
+  );
+
   const audienceFilterOptions = useMemo(() => {
     if (role === 'student') {
       return [
+        { id: 'students', label: 'Текущие', count: studyingRowsCount },
         { id: 'all', label: 'Все', count: rows.length },
         { id: 'grade', label: 'Мой класс', count: currentGradeRowsCount },
       ];
     }
     return [
+      { id: 'students', label: 'Текущие', count: studyingRowsCount },
       { id: 'all', label: 'Все', count: rows.length },
-      { id: 'students', label: 'Ученики', count: rows.length - graduateRowsCount },
       { id: 'graduates', label: 'Выпускники', count: graduateRowsCount },
     ];
-  }, [currentGradeRowsCount, graduateRowsCount, role, rows.length]);
+  }, [currentGradeRowsCount, graduateRowsCount, role, rows.length, studyingRowsCount]);
 
   const teacherStudentOptions = useMemo(() => {
     if (role !== 'teacher') return [];
@@ -1766,7 +1773,10 @@ const StudentLeaderboardSection = ({
   };
 
   const renderAudienceFilterControls = () => (
-    <div className="student-leaderboard-audience-filter flex flex-wrap items-center justify-end gap-1.5">
+    <div
+      className="student-leaderboard-audience-filter flex flex-wrap items-center justify-end gap-1.5"
+      aria-label="Фильтр участников рейтинга"
+    >
       {audienceFilterOptions.map((option) => {
         const isActive = audienceFilter === option.id;
         return (
@@ -1786,6 +1796,20 @@ const StudentLeaderboardSection = ({
           </button>
         );
       })}
+      <button
+        type="button"
+        aria-pressed={onlineOnly}
+        title={`Онлайн сейчас: ${onlineRowsCount}`}
+        onClick={() => setOnlineOnly((current) => !current)}
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${
+          onlineOnly
+            ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm shadow-emerald-200'
+            : 'border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50'
+        }`}
+      >
+        <OnlinePresenceDot size="sm" />
+        Онлайн сейчас
+      </button>
     </div>
   );
 
@@ -1813,10 +1837,16 @@ const StudentLeaderboardSection = ({
       <div className="student-leaderboard-board-list mt-3 space-y-2">
         {items.length === 0 && (
           <div className="rounded-2xl border border-dashed border-purple-200 bg-purple-50/60 px-4 py-6 text-center text-sm text-purple-700">
-            {role === 'student' && audienceFilter !== 'all'
+            {onlineOnly
+              ? audienceFilter === 'students'
+                ? 'Сейчас никто из текущих учеников не онлайн.'
+                : 'Сейчас никто не онлайн.'
+              : role === 'student' && audienceFilter === 'grade'
               ? 'В твоём классе пока нет участников.'
               : audienceFilter === 'graduates'
               ? 'Выпускников в рейтинге пока нет.'
+              : audienceFilter === 'students'
+              ? 'Текущих учеников в рейтинге пока нет.'
               : 'В этом фильтре пока нет участников.'}
           </div>
         )}
