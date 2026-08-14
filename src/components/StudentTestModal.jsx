@@ -1065,6 +1065,7 @@ const StudentTestModal = ({
   onThemeToggle,
   forceInitialLevelLaunch = false,
   reviewMode = false,
+  quickHomeworkPlanProgress = null,
   LEVELS,
   LEVEL_WEIGHTS,
   GAME_THEORY_TASK,
@@ -4522,11 +4523,20 @@ const StudentTestModal = ({
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <div className="student-test-progress-summary hidden sm:block">
                 <div className="flex items-center justify-between gap-4 text-xs">
-                  <span>Выполнено</span>
-                  <strong>{solvedQuestionCount}/{questions.length}</strong>
+                  <span>{quickHomeworkPlanProgress?.total > 1 ? 'Быстрый план' : 'Выполнено'}</span>
+                  <strong>{quickHomeworkPlanProgress?.total > 1
+                    ? `${quickHomeworkPlanProgress.completed}/${quickHomeworkPlanProgress.total}`
+                    : `${solvedQuestionCount}/${questions.length}`}</strong>
                 </div>
                 <div className="student-test-progress-track mt-1.5">
-                  <div className="student-test-progress-fill" style={{ width: `${completionPercent}%` }} />
+                  <div
+                    className="student-test-progress-fill"
+                    style={{
+                      width: `${quickHomeworkPlanProgress?.total > 1
+                        ? Math.round((quickHomeworkPlanProgress.completed / quickHomeworkPlanProgress.total) * 100)
+                        : completionPercent}%`,
+                    }}
+                  />
                 </div>
               </div>
               <button
@@ -4548,13 +4558,17 @@ const StudentTestModal = ({
           <div className="student-test-navigation shrink-0" data-student-test-tour="question-navigation">
             <div className="flex items-center justify-between gap-3">
               <span className="student-test-question-caption">
-                {targetNumbers.length > 0
-                  ? `Вопрос №${currentQuestionNumber} · ${currentIndex + 1} из ${questions.length}`
-                  : `Вопрос ${currentIndex + 1} из ${questions.length}`}
+                {quickHomeworkPlanProgress?.total > 1
+                  ? `Сейчас · вопрос №${currentQuestionNumber}`
+                  : (targetNumbers.length > 0
+                      ? `Вопрос №${currentQuestionNumber} · ${currentIndex + 1} из ${questions.length}`
+                      : `Вопрос ${currentIndex + 1} из ${questions.length}`)}
               </span>
               {targetStatus.length > 0 ? (
                 <span className="text-right text-[10px] font-semibold text-purple-600 sm:text-xs">
-                  Цель — решить выбранные задания · {targetSolvedCount}/{targetStatus.length}
+                  {quickHomeworkPlanProgress?.total > 1
+                    ? `Быстрый план · ${quickHomeworkPlanProgress.completed}/${quickHomeworkPlanProgress.total}`
+                    : `Цель — решить выбранные задания · ${targetSolvedCount}/${targetStatus.length}`}
                 </span>
               ) : (
                 <span className="student-test-mobile-progress sm:hidden">

@@ -4,6 +4,7 @@ import {
   buildHomeworkQuickTaskQueue,
   buildHomeworkTimePlans,
   completeHomeworkQuickTaskSession,
+  getHomeworkQuickTaskBatch,
   pickNextHomeworkQuickTask,
   rankHomeworkQuickTaskQueueByDifficulty,
 } from './homeworkQuickStart.js';
@@ -55,6 +56,71 @@ test('pickNextHomeworkQuickTask skips current and completed tasks', () => {
   assert.deepEqual(
     pickNextHomeworkQuickTask(queue, ['second'], 'first'),
     { key: 'third' }
+  );
+});
+
+test('quick homework batch keeps questions from the same task and level together', () => {
+  const queue = [
+    { key: '7|basic|a', kind: 'question', taskNumber: 7, levelId: 'basic', questionNumber: 1 },
+    { key: '7|basic|b', kind: 'question', taskNumber: 7, levelId: 'basic', questionNumber: 2 },
+    { key: '8|basic|c', kind: 'question', taskNumber: 8, levelId: 'basic', questionNumber: 1 },
+  ];
+
+  assert.deepEqual(
+    getHomeworkQuickTaskBatch(queue, queue[0], []).map((task) => task.key),
+    ['7|basic|a', '7|basic|b']
+  );
+  assert.deepEqual(
+    getHomeworkQuickTaskBatch(queue, queue[0], ['7|basic|a']).map((task) => task.key),
+    ['7|basic|b']
+  );
+});
+
+test('solving a multi-question batch updates the plan after every question', () => {
+  const queue = [
+    { key: '7|basic|a', kind: 'question', taskNumber: 7, levelId: 'basic' },
+    { key: '7|basic|b', kind: 'question', taskNumber: 7, levelId: 'basic' },
+    { key: '8|basic|c', kind: 'question', taskNumber: 8, levelId: 'basic' },
+  ];
+  const session = {
+    status: 'solving',
+    currentTask: queue[0],
+    completedKeys: [],
+    completedCount: 0,
+  };
+  const next = completeHomeworkQuickTaskSession(session, queue, queue[0], {
+    activeTaskKeys: ['7|basic|a', '7|basic|b'],
+  });
+
+  assert.equal(next.status, 'solving');
+  assert.deepEqual(next.completedKeys, ['7|basic|a']);
+
+  const afterBatch = completeHomeworkQuickTaskSession(next, queue, queue[1], {
+    activeTaskKeys: ['7|basic|a', '7|basic|b'],
+  });
+  assert.equal(afterBatch.status, 'celebrate');
+  assert.equal(afterBatch.completedCount, 2);
+  assert.deepEqual(afterBatch.completedKeys, ['7|basic|a', '7|basic|b']);
+});
+
+test('mock tasks from one classic exam share a batch while Python stays atomic', () => {
+  const mockTasks = [
+    { key: 'mock|a|1', kind: 'mock', mode: 'classic', mockExamId: 'a', taskKey: '1' },
+    { key: 'mock|a|2', kind: 'mock', mode: 'classic', mockExamId: 'a', taskKey: '2' },
+    { key: 'mock|b|1', kind: 'mock', mode: 'classic', mockExamId: 'b', taskKey: '1' },
+  ];
+  assert.deepEqual(
+    getHomeworkQuickTaskBatch(mockTasks, mockTasks[0], []).map((task) => task.key),
+    ['mock|a|1', 'mock|a|2']
+  );
+
+  const pythonTasks = [
+    { key: '100|python|a', kind: 'question', questionKind: 'python', taskNumber: 100, levelId: 'python' },
+    { key: '100|python|b', kind: 'question', questionKind: 'python', taskNumber: 100, levelId: 'python' },
+  ];
+  assert.deepEqual(
+    getHomeworkQuickTaskBatch(pythonTasks, pythonTasks[0], []).map((task) => task.key),
+    ['100|python|a']
   );
 });
 

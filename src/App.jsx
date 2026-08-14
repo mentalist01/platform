@@ -84,6 +84,7 @@ import {
   buildHomeworkQuickTaskQueue,
   completeHomeworkQuickTaskSession,
   buildHomeworkTimePlans,
+  getHomeworkQuickTaskBatch,
   pickNextHomeworkQuickTask,
   rankHomeworkQuickTaskQueueByDifficulty,
 } from './utils/homeworkQuickStart';
@@ -16645,9 +16646,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     status: 'idle',
     mode: null,
     budgetMinutes: null,
+    planKey: '',
+    planOptions: [],
     planTasks: [],
     estimatedDurationMs: 0,
     currentTask: null,
+    activeTaskKeys: [],
     completedKeys: [],
     completedCount: 0,
   });
@@ -20865,9 +20869,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       status: 'idle',
       mode: null,
       budgetMinutes: null,
+      planKey: '',
+      planOptions: [],
       planTasks: [],
       estimatedDurationMs: 0,
       currentTask: null,
+      activeTaskKeys: [],
       completedKeys: [],
       completedCount: 0,
     });
@@ -20875,15 +20882,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const openQuickHomeworkTask = (task, { reset = false, plan = null } = {}) => {
     if (!task) return;
+    const sessionTasks = reset
+      ? (Array.isArray(plan?.tasks) && plan.tasks.length > 0 ? plan.tasks : [task])
+      : quickHomeworkQueue;
+    const completedKeys = reset ? [] : quickHomeworkSession.completedKeys;
+    const taskBatch = getHomeworkQuickTaskBatch(sessionTasks, task, completedKeys);
+    const activeTaskKeys = taskBatch.map((item) => item.key);
     setQuickHomeworkSession((current) => ({
       status: 'solving',
       mode: reset ? (plan ? 'timed' : 'fallback') : current.mode,
       budgetMinutes: reset ? (plan?.budgetMinutes || null) : current.budgetMinutes,
+      planKey: reset ? String(plan?.key || '') : current.planKey,
+      planOptions: reset
+        ? (plan ? quickHomeworkPlanOptions.availablePlans : [])
+        : current.planOptions,
       planTasks: reset
         ? (Array.isArray(plan?.tasks) && plan.tasks.length > 0 ? plan.tasks : [task])
         : current.planTasks,
       estimatedDurationMs: reset ? (plan?.estimatedDurationMs || task.estimatedDurationMs || 0) : current.estimatedDurationMs,
       currentTask: task,
+      activeTaskKeys,
       completedKeys: reset ? [] : current.completedKeys,
       completedCount: reset ? 0 : current.completedCount,
     }));
@@ -20891,19 +20909,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       handleOpenMockGoal(task.mockExamId, task.taskKey, {
         fromHomework: true,
         mode: task.mode,
-        targetTaskKeys: [task.taskKey],
+        targetTaskKeys: taskBatch.map((item) => item.taskKey).filter(Boolean),
       });
       return;
     }
+    const batchQuestionNumbers = taskBatch
+      .map((item) => Number(item.questionNumber))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const orderedBatchQuestionNumbers = [...new Set(batchQuestionNumbers)].sort((left, right) => left - right);
+    const initialBatchQuestionIndex = orderedBatchQuestionNumbers.findIndex((value) => (
+      value === Number(task.questionNumber)
+    ));
     handleOpenTask(
       task.taskNumber,
       task.levelId,
-      task.questionNumber ? [task.questionNumber] : null,
+      orderedBatchQuestionNumbers.length > 0 ? orderedBatchQuestionNumbers : null,
       {
         quickHomework: true,
-        questionIndex: task.isPython && task.questionNumber
-          ? Math.max(0, task.questionNumber - 1)
-          : null,
+        questionIndex: initialBatchQuestionIndex >= 0 ? initialBatchQuestionIndex : null,
       }
     );
   };
@@ -20923,7 +20946,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   };
 
   const handleResumeQuickHomework = () => {
-    const task = quickHomeworkSession.currentTask
+    const currentTaskKey = String(quickHomeworkSession.currentTask?.key || '');
+    const canResumeCurrentTask = currentTaskKey
+      && !quickHomeworkSession.completedKeys.includes(currentTaskKey);
+    const task = (canResumeCurrentTask ? quickHomeworkSession.currentTask : null)
       || pickNextHomeworkQuickTask(quickHomeworkQueue, quickHomeworkSession.completedKeys);
     openQuickHomeworkTask(task);
   };
@@ -20948,9 +20974,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           status: 'idle',
           mode: null,
           budgetMinutes: null,
+          planKey: '',
+          planOptions: [],
           planTasks: [],
           estimatedDurationMs: 0,
           currentTask: null,
+          activeTaskKeys: [],
           completedKeys: [],
           completedCount: 0,
         };
@@ -20971,52 +21000,51 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const handleQuickHomeworkTaskSolved = (payload = {}) => {
     if (quickHomeworkSession.status !== 'solving' || !quickHomeworkSession.currentTask) return false;
     const completion = payload?.options && typeof payload.options === 'object' ? payload.options : {};
-    const currentTask = quickHomeworkSession.currentTask;
     if (completion.quickQuestionSolved !== true) return false;
-    if (
-      completion.taskNumber != null
-      && Number(completion.taskNumber) !== Number(currentTask.taskNumber)
-    ) {
-      return false;
-    }
-    if (
-      completion.levelId
-      && String(completion.levelId) !== String(currentTask.levelId)
-    ) {
-      return false;
-    }
-    if (
-      currentTask.questionId
-      && completion.solvedQuestionId
-      && String(completion.solvedQuestionId) !== String(currentTask.questionId)
-    ) {
-      return false;
-    }
-    if (
-      !currentTask.questionId
-      && currentTask.questionNumber
-      && completion.solvedQuestionNumber
-      && Number(completion.solvedQuestionNumber) !== Number(currentTask.questionNumber)
-    ) {
-      return false;
-    }
-    setQuickHomeworkSession((current) => (
-      completeHomeworkQuickTaskSession(current, quickHomeworkQueue, currentTask)
+    const activeTaskKeySet = new Set(quickHomeworkSession.activeTaskKeys || []);
+    const completedTask = quickHomeworkQueue.find((task) => (
+      activeTaskKeySet.has(task.key)
+      && Number(completion.taskNumber) === Number(task.taskNumber)
+      && String(completion.levelId || '') === String(task.levelId || '')
+      && (
+        (task.questionId && String(completion.solvedQuestionId || '') === String(task.questionId))
+        || (
+          !task.questionId
+          && Number(completion.solvedQuestionNumber) === Number(task.questionNumber)
+        )
+      )
     ));
-    return true;
+    if (!completedTask) return false;
+    setQuickHomeworkSession((current) => (
+      completeHomeworkQuickTaskSession(current, quickHomeworkQueue, completedTask, {
+        activeTaskKeys: current.activeTaskKeys,
+      })
+    ));
+    const remainingActiveTaskCount = (quickHomeworkSession.activeTaskKeys || []).filter((key) => (
+      key !== completedTask.key && !quickHomeworkSession.completedKeys.includes(key)
+    )).length;
+    return remainingActiveTaskCount === 0;
   };
 
   const handleQuickHomeworkMockTaskSolved = ({ examId, taskKey } = {}) => {
     if (quickHomeworkSession.status !== 'solving' || !quickHomeworkSession.currentTask) return false;
-    const currentTask = quickHomeworkSession.currentTask;
-    if (currentTask.kind !== 'mock') return false;
-    if (String(currentTask.mockExamId) !== String(examId) || String(currentTask.taskKey) !== String(taskKey)) {
-      return false;
-    }
-    setQuickHomeworkSession((current) => (
-      completeHomeworkQuickTaskSession(current, quickHomeworkQueue, currentTask)
+    const activeTaskKeySet = new Set(quickHomeworkSession.activeTaskKeys || []);
+    const completedTask = quickHomeworkQueue.find((task) => (
+      activeTaskKeySet.has(task.key)
+      && task.kind === 'mock'
+      && String(task.mockExamId) === String(examId)
+      && String(task.taskKey) === String(taskKey)
     ));
-    return true;
+    if (!completedTask) return false;
+    setQuickHomeworkSession((current) => (
+      completeHomeworkQuickTaskSession(current, quickHomeworkQueue, completedTask, {
+        activeTaskKeys: current.activeTaskKeys,
+      })
+    ));
+    const remainingActiveTaskCount = (quickHomeworkSession.activeTaskKeys || []).filter((key) => (
+      key !== completedTask.key && !quickHomeworkSession.completedKeys.includes(key)
+    )).length;
+    return remainingActiveTaskCount === 0;
   };
 
   const openHomeworkMockGoal = (goal) => {
@@ -22713,7 +22741,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               quickHomeworkAvailableCount={quickHomeworkQueue.length}
               quickHomeworkCompletedCount={quickHomeworkSession.completedCount}
               quickHomeworkCurrentTask={quickHomeworkPreviewTask}
-              quickHomeworkPlans={quickHomeworkPlanOptions.availablePlans}
+              quickHomeworkPlans={quickHomeworkSession.mode === 'timed' && quickHomeworkSession.planOptions?.length > 0
+                ? quickHomeworkSession.planOptions
+                : quickHomeworkPlanOptions.availablePlans}
+              quickHomeworkPlanKey={quickHomeworkSession.planKey}
               quickHomeworkMode={quickHomeworkSession.mode}
               quickHomeworkBudgetMinutes={quickHomeworkSession.budgetMinutes}
               quickHomeworkPlannedCount={quickHomeworkSession.planTasks?.length || 0}
@@ -22882,6 +22913,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onTaskStateChange={handleTaskStateChange}
               onQuickHomeworkTaskSolved={handleQuickHomeworkTaskSolved}
               onQuickHomeworkMockTaskSolved={handleQuickHomeworkMockTaskSolved}
+              quickHomeworkPlanProgress={quickHomeworkSession.status === 'solving'
+                ? {
+                    completed: quickHomeworkSession.completedCount,
+                    total: quickHomeworkSession.planTasks?.length || 0,
+                  }
+                : null}
               onStreakSaved={handleStreakSaved}
               onXpGain={handleXpGain}
               openMockExamId={pendingOpenMockExamId}

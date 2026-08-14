@@ -146,6 +146,7 @@ const StudentTodayOverview = ({
   quickHomeworkCompletedCount = 0,
   quickHomeworkCurrentTask = null,
   quickHomeworkPlans = [],
+  quickHomeworkPlanKey = '',
   quickHomeworkMode = null,
   quickHomeworkBudgetMinutes = null,
   quickHomeworkPlannedCount = 0,
@@ -182,11 +183,23 @@ const StudentTodayOverview = ({
   const hasHomework = hasRequiredHomework || hasOptionalHomework;
   const quickHomeworkFinished = quickHomeworkStatus === 'done' && quickHomeworkAvailableCount <= 0;
   const availableTimePlans = Array.isArray(quickHomeworkPlans) ? quickHomeworkPlans : [];
-  const showTimePlanPicker = quickHomeworkStatus === 'idle' && availableTimePlans.length > 0;
-  const showQuickHomeworkLoading = quickHomeworkStatus === 'idle' && quickHomeworkLoading;
   const normalizedBudgetMinutes = Math.max(0, Math.round(Number(quickHomeworkBudgetMinutes) || 0));
   const normalizedPlannedCount = Math.max(0, Math.floor(Number(quickHomeworkPlannedCount) || 0));
   const isTimedQuickHomework = quickHomeworkMode === 'timed' && normalizedBudgetMinutes > 0;
+  const hasActiveTimePlan = isTimedQuickHomework && ['solving', 'paused'].includes(quickHomeworkStatus);
+  const isSelectedTimePlan = (plan) => {
+    if (!hasActiveTimePlan) return false;
+    const taskCount = Array.isArray(plan?.tasks) ? plan.tasks.length : 0;
+    return Boolean(
+      (quickHomeworkPlanKey && String(plan?.key || '') === String(quickHomeworkPlanKey))
+      || (!quickHomeworkPlanKey
+        && Number(plan?.budgetMinutes) === normalizedBudgetMinutes
+        && taskCount === normalizedPlannedCount)
+    );
+  };
+  const showTimePlanPicker = (quickHomeworkStatus === 'idle' || hasActiveTimePlan)
+    && availableTimePlans.length > 0;
+  const showQuickHomeworkLoading = quickHomeworkStatus === 'idle' && quickHomeworkLoading;
   const showQuickHomework = Boolean(
     (quickHomeworkAvailableCount > 0 && quickHomeworkCurrentTask)
     || (quickHomeworkFinished && quickHomeworkCompletedCount > 0)
@@ -261,20 +274,24 @@ const StudentTodayOverview = ({
       Math.ceil(Number(plan.displayMinutes ?? plan.budgetMinutes ?? plan.estimatedMinutes) || 0)
     );
     const isPrimaryPlan = planIndex === 0;
+    const isSelectedPlan = isSelectedTimePlan(plan);
+    const isUnavailablePlan = hasActiveTimePlan && !isSelectedPlan;
+    const actionVerb = isSelectedPlan ? 'Продолжить' : 'Сделать';
     return (
       <button
         key={plan.key || `${planMinutes}-${taskCount}`}
         type="button"
-        onClick={() => onStartQuickHomeworkPlan?.(plan)}
-        className={`student-today-overview__time-plan ${isPrimaryPlan ? 'student-today-overview__time-plan--primary' : ''}`}
-        aria-label={`Начать план примерно на ${planMinutes} минут: ${taskCountLabel}`}
+        onClick={() => (isSelectedPlan ? onResumeQuickHomework?.() : onStartQuickHomeworkPlan?.(plan))}
+        disabled={isUnavailablePlan}
+        className={`student-today-overview__time-plan ${isPrimaryPlan ? 'student-today-overview__time-plan--primary' : ''} ${isSelectedPlan ? 'student-today-overview__time-plan--selected' : ''}`}
+        aria-label={`${isSelectedPlan ? 'Продолжить' : 'Начать'} план примерно на ${planMinutes} минут: ${taskCountLabel}`}
       >
         <span className="student-today-overview__time-plan-icon" aria-hidden="true">
           <Play size={isPrimaryPlan ? 18 : 14} fill="currentColor" />
         </span>
         <span className="student-today-overview__time-plan-copy">
-          <small>{isPrimaryPlan ? 'Самый лёгкий старт' : 'Можно взять побольше'}</small>
-          <strong>Сделать {taskCountLabel} за ≈{planMinutes} минут</strong>
+          <small>{isSelectedPlan ? 'Твой план' : (isPrimaryPlan ? 'Самый лёгкий старт' : 'Можно взять побольше')}</small>
+          <strong>{actionVerb} {taskCountLabel} за ≈{planMinutes} минут</strong>
           <span>{taskCountLabel} — и можно отдыхать</span>
         </span>
         <ArrowRight size={isPrimaryPlan ? 20 : 16} aria-hidden="true" />

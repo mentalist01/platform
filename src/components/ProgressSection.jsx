@@ -629,6 +629,7 @@ const ProgressSection = ({
   onTaskStateChange,
   onQuickHomeworkTaskSolved,
   onQuickHomeworkMockTaskSolved,
+  quickHomeworkPlanProgress = null,
   onStreakSaved,
   onMockAttemptSaved,
   onAssignMockReview,
@@ -4491,6 +4492,7 @@ const ProgressSection = ({
               Math.max(0, Math.min(100, Number(progressMap[activeTask.id] || 0)))
             )
           )}
+          quickHomeworkPlanProgress={quickHomeworkPlanProgress}
           onPracticeAttempt={() => {
             if (!effectiveStudentId) return;
             api.getStudentData(effectiveStudentId)

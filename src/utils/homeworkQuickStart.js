@@ -448,24 +448,69 @@ export const pickNextHomeworkQuickTask = (queue = [], completedKeys = [], curren
   }) || null;
 };
 
-export const completeHomeworkQuickTaskSession = (session, queue, completedTask) => {
+const getHomeworkQuickTaskSurfaceKey = (task) => {
+  if (!task || task.openable === false) return '';
+  if (task.kind === 'mock') {
+    const mockExamId = normalizeText(task.mockExamId);
+    return mockExamId ? `mock:${mockExamId}:${normalizeText(task.mode) || 'classic'}` : '';
+  }
+  const taskNumber = normalizePositiveNumber(task.taskNumber);
+  const levelId = normalizeText(task.levelId);
+  if (!taskNumber || !levelId) return '';
+  const isPython = task.questionKind === 'python' || levelId.toLowerCase() === 'python' || taskNumber >= 100;
+  return isPython
+    ? `python:${normalizeText(task.key)}`
+    : `question:${taskNumber}:${levelId}`;
+};
+
+export const getHomeworkQuickTaskBatch = (queue = [], currentTask = null, completedKeys = []) => {
+  const surfaceKey = getHomeworkQuickTaskSurfaceKey(currentTask);
+  if (!surfaceKey) return currentTask ? [currentTask] : [];
+  const completed = new Set(
+    (Array.isArray(completedKeys) ? completedKeys : [])
+      .map((value) => normalizeText(value))
+      .filter(Boolean)
+  );
+  return (Array.isArray(queue) ? queue : []).filter((task) => {
+    const key = normalizeText(task?.key);
+    return key && !completed.has(key) && getHomeworkQuickTaskSurfaceKey(task) === surfaceKey;
+  });
+};
+
+export const completeHomeworkQuickTaskSession = (session, queue, completedTask, options = {}) => {
   const current = session && typeof session === 'object' ? session : {};
   const completedKey = normalizeText(completedTask?.key);
   const completedKeys = Array.isArray(current.completedKeys) ? current.completedKeys : [];
+  const activeTaskKeys = new Set(
+    (Array.isArray(options?.activeTaskKeys) ? options.activeTaskKeys : [])
+      .map((value) => normalizeText(value))
+      .filter(Boolean)
+  );
   if (
     current.status !== 'solving'
     || !completedKey
-    || normalizeText(current.currentTask?.key) !== completedKey
+    || (
+      normalizeText(current.currentTask?.key) !== completedKey
+      && !activeTaskKeys.has(completedKey)
+    )
     || completedKeys.includes(completedKey)
   ) {
     return current;
   }
 
   const nextCompletedKeys = Array.from(new Set([...completedKeys, completedKey]));
+  const nextBatchTask = (Array.isArray(queue) ? queue : []).find((task) => {
+    const key = normalizeText(task?.key);
+    return task?.openable !== false
+      && key
+      && activeTaskKeys.has(key)
+      && !nextCompletedKeys.includes(key);
+  }) || null;
   const nextTask = pickNextHomeworkQuickTask(queue, nextCompletedKeys, completedKey);
+  const staysInActiveBatch = Boolean(nextBatchTask);
   return {
     ...current,
-    status: nextTask ? 'celebrate' : 'complete',
+    status: staysInActiveBatch ? 'solving' : (nextTask ? 'celebrate' : 'complete'),
     completedKeys: nextCompletedKeys,
     completedCount: Math.max(0, Number(current.completedCount) || 0) + 1,
   };

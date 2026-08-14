@@ -98075,6 +98075,23 @@ html .student-test-code-focus .student-test-code-focus__answer-actions button {
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.35);
 }
 
+.student-today-overview__time-plan:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.student-today-overview__time-plan:disabled:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(47, 22, 105, 0.2);
+  transform: none;
+}
+
+.student-today-overview__time-plan--selected {
+  border-color: rgba(255, 255, 255, 0.78);
+  opacity: 1;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
 .student-today-overview__time-plan--primary {
   min-height: 116px;
   padding: 17px 18px;
@@ -98089,6 +98106,12 @@ html .student-test-code-focus .student-test-code-focus__answer-actions button {
   border-color: #ffffff;
   background: #ffffff;
   box-shadow: 0 19px 34px rgba(43, 26, 102, 0.3);
+}
+
+.student-today-overview__time-plan--primary:disabled:hover {
+  border-color: rgba(255, 255, 255, 0.64);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 15px 30px rgba(43, 26, 102, 0.24);
 }
 
 .student-today-overview__time-plan-icon {
