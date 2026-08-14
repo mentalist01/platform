@@ -22917,6 +22917,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 ? {
                     completed: quickHomeworkSession.completedCount,
                     total: quickHomeworkSession.planTasks?.length || 0,
+                    budgetMinutes: quickHomeworkSession.mode === 'timed'
+                      ? quickHomeworkSession.budgetMinutes
+                      : null,
                   }
                 : null}
               onStreakSaved={handleStreakSaved}

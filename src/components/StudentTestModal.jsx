@@ -15,6 +15,7 @@ import {
   hasEnoughQuestionDifficultyData,
 } from '../utils/questionDifficulty';
 import { getLatestUnsolvedDurationMs } from '../utils/questionSolveTimer';
+import { getQuickHomeworkPlanPresentation } from '../utils/homeworkQuickPlanPresentation';
 import HEADLESS_TURTLE_SOURCE from '../python/headless_turtle.py?raw';
 import { Button } from './ui';
 import StudentTestWindowTour from './StudentTestWindowTour';
@@ -3180,6 +3181,7 @@ const StudentTestModal = ({
       'student-test-workspace student-test-workspace--animated modal-card w-full max-w-6xl h-[100dvh] sm:h-auto sm:max-h-[94dvh] relative flex flex-col overflow-hidden',
       studentTestClosing ? 'is-closing' : '',
     ].filter(Boolean).join(' ');
+    const quickHomeworkPlan = getQuickHomeworkPlanPresentation(quickHomeworkPlanProgress);
     const canPasteAnswerTable = answerCount === 20 && !computedChecked;
     const updateCurrentAnswerValue = (value) => {
       if (computedChecked) return;
@@ -4523,17 +4525,17 @@ const StudentTestModal = ({
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <div className="student-test-progress-summary hidden sm:block">
                 <div className="flex items-center justify-between gap-4 text-xs">
-                  <span>{quickHomeworkPlanProgress?.total > 1 ? 'Быстрый план' : 'Выполнено'}</span>
-                  <strong>{quickHomeworkPlanProgress?.total > 1
-                    ? `${quickHomeworkPlanProgress.completed}/${quickHomeworkPlanProgress.total}`
+                  <span>{quickHomeworkPlan.active ? quickHomeworkPlan.label : 'Выполнено'}</span>
+                  <strong>{quickHomeworkPlan.active
+                    ? `${quickHomeworkPlan.completed}/${quickHomeworkPlan.total}`
                     : `${solvedQuestionCount}/${questions.length}`}</strong>
                 </div>
                 <div className="student-test-progress-track mt-1.5">
                   <div
                     className="student-test-progress-fill"
                     style={{
-                      width: `${quickHomeworkPlanProgress?.total > 1
-                        ? Math.round((quickHomeworkPlanProgress.completed / quickHomeworkPlanProgress.total) * 100)
+                      width: `${quickHomeworkPlan.active
+                        ? quickHomeworkPlan.percent
                         : completionPercent}%`,
                     }}
                   />
@@ -4558,7 +4560,7 @@ const StudentTestModal = ({
           <div className="student-test-navigation shrink-0" data-student-test-tour="question-navigation">
             <div className="flex items-center justify-between gap-3">
               <span className="student-test-question-caption">
-                {quickHomeworkPlanProgress?.total > 1
+                {quickHomeworkPlan.active
                   ? `Сейчас · вопрос №${currentQuestionNumber}`
                   : (targetNumbers.length > 0
                       ? `Вопрос №${currentQuestionNumber} · ${currentIndex + 1} из ${questions.length}`
@@ -4566,8 +4568,8 @@ const StudentTestModal = ({
               </span>
               {targetStatus.length > 0 ? (
                 <span className="text-right text-[10px] font-semibold text-purple-600 sm:text-xs">
-                  {quickHomeworkPlanProgress?.total > 1
-                    ? `Быстрый план · ${quickHomeworkPlanProgress.completed}/${quickHomeworkPlanProgress.total}`
+                  {quickHomeworkPlan.active
+                    ? quickHomeworkPlan.progressLabel
                     : `Цель — решить выбранные задания · ${targetSolvedCount}/${targetStatus.length}`}
                 </span>
               ) : (
