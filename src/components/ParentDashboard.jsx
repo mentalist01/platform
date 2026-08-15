@@ -112,6 +112,20 @@ const formatDuration = (durationMs) => {
   return `${minutes} мин`;
 };
 
+const getHomeworkDisplayTitle = (entry) => {
+  const issuedAt = String(entry?.issuedAt || '').trim();
+  const issuedDate = parseDayKey(issuedAt) || new Date(issuedAt);
+  if (!Number.isNaN(issuedDate.getTime())) {
+    return `Домашняя работа от ${formatDate(issuedAt, {
+      year: issuedDate.getFullYear() !== new Date().getFullYear(),
+    })}`;
+  }
+  const number = Number(entry?.number);
+  return Number.isFinite(number) && number > 0
+    ? `Домашняя работа №${Math.round(number)}`
+    : 'Домашняя работа';
+};
+
 const formatUpdatedAt = (value) => {
   const date = new Date(String(value || ''));
   if (Number.isNaN(date.getTime())) return 'Данные обновлены';
@@ -801,7 +815,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                   <summary className="flex cursor-pointer list-none items-center gap-3 p-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <strong className="truncate text-sm">{entry.title}</strong>
+                        <strong className="truncate text-sm">{getHomeworkDisplayTitle(entry)}</strong>
                         {entry.isLatest && (
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
                             dark ? 'bg-violet-950 text-violet-200' : 'bg-violet-100 text-violet-700'
