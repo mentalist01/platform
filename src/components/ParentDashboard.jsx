@@ -145,6 +145,15 @@ const formatUpdatedAt = (value) => {
   })}`;
 };
 
+const formatUpdatedTime = (value) => {
+  const date = new Date(String(value || ''));
+  if (Number.isNaN(date.getTime())) return 'сейчас';
+  return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+};
+
+const hasLessonReplay = (lesson) => Boolean(lesson?.replay?.available)
+  && (lesson.replay.eventTypes || []).some((type) => type !== 'session');
+
 const getWeekStart = (sourceDate = new Date()) => {
   const date = new Date(sourceDate);
   date.setHours(12, 0, 0, 0);
@@ -501,6 +510,9 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
       : currentHomeworkPercent >= 100 || !currentHomeworkEntry
         ? 'success'
         : 'progress';
+  const currentHomeworkNeedsAttention = Boolean(currentHomeworkEntry)
+    && (currentHomeworkPercent < 100 || currentHomeworkHasErrors || currentHomeworkEntry.isOverdue);
+  const homeworkHabitNeedsAttention = homeworkHabit === 'Часто не доделывает';
   const currentHomeworkProgressText = !currentHomeworkEntry
     ? 'Сейчас ничего сдавать не нужно.'
     : currentHomeworkEntry.isOverdue
@@ -512,6 +524,24 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           : currentHomeworkPercent > 0
             ? `Ученик сделал ${currentHomeworkPercent}%, работа ещё не закончена.`
             : 'Ученик пока не начинал.';
+  const currentHomeworkMobileText = !currentHomeworkEntry
+    ? 'Сейчас ничего сдавать не нужно.'
+    : [
+      currentHomeworkPercent >= 100
+        ? 'Готово полностью'
+        : currentHomeworkPercent > 0
+          ? `Сделано ${currentHomeworkPercent}%`
+          : 'Пока не начата',
+      currentHomeworkEntry.isOverdue
+        ? 'срок прошёл'
+        : currentHomeworkHasErrors
+          ? 'остались ошибки'
+          : '',
+      currentHomeworkEntry.dueAt && !currentHomeworkEntry.isOverdue
+        ? `до ${formatDate(currentHomeworkEntry.dueAt, { short: true })}`
+        : '',
+    ].filter(Boolean).join(' · ');
+  const recentReplayLessons = lessons.filter(hasLessonReplay).slice(0, 2);
   const overviewCards = [
     {
       href: '#parent-homework',
@@ -521,26 +551,47 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         ? getHomeworkDisplayTitle(currentHomeworkEntry)
         : 'Пока не задана',
       detail: currentHomeworkProgressText,
+      mobileDetail: currentHomeworkMobileText,
       meta: currentHomeworkEntry?.dueAt
         ? `Сдать до ${formatDate(currentHomeworkEntry.dueAt)}`
         : '',
       progress: currentHomeworkEntry ? currentHomeworkPercent : null,
+      progressClass: currentHomeworkTone === 'danger'
+        ? 'bg-rose-500'
+        : currentHomeworkTone === 'warning'
+          ? 'bg-amber-500'
+          : currentHomeworkTone === 'progress'
+            ? 'bg-violet-500'
+            : 'bg-emerald-500',
+      isImportant: currentHomeworkNeedsAttention,
+      mobileFlag: currentHomeworkEntry?.isOverdue
+        ? 'Просрочена'
+        : currentHomeworkHasErrors
+          ? 'Есть ошибки'
+          : currentHomeworkNeedsAttention
+            ? 'Не закончена'
+            : '',
+      mobileFlagClass: currentHomeworkTone === 'danger'
+        ? 'bg-rose-600 text-white'
+        : currentHomeworkTone === 'warning'
+          ? 'bg-amber-500 text-white'
+          : 'bg-violet-600 text-white',
       valueClass: 'md:text-xl',
       actionLabel: 'Посмотреть задания',
-      lightClass: currentHomeworkTone === 'danger'
-        ? 'border-rose-300 bg-rose-50'
-        : currentHomeworkTone === 'warning'
-          ? 'border-amber-300 bg-amber-50'
-          : currentHomeworkTone === 'progress'
-            ? 'border-violet-300 bg-violet-50'
-            : 'border-emerald-300 bg-emerald-50',
-      darkClass: currentHomeworkTone === 'danger'
-        ? 'border-rose-800 bg-rose-950/40'
-        : currentHomeworkTone === 'warning'
-          ? 'border-amber-800 bg-amber-950/40'
-          : currentHomeworkTone === 'progress'
-            ? 'border-violet-800 bg-violet-950/40'
-            : 'border-emerald-800 bg-emerald-950/40',
+      lightClass: currentHomeworkNeedsAttention
+        ? currentHomeworkTone === 'danger'
+          ? 'border-rose-300 bg-rose-50'
+          : currentHomeworkTone === 'warning'
+            ? 'border-amber-300 bg-amber-50'
+            : 'border-violet-300 bg-violet-50'
+        : 'border-slate-200 bg-white',
+      darkClass: currentHomeworkNeedsAttention
+        ? currentHomeworkTone === 'danger'
+          ? 'border-rose-800 bg-rose-950/40'
+          : currentHomeworkTone === 'warning'
+            ? 'border-amber-800 bg-amber-950/40'
+            : 'border-violet-800 bg-violet-950/40'
+        : 'border-slate-700 bg-slate-900/70',
       iconClass: currentHomeworkTone === 'danger'
         ? (dark ? 'bg-rose-900 text-rose-200' : 'bg-rose-600 text-white')
         : currentHomeworkTone === 'warning'
@@ -564,6 +615,9 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
       detail: hasEnoughHomeworkHistory
         ? `В среднем ученик выполняет ${homeworkAveragePercent}% заданий.`
         : `Вывод появится после трёх работ. Сейчас есть: ${homeworkEntries.length}.`,
+      mobileDetail: hasEnoughHomeworkHistory
+        ? `${homeworkAveragePercent}% в среднем · завершено ${fullyCompletedHomeworkCount} из ${homeworkEntries.length}`
+        : `${homeworkEntries.length} из 3 работ для вывода`,
       meta: homeworkEntries.length > 0
         ? fullyCompletedHomeworkCount === 0
           ? 'До конца пока не выполнена ни одна работа.'
@@ -573,16 +627,15 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         : '',
       valueClass: 'md:text-xl',
       actionLabel: 'Все домашние работы',
-      lightClass: !hasEnoughHomeworkHistory
-        ? 'border-violet-200 bg-violet-50'
-        : homeworkHabitIsGood
-        ? 'border-emerald-200 bg-emerald-50'
-        : 'border-amber-200 bg-amber-50',
-      darkClass: !hasEnoughHomeworkHistory
-        ? 'border-violet-800 bg-violet-950/40'
-        : homeworkHabitIsGood
-        ? 'border-emerald-800 bg-emerald-950/40'
-        : 'border-amber-800 bg-amber-950/40',
+      isImportant: homeworkHabitNeedsAttention,
+      mobileFlag: homeworkHabitNeedsAttention ? 'Важно' : '',
+      mobileFlagClass: 'bg-amber-500 text-white',
+      lightClass: homeworkHabitNeedsAttention
+        ? 'border-amber-300 bg-amber-50'
+        : 'border-slate-200 bg-white',
+      darkClass: homeworkHabitNeedsAttention
+        ? 'border-amber-800 bg-amber-950/40'
+        : 'border-slate-700 bg-slate-900/70',
       iconClass: !hasEnoughHomeworkHistory
         ? (dark ? 'bg-violet-900 text-violet-200' : 'bg-violet-600 text-white')
         : homeworkHabitIsGood
@@ -604,10 +657,16 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         : mockEntries.length <= 1 || mockDelta == null
           ? 'Это первый результат.'
           : `${mockDelta >= 0 ? 'Рост' : 'Снижение'} на ${Math.abs(mockDelta)} баллов от первого результата.`,
+      mobileDetail: latestMockScore == null
+        ? 'Появится после первого пробника.'
+        : mockEntries.length <= 1 || mockDelta == null
+          ? 'Это первый результат.'
+          : `${mockDelta >= 0 ? 'Рост' : 'Снижение'} на ${Math.abs(mockDelta)} баллов.`,
       valueClass: 'md:text-2xl',
       actionLabel: 'Посмотреть динамику',
-      lightClass: 'border-sky-200 bg-sky-50',
-      darkClass: 'border-sky-800 bg-sky-950/40',
+      isImportant: false,
+      lightClass: 'border-slate-200 bg-white',
+      darkClass: 'border-slate-700 bg-slate-900/70',
       iconClass: dark ? 'bg-sky-900 text-sky-200' : 'bg-sky-600 text-white',
       actionClass: dark ? 'text-sky-200' : 'text-sky-700',
     },
@@ -632,19 +691,28 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         : financeStatus === 'paid'
           ? 'Задолженности нет.'
           : 'Новых начислений нет.',
+      mobileDetail: paymentRequired
+        ? unpaidLessons.count > 0
+          ? formatUnpaidLessonCount(unpaidLessons.count)
+          : 'Осталась сумма за этот месяц.'
+        : financeStatus === 'paid'
+          ? 'Задолженности нет.'
+          : 'Новых начислений нет.',
       valueClass: 'md:text-xl',
+      isImportant: paymentRequired,
+      mobileFlag: paymentRequired ? 'К оплате' : '',
+      mobileFlagClass: 'bg-rose-600 text-white',
       lightClass: paymentRequired
-        ? 'border-rose-200 bg-rose-50'
-        : 'border-emerald-200 bg-emerald-50',
+        ? 'border-rose-300 bg-rose-50'
+        : 'border-slate-200 bg-white',
       darkClass: paymentRequired
         ? 'border-rose-800 bg-rose-950/40'
-        : 'border-emerald-800 bg-emerald-950/40',
+        : 'border-slate-700 bg-slate-900/70',
       iconClass: paymentRequired
         ? (dark ? 'bg-rose-900 text-rose-200' : 'bg-rose-600 text-white')
         : (dark ? 'bg-emerald-900 text-emerald-200' : 'bg-emerald-600 text-white'),
     },
   ];
-
   return (
     <div
       className={`app-min-h app-shell ${dark ? 'text-slate-100' : 'text-slate-900'}`}
@@ -654,9 +722,12 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           : 'radial-gradient(circle at 8% 0%, rgba(124, 58, 237, 0.09), transparent 32rem), #f6f7fb',
       }}
     >
-      <header className={`sticky top-0 z-20 border-b backdrop-blur-xl ${
+      <header
+        className={`sticky top-0 z-20 border-b backdrop-blur-xl ${
         dark ? 'border-slate-800 bg-slate-950/90' : 'border-purple-100 bg-white/90'
-      }`}>
+        }`}
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
         <div className="mx-auto flex max-w-[1320px] items-center justify-between gap-3 px-4 py-3 md:px-7">
           <div className="flex min-w-0 items-center gap-3">
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 font-black text-white shadow-lg shadow-violet-500/20">
@@ -700,7 +771,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1320px] space-y-12 px-4 py-5 pb-12 md:px-7 md:py-8 md:pb-16">
+      <main className="mx-auto max-w-[1320px] space-y-8 px-4 py-4 pb-12 md:space-y-12 md:px-7 md:py-8 md:pb-16">
         {error && (
           <div className={`flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm ${
             dark ? 'border-amber-900 bg-amber-950/40 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800'
@@ -710,30 +781,87 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           </div>
         )}
 
-        <section className={`overflow-hidden rounded-[32px] border-2 shadow-[0_20px_55px_rgba(15,23,42,0.12)] ${
+        <section className={`overflow-hidden rounded-[26px] border-2 shadow-[0_20px_55px_rgba(15,23,42,0.12)] md:rounded-[32px] ${
           dark
             ? 'border-slate-700 bg-slate-900/90 shadow-black/30'
             : 'border-white bg-white/95'
         }`} aria-label="Главное об учёбе">
-          <header className={`flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between lg:p-7 ${
+          <div className="h-1.5 bg-gradient-to-r from-violet-600 via-fuchsia-500 to-violet-600 md:hidden" />
+          <header className={`flex items-center justify-between gap-3 border-b p-4 md:p-5 lg:p-7 ${
             dark ? 'border-slate-700 bg-slate-950/25' : 'border-slate-100 bg-white'
-          }`}>
+            }`}>
             <div>
-              <span className={`text-base font-extrabold ${dark ? 'text-violet-300' : 'text-violet-700'}`}>
+              <span className={`hidden text-base font-extrabold md:inline ${dark ? 'text-violet-300' : 'text-violet-700'}`}>
                 Коротко об учёбе
               </span>
-              <h2 className="mt-1 text-2xl font-black tracking-[-0.035em] sm:text-3xl">
-                Вот что важно на сегодня
+              <h2 className="text-xl font-black tracking-[-0.035em] md:mt-1 md:text-3xl">
+                <span className="md:hidden">Главное на сегодня</span>
+                <span className="hidden md:inline">Вот что важно на сегодня</span>
               </h2>
             </div>
-            <span className={`inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${
+            <span className={`inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-bold md:px-3 md:text-xs ${
               dark ? 'border-slate-700 bg-slate-900 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
             }`}>
-              <Clock3 size={13} /> Обновлено {formatUpdatedAt(overview?.generatedAt)}
+              <Clock3 size={13} />
+              <span className="md:hidden">{formatUpdatedTime(overview?.generatedAt)}</span>
+              <span className="hidden md:inline">Обновлено {formatUpdatedAt(overview?.generatedAt)}</span>
             </span>
           </header>
 
-          <div className={`grid gap-3 p-3 sm:p-4 md:grid-cols-2 xl:grid-cols-4 ${
+          <div className={`grid gap-2.5 p-3 md:hidden ${dark ? 'bg-slate-950/20' : 'bg-slate-50/70'}`}>
+              {overviewCards.map((card) => {
+                const Icon = card.icon;
+                const CardTag = card.href ? 'a' : 'div';
+                return (
+                  <CardTag
+                    key={`mobile-${card.label}`}
+                    {...(card.href ? { href: card.href } : {})}
+                    className={`group block rounded-[20px] border-2 p-3.5 ${
+                      card.isImportant
+                        ? 'shadow-[0_10px_24px_rgba(15,23,42,0.12)]'
+                        : 'shadow-sm'
+                    } ${card.href ? 'transition active:scale-[0.99]' : ''} ${dark ? card.darkClass : card.lightClass}`}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${card.iconClass}`}>
+                        <Icon size={17} />
+                      </span>
+                      <span className={`min-w-0 flex-1 text-xs font-extrabold leading-tight ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
+                        {card.label}
+                      </span>
+                      {card.mobileFlag && (
+                        <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-extrabold ${card.mobileFlagClass}`}>
+                          {card.mobileFlag}
+                        </span>
+                      )}
+                      {card.href && (
+                        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border ${
+                          dark ? 'border-slate-700 bg-slate-900/80' : 'border-white bg-white/90'
+                        } ${card.actionClass}`}>
+                          <ArrowRight size={14} className="transition group-hover:translate-x-0.5" />
+                        </span>
+                      )}
+                    </span>
+                    <strong className="mt-2 block text-[17px] font-black leading-tight tracking-[-0.01em]">
+                      {card.value}
+                    </strong>
+                    <span className={`mt-1 block text-[13px] font-semibold leading-snug ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
+                      {card.mobileDetail || card.detail}
+                    </span>
+                    {Number.isFinite(card.progress) && (
+                      <span className={`mt-2.5 block h-1.5 overflow-hidden rounded-full ${dark ? 'bg-slate-800' : 'bg-white'}`}>
+                        <span
+                          className={`block h-full rounded-full ${card.progressClass || 'bg-emerald-500'}`}
+                          style={{ width: `${Math.max(0, Math.min(100, card.progress))}%` }}
+                        />
+                      </span>
+                    )}
+                  </CardTag>
+                );
+              })}
+          </div>
+
+          <div className={`hidden gap-3 p-4 md:grid md:grid-cols-2 xl:grid-cols-4 ${
             dark ? 'bg-slate-950/20' : 'bg-slate-50/60'
           }`}>
             {overviewCards.map((card) => {
@@ -742,45 +870,49 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
               return (
                 <CardTag
                   key={card.label}
-                  {...(card.href ? { href: card.href, 'aria-label': `Подробнее: ${card.label}` } : {})}
-                  className={`group flex min-h-[96px] items-start gap-3 rounded-2xl border-2 p-4 shadow-sm md:min-h-[218px] md:flex-col md:p-5 ${
+                  {...(card.href ? { href: card.href } : {})}
+                  className={`group flex items-start gap-2.5 rounded-2xl border-2 p-3 shadow-sm md:min-h-[218px] md:flex-col md:gap-3 md:p-5 ${
                     card.href
                       ? 'cursor-pointer transition hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]'
                       : ''
                   } ${dark ? card.darkClass : card.lightClass}`}
                 >
-                  <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl shadow-sm md:h-12 md:w-12 ${card.iconClass}`}>
-                    <Icon size={21} />
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl shadow-sm md:h-12 md:w-12 ${card.iconClass}`}>
+                    <Icon size={18} className="md:hidden" />
+                    <Icon size={21} className="hidden md:block" />
                   </span>
                   <span className="min-w-0 flex-1 md:flex md:w-full md:flex-col">
-                    <span className={`block text-sm font-extrabold leading-snug ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
+                    <span className={`block text-[12px] font-extrabold leading-snug md:text-sm ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
                       {card.label}
                     </span>
-                    <strong className={`mt-1 block text-lg font-black leading-tight md:mt-2 ${card.valueClass || 'md:text-xl'}`}>
+                    <strong className={`mt-0.5 block text-[16px] font-black leading-tight md:mt-2 md:text-lg ${card.valueClass || 'md:text-xl'}`}>
                       {card.value}
                     </strong>
-                    <span className={`mt-2 block text-[15px] font-semibold leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
+                    <span className={`mt-1 block text-[13px] font-semibold leading-snug md:hidden ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      {card.mobileDetail || card.detail}
+                    </span>
+                    <span className={`mt-2 hidden text-[15px] font-semibold leading-relaxed md:block ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
                       {card.detail}
                     </span>
                     {Number.isFinite(card.progress) && (
-                      <span className={`mt-3 block h-2.5 overflow-hidden rounded-full ${dark ? 'bg-slate-800' : 'bg-white'}`}>
+                      <span className={`mt-3 hidden h-2.5 overflow-hidden rounded-full md:block ${dark ? 'bg-slate-800' : 'bg-white'}`}>
                         <span
-                          className="block h-full rounded-full bg-emerald-500"
+                          className={`block h-full rounded-full ${card.progressClass || 'bg-emerald-500'}`}
                           style={{ width: `${Math.max(0, Math.min(100, card.progress))}%` }}
                         />
                       </span>
                     )}
                     {card.meta && (
-                      <span className={`mt-2 block text-[13px] leading-relaxed ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      <span className={`mt-2 hidden text-[13px] leading-relaxed md:block ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
                         {card.meta}
                       </span>
                     )}
                   </span>
                   {card.href && (
-                    <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center gap-1.5 rounded-xl border text-[13px] font-extrabold shadow-sm sm:h-auto sm:w-auto sm:px-3 sm:py-2 md:mt-auto ${
+                    <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border text-[13px] font-extrabold shadow-sm md:mt-auto md:h-auto md:w-auto md:px-3 md:py-2 ${
                       dark ? 'border-slate-700 bg-slate-900/80' : 'border-white bg-white/90'
                     } ${card.actionClass}`}>
-                      <span className="hidden sm:inline">{card.actionLabel || 'Подробнее'}</span>
+                      <span className="hidden md:inline">{card.actionLabel || 'Подробнее'}</span>
                       <ArrowRight size={14} className="transition group-hover:translate-x-0.5" />
                     </span>
                   )}
@@ -788,6 +920,87 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
               );
             })}
           </div>
+        </section>
+
+        <section
+          id="parent-recordings"
+          aria-labelledby="parent-recordings-title"
+          className={`rounded-[26px] border-2 p-4 shadow-[0_14px_35px_rgba(76,29,149,0.10)] md:rounded-[30px] md:p-5 ${
+            dark
+              ? 'border-violet-900 bg-slate-900/90'
+              : 'border-violet-200 bg-gradient-to-br from-white via-white to-violet-50/70'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${
+              dark ? 'bg-violet-950 text-violet-200' : 'bg-violet-100 text-violet-700'
+            }`}>
+              <FilePlay size={21} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 id="parent-recordings-title" className="text-lg font-black leading-tight md:text-xl">
+                Записи занятий
+              </h2>
+              <p className={`mt-0.5 text-xs md:text-sm ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                Последние записи можно открыть сразу.
+              </p>
+            </div>
+            <a
+              href="#parent-lesson-history"
+              className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-extrabold transition ${
+                dark
+                  ? 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                  : 'border-violet-200 bg-white text-violet-700 hover:border-violet-300'
+              }`}
+            >
+              Все занятия
+            </a>
+          </div>
+
+          {recentReplayLessons.length === 0 ? (
+            <div className={`mt-3 rounded-2xl border border-dashed px-4 py-3 text-sm ${
+              dark ? 'border-slate-700 text-slate-400' : 'border-slate-300 bg-white/70 text-slate-600'
+            }`}>
+              Записей пока нет. Они появятся здесь после занятий.
+            </div>
+          ) : (
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {recentReplayLessons.map((lesson) => (
+                <button
+                  key={`recent-replay-${lesson.key}`}
+                  type="button"
+                  onClick={() => openLesson(lesson)}
+                  className={`group flex w-full items-center gap-3 rounded-2xl border-2 p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                    dark
+                      ? 'border-slate-700 bg-slate-950/50 hover:border-violet-700'
+                      : 'border-white bg-white hover:border-violet-200'
+                  }`}
+                >
+                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+                    dark ? 'bg-violet-950 text-violet-200' : 'bg-violet-600 text-white'
+                  }`}>
+                    <FilePlay size={18} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <strong className="block text-sm">
+                      {formatDate(lesson.dayKey, { year: true })} · {lesson.time || 'время не указано'}
+                    </strong>
+                    <span className={`mt-0.5 block truncate text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      {lesson.topic?.text || lesson.subject || 'Материалы занятия'}
+                    </span>
+                    <span className={`mt-1 block text-[11px] font-bold ${dark ? 'text-violet-300' : 'text-violet-700'}`}>
+                      Запись {formatDuration(lesson.replay.durationMs)}
+                    </span>
+                  </span>
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${
+                    dark ? 'border-slate-700 bg-slate-900 text-violet-300' : 'border-violet-100 bg-violet-50 text-violet-700'
+                  }`}>
+                    <ArrowRight size={16} className="transition group-hover:translate-x-0.5" />
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </section>
 
         <section id="parent-schedule" className={`scroll-mt-24 rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(76,29,149,0.12)] md:p-6 ${
@@ -1087,7 +1300,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           )}
         </section>
 
-        <section className={`overflow-hidden rounded-[28px] border border-dashed ${
+        <section id="parent-lesson-history" className={`scroll-mt-24 overflow-hidden rounded-[28px] border border-dashed ${
           dark ? 'border-slate-700 bg-slate-900/60' : 'border-slate-300 bg-white/70'
         }`} aria-label="Дополнительная информация">
           <details className="group">
@@ -1099,7 +1312,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                 <span className={`text-xs font-extrabold uppercase tracking-[0.12em] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                   Дополнительно · при необходимости
                 </span>
-                <h2 className="mt-1 text-base font-black sm:text-lg">История занятий и записи</h2>
+                <h2 className="mt-1 text-base font-black sm:text-lg">Все занятия и записи</h2>
                 <p className={`mt-1 text-xs sm:text-sm ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
                   {`${lessonPage.total} занятий в архиве · за месяц ${finance.completedLessons || 0} занятий`}
                 </p>
@@ -1114,8 +1327,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           ) : (
             <div className="space-y-2">
               {lessons.map((lesson) => {
-                const hasReplay = Boolean(lesson?.replay?.available)
-                  && (lesson.replay.eventTypes || []).some((type) => type !== 'session');
+                const hasReplay = hasLessonReplay(lesson);
                 return (
                   <details key={lesson.key} className={`group rounded-2xl border ${
                     dark ? 'border-slate-700 bg-slate-950/30' : 'border-slate-200 bg-slate-50/50'
