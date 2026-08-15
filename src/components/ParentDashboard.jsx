@@ -390,6 +390,8 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     : (finance.paymentStatus === 'partial'
       ? 'partial'
       : (finance.paymentStatus === 'unpaid' ? 'unpaid' : 'pending'));
+  const paymentRequired = ['unpaid', 'partial'].includes(financeStatus)
+    && (Number(finance.outstanding) || 0) > 0;
   const currentHomeworkEntry = orderedHomeworkEntries.find((entry) => entry.isLatest)
     || orderedHomeworkEntries[0]
     || null;
@@ -559,39 +561,34 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             </div>
 
             <aside className={`border-t p-5 lg:border-l lg:border-t-0 lg:p-7 ${
-              financeStatus === 'unpaid'
+              paymentRequired
                 ? (dark ? 'border-rose-900 bg-rose-950/25' : 'border-rose-100 bg-rose-50/70')
-                : financeStatus === 'partial'
-                  ? (dark ? 'border-amber-900 bg-amber-950/25' : 'border-amber-100 bg-amber-50/70')
-                  : (dark ? 'border-slate-700 bg-slate-950/40' : 'border-slate-100 bg-slate-50/70')
+                : (dark ? 'border-emerald-900 bg-emerald-950/25' : 'border-emerald-100 bg-emerald-50/70')
             }`} aria-label="Статус оплаты">
               <div className="flex items-start justify-between gap-3">
                 <span className={`grid h-11 w-11 place-items-center rounded-2xl ${
-                  financeStatus === 'paid'
-                    ? (dark ? 'bg-emerald-950 text-emerald-200' : 'bg-emerald-100 text-emerald-700')
-                    : financeStatus === 'unpaid'
-                      ? (dark ? 'bg-rose-950 text-rose-200' : 'bg-rose-100 text-rose-700')
-                      : (dark ? 'bg-amber-950 text-amber-200' : 'bg-amber-100 text-amber-700')
+                  paymentRequired
+                    ? (dark ? 'bg-rose-950 text-rose-200' : 'bg-rose-100 text-rose-700')
+                    : (dark ? 'bg-emerald-950 text-emerald-200' : 'bg-emerald-100 text-emerald-700')
                 }`}><CreditCard size={20} /></span>
-                <PaymentBadge status={financeStatus} dark={dark} />
+                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${
+                  paymentRequired
+                    ? (dark ? 'border-rose-800 bg-rose-950/60 text-rose-200' : 'border-rose-200 bg-rose-50 text-rose-700')
+                    : (dark ? 'border-emerald-800 bg-emerald-950/60 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-700')
+                }`}>
+                  {paymentRequired ? 'Нужно оплатить' : 'Всё хорошо'}
+                </span>
               </div>
               <span className={`mt-5 block text-xs font-extrabold uppercase tracking-[0.12em] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                 Оплата в этом месяце
               </span>
               <strong className="mt-1.5 block text-xl font-black">
-                {financeStatus === 'paid'
-                  ? 'Всё оплачено'
-                  : financeStatus === 'partial'
-                    ? `Осталось ${formatMoney(finance.outstanding)}`
-                    : financeStatus === 'unpaid'
-                      ? `К оплате ${formatMoney(finance.outstanding)}`
-                      : 'Начислений нет'}
+                {paymentRequired
+                  ? `Нужно оплатить ${formatMoney(finance.outstanding)}`
+                  : financeStatus === 'paid'
+                    ? 'Всё оплачено'
+                    : 'Оплачивать пока не нужно'}
               </strong>
-              <span className={`mt-1.5 block text-xs leading-relaxed ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
-                {finance.paidAmount > 0
-                  ? `Уже оплачено ${formatMoney(finance.paidAmount)}`
-                  : 'Платежей в этом месяце пока нет'}
-              </span>
             </aside>
           </div>
 
