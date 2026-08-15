@@ -331,7 +331,7 @@ const LoginPage = ({ onLogin }) => {
         <p className="text-center text-xs text-gray-400 mt-4">
           {mode === MODE_SIGNUP
             ? 'После входа вы сможете сразу написать преподавателю.'
-            : (mode === MODE_PARENT ? 'Здесь можно только смотреть занятия и прогресс ученика.' : 'Код доступа выдаёт учитель.')}
+            : (mode === MODE_PARENT ? 'Здесь вы сможете следить за занятиями и прогрессом ученика.' : 'Код доступа выдаёт учитель.')}
         </p>
         {nativeRuntime && (
           <form onSubmit={handleSaveServerUrl} className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 space-y-3">
