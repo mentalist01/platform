@@ -409,68 +409,98 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
   const currentHomeworkEntry = orderedHomeworkEntries.find((entry) => entry.isLatest)
     || orderedHomeworkEntries[0]
     || null;
-  const currentHomeworkNeedsAttention = Boolean(currentHomeworkEntry) && (
-    Boolean(currentHomeworkEntry.isOverdue)
-    || ['attention', 'in-progress', 'not-started'].includes(currentHomeworkEntry.status)
-    || (Number(currentHomeworkEntry.wrongCount) || 0) > 0
-    || (Number(currentHomeworkEntry.untouchedCount) || 0) > 0
-  );
   const latestMockScore = overview?.mocks?.summary?.latestScore;
   const mockDelta = overview?.mocks?.summary?.delta;
   const firstName = String(student.name || 'ученик').trim().split(/\s+/)[0] || 'ученик';
   const visibleHomeworkEntries = showAllHomework
     ? orderedHomeworkEntries
     : orderedHomeworkEntries.slice(0, 5);
-  const briefText = currentHomeworkNeedsAttention
-    ? 'Есть незавершённая домашняя работа. Ниже видно, что уже сделано и что осталось.'
-    : 'Главное собрано в трёх разделах: ближайшие занятия, результаты и домашняя работа.';
-  const roadmapCards = [
+  const homeworkAveragePercent = Number(homeworkSummary.averagePercent) || 0;
+  const incompleteHomeworkCount = Number(homeworkSummary.incompleteCount) || 0;
+  const fullyCompletedHomeworkCount = Number(homeworkSummary.fullyCompletedCount) || 0;
+  const homeworkHabit = homeworkEntries.length === 0
+    ? 'Пока мало данных'
+    : homeworkAveragePercent >= 85 && incompleteHomeworkCount <= 1
+      ? 'Делает стабильно'
+      : homeworkAveragePercent >= 65 && incompleteHomeworkCount <= fullyCompletedHomeworkCount
+        ? 'Обычно доводит до конца'
+        : incompleteHomeworkCount > 0
+          ? 'Часто не доделывает'
+          : 'Выполняет неравномерно';
+  const homeworkHabitIsGood = homeworkHabit === 'Делает стабильно'
+    || homeworkHabit === 'Обычно доводит до конца';
+  const overviewCards = [
     {
-      number: '01',
-      href: '#parent-schedule',
-      icon: CalendarDays,
-      kicker: 'Сначала',
-      title: 'Занятия',
-      value: nextLesson
-        ? `${nextLesson.day.short}, ${nextLesson.lesson.time || 'время уточняется'}`
-        : 'Пока без занятий',
-      detail: nextLesson
-        ? `${formatDate(nextLesson.day.dayKey)} · ${nextLesson.lesson.subject || nextLesson.lesson.title || 'информатика'}`
-        : 'На ближайшие две недели ничего не запланировано',
-      lightClass: 'border-violet-200 bg-violet-50/80 hover:border-violet-300',
-      darkClass: 'border-violet-900/80 bg-violet-950/30 hover:border-violet-700',
-      iconClass: dark ? 'bg-violet-900/70 text-violet-200' : 'bg-violet-600 text-white',
-      numberClass: dark ? 'text-violet-300' : 'text-violet-700',
-    },
-    {
-      number: '02',
-      href: '#parent-results',
-      icon: BarChart3,
-      kicker: 'Затем',
-      title: 'Результаты',
-      value: latestMockScore == null ? 'Ждём первый пробник' : `${latestMockScore} баллов`,
-      detail: mockDelta == null
-        ? 'После первого пробника здесь появится динамика'
-        : `${mockDelta >= 0 ? '+' : ''}${mockDelta} баллов от первого результата`,
-      lightClass: 'border-sky-200 bg-sky-50/80 hover:border-sky-300',
-      darkClass: 'border-sky-900/80 bg-sky-950/30 hover:border-sky-700',
-      iconClass: dark ? 'bg-sky-900/70 text-sky-200' : 'bg-sky-600 text-white',
-      numberClass: dark ? 'text-sky-300' : 'text-sky-700',
-    },
-    {
-      number: '03',
       href: '#parent-homework',
       icon: CheckCircle2,
-      kicker: 'И последнее',
-      title: 'Домашняя работа',
-      value: `${Number(homeworkSummary.averagePercent) || 0}% в среднем`,
-      detail: currentHomeworkNeedsAttention
-        ? 'В текущей работе остались невыполненные задания'
-        : 'Незавершённых работ сейчас нет',
-      lightClass: 'border-emerald-200 bg-emerald-50/80 hover:border-emerald-300',
-      darkClass: 'border-emerald-900/80 bg-emerald-950/30 hover:border-emerald-700',
-      iconClass: dark ? 'bg-emerald-900/70 text-emerald-200' : 'bg-emerald-600 text-white',
-      numberClass: dark ? 'text-emerald-300' : 'text-emerald-700',
+      label: 'Текущая домашняя работа',
+      value: currentHomeworkEntry
+        ? getHomeworkDisplayTitle(currentHomeworkEntry)
+        : 'Пока не задана',
+      detail: currentHomeworkEntry
+        ? `${currentHomeworkEntry.isOverdue
+          ? 'Просрочена'
+          : (HOMEWORK_STATUS_LABELS[currentHomeworkEntry.status] || 'Нет данных')} · ${Number(currentHomeworkEntry.percent) || 0}%${
+          currentHomeworkEntry.dueAt
+            ? ` · срок ${formatDate(currentHomeworkEntry.dueAt, { short: true })}`
+            : ''
+        }`
+        : 'Новых заданий сейчас нет',
+      lightClass: 'border-emerald-200 bg-emerald-50',
+      darkClass: 'border-emerald-800 bg-emerald-950/40',
+      iconClass: dark ? 'bg-emerald-900 text-emerald-200' : 'bg-emerald-600 text-white',
+      actionClass: dark ? 'text-emerald-200' : 'text-emerald-700',
+    },
+    {
+      href: '#parent-homework',
+      icon: History,
+      label: 'Как обычно делает домашнюю работу',
+      value: homeworkHabit,
+      detail: homeworkEntries.length > 0
+        ? `Среднее выполнение: ${homeworkAveragePercent}% · незавершённых: ${incompleteHomeworkCount}`
+        : 'Вывод появится после нескольких работ',
+      lightClass: homeworkHabitIsGood
+        ? 'border-emerald-200 bg-emerald-50'
+        : 'border-amber-200 bg-amber-50',
+      darkClass: homeworkHabitIsGood
+        ? 'border-emerald-800 bg-emerald-950/40'
+        : 'border-amber-800 bg-amber-950/40',
+      iconClass: homeworkHabitIsGood
+        ? (dark ? 'bg-emerald-900 text-emerald-200' : 'bg-emerald-600 text-white')
+        : (dark ? 'bg-amber-900 text-amber-200' : 'bg-amber-500 text-white'),
+      actionClass: homeworkHabitIsGood
+        ? (dark ? 'text-emerald-200' : 'text-emerald-700')
+        : (dark ? 'text-amber-200' : 'text-amber-800'),
+    },
+    {
+      href: '#parent-results',
+      icon: BarChart3,
+      label: 'Последний пробник',
+      value: latestMockScore == null ? 'Результата пока нет' : `${latestMockScore} баллов`,
+      detail: mockDelta == null
+        ? 'После первого пробника появится динамика'
+        : `${mockDelta >= 0 ? '+' : ''}${mockDelta} от первого результата`,
+      lightClass: 'border-sky-200 bg-sky-50',
+      darkClass: 'border-sky-800 bg-sky-950/40',
+      iconClass: dark ? 'bg-sky-900 text-sky-200' : 'bg-sky-600 text-white',
+      actionClass: dark ? 'text-sky-200' : 'text-sky-700',
+    },
+    {
+      icon: CreditCard,
+      label: 'Оплата',
+      value: paymentRequired
+        ? `Нужно оплатить ${formatMoney(finance.outstanding)}`
+        : (financeStatus === 'paid' ? 'Всё оплачено' : 'Оплачивать пока не нужно'),
+      detail: paymentRequired ? 'Есть сумма к оплате' : 'Всё хорошо',
+      lightClass: paymentRequired
+        ? 'border-rose-200 bg-rose-50'
+        : 'border-emerald-200 bg-emerald-50',
+      darkClass: paymentRequired
+        ? 'border-rose-800 bg-rose-950/40'
+        : 'border-emerald-800 bg-emerald-950/40',
+      iconClass: paymentRequired
+        ? (dark ? 'bg-rose-900 text-rose-200' : 'bg-rose-600 text-white')
+        : (dark ? 'bg-emerald-900 text-emerald-200' : 'bg-emerald-600 text-white'),
     },
   ];
 
@@ -529,7 +559,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1320px] space-y-9 px-4 py-5 pb-12 md:px-7 md:py-8 md:pb-16">
+      <main className="mx-auto max-w-[1320px] space-y-12 px-4 py-5 pb-12 md:px-7 md:py-8 md:pb-16">
         {error && (
           <div className={`flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm ${
             dark ? 'border-amber-900 bg-amber-950/40 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800'
@@ -539,121 +569,75 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           </div>
         )}
 
-        <section className={`overflow-hidden rounded-[32px] border shadow-lg ${
+        <section className={`overflow-hidden rounded-[32px] border-2 shadow-[0_20px_55px_rgba(15,23,42,0.12)] ${
           dark
-            ? 'border-slate-700 bg-slate-900/90 shadow-black/20'
-            : 'border-white bg-white/95 shadow-slate-200/70'
-        }`} aria-labelledby="parent-brief-title">
-          <div className="grid lg:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="p-5 sm:p-7 lg:p-8">
-              <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-extrabold ${
-                dark
-                  ? 'border-violet-800 bg-violet-950/60 text-violet-200'
-                  : 'border-violet-200 bg-violet-50 text-violet-700'
-              }`}>
-                <Sparkles size={14} /> Главное за минуту
-              </div>
-              <h2 id="parent-brief-title" className="mt-4 text-2xl font-black tracking-[-0.035em] sm:text-3xl">
-                Главное об учёбе — {firstName}
-              </h2>
-              <p className={`mt-2 max-w-2xl text-sm leading-relaxed sm:text-base ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
-                {briefText}
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-2.5">
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ${
-                  currentHomeworkNeedsAttention
-                    ? (dark ? 'bg-amber-950/60 text-amber-200' : 'bg-amber-100 text-amber-800')
-                    : (dark ? 'bg-emerald-950/60 text-emerald-200' : 'bg-emerald-100 text-emerald-800')
-                }`}>
-                  {currentHomeworkNeedsAttention ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
-                  {currentHomeworkNeedsAttention ? 'Домашняя работа не завершена' : 'Всё спокойно'}
-                </span>
-                <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
-                  Обновлено: {formatUpdatedAt(overview?.generatedAt)}
-                </span>
-              </div>
-            </div>
-
-            <aside className={`border-t p-5 lg:border-l lg:border-t-0 lg:p-7 ${
-              paymentRequired
-                ? (dark ? 'border-rose-900 bg-rose-950/25' : 'border-rose-100 bg-rose-50/70')
-                : (dark ? 'border-emerald-900 bg-emerald-950/25' : 'border-emerald-100 bg-emerald-50/70')
-            }`} aria-label="Статус оплаты">
-              <div className="flex items-start justify-between gap-3">
-                <span className={`grid h-11 w-11 place-items-center rounded-2xl ${
-                  paymentRequired
-                    ? (dark ? 'bg-rose-950 text-rose-200' : 'bg-rose-100 text-rose-700')
-                    : (dark ? 'bg-emerald-950 text-emerald-200' : 'bg-emerald-100 text-emerald-700')
-                }`}><CreditCard size={20} /></span>
-                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${
-                  paymentRequired
-                    ? (dark ? 'border-rose-800 bg-rose-950/60 text-rose-200' : 'border-rose-200 bg-rose-50 text-rose-700')
-                    : (dark ? 'border-emerald-800 bg-emerald-950/60 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-700')
-                }`}>
-                  {paymentRequired ? 'Нужно оплатить' : 'Всё хорошо'}
-                </span>
-              </div>
-              <span className={`mt-5 block text-xs font-extrabold uppercase tracking-[0.12em] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
-                Оплата в этом месяце
+            ? 'border-slate-700 bg-slate-900/90 shadow-black/30'
+            : 'border-white bg-white/95'
+        }`} aria-label="Главное об учёбе">
+          <header className={`flex items-start justify-between gap-3 border-b p-4 sm:p-5 lg:p-6 ${
+            dark ? 'border-slate-700 bg-slate-950/25' : 'border-slate-100 bg-white'
+          }`}>
+            <div>
+              <span className={`text-[11px] font-extrabold uppercase tracking-[0.12em] ${dark ? 'text-violet-300' : 'text-violet-700'}`}>
+                Главное сейчас
               </span>
-              <strong className="mt-1.5 block text-xl font-black">
-                {paymentRequired
-                  ? `Нужно оплатить ${formatMoney(finance.outstanding)}`
-                  : financeStatus === 'paid'
-                    ? 'Всё оплачено'
-                    : 'Оплачивать пока не нужно'}
-              </strong>
-            </aside>
-          </div>
-
-          <div className={`border-t p-4 sm:p-5 lg:p-6 ${dark ? 'border-slate-700 bg-slate-950/25' : 'border-slate-100 bg-slate-50/50'}`}>
-            <div className="mb-3 flex items-end justify-between gap-3 px-1">
-              <div>
-                <span className={`text-xs font-extrabold uppercase tracking-[0.12em] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
-                  Три главных раздела
-                </span>
-                <p className={`mt-1 text-sm ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
-                  Переходите сразу к нужному разделу.
-                </p>
-              </div>
-              <span className={`hidden text-xs sm:block ${dark ? 'text-slate-600' : 'text-slate-400'}`}>01 → 02 → 03</span>
+              <h2 className="mt-1 text-xl font-black tracking-[-0.03em] sm:text-2xl">
+                Всё важное об учёбе — {firstName}
+              </h2>
+              <p className={`mt-1 text-xs sm:text-sm ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                Домашняя работа, последний пробник и оплата — подробности находятся ниже.
+              </p>
             </div>
-            <nav className="grid gap-3 lg:grid-cols-3" aria-label="Главные разделы кабинета">
-              {roadmapCards.map((card) => {
-                const Icon = card.icon;
-                return (
-                  <a
-                    key={card.number}
-                    href={card.href}
-                    className={`group relative flex min-h-[148px] items-start gap-3.5 rounded-3xl border p-4 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 ${
-                      dark ? card.darkClass : card.lightClass
-                    }`}
-                  >
-                    <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl shadow-sm ${card.iconClass}`}>
-                      <Icon size={20} />
+            <span className={`mt-1 hidden shrink-0 text-xs sm:block ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
+              Обновлено: {formatUpdatedAt(overview?.generatedAt)}
+            </span>
+          </header>
+
+          <div className={`grid gap-2.5 p-3 sm:p-4 md:grid-cols-2 xl:grid-cols-4 ${
+            dark ? 'bg-slate-950/20' : 'bg-slate-50/60'
+          }`}>
+            {overviewCards.map((card) => {
+              const Icon = card.icon;
+              const CardTag = card.href ? 'a' : 'div';
+              return (
+                <CardTag
+                  key={card.label}
+                  {...(card.href ? { href: card.href, 'aria-label': `Подробнее: ${card.label}` } : {})}
+                  className={`group flex min-h-[76px] items-center gap-3 rounded-2xl border-2 px-3 py-3 shadow-sm md:min-h-[168px] md:flex-col md:items-start md:p-4 ${
+                    card.href
+                      ? 'cursor-pointer transition hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]'
+                      : ''
+                  } ${dark ? card.darkClass : card.lightClass}`}
+                >
+                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl shadow-sm md:h-11 md:w-11 ${card.iconClass}`}>
+                    <Icon size={19} />
+                  </span>
+                  <span className="min-w-0 flex-1 md:flex md:w-full md:flex-col">
+                    <span className={`block text-[10px] font-extrabold uppercase tracking-[0.09em] ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {card.label}
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className={`text-xs font-black uppercase tracking-[0.13em] ${card.numberClass}`}>
-                        {card.number} · {card.kicker}
-                      </span>
-                      <strong className="mt-1.5 block text-lg font-black">{card.title}</strong>
-                      <span className="mt-2 block text-sm font-extrabold leading-tight">{card.value}</span>
-                      <span className={`mt-1.5 block text-xs leading-relaxed ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
-                        {card.detail}
-                      </span>
+                    <strong className="mt-0.5 block text-sm font-black leading-tight md:mt-2 md:text-base">
+                      {card.value}
+                    </strong>
+                    <span className={`mt-1 block text-[11px] leading-relaxed md:text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      {card.detail}
                     </span>
-                    <ArrowRight size={18} className={`mt-1 shrink-0 transition group-hover:translate-x-1 ${dark ? 'text-slate-500' : 'text-slate-400'}`} />
-                  </a>
-                );
-              })}
-            </nav>
+                  </span>
+                  {card.href && (
+                    <span className={`inline-flex shrink-0 items-center gap-1 text-[11px] font-extrabold md:mt-auto ${card.actionClass}`}>
+                      Подробнее <ArrowRight size={14} className="transition group-hover:translate-x-0.5" />
+                    </span>
+                  )}
+                </CardTag>
+              );
+            })}
           </div>
         </section>
 
-        <section id="parent-schedule" className={`scroll-mt-24 rounded-[30px] border border-t-4 p-4 shadow-sm md:p-6 ${
+        <section id="parent-schedule" className={`scroll-mt-24 rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(76,29,149,0.12)] md:p-6 ${
           dark
-            ? 'border-slate-700 border-t-violet-600 bg-slate-900/90'
-            : 'border-violet-100 border-t-violet-500 bg-white/95'
+            ? 'border-slate-700 border-t-violet-500 bg-slate-900/90 shadow-black/25'
+            : 'border-violet-200 border-t-violet-600 bg-gradient-to-br from-violet-50/70 via-white to-white'
         }`}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <SectionHeading
@@ -672,7 +656,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             </span>
           </div>
 
-          <div className={`mb-4 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
+          <div className={`mb-5 flex flex-col gap-3 rounded-2xl border-2 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between ${
             nextLesson
               ? (dark ? 'border-violet-800 bg-violet-950/40' : 'border-violet-200 bg-violet-50/80')
               : (dark ? 'border-slate-700 bg-slate-950/40' : 'border-slate-200 bg-slate-50')
@@ -700,9 +684,9 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             {nextLesson && <PaymentBadge status={nextLesson.lesson.paymentState?.status} dark={dark} />}
           </div>
 
-          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
             {week.map((day) => (
-              <article key={day.dayKey} className={`min-h-[118px] rounded-2xl border p-3.5 ${
+              <article key={day.dayKey} className={`min-h-[118px] rounded-2xl border-2 p-3.5 shadow-sm ${
                 day.lessons.length === 0 && !day.isToday ? 'hidden lg:block' : ''
               } ${
                 day.isToday
@@ -717,8 +701,8 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                   {day.lessons.length === 0 ? (
                     <span className={`text-xs ${dark ? 'text-slate-600' : 'text-slate-400'}`}>Нет занятия</span>
                   ) : day.lessons.map((lesson) => (
-                    <div key={`${lesson.id || lesson.externalEventId || 'lesson'}-${lesson.time}`} className={`rounded-xl border px-2.5 py-2 ${
-                      dark ? 'border-slate-700 bg-slate-900' : 'border-white bg-white shadow-sm'
+                    <div key={`${lesson.id || lesson.externalEventId || 'lesson'}-${lesson.time}`} className={`rounded-xl border-2 px-2.5 py-2 ${
+                      dark ? 'border-slate-700 bg-slate-900' : 'border-violet-100 bg-white shadow-sm'
                     }`}>
                       <strong className="block text-sm">{lesson.time || '—'}</strong>
                       <span className={`mt-0.5 block truncate text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -733,10 +717,10 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           </div>
         </section>
 
-        <section id="parent-results" className={`scroll-mt-24 rounded-[30px] border border-t-4 p-4 shadow-sm md:p-6 ${
+        <section id="parent-results" className={`scroll-mt-24 rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(3,105,161,0.12)] md:p-6 ${
           dark
-            ? 'border-slate-700 border-t-sky-600 bg-slate-900/90'
-            : 'border-sky-100 border-t-sky-500 bg-white/95'
+            ? 'border-slate-700 border-t-sky-500 bg-slate-900/90 shadow-black/25'
+            : 'border-sky-200 border-t-sky-600 bg-gradient-to-br from-sky-50/70 via-white to-white'
         }`}>
           <SectionHeading
             number="02"
@@ -747,7 +731,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             dark={dark}
             tone="sky"
           />
-          <div className={`mb-4 flex flex-col gap-2 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
+          <div className={`mb-5 flex flex-col gap-2 rounded-2xl border-2 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between ${
             dark ? 'border-sky-900 bg-sky-950/25' : 'border-sky-200 bg-sky-50/70'
           }`}>
             <div>
@@ -773,10 +757,10 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           <MockExamProgressChart entries={mockEntries} dark={dark} role="parent" />
         </section>
 
-        <section id="parent-homework" className={`scroll-mt-24 rounded-[30px] border border-t-4 p-4 shadow-sm md:p-6 ${
+        <section id="parent-homework" className={`scroll-mt-24 rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(4,120,87,0.12)] md:p-6 ${
           dark
-            ? 'border-slate-700 border-t-emerald-600 bg-slate-900/90'
-            : 'border-emerald-100 border-t-emerald-500 bg-white/95'
+            ? 'border-slate-700 border-t-emerald-500 bg-slate-900/90 shadow-black/25'
+            : 'border-emerald-200 border-t-emerald-600 bg-gradient-to-br from-emerald-50/70 via-white to-white'
         }`}>
           <SectionHeading
             number="03"
@@ -787,16 +771,38 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             dark={dark}
             tone="emerald"
           />
-          <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
-              ['Среднее выполнение', `${Number(homeworkSummary.averagePercent) || 0}%`],
-              ['Полностью выполнено', Number(homeworkSummary.fullyCompletedCount) || 0],
-              ['Не завершено', Number(homeworkSummary.incompleteCount) || 0],
-              ['С ошибками', Number(homeworkSummary.withErrorsCount) || 0],
-            ].map(([label, value]) => (
-              <div key={label} className={`rounded-2xl border px-3 py-3 ${
-                dark ? 'border-slate-700 bg-slate-950/40' : 'border-slate-200 bg-slate-50/70'
-              }`}>
+              {
+                label: 'Среднее выполнение',
+                value: `${Number(homeworkSummary.averagePercent) || 0}%`,
+                className: dark
+                  ? 'border-violet-800 bg-violet-950/40'
+                  : 'border-violet-200 bg-violet-50',
+              },
+              {
+                label: 'Полностью выполнено',
+                value: Number(homeworkSummary.fullyCompletedCount) || 0,
+                className: dark
+                  ? 'border-emerald-800 bg-emerald-950/40'
+                  : 'border-emerald-200 bg-emerald-50',
+              },
+              {
+                label: 'Не завершено',
+                value: Number(homeworkSummary.incompleteCount) || 0,
+                className: dark
+                  ? 'border-amber-800 bg-amber-950/40'
+                  : 'border-amber-200 bg-amber-50',
+              },
+              {
+                label: 'С ошибками',
+                value: Number(homeworkSummary.withErrorsCount) || 0,
+                className: dark
+                  ? 'border-rose-800 bg-rose-950/40'
+                  : 'border-rose-200 bg-rose-50',
+              },
+            ].map(({ label, value, className }) => (
+              <div key={label} className={`rounded-2xl border-2 px-3.5 py-3.5 shadow-sm ${className}`}>
                 <span className={`text-xs font-bold leading-tight ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{label}</span>
                 <strong className="mt-1 block text-xl font-black">{value}</strong>
               </div>
@@ -807,12 +813,22 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
               dark ? 'border-slate-700 text-slate-400' : 'border-slate-200 text-slate-500'
             }`}>Домашние работы пока не назначались.</div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {visibleHomeworkEntries.map((entry) => (
-                <details key={entry.id} className={`group rounded-2xl border ${
-                  dark ? 'border-slate-700 bg-slate-950/30' : 'border-slate-200 bg-slate-50/50'
+                <details key={entry.id} className={`group rounded-2xl border-2 border-l-4 shadow-sm transition hover:shadow-md ${
+                  entry.isOverdue
+                    ? (dark
+                      ? 'border-rose-900 border-l-rose-500 bg-rose-950/20'
+                      : 'border-rose-200 border-l-rose-500 bg-white')
+                    : Number(entry.percent) >= 100
+                      ? (dark
+                        ? 'border-emerald-900 border-l-emerald-500 bg-emerald-950/20'
+                        : 'border-emerald-200 border-l-emerald-500 bg-white')
+                      : (dark
+                        ? 'border-slate-700 border-l-violet-500 bg-slate-950/60'
+                        : 'border-slate-200 border-l-violet-500 bg-white')
                 }`}>
-                  <summary className="flex cursor-pointer list-none items-center gap-3 p-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400">
+                  <summary className="flex cursor-pointer list-none items-center gap-3 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <strong className="truncate text-sm">{getHomeworkDisplayTitle(entry)}</strong>
@@ -828,7 +844,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                         )}
                       </div>
                       <div className="mt-2 flex items-center gap-3">
-                        <div className={`h-2 flex-1 overflow-hidden rounded-full ${dark ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                        <div className={`h-2.5 flex-1 overflow-hidden rounded-full ${dark ? 'bg-slate-800' : 'bg-slate-200'}`}>
                           <div className={`h-full rounded-full ${
                             Number(entry.percent) >= 100 ? 'bg-emerald-500' : Number(entry.percent) > 0 ? 'bg-violet-500' : 'bg-slate-300'
                           }`} style={{ width: `${Number(entry.percent) || 0}%` }} />
@@ -843,7 +859,12 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                         }`}
                       </span>
                     </div>
-                    <ChevronDown size={18} className={`shrink-0 transition group-open:rotate-180 ${dark ? 'text-slate-500' : 'text-slate-400'}`} />
+                    <span className={`hidden text-xs font-bold sm:inline ${dark ? 'text-slate-400' : 'text-slate-500'}`}>Подробнее</span>
+                    <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border ${
+                      dark ? 'border-slate-700 bg-slate-900 text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-600'
+                    }`}>
+                      <ChevronDown size={17} className="transition group-open:rotate-180" />
+                    </span>
                   </summary>
                   <div className={`border-t p-3.5 ${dark ? 'border-slate-700' : 'border-slate-200'}`}>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
