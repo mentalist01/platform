@@ -406,7 +406,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     ? orderedHomeworkEntries
     : orderedHomeworkEntries.slice(0, 5);
   const briefText = currentHomeworkNeedsAttention
-    ? 'Есть домашняя работа, которую стоит проверить. Ниже сразу видно, что именно не завершено.'
+    ? 'Есть незавершённая домашняя работа. Ниже видно, что уже сделано и что осталось.'
     : 'Главное собрано в трёх разделах: ближайшие занятия, результаты и домашняя работа.';
   const roadmapCards = [
     {
@@ -449,7 +449,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
       title: 'Домашняя работа',
       value: `${Number(homeworkSummary.averagePercent) || 0}% в среднем`,
       detail: currentHomeworkNeedsAttention
-        ? 'Есть задания, которые требуют внимания'
+        ? 'В текущей работе остались невыполненные задания'
         : 'Незавершённых работ сейчас нет',
       lightClass: 'border-emerald-200 bg-emerald-50/80 hover:border-emerald-300',
       darkClass: 'border-emerald-900/80 bg-emerald-950/30 hover:border-emerald-700',
@@ -550,7 +550,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                     : (dark ? 'bg-emerald-950/60 text-emerald-200' : 'bg-emerald-100 text-emerald-800')
                 }`}>
                   {currentHomeworkNeedsAttention ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
-                  {currentHomeworkNeedsAttention ? 'Есть что проверить' : 'Всё спокойно'}
+                  {currentHomeworkNeedsAttention ? 'Домашняя работа не завершена' : 'Всё спокойно'}
                 </span>
                 <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                   Обновлено: {formatUpdatedAt(overview?.generatedAt)}
@@ -602,7 +602,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                   Три главных раздела
                 </span>
                 <p className={`mt-1 text-sm ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
-                  Откройте только то, что нужно проверить.
+                  Переходите сразу к нужному разделу.
                 </p>
               </div>
               <span className={`hidden text-xs sm:block ${dark ? 'text-slate-600' : 'text-slate-400'}`}>01 → 02 → 03</span>
