@@ -618,20 +618,18 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     ? orderedHomeworkEntries
     : orderedHomeworkEntries.slice(0, 3);
   const homeworkAveragePercent = Number(homeworkSummary.averagePercent) || 0;
-  const incompleteHomeworkCount = Number(homeworkSummary.incompleteCount) || 0;
   const fullyCompletedHomeworkCount = Number(homeworkSummary.fullyCompletedCount) || 0;
   const hasEnoughHomeworkHistory = homeworkEntries.length >= 3;
   const homeworkHabit = !hasEnoughHomeworkHistory
     ? 'Пока мало данных'
-    : homeworkAveragePercent >= 85 && incompleteHomeworkCount <= 1
-      ? 'Делает стабильно'
-      : homeworkAveragePercent >= 65 && incompleteHomeworkCount <= fullyCompletedHomeworkCount
-        ? 'Обычно доводит до конца'
-        : incompleteHomeworkCount > 0
-          ? 'Часто не доделывает'
-          : 'Выполняет неравномерно';
-  const homeworkHabitIsGood = homeworkHabit === 'Делает стабильно'
-    || homeworkHabit === 'Обычно доводит до конца';
+    : homeworkAveragePercent >= 90
+      ? 'Почти всё выполняет'
+      : homeworkAveragePercent >= 75
+        ? 'Обычно выполняет большую часть'
+        : homeworkAveragePercent >= 50
+          ? 'Часто оставляет часть заданий'
+          : 'Часто не доделывает';
+  const homeworkHabitIsGood = hasEnoughHomeworkHistory && homeworkAveragePercent >= 75;
   const completedTasksOutOfTen = Math.max(1, Math.min(9, Math.round(homeworkAveragePercent / 10)));
   const homeworkAverageExplanation = homeworkAveragePercent >= 100
     ? 'В среднем выполняет все задания.'
@@ -661,7 +659,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         : 'progress';
   const currentHomeworkNeedsAttention = Boolean(currentHomeworkEntry)
     && (currentHomeworkPercent < 100 || currentHomeworkHasErrors || currentHomeworkEntry.isOverdue);
-  const homeworkHabitNeedsAttention = homeworkHabit === 'Часто не доделывает';
+  const homeworkHabitNeedsAttention = hasEnoughHomeworkHistory && homeworkAveragePercent < 75;
   const currentHomeworkProgressText = !currentHomeworkEntry
     ? 'Сейчас ничего сдавать не нужно.'
     : currentHomeworkEntry.isOverdue
