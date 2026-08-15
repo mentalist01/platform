@@ -28477,6 +28477,13 @@ const compactParentHomeworkEntry = (entry) => ({
   },
 });
 
+const PARENT_HOMEWORK_RELIABLE_SINCE_DAY_KEY = '2026-06-29';
+
+const isReliableParentHomeworkEntry = (entry) => {
+  const dateParts = getDatePartsInCalendarTimeZone(entry?.issuedAt);
+  return Boolean(dateParts?.dayKey && dateParts.dayKey >= PARENT_HOMEWORK_RELIABLE_SINCE_DAY_KEY);
+};
+
 const buildParentFinanceSummary = (student) => {
   const month = getCurrentTeacherFinanceMonthKey();
   const financeContext = getParentFinanceContext(student);
@@ -28522,6 +28529,7 @@ app.get('/api/parent/overview', async (req, res) => {
       mockExams,
       mockAttemptsByExam,
     });
+    const reliableParentHomeworkEntries = homeworkEntries.filter(isReliableParentHomeworkEntry);
     const mockEntries = buildMockExamProgressEntries({
       studentData,
       mockExams,
@@ -28546,8 +28554,8 @@ app.get('/api/parent/overview', async (req, res) => {
         entries: mockEntries.slice(-40),
       },
       homework: {
-        summary: summarizeHomeworkStatistics(homeworkEntries),
-        entries: homeworkEntries.slice(-30).map(compactParentHomeworkEntry),
+        summary: summarizeHomeworkStatistics(reliableParentHomeworkEntries),
+        entries: reliableParentHomeworkEntries.map(compactParentHomeworkEntry),
       },
       finance: buildParentFinanceSummary(student),
     });

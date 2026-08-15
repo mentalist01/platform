@@ -96,7 +96,18 @@ test('parent login exposes only the linked student read-only cabinet', {
         time: '18:00',
         durationMinutes: 60,
       }],
-      homeworks: [],
+      homeworks: [
+        {
+          id: 'legacy-homework',
+          issuedAt: '2026-06-28T10:00:00.000Z',
+          homeWork: 'Legacy homework with unreliable progress',
+        },
+        {
+          id: 'reliable-homework',
+          issuedAt: '2026-06-29T10:00:00.000Z',
+          homeWork: 'Reliable homework',
+        },
+      ],
       mockAttempts: {},
     },
     'student-b': { schedule: [], homeworks: [], mockAttempts: {} },
@@ -148,6 +159,7 @@ test('parent login exposes only the linked student read-only cabinet', {
     assert.equal(Array.isArray(overview.lessons.items), true);
     assert.equal(Array.isArray(overview.mocks.entries), true);
     assert.equal(Array.isArray(overview.homework.entries), true);
+    assert.deepEqual(overview.homework.entries.map((entry) => entry.id), ['reliable-homework']);
     assert.equal(typeof overview.finance, 'object');
 
     const lessonsResponse = await fetch(`${baseUrl}/api/parent/lessons?offset=0&limit=5`, { headers });

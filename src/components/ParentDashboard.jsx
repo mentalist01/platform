@@ -370,6 +370,78 @@ const SectionHeading = ({ number, icon, eyebrow, title, description, dark, tone 
   );
 };
 
+const MobileDetailSection = ({
+  sectionId,
+  icon,
+  title,
+  summary,
+  open,
+  onToggle,
+  dark,
+  tone = 'violet',
+  children,
+}) => {
+  const Icon = icon;
+  const triggerId = `${sectionId}-trigger`;
+  const panelId = `${sectionId}-panel`;
+  const lightTone = {
+    violet: 'border-violet-200 bg-white',
+    sky: 'border-sky-200 bg-white',
+    emerald: 'border-emerald-200 bg-white',
+  }[tone] || 'border-violet-200 bg-white';
+  const darkTone = {
+    violet: 'border-violet-900 bg-slate-900/85',
+    sky: 'border-sky-900 bg-slate-900/85',
+    emerald: 'border-emerald-900 bg-slate-900/85',
+  }[tone] || 'border-violet-900 bg-slate-900/85';
+  const lightIcon = {
+    violet: 'bg-violet-100 text-violet-700',
+    sky: 'bg-sky-100 text-sky-700',
+    emerald: 'bg-emerald-100 text-emerald-700',
+  }[tone] || 'bg-violet-100 text-violet-700';
+  const darkIcon = {
+    violet: 'bg-violet-950 text-violet-200',
+    sky: 'bg-sky-950 text-sky-200',
+    emerald: 'bg-emerald-950 text-emerald-200',
+  }[tone] || 'bg-violet-950 text-violet-200';
+
+  return (
+    <section className={`overflow-hidden rounded-[24px] border-2 shadow-sm ${dark ? darkTone : lightTone}`}>
+      <button
+        id={triggerId}
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="flex min-h-20 w-full items-center gap-3 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400"
+      >
+        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${dark ? darkIcon : lightIcon}`}>
+          <Icon size={20} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <strong className="block text-base font-black leading-tight">{title}</strong>
+          <span className={`mt-1 block text-[13px] font-semibold leading-snug ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+            {summary}
+          </span>
+        </span>
+        <span className={`inline-flex shrink-0 items-center gap-1 text-[11px] font-extrabold ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+          {open ? 'Скрыть' : 'Открыть'}
+          <ChevronDown size={17} className={`transition ${open ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
+      <div
+        id={panelId}
+        role="region"
+        aria-labelledby={triggerId}
+        hidden={!open}
+        className={`border-t p-3.5 ${dark ? 'border-slate-700' : 'border-slate-200 bg-slate-50/60'}`}
+      >
+        {open ? children : null}
+      </div>
+    </section>
+  );
+};
+
 const ParentDashboard = ({ theme = '', onLogout }) => {
   const dark = theme === 'dark';
   const [overview, setOverview] = useState(null);
@@ -379,6 +451,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
   const [lessonPage, setLessonPage] = useState({ hasMore: false, nextOffset: null, total: 0 });
   const [loadingMoreLessons, setLoadingMoreLessons] = useState(false);
   const [showAllHomework, setShowAllHomework] = useState(false);
+  const [activeMobileSection, setActiveMobileSection] = useState('recordings');
   const [detailState, setDetailState] = useState({ open: false, lesson: null, data: null, loading: false, error: '' });
 
   const loadOverview = useCallback(async () => {
@@ -534,9 +607,16 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     || null;
   const latestMockScore = overview?.mocks?.summary?.latestScore;
   const mockDelta = overview?.mocks?.summary?.delta;
+  const mobileWeekLessons = week.flatMap((day) => (
+    day.lessons.map((lesson) => ({ day, lesson }))
+  ));
+  const recentMockEntries = [...mockEntries].reverse().slice(0, 5);
   const visibleHomeworkEntries = showAllHomework
     ? orderedHomeworkEntries
     : orderedHomeworkEntries.slice(0, 5);
+  const mobileHomeworkEntries = showAllHomework
+    ? orderedHomeworkEntries
+    : orderedHomeworkEntries.slice(0, 3);
   const homeworkAveragePercent = Number(homeworkSummary.averagePercent) || 0;
   const incompleteHomeworkCount = Number(homeworkSummary.incompleteCount) || 0;
   const fullyCompletedHomeworkCount = Number(homeworkSummary.fullyCompletedCount) || 0;
@@ -611,9 +691,20 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         : '',
     ].filter(Boolean).join(' · ');
   const recentReplayLessons = lessons.filter(hasLessonReplay).slice(0, 2);
+  const latestReplayLesson = recentReplayLessons[0] || null;
+  const openMobileSection = (section, targetId) => {
+    setActiveMobileSection(section);
+    if (typeof document === 'undefined') return;
+    window.requestAnimationFrame(() => {
+      const sectionTrigger = document.getElementById(`parent-mobile-${section}-trigger`);
+      sectionTrigger?.focus({ preventScroll: true });
+      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
   const overviewCards = [
     {
       href: '#parent-homework',
+      mobileSection: 'homework',
       icon: CheckCircle2,
       label: 'Текущая домашняя работа',
       value: currentHomeworkEntry
@@ -678,6 +769,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     },
     {
       href: '#parent-homework',
+      mobileSection: 'homework',
       icon: History,
       label: 'Домашняя работа в целом',
       value: homeworkHabit,
@@ -712,6 +804,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     },
     {
       href: '#parent-results',
+      mobileSection: 'results',
       icon: BarChart3,
       label: 'Последний пробник',
       value: latestMockScore == null ? 'Результата пока нет' : `${latestMockScore} баллов`,
@@ -834,7 +927,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1320px] space-y-8 px-4 py-4 pb-12 md:space-y-12 md:px-7 md:py-8 md:pb-16">
+      <main className="mx-auto max-w-[1320px] space-y-4 px-4 py-4 pb-12 md:space-y-12 md:px-7 md:py-8 md:pb-16">
         {error && (
           <div className={`flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm ${
             dark ? 'border-amber-900 bg-amber-950/40 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800'
@@ -874,16 +967,21 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           <div className={`grid gap-2.5 p-3 md:hidden ${dark ? 'bg-slate-950/20' : 'bg-slate-50/70'}`}>
               {overviewCards.map((card) => {
                 const Icon = card.icon;
-                const CardTag = card.href ? 'a' : 'div';
+                const CardTag = card.mobileSection ? 'button' : 'div';
                 return (
                   <CardTag
                     key={`mobile-${card.label}`}
-                    {...(card.href ? { href: card.href } : {})}
-                    className={`group block rounded-[20px] border-2 p-3.5 ${
+                    {...(card.mobileSection ? {
+                      type: 'button',
+                      onClick: () => openMobileSection(card.mobileSection, card.href.slice(1)),
+                      'aria-expanded': activeMobileSection === card.mobileSection,
+                      'aria-controls': `parent-mobile-${card.mobileSection}-panel`,
+                    } : {})}
+                    className={`group block w-full rounded-[20px] border-2 p-3.5 text-left ${
                       card.isImportant
                         ? 'shadow-[0_10px_24px_rgba(15,23,42,0.12)]'
                         : 'shadow-sm'
-                    } ${card.href ? 'transition active:scale-[0.99]' : ''} ${dark ? card.darkClass : card.lightClass}`}
+                    } ${card.mobileSection ? 'transition active:scale-[0.99]' : ''} ${dark ? card.darkClass : card.lightClass}`}
                   >
                     <span className="flex items-center gap-2.5">
                       <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${card.iconClass}`}>
@@ -892,12 +990,12 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                       <span className={`min-w-0 flex-1 text-xs font-extrabold leading-tight ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
                         {card.label}
                       </span>
-                      {card.mobileFlag && !card.href && (
+                      {card.mobileFlag && !card.mobileSection && (
                         <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-extrabold ${card.mobileFlagClass}`}>
                           {card.mobileFlag}
                         </span>
                       )}
-                      {card.href && (
+                      {card.mobileSection && (
                         <span className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-xl border px-2.5 text-[11px] font-extrabold shadow-sm ${
                           dark ? 'border-slate-700 bg-slate-900/80' : 'border-white bg-white/90'
                         } ${card.actionClass}`}>
@@ -986,10 +1084,145 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           </div>
         </section>
 
-        <section
-          id="parent-recordings"
+        <div id="parent-recordings" className="scroll-mt-24">
+          <div className="md:hidden">
+            <MobileDetailSection
+              sectionId="parent-mobile-recordings"
+              icon={FilePlay}
+              title="Записи занятий"
+              summary={latestReplayLesson
+                ? `Последняя — ${formatDate(latestReplayLesson.dayKey)} · ${formatDuration(latestReplayLesson.replay.durationMs)}. Всего занятий: ${lessonPage.total}.`
+                : `Записей пока нет. Занятий в архиве: ${lessonPage.total}.`}
+              open={activeMobileSection === 'recordings'}
+              onToggle={() => setActiveMobileSection((current) => (
+                current === 'recordings' ? '' : 'recordings'
+              ))}
+              dark={dark}
+              tone="violet"
+            >
+              {recentReplayLessons.length === 0 ? (
+                <p className={`rounded-2xl border border-dashed p-3.5 text-sm leading-relaxed ${
+                  dark ? 'border-slate-700 text-slate-400' : 'border-slate-300 bg-white text-slate-600'
+                }`}>
+                  Записей пока нет. Они появятся после завершённых занятий.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {recentReplayLessons.map((lesson) => (
+                    <button
+                      key={`mobile-replay-${lesson.key}`}
+                      type="button"
+                      onClick={() => openLesson(lesson)}
+                      className={`flex w-full items-center gap-3 rounded-2xl border-2 p-3 text-left shadow-sm ${
+                        dark ? 'border-violet-900 bg-slate-900' : 'border-violet-200 bg-white'
+                      }`}
+                    >
+                      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+                        dark ? 'bg-violet-950 text-violet-200' : 'bg-violet-600 text-white'
+                      }`}><FilePlay size={18} /></span>
+                      <span className="min-w-0 flex-1">
+                        <strong className="block text-sm leading-tight">
+                          {formatDate(lesson.dayKey, { year: true })} · {lesson.time || 'время не указано'}
+                        </strong>
+                        <span className={`mt-1 block truncate text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                          {lesson.topic?.text || lesson.subject || 'Материалы занятия'}
+                        </span>
+                        <span className={`mt-1 block text-xs font-bold ${dark ? 'text-violet-300' : 'text-violet-700'}`}>
+                          Открыть запись · {formatDuration(lesson.replay.durationMs)}
+                        </span>
+                      </span>
+                      <ArrowRight size={17} className={dark ? 'text-violet-300' : 'text-violet-700'} />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <details className={`group mt-3 overflow-hidden rounded-2xl border ${
+                dark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'
+              }`}>
+                <summary className="flex cursor-pointer list-none items-center gap-3 p-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400">
+                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+                    dark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'
+                  }`}><History size={18} /></span>
+                  <span className="min-w-0 flex-1">
+                    <strong className="block text-sm">Все прошедшие занятия</strong>
+                    <span className={`mt-0.5 block text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {lessonPage.total > 0 ? `В архиве: ${lessonPage.total}` : 'Архив пока пуст'}
+                    </span>
+                  </span>
+                  <span className={`inline-flex shrink-0 items-center gap-1 text-[11px] font-extrabold ${
+                    dark ? 'text-slate-400' : 'text-slate-600'
+                  }`}>
+                    Показать
+                    <ChevronDown size={16} className="transition group-open:rotate-180" />
+                  </span>
+                </summary>
+                <div className={`border-t p-3 ${dark ? 'border-slate-700' : 'border-slate-200 bg-slate-50/60'}`}>
+                  {lessons.length === 0 ? (
+                    <p className={`rounded-2xl border border-dashed p-3.5 text-sm ${
+                      dark ? 'border-slate-700 text-slate-400' : 'border-slate-300 bg-white text-slate-600'
+                    }`}>
+                      История появится после первого завершённого занятия.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {lessons.map((lesson) => {
+                        const hasReplay = hasLessonReplay(lesson);
+                        return (
+                          <button
+                            key={`mobile-lesson-${lesson.key}`}
+                            type="button"
+                            onClick={() => openLesson(lesson)}
+                            className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left ${
+                              dark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+                              hasReplay
+                                ? (dark ? 'bg-violet-950 text-violet-200' : 'bg-violet-100 text-violet-700')
+                                : (dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600')
+                            }`}>
+                              {hasReplay ? <FilePlay size={18} /> : <School size={18} />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex flex-wrap items-center gap-2">
+                                <strong className="text-sm">{formatDate(lesson.dayKey, { year: true })}</strong>
+                                <PaymentBadge status={lesson.payment?.status} dark={dark} />
+                              </span>
+                              <span className={`mt-1 block truncate text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                                {lesson.time || 'Время не указано'} · {lesson.topic?.text || lesson.subject || 'Материалы занятия'}
+                              </span>
+                              <span className={`mt-1 block text-xs font-bold ${dark ? 'text-violet-300' : 'text-violet-700'}`}>
+                                {hasReplay ? 'Открыть запись и материалы' : 'Открыть материалы'}
+                              </span>
+                            </span>
+                            <ArrowRight size={17} className={dark ? 'text-slate-400' : 'text-slate-500'} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {lessonPage.hasMore && (
+                    <button
+                      type="button"
+                      onClick={loadMoreLessons}
+                      disabled={loadingMoreLessons}
+                      className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold disabled:opacity-60 ${
+                        dark ? 'border-slate-700 bg-slate-900 text-slate-300' : 'border-slate-200 bg-white text-slate-700'
+                      }`}
+                    >
+                      {loadingMoreLessons ? <Loader2 size={16} className="animate-spin" /> : <History size={16} />}
+                      {loadingMoreLessons ? 'Загружаем…' : 'Показать ещё занятия'}
+                    </button>
+                  )}
+                </div>
+              </details>
+            </MobileDetailSection>
+          </div>
+
+          <section
           aria-labelledby="parent-recordings-title"
-          className={`rounded-[26px] border-2 p-4 shadow-[0_14px_35px_rgba(76,29,149,0.10)] md:rounded-[30px] md:p-5 ${
+          className={`hidden rounded-[26px] border-2 p-4 shadow-[0_14px_35px_rgba(76,29,149,0.10)] md:block md:rounded-[30px] md:p-5 ${
             dark
               ? 'border-violet-900 bg-slate-900/90'
               : 'border-violet-200 bg-gradient-to-br from-white via-white to-violet-50/70'
@@ -1065,9 +1298,98 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
               ))}
             </div>
           )}
-        </section>
+          </section>
+        </div>
 
-        <section id="parent-schedule" className={`scroll-mt-24 rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(76,29,149,0.12)] md:p-6 ${
+        <div id="parent-schedule" className="scroll-mt-24">
+          <div className="md:hidden">
+            <MobileDetailSection
+              sectionId="parent-mobile-schedule"
+              icon={CalendarDays}
+              title="Расписание"
+              summary={nextLesson
+                ? `Ближайшее — ${formatDate(nextLesson.day.dayKey)} в ${nextLesson.lesson.time || 'уточняем время'}. На этой неделе: ${mobileWeekLessons.length}.`
+                : 'На ближайшие две недели занятий нет.'}
+              open={activeMobileSection === 'schedule'}
+              onToggle={() => setActiveMobileSection((current) => (
+                current === 'schedule' ? '' : 'schedule'
+              ))}
+              dark={dark}
+              tone="violet"
+            >
+              <div className={`rounded-2xl border-2 p-3.5 ${
+                nextLesson
+                  ? (dark ? 'border-violet-800 bg-violet-950/35' : 'border-violet-200 bg-violet-50')
+                  : (dark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white')
+              }`}>
+                <span className={`text-xs font-extrabold uppercase tracking-[0.08em] ${
+                  dark ? 'text-violet-300' : 'text-violet-700'
+                }`}>Ближайшее занятие</span>
+                <strong className="mt-1.5 block text-base leading-tight">
+                  {nextLesson
+                    ? `${formatDate(nextLesson.day.dayKey)} в ${nextLesson.lesson.time || 'уточняем время'}`
+                    : 'Занятий пока не запланировано'}
+                </strong>
+                {nextLesson && (
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className={`min-w-0 truncate text-sm ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      {nextLesson.lesson.subject || nextLesson.lesson.title || 'Занятие по информатике'}
+                    </span>
+                    <PaymentBadge status={nextLesson.lesson.paymentState?.status} dark={dark} />
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <strong className="text-sm">На этой неделе</strong>
+                  <span className={`text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    {`${formatDate(week[0]?.dayKey, { short: true })} — ${formatDate(week[6]?.dayKey, { short: true })}`}
+                  </span>
+                </div>
+                {mobileWeekLessons.length === 0 ? (
+                  <p className={`rounded-2xl border border-dashed p-3.5 text-sm ${
+                    dark ? 'border-slate-700 text-slate-400' : 'border-slate-300 bg-white text-slate-600'
+                  }`}>
+                    На этой неделе занятий нет.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {mobileWeekLessons.map(({ day, lesson }) => (
+                      <article
+                        key={`mobile-schedule-${day.dayKey}-${lesson.id || lesson.externalEventId || lesson.time}`}
+                        className={`flex items-center gap-3 rounded-2xl border p-3 ${
+                          day.isToday
+                            ? (dark ? 'border-violet-700 bg-violet-950/30' : 'border-violet-300 bg-violet-50')
+                            : (dark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white')
+                        }`}
+                      >
+                        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl text-center ${
+                          day.isToday
+                            ? (dark ? 'bg-violet-900 text-violet-100' : 'bg-violet-600 text-white')
+                            : (dark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700')
+                        }`}>
+                          <span>
+                            <strong className="block text-xs leading-none">{day.short}</strong>
+                            <span className="mt-1 block text-[11px] leading-none">{day.date.getDate()}</span>
+                          </span>
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <strong className="block text-sm">{lesson.time || 'Время уточняется'}</strong>
+                          <span className={`mt-0.5 block truncate text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                            {lesson.subject || lesson.title || 'Занятие по информатике'}
+                          </span>
+                        </span>
+                        <PaymentBadge status={lesson.paymentState?.status} dark={dark} />
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </MobileDetailSection>
+          </div>
+
+          <section className={`hidden rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(76,29,149,0.12)] md:block md:p-6 ${
           dark
             ? 'border-slate-700 border-t-violet-500 bg-slate-900/90 shadow-black/25'
             : 'border-violet-200 border-t-violet-600 bg-gradient-to-br from-violet-50/70 via-white to-white'
@@ -1148,9 +1470,76 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
               </article>
             ))}
           </div>
-        </section>
+          </section>
+        </div>
 
-        <section id="parent-results" className={`scroll-mt-24 rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(3,105,161,0.12)] md:p-6 ${
+        <div id="parent-results" className="scroll-mt-24">
+          <div className="md:hidden">
+            <MobileDetailSection
+              sectionId="parent-mobile-results"
+              icon={BarChart3}
+              title="Пробники"
+              summary={latestMockScore == null
+                ? 'Завершённых пробников пока нет.'
+                : `${latestMockScore} баллов за последний пробник${mockDelta == null || mockEntries.length <= 1
+                  ? ' · это первый результат.'
+                  : ` · ${mockDelta >= 0 ? 'рост' : 'снижение'} на ${Math.abs(mockDelta)}.`}`}
+              open={activeMobileSection === 'results'}
+              onToggle={() => setActiveMobileSection((current) => (
+                current === 'results' ? '' : 'results'
+              ))}
+              dark={dark}
+              tone="sky"
+            >
+              {recentMockEntries.length === 0 ? (
+                <p className={`rounded-2xl border border-dashed p-3.5 text-sm leading-relaxed ${
+                  dark ? 'border-slate-700 text-slate-400' : 'border-slate-300 bg-white text-slate-600'
+                }`}>
+                  После первого завершённого пробника здесь появится результат и его дата.
+                </p>
+              ) : (
+                <>
+                  <div className={`rounded-2xl border-2 p-3.5 ${
+                    dark ? 'border-sky-900 bg-sky-950/25' : 'border-sky-200 bg-sky-50'
+                  }`}>
+                    <span className={`text-xs font-extrabold uppercase tracking-[0.08em] ${
+                      dark ? 'text-sky-300' : 'text-sky-700'
+                    }`}>Что изменилось</span>
+                    <strong className="mt-1.5 block text-base leading-tight">
+                      {mockEntries.length <= 1 || mockDelta == null
+                        ? 'Это первый результат — сравнение появится после следующего пробника.'
+                        : `${mockDelta >= 0 ? 'Результат вырос' : 'Результат снизился'} на ${Math.abs(mockDelta)} баллов от первого пробника.`}
+                    </strong>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    <strong className="block text-sm">Последние результаты</strong>
+                    {recentMockEntries.map((entry, index) => (
+                      <article
+                        key={`mobile-mock-${entry.id || entry.date || index}`}
+                        className={`flex items-center gap-3 rounded-2xl border p-3 ${
+                          dark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'
+                        }`}
+                      >
+                        <span className={`grid h-11 min-w-11 shrink-0 place-items-center rounded-xl px-2 font-black ${
+                          dark ? 'bg-sky-950 text-sky-200' : 'bg-sky-100 text-sky-800'
+                        }`}>
+                          {Number(entry.score) || 0}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <strong className="block truncate text-sm">{entry.title || 'Пробник'}</strong>
+                          <span className={`mt-1 block text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                            {formatDate(entry.date, { year: true })} · {Number(entry.score) || 0} баллов
+                          </span>
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              )}
+            </MobileDetailSection>
+          </div>
+
+          <section className={`hidden rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(3,105,161,0.12)] md:block md:p-6 ${
           dark
             ? 'border-slate-700 border-t-sky-500 bg-slate-900/90 shadow-black/25'
             : 'border-sky-200 border-t-sky-600 bg-gradient-to-br from-sky-50/70 via-white to-white'
@@ -1188,9 +1577,182 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             )}
           </div>
           <MockExamProgressChart entries={mockEntries} dark={dark} role="parent" />
-        </section>
+          </section>
+        </div>
 
-        <section id="parent-homework" className={`scroll-mt-24 rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(4,120,87,0.12)] md:p-6 ${
+        <div id="parent-homework" className="scroll-mt-24">
+          <div className="md:hidden">
+            <MobileDetailSection
+              sectionId="parent-mobile-homework"
+              icon={CheckCircle2}
+              title="Домашняя работа"
+              summary={!currentHomeworkEntry
+                ? 'Новых заданий сейчас нет.'
+                : `${currentHomeworkEntry.isOverdue ? 'Просрочена' : 'Текущая'} · выполнено ${currentHomeworkPercent}%${
+                  currentHomeworkEntry.dueAt && !currentHomeworkEntry.isOverdue
+                    ? ` · до ${formatDate(currentHomeworkEntry.dueAt, { short: true })}`
+                    : ''
+                }.`}
+              open={activeMobileSection === 'homework'}
+              onToggle={() => setActiveMobileSection((current) => (
+                current === 'homework' ? '' : 'homework'
+              ))}
+              dark={dark}
+              tone="emerald"
+            >
+              {currentHomeworkEntry ? (
+                <div className={`rounded-2xl border-2 p-3.5 ${
+                  currentHomeworkTone === 'danger'
+                    ? (dark ? 'border-rose-800 bg-rose-950/30' : 'border-rose-300 bg-rose-50')
+                    : currentHomeworkTone === 'warning'
+                      ? (dark ? 'border-amber-800 bg-amber-950/30' : 'border-amber-300 bg-amber-50')
+                      : (dark ? 'border-violet-800 bg-violet-950/25' : 'border-violet-200 bg-violet-50')
+                }`}>
+                  <span className={`text-xs font-extrabold uppercase tracking-[0.08em] ${
+                    dark ? 'text-slate-300' : 'text-slate-600'
+                  }`}>Текущая работа</span>
+                  <strong className="mt-1.5 block text-base leading-tight">
+                    {getHomeworkDisplayTitle(currentHomeworkEntry)}
+                  </strong>
+                  <p className={`mt-1.5 text-sm font-semibold leading-relaxed ${
+                    dark ? 'text-slate-300' : 'text-slate-700'
+                  }`}>
+                    {currentHomeworkProgressText}
+                  </p>
+                  <div className="mt-3 flex items-center gap-3">
+                    <div className={`h-2.5 flex-1 overflow-hidden rounded-full ${dark ? 'bg-slate-800' : 'bg-white'}`}>
+                      <div
+                        className={`h-full rounded-full ${
+                          currentHomeworkTone === 'danger'
+                            ? 'bg-rose-500'
+                            : currentHomeworkTone === 'warning'
+                              ? 'bg-amber-500'
+                              : currentHomeworkTone === 'success'
+                                ? 'bg-emerald-500'
+                                : 'bg-violet-500'
+                        }`}
+                        style={{ width: `${Math.max(0, Math.min(100, currentHomeworkPercent))}%` }}
+                      />
+                    </div>
+                    <strong className="text-sm">{currentHomeworkPercent}%</strong>
+                  </div>
+                  {currentHomeworkEntry.dueAt && (
+                    <span className={`mt-2 block text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      {currentHomeworkEntry.isOverdue
+                        ? `Срок был ${formatDate(currentHomeworkEntry.dueAt)}`
+                        : `Сдать до ${formatDate(currentHomeworkEntry.dueAt)}`}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <p className={`rounded-2xl border border-dashed p-3.5 text-sm ${
+                  dark ? 'border-slate-700 text-slate-400' : 'border-slate-300 bg-white text-slate-600'
+                }`}>
+                  Новых заданий сейчас нет.
+                </p>
+              )}
+
+              <div className={`mt-3 rounded-2xl border-2 p-3.5 ${
+                dark ? 'border-emerald-900 bg-emerald-950/20' : 'border-emerald-200 bg-emerald-50'
+              }`}>
+                <span className={`text-xs font-extrabold uppercase tracking-[0.08em] ${
+                  dark ? 'text-emerald-300' : 'text-emerald-700'
+                }`}>Как делает домашнюю работу</span>
+                <strong className="mt-1.5 block text-base">{homeworkHabit}</strong>
+                <p className={`mt-1.5 text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  {hasEnoughHomeworkHistory
+                    ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation}`
+                    : `Вывод появится после трёх работ. Сейчас есть: ${homeworkEntries.length}.`}
+                </p>
+                <span className={`mt-2 block text-[11px] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
+                  Учитываются работы, выданные с 29 июня 2026 года.
+                </span>
+              </div>
+
+              <div className="mt-3">
+                <strong className="mb-2 block text-sm">Последние работы</strong>
+                {mobileHomeworkEntries.length === 0 ? (
+                  <p className={`rounded-2xl border border-dashed p-3.5 text-sm ${
+                    dark ? 'border-slate-700 text-slate-400' : 'border-slate-300 bg-white text-slate-600'
+                  }`}>
+                    Домашних работ с 29 июня пока нет.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {mobileHomeworkEntries.map((entry) => (
+                      <details key={`mobile-homework-${entry.id}`} className={`group overflow-hidden rounded-2xl border-2 ${
+                        entry.isOverdue
+                          ? (dark ? 'border-rose-900 bg-rose-950/20' : 'border-rose-200 bg-white')
+                          : Number(entry.percent) >= 100
+                            ? (dark ? 'border-emerald-900 bg-emerald-950/20' : 'border-emerald-200 bg-white')
+                            : (dark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white')
+                      }`}>
+                        <summary className="flex cursor-pointer list-none items-center gap-3 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400">
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <strong className="text-sm leading-tight">{getHomeworkDisplayTitle(entry)}</strong>
+                              {(entry.isLatest || entry.id === currentHomeworkEntry?.id) && (
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
+                                  dark ? 'bg-violet-950 text-violet-200' : 'bg-violet-100 text-violet-700'
+                                }`}>Текущая</span>
+                              )}
+                              {entry.isOverdue && (
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
+                                  dark ? 'bg-rose-950 text-rose-200' : 'bg-rose-100 text-rose-700'
+                                }`}>Просрочена</span>
+                              )}
+                            </span>
+                            <span className={`mt-1.5 block text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                              {getHomeworkStatusLabel(entry, entry.isLatest || entry.id === currentHomeworkEntry?.id)} · {Number(entry.percent) || 0}%
+                              {entry.dueAt ? ` · срок ${formatDate(entry.dueAt, { short: true })}` : ''}
+                            </span>
+                          </span>
+                          <span className={`inline-flex shrink-0 items-center gap-1 text-[11px] font-extrabold ${
+                            dark ? 'text-slate-400' : 'text-slate-600'
+                          }`}>
+                            Подробнее
+                            <ChevronDown size={16} className="transition group-open:rotate-180" />
+                          </span>
+                        </summary>
+                        <div className={`border-t p-3 ${dark ? 'border-slate-700' : 'border-slate-200 bg-slate-50/60'}`}>
+                          <div className="grid grid-cols-2 gap-2">
+                            {[
+                              ['Выполнено', entry.completedCount, 'text-emerald-500'],
+                              ['Исправлено', entry.withErrorsCount, 'text-amber-500'],
+                              ['Неверно', entry.wrongCount, 'text-rose-500'],
+                              ['Не начато', entry.untouchedCount, dark ? 'text-slate-400' : 'text-slate-600'],
+                            ].map(([label, value, tone]) => (
+                              <div key={label} className={`rounded-xl border p-2.5 ${dark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
+                                <strong className={`block text-lg ${tone}`}>{Number(value) || 0}</strong>
+                                <span className={`text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>{label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                )}
+                {orderedHomeworkEntries.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllHomework((current) => !current)}
+                    aria-expanded={showAllHomework}
+                    className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold ${
+                      dark ? 'border-slate-700 bg-slate-900 text-slate-300' : 'border-slate-200 bg-white text-slate-700'
+                    }`}
+                  >
+                    <ChevronDown size={17} className={`transition ${showAllHomework ? 'rotate-180' : ''}`} />
+                    {showAllHomework
+                      ? 'Скрыть старые работы'
+                      : `Показать ещё ${orderedHomeworkEntries.length - 3}`}
+                  </button>
+                )}
+              </div>
+            </MobileDetailSection>
+          </div>
+
+          <section className={`hidden rounded-[32px] border-2 border-t-[6px] p-4 shadow-[0_18px_45px_rgba(4,120,87,0.12)] md:block md:p-6 ${
           dark
             ? 'border-slate-700 border-t-emerald-500 bg-slate-900/90 shadow-black/25'
             : 'border-emerald-200 border-t-emerald-600 bg-gradient-to-br from-emerald-50/70 via-white to-white'
@@ -1200,7 +1762,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             icon={CheckCircle2}
             eyebrow="И последнее"
             title="Домашняя работа"
-            description="Сначала общий итог, затем только последние работы. Каждую можно раскрыть."
+            description="Общий итог учитывает работы с 29 июня 2026 года. Ниже каждую работу можно раскрыть."
             dark={dark}
             tone="emerald"
           />
@@ -1244,7 +1806,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           {homeworkEntries.length === 0 ? (
             <div className={`rounded-2xl border border-dashed p-5 text-center text-sm ${
               dark ? 'border-slate-700 text-slate-400' : 'border-slate-200 text-slate-500'
-            }`}>Домашние работы пока не назначались.</div>
+            }`}>Домашних работ с 29 июня 2026 года пока нет.</div>
           ) : (
             <div className="space-y-3">
               {visibleHomeworkEntries.map((entry) => (
@@ -1362,12 +1924,13 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
               )}
             </div>
           )}
-        </section>
+          </section>
+        </div>
 
-        <section id="parent-lesson-history" className={`scroll-mt-24 overflow-hidden rounded-[28px] border border-dashed ${
+        <section id="parent-lesson-history" className={`hidden scroll-mt-24 overflow-hidden rounded-[28px] border border-dashed md:block ${
           dark ? 'border-slate-700 bg-slate-900/60' : 'border-slate-300 bg-white/70'
         }`} aria-label="Дополнительная информация">
-          <details className="group">
+          <details className="group/archive">
             <summary className="flex cursor-pointer list-none items-center gap-3 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400 sm:p-5">
               <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${
                 dark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'
@@ -1381,7 +1944,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                   {`${lessonPage.total} занятий в архиве · за месяц ${finance.completedLessons || 0} занятий`}
                 </p>
               </div>
-              <ChevronDown size={20} className={`shrink-0 transition group-open:rotate-180 ${dark ? 'text-slate-500' : 'text-slate-400'}`} />
+              <ChevronDown size={20} className={`shrink-0 transition group-open/archive:rotate-180 ${dark ? 'text-slate-500' : 'text-slate-400'}`} />
             </summary>
             <div className={`border-t p-4 sm:p-5 ${dark ? 'border-slate-700' : 'border-slate-200'}`}>
           {lessons.length === 0 ? (
@@ -1393,7 +1956,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
               {lessons.map((lesson) => {
                 const hasReplay = hasLessonReplay(lesson);
                 return (
-                  <details key={lesson.key} className={`group rounded-2xl border ${
+                  <details key={lesson.key} className={`group/lesson rounded-2xl border ${
                     dark ? 'border-slate-700 bg-slate-950/30' : 'border-slate-200 bg-slate-50/50'
                   }`}>
                     <summary className="flex cursor-pointer list-none items-center gap-3 p-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400">
@@ -1418,7 +1981,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                           <Sparkles size={12} /> Запись
                         </span>
                       )}
-                      <ChevronDown size={18} className={`shrink-0 transition group-open:rotate-180 ${dark ? 'text-slate-500' : 'text-slate-400'}`} />
+                      <ChevronDown size={18} className={`shrink-0 transition group-open/lesson:rotate-180 ${dark ? 'text-slate-500' : 'text-slate-400'}`} />
                     </summary>
                     <div className={`border-t p-3.5 ${dark ? 'border-slate-700' : 'border-slate-200'}`}>
                       <div className="grid gap-2 sm:grid-cols-3">
