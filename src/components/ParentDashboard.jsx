@@ -66,11 +66,17 @@ const PAYMENT_META = {
 
 const HOMEWORK_STATUS_LABELS = {
   excellent: 'Всё сделано',
-  complete: 'Выполнено с исправлениями',
-  attention: 'Есть ошибки',
+  complete: 'Выполнена с исправлениями',
+  attention: 'Остались ошибки',
   'in-progress': 'В работе',
-  'not-started': 'Не начато',
+  'not-started': 'Не начата',
   'no-data': 'Нет данных',
+};
+
+const getHomeworkStatusLabel = (entry, isCurrent = false) => {
+  if (!isCurrent && entry?.status === 'in-progress') return 'Не завершена';
+  if (!isCurrent && entry?.status === 'not-started') return 'Не выполнена';
+  return HOMEWORK_STATUS_LABELS[entry?.status] || 'Нет данных';
 };
 
 const HOMEWORK_ITEM_LABELS = {
@@ -166,6 +172,52 @@ const getPaymentState = (entry, dayKey) => {
     || null;
   const status = String(resolved?.status || '').trim();
   return PAYMENT_META[status] ? { ...resolved, status } : { status: 'pending' };
+};
+
+const summarizeUnpaidLessons = (schedule = [], lessons = [], lessonPrice = 0) => {
+  const unpaidOccurrenceKeys = new Set();
+  (Array.isArray(schedule) ? schedule : []).forEach((entry) => {
+    const statesByDate = entry?.payment?.statesByDate;
+    if (!statesByDate || typeof statesByDate !== 'object') return;
+    Object.entries(statesByDate).forEach(([dayKey, state]) => {
+      if (state?.status !== 'unpaid') return;
+      unpaidOccurrenceKeys.add([
+        dayKey,
+        String(entry?.time || '').trim(),
+        Number(entry?.durationMinutes) || 60,
+      ].join(':'));
+    });
+  });
+
+  const unpaidHistory = (Array.isArray(lessons) ? lessons : [])
+    .filter((lesson) => lesson?.payment?.status === 'unpaid');
+  const count = Math.max(unpaidOccurrenceKeys.size, unpaidHistory.length);
+  const configuredPrice = Math.max(0, Number(lessonPrice) || 0);
+  const historyAmount = unpaidHistory.reduce(
+    (total, lesson) => total + Math.max(0, Number(lesson?.payment?.amount) || 0),
+    0,
+  );
+  const historyAmountIsComplete = count > 0
+    && unpaidHistory.length === count
+    && unpaidHistory.every((lesson) => Number(lesson?.payment?.amount) > 0);
+  const amountKnown = count > 0 && (configuredPrice > 0 || historyAmountIsComplete);
+  const amount = historyAmountIsComplete
+    ? historyAmount
+    : (configuredPrice > 0 ? configuredPrice * count : 0);
+
+  return { count, amount, amountKnown };
+};
+
+const formatUnpaidLessonCount = (value) => {
+  const count = Math.max(0, Math.round(Number(value) || 0));
+  if (count === 1) return 'Не оплачено одно занятие.';
+  const lastTwoDigits = count % 100;
+  const lastDigit = count % 10;
+  if (lastDigit >= 2 && lastDigit <= 4 && (lastTwoDigits < 12 || lastTwoDigits > 14)) {
+    return `Не оплачены ${count} занятия.`;
+  }
+  if (lastDigit === 1 && lastTwoDigits !== 11) return `Не оплачено ${count} занятие.`;
+  return `Не оплачено ${count} занятий.`;
 };
 
 const buildWeek = (schedule = [], sourceDate = new Date()) => {
@@ -404,8 +456,18 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     : (finance.paymentStatus === 'partial'
       ? 'partial'
       : (finance.paymentStatus === 'unpaid' ? 'unpaid' : 'pending'));
-  const paymentRequired = ['unpaid', 'partial'].includes(financeStatus)
-    && (Number(finance.outstanding) || 0) > 0;
+  const unpaidLessons = summarizeUnpaidLessons(
+    overview?.schedule,
+    lessons,
+    finance.lessonPrice,
+  );
+  const monthlyOutstanding = Math.max(0, Number(finance.outstanding) || 0);
+  const paymentAmount = Math.max(monthlyOutstanding, unpaidLessons.amount);
+  const paymentAmountKnown = paymentAmount > 0
+    && (monthlyOutstanding > 0 || unpaidLessons.amountKnown);
+  const paymentRequired = paymentAmount > 0
+    || unpaidLessons.count > 0
+    || ['unpaid', 'partial'].includes(financeStatus);
   const currentHomeworkEntry = orderedHomeworkEntries.find((entry) => entry.isLatest)
     || orderedHomeworkEntries[0]
     || null;
@@ -553,10 +615,20 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
       icon: CreditCard,
       label: 'Оплата',
       value: paymentRequired
-        ? `Нужно оплатить ${formatMoney(finance.outstanding)}`
+        ? paymentAmountKnown
+          ? `Нужно оплатить ${formatMoney(paymentAmount)}`
+          : unpaidLessons.count === 1
+            ? 'Есть неоплаченное занятие'
+            : unpaidLessons.count > 1
+              ? 'Есть неоплаченные занятия'
+              : 'Есть задолженность'
         : (financeStatus === 'paid' ? 'Всё оплачено' : 'Оплачивать пока не нужно'),
       detail: paymentRequired
-        ? 'Осталась сумма за этот месяц.'
+        ? unpaidLessons.count > 0
+          ? formatUnpaidLessonCount(unpaidLessons.count)
+            : paymentAmountKnown
+              ? 'Осталась сумма за этот месяц.'
+              : 'Сумма пока не указана.'
         : financeStatus === 'paid'
           ? 'Задолженности нет.'
           : 'Новых начислений нет.',
@@ -916,7 +988,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <strong className="truncate text-sm">{getHomeworkDisplayTitle(entry)}</strong>
-                        {entry.isLatest && (
+                        {(entry.isLatest || entry.id === currentHomeworkEntry?.id) && (
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
                             dark ? 'bg-violet-950 text-violet-200' : 'bg-violet-100 text-violet-700'
                           }`}>Текущая</span>
@@ -936,7 +1008,10 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                         <strong className="w-10 text-right text-xs">{entry.percent == null ? '—' : `${entry.percent}%`}</strong>
                       </div>
                       <span className={`mt-1.5 block text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {`${HOMEWORK_STATUS_LABELS[entry.status] || 'Нет данных'} · ${
+                        {`${getHomeworkStatusLabel(
+                          entry,
+                          entry.isLatest || entry.id === currentHomeworkEntry?.id,
+                        )} · ${
                           entry.dueAt
                             ? `срок ${formatDate(entry.dueAt, { short: true })}`
                             : `выдано ${formatDate(entry.issuedAt, { short: true })}`
