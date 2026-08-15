@@ -185,6 +185,7 @@ const getPaymentState = (entry, dayKey) => {
 
 const summarizeUnpaidLessons = (schedule = [], lessons = [], lessonPrice = 0) => {
   const unpaidOccurrenceKeys = new Set();
+  const unpaidDateKeys = new Set();
   (Array.isArray(schedule) ? schedule : []).forEach((entry) => {
     const statesByDate = entry?.payment?.statesByDate;
     if (!statesByDate || typeof statesByDate !== 'object') return;
@@ -195,11 +196,16 @@ const summarizeUnpaidLessons = (schedule = [], lessons = [], lessonPrice = 0) =>
         String(entry?.time || '').trim(),
         Number(entry?.durationMinutes) || 60,
       ].join(':'));
+      if (parseDayKey(dayKey)) unpaidDateKeys.add(dayKey);
     });
   });
 
   const unpaidHistory = (Array.isArray(lessons) ? lessons : [])
     .filter((lesson) => lesson?.payment?.status === 'unpaid');
+  unpaidHistory.forEach((lesson) => {
+    const dayKey = String(lesson?.dayKey || lesson?.date || '').trim();
+    if (parseDayKey(dayKey)) unpaidDateKeys.add(dayKey);
+  });
   const count = Math.max(unpaidOccurrenceKeys.size, unpaidHistory.length);
   const configuredPrice = Math.max(0, Number(lessonPrice) || 0);
   const historyAmount = unpaidHistory.reduce(
@@ -214,7 +220,12 @@ const summarizeUnpaidLessons = (schedule = [], lessons = [], lessonPrice = 0) =>
     ? historyAmount
     : (configuredPrice > 0 ? configuredPrice * count : 0);
 
-  return { count, amount, amountKnown };
+  return {
+    count,
+    amount,
+    amountKnown,
+    dates: Array.from(unpaidDateKeys).sort((left, right) => left.localeCompare(right, 'ru')),
+  };
 };
 
 const formatUnpaidLessonCount = (value) => {
@@ -227,6 +238,46 @@ const formatUnpaidLessonCount = (value) => {
   }
   if (lastDigit === 1 && lastTwoDigits !== 11) return `Не оплачено ${count} занятие.`;
   return `Не оплачено ${count} занятий.`;
+};
+
+const joinRussianList = (items = []) => {
+  if (items.length <= 1) return items[0] || '';
+  if (items.length === 2) return `${items[0]} и ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')} и ${items.at(-1)}`;
+};
+
+const formatUnpaidLessonDates = (dates = []) => {
+  const parsedDates = Array.from(new Set(dates))
+    .map((dayKey) => ({ dayKey, date: parseDayKey(dayKey) }))
+    .filter((entry) => entry.date)
+    .sort((left, right) => left.dayKey.localeCompare(right.dayKey, 'ru'));
+  if (parsedDates.length === 0) return '';
+
+  const firstDate = parsedDates[0].date;
+  const sameMonth = parsedDates.every(({ date }) => (
+    date.getMonth() === firstDate.getMonth() && date.getFullYear() === firstDate.getFullYear()
+  ));
+  if (sameMonth) {
+    const days = joinRussianList(parsedDates.map(({ date }) => String(date.getDate())));
+    const month = firstDate.toLocaleDateString('ru-RU', { month: 'long' });
+    const year = firstDate.getFullYear() !== new Date().getFullYear()
+      ? ` ${firstDate.getFullYear()} года`
+      : '';
+    return `${days} ${month}${year}`;
+  }
+
+  return joinRussianList(parsedDates.map(({ dayKey, date }) => formatDate(dayKey, {
+    year: date.getFullYear() !== new Date().getFullYear(),
+  })));
+};
+
+const formatUnpaidLessonDetail = ({ count = 0, dates = [] } = {}) => {
+  const normalizedCount = Math.max(0, Math.round(Number(count) || 0));
+  const dateText = formatUnpaidLessonDates(dates);
+  if (!dateText) return formatUnpaidLessonCount(normalizedCount);
+  if (normalizedCount === 1) return `Не оплачено занятие ${dateText}.`;
+  if (dates.length === normalizedCount) return `Не оплачены занятия ${dateText}.`;
+  return `${formatUnpaidLessonCount(normalizedCount).replace(/\.$/, '')}: ${dateText}.`;
 };
 
 const buildWeek = (schedule = [], sourceDate = new Date()) => {
@@ -470,6 +521,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     lessons,
     finance.lessonPrice,
   );
+  const unpaidLessonDetail = formatUnpaidLessonDetail(unpaidLessons);
   const monthlyOutstanding = Math.max(0, Number(finance.outstanding) || 0);
   const paymentAmount = Math.max(monthlyOutstanding, unpaidLessons.amount);
   const paymentAmountKnown = paymentAmount > 0
@@ -695,7 +747,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         : (financeStatus === 'paid' ? 'Всё оплачено' : 'Оплачивать пока не нужно'),
       detail: paymentRequired
         ? unpaidLessons.count > 0
-          ? formatUnpaidLessonCount(unpaidLessons.count)
+          ? unpaidLessonDetail
             : paymentAmountKnown
               ? 'Осталась сумма за этот месяц.'
               : 'Сумма пока не указана.'
@@ -704,7 +756,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           : 'Новых начислений нет.',
       mobileDetail: paymentRequired
         ? unpaidLessons.count > 0
-          ? formatUnpaidLessonCount(unpaidLessons.count)
+          ? unpaidLessonDetail
           : 'Осталась сумма за этот месяц.'
         : financeStatus === 'paid'
           ? 'Задолженности нет.'
@@ -840,15 +892,16 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                       <span className={`min-w-0 flex-1 text-xs font-extrabold leading-tight ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
                         {card.label}
                       </span>
-                      {card.mobileFlag && (
+                      {card.mobileFlag && !card.href && (
                         <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-extrabold ${card.mobileFlagClass}`}>
                           {card.mobileFlag}
                         </span>
                       )}
                       {card.href && (
-                        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border ${
+                        <span className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-xl border px-2.5 text-[11px] font-extrabold shadow-sm ${
                           dark ? 'border-slate-700 bg-slate-900/80' : 'border-white bg-white/90'
                         } ${card.actionClass}`}>
+                          Подробнее
                           <ArrowRight size={14} className="transition group-hover:translate-x-0.5" />
                         </span>
                       )}
