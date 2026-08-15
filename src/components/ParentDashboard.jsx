@@ -778,6 +778,14 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation}`
         : `${homeworkEntries.length} из 3 работ для вывода`,
       meta: homeworkCompletionExplanation,
+      progress: hasEnoughHomeworkHistory ? homeworkAveragePercent : null,
+      progressClass: homeworkAveragePercent >= 90
+        ? 'bg-emerald-500'
+        : homeworkAveragePercent >= 75
+          ? 'bg-violet-500'
+          : homeworkAveragePercent >= 50
+            ? 'bg-amber-500'
+            : 'bg-rose-500',
       valueClass: 'md:text-xl',
       actionLabel: 'Все домашние работы',
       isImportant: homeworkHabitNeedsAttention,
