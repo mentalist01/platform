@@ -500,6 +500,23 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           : 'Выполняет неравномерно';
   const homeworkHabitIsGood = homeworkHabit === 'Делает стабильно'
     || homeworkHabit === 'Обычно доводит до конца';
+  const completedTasksOutOfTen = Math.max(1, Math.min(9, Math.round(homeworkAveragePercent / 10)));
+  const homeworkAverageExplanation = homeworkAveragePercent >= 100
+    ? 'В среднем выполняет все задания.'
+    : homeworkAveragePercent <= 0
+      ? 'Задания пока обычно остаются невыполненными.'
+      : `Обычно делает примерно ${completedTasksOutOfTen} из 10 заданий — ${homeworkAveragePercent}% в среднем.`;
+  const homeworkCompletionExplanation = homeworkEntries.length === 0
+    ? ''
+    : homeworkEntries.length === 1
+      ? fullyCompletedHomeworkCount === 1
+        ? 'Работа закончена полностью.'
+        : 'Работа пока не закончена полностью.'
+    : fullyCompletedHomeworkCount === 0
+      ? `Ни одна из ${homeworkEntries.length} работ не закончена полностью.`
+      : fullyCompletedHomeworkCount === 1
+        ? `Полностью закончена 1 из ${homeworkEntries.length} работ.`
+        : `Полностью закончены ${fullyCompletedHomeworkCount} из ${homeworkEntries.length} работ.`;
   const currentHomeworkPercent = Number(currentHomeworkEntry?.percent) || 0;
   const currentHomeworkHasErrors = Number(currentHomeworkEntry?.wrongCount) > 0
     || currentHomeworkEntry?.status === 'attention';
@@ -613,18 +630,12 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
       label: 'Домашняя работа в целом',
       value: homeworkHabit,
       detail: hasEnoughHomeworkHistory
-        ? `В среднем ученик выполняет ${homeworkAveragePercent}% заданий.`
+        ? homeworkAverageExplanation
         : `Вывод появится после трёх работ. Сейчас есть: ${homeworkEntries.length}.`,
       mobileDetail: hasEnoughHomeworkHistory
-        ? `${homeworkAveragePercent}% в среднем · завершено ${fullyCompletedHomeworkCount} из ${homeworkEntries.length}`
+        ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation}`
         : `${homeworkEntries.length} из 3 работ для вывода`,
-      meta: homeworkEntries.length > 0
-        ? fullyCompletedHomeworkCount === 0
-          ? 'До конца пока не выполнена ни одна работа.'
-          : fullyCompletedHomeworkCount === 1
-            ? `До конца выполнена 1 из ${homeworkEntries.length} работ.`
-            : `До конца выполнены ${fullyCompletedHomeworkCount} из ${homeworkEntries.length} работ.`
-        : '',
+      meta: homeworkCompletionExplanation,
       valueClass: 'md:text-xl',
       actionLabel: 'Все домашние работы',
       isImportant: homeworkHabitNeedsAttention,
