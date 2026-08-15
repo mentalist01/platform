@@ -372,6 +372,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  parentLogin: async (code) => {
+    const res = await apiFetch('/api/parent/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentChatSummary: async () => {
     const res = await apiFetch('/api/student-chat/summary');
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -1577,6 +1586,24 @@ export const api = {
     const res = await apiFetch(qs ? `/api/student-schedule?${qs}` : '/api/student-schedule');
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
+  },
+  getParentOverview: async () => {
+    const params = new URLSearchParams({ _ts: String(Date.now()) });
+    const res = await apiFetch(`/api/parent/overview?${params.toString()}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getParentLessons: async (options = {}) => {
+    const params = new URLSearchParams({ _ts: String(Date.now()) });
+    if (Number.isFinite(Number(options?.offset))) {
+      params.set('offset', String(Math.max(0, Math.floor(Number(options.offset)))));
+    }
+    if (Number.isFinite(Number(options?.limit))) {
+      params.set('limit', String(Math.max(1, Math.floor(Number(options.limit)))));
+    }
+    const res = await apiFetch(`/api/parent/lessons?${params.toString()}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
   },
   getLessonTopics: async (studentId, options = {}) => {
     const params = new URLSearchParams();

@@ -49,3 +49,19 @@ test('teachers stay limited to their students and admins retain access', () => {
   assert.equal(canAccessStudentRecord({ role: 'teacher', id: 'teacher-b' }, student), false);
   assert.equal(canAccessStudentRecord({ role: 'admin', id: 'admin-a' }, student), true);
 });
+
+test('parents are permanently scoped to the student linked to their session', () => {
+  const auth = { role: 'parent', id: 'parent:student-a', studentId: 'student-a' };
+  assert.equal(resolveStudentAccessId({
+    role: auth.role,
+    authenticatedStudentId: auth.studentId,
+    requestedStudentId: 'student-b',
+  }), 'student-a');
+  assert.equal(canAccessStudentRecord(auth, { id: 'student-a', teacherId: 'teacher-a' }), true);
+  assert.equal(canAccessStudentRecord(auth, { id: 'student-b', teacherId: 'teacher-a' }), false);
+  assert.equal(canAccessStudentRecord(
+    auth,
+    { id: 'student-a', teacherId: 'teacher-a', deletedAt: '2026-08-03T00:00:00.000Z' },
+    { allowDeleted: true }
+  ), false);
+});

@@ -13,6 +13,7 @@ import {
 
 const MODE_CHOICE = 'choice';
 const MODE_STUDENT = 'student';
+const MODE_PARENT = 'parent';
 const MODE_SIGNUP = 'signup';
 const SIGNUP_GUEST_KEY_STORAGE = 'ege_signup_guest_key';
 
@@ -31,11 +32,15 @@ const getOrCreateSignupGuestKey = () => {
       const normalized = stored.trim();
       if (normalized) return normalized;
     }
-  } catch {}
+  } catch {
+    // Local storage is optional in private browsing and embedded web views.
+  }
   const next = generateSignupGuestKey();
   try {
     localStorage.setItem(SIGNUP_GUEST_KEY_STORAGE, next);
-  } catch {}
+  } catch {
+    // Local storage is optional in private browsing and embedded web views.
+  }
   return next;
 };
 
@@ -91,6 +96,24 @@ const LoginPage = ({ onLogin }) => {
     setError('');
     try {
       const user = await api.login(code.trim());
+      onLogin(user);
+    } catch (err) {
+      setError(err?.message || String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleParentSubmit = async (event) => {
+    event.preventDefault();
+    if (nativeRuntime && !hasApiBaseUrl) {
+      setError('Для APK сначала укажите адрес сервера ниже.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const user = await api.parentLogin(code.trim());
       onLogin(user);
     } catch (err) {
       setError(err?.message || String(err));
@@ -202,6 +225,19 @@ const LoginPage = ({ onLogin }) => {
               variant="secondary"
               className="w-full py-3"
               disabled={loading}
+              onClick={() => {
+                resetState();
+                setIsCodeVisible(false);
+                setMode(MODE_PARENT);
+              }}
+            >
+              Я родитель
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full py-3"
+              disabled={loading}
               onClick={handleSignupChoice}
             >
               {loading ? 'Подключаем...' : (hasStoredSignupGuestKey ? 'Вернуться в чат' : 'Я хочу записаться')}
@@ -209,8 +245,21 @@ const LoginPage = ({ onLogin }) => {
           </div>
         )}
 
-        {mode === MODE_STUDENT && (
-          <form onSubmit={handleStudentSubmit} className="space-y-4">
+        {(mode === MODE_STUDENT || mode === MODE_PARENT) && (
+          <form
+            onSubmit={mode === MODE_PARENT ? handleParentSubmit : handleStudentSubmit}
+            className="space-y-4"
+          >
+            <div className="rounded-2xl border border-purple-100 bg-purple-50/70 px-4 py-3 text-left">
+              <p className="text-sm font-bold text-purple-900">
+                {mode === MODE_PARENT ? 'Кабинет родителя' : 'Кабинет ученика'}
+              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-purple-700/75">
+                {mode === MODE_PARENT
+                  ? 'Введите код ученика — откроется только просмотр его занятий и прогресса.'
+                  : 'Введите персональный код доступа, который выдал учитель.'}
+              </p>
+            </div>
             <div className="relative">
               <input
                 type={isCodeVisible ? 'text' : 'password'}
@@ -218,7 +267,7 @@ const LoginPage = ({ onLogin }) => {
                 onChange={(event) => setCode(event.target.value)}
                 required
                 autoComplete="current-password"
-                placeholder="Код доступа"
+                placeholder={mode === MODE_PARENT ? 'Код ученика' : 'Код доступа'}
                 className="access-code-input w-full rounded-xl border border-gray-200 bg-gray-50 py-3 pl-4 pr-12 outline-none focus:border-purple-500"
               />
               <button
@@ -243,7 +292,7 @@ const LoginPage = ({ onLogin }) => {
             </div>
             {error && <div className="text-red-500 text-sm text-center">{error}</div>}
             <Button type="submit" className="w-full py-3" disabled={loading || !code.trim()}>
-              {loading ? 'Вход...' : 'Войти'}
+              {loading ? 'Вход...' : (mode === MODE_PARENT ? 'Открыть кабинет' : 'Войти')}
             </Button>
             <button
               type="button"
@@ -282,7 +331,7 @@ const LoginPage = ({ onLogin }) => {
         <p className="text-center text-xs text-gray-400 mt-4">
           {mode === MODE_SIGNUP
             ? 'После входа вы сможете сразу написать преподавателю.'
-            : 'Код доступа выдаёт учитель.'}
+            : (mode === MODE_PARENT ? 'Используйте тот же код, по которому входит ученик.' : 'Код доступа выдаёт учитель.')}
         </p>
         {nativeRuntime && (
           <form onSubmit={handleSaveServerUrl} className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 space-y-3">

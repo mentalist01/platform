@@ -33,6 +33,7 @@ import leagueCelestial from './assets/leagues/celestial.png';
 import CallSection from './components/CallSection';
 import ImageViewer from './components/ImageViewer';
 import LoginPage from './components/LoginPage';
+import ParentDashboard from './components/ParentDashboard';
 import { LogoMark, PythonLogoIcon } from './components/Identity';
 import MobileStrategyGame from './components/MobileStrategyGame';
 import StudentGlobalSearch from './components/StudentGlobalSearch';
@@ -3317,6 +3318,12 @@ const sanitizeAuthUserPayload = (value) => {
     safe.studyStatus = normalizeStudentStudyStatus(value.studyStatus, safe.grade);
     const avatarDataUrl = typeof value.avatarDataUrl === 'string' ? value.avatarDataUrl.trim() : '';
     if (avatarDataUrl) safe.avatarDataUrl = avatarDataUrl;
+  }
+  if (role === 'parent') {
+    const studentId = typeof value.studentId === 'string' ? value.studentId.trim() : '';
+    if (!studentId) return null;
+    safe.studentId = studentId;
+    safe.teacherId = value.teacherId ? String(value.teacherId) : null;
   }
   if (role === 'lead') {
     const chatId = typeof value.chatId === 'string' ? value.chatId.trim() : '';
@@ -23981,6 +23988,18 @@ const MainApp = () => {
 
   if (user.role === 'lead') {
     return <SignupGuestChat user={user} onLogout={handleLogout} />;
+  }
+
+  if (user.role === 'parent') {
+    return (
+      <>
+        <ParentDashboard
+          onLogout={handleLogout}
+          theme={theme}
+        />
+        <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} className="theme-toggle--desktop" />
+      </>
+    );
   }
 
   return (

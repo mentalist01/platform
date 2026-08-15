@@ -7,7 +7,7 @@ export const resolveStudentAccessId = ({
   strictStudentId = false,
 } = {}) => {
   const requestedId = normalizeId(requestedStudentId);
-  if (role !== 'student' || strictStudentId) return requestedId;
+  if (!['student', 'parent'].includes(role) || strictStudentId) return requestedId;
   return normalizeId(authenticatedStudentId);
 };
 
@@ -18,5 +18,8 @@ export const canAccessStudentRecord = (auth, student, options = {}) => {
   if (auth.role === 'admin') return true;
   if (auth.role === 'teacher') return student.teacherId === auth.id;
   if (auth.role === 'student') return !student.deletedAt && student.id === auth.id;
+  if (auth.role === 'parent') {
+    return !student.deletedAt && student.id === normalizeId(auth.studentId || auth.id);
+  }
   return false;
 };

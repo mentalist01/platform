@@ -27,6 +27,14 @@ import {
 } from '../src/data/pythonInfiniteTrainingTasks.js';
 import { getLevelFromXp } from '../src/utils/leveling.js';
 import {
+  buildHomeworkStatistics,
+  summarizeHomeworkStatistics,
+} from '../src/utils/homeworkStats.js';
+import {
+  buildMockExamProgressEntries,
+  summarizeMockExamProgress,
+} from '../src/utils/mockExamProgress.js';
+import {
   LESSON_SHARED_SCOPE,
   LESSON_SHARE_MODE_COMMON,
   LESSON_SHARE_MODE_PRIVATE,
@@ -6584,7 +6592,7 @@ const buildSessionUser = (user) => {
   const role = String(user.role || '');
   const id = String(user.id || '');
   const name = typeof user.name === 'string' ? user.name : '';
-  if (!['admin', 'teacher', 'student', 'lead'].includes(role) || !id || !name) return null;
+  if (!['admin', 'teacher', 'student', 'parent', 'lead'].includes(role) || !id || !name) return null;
   const payload = { id, name, role };
   if (role === 'student') {
     payload.teacherId = user.teacherId ? String(user.teacherId) : null;
@@ -6596,6 +6604,12 @@ const buildSessionUser = (user) => {
   if (role === 'teacher') {
     const avatarDataUrl = normalizeTeacherAvatarDataUrl(user.avatarDataUrl);
     if (avatarDataUrl) payload.avatarDataUrl = avatarDataUrl;
+  }
+  if (role === 'parent') {
+    const studentId = String(user.studentId || '').trim();
+    if (!studentId) return null;
+    payload.studentId = studentId;
+    payload.teacherId = user.teacherId ? String(user.teacherId) : null;
   }
   if (role === 'lead') {
     const chatId = typeof user.chatId === 'string' ? user.chatId.trim() : '';
@@ -6699,6 +6713,18 @@ const resolveSessionUser = (sessionUser) => {
       grade: normalizeStudentGrade(student.grade),
       studyStatus: normalizeStudentStudyStatus(student.studyStatus, student.grade),
       avatarDataUrl: normalizeStudentAvatarDataUrl(storedProgress?.avatarDataUrl || sessionUser.avatarDataUrl),
+    };
+  }
+  if (role === 'parent') {
+    const studentId = String(sessionUser?.studentId || '').trim();
+    const student = readStudentsDb().find((entry) => entry.id === studentId && !entry.deletedAt);
+    if (!student) return null;
+    return {
+      id: `parent:${student.id}`,
+      name: 'Родитель',
+      role: 'parent',
+      studentId: student.id,
+      teacherId: student.teacherId || null,
     };
   }
   if (role === 'lead') {
@@ -6939,6 +6965,7 @@ const getAuthTokenFromRequest = (req) => {
 const isAdminRole = (auth) => auth?.role === 'admin';
 const isTeacherRole = (auth) => auth?.role === 'teacher';
 const isStudentRole = (auth) => auth?.role === 'student';
+const isParentRole = (auth) => auth?.role === 'parent';
 const isLeadRole = (auth) => auth?.role === 'lead';
 const isStaffRole = (auth) => isAdminRole(auth) || isTeacherRole(auth);
 
@@ -7649,6 +7676,17 @@ const canAccessStudentByRole = (auth, student, options = {}) => {
   return canAccessStudentRecord(auth, student, options);
 };
 
+const isParentAllowedApiRequest = (req) => {
+  const method = String(req?.method || '').toUpperCase();
+  const apiPath = String(req?.path || '').trim();
+  if (method !== 'GET' || !apiPath) return false;
+  if (apiPath === '/session') return true;
+  if (apiPath === '/parent/overview' || apiPath === '/parent/lessons') return true;
+  if (apiPath === '/lesson-history/detail') return true;
+  if (/^\/lesson-replay\/(audio|snapshot)\/[^/]+$/.test(apiPath)) return true;
+  return false;
+};
+
 const ensureStudentAccess = (req, res, studentId, options = {}) => {
   const required = options.required !== false;
   const allowDeleted = Boolean(options.allowDeleted);
@@ -7656,7 +7694,7 @@ const ensureStudentAccess = (req, res, studentId, options = {}) => {
   const requestedId = String(studentId || '').trim();
   const id = resolveStudentAccessId({
     role: req.auth?.role,
-    authenticatedStudentId: req.auth?.id,
+    authenticatedStudentId: req.auth?.studentId || req.auth?.id,
     requestedStudentId: requestedId,
     strictStudentId: Boolean(options.strictStudentId),
   });
@@ -9023,6 +9061,7 @@ const canReadLessonSharedByTeacher = (auth, teacherId) => {
   if (isAdminRole(auth)) return true;
   if (isTeacherRole(auth)) return String(auth.id || '').trim() === normalizedTeacherId;
   if (isStudentRole(auth)) return String(auth.teacherId || '').trim() === normalizedTeacherId;
+  if (isParentRole(auth)) return String(auth.teacherId || '').trim() === normalizedTeacherId;
   return false;
 };
 
@@ -18237,6 +18276,9 @@ const handleUploadRequest = (req, res) => {
   const boardAssetGrants = isBoardAsset
     ? readBoardAssetsDb().filter((entry) => entry.storageName === safeName)
     : [];
+  if (isParentRole(req.auth) && !isBoardAsset && !ownedFile) {
+    return res.status(404).send('Файл не найден');
+  }
   let boardAssetStudent = null;
   const boardAsset = boardAssetGrants.find((entry) => {
     const student = findBoardAssetStudentById(entry.studentId);
@@ -18551,6 +18593,65 @@ app.post('/api/login', async (req, res, next) => {
   }
 });
 
+app.post('/api/parent/login', async (req, res, next) => {
+  try {
+    const normalizedCode = normalizeAccessCode(req.body?.code);
+    if (!normalizedCode) return res.status(400).json({ error: 'Введите код ученика' });
+
+    const clientKey = getClientKey(req);
+    const rateInfo = getRateInfo(clientKey);
+    if (rateInfo.blocked) {
+      return res.status(429).json({
+        error: 'Слишком много попыток. Попробуйте позже.',
+        retryAfter: rateInfo.retryAfter,
+      });
+    }
+
+    const codeLookupHash = getAccessCodeLookupHash(normalizedCode);
+    const students = readStudentsDb();
+    const student = await findVerifiedAccessCodeRecord(
+      getAccessCodeCandidates(students, codeLookupHash, (entry) => !entry?.deletedAt),
+      normalizedCode
+    );
+    if (!student) {
+      const deletedMatch = await findVerifiedAccessCodeRecord(
+        getAccessCodeCandidates(students, codeLookupHash, (entry) => Boolean(entry?.deletedAt)),
+        normalizedCode
+      );
+      if (deletedMatch) {
+        return res.status(403).json({ error: 'Ученик удалён. Обратитесь к учителю.' });
+      }
+      const blocked = registerLoginFailure(clientKey);
+      if (blocked.blocked) {
+        return res.status(429).json({
+          error: 'Слишком много попыток. Попробуйте позже.',
+          retryAfter: blocked.retryAfter,
+        });
+      }
+      return res.status(401).json({ error: 'Неверный код ученика' });
+    }
+
+    if (!student.codeLookupHash) {
+      const studentIndex = students.findIndex((entry) => entry?.id === student.id);
+      if (studentIndex >= 0) {
+        students[studentIndex] = { ...student, codeLookupHash };
+        writeStudentsDb(students);
+      }
+    }
+    clearLoginFailures(clientKey);
+    const session = createAuthSession({
+      id: `parent:${student.id}`,
+      name: 'Родитель',
+      role: 'parent',
+      studentId: student.id,
+      teacherId: student.teacherId || null,
+    });
+    return respondWithSession(res, session);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.post('/api/signup/login', (req, res) => {
   const rawGuestName = normalizeSignupGuestName(req.body?.name);
   const guestKey = normalizeSignupGuestKey(req.body?.guestKey);
@@ -18706,6 +18807,9 @@ app.use('/api', (req, res, next) => {
   req.authToken = session.token;
   setAuthSessionCookie(res, session);
   if (isLeadRole(req.auth) && !isLeadAllowedApiRequest(req)) {
+    return forbid(res);
+  }
+  if (isParentRole(req.auth) && !isParentAllowedApiRequest(req)) {
     return forbid(res);
   }
   return next();
@@ -26117,7 +26221,7 @@ const getScheduleForLessonTopics = async (student, auth) => {
   try {
     const syncResult = await syncStudentScheduleFromGoogleCalendar(student, auth, {
       force: false,
-      persist: !isStudentRole(auth),
+      persist: !isStudentRole(auth) && !isParentRole(auth),
       rangeMode: GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING,
       notify: false,
     });
@@ -28259,6 +28363,215 @@ app.post('/api/lesson-replay/lesson/finish', async (req, res) => {
   }
 });
 
+const getParentFinanceContext = (student) => {
+  const teacherId = normalizeTeacherId(student?.teacherId);
+  const teacherEntry = getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherId);
+  const teacherMarks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacherId]);
+  return { teacherId, teacherEntry, teacherMarks };
+};
+
+const getParentLessonPayment = (student, occurrence, financeContext) => {
+  const studentId = String(student?.id || '').trim();
+  const ledgerKey = [
+    studentId,
+    String(occurrence?.dayKey || '').trim(),
+    String(occurrence?.time || '').trim(),
+    Number(occurrence?.durationMinutes) || 60,
+  ].join(':');
+  const ledgerEntry = financeContext?.teacherEntry?.lessonLedger?.[ledgerKey] || null;
+  const paymentEvent = {
+    id: String(occurrence?.sourceEntryId || '').trim(),
+    externalEventId: String(occurrence?.sourceEntryId || '').trim(),
+    studentId,
+    time: occurrence?.time,
+    date: occurrence?.dayKey,
+  };
+  const paidMarkKey = buildTeacherCalendarPaymentMarkKey(
+    financeContext?.teacherId,
+    paymentEvent,
+    occurrence?.dayKey,
+    'paid'
+  );
+  const trialMarkKey = buildTeacherCalendarPaymentMarkKey(
+    financeContext?.teacherId,
+    paymentEvent,
+    occurrence?.dayKey,
+    'trial'
+  );
+  const trial = Boolean(trialMarkKey && financeContext?.teacherMarks?.[trialMarkKey]);
+  const paid = Boolean(ledgerEntry?.paid || (paidMarkKey && financeContext?.teacherMarks?.[paidMarkKey]));
+  return {
+    status: trial ? 'trial' : (paid ? 'paid' : 'unpaid'),
+    paid,
+    trial,
+    amount: roundTeacherFinanceNumber(ledgerEntry?.lessonPrice),
+  };
+};
+
+const serializeParentLessonHistoryEntry = (student, occurrence, financeContext) => {
+  const replay = getLessonReplaySummary(occurrence?.key);
+  return {
+    ...serializeStudentLessonHistoryEntry(occurrence),
+    payment: getParentLessonPayment(student, occurrence, financeContext),
+    replay: {
+      available: Boolean(replay?.available),
+      eventCount: Math.max(0, Math.round(Number(replay?.eventCount) || 0)),
+      durationMs: Math.max(0, Math.round(Number(replay?.durationMs) || 0)),
+      eventTypes: Array.isArray(replay?.eventTypes) ? replay.eventTypes : [],
+      updatedAt: String(replay?.updatedAt || ''),
+    },
+  };
+};
+
+const buildParentLessonHistoryPage = async (student, auth, options = {}) => {
+  const history = await buildResolvedStudentLessonHistory(student, auth, { persist: false });
+  const page = paginateStudentLessonHistory(history, options);
+  const financeContext = getParentFinanceContext(student);
+  return {
+    ...page,
+    items: page.items.map((occurrence) => (
+      serializeParentLessonHistoryEntry(student, occurrence, financeContext)
+    )),
+  };
+};
+
+const compactParentHomeworkEntry = (entry) => ({
+  id: entry.id,
+  number: entry.number,
+  title: entry.title,
+  issuedAt: entry.issuedAt,
+  dueAt: entry.dueAt,
+  isLatest: Boolean(entry.isLatest),
+  isOverdue: Boolean(entry.isOverdue),
+  completedAt: entry.completedAt,
+  completedOnTime: entry.completedOnTime,
+  status: entry.status,
+  estimated: Boolean(entry.estimated),
+  lateCompletedCount: Number(entry.lateCompletedCount) || 0,
+  totalWrongAttempts: Number(entry.totalWrongAttempts) || 0,
+  totalCount: Number(entry.totalCount) || 0,
+  completedCount: Number(entry.completedCount) || 0,
+  cleanCount: Number(entry.cleanCount) || 0,
+  withErrorsCount: Number(entry.withErrorsCount) || 0,
+  wrongCount: Number(entry.wrongCount) || 0,
+  untouchedCount: Number(entry.untouchedCount) || 0,
+  percent: entry.percent == null ? null : Math.max(0, Math.min(100, Math.round(Number(entry.percent) || 0))),
+  checkpointPercent: entry.checkpointPercent == null
+    ? null
+    : Math.max(0, Math.min(100, Math.round(Number(entry.checkpointPercent) || 0))),
+  goals: (Array.isArray(entry.goals) ? entry.goals : []).map((goal) => ({
+    id: goal.id,
+    type: goal.type,
+    label: goal.label,
+    items: (Array.isArray(goal.items) ? goal.items : []).map((item) => ({
+      id: item.id,
+      label: item.label,
+      state: item.state,
+      wrongCount: Number(item.wrongCount) || 0,
+      completedLate: Boolean(item.completedLate),
+    })),
+  })),
+  checklist: {
+    totalCount: Number(entry.checklist?.totalCount) || 0,
+    completedCount: Number(entry.checklist?.completedCount) || 0,
+  },
+});
+
+const buildParentFinanceSummary = (student) => {
+  const month = getCurrentTeacherFinanceMonthKey();
+  const financeContext = getParentFinanceContext(student);
+  const { profile, record } = getTeacherFinanceStudentRecordForMonth(
+    financeContext.teacherEntry,
+    student.id,
+    month
+  );
+  const metrics = calculateTeacherFinanceStudentMetrics(record);
+  return {
+    month,
+    pricingMode: record.pricingMode,
+    lessonPrice: roundTeacherFinanceNumber(record.lessonPrice || profile.lessonPrice),
+    monthlyRate: roundTeacherFinanceNumber(record.monthlyRate || profile.monthlyRate),
+    plannedLessons: roundTeacherFinanceNumber(record.plannedLessons),
+    completedLessons: roundTeacherFinanceNumber(record.completedLessons),
+    paidAmount: roundTeacherFinanceNumber(record.paidAmount),
+    netAccrued: roundTeacherFinanceNumber(metrics.netAccrued, { allowNegative: true }),
+    outstanding: roundTeacherFinanceNumber(metrics.outstanding, { allowNegative: true }),
+    paymentStatus: metrics.paymentStatus,
+    paymentDay: normalizeTeacherFinancePaymentDay(record.paymentDay || profile.paymentDay),
+  };
+};
+
+app.get('/api/parent/overview', async (req, res) => {
+  if (!isParentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth?.studentId);
+  if (!student) return;
+
+  try {
+    const studentData = getStudentData(student.id);
+    const testsDb = getTestsDbWithPythonInfiniteTraining(readTestsDb());
+    const mockExams = readMockExamsDb().filter((exam) => (
+      isMockExamVisibleToStudent(exam, student.id)
+    ));
+    const mockAttemptsByExam = studentData.mockAttempts && typeof studentData.mockAttempts === 'object'
+      ? studentData.mockAttempts
+      : {};
+    const homeworkEntries = buildHomeworkStatistics({
+      homeworks: studentData.homeworks,
+      studentData,
+      testsDb,
+      mockExams,
+      mockAttemptsByExam,
+    });
+    const mockEntries = buildMockExamProgressEntries({
+      studentData,
+      mockExams,
+      mockAttemptsByExam,
+    });
+    const schedule = await buildStudentSchedulePaymentResponse(student, studentData.schedule || []);
+    const lessons = await buildParentLessonHistoryPage(student, req.auth, { offset: 0, limit: 8 });
+    const avatarDataUrl = normalizeStudentAvatarDataUrl(studentData.avatarDataUrl);
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      student: {
+        id: student.id,
+        name: String(student.name || '').trim(),
+        grade: normalizeStudentGrade(student.grade),
+        ...(avatarDataUrl ? { avatarDataUrl } : {}),
+      },
+      schedule,
+      lessons,
+      mocks: {
+        summary: summarizeMockExamProgress(mockEntries),
+        entries: mockEntries.slice(-40),
+      },
+      homework: {
+        summary: summarizeHomeworkStatistics(homeworkEntries),
+        entries: homeworkEntries.slice(-30).map(compactParentHomeworkEntry),
+      },
+      finance: buildParentFinanceSummary(student),
+    });
+  } catch (error) {
+    console.error('[parent] failed to build overview:', error);
+    return res.status(500).json({ error: 'Не удалось загрузить данные ученика' });
+  }
+});
+
+app.get('/api/parent/lessons', async (req, res) => {
+  if (!isParentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth?.studentId);
+  if (!student) return;
+  try {
+    return res.json(await buildParentLessonHistoryPage(student, req.auth, {
+      offset: req.query?.offset,
+      limit: req.query?.limit,
+    }));
+  } catch (error) {
+    console.error('[parent] failed to build lesson history:', error);
+    return res.status(500).json({ error: 'Не удалось загрузить историю занятий' });
+  }
+});
+
 app.get('/api/lesson-history/detail', async (req, res) => {
   const { studentId, occurrenceKey } = req.query || {};
   const student = ensureStudentAccess(req, res, studentId);
@@ -28268,7 +28581,9 @@ app.get('/api/lesson-history/detail', async (req, res) => {
     return res.status(400).json({ error: 'Некорректное занятие' });
   }
   try {
-    const history = await buildResolvedStudentLessonHistory(student, req.auth);
+    const history = await buildResolvedStudentLessonHistory(student, req.auth, {
+      persist: !isParentRole(req.auth),
+    });
     const occurrence = history.find((entry) => entry?.key === normalizedOccurrenceKey);
     if (!occurrence) {
       return res.status(404).json({ error: 'Занятие не найдено' });
