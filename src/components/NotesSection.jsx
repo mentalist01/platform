@@ -27,7 +27,7 @@ import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
 import ImageViewer from './ImageViewer';
 import StudentSearchSelect from './StudentSearchSelect';
-import { api, authenticatedUploadsFetch } from '../services/api';
+import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import {
@@ -356,6 +356,14 @@ const NotesSection = ({
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const getFileUrl = (file) => withStudentId(file?.url, effectiveStudentId);
   const getMemorySnapshotUrl = (file) => withStudentId(file?.memory?.boardSnapshot?.url, effectiveStudentId);
+  const getImageTileManifestUrl = (file) => {
+    const fileId = String(file?.id || '').trim();
+    if (!fileId) return '';
+    return withStudentId(
+      resolveAuthenticatedApiUrl(`/api/files/${encodeURIComponent(fileId)}/image-tiles/manifest`),
+      effectiveStudentId
+    );
+  };
   const runNotesViewTransition = useCallback((update) => {
     if (typeof update !== 'function') return null;
     const reduceMotion = typeof window !== 'undefined'
@@ -4824,6 +4832,7 @@ const NotesSection = ({
                                       src={getFileUrl(f)}
                                       alt={f.name || 'Изображение'}
                                       maxHeight={imagePreviewMaxHeight}
+                                      tileManifestUrl={getImageTileManifestUrl(f)}
                                     />
                                   </div>
                                 </div>

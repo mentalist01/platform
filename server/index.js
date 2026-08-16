@@ -147,6 +147,7 @@ import {
   normalizeBoardAssetEntries,
   normalizeBoardAssetEntry,
 } from './boardAssets.js';
+import { createImageTilePyramidManager } from './imageTilePyramid.js';
 import {
   buildQuestionCheckRawValue,
   createQuestionAnswerRules,
@@ -400,6 +401,9 @@ const uploadsDir = resolveStoragePath(
   process.env.PLATFORM_UPLOADS_DIR || process.env.APP_UPLOADS_DIR || process.env.UPLOADS_DIR,
   defaultUploadsDir
 );
+const imageTilePyramidManager = createImageTilePyramidManager({
+  cacheRoot: path.join(uploadsDir, '.image-tile-cache'),
+});
 const studentShareCardsDir = path.join(uploadsDir, 'student-share-cards');
 const jsonBackupsDir = resolveStoragePath(
   process.env.PLATFORM_JSON_BACKUPS_DIR || process.env.APP_JSON_BACKUPS_DIR,
@@ -30842,6 +30846,126 @@ app.delete('/api/folders/:id', (req, res) => {
     deletedFolderIds,
     deletedFileIds: deletedFiles.map((file) => file.id),
   });
+});
+
+const IMAGE_TILE_SOURCE_EXTENSION_PATTERN = /\.(png|jpe?g|webp|gif|tiff?|avif|heic|heif|svg)$/i;
+const IMAGE_TILE_NAME_PATTERN = /^(\d+)_(\d+)\.([A-Za-z0-9]+)$/;
+
+const resolveFileImageTileAccess = (req, res) => {
+  const fileId = String(req.params?.id || '').trim();
+  const file = readFilesDb().find((entry) => (
+    !isWorkbookQuestionVirtualSource(entry) && String(entry?.id || '').trim() === fileId
+  ));
+  if (!file) {
+    res.status(404).json({ error: 'Файл не найден' });
+    return null;
+  }
+  if (!IMAGE_TILE_SOURCE_EXTENSION_PATTERN.test(String(file.name || file.storageName || ''))) {
+    res.status(415).json({ error: 'Для этого файла тайловый просмотр не поддерживается' });
+    return null;
+  }
+
+  const ownerIsLessonShared = isLessonSharedFile(file);
+  let ownerStudentId = '';
+  let ownerTeacherId = '';
+  if (ownerIsLessonShared) {
+    ownerTeacherId = normalizeTeacherId(file.teacherId);
+    if (!ownerTeacherId || !canReadLessonSharedByTeacher(req.auth, ownerTeacherId)) {
+      res.status(403).json({ error: 'Недостаточно прав' });
+      return null;
+    }
+  } else {
+    const ownerStudent = findStudentById(file.studentId, { allowDeleted: true });
+    if (!ownerStudent) {
+      res.status(404).json({ error: 'Ученик не найден' });
+      return null;
+    }
+    if (!canAccessStudentByRole(req.auth, ownerStudent, { allowDeleted: true })) {
+      res.status(403).json({ error: 'Недостаточно прав' });
+      return null;
+    }
+    ownerStudentId = ownerStudent.id;
+    ownerTeacherId = normalizeTeacherId(ownerStudent.teacherId);
+  }
+
+  const queryStudentId = typeof req.query?.studentId === 'string' ? req.query.studentId.trim() : '';
+  if (queryStudentId) {
+    const queryStudent = findStudentById(queryStudentId);
+    if (!queryStudent) {
+      res.status(404).json({ error: 'Ученик не найден' });
+      return null;
+    }
+    if (!canAccessStudentByRole(req.auth, queryStudent)) {
+      res.status(403).json({ error: 'Недостаточно прав' });
+      return null;
+    }
+    if (ownerIsLessonShared) {
+      if (ownerTeacherId && normalizeTeacherId(queryStudent.teacherId) !== ownerTeacherId) {
+        res.status(400).json({ error: 'Некорректный studentId' });
+        return null;
+      }
+    } else if (ownerStudentId && queryStudentId !== ownerStudentId) {
+      res.status(400).json({ error: 'Некорректный studentId' });
+      return null;
+    }
+  }
+
+  const storageName = path.basename(String(file.storageName || '').trim());
+  if (!storageName) {
+    res.status(404).json({ error: 'Файл не найден' });
+    return null;
+  }
+  const filePath = path.join(uploadsDir, storageName);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ error: 'Файл не найден' });
+    return null;
+  }
+  return {
+    file,
+    filePath,
+    cacheKey: `${file.id}:${storageName}`,
+  };
+};
+
+app.get('/api/files/:id/image-tiles/manifest', async (req, res) => {
+  const target = resolveFileImageTileAccess(req, res);
+  if (!target) return;
+  try {
+    const manifest = await imageTilePyramidManager.getManifest({
+      sourcePath: target.filePath,
+      cacheKey: target.cacheKey,
+    });
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    return res.json(manifest);
+  } catch (error) {
+    console.error('[image-tiles] failed to prepare manifest:', error);
+    return res.status(422).json({ error: 'Не удалось подготовить изображение для просмотра' });
+  }
+});
+
+app.get('/api/files/:id/image-tiles/:level/:tileName', async (req, res) => {
+  const target = resolveFileImageTileAccess(req, res);
+  if (!target) return;
+  const tileMatch = String(req.params?.tileName || '').match(IMAGE_TILE_NAME_PATTERN);
+  if (!tileMatch) return res.status(404).send('Тайл не найден');
+  const requestedFormat = String(tileMatch[3] || '').toLowerCase();
+  if (requestedFormat !== 'png') return res.status(404).send('Тайл не найден');
+  try {
+    const tilePath = await imageTilePyramidManager.getTilePath({
+      sourcePath: target.filePath,
+      cacheKey: target.cacheKey,
+      level: Number(req.params.level),
+      x: Number(tileMatch[1]),
+      y: Number(tileMatch[2]),
+    });
+    if (!tilePath) return res.status(404).send('Тайл не найден');
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    res.type('png');
+    return res.sendFile(tilePath);
+  } catch (error) {
+    console.error('[image-tiles] failed to read tile:', error);
+    return res.status(422).send('Не удалось подготовить тайл изображения');
+  }
 });
 
 app.get('/api/files', (req, res) => {
