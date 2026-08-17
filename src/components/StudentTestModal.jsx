@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PlayCircle, RefreshCcw, Send, Share2, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PictureInPicture2, PlayCircle, RefreshCcw, Send, Share2, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import useWorkbookHelper from '../hooks/useWorkbookHelper';
 import useQuestionSolveTimer from '../hooks/useQuestionSolveTimer';
@@ -16,6 +16,11 @@ import {
 } from '../utils/questionDifficulty';
 import { getLatestUnsolvedDurationMs } from '../utils/questionSolveTimer';
 import { getQuickHomeworkPlanPresentation } from '../utils/homeworkQuickPlanPresentation';
+import {
+  clearQuestionPictureInPictureWindow,
+  reportQuestionPictureInPictureActivity,
+  setQuestionPictureInPictureWindow,
+} from '../utils/questionPictureInPicture';
 import HEADLESS_TURTLE_SOURCE from '../python/headless_turtle.py?raw';
 import { Button } from './ui';
 import StudentTestWindowTour from './StudentTestWindowTour';
@@ -1120,6 +1125,10 @@ const StudentTestModal = ({
   const [questionCodeOpen, setQuestionCodeOpen] = useState(false);
   const [questionCodePreviewOpen, setQuestionCodePreviewOpen] = useState(false);
   const questionCodePanelRef = useRef(null);
+  const questionPanelRef = useRef(null);
+  const questionPictureInPictureWindowRef = useRef(null);
+  const questionPictureInPictureRootRef = useRef(null);
+  const [questionPictureInPictureOpen, setQuestionPictureInPictureOpen] = useState(false);
   const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
   const [questionShareCopyState, setQuestionShareCopyState] = useState('idle');
   const [questionShareMenuAnchor, setQuestionShareMenuAnchor] = useState('');
@@ -1199,6 +1208,101 @@ const StudentTestModal = ({
     baselineReady: !studentId || !answerHistoryLoading,
     enabled: Boolean(activeQuestionTimerKey) && !activeQuestionAlreadySolved,
   });
+
+  const syncQuestionPictureInPicture = useCallback(() => {
+    const target = questionPictureInPictureRootRef.current;
+    const source = questionPanelRef.current;
+    if (!target || !source) return;
+    const heading = target.ownerDocument.querySelector('[data-question-picture-in-picture-title]');
+    if (heading) {
+      heading.textContent = `Задание ${getTaskDisplayNumber(task)} · вопрос №${activeQuestionNumber}`;
+    }
+    const clone = source.cloneNode(true);
+    clone.removeAttribute('data-student-test-tour');
+    clone.querySelectorAll('[data-student-test-tour]').forEach((node) => {
+      node.removeAttribute('data-student-test-tour');
+    });
+    clone.querySelector('.student-test-question-panel__toolbar-actions')?.remove();
+    clone.querySelectorAll('button').forEach((button) => button.remove());
+    target.replaceChildren(clone);
+  }, [activeQuestionNumber, getTaskDisplayNumber, task]);
+
+  const closeQuestionPictureInPicture = useCallback(() => {
+    const pictureWindow = questionPictureInPictureWindowRef.current;
+    questionPictureInPictureWindowRef.current = null;
+    questionPictureInPictureRootRef.current = null;
+    clearQuestionPictureInPictureWindow(pictureWindow);
+    setQuestionPictureInPictureOpen(false);
+    if (pictureWindow && !pictureWindow.closed) pictureWindow.close();
+  }, []);
+
+  const openQuestionPictureInPicture = useCallback(async () => {
+    const pictureInPictureApi = typeof window !== 'undefined'
+      ? window.documentPictureInPicture
+      : null;
+    if (!pictureInPictureApi?.requestWindow || !questionPanelRef.current) return;
+    if (questionPictureInPictureWindowRef.current) {
+      questionPictureInPictureWindowRef.current.focus();
+      return;
+    }
+    try {
+      const pictureWindow = await pictureInPictureApi.requestWindow({ width: 560, height: 720 });
+      document.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
+        pictureWindow.document.head.appendChild(node.cloneNode(true));
+      });
+      pictureWindow.document.title = `Задание ${getTaskDisplayNumber(task)}`;
+      const frameStyles = pictureWindow.document.createElement('style');
+      frameStyles.textContent = `
+        html, body { margin: 0; min-height: 100%; background: #f5f3ff; color: #111827; }
+        body { box-sizing: border-box; padding: 14px; overflow: auto; font-family: Inter, system-ui, sans-serif; }
+        .question-picture-in-picture__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; padding: 2px 2px 10px; border-bottom: 1px solid rgba(124, 58, 237, .16); }
+        .question-picture-in-picture__heading strong { font-size: 14px; }
+        .question-picture-in-picture__heading span { color: #7c3aed; font-size: 12px; font-weight: 700; }
+        .student-test-question-panel { margin: 0 !important; box-shadow: 0 12px 34px rgba(76, 29, 149, .12); }
+        .student-test-question-panel__toolbar { justify-content: flex-start; }
+        .student-test-screenshot { max-height: none !important; }
+      `;
+      pictureWindow.document.head.appendChild(frameStyles);
+      const heading = pictureWindow.document.createElement('header');
+      heading.className = 'question-picture-in-picture__heading';
+      const title = pictureWindow.document.createElement('strong');
+      title.dataset.questionPictureInPictureTitle = '';
+      title.textContent = `Задание ${getTaskDisplayNumber(task)} · вопрос №${activeQuestionNumber}`;
+      const status = pictureWindow.document.createElement('span');
+      status.textContent = 'Поверх окон';
+      heading.append(title, status);
+      const root = pictureWindow.document.createElement('main');
+      pictureWindow.document.body.append(heading, root);
+      questionPictureInPictureWindowRef.current = pictureWindow;
+      questionPictureInPictureRootRef.current = root;
+      setQuestionPictureInPictureWindow(pictureWindow);
+      setQuestionPictureInPictureOpen(true);
+      ['keydown', 'pointerdown', 'touchstart', 'input', 'change', 'scroll'].forEach((eventName) => {
+        pictureWindow.document.addEventListener(
+          eventName,
+          reportQuestionPictureInPictureActivity,
+          { capture: true, passive: true }
+        );
+      });
+      pictureWindow.addEventListener('pagehide', () => {
+        questionPictureInPictureWindowRef.current = null;
+        questionPictureInPictureRootRef.current = null;
+        clearQuestionPictureInPictureWindow(pictureWindow);
+        setQuestionPictureInPictureOpen(false);
+      }, { once: true });
+      syncQuestionPictureInPicture();
+    } catch {
+      closeQuestionPictureInPicture();
+    }
+  }, [activeQuestionNumber, closeQuestionPictureInPicture, getTaskDisplayNumber, syncQuestionPictureInPicture, task]);
+
+  useEffect(() => {
+    if (!questionPictureInPictureOpen) return undefined;
+    const frameId = window.requestAnimationFrame(syncQuestionPictureInPicture);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeQuestionId, questionImageStateByKey, questionPictureInPictureOpen, syncQuestionPictureInPicture]);
+
+  useEffect(() => () => closeQuestionPictureInPicture(), [closeQuestionPictureInPicture]);
 
   useEffect(() => {
     if (stage !== 'testing' || !task?.number || !level) {
@@ -4657,7 +4761,7 @@ const StudentTestModal = ({
 
           <div className="student-test-scroll flex-1 overflow-y-auto">
             <div key={`${level}:${currentId}`} className="student-test-content student-test-content--question-enter mx-auto w-full max-w-5xl">
-            <section className="student-test-question-panel student-test-panel-enter" data-student-test-tour="condition">
+            <section ref={questionPanelRef} className="student-test-question-panel student-test-panel-enter" data-student-test-tour="condition">
             <div className="student-test-question-panel__toolbar">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 {currentMockExamSourceBadge && (
@@ -4691,6 +4795,20 @@ const StudentTestModal = ({
                   && <span aria-hidden="true" />}
               </div>
               <div className="student-test-question-panel__toolbar-actions" data-student-test-tour="code-tools">
+                {typeof window !== 'undefined' && 'documentPictureInPicture' in window && (
+                  <button
+                    type="button"
+                    className={`student-test-code-preview-trigger ${questionPictureInPictureOpen ? 'is-active' : ''}`}
+                    onClick={questionPictureInPictureOpen
+                      ? () => questionPictureInPictureWindowRef.current?.focus()
+                      : openQuestionPictureInPicture}
+                    aria-label={questionPictureInPictureOpen ? 'Задание уже открыто поверх окон' : 'Открыть задание поверх окон'}
+                    title={questionPictureInPictureOpen ? 'Задание открыто поверх окон' : 'Открыть поверх окон'}
+                  >
+                    <PictureInPicture2 size={16} aria-hidden="true" />
+                    <span>{questionPictureInPictureOpen ? 'Открыто поверх окон' : 'Поверх окон'}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   className={`student-test-code-preview-trigger ${questionCodePreviewOpen ? 'is-active' : ''}`}

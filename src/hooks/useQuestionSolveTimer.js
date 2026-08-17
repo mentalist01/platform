@@ -4,6 +4,10 @@ import {
   QUESTION_SOLVE_TIMER_STORAGE_PREFIX,
   buildQuestionSolveTimerStorageKey,
 } from '../utils/questionSolveTimer.js';
+import {
+  isQuestionPictureInPictureActive,
+  subscribeQuestionPictureInPicture,
+} from '../utils/questionPictureInPicture.js';
 
 export const QUESTION_SOLVE_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 
@@ -20,6 +24,7 @@ const QUESTION_SOLVE_ACTIVITY_LISTENER_OPTIONS = { capture: true, passive: true 
 export const isQuestionSolveEnvironmentActive = ({
   documentObject = typeof document === 'undefined' ? null : document,
 } = {}) => {
+  if (isQuestionPictureInPictureActive()) return true;
   if (!documentObject) return true;
   if (documentObject.visibilityState === 'hidden') return false;
   if (typeof documentObject.hasFocus !== 'function') return true;
@@ -80,6 +85,11 @@ export const subscribeQuestionSolveEnvironment = (
     scheduleIdleTimer();
   };
   const reportInactive = () => {
+    if (isQuestionPictureInPictureActive()) {
+      onActiveChange(true);
+      if (!idle && idleTimerId === null) scheduleIdleTimer();
+      return;
+    }
     clearIdleTimer();
     onActiveChange(false);
   };
@@ -98,6 +108,14 @@ export const subscribeQuestionSolveEnvironment = (
   QUESTION_SOLVE_ACTIVITY_EVENTS.forEach((eventName) => {
     listen(documentObject, eventName, reportActivity, QUESTION_SOLVE_ACTIVITY_LISTENER_OPTIONS);
   });
+  const unsubscribePictureInPicture = subscribeQuestionPictureInPicture(({ active, type }) => {
+    if (!active) {
+      reportCurrent();
+      return;
+    }
+    if (type === 'activity' || type === 'open') reportActivity();
+  });
+  disposers.push(unsubscribePictureInPicture);
 
   if (!idle) scheduleIdleTimer();
 

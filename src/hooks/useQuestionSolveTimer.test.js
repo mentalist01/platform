@@ -6,6 +6,10 @@ import {
   isQuestionSolveEnvironmentActive,
   subscribeQuestionSolveEnvironment,
 } from './useQuestionSolveTimer.js';
+import {
+  clearQuestionPictureInPictureWindow,
+  setQuestionPictureInPictureWindow,
+} from '../utils/questionPictureInPicture.js';
 
 test('environment state requires both visibility and document focus', () => {
   const documentObject = {
@@ -19,6 +23,18 @@ test('environment state requires both visibility and document focus', () => {
   documentObject.hasFocus = () => false;
   assert.equal(isQuestionSolveEnvironmentActive({ documentObject }), false);
   assert.equal(isQuestionSolveEnvironmentActive({ documentObject: null }), true);
+});
+
+test('open question picture-in-picture keeps solve environment active', () => {
+  const documentObject = {
+    visibilityState: 'hidden',
+    hasFocus: () => false,
+  };
+  const pictureWindow = { closed: false };
+  setQuestionPictureInPictureWindow(pictureWindow);
+  assert.equal(isQuestionSolveEnvironmentActive({ documentObject }), true);
+  clearQuestionPictureInPictureWindow(pictureWindow);
+  assert.equal(isQuestionSolveEnvironmentActive({ documentObject }), false);
 });
 
 test('environment subscription handles visibility, focus, blur and page lifecycle', () => {
