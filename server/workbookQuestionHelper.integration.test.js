@@ -108,6 +108,7 @@ test('question workbook helper binds exact attachments and creates blank task 26
   fs.writeFileSync(path.join(dataDir, 'teachers.json'), JSON.stringify([{
     id: 'teacher-a',
     name: 'Teacher',
+    code: '112233',
     createdAt: now,
   }]));
   fs.writeFileSync(path.join(dataDir, 'students.json'), JSON.stringify([{
@@ -280,6 +281,34 @@ test('question workbook helper binds exact attachments and creates blank task 26
       attachmentName: 'source.ods',
       mode: 'workbook',
     });
+
+    const teacherLoginResponse = await fetch(`${baseUrl}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: '112233' }),
+    });
+    await assertStatus(teacherLoginResponse, 200);
+    const teacherLogin = await teacherLoginResponse.json();
+    const teacherAuthorization = `Bearer ${teacherLogin.token}`;
+    const teacherSolutionsResponse = await fetch(
+      `${baseUrl}/api/workbook-helper/question-solutions?studentId=student-a&taskNumber=9&levelId=basic&questionId=question-9-a`,
+      { headers: { Authorization: teacherAuthorization } }
+    );
+    await assertStatus(teacherSolutionsResponse, 200);
+    const teacherSolutions = await teacherSolutionsResponse.json();
+    assert.equal(teacherSolutions.solutions.length, 1);
+    assert.equal(teacherSolutions.solutions[0].fileId, saved.file.id);
+    assert.equal(teacherSolutions.solutions[0].name, saved.file.name);
+    assert.equal(teacherSolutions.solutions[0].url, saved.file.url);
+    assert.equal(teacherSolutions.solutions[0].sizeBytes, solutionBytes.length);
+
+    const teacherDownloadResponse = await fetch(
+      `${baseUrl}${teacherSolutions.solutions[0].url}?download=1&studentId=student-a`,
+      { headers: { Authorization: teacherAuthorization } }
+    );
+    await assertStatus(teacherDownloadResponse, 200);
+    assert.match(teacherDownloadResponse.headers.get('content-disposition') || '', /^attachment;/i);
+    assert.deepEqual(Buffer.from(await teacherDownloadResponse.arrayBuffer()), solutionBytes);
 
     const filesAfterSaveResponse = await fetch(`${baseUrl}/api/files`, {
       headers: { Authorization: userAuthorization },

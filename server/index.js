@@ -17571,6 +17571,10 @@ const serializeWorkbookQuestionSolution = (entry, slot = entry?.workbookQuestion
   sourceFileId: String(entry?.workbookSourceFileId || ''),
   attachmentId: String(entry?.workbookQuestionContext?.attachmentId || ''),
   name: String(entry?.name || ''),
+  url: normalizeStudentChatStoredUploadUrl(entry?.url)
+    || (entry?.storageName ? `/uploads/${path.basename(String(entry.storageName))}` : ''),
+  size: String(entry?.size || ''),
+  sizeBytes: Math.max(0, Number(entry?.sizeBytes) || 0),
   revision: Math.max(0, Math.floor(Number(entry?.workbookRevision) || 0)),
   slot: Math.max(1, Math.floor(Number(slot) || 1)),
   updatedAt: String(entry?.updatedAt || entry?.createdAt || ''),
@@ -19019,9 +19023,14 @@ app.post('/api/workbook-helper/launch', (req, res) => {
 
 app.get('/api/workbook-helper/question-solutions', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  if (!isStudentRole(req.auth)) return forbid(res);
-  const student = findStudentById(req.auth.id);
-  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  const requestedStudentId = isStudentRole(req.auth)
+    ? req.auth.id
+    : String(req.query?.studentId || '').trim();
+  const student = ensureStudentAccess(req, res, requestedStudentId, {
+    strictStudentId: !isStudentRole(req.auth),
+    missingError: 'studentId required',
+  });
+  if (!student) return undefined;
   const taskNumber = Number(req.query?.taskNumber);
   const levelId = normalizeWorkbookQuestionValue(req.query?.levelId, 100);
   const questionId = normalizeWorkbookQuestionValue(req.query?.questionId, 160);

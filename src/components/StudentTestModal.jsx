@@ -4693,7 +4693,12 @@ const StudentTestModal = ({
     ) : null;
 
     const modal = (
-      <div className={studentTestBackdropClassName}>
+      <div
+        className={studentTestBackdropClassName}
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) requestCloseStudentTest();
+        }}
+      >
         <div className={studentTestWorkspaceClassName} data-level={level} data-student-test-tour="workspace">
           <header className="student-test-header shrink-0" data-student-test-tour="header">
             <div className="flex min-w-0 items-center gap-3">
@@ -4857,7 +4862,11 @@ const StudentTestModal = ({
 
           <div className="student-test-scroll flex-1 overflow-y-auto">
             <div key={`${level}:${currentId}`} className="student-test-content student-test-content--question-enter mx-auto w-full max-w-5xl">
-            <section ref={questionPanelRef} className="student-test-question-panel student-test-panel-enter" data-student-test-tour="condition">
+            <section
+              ref={questionPanelRef}
+              className={`student-test-question-panel student-test-panel-enter ${questionToolsMenuOpen ? 'is-tools-menu-open' : ''}`}
+              data-student-test-tour="condition"
+            >
             <div className="student-test-question-panel__toolbar">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 {currentMockExamSourceBadge && (

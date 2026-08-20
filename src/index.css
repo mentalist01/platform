@@ -57542,6 +57542,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
 
 /* Student test workspace */
 .student-test-modal-backdrop {
+  cursor: pointer;
   background:
     radial-gradient(circle at 16% 0%, rgba(139, 92, 246, 0.16), transparent 38%),
     rgba(15, 23, 42, 0.62);
@@ -57550,6 +57551,7 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
 }
 
 .student-test-workspace {
+  cursor: default;
   height: min(94dvh, 920px);
   max-height: 94dvh !important;
   padding: 0 !important;
@@ -58075,6 +58077,156 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
 
 .student-test-question-panel {
   padding: 18px;
+}
+
+.student-test-question-panel.is-tools-menu-open {
+  position: relative;
+  z-index: 160;
+}
+
+.teacher-homework-workbook-solutions {
+  overflow: hidden;
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(236, 253, 245, 0.94), rgba(248, 250, 252, 0.98));
+}
+
+.teacher-homework-workbook-solutions__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+}
+
+.teacher-homework-workbook-solutions__header > div,
+.teacher-homework-workbook-solution__file {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.teacher-homework-workbook-solutions__icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border-radius: 11px;
+  color: #047857;
+  background: rgba(16, 185, 129, 0.13);
+}
+
+.teacher-homework-workbook-solutions__header strong,
+.teacher-homework-workbook-solutions__header small,
+.teacher-homework-workbook-solution__file span,
+.teacher-homework-workbook-solution__file strong,
+.teacher-homework-workbook-solution__file small {
+  display: block;
+  min-width: 0;
+}
+
+.teacher-homework-workbook-solutions__header strong {
+  color: #14532d;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.teacher-homework-workbook-solutions__header small,
+.teacher-homework-workbook-solution__file small {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.teacher-homework-workbook-solutions__header > button {
+  display: inline-flex;
+  min-height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid rgba(5, 150, 105, 0.2);
+  border-radius: 10px;
+  color: #047857;
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.teacher-homework-workbook-solutions__header > button:hover:not(:disabled) {
+  border-color: rgba(5, 150, 105, 0.4);
+  background: #fff;
+}
+
+.teacher-homework-workbook-solutions__header > button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.teacher-homework-workbook-solutions__list {
+  display: grid;
+  gap: 7px;
+  padding: 0 10px 10px;
+}
+
+.teacher-homework-workbook-solution {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  color: #334155;
+  background: rgba(255, 255, 255, 0.92);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.teacher-homework-workbook-solution:hover {
+  border-color: rgba(16, 185, 129, 0.42);
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.09);
+  transform: translateY(-1px);
+}
+
+.teacher-homework-workbook-solution__file > svg {
+  flex: 0 0 auto;
+  color: #059669;
+}
+
+.teacher-homework-workbook-solution__file strong {
+  overflow: hidden;
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.teacher-homework-workbook-solution__download {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: #047857;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.teacher-homework-workbook-solutions__message {
+  margin: 0 10px 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.teacher-homework-workbook-solutions__message.is-error {
+  color: #be123c;
+  background: rgba(255, 228, 230, 0.82);
 }
 
 .student-test-question-panel > :last-child,
@@ -68095,6 +68247,7 @@ html[data-theme='dark'] .teacher-question-editor--inline {
 
 /* Student test level picker */
 .student-level-modal-backdrop {
+  cursor: pointer;
   background:
     radial-gradient(circle at 50% 15%, rgba(139, 92, 246, 0.18), transparent 42%),
     rgba(15, 23, 42, 0.62);
@@ -68103,6 +68256,7 @@ html[data-theme='dark'] .teacher-question-editor--inline {
 }
 
 .student-level-modal {
+  cursor: default;
   width: min(820px, calc(100vw - 24px)) !important;
   max-width: 820px !important;
   max-height: calc(100dvh - 24px) !important;
