@@ -1180,8 +1180,14 @@ const TeacherPanel = ({
     if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
     return `${bytes} Б`;
   };
-  const totalNotesUsageBytes = studentsList.reduce((sum, student) => {
-    return sum + normalizeStorageBytes(student?.notesUsageBytes);
+  const getStudentMaterialsUsageBytes = (student) => {
+    const explicitTotal = normalizeStorageBytes(student?.materialsUsageBytes);
+    if (explicitTotal > 0) return explicitTotal;
+    return normalizeStorageBytes(student?.notesUsageBytes)
+      + normalizeStorageBytes(student?.lessonReplayUsageBytes);
+  };
+  const totalMaterialsUsageBytes = studentsList.reduce((sum, student) => {
+    return sum + getStudentMaterialsUsageBytes(student);
   }, 0);
   const formatDeletedDate = (iso) => {
     if (!iso) return '';
@@ -2728,7 +2734,7 @@ const TeacherPanel = ({
           <div>
             <h3 className="text-lg font-bold text-gray-800">Ученики</h3>
             <p className="text-xs text-gray-500">
-              {`Сейчас учатся: ${currentStudentsList.length} • Не учатся: ${inactiveStudentsList.length} • Конспекты: ${formatStorageBytes(totalNotesUsageBytes)}`}
+              {`Сейчас учатся: ${currentStudentsList.length} • Не учатся: ${inactiveStudentsList.length} • Материалы: ${formatStorageBytes(totalMaterialsUsageBytes)}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -2859,6 +2865,8 @@ const TeacherPanel = ({
               const studentXpTotal = normalizeXpTotal(student?.xpTotal);
               const studentCoinsTotal = Math.max(0, Math.floor(Number(student?.coinsTotal) || 0));
               const studentNotesUsageBytes = normalizeStorageBytes(student?.notesUsageBytes);
+              const studentLessonReplayUsageBytes = normalizeStorageBytes(student?.lessonReplayUsageBytes);
+              const studentMaterialsUsageBytes = getStudentMaterialsUsageBytes(student);
               const studentLessonPrice = getStudentLessonPrice(student.id);
               const studentFinanceRow = getStudentFinanceRow(student.id);
               const studentProfitability = studentFinanceRow?.profitability && typeof studentFinanceRow.profitability === 'object'
@@ -3219,9 +3227,10 @@ const TeacherPanel = ({
                           )}
                           <span
                             className="teacher-student-card__pill inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
-                            data-tone="notes"
+                            data-tone="materials"
+                            title={`Конспекты: ${formatStorageBytes(studentNotesUsageBytes)} · Записи уроков: ${formatStorageBytes(studentLessonReplayUsageBytes)}`}
                           >
-                            {`Конспекты: ${formatStorageBytes(studentNotesUsageBytes)}`}
+                            {`Материалы: ${formatStorageBytes(studentMaterialsUsageBytes)}`}
                           </span>
                         </div>
                         {studentCommissionAmount > 0 && (

@@ -2162,6 +2162,7 @@ const normalizeTeacherNotifHistoryEntry = (entry) => {
     type,
     timestampMs,
     archivedAtMs,
+    studentId: String(entry?.studentId || '').trim(),
     studentName: String(entry?.studentName || '').trim(),
     studentNickname: String(entry?.studentNickname || '').trim(),
     source: normalizeTeacherSolvedSource(entry),
@@ -16639,6 +16640,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     () => (user.role === 'student' ? initialMockExamId : null)
   );
   const [pendingHomeworkPrefill, setPendingHomeworkPrefill] = useState(null);
+  const [pendingHomeworkReviewRequest, setPendingHomeworkReviewRequest] = useState(null);
   const [homeworkLessonBaskets, setHomeworkLessonBaskets] = useState(() => (
     user.role === 'teacher' ? loadHomeworkLessonBaskets(user.id) : null
   ));
@@ -17263,6 +17265,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           type,
           timestampMs,
           archivedAtMs: Date.now(),
+          studentId: note?.studentId,
           studentName: note?.studentName,
           studentNickname: note?.studentNickname,
           source: normalizeTeacherSolvedSource(note),
@@ -21322,6 +21325,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setTeacherSolvedBulkReadBusy(false);
     }
   };
+  const handleOpenHomeworkReviewFromNotification = (note) => {
+    if (user.role !== 'teacher' || note?.type !== 'solved') return;
+    const targetStudentId = normalizeTeacherStudentId(note?.studentId);
+    if (!targetStudentId) return;
+    handleSelectStudent(targetStudentId);
+    setPendingHomeworkReviewRequest({
+      id: `${String(note?.id || 'solved')}:${Date.now()}`,
+      studentId: targetStudentId,
+    });
+    dismissTeacherNotif(note);
+    navigateToView('schedule');
+    setMenuOpen(false);
+  };
+  const handleHomeworkReviewRequestHandled = useCallback(() => {
+    setPendingHomeworkReviewRequest(null);
+  }, []);
   const isTeacherCommsView = PLATFORM_CHATS_ENABLED && user.role === 'teacher'
     && (view === TEACHER_COMMS_VIEW || TEACHER_COMMS_TABS.includes(view));
   const activeTeacherCommsTab = isTeacherCommsView
@@ -21534,10 +21553,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 const solvedKicker = getTeacherSolvedNotifKicker(note);
                 const solvedSummary = getTeacherSolvedNotifSummary(note);
                 return (
-                  <div key={note.id} className="toast-enter relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                  <div
+                    key={note.id}
+                    className={`toast-enter relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 ${note.type === 'solved' ? 'cursor-pointer transition hover:border-purple-300 hover:bg-purple-50/40' : ''}`}
+                    onClick={note.type === 'solved' ? () => handleOpenHomeworkReviewFromNotification(note) : undefined}
+                    onKeyDown={note.type === 'solved' ? (event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleOpenHomeworkReviewFromNotification(note);
+                      }
+                    } : undefined}
+                    role={note.type === 'solved' ? 'button' : undefined}
+                    tabIndex={note.type === 'solved' ? 0 : undefined}
+                  >
                     <button
                       type="button"
-                      onClick={() => dismissTeacherNotif(note)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        dismissTeacherNotif(note);
+                      }}
                       className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
                       aria-label="Закрыть уведомление"
                     >
@@ -21564,6 +21598,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         </div>
                         <div className="text-xs text-gray-500">
                           {solvedSummary}
+                        </div>
+                        <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-purple-600">
+                          Посмотреть сделанную домашку <ChevronRight size={14} />
                         </div>
                         {timestampLabel && (
                           <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>
@@ -22795,6 +22832,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onOpenLessonHandled={() => setPendingLessonCapsuleKey('')}
               homeworkPrefillRequest={pendingHomeworkPrefill}
               onHomeworkPrefillHandled={handleHomeworkPrefillHandled}
+              homeworkReviewRequest={pendingHomeworkReviewRequest}
+              onHomeworkReviewRequestHandled={handleHomeworkReviewRequestHandled}
               progress={progress}
               tasks={tasksWithTitles}
               nextHomeworkFlyRef={scheduleHomeworkFlyRef}
@@ -23398,10 +23437,25 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           const solvedKicker = getTeacherSolvedNotifKicker(note);
                           const solvedSummary = getTeacherSolvedNotifSummary(note);
                           return (
-                            <div key={`notif-view-live-${note.id}`} className="relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                            <div
+                              key={`notif-view-live-${note.id}`}
+                              className={`relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 ${note.type === 'solved' ? 'cursor-pointer transition hover:border-purple-300 hover:bg-purple-50/40' : ''}`}
+                              onClick={note.type === 'solved' ? () => handleOpenHomeworkReviewFromNotification(note) : undefined}
+                              onKeyDown={note.type === 'solved' ? (event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  handleOpenHomeworkReviewFromNotification(note);
+                                }
+                              } : undefined}
+                              role={note.type === 'solved' ? 'button' : undefined}
+                              tabIndex={note.type === 'solved' ? 0 : undefined}
+                            >
                               <button
                                 type="button"
-                                onClick={() => dismissTeacherNotif(note)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  dismissTeacherNotif(note);
+                                }}
                                 className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
                                 aria-label="Закрыть уведомление"
                               >
@@ -23426,6 +23480,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                   </div>
                                   <div className="text-xs text-gray-500">
                                     {solvedSummary}
+                                  </div>
+                                  <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-purple-600">
+                                    Посмотреть сделанную домашку <ChevronRight size={14} />
                                   </div>
                                   {timestampLabel && <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>}
                                 </>
@@ -23453,7 +23510,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           const solvedKicker = getTeacherSolvedNotifKicker(note, true);
                           const solvedSummary = getTeacherSolvedNotifSummary(note);
                           return (
-                            <div key={note.archiveId} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+                            <div
+                              key={note.archiveId}
+                              className={`rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 ${note.type === 'solved' && note.studentId ? 'cursor-pointer transition hover:border-purple-300 hover:bg-purple-50/50' : ''}`}
+                              onClick={note.type === 'solved' && note.studentId ? () => handleOpenHomeworkReviewFromNotification(note) : undefined}
+                              onKeyDown={note.type === 'solved' && note.studentId ? (event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  handleOpenHomeworkReviewFromNotification(note);
+                                }
+                              } : undefined}
+                              role={note.type === 'solved' && note.studentId ? 'button' : undefined}
+                              tabIndex={note.type === 'solved' && note.studentId ? 0 : undefined}
+                            >
                               {note.type === 'signup' ? (
                                 <>
                                   <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Сообщение</div>
@@ -23474,6 +23543,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                   <div className="text-xs text-slate-500">
                                     {solvedSummary}
                                   </div>
+                                  {note.studentId && (
+                                    <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-purple-600">
+                                      Посмотреть сделанную домашку <ChevronRight size={14} />
+                                    </div>
+                                  )}
                                   {timestampLabel && <div className="mt-1 text-[11px] text-slate-400">{timestampLabel}</div>}
                                 </>
                               )}

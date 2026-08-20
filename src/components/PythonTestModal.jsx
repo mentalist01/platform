@@ -1671,6 +1671,8 @@ const PythonTestModal = ({
                 levelId: PYTHON_LEVEL_ID,
                 solvedQuestionId: currentId,
                 solvedQuestionNumber: currentIndex + 1,
+                xpGained: normalizeXpTotal(resp?.xpGained),
+                coinsGained: Number.isFinite(Number(resp?.coinsGained)) ? Number(resp.coinsGained) : 0,
               });
               setRunnerLoading(false);
               return;

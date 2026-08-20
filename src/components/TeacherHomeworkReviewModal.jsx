@@ -12,6 +12,8 @@ import {
   sortTeacherHomeworkReviewItems,
 } from '../utils/teacherHomeworkReview';
 import { Button } from './ui';
+import QuestionDifficultyBadge from './QuestionDifficultyBadge';
+import MockExamTaskDifficultyBadge from './MockExamTaskDifficultyBadge';
 
 const BOARD_COPY_FEEDBACK_MS = 1800;
 const CODE_COPY_FEEDBACK_MS = 1800;
@@ -159,6 +161,8 @@ const TeacherHomeworkReviewModal = ({
   withStudentId = (url) => url,
   sourceLoading = false,
   sourceError = '',
+  questionDifficultyIndex = {},
+  mockTaskAnalyticsByExam = {},
   onClose,
 }) => {
   const itemSignature = useMemo(() => (
@@ -171,7 +175,7 @@ const TeacherHomeworkReviewModal = ({
   const [resolvedItems, setResolvedItems] = useState(items);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [itemFilter, setItemFilter] = useState('all');
-  const [itemSort, setItemSort] = useState('assignment');
+  const [itemSort, setItemSort] = useState('fastest');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [expandedImage, setExpandedImage] = useState(null);
@@ -197,7 +201,7 @@ const TeacherHomeworkReviewModal = ({
     setResolvedItems(sourceItems);
     setCurrentIndex(0);
     setItemFilter('all');
-    setItemSort('assignment');
+    setItemSort('fastest');
     setLoadError('');
 
     const taskScopes = Array.from(new Map(
@@ -401,6 +405,12 @@ const TeacherHomeworkReviewModal = ({
     : `Задание ${currentItem?.taskDisplay || ''} · №${currentItem?.questionNumber || ''}`;
   const questionCodeUpdatedAtLabel = formatAttemptTime(questionCodeState.updatedAt);
   const currentSolveDurationLabel = formatSolveDuration(currentItem?.solveDurationMs);
+  const currentDifficulty = currentItem?.sourceType === 'task'
+    ? questionDifficultyIndex?.[String(currentItem.taskNumber)]?.[String(currentItem.levelId)]?.[String(currentItem.questionId)]
+    : null;
+  const currentMockTaskAnalytics = currentItem?.sourceType === 'mock'
+    ? mockTaskAnalyticsByExam?.[String(currentItem.mockExamId)]?.[String(currentItem.taskNumber)]
+    : null;
 
   const handleCopyQuestionToBoard = async () => {
     if (!currentItem) return;
@@ -514,6 +524,8 @@ const TeacherHomeworkReviewModal = ({
                   <span className="sr-only">Сортировка заданий</span>
                   <select value={itemSort} onChange={(event) => setItemSort(event.target.value)}>
                     <option value="assignment">По порядку домашки</option>
+                    <option value="easiest">Сначала лёгкие</option>
+                    <option value="hardest">Сначала сложные</option>
                     <option value="fastest">Сначала самые быстрые</option>
                     <option value="slowest">Сначала самые долгие</option>
                   </select>
@@ -604,12 +616,27 @@ const TeacherHomeworkReviewModal = ({
                         <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">
                           {currentItem.levelLabel}
                         </span>
+                        {currentItem.sourceType === 'task' ? (
+                          <QuestionDifficultyBadge
+                            difficulty={currentDifficulty}
+                            showDetails
+                            showSampleSize
+                            showWhenEmpty
+                          />
+                        ) : (
+                          <MockExamTaskDifficultyBadge
+                            analytics={currentMockTaskAnalytics}
+                            showDetails
+                            showSampleSize
+                            showWhenEmpty
+                          />
+                        )}
                         <span className={`teacher-homework-review-status-chip ${currentItem.solved ? 'is-completed' : 'is-pending'}`}>
                           {currentItem.solved ? 'Выполнено' : currentItem.attempted ? 'Есть попытка' : 'Не выполнено'}
                         </span>
                         <span className={`teacher-homework-review-time-chip ${currentItem.solveDurationMs ? 'has-time' : ''}`} title="Активное время ученика на этом номере">
                           <Clock3 size={14} aria-hidden="true" />
-                          {currentSolveDurationLabel}
+                          {`Ученик: ${currentSolveDurationLabel}`}
                         </span>
                         {currentItem.optional && (
                           <span className="inline-flex rounded-full border border-fuchsia-200 bg-fuchsia-50 px-3 py-1 text-xs font-bold text-fuchsia-700">Дополнительно</span>

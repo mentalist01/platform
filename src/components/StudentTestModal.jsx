@@ -55,6 +55,61 @@ const MOCK_EXAM_SOURCE_BADGE_COLOR = '#0f766e';
 const TEST_WORKBOOK_EXTENSIONS = new Set(['xls', 'xlsx', 'xlsm', 'xlsb', 'ods', 'fods']);
 const TEXT_TO_WORKBOOK_TASK_NUMBERS = new Set([26, 27]);
 const TEXT_TO_WORKBOOK_EXTENSIONS = new Set(['txt', 'csv', 'tsv']);
+const QUESTION_PIP_MIN_WIDTH = 460;
+const QUESTION_PIP_MAX_WIDTH = 680;
+const QUESTION_PIP_MIN_HEIGHT = 260;
+const QUESTION_PIP_MAX_HEIGHT = 820;
+
+const cloneQuestionPanelForPictureInPicture = (source) => {
+  if (!source) return null;
+  const clone = source.cloneNode(true);
+  clone.removeAttribute('data-student-test-tour');
+  clone.querySelectorAll('[data-student-test-tour]').forEach((node) => {
+    node.removeAttribute('data-student-test-tour');
+  });
+  clone.querySelector('.student-test-question-panel__toolbar-actions')?.remove();
+  clone.querySelectorAll('button').forEach((button) => button.remove());
+  return clone;
+};
+
+const measureQuestionPictureInPictureSize = (source) => {
+  const availableWidth = Number(window.screen?.availWidth) || window.innerWidth || 1280;
+  const availableHeight = Number(window.screen?.availHeight) || window.innerHeight || 800;
+  const width = Math.round(Math.min(
+    QUESTION_PIP_MAX_WIDTH,
+    Math.max(QUESTION_PIP_MIN_WIDTH, availableWidth * 0.38)
+  ));
+  const measurementHost = document.createElement('div');
+  measurementHost.style.cssText = `
+    position: fixed;
+    left: -10000px;
+    top: 0;
+    width: ${width - 28}px;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: -1;
+  `;
+  const clone = cloneQuestionPanelForPictureInPicture(source);
+  if (clone) {
+    clone.style.margin = '0';
+    clone.style.animation = 'none';
+    clone.querySelectorAll('.student-test-screenshot').forEach((node) => {
+      node.style.maxHeight = 'none';
+    });
+    measurementHost.appendChild(clone);
+  }
+  document.body.appendChild(measurementHost);
+  const contentHeight = Math.ceil(measurementHost.getBoundingClientRect().height);
+  measurementHost.remove();
+  const maximumHeight = Math.min(QUESTION_PIP_MAX_HEIGHT, Math.floor(availableHeight * 0.86));
+  return {
+    width,
+    height: Math.round(Math.min(
+      maximumHeight,
+      Math.max(QUESTION_PIP_MIN_HEIGHT, contentHeight + 78)
+    )),
+  };
+};
 
 const getTestAttachmentExtension = (file) => {
   const name = String(file?.name || file?.storageName || '').trim();
@@ -1217,14 +1272,8 @@ const StudentTestModal = ({
     if (heading) {
       heading.textContent = `Задание ${getTaskDisplayNumber(task)} · вопрос №${activeQuestionNumber}`;
     }
-    const clone = source.cloneNode(true);
-    clone.removeAttribute('data-student-test-tour');
-    clone.querySelectorAll('[data-student-test-tour]').forEach((node) => {
-      node.removeAttribute('data-student-test-tour');
-    });
-    clone.querySelector('.student-test-question-panel__toolbar-actions')?.remove();
-    clone.querySelectorAll('button').forEach((button) => button.remove());
-    target.replaceChildren(clone);
+    const clone = cloneQuestionPanelForPictureInPicture(source);
+    if (clone) target.replaceChildren(clone);
   }, [activeQuestionNumber, getTaskDisplayNumber, task]);
 
   const closeQuestionPictureInPicture = useCallback(() => {
@@ -1246,7 +1295,11 @@ const StudentTestModal = ({
       return;
     }
     try {
-      const pictureWindow = await pictureInPictureApi.requestWindow({ width: 560, height: 720 });
+      const preferredSize = measureQuestionPictureInPictureSize(questionPanelRef.current);
+      const pictureWindow = await pictureInPictureApi.requestWindow({
+        ...preferredSize,
+        preferInitialWindowPlacement: true,
+      });
       document.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
         pictureWindow.document.head.appendChild(node.cloneNode(true));
       });

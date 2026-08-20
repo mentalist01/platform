@@ -28,6 +28,7 @@ const getSolutionWord = (count) => {
 const MockExamTaskDifficultyBadge = ({
   analytics,
   showDetails = false,
+  showSampleSize = false,
   showWhenEmpty = false,
   className = '',
 }) => {
@@ -53,6 +54,10 @@ const MockExamTaskDifficultyBadge = ({
     analytics.averageActiveDurationMs ?? analytics.averageDurationMs
   );
   const prefix = analytics.provisional ? 'Предварительно: ' : '';
+  const details = [
+    showDetails ? `${averageDuration} · ${accuracyPercent}% верно` : '',
+    showSampleSize ? `Решений: ${sampleSize}` : '',
+  ].filter(Boolean).join(' · ');
   const tooltip = `${prefix}${meta?.label || 'Сложность'} · ${Math.round(Number(analytics.score) || 0)}/100 · Среднее активное время: ${averageDuration} · Верно: ${accuracyPercent}% · ${sampleSize} ${getSolutionWord(sampleSize)}`;
 
   return (
@@ -68,9 +73,9 @@ const MockExamTaskDifficultyBadge = ({
           предв.
         </span>
       )}
-      {showDetails && (
+      {details && (
         <span className="whitespace-nowrap font-semibold opacity-80">
-          {`${averageDuration} · ${accuracyPercent}% верно`}
+          {details}
         </span>
       )}
     </span>

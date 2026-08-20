@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileCode2, History, ListChecks, ListPlus, RefreshCcw, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileCode2, History, ListChecks, ListPlus, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -9,9 +9,25 @@ import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/question
 import { getHomeworkLessonBasketItemKey } from '../utils/homeworkLessonBasket';
 import { writeBoardTaskToClipboard } from '../utils/boardTaskClipboard';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
+import { formatDifficultyDuration } from '../utils/questionDifficulty';
 import { Button } from './ui';
 
 const TEACHER_CODE_COPY_FEEDBACK_MS = 1800;
+
+const getStudentSolveDurationMs = (history) => {
+  const entries = Array.isArray(history) ? history : [];
+  const firstCorrect = entries.find((entry) => (
+    entry?.correct === true
+    && Number.isFinite(Number(entry?.solveDurationMs))
+    && Number(entry.solveDurationMs) > 0
+  ));
+  if (firstCorrect) return Math.round(Number(firstCorrect.solveDurationMs));
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const durationMs = Number(entries[index]?.solveDurationMs);
+    if (Number.isFinite(durationMs) && durationMs > 0) return Math.round(durationMs);
+  }
+  return null;
+};
 
 const ReviewAnswerFields = ({
   values = [],
@@ -231,6 +247,9 @@ const ProgressReviewModal = ({
             submittedAt,
             correct: entry.correct === true,
             answers,
+            solveDurationMs: Number.isFinite(Number(entry.solveDurationMs)) && Number(entry.solveDurationMs) > 0
+              ? Math.round(Number(entry.solveDurationMs))
+              : null,
           };
         })
         .filter(Boolean)
@@ -439,6 +458,10 @@ const ProgressReviewModal = ({
     : [];
   const answerHistoryLatestFirst = answerHistory.slice().reverse();
   const latestAttempt = answerHistory[answerHistory.length - 1] || null;
+  const studentSolveDurationMs = getStudentSolveDurationMs(answerHistory);
+  const studentSolveDurationLabel = studentSolveDurationMs
+    ? formatDifficultyDuration(studentSolveDurationMs)
+    : 'Нет данных';
   const storedAnswers = parseStoredAnswers(answerById?.[currentId]);
   const normalizeAnswerValues = (values) => Array.from(
     { length: answerCount },
@@ -719,8 +742,20 @@ const ProgressReviewModal = ({
                         difficulty={questionDifficultyById?.[currentId]}
                         theme={theme}
                         showDetails
+                        showSampleSize
                         showWhenEmpty
                       />
+                      {(isSolved || answerHistory.length > 0) && (
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold shadow-sm ${studentSolveDurationMs
+                            ? 'border-sky-200 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                          title="Время решения выбранного ученика"
+                        >
+                          <Clock3 size={12} aria-hidden="true" />
+                          {`Ученик: ${studentSolveDurationLabel}`}
+                        </span>
+                      )}
                     </div>
                     <div className="student-test-question-panel__toolbar-actions">
                       <button

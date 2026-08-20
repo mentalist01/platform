@@ -298,6 +298,11 @@ const buildResultSnapshot = ({
     examTitle,
     status: 'finished',
     mode: normalizeText(attempt.mode),
+    attemptNumber: Number.isInteger(Number(attempt.attemptNumber))
+      ? Math.max(1, Number(attempt.attemptNumber))
+      : 1,
+    isFirstAttempt: attempt?.isFirstAttempt !== false
+      && (!Number.isFinite(Number(attempt.attemptNumber)) || Number(attempt.attemptNumber) === 1),
     finishedAt,
     targetTaskKeys: [...targetTaskKeys],
     tasks: cloneValue(exam.tasks),

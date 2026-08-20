@@ -627,6 +627,8 @@ const ScheduleSection = ({
   onOpenLessonHandled = null,
   homeworkPrefillRequest = null,
   onHomeworkPrefillHandled = null,
+  homeworkReviewRequest = null,
+  onHomeworkReviewRequestHandled = null,
   progress = {},
   tasks,
   nextHomeworkFlyRef,
@@ -720,6 +722,7 @@ const ScheduleSection = ({
   const [homeworkDraftError, setHomeworkDraftError] = useState('');
   const [homeworkDraftNotice, setHomeworkDraftNotice] = useState('');
   const [teacherHomeworkReviewOpen, setTeacherHomeworkReviewOpen] = useState(false);
+  const homeworkReviewOpenedFromRequestRef = React.useRef(false);
   const [questionDifficultyIndex, setQuestionDifficultyIndex] = useState({});
   const [mockTaskAnalyticsByExam, setMockTaskAnalyticsByExam] = useState({});
   const [homeworkDurationAnalyticsLoading, setHomeworkDurationAnalyticsLoading] = useState(false);
@@ -2715,8 +2718,35 @@ const ScheduleSection = ({
   const handleOpenBriefingHomework = () => setTeacherHomeworkReviewOpen(true);
 
   useEffect(() => {
+    if (role !== 'teacher' || !homeworkReviewRequest) return;
+    const requestedStudentId = String(homeworkReviewRequest?.studentId || '').trim();
+    if (!requestedStudentId) {
+      onHomeworkReviewRequestHandled?.(homeworkReviewRequest);
+      return;
+    }
+    if (String(effectiveStudentId || '').trim() !== requestedStudentId) {
+      onSelectStudent?.(requestedStudentId);
+      return;
+    }
+    homeworkReviewOpenedFromRequestRef.current = true;
+    setTeacherHomeworkReviewOpen(true);
+    onHomeworkReviewRequestHandled?.(homeworkReviewRequest);
+  }, [
+    effectiveStudentId,
+    homeworkReviewRequest,
+    onHomeworkReviewRequestHandled,
+    onSelectStudent,
+    role,
+  ]);
+
+  useEffect(() => {
+    if (homeworkReviewRequest) return;
+    if (homeworkReviewOpenedFromRequestRef.current) {
+      homeworkReviewOpenedFromRequestRef.current = false;
+      return;
+    }
     setTeacherHomeworkReviewOpen(false);
-  }, [effectiveStudentId, nextHomeworkEntry?.id]);
+  }, [effectiveStudentId, homeworkReviewRequest, nextHomeworkEntry?.id]);
 
   useEffect(() => {
     setShowHistory(false);
@@ -5205,6 +5235,8 @@ const ScheduleSection = ({
           withStudentId={withStudentId}
           sourceLoading={testsDb === null || mockExamsLoading}
           sourceError={[testsDbError, mockExamsError].filter(Boolean).join(' ')}
+          questionDifficultyIndex={questionDifficultyIndex}
+          mockTaskAnalyticsByExam={mockTaskAnalyticsByExam}
           onClose={() => setTeacherHomeworkReviewOpen(false)}
         />
       )}

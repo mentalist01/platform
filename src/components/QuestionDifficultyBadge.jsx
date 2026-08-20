@@ -33,6 +33,7 @@ const QuestionDifficultyBadge = ({
   difficulty,
   theme = '',
   showDetails = false,
+  showSampleSize = false,
   showWhenEmpty = false,
   minimumSampleSize = 1,
   className = '',
@@ -63,9 +64,12 @@ const QuestionDifficultyBadge = ({
     || (dark
       ? 'border-slate-600/70 bg-slate-800/55 text-slate-200'
       : 'border-slate-200 bg-slate-50 text-slate-700');
-  const details = showDetails
-    ? `В среднем: ${formatDifficultyDuration(difficulty.averageDurationMs)} · неверных попыток: ${formatWrongAttempts(difficulty.averageWrongAttempts)}`
-    : '';
+  const details = [
+    showDetails
+      ? `В среднем: ${formatDifficultyDuration(difficulty.averageDurationMs)} · неверных попыток: ${formatWrongAttempts(difficulty.averageWrongAttempts)}`
+      : '',
+    showSampleSize ? `Решений: ${Math.max(0, Math.floor(Number(difficulty.sampleSize) || 0))}` : '',
+  ].filter(Boolean).join(' · ');
   const tooltip = formatDifficultyTooltip(difficulty);
 
   return (

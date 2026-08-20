@@ -166,7 +166,22 @@ export const filterTeacherHomeworkReviewItems = (items, filter = 'all') => {
 
 export const sortTeacherHomeworkReviewItems = (items, sort = 'assignment') => {
   const list = (Array.isArray(items) ? items : []).map((item, index) => ({ item, index }));
-  if (!['fastest', 'slowest'].includes(sort)) return list.map(({ item }) => item);
+  if (!['fastest', 'slowest', 'easiest', 'hardest'].includes(sort)) return list.map(({ item }) => item);
+  if (sort === 'easiest' || sort === 'hardest') {
+    const direction = sort === 'easiest' ? 1 : -1;
+    return list
+      .sort((left, right) => {
+        const leftScore = Number(left.item?.difficultyScore ?? left.item?.question?.difficulty?.score);
+        const rightScore = Number(right.item?.difficultyScore ?? right.item?.question?.difficulty?.score);
+        const leftKnown = Number.isFinite(leftScore);
+        const rightKnown = Number.isFinite(rightScore);
+        if (!leftKnown && !rightKnown) return left.index - right.index;
+        if (!leftKnown) return 1;
+        if (!rightKnown) return -1;
+        return (leftScore - rightScore) * direction || left.index - right.index;
+      })
+      .map(({ item }) => item);
+  }
   const direction = sort === 'fastest' ? 1 : -1;
   return list
     .sort((left, right) => {

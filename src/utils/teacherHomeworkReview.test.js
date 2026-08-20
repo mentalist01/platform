@@ -140,6 +140,19 @@ test('review filters and sorts timed work with missing telemetry last', () => {
   );
 });
 
+test('review sorts by difficulty and keeps unknown estimates last', () => {
+  const items = [
+    { key: 'medium', question: { difficulty: { score: 50 } } },
+    { key: 'unknown', question: {} },
+    { key: 'easy', question: { difficulty: { score: 10 } } },
+    { key: 'hard', question: { difficulty: { score: 90 } } },
+  ];
+
+  assert.deepEqual(sortTeacherHomeworkReviewItems(items, 'easiest').map((item) => item.key), ['easy', 'medium', 'hard', 'unknown']);
+  assert.deepEqual(sortTeacherHomeworkReviewItems(items, 'hardest').map((item) => item.key), ['hard', 'medium', 'easy', 'unknown']);
+  assert.deepEqual(sortTeacherHomeworkReviewItems(items, 'assignment').map((item) => item.key), ['medium', 'unknown', 'easy', 'hard']);
+});
+
 test('mock review items include saved time for every exam task', () => {
   const items = buildTeacherHomeworkReviewItems({
     goalViews: [{

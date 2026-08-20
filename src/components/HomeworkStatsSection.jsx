@@ -5,9 +5,11 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   CircleDashed,
   Clock3,
+  Info,
   ListChecks,
   Sparkles,
   Target,
@@ -106,10 +108,14 @@ const formatDate = (value, options = {}) => {
   }).replace(' г.', '');
 };
 
-const formatCompactDate = (value) => {
+const formatCompactDate = (value, withYear = false) => {
   const date = new Date(value || '');
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  return date.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    ...(withYear ? { year: '2-digit' } : {}),
+  });
 };
 
 const getHomeworkCountLabel = (count) => {
@@ -121,6 +127,49 @@ const getHomeworkCountLabel = (count) => {
     return `${value} домашние работы`;
   }
   return `${value} домашних работ`;
+};
+
+const getTaskCountLabel = (count) => {
+  const value = Math.max(0, Math.round(Number(count) || 0));
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${value} задание`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+    return `${value} задания`;
+  }
+  return `${value} заданий`;
+};
+
+const isSingularCount = (count) => {
+  const value = Math.max(0, Math.round(Number(count) || 0));
+  return value % 10 === 1 && value % 100 !== 11;
+};
+
+const getLatestHomeworkMessage = (entry, role) => {
+  if (!entry || entry.totalCount <= 0) {
+    return role === 'teacher'
+      ? 'В этой работе нет заданий, которые можно проверить автоматически.'
+      : 'Здесь пока нет заданий с автоматической проверкой.';
+  }
+  if (entry.percent === 100 && entry.withErrorsCount === 0) {
+    return role === 'teacher'
+      ? 'Работа выполнена полностью и без исправлений.'
+      : 'Всё выполнено — и с первой попытки.';
+  }
+  if (entry.percent === 100) {
+    return role === 'teacher'
+      ? `Работа закрыта полностью, ${getTaskCountLabel(entry.withErrorsCount)} ${isSingularCount(entry.withErrorsCount) ? 'потребовало' : 'потребовали'} исправления.`
+      : `Всё готово. После ошибок исправлено: ${getTaskCountLabel(entry.withErrorsCount)}.`;
+  }
+  if (entry.wrongCount > 0) {
+    return role === 'teacher'
+      ? `Сейчас ${getTaskCountLabel(entry.wrongCount)} ${isSingularCount(entry.wrongCount) ? 'ждёт' : 'ждут'} исправления.`
+      : `Вернись к заданиям с ошибками: ${getTaskCountLabel(entry.wrongCount)}.`;
+  }
+  const remainingCount = Math.max(0, entry.totalCount - entry.completedCount);
+  return role === 'teacher'
+    ? `До завершения осталось ${getTaskCountLabel(remainingCount)}.`
+    : `Следующий шаг — выполнить ещё ${getTaskCountLabel(remainingCount)}.`;
 };
 
 const summarizeGoal = (goal) => {
@@ -159,13 +208,13 @@ const DetailStateGroup = ({ state, items, dark }) => {
           } />
           {meta.label}
         </span>
-        <span className={dark ? 'text-slate-400' : 'text-slate-400'}>{items.length}</span>
+        <span className={dark ? 'text-slate-400' : 'text-slate-500'}>{items.length}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {items.map((item) => (
           <span
             key={item.id}
-            className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-bold ${
+            className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-bold ${
               dark ? meta.darkChipClass : meta.chipClass
             }`}
             title={item.wrongCount > 0
@@ -197,6 +246,8 @@ const HomeworkStatsSection = ({
 }) => {
   const dark = String(theme || '').trim().toLowerCase() === 'dark';
   const chartRef = useRef(null);
+  const detailRef = useRef(null);
+  const homeworkButtonRefs = useRef(new Map());
   const [referenceNowMs] = useState(() => Date.now());
   const statistics = useMemo(() => buildHomeworkStatistics({
     homeworks,
@@ -259,9 +310,42 @@ const HomeworkStatsSection = ({
   const selectedHomework = filteredStatistics.find((entry) => entry.id === selectedHomeworkId)
     || filteredStatistics[filteredStatistics.length - 1]
     || null;
+  const latestHomework = filteredStatistics[filteredStatistics.length - 1] || null;
+  const selectedHomeworkIndex = selectedHomework
+    ? filteredStatistics.findIndex((entry) => entry.id === selectedHomework.id)
+    : -1;
   const estimatedHistory = filteredStatistics.some((entry) => entry.estimated);
+  const showMethodNote = estimatedHistory || filteredStatistics.length > 1;
   const trendPositive = summary.trend >= 0;
   const TrendIcon = trendPositive ? TrendingUp : TrendingDown;
+  const selectHomework = (entry, { focusButton = false, revealDetails = false } = {}) => {
+    if (!entry) return;
+    setSelectedHomeworkId(entry.id);
+    window.requestAnimationFrame(() => {
+      const scrollBehavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'auto'
+        : 'smooth';
+      const button = homeworkButtonRefs.current.get(entry.id);
+      button?.scrollIntoView({ behavior: scrollBehavior, block: 'nearest', inline: 'center' });
+      if (focusButton) button?.focus({ preventScroll: true });
+      if (revealDetails && window.matchMedia('(max-width: 767px)').matches) {
+        detailRef.current?.scrollIntoView({ behavior: scrollBehavior, block: 'start' });
+      }
+    });
+  };
+  const handleTimelineKeyDown = (event, entryIndex) => {
+    let nextIndex = null;
+    if (event.key === 'ArrowLeft') nextIndex = Math.max(0, entryIndex - 1);
+    if (event.key === 'ArrowRight') {
+      nextIndex = Math.min(filteredStatistics.length - 1, entryIndex + 1);
+    }
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = filteredStatistics.length - 1;
+    if (nextIndex == null || nextIndex === entryIndex) return;
+    event.preventDefault();
+    selectHomework(filteredStatistics[nextIndex], { focusButton: true });
+  };
+
   const hasHomeworkHistory = Array.isArray(homeworks) && homeworks.length > 0;
 
   if (!hasHomeworkHistory && mockExamProgressEntries.length === 0) {
@@ -305,15 +389,15 @@ const HomeworkStatsSection = ({
   }
 
   return (
-    <section className={`overflow-hidden rounded-[30px] border shadow-[0_18px_45px_rgba(79,70,229,0.10)] ${
+    <section className={`overflow-hidden rounded-[30px] border shadow-[0_20px_55px_rgba(79,70,229,0.11)] ${
       dark
         ? 'border-slate-700 bg-slate-950/75'
         : 'border-purple-200/80 bg-white/95'
     }`}>
-      <header className={`relative overflow-hidden border-b p-4 md:p-6 ${
+      <header className={`relative overflow-hidden border-b p-5 md:px-6 md:py-5 ${
         dark
           ? 'border-slate-700 bg-gradient-to-br from-slate-900 via-indigo-950/70 to-slate-900'
-          : 'border-purple-100 bg-gradient-to-br from-indigo-50 via-white to-sky-50'
+          : 'border-purple-100 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50/70'
       }`}>
         <div
           aria-hidden="true"
@@ -321,18 +405,18 @@ const HomeworkStatsSection = ({
             dark ? 'bg-indigo-700/20' : 'bg-purple-200/55'
           }`}
         />
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${
+            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.14em] shadow-sm ${
               dark
                 ? 'border-indigo-700/70 bg-indigo-950/60 text-indigo-200'
                 : 'border-indigo-200 bg-white/80 text-indigo-600'
             }`}>
               <BarChart3 size={13} />
-              Статистика по ДЗ
+              Учебная аналитика
             </div>
-            <h3 className={`mt-3 text-xl font-black md:text-2xl ${dark ? 'text-white' : 'text-slate-950'}`}>
-              От первой домашки до текущей
+            <h3 className={`mt-3 text-2xl font-black tracking-tight md:text-[28px] ${dark ? 'text-white' : 'text-slate-950'}`}>
+              История выполнения
             </h3>
             <p className={`mt-1 max-w-2xl text-xs leading-relaxed md:text-sm ${
               dark ? 'text-slate-400' : 'text-slate-500'
@@ -346,7 +430,7 @@ const HomeworkStatsSection = ({
                     : 'Здесь можно увидеть, как меняются твои результаты пробников в течение учебного года.')}
             </p>
           </div>
-          <label className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-bold ${
+          <label className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2.5 text-xs font-bold shadow-sm transition focus-within:ring-2 focus-within:ring-indigo-400/35 ${
             dark
               ? 'border-slate-700 bg-slate-900/80 text-slate-300'
               : 'border-slate-200 bg-white/90 text-slate-600'
@@ -373,70 +457,120 @@ const HomeworkStatsSection = ({
       </header>
 
       <div className="space-y-4 p-3.5 md:space-y-5 md:p-6">
+        {hasHomeworkHistory && summary.homeworkCount === 0 && (
+          <div className={`flex items-start gap-3 rounded-2xl border px-3.5 py-3 text-sm ${
+            dark
+              ? 'border-slate-700 bg-slate-900/65 text-slate-300'
+              : 'border-slate-200 bg-slate-50 text-slate-600'
+          }`} role="status">
+            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
+              dark ? 'bg-slate-800 text-slate-400' : 'bg-white text-slate-500'
+            }`}>
+              <CircleDashed size={17} />
+            </span>
+            <div>
+              <strong className={`block ${dark ? 'text-white' : 'text-slate-900'}`}>
+                {filteredStatistics.length === 0
+                  ? 'В выбранном периоде нет домашних работ'
+                  : 'В выбранном периоде пока нечего сравнивать'}
+              </strong>
+              <span className="mt-0.5 block text-xs leading-relaxed">
+                {filteredStatistics.length === 0
+                  ? 'Можно смотреть динамику пробников за этот учебный год.'
+                  : 'Домашние работы есть, но в них нет заданий с доступной автоматической проверкой.'}
+              </span>
+            </div>
+          </div>
+        )}
+
         {filteredStatistics.length > 0 && (
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          <div className={`rounded-2xl border p-3 ${
+          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+          <div className={`relative overflow-hidden rounded-2xl border p-3.5 shadow-sm ${
             dark ? 'border-indigo-800/65 bg-indigo-950/40' : 'border-indigo-100 bg-indigo-50/70'
           }`}>
-            <div className={`text-[10px] font-black uppercase tracking-[0.13em] ${
-              dark ? 'text-indigo-300' : 'text-indigo-500'
-            }`}>Среднее выполнение</div>
+            <span className={`absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-xl ${
+              dark ? 'bg-indigo-900/70 text-indigo-200' : 'bg-white/80 text-indigo-600'
+            }`}>
+              <BarChart3 size={16} />
+            </span>
+            <div className={`pr-9 text-[11px] font-extrabold uppercase tracking-[0.1em] ${
+              dark ? 'text-indigo-300' : 'text-indigo-600'
+            }`}>Среднее по ДЗ</div>
             <div className="mt-1 flex items-end justify-between gap-2">
               <strong className={`text-2xl font-black ${dark ? 'text-indigo-100' : 'text-indigo-700'}`}>
-                {summary.averagePercent}%
+                {summary.homeworkCount > 0 ? `${summary.averagePercent}%` : '—'}
               </strong>
               {summary.homeworkCount >= 4 && summary.trend !== 0 && (
-                <span className={`inline-flex items-center gap-0.5 text-[10px] font-black ${
-                  trendPositive ? 'text-emerald-500' : 'text-rose-500'
-                }`}>
+                <span
+                  className={`inline-flex items-center gap-0.5 text-[11px] font-extrabold ${
+                    trendPositive ? 'text-emerald-500' : 'text-rose-500'
+                  }`}
+                  title="Последние 3 домашние работы по сравнению с предыдущими 3"
+                  aria-label={`Тренд последних трёх домашних работ: ${summary.trend > 0 ? 'рост' : 'снижение'} на ${Math.abs(summary.trend)} процентных пункта`}
+                >
                   <TrendIcon size={12} />
                   {`${summary.trend > 0 ? '+' : ''}${summary.trend} п.п.`}
                 </span>
               )}
             </div>
           </div>
-          <div className={`rounded-2xl border p-3 ${
+          <div className={`relative overflow-hidden rounded-2xl border p-3.5 shadow-sm ${
             dark ? 'border-emerald-800/65 bg-emerald-950/35' : 'border-emerald-100 bg-emerald-50/70'
           }`}>
-            <div className={`text-[10px] font-black uppercase tracking-[0.13em] ${
+            <span className={`absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-xl ${
+              dark ? 'bg-emerald-900/70 text-emerald-200' : 'bg-white/80 text-emerald-600'
+            }`}>
+              <CheckCircle2 size={16} />
+            </span>
+            <div className={`pr-9 text-[11px] font-extrabold uppercase tracking-[0.1em] ${
               dark ? 'text-emerald-300' : 'text-emerald-600'
             }`}>Выполнено полностью</div>
             <div className="mt-1 flex items-end gap-1.5">
               <strong className={`text-2xl font-black ${dark ? 'text-emerald-100' : 'text-emerald-700'}`}>
                 {summary.fullyCompletedCount}
               </strong>
-              <span className={`pb-1 text-[11px] font-semibold ${dark ? 'text-slate-400' : 'text-slate-400'}`}>
+              <span className={`pb-1 text-[11px] font-semibold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
                 {`из ${summary.homeworkCount}`}
               </span>
             </div>
           </div>
-          <div className={`rounded-2xl border p-3 ${
+          <div className={`relative overflow-hidden rounded-2xl border p-3.5 shadow-sm ${
             dark ? 'border-sky-800/65 bg-sky-950/35' : 'border-sky-100 bg-sky-50/70'
           }`}>
-            <div className={`text-[10px] font-black uppercase tracking-[0.13em] ${
+            <span className={`absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-xl ${
+              dark ? 'bg-sky-900/70 text-sky-200' : 'bg-white/80 text-sky-600'
+            }`}>
+              <Clock3 size={16} />
+            </span>
+            <div className={`pr-9 text-[11px] font-extrabold uppercase tracking-[0.1em] ${
               dark ? 'text-sky-300' : 'text-sky-600'
             }`}>Полностью в срок</div>
             <div className="mt-1 flex items-end gap-1.5">
               <strong className={`text-2xl font-black ${dark ? 'text-sky-100' : 'text-sky-700'}`}>
                 {summary.onTimeCount}
               </strong>
-              <span className={`pb-1 text-[11px] font-semibold ${dark ? 'text-slate-400' : 'text-slate-400'}`}>
-                домашних
+              <span className={`pb-1 text-[11px] font-semibold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+                {`из ${summary.homeworkCount}`}
               </span>
             </div>
           </div>
-          <div className={`rounded-2xl border p-3 ${
+          <div className={`relative overflow-hidden rounded-2xl border p-3.5 shadow-sm ${
             dark ? 'border-amber-800/65 bg-amber-950/35' : 'border-amber-100 bg-amber-50/70'
           }`}>
-            <div className={`text-[10px] font-black uppercase tracking-[0.13em] ${
+            <span className={`absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-xl ${
+              dark ? 'bg-amber-900/70 text-amber-200' : 'bg-white/80 text-amber-600'
+            }`}>
+              <AlertTriangle size={16} />
+            </span>
+            <div className={`pr-9 text-[11px] font-extrabold uppercase tracking-[0.1em] ${
               dark ? 'text-amber-300' : 'text-amber-600'
             }`}>Были ошибки</div>
             <div className="mt-1 flex items-end gap-1.5">
               <strong className={`text-2xl font-black ${dark ? 'text-amber-100' : 'text-amber-700'}`}>
                 {summary.withErrorsCount}
               </strong>
-              <span className={`pb-1 text-[11px] font-semibold ${dark ? 'text-slate-400' : 'text-slate-400'}`}>
-                домашних
+              <span className={`pb-1 text-[11px] font-semibold ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+                {`из ${summary.homeworkCount}`}
               </span>
             </div>
           </div>
@@ -450,52 +584,117 @@ const HomeworkStatsSection = ({
           role={role}
         />
 
+        {latestHomework && (
+          <div className={`flex flex-col gap-3 rounded-2xl border px-3.5 py-3 sm:flex-row sm:items-center ${
+            dark
+              ? 'border-indigo-800/70 bg-indigo-950/35'
+              : 'border-indigo-100 bg-gradient-to-r from-indigo-50/80 to-purple-50/55'
+          }`}>
+            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+              dark ? 'bg-indigo-900/75 text-indigo-200' : 'bg-white text-indigo-600 shadow-sm'
+            }`}>
+              <Target size={18} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className={`text-[11px] font-extrabold uppercase tracking-[0.11em] ${
+                dark ? 'text-indigo-300' : 'text-indigo-600'
+              }`}>
+                {`Последняя в периоде · ДЗ №${latestHomework.number}`}
+              </div>
+              <strong className={`mt-0.5 block truncate text-sm ${
+                dark ? 'text-white' : 'text-slate-900'
+              }`}>
+                {latestHomework.title}
+              </strong>
+              <p className={`mt-0.5 text-xs leading-relaxed ${
+                dark ? 'text-slate-300' : 'text-slate-600'
+              }`}>
+                {getLatestHomeworkMessage(latestHomework, role)}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
+              <strong className={`text-xl font-black ${
+                dark ? 'text-indigo-100' : 'text-indigo-700'
+              }`}>
+                {latestHomework.percent == null ? '—' : `${latestHomework.percent}%`}
+              </strong>
+              {selectedHomework?.id !== latestHomework.id && (
+                <button
+                  type="button"
+                  onClick={() => selectHomework(latestHomework, { revealDetails: true })}
+                  className={`rounded-xl border px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                    dark
+                      ? 'border-indigo-700 bg-indigo-900/60 text-indigo-100 hover:bg-indigo-900'
+                      : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  Открыть
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {filteredStatistics.length > 0 && (
-          <div className={`rounded-[24px] border p-3 md:p-4 ${
-            dark ? 'border-slate-700 bg-slate-900/60' : 'border-slate-200 bg-slate-50/75'
+          <div className={`rounded-[24px] border p-3.5 shadow-sm md:p-4 ${
+            dark ? 'border-slate-700 bg-slate-900/60' : 'border-slate-200 bg-white'
           }`}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h4 className={`text-sm font-black ${dark ? 'text-white' : 'text-slate-900'}`}>
                 Динамика по домашним работам
               </h4>
-              <p className={`mt-0.5 text-[11px] ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
-                {`${getHomeworkCountLabel(filteredStatistics.length)} · нажмите на столбец для подробностей`}
+              <p className={`mt-0.5 text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                {`${getHomeworkCountLabel(filteredStatistics.length)} · высота столбца показывает выполненную долю`}
               </p>
             </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] font-bold">
+            <div className="flex flex-wrap gap-1.5 text-[11px] font-bold">
               {Object.entries(STATE_META).map(([state, meta]) => (
-                <span key={state} className={`inline-flex items-center gap-1.5 ${
-                  dark ? 'text-slate-300' : 'text-slate-600'
+                <span key={state} className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 ${
+                  dark ? meta.darkChipClass : meta.chipClass
                 }`}>
-                  <i className={`h-2 w-2 rounded-full ${meta.dotClass}`} />
+                  <i className={`h-2 w-2 rounded-full ${
+                    state === HOMEWORK_STAT_STATE.UNTOUCHED && dark
+                      ? 'bg-slate-700'
+                      : meta.dotClass
+                  }`} />
                   {meta.shortLabel}
                 </span>
               ))}
             </div>
           </div>
 
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex gap-3">
             <div
               aria-hidden="true"
-              className={`flex h-[172px] w-8 shrink-0 flex-col justify-between pb-9 text-right text-[9px] font-bold ${
-                dark ? 'text-slate-500' : 'text-slate-400'
+              className={`flex h-[172px] w-8 shrink-0 flex-col justify-between pb-9 text-right text-[10px] font-bold ${
+                dark ? 'text-slate-500' : 'text-slate-500'
               }`}
             >
               <span>100%</span>
               <span>50%</span>
               <span>0%</span>
             </div>
-            <div ref={chartRef} className="min-w-0 flex-1 overflow-x-auto pb-1">
+            <div className="relative min-w-0 flex-1">
+              <div aria-hidden="true" className="pointer-events-none absolute inset-x-2 top-[22px] h-28">
+                <i className={`absolute inset-x-0 top-0 border-t border-dashed ${dark ? 'border-slate-700/70' : 'border-slate-200'}`} />
+                <i className={`absolute inset-x-0 top-1/2 border-t border-dashed ${dark ? 'border-slate-700/70' : 'border-slate-200'}`} />
+                <i className={`absolute inset-x-0 bottom-0 border-t border-dashed ${dark ? 'border-slate-700/70' : 'border-slate-200'}`} />
+              </div>
               <div
-                className="flex min-w-max items-end gap-2.5 pr-2"
-                role="group"
-                aria-label="Домашние работы по порядку"
+                ref={chartRef}
+                className="homework-stats-chart relative z-[1] min-w-0 overflow-x-auto pb-1"
+                aria-label="График выполнения домашних работ. Используйте стрелки влево и вправо для навигации."
               >
-                {filteredStatistics.map((entry) => {
+                <div
+                  className="flex w-max min-w-full items-end justify-end gap-2 pr-2"
+                  role="group"
+                  aria-label="Домашние работы по порядку"
+                >
+                {filteredStatistics.map((entry, entryIndex) => {
                   const active = selectedHomework?.id === entry.id;
-                  const total = Math.max(1, Number(entry.totalCount) || 0);
-                  const segments = [
+                  const completedTotal = Math.max(1, Number(entry.completedCount) || 0);
+                  const completedSegments = [
                     {
                       key: HOMEWORK_STAT_STATE.CLEAN,
                       count: entry.cleanCount,
@@ -506,72 +705,92 @@ const HomeworkStatsSection = ({
                       count: entry.withErrorsCount,
                       className: 'bg-amber-400',
                     },
-                    {
-                      key: HOMEWORK_STAT_STATE.WRONG,
-                      count: entry.wrongCount,
-                      className: 'bg-rose-500',
-                    },
-                    {
-                      key: HOMEWORK_STAT_STATE.UNTOUCHED,
-                      count: entry.untouchedCount,
-                      className: dark ? 'bg-slate-700' : 'bg-slate-200',
-                    },
                   ];
+                  const resultLabel = entry.percent == null
+                    ? 'нет измеримых данных'
+                    : `выполнено ${entry.percent}%`;
                   return (
                     <button
                       key={entry.id}
+                      ref={(element) => {
+                        if (element) homeworkButtonRefs.current.set(entry.id, element);
+                        else homeworkButtonRefs.current.delete(entry.id);
+                      }}
                       type="button"
-                      onClick={() => setSelectedHomeworkId(entry.id)}
-                      className={`group flex w-12 shrink-0 flex-col items-center rounded-xl px-1 py-1.5 text-center transition ${
+                      onClick={() => selectHomework(entry, { revealDetails: true })}
+                      onKeyDown={(event) => handleTimelineKeyDown(event, entryIndex)}
+                      className={`homework-stats-chart-button group flex w-14 shrink-0 flex-col items-center rounded-2xl px-1 py-2 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 sm:w-16 ${
                         active
                           ? (dark
                               ? 'bg-indigo-900/60 ring-2 ring-indigo-400'
-                              : 'bg-white shadow-md ring-2 ring-indigo-500')
-                          : (dark ? 'hover:bg-slate-800' : 'hover:bg-white')
+                              : 'bg-indigo-50/80 shadow-md ring-2 ring-indigo-500')
+                          : (dark ? 'hover:bg-slate-800/80' : 'hover:bg-slate-50/90')
                       }`}
                       aria-pressed={active}
-                      aria-label={`Домашняя работа ${entry.number}, ${formatDate(entry.issuedAt)}, выполнено ${entry.percent ?? 0}%`}
-                      title={`${formatDate(entry.issuedAt)} · ${entry.percent ?? 0}%`}
+                      aria-controls="homework-stats-detail"
+                      aria-label={`Домашняя работа ${entry.number}, ${formatDate(entry.issuedAt)}, ${resultLabel}; сразу верно ${entry.cleanCount}, после ошибок ${entry.withErrorsCount}, пока неверно ${entry.wrongCount}, не начато ${entry.untouchedCount}`}
+                      title={`${formatDate(entry.issuedAt)} · ${entry.percent == null ? 'нет данных' : `${entry.percent}%`}`}
                     >
-                      <strong className={`mb-1 text-[10px] font-black ${
+                      <strong className={`mb-1 text-[11px] font-extrabold ${
                         active
                           ? (dark ? 'text-indigo-200' : 'text-indigo-700')
                           : (dark ? 'text-slate-300' : 'text-slate-600')
                       }`}>
                         {entry.percent == null ? '—' : `${entry.percent}%`}
                       </strong>
-                      <span className={`relative flex h-28 w-7 flex-col-reverse overflow-hidden rounded-[9px] border ${
+                      <span className={`relative block h-28 w-8 overflow-hidden rounded-[10px] border shadow-inner ${
                         active
                           ? 'border-indigo-400'
                           : (dark ? 'border-slate-700' : 'border-slate-200')
-                      }`}>
-                        {segments.map((segment) => (
-                          segment.count > 0 ? (
-                            <i
-                              key={segment.key}
-                              className={`${segment.className} block w-full transition-opacity group-hover:opacity-90`}
-                              style={{ height: `${(segment.count / total) * 100}%` }}
-                            />
-                          ) : null
-                        ))}
-                        {entry.totalCount <= 0 && (
-                          <i className={`absolute inset-0 ${dark ? 'bg-slate-800' : 'bg-slate-100'}`} />
+                      } ${dark ? 'bg-slate-800/90' : 'bg-slate-100'}`}>
+                        {entry.percent != null && entry.completedCount > 0 && (
+                          <span
+                            className="absolute inset-x-0 bottom-0 flex flex-col-reverse overflow-hidden rounded-b-[8px] transition-[height] duration-300"
+                            style={{ height: `${entry.percent}%` }}
+                            aria-hidden="true"
+                          >
+                            {completedSegments.map((segment) => (
+                              segment.count > 0 ? (
+                                <i
+                                  key={segment.key}
+                                  className={`${segment.className} block w-full`}
+                                  style={{ height: `${(segment.count / completedTotal) * 100}%` }}
+                                />
+                              ) : null
+                            ))}
+                          </span>
+                        )}
+                        {entry.wrongCount > 0 && (
+                          <span
+                            className="absolute right-0 top-1 grid min-h-4 min-w-4 place-items-center rounded-l-md bg-rose-500 px-1 text-[9px] font-black leading-4 text-white shadow-sm"
+                            aria-hidden="true"
+                          >
+                            {entry.wrongCount}
+                          </span>
                         )}
                       </span>
-                      <span className={`mt-1.5 text-[9px] font-black ${
+                      <span className={`mt-1.5 text-[11px] font-extrabold ${
                         dark ? 'text-slate-300' : 'text-slate-600'
                       }`}>
                         {`ДЗ ${entry.number}`}
                       </span>
-                      <time className={`text-[9px] ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {formatCompactDate(entry.issuedAt)}
+                      <time className={`text-[11px] ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {formatCompactDate(entry.issuedAt, resolvedSelectedYear === 'all')}
                       </time>
                     </button>
                   );
                 })}
+                </div>
               </div>
             </div>
           </div>
+          {filteredStatistics.length > 5 && (
+            <p className={`mt-2 text-center text-[11px] sm:hidden ${
+              dark ? 'text-slate-400' : 'text-slate-500'
+            }`}>
+              Смахните график, чтобы увидеть более ранние работы
+            </p>
+          )}
           </div>
         )}
 
@@ -581,28 +800,35 @@ const HomeworkStatsSection = ({
           const dueAtMs = Date.parse(selectedHomework.dueAt || '');
           const duePassed = Number.isFinite(dueAtMs) && dueAtMs < referenceNowMs;
           return (
-            <article className={`rounded-[26px] border ${
-              dark ? 'border-slate-700 bg-slate-900/55' : 'border-slate-200 bg-white'
-            }`}>
+            <article
+              ref={detailRef}
+              id="homework-stats-detail"
+              aria-labelledby="homework-stats-detail-title"
+              className={`homework-stats-detail scroll-mt-20 overflow-hidden rounded-[26px] border shadow-[0_12px_35px_rgba(79,70,229,0.07)] ${
+              dark ? 'border-slate-700 bg-slate-900/55' : 'border-purple-100 bg-white'
+              }`}
+            >
               <div className={`border-b p-4 md:p-5 ${
-                dark ? 'border-slate-700' : 'border-slate-100'
+                dark
+                  ? 'border-slate-700 bg-gradient-to-br from-slate-900/80 to-indigo-950/30'
+                  : 'border-purple-100 bg-gradient-to-br from-white via-white to-indigo-50/55'
               }`}>
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${
-                        dark ? 'text-indigo-300' : 'text-indigo-500'
+                      <span className={`text-[11px] font-extrabold uppercase tracking-[0.12em] ${
+                        dark ? 'text-indigo-300' : 'text-indigo-600'
                       }`}>
                         {`Домашняя работа №${selectedHomework.number}`}
                       </span>
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black ${
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-extrabold ${
                         dark ? status.darkClassName : status.className
                       }`}>
                         <StatusIcon size={11} />
                         {status.label}
                       </span>
                     </div>
-                    <h4 className={`mt-2 text-lg font-black leading-tight md:text-xl ${
+                    <h4 id="homework-stats-detail-title" className={`mt-2 text-lg font-black leading-tight md:text-xl ${
                       dark ? 'text-white' : 'text-slate-950'
                     }`}>
                       {selectedHomework.title}
@@ -620,29 +846,78 @@ const HomeworkStatsSection = ({
                           ? `Срок ${formatDate(selectedHomework.dueAt, { year: true })}`
                           : 'Срок не указан'}
                       </span>
+                      {selectedHomework.isOverdue && (
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-bold ${
+                          dark ? 'bg-rose-950/60 text-rose-200' : 'bg-rose-100 text-rose-700'
+                        }`}>
+                          <AlertTriangle size={11} />
+                          Просрочено
+                        </span>
+                      )}
+                      {selectedHomework.lateCompletedCount > 0 && (
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-bold ${
+                          dark ? 'bg-amber-950/60 text-amber-200' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          <Clock3 size={11} />
+                          {`После срока: ${selectedHomework.lateCompletedCount}`}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <div className={`flex shrink-0 items-center gap-3 rounded-2xl border px-3 py-2.5 ${
-                    dark
-                      ? 'border-indigo-800/70 bg-indigo-950/45'
-                      : 'border-indigo-100 bg-indigo-50/70'
-                  }`}>
-                    <div>
-                      <div className={`text-[9px] font-black uppercase tracking-[0.14em] ${
-                        dark ? 'text-indigo-300' : 'text-indigo-500'
+                  <div className="flex shrink-0 flex-col gap-2">
+                    <div className={`flex items-center justify-between gap-1 rounded-xl border p-1 ${
+                      dark ? 'border-slate-700 bg-slate-900/70' : 'border-slate-200 bg-white'
+                    }`} aria-label="Переключение между домашними работами">
+                      <button
+                        type="button"
+                        onClick={() => selectHomework(filteredStatistics[selectedHomeworkIndex - 1])}
+                        disabled={selectedHomeworkIndex <= 0}
+                        className={`grid h-8 w-8 place-items-center rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:opacity-30 ${
+                          dark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                        aria-label="Предыдущая домашняя работа"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <span className={`min-w-14 text-center text-[11px] font-bold ${
+                        dark ? 'text-slate-300' : 'text-slate-600'
                       }`}>
-                        {selectedHomework.isLatest ? 'На сейчас' : 'Итог'}
-                      </div>
-                      <div className={`text-2xl font-black ${dark ? 'text-indigo-100' : 'text-indigo-700'}`}>
-                        {selectedHomework.percent == null ? '—' : `${selectedHomework.percent}%`}
-                      </div>
+                        {`${selectedHomeworkIndex + 1} из ${filteredStatistics.length}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => selectHomework(filteredStatistics[selectedHomeworkIndex + 1])}
+                        disabled={selectedHomeworkIndex >= filteredStatistics.length - 1}
+                        className={`grid h-8 w-8 place-items-center rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:opacity-30 ${
+                          dark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                        aria-label="Следующая домашняя работа"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
                     </div>
-                    <div className={`h-9 w-px ${dark ? 'bg-indigo-800' : 'bg-indigo-200'}`} />
-                    <div className={`text-[11px] font-bold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
-                      <strong className={`block text-sm ${dark ? 'text-white' : 'text-slate-900'}`}>
-                        {`${selectedHomework.completedCount}/${selectedHomework.totalCount}`}
-                      </strong>
-                      выполнено
+                    <div className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 ${
+                      dark
+                        ? 'border-indigo-800/70 bg-indigo-950/45'
+                        : 'border-indigo-100 bg-indigo-50/70'
+                    }`}>
+                      <div>
+                        <div className={`text-[10px] font-extrabold uppercase tracking-[0.12em] ${
+                          dark ? 'text-indigo-300' : 'text-indigo-600'
+                      }`}>
+                          {selectedHomework.isLatest ? 'На сейчас' : 'Итог'}
+                        </div>
+                        <div className={`text-2xl font-black ${dark ? 'text-indigo-100' : 'text-indigo-700'}`}>
+                          {selectedHomework.percent == null ? '—' : `${selectedHomework.percent}%`}
+                        </div>
+                      </div>
+                      <div className={`h-9 w-px ${dark ? 'bg-indigo-800' : 'bg-indigo-200'}`} />
+                      <div className={`text-[11px] font-bold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
+                        <strong className={`block text-sm ${dark ? 'text-white' : 'text-slate-900'}`}>
+                          {`${selectedHomework.completedCount}/${selectedHomework.totalCount}`}
+                        </strong>
+                        выполнено
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -678,9 +953,9 @@ const HomeworkStatsSection = ({
                         : 'border-slate-200 bg-slate-50 text-slate-600',
                     },
                   ].map((item) => (
-                    <div key={item.label} className={`rounded-xl border px-3 py-2 ${item.className}`}>
+                    <div key={item.label} className={`rounded-xl border px-3 py-2 shadow-sm ${item.className}`}>
                       <strong className="block text-lg font-black">{item.value}</strong>
-                      <span className="text-[10px] font-bold">{item.label}</span>
+                      <span className="text-[11px] font-bold">{item.label}</span>
                     </div>
                   ))}
                 </div>
@@ -717,7 +992,9 @@ const HomeworkStatsSection = ({
                         }`}
                         open={selectedHomework.goals.length === 1}
                       >
-                        <summary className="flex cursor-pointer list-none items-center gap-3 p-3.5">
+                        <summary className={`flex cursor-pointer list-none items-center gap-3 rounded-2xl p-3.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 ${
+                          dark ? 'hover:bg-slate-800/65' : 'hover:bg-white'
+                        }`}>
                           <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
                             dark ? 'bg-indigo-950 text-indigo-300' : 'bg-indigo-100 text-indigo-600'
                           }`}>
@@ -734,7 +1011,7 @@ const HomeworkStatsSection = ({
                           <ChevronRight
                             size={17}
                             className={`shrink-0 transition group-open:rotate-90 ${
-                              dark ? 'text-slate-500' : 'text-slate-400'
+                              dark ? 'text-slate-500' : 'text-slate-500'
                             }`}
                           />
                         </summary>
@@ -767,7 +1044,9 @@ const HomeworkStatsSection = ({
                   <details className={`group rounded-2xl border ${
                     dark ? 'border-slate-700 bg-slate-950/40' : 'border-slate-200 bg-slate-50/60'
                   }`}>
-                    <summary className="flex cursor-pointer list-none items-center gap-3 p-3.5">
+                    <summary className={`flex cursor-pointer list-none items-center gap-3 rounded-2xl p-3.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 ${
+                      dark ? 'hover:bg-slate-800/65' : 'hover:bg-white'
+                    }`}>
                       <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
                         dark ? 'bg-sky-950 text-sky-300' : 'bg-sky-100 text-sky-600'
                       }`}>
@@ -785,7 +1064,7 @@ const HomeworkStatsSection = ({
                       <ChevronRight
                         size={17}
                         className={`shrink-0 transition group-open:rotate-90 ${
-                          dark ? 'text-slate-500' : 'text-slate-400'
+                          dark ? 'text-slate-500' : 'text-slate-500'
                         }`}
                       />
                     </summary>
@@ -826,16 +1105,16 @@ const HomeworkStatsSection = ({
           );
         })()}
 
-        {estimatedHistory && (
-          <div className={`flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-[11px] leading-relaxed ${
+        {showMethodNote && (
+          <div className={`flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-xs leading-relaxed ${
             dark
               ? 'border-slate-700 bg-slate-900/55 text-slate-400'
               : 'border-slate-200 bg-slate-50 text-slate-500'
           }`}>
-            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-500" />
+            <Info size={14} className="mt-0.5 shrink-0 text-indigo-500" />
             <span>
-              Старые результаты восстановлены по сохранённому журналу попыток. Для домашних,
-              созданных до появления журнала, и для пробников отдельные детали могут быть приблизительными.
+              Статистика собрана по журналу попыток и периодам между выдачами ДЗ. Если сроки
+              пересекались или старых событий уже нет в журнале, отдельные значения могут быть приблизительными.
             </span>
           </div>
         )}
