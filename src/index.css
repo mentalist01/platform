@@ -95242,17 +95242,17 @@ html[data-theme='dark'] .homework-stats-page,
 .mock-exam-task-rail__picker {
   overflow-y: auto;
   padding-right: 0.15rem;
-  scrollbar-color: rgba(244, 114, 182, 0.52) transparent;
-  scrollbar-width: thin;
+  /* The rail is designed to fit all task rows. Keep a fallback scroll
+     container for very short windows, but do not expose a one-pixel native
+     scrollbar when the grid is visually complete. */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .mock-exam-task-rail__picker::-webkit-scrollbar {
-  width: 5px;
-}
-
-.mock-exam-task-rail__picker::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(244, 114, 182, 0.46);
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .mock-exam-task-picker {
@@ -96010,7 +96010,9 @@ html[data-theme='dark'] .mock-exam-modal--timer .mock-exam-summary__stats > div 
   box-shadow:
     0 10px 20px rgba(15, 23, 42, 0.18),
     0 0 0 1px rgba(255, 255, 255, 0.06) inset !important;
-  transform: translateY(-1px) rotate(-0.5deg);
+  /* Keep the selected cell inside the scroll area; rotation makes the
+     transformed bounds overflow by a fraction of a pixel at the edges. */
+  transform: none;
 }
 
 .mock-exam-modal--timer .mock-exam-task-picker button[data-mock-task-state='current']::after {
@@ -96057,7 +96059,10 @@ html[data-theme='dark'] .mock-exam-modal--timer .mock-exam-task-picker button[da
 
 .mock-exam-modal--timer .mock-exam-task-legend {
   border-top: 1px dashed rgba(100, 116, 139, 0.2);
-  margin-top: 0.65rem;
+  /* The five-row task grid should fit without turning the rail into a
+     scroll container just because of the legend's vertical spacing. */
+  margin-top: 0.25rem;
+  padding-top: 0.4rem;
 }
 
 .mock-exam-focus-note {

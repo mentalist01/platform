@@ -1771,7 +1771,7 @@ const MockExamModal = ({
               {renderTimerExamActions(false)}
             </div>
 
-            <div className={`mock-exam-task-rail flex min-h-0 flex-1 flex-col rounded-[1.4rem] border p-3 ${panelClassName}`}>
+            <div className={`mock-exam-task-rail flex min-h-0 flex-col rounded-[1.4rem] border p-3 ${panelClassName}`}>
               <div className="mb-2.5 flex items-center justify-between gap-3">
                 <div className={labelClassName}>Задания</div>
                 <div className={`${isDarkTheme ? 'text-slate-500' : 'text-slate-400'} text-xs`}>
