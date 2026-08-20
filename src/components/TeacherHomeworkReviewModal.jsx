@@ -620,6 +620,7 @@ const TeacherHomeworkReviewModal = ({
                           <QuestionDifficultyBadge
                             difficulty={currentDifficulty}
                             showDetails
+                            showScore
                             showSampleSize
                             showWhenEmpty
                           />

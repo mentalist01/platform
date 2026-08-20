@@ -33,6 +33,7 @@ const QuestionDifficultyBadge = ({
   difficulty,
   theme = '',
   showDetails = false,
+  showScore = false,
   showSampleSize = false,
   showWhenEmpty = false,
   minimumSampleSize = 1,
@@ -65,6 +66,9 @@ const QuestionDifficultyBadge = ({
       ? 'border-slate-600/70 bg-slate-800/55 text-slate-200'
       : 'border-slate-200 bg-slate-50 text-slate-700');
   const details = [
+    showScore
+      ? `Балл сложности: ${Number.isFinite(Number(difficulty.score)) ? `${Math.min(100, Math.max(0, Math.round(Number(difficulty.score))))}/100` : '—'}`
+      : '',
     showDetails
       ? `В среднем: ${formatDifficultyDuration(difficulty.averageDurationMs)} · неверных попыток: ${formatWrongAttempts(difficulty.averageWrongAttempts)}`
       : '',

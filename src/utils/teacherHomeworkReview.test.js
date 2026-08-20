@@ -153,6 +153,23 @@ test('review sorts by difficulty and keeps unknown estimates last', () => {
   assert.deepEqual(sortTeacherHomeworkReviewItems(items, 'assignment').map((item) => item.key), ['medium', 'unknown', 'easy', 'hard']);
 });
 
+test('review sorts equally difficult tasks by average solving time', () => {
+  const items = [
+    { key: 'one-minute', difficulty: { category: 'very_easy', score: 10, averageDurationMs: 60_000 } },
+    { key: 'thirty-seconds', difficulty: { category: 'very_easy', score: 10, averageDurationMs: 30_000 } },
+    { key: 'forty-seconds', difficulty: { category: 'very_easy', score: 10, averageDurationMs: 40_000 } },
+  ];
+
+  assert.deepEqual(
+    sortTeacherHomeworkReviewItems(items, 'easiest').map((item) => item.key),
+    ['thirty-seconds', 'forty-seconds', 'one-minute']
+  );
+  assert.deepEqual(
+    sortTeacherHomeworkReviewItems(items, 'hardest').map((item) => item.key),
+    ['one-minute', 'forty-seconds', 'thirty-seconds']
+  );
+});
+
 test('mock review items include saved time for every exam task', () => {
   const items = buildTeacherHomeworkReviewItems({
     goalViews: [{

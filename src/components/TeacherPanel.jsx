@@ -4194,6 +4194,7 @@ const TeacherPanel = ({
                       <QuestionDifficultyBadge
                         difficulty={questionDifficultyById?.[String(q.id)]}
                         showDetails
+                        showScore
                         showWhenEmpty
                       />
                     </div>

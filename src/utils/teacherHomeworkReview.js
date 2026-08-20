@@ -1,4 +1,65 @@
+import { getQuestionDifficultyCategory } from './questionDifficulty.js';
+
 const normalizeKey = (value) => String(value ?? '').trim();
+
+const DIFFICULTY_CATEGORY_ORDER = Object.freeze({
+  very_easy: 0,
+  easy: 1,
+  medium: 2,
+  hard: 3,
+  very_hard: 4,
+});
+
+export const getTeacherHomeworkReviewDifficultyDetails = (item) => {
+  const difficulty = item?.difficulty
+    || item?.questionDifficulty
+    || item?.question?.difficulty
+    || null;
+  const scoreCandidate = item?.difficultyScore
+    ?? difficulty?.score
+    ?? item?.question?.difficultyScore;
+  const score = Number(scoreCandidate);
+  const categoryCandidate = String(difficulty?.category ?? difficulty?.categoryKey ?? '').trim();
+  const category = categoryCandidate || getQuestionDifficultyCategory(score);
+  const duration = Number(
+    difficulty?.averageDurationMs
+      ?? difficulty?.averageActiveDurationMs
+      ?? item?.averageDurationMs
+  );
+  return {
+    categoryRank: Number.isInteger(DIFFICULTY_CATEGORY_ORDER[category])
+      ? DIFFICULTY_CATEGORY_ORDER[category]
+      : null,
+    duration: Number.isFinite(duration) && duration >= 0 ? duration : null,
+    score: Number.isFinite(score) ? score : null,
+  };
+};
+
+export const compareTeacherHomeworkReviewDifficulty = (leftItem, rightItem, direction = 1) => {
+  const left = getTeacherHomeworkReviewDifficultyDetails(leftItem);
+  const right = getTeacherHomeworkReviewDifficultyDetails(rightItem);
+  const leftScoreKnown = left.score !== null;
+  const rightScoreKnown = right.score !== null;
+  if (!leftScoreKnown && !rightScoreKnown) return 0;
+  if (!leftScoreKnown) return 1;
+  if (!rightScoreKnown) return -1;
+  if (left.score !== right.score) return (left.score - right.score) * direction;
+
+  const leftCategoryKnown = left.categoryRank !== null;
+  const rightCategoryKnown = right.categoryRank !== null;
+  if (leftCategoryKnown && rightCategoryKnown && left.categoryRank !== right.categoryRank) {
+    return (left.categoryRank - right.categoryRank) * direction;
+  }
+  if (!leftCategoryKnown && !rightCategoryKnown) return 0;
+  if (!leftCategoryKnown) return 1;
+  if (!rightCategoryKnown) return -1;
+  if (left.duration !== null && right.duration !== null && left.duration !== right.duration) {
+    return (left.duration - right.duration) * direction;
+  }
+  if (left.duration === null && right.duration !== null) return 1;
+  if (left.duration !== null && right.duration === null) return -1;
+  return 0;
+};
 
 const hasAnswerValue = (value) => {
   if (Array.isArray(value)) return value.some((entry) => normalizeKey(entry));
@@ -171,14 +232,8 @@ export const sortTeacherHomeworkReviewItems = (items, sort = 'assignment') => {
     const direction = sort === 'easiest' ? 1 : -1;
     return list
       .sort((left, right) => {
-        const leftScore = Number(left.item?.difficultyScore ?? left.item?.question?.difficulty?.score);
-        const rightScore = Number(right.item?.difficultyScore ?? right.item?.question?.difficulty?.score);
-        const leftKnown = Number.isFinite(leftScore);
-        const rightKnown = Number.isFinite(rightScore);
-        if (!leftKnown && !rightKnown) return left.index - right.index;
-        if (!leftKnown) return 1;
-        if (!rightKnown) return -1;
-        return (leftScore - rightScore) * direction || left.index - right.index;
+        return compareTeacherHomeworkReviewDifficulty(left.item, right.item, direction)
+          || left.index - right.index;
       })
       .map(({ item }) => item);
   }

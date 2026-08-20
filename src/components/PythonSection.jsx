@@ -2742,6 +2742,7 @@ const PythonSection = ({
                               <QuestionDifficultyBadge
                                 difficulty={manageQuestionDifficultyById?.[String(q.id)]}
                                 showDetails
+                                showScore
                                 showWhenEmpty
                               />
                             </div>

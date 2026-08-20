@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileCode2, History, ListChecks, ListPlus, RefreshCcw, X } from 'lucide-react';
+import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileCode2, History, ListChecks, ListPlus, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -10,6 +10,7 @@ import { getHomeworkLessonBasketItemKey } from '../utils/homeworkLessonBasket';
 import { writeBoardTaskToClipboard } from '../utils/boardTaskClipboard';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import { formatDifficultyDuration } from '../utils/questionDifficulty';
+import { compareTeacherHomeworkReviewDifficulty } from '../utils/teacherHomeworkReview';
 import { Button } from './ui';
 
 const TEACHER_CODE_COPY_FEEDBACK_MS = 1800;
@@ -143,6 +144,7 @@ const ProgressReviewModal = ({
   const [answerHistoryLoading, setAnswerHistoryLoading] = useState(false);
   const [answerHistoryError, setAnswerHistoryError] = useState('');
   const [questionDifficultyById, setQuestionDifficultyById] = useState({});
+  const [questionSort, setQuestionSort] = useState('assignment');
   const [questionCodeById, setQuestionCodeById] = useState({});
   const [questionCodeLoadingById, setQuestionCodeLoadingById] = useState({});
   const [questionCodeErrorById, setQuestionCodeErrorById] = useState({});
@@ -154,6 +156,23 @@ const ProgressReviewModal = ({
   const questionCodeCopyResetTimerRef = React.useRef(null);
   const questionBoardCopyResetTimerRef = React.useRef(null);
   const questionCodeRequestScopeRef = React.useRef('');
+
+  const orderedQuestions = React.useMemo(() => {
+    const list = (Array.isArray(questions) ? questions : []).map((question, index) => ({ question, index }));
+    if (!['easiest', 'hardest'].includes(questionSort)) return list.map(({ question }) => question);
+    const direction = questionSort === 'easiest' ? 1 : -1;
+    const getDifficulty = ({ question, index }) => {
+      const questionId = String(question?.id ?? index);
+      const difficulty = questionDifficultyById?.[questionId] || question?.difficulty;
+      return { difficulty };
+    };
+    return list
+      .sort((left, right) => {
+        return compareTeacherHomeworkReviewDifficulty(getDifficulty(left), getDifficulty(right), direction)
+          || left.index - right.index;
+      })
+      .map(({ question }) => question);
+  }, [questionDifficultyById, questionSort, questions]);
 
   const getQuestionCodeEntry = (questionId) => {
     const key = String(questionId ?? '').trim();
@@ -277,6 +296,7 @@ const ProgressReviewModal = ({
     const qs = testDb?.[taskNumber]?.[levelId] || [];
     setQuestions(Array.isArray(qs) ? qs : []);
     setCurrentIndex(0);
+    setQuestionSort('assignment');
     setSolvedIds(new Set());
     setAnswerById({});
     setAnswerHistoryById({});
@@ -339,6 +359,7 @@ const ProgressReviewModal = ({
         setQuestionDifficultyById(
           payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
         );
+        setCurrentIndex(0);
       })
       .catch(() => {
         if (active) setQuestionDifficultyById({});
@@ -393,11 +414,12 @@ const ProgressReviewModal = ({
 
   useEffect(() => {
     if (!studentId || !taskNumber || !levelId) return;
-    const current = questions[currentIndex];
-    const currentId = String(current?.id ?? currentIndex).trim();
+    const current = orderedQuestions[currentIndex];
+    const originalIndex = questions.indexOf(current);
+    const currentId = String(current?.id ?? (originalIndex >= 0 ? originalIndex : currentIndex)).trim();
     if (!currentId) return;
     loadQuestionCode(currentId);
-  }, [studentId, taskNumber, levelId, questions, currentIndex]);
+  }, [studentId, taskNumber, levelId, orderedQuestions, questions, currentIndex]);
 
   if (!task) return null;
 
@@ -428,17 +450,22 @@ const ProgressReviewModal = ({
     return Array.from({ length: count }, (_, idx) => String(idx + 1));
   };
 
-  const hasQuestions = Array.isArray(questions) && questions.length > 0;
+  const hasQuestions = Array.isArray(orderedQuestions) && orderedQuestions.length > 0;
   const taskDisplayNumber = typeof getTaskDisplayNumber === 'function'
     ? getTaskDisplayNumber(task)
     : task?.number;
-  const currentQuestion = hasQuestions ? questions[currentIndex] : null;
-  const currentId = String(currentQuestion?.id ?? currentIndex);
+  const currentQuestion = hasQuestions ? orderedQuestions[currentIndex] : null;
+  const getQuestionDisplayNumber = (question, fallbackIndex) => {
+    const originalIndex = questions.indexOf(question);
+    return originalIndex >= 0 ? originalIndex + 1 : fallbackIndex + 1;
+  };
+  const currentQuestionNumber = getQuestionDisplayNumber(currentQuestion, currentIndex);
+  const currentId = String(currentQuestion?.id ?? currentQuestionNumber - 1);
   const currentBasketItem = currentQuestion ? {
     taskNumber,
     levelId,
     questionId: String(currentQuestion?.id ?? '').trim(),
-    questionNumber: currentIndex + 1,
+    questionNumber: currentQuestionNumber,
     taskTitle: String(task?.title || '').trim(),
   } : null;
   const currentBasketItemKey = getHomeworkLessonBasketItemKey(currentBasketItem);
@@ -489,23 +516,23 @@ const ProgressReviewModal = ({
       const rawUrl = file?.url || (file?.storageName ? `/uploads/${file.storageName}` : '');
       return { ...file, url: withStudentId(rawUrl, studentId) };
     });
-  const solvedQuestionCount = questions.reduce((count, question, index) => (
-    solvedIds.has(String(question?.id ?? index)) ? count + 1 : count
+  const solvedQuestionCount = orderedQuestions.reduce((count, question, index) => (
+    solvedIds.has(String(question?.id ?? (getQuestionDisplayNumber(question, index) - 1))) ? count + 1 : count
   ), 0);
-  const completionPercent = questions.length > 0
-    ? Math.round((solvedQuestionCount / questions.length) * 100)
+  const completionPercent = orderedQuestions.length > 0
+    ? Math.round((solvedQuestionCount / orderedQuestions.length) * 100)
     : 0;
   const getQuestionState = (question, index) => {
-    const questionId = String(question?.id ?? index);
+    const questionId = String(question?.id ?? (getQuestionDisplayNumber(question, index) - 1));
     if (solvedIds.has(questionId)) return 'solved';
     if (Array.isArray(answerHistoryById?.[questionId]) && answerHistoryById[questionId].length > 0) return 'wrong';
     return 'pending';
   };
   const previousQuestionState = currentIndex > 0
-    ? getQuestionState(questions[currentIndex - 1], currentIndex - 1)
+    ? getQuestionState(orderedQuestions[currentIndex - 1], currentIndex - 1)
     : 'pending';
-  const nextQuestionState = currentIndex < questions.length - 1
-    ? getQuestionState(questions[currentIndex + 1], currentIndex + 1)
+  const nextQuestionState = currentIndex < orderedQuestions.length - 1
+    ? getQuestionState(orderedQuestions[currentIndex + 1], currentIndex + 1)
     : 'pending';
   const questionCodeEntry = getQuestionCodeEntry(currentId);
   const questionCodeLoading = Boolean(questionCodeLoadingById?.[currentId]);
@@ -577,7 +604,7 @@ const ProgressReviewModal = ({
         levelId,
         levelTitle: activeLevel?.label || '',
         questionId: currentId,
-        questionNumber: currentIndex + 1,
+        questionNumber: currentQuestionNumber,
         questionLabel: currentQuestionLabel?.text || '',
       },
       questionText: currentQuestion.question || '',
@@ -659,25 +686,40 @@ const ProgressReviewModal = ({
             })}
           </div>
 
-          <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
             <span className="student-test-question-caption">
-              {hasQuestions ? `Вопрос ${currentIndex + 1} из ${questions.length}` : 'Вопросов пока нет'}
+              {hasQuestions ? `Вопрос ${currentIndex + 1} из ${orderedQuestions.length}` : 'Вопросов пока нет'}
             </span>
-            <span className="student-test-mobile-progress sm:hidden">
-              {solvedQuestionCount}/{questions.length} решено
-            </span>
+            <div className="flex items-center gap-2">
+              <label className="teacher-homework-review-sort">
+                <ArrowDownUp size={14} aria-hidden="true" />
+                <span className="sr-only">Сортировка вопросов</span>
+                <select value={questionSort} onChange={(event) => {
+                  setQuestionSort(event.target.value);
+                  setCurrentIndex(0);
+                }}>
+                  <option value="assignment">По порядку</option>
+                  <option value="easiest">Сначала лёгкие</option>
+                  <option value="hardest">Сначала сложные</option>
+                </select>
+              </label>
+              <span className="student-test-mobile-progress sm:hidden">
+                {solvedQuestionCount}/{orderedQuestions.length} решено
+              </span>
+            </div>
           </div>
 
           {hasQuestions && (
             <div className="student-test-question-list mt-2 flex gap-2 overflow-x-auto">
-              {questions.map((question, index) => {
+              {orderedQuestions.map((question, index) => {
                 const questionId = String(question?.id ?? index);
+                const questionNumber = getQuestionDisplayNumber(question, index);
                 const state = getQuestionState(question, index);
                 const current = index === currentIndex;
                 const stateClass = state === 'solved' ? 'is-correct' : (state === 'wrong' ? 'is-wrong' : '');
                 const title = state === 'solved'
-                  ? `Вопрос №${index + 1} решён`
-                  : (state === 'wrong' ? `Вопрос №${index + 1}: были неверные попытки` : `Вопрос №${index + 1}`);
+                  ? `Вопрос №${questionNumber} решён`
+                  : (state === 'wrong' ? `Вопрос №${questionNumber}: были неверные попытки` : `Вопрос №${questionNumber}`);
                 return (
                   <button
                     key={questionId}
@@ -688,7 +730,7 @@ const ProgressReviewModal = ({
                     title={title}
                     aria-current={current ? 'step' : undefined}
                   >
-                    {state === 'solved' ? <Check size={14} strokeWidth={3} /> : index + 1}
+                    {state === 'solved' ? <Check size={14} strokeWidth={3} /> : questionNumber}
                   </button>
                 );
               })}
@@ -709,8 +751,8 @@ const ProgressReviewModal = ({
         </button>
         <button
           type="button"
-          onClick={() => setCurrentIndex((index) => Math.min(questions.length - 1, index + 1))}
-          disabled={!hasQuestions || currentIndex >= questions.length - 1}
+          onClick={() => setCurrentIndex((index) => Math.min(orderedQuestions.length - 1, index + 1))}
+          disabled={!hasQuestions || currentIndex >= orderedQuestions.length - 1}
           className={`student-test-side-nav student-test-side-nav--next is-${nextQuestionState}`}
           aria-label="Следующее задание"
         >
@@ -742,6 +784,7 @@ const ProgressReviewModal = ({
                         difficulty={questionDifficultyById?.[currentId]}
                         theme={theme}
                         showDetails
+                        showScore
                         showSampleSize
                         showWhenEmpty
                       />
@@ -1055,12 +1098,12 @@ const ProgressReviewModal = ({
 
           <footer className="student-test-footer shrink-0">
             <div className="teacher-test-review-footer-summary mr-auto">
-              Решено: <strong>{solvedQuestionCount}/{questions.length}</strong>
+              Решено: <strong>{solvedQuestionCount}/{orderedQuestions.length}</strong>
             </div>
             <Button variant="secondary" onClick={onClose}>Закрыть</Button>
             <Button
               onClick={() => {
-                if (!hasQuestions || currentIndex >= questions.length - 1) {
+                if (!hasQuestions || currentIndex >= orderedQuestions.length - 1) {
                   onClose();
                   return;
                 }
@@ -1069,7 +1112,7 @@ const ProgressReviewModal = ({
               disabled={!hasQuestions}
               className="student-test-primary-action is-ready"
             >
-              {currentIndex >= questions.length - 1 ? 'Закрыть просмотр' : 'Следующее задание'}
+              {currentIndex >= orderedQuestions.length - 1 ? 'Закрыть просмотр' : 'Следующее задание'}
             </Button>
           </footer>
         </div>
