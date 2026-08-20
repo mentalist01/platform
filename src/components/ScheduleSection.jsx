@@ -722,7 +722,7 @@ const ScheduleSection = ({
   const [homeworkDraftError, setHomeworkDraftError] = useState('');
   const [homeworkDraftNotice, setHomeworkDraftNotice] = useState('');
   const [teacherHomeworkReviewOpen, setTeacherHomeworkReviewOpen] = useState(false);
-  const homeworkReviewOpenedFromRequestRef = React.useRef(false);
+  const homeworkReviewOpenStudentIdRef = React.useRef('');
   const [questionDifficultyIndex, setQuestionDifficultyIndex] = useState({});
   const [mockTaskAnalyticsByExam, setMockTaskAnalyticsByExam] = useState({});
   const [homeworkDurationAnalyticsLoading, setHomeworkDurationAnalyticsLoading] = useState(false);
@@ -2715,7 +2715,10 @@ const ScheduleSection = ({
       })
     : null;
 
-  const handleOpenBriefingHomework = () => setTeacherHomeworkReviewOpen(true);
+  const handleOpenBriefingHomework = () => {
+    homeworkReviewOpenStudentIdRef.current = String(effectiveStudentId || '').trim();
+    setTeacherHomeworkReviewOpen(true);
+  };
 
   useEffect(() => {
     if (role !== 'teacher' || !homeworkReviewRequest) return;
@@ -2728,7 +2731,7 @@ const ScheduleSection = ({
       onSelectStudent?.(requestedStudentId);
       return;
     }
-    homeworkReviewOpenedFromRequestRef.current = true;
+    homeworkReviewOpenStudentIdRef.current = requestedStudentId;
     setTeacherHomeworkReviewOpen(true);
     onHomeworkReviewRequestHandled?.(homeworkReviewRequest);
   }, [
@@ -2741,12 +2744,13 @@ const ScheduleSection = ({
 
   useEffect(() => {
     if (homeworkReviewRequest) return;
-    if (homeworkReviewOpenedFromRequestRef.current) {
-      homeworkReviewOpenedFromRequestRef.current = false;
-      return;
-    }
+    if (!teacherHomeworkReviewOpen) return;
+    const openedForStudentId = String(homeworkReviewOpenStudentIdRef.current || '').trim();
+    const currentStudentId = String(effectiveStudentId || '').trim();
+    if (openedForStudentId && openedForStudentId === currentStudentId) return;
+    homeworkReviewOpenStudentIdRef.current = '';
     setTeacherHomeworkReviewOpen(false);
-  }, [effectiveStudentId, homeworkReviewRequest, nextHomeworkEntry?.id]);
+  }, [effectiveStudentId, homeworkReviewRequest, nextHomeworkEntry?.id, teacherHomeworkReviewOpen]);
 
   useEffect(() => {
     setShowHistory(false);
@@ -5237,7 +5241,10 @@ const ScheduleSection = ({
           sourceError={[testsDbError, mockExamsError].filter(Boolean).join(' ')}
           questionDifficultyIndex={questionDifficultyIndex}
           mockTaskAnalyticsByExam={mockTaskAnalyticsByExam}
-          onClose={() => setTeacherHomeworkReviewOpen(false)}
+          onClose={() => {
+            homeworkReviewOpenStudentIdRef.current = '';
+            setTeacherHomeworkReviewOpen(false);
+          }}
         />
       )}
 
