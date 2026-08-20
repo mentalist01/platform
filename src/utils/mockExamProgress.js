@@ -181,6 +181,12 @@ export const buildMockExamProgressEntries = ({
         attemptId: normalizeText(result.attemptId),
         source: 'online',
         mode: normalizeText(result.mode).toLowerCase() || 'classic',
+        ...(Number.isInteger(Number(result.attemptNumber))
+          ? { attemptNumber: Number(result.attemptNumber) }
+          : {}),
+        ...(typeof result.isFirstAttempt === 'boolean'
+          ? { isFirstAttempt: result.isFirstAttempt }
+          : {}),
         title: normalizeText(result.examTitle ?? result.title)
           || normalizeText(exam?.title)
           || 'Онлайн-пробник',
@@ -226,6 +232,12 @@ export const buildMockExamProgressEntries = ({
         examId,
         source: 'online',
         mode,
+        ...(Number.isInteger(Number(attempt.attemptNumber))
+          ? { attemptNumber: Number(attempt.attemptNumber) }
+          : {}),
+        ...(typeof attempt.isFirstAttempt === 'boolean'
+          ? { isFirstAttempt: attempt.isFirstAttempt }
+          : {}),
         title: normalizeText(exam?.title) || 'Онлайн-пробник',
         comment: '',
         score: getMockSecondaryScoreFromSolved(scope.solvedMap),
@@ -256,7 +268,22 @@ export const buildMockExamProgressEntries = ({
     })
     .filter(Boolean);
 
-  return [...storedEntries, ...frozenEntries, ...onlineEntries]
+  const onlineByExamHasFirstAttemptMarker = new Set(
+    [...frozenEntries, ...onlineEntries]
+      .filter((entry) => entry?.examId && (
+        entry?.isFirstAttempt === true
+        || Number.isInteger(Number(entry?.attemptNumber))
+      ))
+      .map((entry) => entry.examId)
+  );
+  const firstAttemptEntries = [...frozenEntries, ...onlineEntries].filter((entry) => (
+    !entry?.examId
+    || !onlineByExamHasFirstAttemptMarker.has(entry.examId)
+    || entry.isFirstAttempt === true
+    || Number(entry.attemptNumber) === 1
+  ));
+
+  return [...storedEntries, ...firstAttemptEntries]
     .sort((left, right) => (
       left.dateMs - right.dateMs
       || left.source.localeCompare(right.source)

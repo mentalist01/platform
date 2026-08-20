@@ -1218,9 +1218,27 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getMockAttemptHistory: async (studentId, examId) => {
+    const params = new URLSearchParams();
+    if (studentId) params.append('studentId', String(studentId));
+    if (examId) params.append('examId', String(examId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/mock-exams/attempt/history?${qs}` : '/api/mock-exams/attempt/history');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   continueMockTimerAttempt: async (studentId, examId) => {
     const res = await apiFetch('/api/mock-exams/attempt/continue-timer', {
       method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, examId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  rollbackFirstMockAttempt: async (studentId, examId) => {
+    const res = await apiFetch('/api/mock-exams/attempt/rollback-first', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, examId }),
     });

@@ -2966,7 +2966,19 @@ const ProgressSection = ({
       ? mockAttemptsByExam?.[exam.id]
       : null;
     setMockAnalysisExam(exam);
-    setMockAnalysisAttempt(cachedAttempt && typeof cachedAttempt === 'object' ? cachedAttempt : null);
+    const getAnalysisAttempt = (candidate) => {
+      if (!candidate || typeof candidate !== 'object') return null;
+      const firstResult = Array.isArray(candidate.attemptHistory)
+        ? candidate.attemptHistory[0]
+        : (candidate.firstAttempt || null);
+      if (firstResult && typeof firstResult === 'object') {
+        return firstResult.attemptSnapshot && typeof firstResult.attemptSnapshot === 'object'
+          ? firstResult.attemptSnapshot
+          : firstResult;
+      }
+      return candidate;
+    };
+    setMockAnalysisAttempt(getAnalysisAttempt(cachedAttempt));
     if (cachedAttempt && typeof cachedAttempt === 'object') {
       setMockAnalysisLoading(false);
       return;
@@ -2976,7 +2988,7 @@ const ProgressSection = ({
       const attempt = await api.getMockAttempt(mockAttemptStudentId, exam.id);
       if (mockAnalysisRequestIdRef.current !== requestId) return;
       const normalizedAttempt = attempt && typeof attempt === 'object' ? attempt : {};
-      setMockAnalysisAttempt(normalizedAttempt);
+       setMockAnalysisAttempt(getAnalysisAttempt(normalizedAttempt));
       const previousCacheOwner = mockAttemptsOwnerRef.current;
       mockAttemptsOwnerRef.current = attemptOwnerKey;
       setMockAttemptsByExam((previous) => ({

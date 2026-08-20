@@ -21558,6 +21558,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     className={`toast-enter relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 ${note.type === 'solved' ? 'cursor-pointer transition hover:border-purple-300 hover:bg-purple-50/40' : ''}`}
                     onClick={note.type === 'solved' ? () => handleOpenHomeworkReviewFromNotification(note) : undefined}
                     onKeyDown={note.type === 'solved' ? (event) => {
+                      if (event.target !== event.currentTarget) return;
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
                         handleOpenHomeworkReviewFromNotification(note);
@@ -23442,6 +23443,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               className={`relative rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 ${note.type === 'solved' ? 'cursor-pointer transition hover:border-purple-300 hover:bg-purple-50/40' : ''}`}
                               onClick={note.type === 'solved' ? () => handleOpenHomeworkReviewFromNotification(note) : undefined}
                               onKeyDown={note.type === 'solved' ? (event) => {
+                                if (event.target !== event.currentTarget) return;
                                 if (event.key === 'Enter' || event.key === ' ') {
                                   event.preventDefault();
                                   handleOpenHomeworkReviewFromNotification(note);
@@ -23515,6 +23517,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               className={`rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 ${note.type === 'solved' && note.studentId ? 'cursor-pointer transition hover:border-purple-300 hover:bg-purple-50/50' : ''}`}
                               onClick={note.type === 'solved' && note.studentId ? () => handleOpenHomeworkReviewFromNotification(note) : undefined}
                               onKeyDown={note.type === 'solved' && note.studentId ? (event) => {
+                                if (event.target !== event.currentTarget) return;
                                 if (event.key === 'Enter' || event.key === ' ') {
                                   event.preventDefault();
                                   handleOpenHomeworkReviewFromNotification(note);

@@ -324,6 +324,7 @@ const MockExamModal = ({
   const finishConfirmDialogRef = useRef(null);
   const finishConfirmTriggerRef = useRef(null);
   const finishConfirmRestoreFrameRef = useRef(null);
+  const autoFinishedAttemptKeyRef = useRef('');
   const taskDurationStateRef = useRef({
     durations: {},
     activeTaskKey: '',
@@ -938,6 +939,7 @@ const MockExamModal = ({
         }
       }
     } catch (err) {
+      if (timerExpired) autoFinishedAttemptKeyRef.current = '';
       const message = typeof err?.message === 'string' ? err.message : '';
       setSaveError(message || 'Не удалось сохранить ответ. Попробуйте снова.');
     } finally {
@@ -1081,6 +1083,40 @@ const MockExamModal = ({
       setChecking(false);
     }
   };
+
+  useEffect(() => {
+    if (
+      !isTimerMode
+      || !timerExpired
+      || timerResultsVisible
+      || !studentId
+      || checking
+      || closing
+      || attemptFinished
+      || !canFinishExam
+    ) return;
+    const attemptKey = [
+      String(exam?.id || ''),
+      String(activeAttempt?.attemptId || ''),
+      String(activeAttempt?.timerExpiresAt || ''),
+    ].join(':');
+    if (!attemptKey || autoFinishedAttemptKeyRef.current === attemptKey) return;
+    autoFinishedAttemptKeyRef.current = attemptKey;
+    void handleFinishExam();
+  }, [
+    activeAttempt?.attemptId,
+    activeAttempt?.timerExpiresAt,
+    attemptFinished,
+    canFinishExam,
+    checking,
+    closing,
+    exam?.id,
+    handleFinishExam,
+    isTimerMode,
+    studentId,
+    timerExpired,
+    timerResultsVisible,
+  ]);
 
   const closeWithAnimation = () => {
     if (isExiting) return;

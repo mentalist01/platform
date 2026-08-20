@@ -24396,9 +24396,107 @@ app.get('/api/mock-exams/attempt', (req, res) => {
         targetTaskKeys: homeworkAssignment.targetTaskKeys,
       } : {}),
     });
+  const firstHistory = getFirstMockAttemptHistory(data.mockAttemptResults, exam.id);
+  const isStaffViewer = isStaffRole(req.auth);
   res.json({
     ...hideUnfinishedMockTimerResults(normalizedVisibleAttempt),
     requiredMode,
+    ...(isStaffViewer ? {
+      attemptHistory: firstHistory,
+      firstAttempt: firstHistory[0] || null,
+      firstAttemptAvailable: Boolean(firstHistory[0]),
+    } : {}),
+  });
+});
+
+app.get('/api/mock-exams/attempt/history', (req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const requestedStudentId = typeof req.query?.studentId === 'string' ? req.query.studentId.trim() : '';
+  const requestedExamId = typeof req.query?.examId === 'string' ? req.query.examId.trim() : '';
+  if (!requestedStudentId || !requestedExamId) {
+    return res.status(400).json({ error: 'studentId and examId required' });
+  }
+  const student = ensureStudentAccess(req, res, requestedStudentId);
+  if (!student) return;
+  const exam = readMockExamsDb().find((item) => String(item?.id || '') === requestedExamId);
+  if (!exam) return res.status(404).json({ error: 'Mock exam not found' });
+  if (!isMockExamVisibleToStudent(exam, student.id)) {
+    return res.status(403).json({ error: 'Mock exam access denied' });
+  }
+  const data = getStudentData(student.id);
+  const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {};
+  const currentAttempt = attempts[requestedExamId] && typeof attempts[requestedExamId] === 'object'
+    ? attempts[requestedExamId]
+    : {};
+  const history = getFirstMockAttemptHistory(data.mockAttemptResults, requestedExamId);
+  return res.json({
+    examId: requestedExamId,
+    studentId: student.id,
+    currentAttempt: hideUnfinishedMockTimerResults(normalizeMockAttemptPayload(
+      exam,
+      currentAttempt.answers,
+      currentAttempt.updatedAt,
+      currentAttempt
+    )),
+    history,
+    firstAttempt: history[0] || null,
+    canRollback: Boolean(history[0] || currentAttempt?.attemptNumber === 1 || currentAttempt?.attemptId),
+  });
+});
+
+app.post('/api/mock-exams/attempt/rollback-first', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const requestedStudentId = typeof req.body?.studentId === 'string' ? req.body.studentId.trim() : '';
+  const requestedExamId = typeof req.body?.examId === 'string' ? req.body.examId.trim() : '';
+  if (!requestedStudentId || !requestedExamId) {
+    return res.status(400).json({ error: 'studentId and examId required' });
+  }
+  const student = ensureStudentAccess(req, res, requestedStudentId);
+  if (!student) return;
+  const exam = readMockExamsDb().find((item) => String(item?.id || '') === requestedExamId);
+  if (!exam) return res.status(404).json({ error: 'Mock exam not found' });
+  if (!isMockExamVisibleToStudent(exam, student.id)) {
+    return res.status(403).json({ error: 'Mock exam access denied' });
+  }
+  const data = getStudentData(student.id);
+  const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? { ...data.mockAttempts } : {};
+  const currentAttempt = attempts[requestedExamId] && typeof attempts[requestedExamId] === 'object'
+    ? attempts[requestedExamId]
+    : null;
+  const firstResult = getFirstMockAttemptResult(data.mockAttemptResults, requestedExamId);
+  const firstAttemptId = String(firstResult?.attemptId || '').trim();
+  if (!firstResult && !currentAttempt) {
+    return res.status(404).json({ error: 'Первая попытка пробника не найдена' });
+  }
+  const nextHistory = normalizeMockExamFollowupHistory(data.mockAttemptResults)
+    .filter((entry) => {
+      if (String(entry?.examId || '').trim() !== requestedExamId) return true;
+      if (firstAttemptId && String(entry?.attemptId || '').trim() === firstAttemptId) return false;
+      return Number(entry?.attemptNumber) > 1;
+    });
+  const normalizedQueue = normalizeMockExamFollowupQueue(data.mockTestingQueue)
+    .filter((entry) => !(firstAttemptId && String(entry?.attemptId || '').trim() === firstAttemptId));
+  delete attempts[requestedExamId];
+  const rollbackAt = new Date().toISOString();
+  const updated = setStudentData(student.id, {
+    ...data,
+    mockAttempts: attempts,
+    mockAttemptResults: nextHistory,
+    mockTestingQueue: normalizedQueue,
+  });
+  return res.json({
+    ok: true,
+    examId: requestedExamId,
+    studentId: student.id,
+    rolledBackAttemptId: firstAttemptId || String(currentAttempt?.attemptId || '').trim(),
+    rolledBackAt: rollbackAt,
+    attempt: normalizeMockAttemptPayload(exam, {}, rollbackAt, {
+      mode: getRequiredMockExamModeForStudent(exam, updated),
+      requiredMode: getRequiredMockExamModeForStudent(exam, updated),
+      attemptNumber: 1,
+      updatedAt: rollbackAt,
+    }),
+    history: getFirstMockAttemptHistory(updated.mockAttemptResults, requestedExamId),
   });
 });
 
