@@ -175,9 +175,28 @@ export const collectMockExamTaskObservations = (progressDb, mockExams) => {
     if (!studentId || !isRecord(studentData)) return;
 
     const history = Array.isArray(studentData.mockAttemptResults) ? studentData.mockAttemptResults : [];
+    const markedExamIds = new Set(history
+      .filter((result) => (
+        result
+        && (result.isFirstAttempt === true
+          || (Number.isInteger(Number(result.attemptNumber)) && Number(result.attemptNumber) > 0))
+      ))
+      .map((result) => normalizeText(result?.examId))
+      .filter(Boolean));
+    const firstHistoryByExam = new Map();
+    if (markedExamIds.size > 0) {
+      history.forEach((result) => {
+        const examId = normalizeText(result?.examId);
+        if (!examId) return;
+        const attemptNumber = Number(result?.attemptNumber);
+        if (result?.isFirstAttempt !== true && attemptNumber !== 1) return;
+        if (!firstHistoryByExam.has(examId)) firstHistoryByExam.set(examId, result);
+      });
+    }
     history.forEach((result, resultIndex) => {
       if (!isRecord(result) || !isFinishedAttempt(result)) return;
       const examId = normalizeText(result.examId);
+      if (markedExamIds.has(examId) && firstHistoryByExam.get(examId) !== result) return;
       const exam = examById.get(examId);
       if (!exam) return;
       const attempt = isRecord(result.attemptSnapshot)
@@ -200,6 +219,10 @@ export const collectMockExamTaskObservations = (progressDb, mockExams) => {
     const currentAttempts = isRecord(studentData.mockAttempts) ? studentData.mockAttempts : {};
     Object.entries(currentAttempts).forEach(([rawExamId, attempt]) => {
       const examId = normalizeText(rawExamId);
+      if (markedExamIds.has(examId) && (
+        attempt?.isFirstAttempt !== true
+        && Number(attempt?.attemptNumber) !== 1
+      )) return;
       const exam = examById.get(examId);
       if (!exam || !isObservableCurrentAttempt(attempt)) return;
       collectAttemptObservations({

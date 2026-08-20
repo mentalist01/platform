@@ -325,6 +325,7 @@ const MockExamModal = ({
   const finishConfirmTriggerRef = useRef(null);
   const finishConfirmRestoreFrameRef = useRef(null);
   const autoFinishedAttemptKeyRef = useRef('');
+  const handleFinishExamRef = useRef(null);
   const taskDurationStateRef = useRef({
     durations: {},
     activeTaskKey: '',
@@ -1083,6 +1084,7 @@ const MockExamModal = ({
       setChecking(false);
     }
   };
+  handleFinishExamRef.current = handleFinishExam;
 
   useEffect(() => {
     if (
@@ -1102,7 +1104,7 @@ const MockExamModal = ({
     ].join(':');
     if (!attemptKey || autoFinishedAttemptKeyRef.current === attemptKey) return;
     autoFinishedAttemptKeyRef.current = attemptKey;
-    void handleFinishExam();
+    void handleFinishExamRef.current?.();
   }, [
     activeAttempt?.attemptId,
     activeAttempt?.timerExpiresAt,
@@ -1111,7 +1113,6 @@ const MockExamModal = ({
     checking,
     closing,
     exam?.id,
-    handleFinishExam,
     isTimerMode,
     studentId,
     timerExpired,
@@ -1531,7 +1532,7 @@ const MockExamModal = ({
           aria-current={taskNumber === selectedTask ? 'step' : undefined}
           aria-label={`Задание № ${taskNumber}. ${getTaskNavigationStatusLabel(taskNumber)}`}
           title={`Задание № ${taskNumber} — ${getTaskNavigationStatusLabel(taskNumber)}`}
-          className={`${getTaskButtonClassName(taskNumber, compact)} transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 ${isTimerMode ? 'focus-visible:ring-teal-400/[0.65]' : 'focus-visible:ring-purple-400/60'}`}
+          className={`${getTaskButtonClassName(taskNumber, compact)} transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset ${isTimerMode ? 'focus-visible:ring-teal-400/[0.65]' : 'focus-visible:ring-purple-400/60'}`}
         >
           {taskNumber}
         </button>

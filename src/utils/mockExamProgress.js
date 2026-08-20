@@ -181,7 +181,7 @@ export const buildMockExamProgressEntries = ({
         attemptId: normalizeText(result.attemptId),
         source: 'online',
         mode: normalizeText(result.mode).toLowerCase() || 'classic',
-        ...(Number.isInteger(Number(result.attemptNumber))
+        ...(Number.isInteger(Number(result.attemptNumber)) && Number(result.attemptNumber) > 0
           ? { attemptNumber: Number(result.attemptNumber) }
           : {}),
         ...(typeof result.isFirstAttempt === 'boolean'
@@ -232,7 +232,7 @@ export const buildMockExamProgressEntries = ({
         examId,
         source: 'online',
         mode,
-        ...(Number.isInteger(Number(attempt.attemptNumber))
+        ...(Number.isInteger(Number(attempt.attemptNumber)) && Number(attempt.attemptNumber) > 0
           ? { attemptNumber: Number(attempt.attemptNumber) }
           : {}),
         ...(typeof attempt.isFirstAttempt === 'boolean'
@@ -272,7 +272,7 @@ export const buildMockExamProgressEntries = ({
     [...frozenEntries, ...onlineEntries]
       .filter((entry) => entry?.examId && (
         entry?.isFirstAttempt === true
-        || Number.isInteger(Number(entry?.attemptNumber))
+        || (Number.isInteger(Number(entry?.attemptNumber)) && Number(entry?.attemptNumber) > 0)
       ))
       .map((entry) => entry.examId)
   );

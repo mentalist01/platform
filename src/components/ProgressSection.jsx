@@ -699,6 +699,7 @@ const ProgressSection = ({
   const [mockAttemptsLoading, setMockAttemptsLoading] = useState(false);
   const [restoringMockTimerRewardsExamId, setRestoringMockTimerRewardsExamId] = useState(null);
   const [continuingMockTimerExamId, setContinuingMockTimerExamId] = useState(null);
+  const [rollingBackMockAttemptExamId, setRollingBackMockAttemptExamId] = useState(null);
   const [hoveredMockTaskPoint, setHoveredMockTaskPoint] = useState(null);
   const [mockEditorExam, setMockEditorExam] = useState(null);
   const [mockAnalysisExam, setMockAnalysisExam] = useState(null);
@@ -2957,6 +2958,36 @@ const ProgressSection = ({
     handleOpenMockExam(targetExam, { initialTaskNumber: taskStat.taskKey });
   };
 
+  const handleRollbackFirstMockAttempt = async (exam) => {
+    if (role !== 'teacher' || !effectiveStudentId || !exam?.id) return;
+    if (!confirm('Откатить первую попытку? Ответы и результат этой попытки будут удалены из истории, а ученик сможет начать пробник заново.')) return;
+    const examId = String(exam.id);
+    setRollingBackMockAttemptExamId(examId);
+    try {
+      const response = await api.rollbackFirstMockAttempt(effectiveStudentId, examId);
+      const normalizedAttempt = response?.attempt && typeof response.attempt === 'object'
+        ? response.attempt
+        : {};
+      const attemptOwnerKey = String(effectiveStudentId || '').trim();
+      mockAttemptsOwnerRef.current = attemptOwnerKey;
+      setMockAttemptsByExam((previous) => ({
+        ...(previous || {}),
+        [examId]: normalizedAttempt,
+      }));
+      setActiveMockAttempt((current) => (
+        String(activeMockExam?.id || '') === examId ? normalizedAttempt : current
+      ));
+      setMockAnalysisAttempt(null);
+      setMockExamsError('');
+    } catch (err) {
+      alert(err?.message || 'Не удалось откатить первую попытку.');
+    } finally {
+      setRollingBackMockAttemptExamId((current) => (
+        String(current || '') === examId ? null : current
+      ));
+    }
+  };
+
   const handleOpenMockAnalysis = async (exam) => {
     if (!exam || !effectiveStudentId || !isMockExamAccessible(exam, effectiveStudentId)) return;
     const requestId = mockAnalysisRequestIdRef.current + 1;
@@ -2988,7 +3019,7 @@ const ProgressSection = ({
       const attempt = await api.getMockAttempt(mockAttemptStudentId, exam.id);
       if (mockAnalysisRequestIdRef.current !== requestId) return;
       const normalizedAttempt = attempt && typeof attempt === 'object' ? attempt : {};
-       setMockAnalysisAttempt(getAnalysisAttempt(normalizedAttempt));
+      setMockAnalysisAttempt(getAnalysisAttempt(normalizedAttempt));
       const previousCacheOwner = mockAttemptsOwnerRef.current;
       mockAttemptsOwnerRef.current = attemptOwnerKey;
       setMockAttemptsByExam((previous) => ({
@@ -3627,6 +3658,30 @@ const ProgressSection = ({
       effectiveStudentId
       && isMockExamAccessible(exam, effectiveStudentId)
     );
+    const studentAttempt = mockAttemptsByExam?.[exam.id] && typeof mockAttemptsByExam[exam.id] === 'object'
+      ? mockAttemptsByExam[exam.id]
+      : null;
+    const firstAttempt = Array.isArray(studentAttempt?.attemptHistory)
+      ? studentAttempt.attemptHistory[0]
+      : studentAttempt?.firstAttempt;
+    const hasStartedAttempt = Boolean(
+      firstAttempt
+      || studentAttempt?.attemptId
+      || studentAttempt?.modeLockedAt
+      || studentAttempt?.timerStartedAt
+      || studentAttempt?.finishedAt
+      || (studentAttempt?.answers
+        && typeof studentAttempt.answers === 'object'
+        && Object.values(studentAttempt.answers).some((answer) => {
+          if (Array.isArray(answer)) return answer.some((value) => String(value ?? '').trim());
+          return String(answer ?? '').trim() !== '';
+        }))
+    );
+    const canRollbackFirstAttempt = Boolean(
+      canAnalyzeStudent
+      && hasStartedAttempt
+    );
+    const isRollingBack = String(rollingBackMockAttemptExamId || '') === String(exam.id || '');
 
     return (
       <div key={exam.id} className="mock-teacher-card rounded-[26px] border p-3 md:p-4 flex flex-col gap-3">
@@ -3674,7 +3729,19 @@ const ProgressSection = ({
                 className="w-full sm:w-auto"
               >
                 <BarChart2 size={16} />
-                Разбор ученика
+                История решений
+              </Button>
+            )}
+            {canRollbackFirstAttempt && (
+              <Button
+                variant="secondary"
+                onClick={() => handleRollbackFirstMockAttempt(exam)}
+                disabled={isRollingBack}
+                className="w-full sm:w-auto"
+                title="Удалить первую попытку из истории и вернуть возможность начать заново"
+              >
+                <RefreshCcw size={16} />
+                {isRollingBack ? 'Откатываем...' : 'Откатить первую попытку'}
               </Button>
             )}
             <button

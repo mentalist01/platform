@@ -12011,7 +12011,18 @@ const getFirstMockAttemptResult = (history, examId = '') => {
   const candidates = normalizeMockExamFollowupHistory(history)
     .filter((entry) => !normalizedExamId || String(entry?.examId || '').trim() === normalizedExamId);
   if (candidates.length === 0) return null;
-  return [...candidates].sort((left, right) => {
+  const markedCandidates = candidates.filter((entry) => (
+    entry?.isFirstAttempt === true
+    || (Number.isInteger(Number(entry?.attemptNumber)) && Number(entry?.attemptNumber) > 0)
+  ));
+  const firstCandidates = markedCandidates.length > 0
+    ? markedCandidates.filter((entry) => (
+      entry?.isFirstAttempt === true
+      || Number(entry?.attemptNumber) === 1
+    ))
+    : candidates;
+  if (firstCandidates.length === 0) return null;
+  return [...firstCandidates].sort((left, right) => {
     const leftNumber = Number(left?.attemptNumber);
     const rightNumber = Number(right?.attemptNumber);
     const leftHasNumber = Number.isInteger(leftNumber) && leftNumber > 0;
@@ -16423,7 +16434,28 @@ const sanitizeStudentDataForClient = (studentData) => {
   if (!studentData || typeof studentData !== 'object' || Array.isArray(studentData)) return {};
   const safe = { ...studentData };
   const queue = normalizeMockExamFollowupQueue(studentData.mockTestingQueue);
-  safe.mockAttemptResults = normalizeMockExamFollowupHistory(studentData.mockAttemptResults)
+  const normalizedAttemptResults = normalizeMockExamFollowupHistory(studentData.mockAttemptResults);
+  const markedAttemptExamIds = new Set(normalizedAttemptResults
+    .filter((result) => (
+      result?.isFirstAttempt === true
+      || (Number.isInteger(Number(result?.attemptNumber)) && Number(result?.attemptNumber) > 0)
+    ))
+    .map((result) => String(result?.examId || '').trim())
+    .filter(Boolean));
+  const firstAttemptIdByExamId = new Map();
+  normalizedAttemptResults.forEach((result) => {
+    const examId = String(result?.examId || '').trim();
+    if (!examId || firstAttemptIdByExamId.has(examId)) return;
+    const first = getFirstMockAttemptResult(normalizedAttemptResults, examId);
+    firstAttemptIdByExamId.set(examId, first ? String(first?.attemptId || '').trim() : '');
+  });
+  safe.mockAttemptResults = normalizedAttemptResults
+    .filter((result) => {
+      const examId = String(result?.examId || '').trim();
+      const firstAttemptId = firstAttemptIdByExamId.get(examId);
+      return !markedAttemptExamIds.has(examId)
+        || Boolean(firstAttemptId && String(result?.attemptId || '').trim() === firstAttemptId);
+    })
     .map((result) => {
       const resultTasks = result?.tasks && typeof result.tasks === 'object' && !Array.isArray(result.tasks)
         ? result.tasks
@@ -24469,13 +24501,9 @@ app.post('/api/mock-exams/attempt/rollback-first', (req, res) => {
     return res.status(404).json({ error: 'Первая попытка пробника не найдена' });
   }
   const nextHistory = normalizeMockExamFollowupHistory(data.mockAttemptResults)
-    .filter((entry) => {
-      if (String(entry?.examId || '').trim() !== requestedExamId) return true;
-      if (firstAttemptId && String(entry?.attemptId || '').trim() === firstAttemptId) return false;
-      return Number(entry?.attemptNumber) > 1;
-    });
+    .filter((entry) => String(entry?.examId || '').trim() !== requestedExamId);
   const normalizedQueue = normalizeMockExamFollowupQueue(data.mockTestingQueue)
-    .filter((entry) => !(firstAttemptId && String(entry?.attemptId || '').trim() === firstAttemptId));
+    .filter((entry) => String(entry?.examId || '').trim() !== requestedExamId);
   delete attempts[requestedExamId];
   const rollbackAt = new Date().toISOString();
   const updated = setStudentData(student.id, {
