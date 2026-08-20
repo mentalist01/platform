@@ -326,7 +326,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
     });
   };
 
-  const requestClose = () => {
+  const requestClose = (completed = false) => {
     if (isClosing) return;
     setArtifactExitTargets(measureArtifactExitTargets());
     setIsClosing(true);
@@ -335,7 +335,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
       && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     closeTimerRef.current = window.setTimeout(() => {
       closeTimerRef.current = null;
-      onClose?.();
+      onClose?.({ completed });
     }, prefersReducedMotion ? 0 : CHEST_CLOSE_ANIMATION_MS);
   };
 
@@ -370,7 +370,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
       setRewardIndex((prev) => prev + 1);
       return;
     }
-    requestClose();
+    requestClose(true);
   };
 
   const modal = (
@@ -392,7 +392,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
         className="mock-chest-overlay__close"
         onClick={(event) => {
           event.stopPropagation();
-          requestClose();
+          requestClose(false);
         }}
         aria-label="Закрыть открытие сундука"
         disabled={isClosing}

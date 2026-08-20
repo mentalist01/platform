@@ -1425,7 +1425,7 @@ const StudentLeaderboardSection = ({
                   </span>
                   <span className="mock-timer-chest-panel__hint-row">
                     <strong>Открываются</strong>
-                    <span>после ожидания и дают награды.</span>
+                    <span>за домашку — сразу; сундуки пробников и Python — после ожидания.</span>
                   </span>
                 </span>
               </button>

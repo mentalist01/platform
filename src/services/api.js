@@ -54,6 +54,17 @@ const parseApiError = async (res) => {
   return `Ошибка запроса (${res.status} ${res.statusText})`;
 };
 
+export const HOMEWORK_CHEST_GRANTED_EVENT = 'platform:homework-chest-granted';
+
+const notifyHomeworkChestGranted = (payload) => {
+  const chest = payload?.homeworkChestGranted;
+  const chestId = String(chest?.id || '').trim();
+  if (!chestId || typeof window === 'undefined' || typeof window.CustomEvent !== 'function') return;
+  window.dispatchEvent(new CustomEvent(HOMEWORK_CHEST_GRANTED_EVENT, {
+    detail: { chest },
+  }));
+};
+
 const parseJsonResponse = async (res) => {
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
@@ -66,7 +77,9 @@ const parseJsonResponse = async (res) => {
     }
     throw new Error('Некорректный ответ сервера');
   }
-  return res.json();
+  const payload = await res.json();
+  notifyHomeworkChestGranted(payload);
+  return payload;
 };
 
 let unauthorizedHandler = null;

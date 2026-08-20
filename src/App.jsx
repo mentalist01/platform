@@ -40,6 +40,7 @@ import StudentGlobalSearch from './components/StudentGlobalSearch';
 import StudentTodayOverview from './components/StudentTodayOverview';
 import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
 import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
+import MockChestOpeningOverlay from './components/MockChestOpeningOverlay';
 import StudentPaymentReminder from './components/StudentPaymentReminder';
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
@@ -128,6 +129,7 @@ import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
 import {
   api,
   authenticatedUploadsFetch,
+  HOMEWORK_CHEST_GRANTED_EVENT,
   resolveAuthenticatedUploadsUrl,
   setUnauthorizedHandler,
   uploadFileMemorySnapshot,
@@ -16688,6 +16690,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [xpAnimationActive, setXpAnimationActive] = useState(false);
   const [xpFlightStars, setXpFlightStars] = useState([]);
   const [coinFlightCoins, setCoinFlightCoins] = useState([]);
+  const [homeworkChestOpeningRewards, setHomeworkChestOpeningRewards] = useState([]);
+  const [homeworkChestOpeningError, setHomeworkChestOpeningError] = useState('');
   const [streakPopup, setStreakPopup] = useState({
     open: false,
     current: 0,
@@ -16710,6 +16714,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const xpDockBarRef = useRef(null);
   const coinInlineBadgeRef = useRef(null);
   const coinDockBadgeRef = useRef(null);
+  const seenHomeworkChestIdsRef = useRef(new Set());
   const prevLevelRef = useRef(null);
   const levelUpTimerRef = useRef(null);
   const scheduleHomeworkFlyRef = useRef(null);
@@ -18942,6 +18947,69 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     captureGoalFlySource(resolvedView);
     setView(resolvedView);
   }, [allowedViewsKey, captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
+
+  useEffect(() => {
+    if (user.role !== 'student' || typeof window === 'undefined') return undefined;
+    let disposed = false;
+    seenHomeworkChestIdsRef.current = new Set();
+    const handleHomeworkChestGranted = async (event) => {
+      const chest = event?.detail?.chest;
+      const chestId = String(chest?.id || '').trim();
+      if (!chestId || seenHomeworkChestIdsRef.current.has(chestId)) return;
+      seenHomeworkChestIdsRef.current.add(chestId);
+      setHomeworkChestOpeningError('');
+      try {
+        const data = await api.prepareMockTimerChestOpening(chestId);
+        if (disposed) return;
+        const rewards = Array.isArray(data?.mockChestRewards)
+          ? data.mockChestRewards.filter((reward) => reward && typeof reward === 'object')
+          : (data?.mockChestReward && typeof data.mockChestReward === 'object' ? [data.mockChestReward] : []);
+        if (rewards.length <= 0) throw new Error('Сундук не вернул награды.');
+        setHomeworkChestOpeningRewards((previous) => [...previous, ...rewards]);
+      } catch (error) {
+        if (disposed) return;
+        setHomeworkChestOpeningError(error?.message || 'Не удалось открыть сундук. Он сохранён в рейтинге.');
+      }
+    };
+
+    window.addEventListener(HOMEWORK_CHEST_GRANTED_EVENT, handleHomeworkChestGranted);
+    return () => {
+      disposed = true;
+      window.removeEventListener(HOMEWORK_CHEST_GRANTED_EVENT, handleHomeworkChestGranted);
+    };
+  }, [user.id, user.role]);
+
+  const handleHomeworkChestOpeningClose = useCallback((result = {}) => {
+    const rewards = homeworkChestOpeningRewards;
+    const rewardIds = Array.from(new Set(
+      rewards.map((reward) => String(reward?.id || '').trim()).filter(Boolean)
+    ));
+    setHomeworkChestOpeningRewards([]);
+    if (result?.completed !== true || rewardIds.length <= 0) return;
+
+    void (async () => {
+      try {
+        let latestClaim = null;
+        for (const rewardId of rewardIds) {
+          latestClaim = await api.claimMockTimerChest(rewardId);
+        }
+        if (Number.isFinite(Number(latestClaim?.xpTotal))) {
+          const nextXpTotal = normalizeXpTotal(latestClaim.xpTotal);
+          setStudentXpTotal(nextXpTotal);
+          setXpDisplayTotal(nextXpTotal);
+        }
+        if (Number.isFinite(Number(latestClaim?.coinsTotal))) {
+          setStudentCoinsTotal(normalizeCoinsTotal(latestClaim.coinsTotal));
+        }
+        setGoalRefreshTick((previous) => previous + 1);
+      } catch (error) {
+        setHomeworkChestOpeningError(
+          error?.message || 'Не удалось сохранить награды. Сундук остался в рейтинге.'
+        );
+      }
+    })();
+  }, [homeworkChestOpeningRewards]);
+
   const handleOpenStudentDirectChat = useCallback(async (targetStudentId) => {
     if (!PLATFORM_CHATS_ENABLED || user.role !== 'student') return;
     const normalizedStudentId = String(targetStudentId || '').trim();
@@ -21730,6 +21798,40 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <img src={ivanCoin} alt="" aria-hidden="true" draggable="false" />
             </span>
           ))}
+        </div>
+      )}
+      {user.role === 'student' && homeworkChestOpeningRewards.length > 0 && (
+        <MockChestOpeningOverlay
+          rewards={homeworkChestOpeningRewards}
+          onClose={handleHomeworkChestOpeningClose}
+        />
+      )}
+      {user.role === 'student' && homeworkChestOpeningError && (
+        <div
+          className="surface-card fixed bottom-24 right-3 z-[1250] w-[min(22rem,calc(100vw-1.5rem))] rounded-2xl border border-rose-200 bg-white/95 p-3 shadow-[0_18px_48px_rgba(76,29,149,0.2)] backdrop-blur-md md:bottom-5 md:right-5"
+          role="alert"
+        >
+          <button
+            type="button"
+            className="absolute right-2 top-2 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Закрыть сообщение об открытии сундука"
+            onClick={() => setHomeworkChestOpeningError('')}
+          >
+            <X size={15} />
+          </button>
+          <div className="pr-7 text-sm font-extrabold text-slate-900">Сундук сохранён</div>
+          <div className="mt-1 text-[11px] leading-snug text-slate-500">{homeworkChestOpeningError}</div>
+          <button
+            type="button"
+            className="mt-2.5 w-full rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-violet-700"
+            onClick={() => {
+              setHomeworkChestOpeningError('');
+              setMenuOpen(false);
+              navigateToView('rating');
+            }}
+          >
+            Открыть в рейтинге
+          </button>
         </div>
       )}
       {!studentTourActive && streakPopup.open && (

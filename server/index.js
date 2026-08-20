@@ -11461,6 +11461,7 @@ const normalizeMockTimerChestQueue = (value) => (
 );
 
 const getMockTimerChestState = (chest, nowMs = Date.now()) => {
+  if (String(chest?.source || '').trim() === HOMEWORK_COMPLETE_CHEST_SOURCE) return 'ready';
   const readyAtMs = Date.parse(chest?.openReadyAt || '');
   if (Number.isFinite(readyAtMs)) {
     return readyAtMs <= nowMs ? 'ready' : 'opening';
@@ -13573,6 +13574,8 @@ const grantCompletedHomeworkChests = ({
       chestIndex: queue.length + 1,
       createdAt: grantedAtIso,
       coinsGained: 0,
+      openStartedAt: grantedAtIso,
+      openReadyAt: grantedAtIso,
     };
     queue.push(chestRecord);
     persistGrantMarker(index, homework, chestRecord.id, grantedAtIso);
