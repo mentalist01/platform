@@ -292,6 +292,31 @@ const getClientChestState = (chest, nowMs) => {
   return ['closed', 'opening', 'ready'].includes(state) ? state : 'closed';
 };
 
+const getChestSourceMetadata = (chest) => {
+  const source = String(chest?.source || '').trim().toLowerCase();
+  const homeworkTitle = String(chest?.homeworkTitle || '').trim();
+  const mockExamTitle = String(chest?.mockExamTitle || '').trim();
+  const isPythonTraining = source === 'python-infinite-training'
+    || String(chest?.mockExamId || '').trim() === 'python-infinite-training';
+
+  if (source === 'homework-complete') {
+    return {
+      label: 'За домашку',
+      title: homeworkTitle || 'Домашняя работа',
+    };
+  }
+  if (isPythonTraining) {
+    return {
+      label: 'За Python-тренировку',
+      title: mockExamTitle || 'Бесконечная тренировка Python',
+    };
+  }
+  return {
+    label: 'За пробник',
+    title: mockExamTitle,
+  };
+};
+
 const LeaderboardAliasRewardChip = () => (
   <span className="leaderboard-alias-card__reward inline-flex h-5 shrink-0 items-center gap-1 rounded-md border px-1.5 text-[11px] font-black leading-none shadow-sm">
     <span>{`+${LEADERBOARD_ALIAS_COIN_REWARD}`}</span>
@@ -1280,7 +1305,7 @@ const StudentLeaderboardSection = ({
                   <span className="student-leaderboard-profile-theme__hint-title">Где получить</span>
                   <span className="student-leaderboard-profile-theme__hint-row">
                     <strong>Выпадает</strong>
-                    <span>из сундуков таймера.</span>
+                    <span>из сундуков.</span>
                   </span>
                   <span className="student-leaderboard-profile-theme__hint-row">
                     <strong>Выбирается</strong>
@@ -1296,7 +1321,7 @@ const StudentLeaderboardSection = ({
             <div className="student-leaderboard-copy mt-1 text-[11px] text-slate-500">
               {hasUnlockedThemes
                 ? `${currentProfileThemeOptions.length} из ${PROFILE_THEME_CATALOG.length} открыто`
-                : 'Оформления выпадают из сундуков таймера'}
+                : 'Оформления выпадают из сундуков'}
             </div>
           </div>
           <div className="flex min-w-[13rem] flex-1 items-center justify-end gap-2 sm:flex-none">
@@ -1376,11 +1401,11 @@ const StudentLeaderboardSection = ({
           <div>
             <div className="mock-timer-chest-panel__eyebrow">
               <LockKeyhole size={13} />
-              Сундуки таймера
+              Сундуки
               <button
                 type="button"
                 className="mock-timer-chest-panel__hint"
-                aria-label="Где получить сундуки таймера"
+                aria-label="Где получить сундуки"
                 aria-describedby="rating-timer-chests-help"
               >
                 <Info size={12} aria-hidden="true" />
@@ -1392,7 +1417,7 @@ const StudentLeaderboardSection = ({
                   <span className="mock-timer-chest-panel__hint-title">Где получить</span>
                   <span className="mock-timer-chest-panel__hint-row">
                     <strong>Появляются</strong>
-                    <span>после таймерных пробников и каждых 5 задач в бесконечной тренировке Python.</span>
+                    <span>за выполнение обязательной части домашки на 100% до дедлайна, после таймерных пробников и каждых 5 задач в бесконечной тренировке Python.</span>
                   </span>
                   <span className="mock-timer-chest-panel__hint-row">
                     <strong>Хранятся</strong>
@@ -1427,7 +1452,7 @@ const StudentLeaderboardSection = ({
               </div>
               <div>
                 <div className="mock-timer-chest-panel__empty-title">Слоты свободны</div>
-                <div className="mock-timer-chest-panel__empty-text">Сундуки появятся здесь после таймерных пробников или бесконечной Python-тренировки.</div>
+                <div className="mock-timer-chest-panel__empty-text">Сундуки появятся здесь за выполнение обязательной части домашки на 100% до дедлайна, после таймерных пробников или бесконечной Python-тренировки.</div>
               </div>
             </div>
             <div className="mock-timer-chest-panel__empty-slots" aria-hidden="true">
@@ -1476,6 +1501,12 @@ const StudentLeaderboardSection = ({
               const actionLabel = isReady
                 ? (isBusy ? 'Открываем...' : 'Открыть')
                 : (isOpening ? 'Идёт таймер' : (isBusy ? 'Запуск...' : 'Начать'));
+              const sourceMetadata = getChestSourceMetadata(chest);
+              const slotAriaLabel = [
+                `${sourceMetadata.label}${sourceMetadata.title ? `: ${sourceMetadata.title}` : ''}`,
+                `${statusLabel}${timeLabel !== '!' ? `, ${timeLabel}` : ''}`,
+                actionLabel,
+              ].join('. ');
               const slotClassName = [
                 'mock-timer-chest-slot',
                 `mock-timer-chest-slot--${state}`,
@@ -1492,6 +1523,7 @@ const StudentLeaderboardSection = ({
                   type="button"
                   disabled={isBusy}
                   aria-disabled={!canPress && !isOpening ? 'true' : undefined}
+                  aria-label={slotAriaLabel}
                   onClick={() => {
                     triggerChestPressFeedback(chestId);
                     if (isReady) {
@@ -1529,6 +1561,16 @@ const StudentLeaderboardSection = ({
                     draggable="false"
                     className="mock-timer-chest-slot__image"
                   />
+                  <div className="relative z-[4] -mt-1 min-w-0 max-w-full px-1 leading-tight" title={sourceMetadata.title || sourceMetadata.label}>
+                    <span className="block truncate text-[9px] font-black text-white">
+                      {sourceMetadata.label}
+                    </span>
+                    {sourceMetadata.title && (
+                      <span className="block max-w-[7.5rem] truncate text-[9px] font-semibold text-white/80">
+                        {sourceMetadata.title}
+                      </span>
+                    )}
+                  </div>
                   <div className="mock-timer-chest-slot__action">
                     {isReady && !isClaiming && <CheckCircle2 size={13} />}
                     {(isOpening || isStarting || isClaiming) && <Clock3 size={13} />}

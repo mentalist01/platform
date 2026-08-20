@@ -239,6 +239,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
   const closeTimerRef = useRef(null);
   const currentReward = safeRewards[rewardIndex] || null;
   const phaseStep = getPhaseStep(phase);
+  const hasCoinReward = Boolean(currentReward && currentReward.coinsGained > 0);
   const maxRevealStep = currentReward ? Math.min(4, 1 + currentReward.prizes.length) : 0;
   const canAdvance = phaseStep < maxRevealStep;
   const rewardReady = currentReward && phaseStep >= maxRevealStep;
@@ -247,7 +248,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
     ? Math.min(currentReward.prizes.length, Math.max(0, phaseStep - 1))
     : 0;
   const chestAriaLabel = phaseStep <= 0
-    ? 'Открыть монеты из сундука'
+    ? (hasCoinReward ? 'Открыть монеты из сундука' : 'Открыть первую награду из сундука')
     : (phaseStep < maxRevealStep ? 'Открыть следующую награду' : 'Забрать награду');
 
   const canInteractWithChest = !isClosing && (canAdvance || rewardReady);
@@ -270,7 +271,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
   }, []);
 
   useLayoutEffect(() => {
-    if (phaseStep < 1 || typeof window === 'undefined') return undefined;
+    if (!hasCoinReward || phaseStep < 1 || typeof window === 'undefined') return undefined;
 
     const measureCoinBalanceTarget = () => {
       const coinLayer = coinLayerRef.current;
@@ -298,7 +299,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
       window.cancelAnimationFrame(rafId);
       window.removeEventListener('resize', measureCoinBalanceTarget);
     };
-  }, [phaseStep, rewardIndex, currentReward?.coinsGained]);
+  }, [hasCoinReward, phaseStep, rewardIndex, currentReward?.coinsGained]);
 
   if (!currentReward || typeof document === 'undefined') return null;
 
@@ -349,7 +350,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
     }
     if (!canAdvance) return;
     if (phaseStep <= 0) {
-      setPhase('coins');
+      setPhase(hasCoinReward ? 'coins' : 'artifact-one');
       return;
     }
     if (phaseStep === 1) {
@@ -373,7 +374,12 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
   };
 
   const modal = (
-    <div className={`mock-chest-overlay mock-chest-overlay--${phase} ${isClosing ? 'mock-chest-overlay--closing' : ''}`} role="dialog" aria-modal="true">
+    <div
+      className={`mock-chest-overlay mock-chest-overlay--${phase} ${isClosing ? 'mock-chest-overlay--closing' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Открытие сундука с наградами"
+    >
       <div className="mock-chest-overlay__aura" aria-hidden="true" />
       <div className="mock-chest-overlay__stars" aria-hidden="true">
         {Array.from({ length: 18 }).map((_, index) => (
@@ -435,7 +441,7 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
           <span className="mock-chest__base" />
         </button>
 
-        {phaseStep >= 1 && (
+        {hasCoinReward && phaseStep >= 1 && (
           <div
             ref={coinLayerRef}
             className="mock-chest-coins"
@@ -474,10 +480,15 @@ const MockChestOpeningOverlay = ({ rewards, onClose }) => {
           </div>
         )}
 
-        <div className={`mock-chest-coin-prize ${phaseStep >= 1 ? 'is-visible' : ''}`}>
-          <img src={ivanCoin} alt="" draggable="false" />
-          <span>{`+${currentReward.coinsGained.toLocaleString('ru-RU')}`}</span>
-        </div>
+        {hasCoinReward && (
+          <div
+            className={`mock-chest-coin-prize ${phaseStep >= 1 ? 'is-visible' : ''}`}
+            aria-label={`${currentReward.coinsGained.toLocaleString('ru-RU')} монет`}
+          >
+            <img src={ivanCoin} alt="" draggable="false" />
+            <span>{`+${currentReward.coinsGained.toLocaleString('ru-RU')}`}</span>
+          </div>
+        )}
 
         <div
           className={`mock-chest-artifacts ${phaseStep >= 2 ? 'is-awakening' : ''} ${

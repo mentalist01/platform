@@ -1,6 +1,8 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, WifiOff } from 'lucide-react';
+import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, WifiOff, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';
+import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
@@ -771,6 +773,7 @@ const ScheduleSection = ({
   const [homeworkChecklistBusy, setHomeworkChecklistBusy] = useState({});
   const [homeworkDayPlanBusy, setHomeworkDayPlanBusy] = useState({});
   const [visibleHomeworkDayPlans, setVisibleHomeworkDayPlans] = useState({});
+  const [homeworkRewardDialogEntryId, setHomeworkRewardDialogEntryId] = useState('');
   const [homeworkClock, setHomeworkClock] = useState(() => Date.now());
   const [offlineHomeworkState, setOfflineHomeworkState] = useState({
     status: 'idle',
@@ -787,6 +790,9 @@ const ScheduleSection = ({
   const nextLessonRequestRef = React.useRef(0);
   const refreshDataRequestRef = React.useRef(0);
   const offlineHomeworkSignatureRef = React.useRef('');
+  const homeworkRewardDialogRef = React.useRef(null);
+  const homeworkRewardDialogCloseRef = React.useRef(null);
+  const homeworkRewardDialogTriggerRef = React.useRef(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const requestStudentId = role === 'teacher' ? effectiveStudentId : '';
@@ -1030,6 +1036,7 @@ const ScheduleSection = ({
   useEffect(() => {
     setHomeworkClock(Date.now());
     setHomeworkChecklistBusy({});
+    setHomeworkRewardDialogEntryId('');
     homeworkComposerRequestRef.current += 1;
     refreshDataRequestRef.current += 1;
     setRefreshingData(false);
@@ -1048,6 +1055,41 @@ const ScheduleSection = ({
     setHomeworkDataSource('none');
     setTestsDataSource('none');
   }, [effectiveStudentId]);
+
+  useEffect(() => {
+    if (!homeworkRewardDialogEntryId || typeof document === 'undefined') return undefined;
+    const trigger = homeworkRewardDialogTriggerRef.current;
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setHomeworkRewardDialogEntryId('');
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(
+        homeworkRewardDialogRef.current?.querySelectorAll('button:not([disabled])') || []
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+    const focusTimer = window.setTimeout(() => homeworkRewardDialogCloseRef.current?.focus(), 0);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+      trigger?.focus?.();
+    };
+  }, [homeworkRewardDialogEntryId]);
 
   useEffect(() => {
     const intervalId = setInterval(() => setHomeworkClock(Date.now()), 60 * 1000);
@@ -2681,6 +2723,35 @@ const ScheduleSection = ({
   const nextHomeworkPendingShortLabel = nextHomeworkPendingGoal?.heading
     ? String(nextHomeworkPendingGoal.heading).split('·')[0].trim()
     : '';
+  const nextHomeworkRewardEntryKey = String(nextHomeworkEntry?.id || '') || 'current-homework';
+  const nextHomeworkRewardEligible = nextHomeworkSummary.requiredGoals.length > 0
+    && nextHomeworkSummary.requiredGoals.every((goal) => Number(goal?.totalCount) > 0);
+  const nextHomeworkRewardGranted = Boolean(nextHomeworkEntry?.homeworkChestGrantedAt);
+  const nextHomeworkRewardDueAt = resolveHomeworkDueAt(nextHomeworkEntry);
+  const nextHomeworkRewardExpired = Boolean(
+    nextHomeworkRewardDueAt
+    && nextHomeworkRewardDueAt.getTime() < Number(homeworkClock)
+    && !nextHomeworkRewardGranted
+  );
+  const nextHomeworkRewardVisible = nextHomeworkRewardEligible && (
+    nextHomeworkRewardGranted
+    || (!nextHomeworkSummary.requiredCompleted && !nextHomeworkRewardExpired)
+  );
+  useEffect(() => {
+    if (!homeworkRewardDialogEntryId) return;
+    if (
+      role !== 'student'
+      || homeworkRewardDialogEntryId !== nextHomeworkRewardEntryKey
+      || !nextHomeworkRewardVisible
+    ) {
+      setHomeworkRewardDialogEntryId('');
+    }
+  }, [
+    homeworkRewardDialogEntryId,
+    nextHomeworkRewardEntryKey,
+    nextHomeworkRewardVisible,
+    role,
+  ]);
   const teacherHomeworkReviewItems = role === 'teacher'
     ? buildTeacherHomeworkReviewItems({
         goalViews: nextHomeworkGoalViews,
@@ -2930,6 +3001,23 @@ const ScheduleSection = ({
       );
       const dayPlanVisible = role === 'student' && Boolean(visibleHomeworkDayPlans[homeworkId]);
       const dayPlanBusy = Boolean(homeworkDayPlanBusy[homeworkId]);
+      const dayPlanPanelId = `homework-day-plan-${(homeworkId || 'current').replace(/[^a-zA-Z0-9_-]/g, '') || 'current'}`;
+      const rewardDueAt = resolveHomeworkDueAt(entry);
+      const rewardDeadlineExpired = Boolean(
+        rewardDueAt && rewardDueAt.getTime() < Number(homeworkClock)
+      );
+      const rewardHasRequiredTasks = goalsSummary.requiredGoals.length > 0
+        && goalsSummary.requiredGoals.every((goal) => Number(goal?.totalCount) > 0);
+      const rewardGranted = Boolean(entry?.homeworkChestGrantedAt);
+      const rewardShouldShow = rewardHasRequiredTasks && (
+        rewardGranted
+        || (!goalsSummary.requiredCompleted && !rewardDeadlineExpired)
+      );
+      const rewardState = rewardGranted ? 'earned' : 'pending';
+      const rewardDialogEntryKey = homeworkId || 'current-homework';
+      const rewardDialogTitleId = `homework-reward-title-${rewardDialogEntryKey.replace(/[^a-zA-Z0-9_-]/g, '') || 'current'}`;
+      const rewardDialogDescriptionId = `${rewardDialogTitleId}-description`;
+      const rewardDialogId = `${rewardDialogTitleId}-dialog`;
 
       const renderCurrentGoalBlock = (goalView, goalIndex) => {
         if (!goalView) return null;
@@ -3110,6 +3198,34 @@ const ScheduleSection = ({
                     </span>
                   )}
                   {dateText ? <span className="text-[10px] font-medium text-slate-400">Выдано {dateText}</span> : null}
+                  {role === 'student' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (dayPlanVisible) {
+                          setVisibleHomeworkDayPlans((prev) => ({ ...prev, [homeworkId]: false }));
+                        } else {
+                          handlePlanHomeworkByDay(entry);
+                        }
+                      }}
+                      disabled={!dayPlanVisible && dayPlanBusy}
+                      className="student-today-homework__plan-toggle inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/75 px-2 py-1 text-[10px] font-bold text-slate-500 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700 disabled:cursor-wait disabled:opacity-60"
+                      aria-expanded={dayPlanVisible}
+                      aria-controls={dayPlanVisible && dayPlanAvailable ? dayPlanPanelId : undefined}
+                    >
+                      {dayPlanVisible ? (
+                        <>
+                          <EyeOff size={11} aria-hidden="true" />
+                          Скрыть план по дням
+                        </>
+                      ) : (
+                        <>
+                          <CalendarDays size={11} className={dayPlanBusy ? 'animate-pulse' : ''} aria-hidden="true" />
+                          {dayPlanBusy ? 'Планируем…' : 'Распланировать по дням'}
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -3153,35 +3269,128 @@ const ScheduleSection = ({
             </div>
           </header>
 
-          {role === 'student' && (
-            <div className="relative mt-3 flex justify-end">
-              {dayPlanVisible ? (
-                <button
-                  type="button"
-                  onClick={() => setVisibleHomeworkDayPlans((prev) => ({ ...prev, [homeworkId]: false }))}
-                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
-                  aria-expanded="true"
+          {role === 'student' && rewardShouldShow && (
+            <section
+              className={`homework-chest-reward homework-chest-reward--${rewardState}`}
+              aria-label={`${rewardState === 'earned' ? 'Сундук за домашку получен' : '100% домашки — сундук'}. Выполнено ${goalsSummary.solvedCount} из ${goalsSummary.totalCount}. ${deadlineMeta.label}.`}
+              title={`${deadlineMeta.label}${deadlineMeta.relativeLabel ? ` · ${deadlineMeta.relativeLabel}` : ''}`}
+            >
+              <img src={chestClosedImage} alt="" className="homework-chest-reward__image" aria-hidden="true" />
+              <div className="homework-chest-reward__body">
+                <strong>
+                  {rewardState === 'earned' ? 'Сундук за домашку получен' : '100% домашки → сундук'}
+                </strong>
+                <span className="homework-chest-reward__count" aria-hidden="true">
+                  {goalsSummary.solvedCount}/{goalsSummary.totalCount}
+                </span>
+                <div
+                  className="homework-chest-reward__progress"
+                  role="progressbar"
+                  aria-label={`Выполнено ${goalsSummary.solvedCount} из ${goalsSummary.totalCount} обязательных заданий, ${goalsSummary.progressPercent}%`}
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow={goalsSummary.progressPercent}
                 >
-                  <EyeOff size={13} />
-                  Скрыть план по дням
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handlePlanHomeworkByDay(entry)}
-                  disabled={dayPlanBusy}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-white/70 px-2.5 py-1.5 text-[11px] font-semibold text-slate-500 transition hover:border-purple-200 hover:bg-purple-50/60 hover:text-purple-700 disabled:cursor-wait disabled:opacity-60"
-                  aria-expanded="false"
-                >
-                  <CalendarDays size={13} className={dayPlanBusy ? 'animate-pulse' : ''} />
-                  {dayPlanBusy ? 'Планируем…' : 'Распланировать по дням'}
-                </button>
-              )}
-            </div>
+                  <span style={{ width: `${goalsSummary.progressPercent}%` }} />
+                </div>
+              </div>
+              <button
+                ref={homeworkRewardDialogTriggerRef}
+                type="button"
+                className="homework-chest-reward__details"
+                onClick={() => setHomeworkRewardDialogEntryId(rewardDialogEntryKey)}
+                aria-haspopup="dialog"
+                aria-expanded={homeworkRewardDialogEntryId === rewardDialogEntryKey}
+                aria-controls={rewardDialogId}
+              >
+                Что внутри?
+              </button>
+            </section>
           )}
 
+          {role === 'student'
+            && rewardShouldShow
+            && homeworkRewardDialogEntryId === rewardDialogEntryKey
+            && typeof document !== 'undefined'
+            ? createPortal(
+                <div
+                  className="homework-reward-dialog__backdrop"
+                  onMouseDown={(event) => {
+                    if (event.target === event.currentTarget) setHomeworkRewardDialogEntryId('');
+                  }}
+                >
+                  <div
+                    id={rewardDialogId}
+                    ref={homeworkRewardDialogRef}
+                    className="homework-reward-dialog"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby={rewardDialogTitleId}
+                    aria-describedby={rewardDialogDescriptionId}
+                  >
+                    <button
+                      ref={homeworkRewardDialogCloseRef}
+                      type="button"
+                      className="homework-reward-dialog__close"
+                      onClick={() => setHomeworkRewardDialogEntryId('')}
+                      aria-label="Закрыть описание сундука"
+                    >
+                      <X size={19} aria-hidden="true" />
+                    </button>
+                    <div className="homework-reward-dialog__hero" aria-hidden="true">
+                      <span className="homework-reward-dialog__hero-glow" />
+                      <img src={chestClosedImage} alt="" />
+                    </div>
+                    <div className="homework-reward-dialog__eyebrow">Содержимое сундука</div>
+                    <h2 id={rewardDialogTitleId}>Что может выпасть</h2>
+                    <p id={rewardDialogDescriptionId} className="homework-reward-dialog__lead">
+                      Получи сундук за 100% обязательной части домашней работы до дедлайна.
+                    </p>
+
+                    <ul className="homework-reward-dialog__loot">
+                      <li>
+                        <strong>2 случайных артефакта</strong>
+                        <span>гарантированно в каждом сундуке</span>
+                      </li>
+                      <li>
+                        <strong>Оформление профиля</strong>
+                        <span>дополнительный шанс 45%</span>
+                      </li>
+                      <li>
+                        <strong>Карты для прокачки</strong>
+                        <span>повторы дают карты; на максимальном уровне — монеты</span>
+                      </li>
+                      <li>
+                        <strong>Открытие за 3 часа</strong>
+                        <span>сундук открывается в разделе рейтинга</span>
+                      </li>
+                    </ul>
+
+                    <div className="homework-reward-dialog__rarities" aria-label="Шансы редкости артефакта">
+                      <span className="homework-reward-dialog__rarity homework-reward-dialog__rarity--s"><b>S</b> 5%</span>
+                      <span className="homework-reward-dialog__rarity homework-reward-dialog__rarity--a"><b>A</b> 10%</span>
+                      <span className="homework-reward-dialog__rarity homework-reward-dialog__rarity--b"><b>B</b> 30%</span>
+                      <span className="homework-reward-dialog__rarity homework-reward-dialog__rarity--c"><b>C</b> 55%</span>
+                    </div>
+
+                    <p className="homework-reward-dialog__note">
+                      Дополнительные цели и пункты чек-листа не мешают получить сундук.
+                    </p>
+                    <button
+                      type="button"
+                      className="homework-reward-dialog__confirm"
+                      onClick={() => setHomeworkRewardDialogEntryId('')}
+                    >
+                      Понятно
+                    </button>
+                  </div>
+                </div>,
+                document.body
+              )
+            : null}
+
           {dayPlanVisible && dayPlanAvailable && (
-            <div className="relative mt-4">
+            <div id={dayPlanPanelId} className="relative mt-3">
               <HomeworkDayPlan
                 entry={entry}
                 goalViews={goalViews}
@@ -3210,7 +3419,7 @@ const ScheduleSection = ({
             </div>
           )}
 
-          <div className={`relative grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)] ${dayPlanVisible && dayPlanAvailable ? 'mt-2' : 'mt-4'}`}>
+          <div className={`relative grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)] ${dayPlanVisible && dayPlanAvailable ? 'mt-2' : 'mt-3'}`}>
             <section className="student-today-homework__goal-panel rounded-[20px] border border-purple-200/80 bg-gradient-to-br from-purple-50 via-white to-fuchsia-50/60 p-4">
               {orderedGoalViews.length > 0 ? (
                 orderedGoalViews.map((goalView, goalIndex) => renderCurrentGoalBlock(goalView, goalIndex))

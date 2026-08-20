@@ -11275,6 +11275,8 @@ const MOCK_TIMER_CHEST_MILESTONES = [
 const MOCK_TIMER_CHEST_ARTIFACTS_PER_CHEST = 2;
 const MOCK_TIMER_CHEST_OPEN_DURATION_MS = 3 * 60 * 60 * 1000;
 const MOCK_TIMER_CHEST_SLOT_COUNT = 8;
+const MOCK_TIMER_CHEST_SOURCE = 'mock-timer-chest';
+const HOMEWORK_COMPLETE_CHEST_SOURCE = 'homework-complete';
 
 const normalizeMockAttemptMode = (value, fallback = MOCK_ATTEMPT_MODE_CLASSIC) => {
   return normalizeMockExamMode(value, fallback);
@@ -11359,6 +11361,30 @@ const getPreviouslyAwardedMockTimerChestMilestones = (attempt) => {
   return normalizeMockCoinMilestones(attempt.timerChestAwardedMilestones);
 };
 
+const normalizeChestSource = (value, fallback = MOCK_TIMER_CHEST_SOURCE) => {
+  const source = typeof value === 'string' ? value.trim().slice(0, 64) : '';
+  return source || fallback;
+};
+
+const normalizeChestRewardMetadata = (value) => {
+  const safeValue = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const homeworkId = typeof safeValue.homeworkId === 'string'
+    ? safeValue.homeworkId.trim().slice(0, 200)
+    : '';
+  const source = normalizeChestSource(
+    safeValue.source,
+    homeworkId ? HOMEWORK_COMPLETE_CHEST_SOURCE : MOCK_TIMER_CHEST_SOURCE
+  );
+  const homeworkTitle = typeof safeValue.homeworkTitle === 'string'
+    ? safeValue.homeworkTitle.trim().slice(0, 120)
+    : '';
+  return {
+    source,
+    ...(homeworkId ? { homeworkId } : {}),
+    ...(homeworkTitle ? { homeworkTitle } : {}),
+  };
+};
+
 const normalizeMockTimerChestPendingReward = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const artifactIds = (Array.isArray(value.artifactIds) ? value.artifactIds : [])
@@ -11373,10 +11399,12 @@ const normalizeMockTimerChestPendingReward = (value) => {
   const preparedAt = typeof value.preparedAt === 'string' && !Number.isNaN(Date.parse(value.preparedAt))
     ? new Date(value.preparedAt).toISOString()
     : new Date().toISOString();
+  const metadata = normalizeChestRewardMetadata(value);
   return {
     preparedAt,
     artifactIds,
     ...(profileThemeIds.length > 0 ? { profileThemeIds } : {}),
+    ...metadata,
   };
 };
 
@@ -11403,16 +11431,25 @@ const normalizeMockTimerChestQueue = (value) => (
       const mockExamTitle = typeof raw.mockExamTitle === 'string' && raw.mockExamTitle.trim()
         ? raw.mockExamTitle.trim().slice(0, 120)
         : '';
+      const metadata = normalizeChestRewardMetadata(raw);
       const milestoneScore = normalizeMockScore(raw.milestoneScore);
+      const milestoneIndex = Math.max(0, Math.floor(Number(raw.milestoneIndex) || 0));
+      const trainingSolvedCount = Math.max(0, Math.floor(Number(raw.trainingSolvedCount) || 0));
       const chestIndex = Math.max(1, Math.floor(Number(raw.chestIndex) || (index + 1)));
-      const pendingReward = normalizeMockTimerChestPendingReward(raw.pendingReward);
+      const pendingReward = normalizeMockTimerChestPendingReward(
+        raw.pendingReward && typeof raw.pendingReward === 'object'
+          ? { ...metadata, ...raw.pendingReward }
+          : null
+      );
       return {
         id,
-        source: 'mock-timer-chest',
+        ...metadata,
         createdAt,
         ...(mockExamId ? { mockExamId } : {}),
         ...(mockExamTitle ? { mockExamTitle } : {}),
         ...(milestoneScore > 0 ? { milestoneScore } : {}),
+        ...(milestoneIndex > 0 ? { milestoneIndex } : {}),
+        ...(trainingSolvedCount > 0 ? { trainingSolvedCount } : {}),
         chestIndex,
         coinsGained: normalizeCoinsTotal(raw.coinsGained),
         ...(openStartedAt ? { openStartedAt } : {}),
@@ -11438,12 +11475,17 @@ const serializeMockTimerChest = (chest, now = new Date()) => {
   return {
     id: String(chest?.id || ''),
     state,
-    source: 'mock-timer-chest',
+    ...normalizeChestRewardMetadata(chest),
     createdAt: chest?.createdAt || '',
     mockExamId: chest?.mockExamId || '',
     mockExamTitle: chest?.mockExamTitle || '',
+    homeworkId: chest?.homeworkId || '',
+    homeworkTitle: chest?.homeworkTitle || '',
     milestoneScore: normalizeMockScore(chest?.milestoneScore),
+    milestoneIndex: Math.max(0, Math.floor(Number(chest?.milestoneIndex) || 0)),
+    trainingSolvedCount: Math.max(0, Math.floor(Number(chest?.trainingSolvedCount) || 0)),
     chestIndex: Math.max(1, Math.floor(Number(chest?.chestIndex) || 1)),
+    coinsGained: normalizeCoinsTotal(chest?.coinsGained),
     openDurationMs: MOCK_TIMER_CHEST_OPEN_DURATION_MS,
     remainingMs: state === 'opening' && Number.isFinite(readyAtMs)
       ? Math.max(0, readyAtMs - nowMs)
@@ -11508,7 +11550,11 @@ const appendPythonInfiniteTrainingChests = (data, chestCount, solvedCount, creat
   return queue;
 };
 
-const createMockTimerChestPendingReward = (data, preparedAt = new Date().toISOString()) => {
+const createMockTimerChestPendingReward = (
+  data,
+  preparedAt = new Date().toISOString(),
+  metadata = null
+) => {
   let artifactTotalPulls = normalizeArtifactTotalPulls(data?.artifactTotalPulls);
   const artifactIds = [];
   for (let itemIndex = 0; itemIndex < MOCK_TIMER_CHEST_ARTIFACTS_PER_CHEST; itemIndex += 1) {
@@ -11526,14 +11572,19 @@ const createMockTimerChestPendingReward = (data, preparedAt = new Date().toISOSt
     preparedAt,
     artifactIds,
     profileThemeIds,
+    ...normalizeChestRewardMetadata(metadata),
   });
 };
 
 const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt = new Date().toISOString()) => {
   const safeChest = chest && typeof chest === 'object' ? chest : {};
   const safePendingReward = normalizeMockTimerChestPendingReward(pendingReward)
-    || createMockTimerChestPendingReward(data, openedAt)
+    || createMockTimerChestPendingReward(data, openedAt, safeChest)
     || { preparedAt: openedAt, artifactIds: [] };
+  const rewardMetadata = normalizeChestRewardMetadata({
+    ...safePendingReward,
+    ...safeChest,
+  });
   const pulledAt = safePendingReward.preparedAt || openedAt;
   const artifactInventory = normalizeArtifactInventory(data?.artifactInventory);
   const artifactLevels = normalizeArtifactLevels(data?.artifactLevels, artifactInventory);
@@ -11571,7 +11622,7 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
       artifactId: artifact.id,
       pulledAt,
       maxLevelDuplicateCoins,
-      source: 'mock-timer-chest',
+      ...rewardMetadata,
       mockExamId: safeChest.mockExamId || '',
       mockExamTitle: safeChest.mockExamTitle || '',
       milestoneScore: normalizeMockScore(safeChest.milestoneScore),
@@ -11594,7 +11645,7 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
     }
     profileThemeDropRecords.push({
       themeId: profileTheme.id,
-      source: 'mock-timer-chest',
+      ...rewardMetadata,
       pulledAt,
       isNew,
       duplicateCoins,
@@ -11620,7 +11671,9 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
       if (!drop) return null;
       return {
         ...drop,
-        source: 'mock-timer-chest',
+        source: record.source,
+        ...(record.homeworkId ? { homeworkId: record.homeworkId } : {}),
+        ...(record.homeworkTitle ? { homeworkTitle: record.homeworkTitle } : {}),
         mockExamId: record.mockExamId,
         mockExamTitle: record.mockExamTitle,
         milestoneScore: record.milestoneScore,
@@ -11635,11 +11688,13 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
       const drop = buildProfileThemeRewardPayload(record.themeId, profileThemeInventory, {
         isNew: record.isNew,
         duplicateCoins: record.duplicateCoins,
-        source: 'mock-timer-chest',
+        source: record.source,
       });
       if (!drop) return null;
       return {
         ...drop,
+        ...(record.homeworkId ? { homeworkId: record.homeworkId } : {}),
+        ...(record.homeworkTitle ? { homeworkTitle: record.homeworkTitle } : {}),
         mockExamId: record.mockExamId,
         mockExamTitle: record.mockExamTitle,
         milestoneScore: record.milestoneScore,
@@ -11651,7 +11706,7 @@ const buildMockTimerChestRewardSnapshot = (chest, pendingReward, data, openedAt 
 
   const mockChestReward = {
     id: String(safeChest.id || ''),
-    source: 'mock-timer-chest',
+    ...rewardMetadata,
     mockExamId: safeChest.mockExamId || '',
     mockExamTitle: safeChest.mockExamTitle || '',
     milestoneScore: normalizeMockScore(safeChest.milestoneScore),
@@ -13325,6 +13380,216 @@ const getMockGoalProgressSnapshot = (goal, studentData, mockExamById = {}, homew
   return {
     totalCount,
     pendingCount: Math.max(totalCount - solvedCount, 0),
+  };
+};
+
+const getRequiredHomeworkProgressSnapshot = (
+  homework,
+  studentData,
+  testsDb,
+  mockExamById = {}
+) => {
+  const requiredGoals = getNormalizedHomeworkGoals(homework, testsDb)
+    .filter((goal) => !isOptionalHomeworkGoal(goal));
+  const snapshots = requiredGoals.map((goal) => (
+    normalizeGoalType(goal) === GOAL_TYPE_MOCK
+      ? getMockGoalProgressSnapshot(goal, studentData, mockExamById, homework)
+      : getTaskGoalProgressSnapshot(goal, studentData, testsDb)
+  ));
+  const measurable = requiredGoals.length > 0
+    && snapshots.every((snapshot) => Number(snapshot?.totalCount) > 0);
+  return {
+    requiredGoalCount: requiredGoals.length,
+    measurable,
+    totalCount: snapshots.reduce((sum, snapshot) => sum + (Number(snapshot?.totalCount) || 0), 0),
+    pendingCount: snapshots.reduce((sum, snapshot) => sum + (Number(snapshot?.pendingCount) || 0), 0),
+  };
+};
+
+const getHomeworkChestTitle = (homework) => {
+  const explicitTitle = typeof homework?.title === 'string' ? homework.title.trim() : '';
+  if (explicitTitle) return explicitTitle.slice(0, 120);
+  const firstLine = String(homework?.homeWork || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return (firstLine || 'Домашняя работа').replace(/\s+/g, ' ').slice(0, 120);
+};
+
+const buildHomeworkChestId = (studentId, homeworkId) => {
+  const digest = crypto.createHash('sha256')
+    .update(`${String(studentId || '')}\n${String(homeworkId || '')}`)
+    .digest('hex')
+    .slice(0, 24);
+  return `homework-chest-${digest}`;
+};
+
+const wasHomeworkCompletedByDeadline = ({
+  homework,
+  studentData,
+  testsDb,
+  mockExams,
+  nowMs,
+}) => {
+  const dueAtMs = Date.parse(resolveHomeworkDueAt(homework));
+  if (!Number.isFinite(dueAtMs)) return false;
+
+  const requiredGoals = getNormalizedHomeworkGoals(homework, testsDb)
+    .filter((goal) => !isOptionalHomeworkGoal(goal));
+  if (requiredGoals.length <= 0) return false;
+  const [statistics] = buildHomeworkStatistics({
+    homeworks: [{ ...homework, goals: requiredGoals, checklistItems: [] }],
+    studentData,
+    testsDb,
+    mockExams,
+    mockAttemptsByExam: studentData?.mockAttempts,
+    nowMs,
+  });
+  return Boolean(
+    statistics
+    && statistics.totalCount > 0
+    && statistics.percent === 100
+    && statistics.checkpointPercent === 100
+    && statistics.completedOnTime === true
+  );
+};
+
+const grantCompletedHomeworkChests = ({
+  studentId,
+  beforeData,
+  afterData,
+  testsDb = {},
+  mockExams = [],
+  grantedAt = new Date().toISOString(),
+  allowAlreadyComplete = false,
+  homeworkIds = null,
+} = {}) => {
+  const safeAfterData = afterData && typeof afterData === 'object' ? afterData : {};
+  const homeworks = Array.isArray(safeAfterData.homeworks) ? safeAfterData.homeworks : [];
+  if (homeworks.length <= 0) return { data: safeAfterData, grants: [], changed: false };
+  const grantedAtIso = normalizeMockTimerTimestamp(grantedAt) || new Date().toISOString();
+  const grantedAtMs = Date.parse(grantedAtIso);
+  const allowedHomeworkIds = Array.isArray(homeworkIds)
+    ? new Set(homeworkIds.map((id) => String(id || '').trim()).filter(Boolean))
+    : null;
+  const mockExamById = (Array.isArray(mockExams) ? mockExams : []).reduce((result, exam) => {
+    const examId = String(exam?.id || '').trim();
+    if (examId) result[examId] = exam;
+    return result;
+  }, {});
+  const beforeHomeworkById = new Map(
+    (Array.isArray(beforeData?.homeworks) ? beforeData.homeworks : [])
+      .map((homework) => [String(homework?.id || '').trim(), homework])
+      .filter(([homeworkId]) => homeworkId)
+  );
+  const nextHomeworks = [...homeworks];
+  const queue = normalizeMockTimerChestQueue(safeAfterData.mockTimerChests);
+  const grants = [];
+  let nextLesson = safeAfterData.nextLesson;
+  let changed = false;
+
+  const persistGrantMarker = (index, homework, chestId, chestGrantedAt) => {
+    const markedHomework = {
+      ...homework,
+      homeworkChestId: chestId,
+      homeworkChestGrantedAt: chestGrantedAt,
+    };
+    nextHomeworks[index] = markedHomework;
+    if (index === 0 && nextLesson && typeof nextLesson === 'object') {
+      nextLesson = {
+        ...nextLesson,
+        homeworkChestId: chestId,
+        homeworkChestGrantedAt: chestGrantedAt,
+      };
+    }
+    changed = true;
+  };
+
+  homeworks.forEach((homework, index) => {
+    if (!homework || typeof homework !== 'object') return;
+    const homeworkId = String(homework.id || '').trim().slice(0, 200);
+    if (!homeworkId || (allowedHomeworkIds && !allowedHomeworkIds.has(homeworkId))) return;
+    const deterministicChestId = buildHomeworkChestId(studentId, homeworkId);
+    const markedChestId = String(homework.homeworkChestId || '').trim();
+    const markedGrantedAt = normalizeMockTimerTimestamp(homework.homeworkChestGrantedAt);
+    if (markedChestId || markedGrantedAt) {
+      if (!markedChestId || !markedGrantedAt) {
+        persistGrantMarker(
+          index,
+          homework,
+          markedChestId || deterministicChestId,
+          markedGrantedAt || grantedAtIso
+        );
+      }
+      return;
+    }
+
+    const queuedChest = queue.find((chest) => (
+      chest?.source === HOMEWORK_COMPLETE_CHEST_SOURCE
+      && String(chest?.homeworkId || '').trim() === homeworkId
+    ));
+    if (queuedChest) {
+      persistGrantMarker(index, homework, queuedChest.id, queuedChest.createdAt || grantedAtIso);
+      return;
+    }
+
+    const dueAtMs = Date.parse(resolveHomeworkDueAt(homework));
+    if (!Number.isFinite(dueAtMs) || (!allowAlreadyComplete && grantedAtMs > dueAtMs)) return;
+    const afterSnapshot = getRequiredHomeworkProgressSnapshot(
+      homework,
+      safeAfterData,
+      testsDb,
+      mockExamById
+    );
+    if (!afterSnapshot.measurable || afterSnapshot.pendingCount > 0) return;
+
+    let shouldGrant = false;
+    if (allowAlreadyComplete) {
+      shouldGrant = wasHomeworkCompletedByDeadline({
+        homework,
+        studentData: safeAfterData,
+        testsDb,
+        mockExams,
+        nowMs: grantedAtMs,
+      });
+    } else {
+      const beforeHomework = beforeHomeworkById.get(homeworkId);
+      if (!beforeHomework) return;
+      const beforeSnapshot = getRequiredHomeworkProgressSnapshot(
+        beforeHomework,
+        beforeData,
+        testsDb,
+        mockExamById
+      );
+      shouldGrant = beforeSnapshot.measurable && beforeSnapshot.pendingCount > 0;
+    }
+    if (!shouldGrant) return;
+
+    const chestRecord = {
+      id: deterministicChestId,
+      source: HOMEWORK_COMPLETE_CHEST_SOURCE,
+      homeworkId,
+      homeworkTitle: getHomeworkChestTitle(homework),
+      chestIndex: queue.length + 1,
+      createdAt: grantedAtIso,
+      coinsGained: 0,
+    };
+    queue.push(chestRecord);
+    persistGrantMarker(index, homework, chestRecord.id, grantedAtIso);
+    grants.push(serializeMockTimerChest(chestRecord, new Date(grantedAtIso)));
+  });
+
+  if (!changed) return { data: safeAfterData, grants, changed: false };
+  return {
+    data: {
+      ...safeAfterData,
+      homeworks: nextHomeworks,
+      nextLesson,
+      mockTimerChests: queue,
+      mockTimerChestsTotal: normalizeCoinsTotal(safeAfterData.mockTimerChestsTotal) + grants.length,
+    },
+    grants,
+    changed: true,
   };
 };
 
@@ -23035,8 +23300,11 @@ app.post('/api/students/mock-timer-chests/:chestId/prepare', (req, res) => {
     return res.status(409).json({ error: 'Сундук ещё не готов к открытию.' });
   }
 
-  const pendingReward = normalizeMockTimerChestPendingReward(chest.pendingReward)
-    || createMockTimerChestPendingReward(data, now.toISOString());
+  const pendingReward = normalizeMockTimerChestPendingReward(
+    chest.pendingReward && typeof chest.pendingReward === 'object'
+      ? { ...normalizeChestRewardMetadata(chest), ...chest.pendingReward }
+      : null
+  ) || createMockTimerChestPendingReward(data, now.toISOString(), chest);
   if (!pendingReward) {
     return res.status(500).json({ error: 'Не удалось подготовить награду сундука.' });
   }
@@ -23077,8 +23345,11 @@ app.post('/api/students/mock-timer-chests/:chestId/claim', (req, res) => {
   }
 
   const openedAt = now.toISOString();
-  const pendingReward = normalizeMockTimerChestPendingReward(chest.pendingReward)
-    || createMockTimerChestPendingReward(data, openedAt);
+  const pendingReward = normalizeMockTimerChestPendingReward(
+    chest.pendingReward && typeof chest.pendingReward === 'object'
+      ? { ...normalizeChestRewardMetadata(chest), ...chest.pendingReward }
+      : null
+  ) || createMockTimerChestPendingReward(data, openedAt, chest);
   if (!pendingReward) {
     return res.status(500).json({ error: 'Не удалось открыть сундук.' });
   }
@@ -25177,7 +25448,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     solvedEvents.splice(0, solvedEvents.length - STUDENT_SOLVED_EVENTS_LIMIT);
   }
   const lastArtifactDropRecord = artifactDropRecords[artifactDropRecords.length - 1] || null;
-  const updated = setStudentData(student.id, {
+  const nextStudentPayload = {
     ...data,
     mockAttempts: attempts,
     mockAttemptResults,
@@ -25203,7 +25474,18 @@ app.put('/api/mock-exams/attempt', (req, res) => {
         },
       }
       : {}),
+  };
+  const homeworkChestAward = grantCompletedHomeworkChests({
+    studentId: student.id,
+    beforeData: data,
+    afterData: nextStudentPayload,
+    testsDb: getTestsDbWithStudentMockFollowups(nextStudentPayload),
+    mockExams: list,
+    grantedAt: savedAt,
+    homeworkIds: homeworkAssignment ? [homeworkAssignment.id] : [],
   });
+  const updated = setStudentData(student.id, homeworkChestAward.data);
+  const homeworkChestGranted = homeworkChestAward.grants[0] || null;
   const dropPayloadByRecord = new Map();
   const mockArtifactDrops = artifactDropRecords
     .map((record) => {
@@ -25263,6 +25545,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     timerChestCoinsGained,
     timerChestsTotal: normalizeCoinsTotal(updated.mockTimerChestsTotal),
     mockTimerChests: buildMockTimerChestPanelState(updated),
+    ...(homeworkChestGranted ? { homeworkChestGranted } : {}),
     ...(mockChestRewards.length > 0 ? { mockChestRewards } : {}),
     ...(mockArtifactDrops.length > 0
       ? {
@@ -25753,7 +26036,16 @@ app.post('/api/progress/solve', async (req, res) => {
     nextStudentPayload.mockTimerChestsTotal = normalizeCoinsTotal(data?.mockTimerChestsTotal) + timerChestsGained;
   }
 
-  const updated = setStudentData(student.id, nextStudentPayload);
+  const homeworkChestAward = grantCompletedHomeworkChests({
+    studentId: student.id,
+    beforeData: data,
+    afterData: nextStudentPayload,
+    testsDb,
+    mockExams: readMockExamsDb(),
+    grantedAt: submittedAt,
+  });
+  const updated = setStudentData(student.id, homeworkChestAward.data);
+  const homeworkChestGranted = homeworkChestAward.grants[0] || null;
   res.json({
     taskProgress,
     progress: updated.progress,
@@ -25763,7 +26055,10 @@ app.post('/api/progress/solve', async (req, res) => {
     coinsTotal: updated.coinsTotal,
     coinsGained,
     timerChestsGained,
-    ...(timerChestsGained > 0 ? { mockTimerChests: buildMockTimerChestPanelState(updated) } : {}),
+    ...(homeworkChestGranted ? { homeworkChestGranted } : {}),
+    ...(timerChestsGained > 0 || homeworkChestGranted
+      ? { mockTimerChests: buildMockTimerChestPanelState(updated) }
+      : {}),
   });
   } catch (error) {
     console.error(error);
@@ -30075,9 +30370,28 @@ app.get('/api/student-next-lesson', async (req, res) => {
     storedData.schedule,
     { treatMissingPlannedLessonAsDeleted: googleRangeCoversHomeworkDeadline }
   );
-  const data = synchronized.deadlineChanged || synchronized.homeworkChanged
+  let data = synchronized.deadlineChanged || synchronized.homeworkChanged
     ? setStudentData(student.id, synchronized.studentData)
     : storedData;
+  const rewardCheckData = getStudentData(student.id);
+  const testsDb = getTestsDbWithStudentMockFollowups(rewardCheckData, readTestsDb());
+  const rewardHomeworkId = String(rewardCheckData?.homeworks?.[0]?.id || '').trim();
+  const homeworkChestAward = grantCompletedHomeworkChests({
+    studentId: student.id,
+    beforeData: rewardCheckData,
+    afterData: rewardCheckData,
+    testsDb,
+    mockExams: readMockExamsDb(),
+    grantedAt: new Date().toISOString(),
+    allowAlreadyComplete: true,
+    homeworkIds: rewardHomeworkId ? [rewardHomeworkId] : [],
+  });
+  if (homeworkChestAward.changed) {
+    data = setStudentData(student.id, homeworkChestAward.data);
+  } else {
+    data = rewardCheckData;
+  }
+  const homeworkChestGranted = homeworkChestAward.grants[0] || null;
   const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
     ? data.nextLesson
     : { homeWork: '', lessonLink: '', boardLink: '' };
@@ -30094,7 +30408,6 @@ app.get('/api/student-next-lesson', async (req, res) => {
         .map((val) => Number(val))
         .filter((val) => Number.isFinite(val) && val > 0)
     : [];
-  const testsDb = readTestsDb();
   const legacyGoals = normalizeGoals(legacyNextLesson?.goals, testsDb);
   const normalizedHomeworks = homeworks.length === 0 && hasLegacyContent
     ? [{
@@ -30120,7 +30433,16 @@ app.get('/api/student-next-lesson', async (req, res) => {
     return decorateHomeworkEntry({ ...entry, goals: legacyGoalsEntry });
   });
   const latest = withGoals[0] || decorateHomeworkEntry(legacyNextLesson);
-  res.json({ homeworks: withGoals, latest });
+  res.json({
+    homeworks: withGoals,
+    latest,
+    ...(homeworkChestGranted
+      ? {
+        homeworkChestGranted,
+        mockTimerChests: buildMockTimerChestPanelState(data),
+      }
+      : {}),
+  });
 });
 
 app.patch('/api/student-next-lesson', (req, res) => {
@@ -30511,6 +30833,8 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
         targetQuestions: Array.isArray(latestEntry.targetQuestions) ? latestEntry.targetQuestions : [],
         goals: Array.isArray(latestEntry.goals) ? latestEntry.goals : normalizeGoalsFromLegacy(latestEntry),
         checklistItems: normalizeHomeworkChecklistItems(latestEntry.id, latestEntry.homeWork, latestEntry.checklistItems),
+        homeworkChestId: String(latestEntry.homeworkChestId || '').trim(),
+        homeworkChestGrantedAt: normalizeMockTimerTimestamp(latestEntry.homeworkChestGrantedAt),
         ...(latestEntry.dayPlan ? { dayPlan: latestEntry.dayPlan } : {}),
       }
     : (data.nextLesson || { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] });
@@ -30704,6 +31028,8 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
         targetQuestions: Array.isArray(latestEntry.targetQuestions) ? latestEntry.targetQuestions : [],
         goals: Array.isArray(latestEntry.goals) ? latestEntry.goals : normalizeGoalsFromLegacy(latestEntry),
         checklistItems: normalizeHomeworkChecklistItems(latestEntry.id, latestEntry.homeWork, latestEntry.checklistItems),
+        homeworkChestId: String(latestEntry.homeworkChestId || '').trim(),
+        homeworkChestGrantedAt: normalizeMockTimerTimestamp(latestEntry.homeworkChestGrantedAt),
         ...(latestEntry.dayPlan ? { dayPlan: latestEntry.dayPlan } : {}),
       }
     : { homeWork: '', lessonLink: '', boardLink: '', issuedAt: '', dueAt: '', dueAtMode: 'manual', daysToComplete: 7, taskNumber: null, levelId: null, targetQuestions: [], goals: [], checklistItems: [] };
