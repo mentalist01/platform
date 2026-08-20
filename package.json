@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "server": "node server/index.js",
+    "diagnostics:lesson": "bash scripts/lesson-diagnostics.sh",
     "board-assets:migrate": "node server/migrateBoardAssets.js",
     "board-assets:migrate:apply": "node server/migrateBoardAssets.js --apply --confirm-offline",
     "xp:rebalance": "node server/index.js --rebalance-student-xp",

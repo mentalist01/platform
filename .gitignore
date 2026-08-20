@@ -38,6 +38,7 @@ server/data/collab/
 # Local artifacts
 .codex/
 .remote-access/
+diagnostics-output/
 .git2/
 repo.tar
 tmp-test-upload.txt
