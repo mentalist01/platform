@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, Music, PanelLeft, PanelTop, PictureInPicture2, PlayCircle, RefreshCcw, Send, Share2, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, MoreHorizontal, Music, PanelLeft, PanelTop, PictureInPicture2, PlayCircle, RefreshCcw, Send, Share2, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import useWorkbookHelper from '../hooks/useWorkbookHelper';
 import useQuestionSolveTimer from '../hooks/useQuestionSolveTimer';
@@ -162,15 +162,15 @@ const STUDENT_TEST_WINDOW_TOUR_STEPS = [
   {
     target: '[data-student-test-tour="code-tools"]',
     fallback: '[data-student-test-tour="condition"]',
-    title: 'Один код в двух режимах',
-    text: '«Показать код» и «Решать в коде» открывают один и тот же solution.py. Вставленный или изменённый код сохраняется автоматически: правки под заданием сразу появятся в большом редакторе, и наоборот.',
+    title: 'Код открывается одной кнопкой',
+    text: '«Открыть редактор» открывает тот же solution.py, который можно посмотреть через меню «Ещё». Код сохраняется автоматически в обоих режимах.',
     accent: '#0ea5e9',
   },
   {
-    target: '[data-student-test-tour="teacher-help"]',
+    target: '[data-student-test-tour="tools"]',
     fallback: '[data-student-test-tour="condition"]',
-    title: 'Поделиться заданием',
-    text: 'Здесь можно спросить учителя внутри платформы, отправить красивую карточку через Telegram или скопировать её для одного Ctrl+V.',
+    title: 'Дополнительные действия — в одном месте',
+    text: 'В меню «Ещё» находятся просмотр черновика, отдельное окно с условием и способы поделиться заданием. Они не мешают главному действию.',
     accent: '#ec4899',
   },
   {
@@ -1187,6 +1187,7 @@ const StudentTestModal = ({
   const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
   const [questionShareCopyState, setQuestionShareCopyState] = useState('idle');
   const [questionShareMenuAnchor, setQuestionShareMenuAnchor] = useState('');
+  const [questionToolsMenuOpen, setQuestionToolsMenuOpen] = useState(false);
   const [questionCodeClosing, setQuestionCodeClosing] = useState(false);
   const [questionCodeWorkspacePrefs, setQuestionCodeWorkspacePrefs] = useState(readStudentCodeWorkspacePrefs);
   const [questionCodeLayoutAnimating, setQuestionCodeLayoutAnimating] = useState(false);
@@ -1209,7 +1210,7 @@ const StudentTestModal = ({
   const questionCodeAutoSaveTimersRef = useRef(new Map());
   const studentHelpRequestIdRef = useRef('');
   const studentHelpTriggerRef = useRef(null);
-  const questionShareToolbarRef = useRef(null);
+  const questionToolsMenuRef = useRef(null);
   const questionShareFocusRef = useRef(null);
   const studentHelpSuccessActionRef = useRef(null);
   const studentHelpCloseTimerRef = useRef(null);
@@ -2340,6 +2341,7 @@ const StudentTestModal = ({
     setQuestionCodeById({});
     setQuestionCodeOpen(false);
     setQuestionCodePreviewOpen(false);
+    setQuestionToolsMenuOpen(false);
     setQuestionCodeClosing(false);
     setQuestionCodeLayoutAnimating(false);
     setQuestionCodeLoadingById({});
@@ -2484,6 +2486,7 @@ const StudentTestModal = ({
     setQuestionCodeCopyState('idle');
     setQuestionShareCopyState('idle');
     setQuestionShareMenuAnchor('');
+    setQuestionToolsMenuOpen(false);
     if (questionCodeCopyResetTimerRef.current) {
       clearTimeout(questionCodeCopyResetTimerRef.current);
       questionCodeCopyResetTimerRef.current = null;
@@ -2497,7 +2500,7 @@ const StudentTestModal = ({
   useEffect(() => {
     if (!questionShareMenuAnchor || typeof document === 'undefined') return undefined;
     const handleShareMenuPointerDown = (event) => {
-      if (questionShareToolbarRef.current?.contains(event.target)) return;
+      if (questionToolsMenuRef.current?.contains(event.target)) return;
       if (questionShareFocusRef.current?.contains(event.target)) return;
       setQuestionShareMenuAnchor('');
     };
@@ -2512,6 +2515,24 @@ const StudentTestModal = ({
       document.removeEventListener('keydown', handleShareMenuKeyDown);
     };
   }, [questionShareMenuAnchor]);
+
+  useEffect(() => {
+    if (!questionToolsMenuOpen || typeof document === 'undefined') return undefined;
+    const handleToolsMenuPointerDown = (event) => {
+      if (questionToolsMenuRef.current?.contains(event.target)) return;
+      setQuestionToolsMenuOpen(false);
+    };
+    const handleToolsMenuKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      setQuestionToolsMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', handleToolsMenuPointerDown, true);
+    document.addEventListener('keydown', handleToolsMenuKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handleToolsMenuPointerDown, true);
+      document.removeEventListener('keydown', handleToolsMenuKeyDown);
+    };
+  }, [questionToolsMenuOpen]);
 
   useEffect(() => {
     if (!questionTurtleWindowQuestionId) return undefined;
@@ -3608,6 +3629,7 @@ const StudentTestModal = ({
     };
 
     const handleOpenQuestionCodeFocus = () => {
+      setQuestionToolsMenuOpen(false);
       clearQuestionCodeCloseTimer();
       closeQuestionTurtleWindow(false);
       setQuestionTerminalQuestionId('');
@@ -3711,6 +3733,7 @@ const StudentTestModal = ({
     const handleCopyQuestionForTeacher = async () => {
       if (!currentId || ['preparing', 'sharing'].includes(questionShareCopyState)) return;
       setQuestionShareMenuAnchor('');
+      setQuestionToolsMenuOpen(false);
       const prepared = prepareCurrentQuestionShare();
       if (!prepared) return;
 
@@ -3725,6 +3748,7 @@ const StudentTestModal = ({
     const handleShareQuestionToTelegram = async () => {
       if (!currentId || ['preparing', 'sharing'].includes(questionShareCopyState)) return;
       setQuestionShareMenuAnchor('');
+      setQuestionToolsMenuOpen(false);
       const prepared = prepareCurrentQuestionShare();
       if (!prepared) return;
       try {
@@ -3762,9 +3786,12 @@ const StudentTestModal = ({
     const handleOpenStudentHelpFromShare = (anchor) => {
       const shareRoot = anchor === 'focus'
         ? questionShareFocusRef.current
-        : questionShareToolbarRef.current;
-      studentHelpTriggerRef.current = shareRoot?.querySelector('[data-question-share-button="true"]') || null;
+        : questionToolsMenuRef.current;
+      studentHelpTriggerRef.current = shareRoot?.querySelector('[data-question-share-button="true"]')
+        || questionToolsMenuRef.current?.querySelector('[data-student-test-tools-trigger="true"]')
+        || null;
       setQuestionShareMenuAnchor('');
+      setQuestionToolsMenuOpen(false);
       handleOpenStudentHelp();
     };
 
@@ -3797,11 +3824,61 @@ const StudentTestModal = ({
           ? 'Не удалось подготовить отправку. Попробуйте ещё раз.'
           : 'Поделиться условием и текущим кодом';
 
+    const renderQuestionShareOptions = (anchor) => {
+      const isBusy = ['preparing', 'sharing'].includes(questionShareCopyState);
+      return (
+        <div className="student-test-share-popover__options">
+          <button
+            type="button"
+            role="menuitem"
+            className="student-test-share-option is-platform"
+            onClick={() => handleOpenStudentHelpFromShare(anchor)}
+            disabled={isBusy}
+          >
+            <span className="student-test-share-option__icon" aria-hidden="true"><CircleHelp size={19} /></span>
+            <span className="student-test-share-option__copy">
+              <strong>Спросить учителя</strong>
+              <small>Написать внутри платформы</small>
+            </span>
+            <ChevronRight size={17} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="student-test-share-option is-telegram"
+            onClick={handleShareQuestionToTelegram}
+            disabled={isBusy}
+          >
+            <span className="student-test-share-option__icon" aria-hidden="true"><Send size={19} /></span>
+            <span className="student-test-share-option__copy">
+              <strong>Отправить в Telegram</strong>
+              <small>Открыть приложение и выбрать получателя</small>
+            </span>
+            <ChevronRight size={17} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="student-test-share-option is-copy"
+            onClick={handleCopyQuestionForTeacher}
+            disabled={isBusy}
+          >
+            <span className="student-test-share-option__icon" aria-hidden="true"><Copy size={19} /></span>
+            <span className="student-test-share-option__copy">
+              <strong>Скопировать условие и код</strong>
+              <small>Потом вставить одним Ctrl+V</small>
+            </span>
+            <ChevronRight size={17} aria-hidden="true" />
+          </button>
+        </div>
+      );
+    };
+
     const renderQuestionShareMenu = (anchor, { focus = false } = {}) => {
       const isOpen = questionShareMenuAnchor === anchor;
       const isBusy = ['preparing', 'sharing'].includes(questionShareCopyState);
       const isSuccessful = ['copied', 'telegram', 'shared', 'text'].includes(questionShareCopyState);
-      const rootRef = anchor === 'focus' ? questionShareFocusRef : questionShareToolbarRef;
+      const rootRef = anchor === 'focus' ? questionShareFocusRef : questionToolsMenuRef;
       const triggerClassName = focus
         ? `student-test-code-focus__focus-button is-share is-${questionShareCopyState}`
         : `student-test-share-trigger is-${questionShareCopyState}`;
@@ -3835,47 +3912,7 @@ const StudentTestModal = ({
           </button>
           {isOpen && (
             <div className="student-test-share-popover" role="menu" aria-label="Поделиться заданием">
-              <div className="student-test-share-popover__options">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="student-test-share-option is-platform"
-                  onClick={() => handleOpenStudentHelpFromShare(anchor)}
-                >
-                  <span className="student-test-share-option__icon" aria-hidden="true"><CircleHelp size={19} /></span>
-                  <span className="student-test-share-option__copy">
-                    <strong>Спросить учителя</strong>
-                    <small>Написать внутри платформы</small>
-                  </span>
-                  <ChevronRight size={17} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="student-test-share-option is-telegram"
-                  onClick={handleShareQuestionToTelegram}
-                >
-                  <span className="student-test-share-option__icon" aria-hidden="true"><Send size={19} /></span>
-                  <span className="student-test-share-option__copy">
-                    <strong>Отправить в Telegram</strong>
-                    <small>Открыть приложение и выбрать получателя</small>
-                  </span>
-                  <ChevronRight size={17} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="student-test-share-option is-copy"
-                  onClick={handleCopyQuestionForTeacher}
-                >
-                  <span className="student-test-share-option__icon" aria-hidden="true"><Copy size={19} /></span>
-                  <span className="student-test-share-option__copy">
-                    <strong>Скопировать условие и код</strong>
-                    <small>Потом вставить одним Ctrl+V</small>
-                  </span>
-                  <ChevronRight size={17} aria-hidden="true" />
-                </button>
-              </div>
+              {renderQuestionShareOptions(anchor)}
             </div>
           )}
         </div>
@@ -4079,7 +4116,7 @@ const StudentTestModal = ({
         className={codeFocusRootClassName}
         role="dialog"
         aria-modal="true"
-        aria-label={`Решение в коде для вопроса №${currentQuestionNumber}`}
+        aria-label={`Редактор кода для вопроса №${currentQuestionNumber}`}
       >
         <button
           type="button"
@@ -4108,7 +4145,7 @@ const StudentTestModal = ({
                 <div className="student-test-code-focus__eyebrow">
                   Вопрос №{currentQuestionNumber}
                 </div>
-                <h3>Решать в коде</h3>
+                <h3>Редактор кода</h3>
               </div>
             </div>
             <div className="student-test-code-focus__header-actions">
@@ -4673,6 +4710,12 @@ const StudentTestModal = ({
                       {selectedLevelXpRewardLabel}
                     </span>
                   )}
+                  {isSolved && (
+                    <span className="student-test-solved-badge">
+                      <CheckCircle2 size={12} aria-hidden="true" />
+                      Решено
+                    </span>
+                  )}
                 </div>
                 <h2 className="student-test-title mt-1.5 truncate">
                   Задание {getTaskDisplayNumber(task)}: {task.title}
@@ -4848,45 +4891,81 @@ const StudentTestModal = ({
                   && <span aria-hidden="true" />}
               </div>
               <div className="student-test-question-panel__toolbar-actions" data-student-test-tour="code-tools">
-                {typeof window !== 'undefined' && 'documentPictureInPicture' in window && (
-                  <button
-                    type="button"
-                    className={`student-test-code-preview-trigger ${questionPictureInPictureOpen ? 'is-active' : ''}`}
-                    onClick={questionPictureInPictureOpen
-                      ? () => questionPictureInPictureWindowRef.current?.focus()
-                      : openQuestionPictureInPicture}
-                    aria-label={questionPictureInPictureOpen ? 'Задание уже открыто поверх окон' : 'Открыть задание поверх окон'}
-                    title={questionPictureInPictureOpen ? 'Задание открыто поверх окон' : 'Открыть поверх окон'}
-                  >
-                    <PictureInPicture2 size={16} aria-hidden="true" />
-                    <span>{questionPictureInPictureOpen ? 'Открыто поверх окон' : 'Поверх окон'}</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={`student-test-code-preview-trigger ${questionCodePreviewOpen ? 'is-active' : ''}`}
-                  onClick={handleToggleQuestionCodePreview}
-                  data-student-test-tour="code-preview"
-                  aria-expanded={questionCodePreviewOpen}
-                  aria-controls="student-test-saved-code-preview"
-                  aria-label={questionCodePreviewOpen ? 'Скрыть код решения' : 'Показать код решения'}
-                  title={questionCodePreviewOpen ? 'Скрыть код' : 'Показать код'}
-                >
-                  <FileCode2 size={16} aria-hidden="true" />
-                  <span>{questionCodePreviewOpen ? 'Скрыть код' : 'Показать код'}</span>
-                  <ChevronDown size={15} aria-hidden="true" />
-                </button>
                 <button
                   type="button"
                   className="student-test-code-primary-trigger"
                   onClick={handleOpenQuestionCodeFocus}
                   data-student-test-tour="code-workspace"
+                  aria-label="Открыть редактор кода"
+                  title="Открыть редактор кода"
                 >
                   <Code2 size={16} aria-hidden="true" />
-                  <span>Решать в коде</span>
+                  <span>Открыть редактор</span>
                   <Maximize2 size={15} aria-hidden="true" />
                 </button>
-                {renderQuestionShareMenu('toolbar')}
+                <div
+                  ref={questionToolsMenuRef}
+                  className={`student-test-tools-menu ${questionToolsMenuOpen ? 'is-open' : ''}`}
+                >
+                  <button
+                    type="button"
+                    className="student-test-tools-trigger"
+                    onClick={() => setQuestionToolsMenuOpen((current) => !current)}
+                    aria-haspopup="menu"
+                    aria-expanded={questionToolsMenuOpen}
+                    aria-label="Дополнительные действия"
+                    title="Дополнительные действия"
+                    data-student-test-tour="tools"
+                    data-student-test-tools-trigger="true"
+                  >
+                    <MoreHorizontal size={17} aria-hidden="true" />
+                    <span>Ещё</span>
+                  </button>
+                  {questionToolsMenuOpen && (
+                    <div className="student-test-tools-popover" role="menu" aria-label="Дополнительные действия">
+                      <div className="student-test-tools-popover__heading">Инструменты</div>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="student-test-tools-option"
+                        onClick={() => {
+                          setQuestionToolsMenuOpen(false);
+                          handleToggleQuestionCodePreview();
+                        }}
+                      >
+                        <FileCode2 size={17} aria-hidden="true" />
+                        <span className="student-test-tools-option__copy">
+                          <strong>{questionCodePreviewOpen ? 'Скрыть мой код' : 'Показать мой код'}</strong>
+                          <small>Черновик solution.py под условием</small>
+                        </span>
+                      </button>
+                      {typeof window !== 'undefined' && 'documentPictureInPicture' in window && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`student-test-tools-option ${questionPictureInPictureOpen ? 'is-active' : ''}`}
+                          onClick={() => {
+                            setQuestionToolsMenuOpen(false);
+                            if (questionPictureInPictureOpen) {
+                              questionPictureInPictureWindowRef.current?.focus();
+                            } else {
+                              void openQuestionPictureInPicture();
+                            }
+                          }}
+                        >
+                          <PictureInPicture2 size={17} aria-hidden="true" />
+                          <span className="student-test-tools-option__copy">
+                            <strong>{questionPictureInPictureOpen ? 'Условие уже открыто' : 'Вынести условие отдельно'}</strong>
+                            <small>{questionPictureInPictureOpen ? 'Перейти в отдельное окно' : 'Держать условие рядом с редактором'}</small>
+                          </span>
+                        </button>
+                      )}
+                      <div className="student-test-tools-popover__divider" />
+                      <div className="student-test-tools-popover__heading">Поделиться заданием</div>
+                      {renderQuestionShareOptions('tools')}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             {screenshots.length > 0 && (
@@ -5060,9 +5139,6 @@ const StudentTestModal = ({
               </div>
             )}
 
-            {isSolved && (
-              <div className="student-test-solved-label mb-2 text-xs font-semibold text-green-600 uppercase tracking-wide">Решено ранее</div>
-            )}
             {currentQuestion.question && (
               <p className="student-test-question-text text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-5 md:mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>
             )}
@@ -5388,7 +5464,7 @@ const StudentTestModal = ({
                   </span>
                   <div className="min-w-0">
                     <div className="student-test-code-launch-card__title">
-                      Python workspace
+                      Редактор Python
                     </div>
                     <div className="student-test-code-launch-card__meta">
                       Вопрос №{currentQuestionNumber} · редактор и консоль
@@ -5404,7 +5480,7 @@ const StudentTestModal = ({
                     aria-controls="student-test-saved-code-preview"
                   >
                     <FileCode2 size={15} />
-                    <span>{questionCodePreviewOpen ? 'Скрыть код' : 'Показать код'}</span>
+                    <span>{questionCodePreviewOpen ? 'Скрыть мой код' : 'Показать мой код'}</span>
                     <ChevronDown size={15} aria-hidden="true" />
                   </button>
                   <button
@@ -5412,7 +5488,7 @@ const StudentTestModal = ({
                     onClick={handleOpenQuestionCodeFocus}
                     className="student-test-code-launch-card__button"
                   >
-                    <span>Решать в коде</span>
+                    <span>Открыть редактор</span>
                     <Maximize2 size={16} />
                   </button>
                 </div>
