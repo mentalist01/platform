@@ -20766,6 +20766,171 @@ const serializeLearningAssignmentForAuth = (assignment, auth) => ({
   instructions: assignment.content,
 });
 
+const LEARNING_GROUP_HOMEWORK_SOURCE = 'learning-group';
+
+const getLearningGroupHomeworkEntryId = (assignmentId) => {
+  const normalizedAssignmentId = String(assignmentId || '').trim();
+  return normalizedAssignmentId ? `learning-group-${normalizedAssignmentId}` : '';
+};
+
+const buildLearningGroupHomeworkText = (assignment) => (
+  String(assignment?.content || '').trim()
+  || String(assignment?.title || '').trim()
+);
+
+const buildNextLessonFromHomeworkEntry = (entry) => {
+  if (!entry || typeof entry !== 'object') {
+    return {
+      homeWork: '',
+      lessonLink: '',
+      boardLink: '',
+      dueAt: '',
+      dueAtMode: 'manual',
+      daysToComplete: 7,
+      targetQuestions: [],
+      goals: [],
+      checklistItems: [],
+    };
+  }
+  return {
+    homeWork: entry.homeWork || '',
+    lessonLink: entry.lessonLink || '',
+    boardLink: entry.boardLink || '',
+    issuedAt: entry.issuedAt || '',
+    updatedAt: entry.updatedAt || '',
+    dueAt: entry.dueAt || '',
+    dueAtMode: entry.dueAtMode || 'manual',
+    calendarOffsetMinutes: Number(entry.calendarOffsetMinutes) || 0,
+    daysToComplete: Number(entry.daysToComplete) || 7,
+    taskNumber: entry.taskNumber ?? null,
+    levelId: entry.levelId ?? null,
+    targetQuestions: Array.isArray(entry.targetQuestions) ? entry.targetQuestions : [],
+    targetQuestionIds: Array.isArray(entry.targetQuestionIds) ? entry.targetQuestionIds : [],
+    goals: Array.isArray(entry.goals) ? entry.goals : [],
+    checklistItems: Array.isArray(entry.checklistItems) ? entry.checklistItems : [],
+    ...(entry.dayPlan ? { dayPlan: entry.dayPlan } : {}),
+    ...(entry.learningGroupId ? {
+      source: LEARNING_GROUP_HOMEWORK_SOURCE,
+      learningGroupId: entry.learningGroupId,
+      learningGroupName: entry.learningGroupName || '',
+      learningAssignmentId: entry.learningAssignmentId || '',
+      learningAssignmentTitle: entry.learningAssignmentTitle || '',
+      learningAssignmentStatus: entry.learningAssignmentStatus || '',
+      learningAssignmentUpdatedAt: entry.learningAssignmentUpdatedAt || '',
+    } : {}),
+  };
+};
+
+function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
+  const studentId = String(studentIdValue || '').trim();
+  const student = findStudentById(studentId);
+  if (!student) return { changed: false, createdEntries: [], removedEntryIds: [] };
+
+  const groupsById = new Map(
+    readLearningGroupsDb()
+      .filter((group) => !group.deletedAt)
+      .map((group) => [group.id, group])
+  );
+  const visibleAssignments = readLearningAssignmentsDb().filter((assignment) => (
+    !assignment.deletedAt
+    && assignment.status !== 'draft'
+    && assignment.recipientIds.includes(studentId)
+    && groupsById.has(assignment.groupId)
+  ));
+  const visibleAssignmentIds = new Set(visibleAssignments.map((assignment) => assignment.id));
+  const data = getStudentData(studentId);
+  const existingHomeworks = Array.isArray(data.homeworks) ? data.homeworks : [];
+  const removedEntryIds = [];
+  const nextHomeworks = existingHomeworks.filter((entry) => {
+    if (String(entry?.source || '').trim() !== LEARNING_GROUP_HOMEWORK_SOURCE) return true;
+    const assignmentId = String(entry?.learningAssignmentId || '').trim();
+    const shouldKeep = assignmentId && visibleAssignmentIds.has(assignmentId);
+    if (!shouldKeep && entry?.id) removedEntryIds.push(String(entry.id));
+    return shouldKeep;
+  });
+  const createdEntries = [];
+
+  visibleAssignments.forEach((assignment) => {
+    const group = groupsById.get(assignment.groupId);
+    if (!group || group.teacherId !== student.teacherId) return;
+    const entryId = getLearningGroupHomeworkEntryId(assignment.id);
+    if (!entryId) return;
+    const existingIndex = nextHomeworks.findIndex((entry) => String(entry?.id || '') === entryId);
+    const existing = existingIndex >= 0 ? nextHomeworks[existingIndex] : null;
+    const issuedAt = assignment.publishedAt || assignment.createdAt || assignment.updatedAt || new Date().toISOString();
+    const dueAt = assignment.dueAt || calculateHomeworkDueAt(issuedAt, 7);
+    const daysToComplete = calculateHomeworkDaysToComplete(issuedAt, dueAt, 7);
+    const homeWork = buildLearningGroupHomeworkText(assignment);
+    const nextEntry = {
+      ...(existing && typeof existing === 'object' ? existing : {}),
+      id: entryId,
+      source: LEARNING_GROUP_HOMEWORK_SOURCE,
+      learningGroupId: group.id,
+      learningGroupName: group.name,
+      learningAssignmentId: assignment.id,
+      learningAssignmentTitle: assignment.title || '',
+      learningAssignmentStatus: assignment.status,
+      learningAssignmentUpdatedAt: assignment.updatedAt || '',
+      teacherId: assignment.teacherId,
+      issuedAt,
+      updatedAt: existing?.updatedAt || assignment.updatedAt || issuedAt,
+      dueAt,
+      dueAtMode: 'manual',
+      calendarOffsetMinutes: Number(existing?.calendarOffsetMinutes) || 0,
+      daysToComplete,
+      homeWork,
+      lessonLink: existing?.lessonLink || '',
+      boardLink: existing?.boardLink || '',
+      taskNumber: existing?.taskNumber ?? null,
+      levelId: existing?.levelId ?? null,
+      targetQuestions: Array.isArray(existing?.targetQuestions) ? existing.targetQuestions : [],
+      targetQuestionIds: Array.isArray(existing?.targetQuestionIds) ? existing.targetQuestionIds : [],
+      goals: Array.isArray(existing?.goals) ? existing.goals : [],
+      checklistItems: normalizeHomeworkChecklistItems(entryId, homeWork, existing?.checklistItems),
+    };
+    if (existingIndex >= 0) nextHomeworks[existingIndex] = nextEntry;
+    else {
+      nextHomeworks.push(nextEntry);
+      createdEntries.push(nextEntry);
+    }
+  });
+
+  nextHomeworks.sort((left, right) => (
+    Date.parse(right?.issuedAt || 0) - Date.parse(left?.issuedAt || 0)
+  ));
+  const changed = JSON.stringify(existingHomeworks) !== JSON.stringify(nextHomeworks);
+  if (changed) {
+    setStudentData(studentId, {
+      ...data,
+      homeworks: nextHomeworks,
+      nextLesson: buildNextLessonFromHomeworkEntry(nextHomeworks[0]),
+    });
+  }
+  return { changed, createdEntries, removedEntryIds };
+}
+
+const synchronizeLearningGroupAssignmentHomeworks = (assignment, options = {}) => {
+  const recipientIds = Array.from(new Set(
+    (Array.isArray(assignment?.recipientIds) ? assignment.recipientIds : [])
+      .map((studentId) => String(studentId || '').trim())
+      .filter(Boolean)
+  ));
+  recipientIds.forEach((studentId) => {
+    const result = synchronizeLearningGroupHomeworksForStudent(studentId);
+    if (!options.notify) return;
+    const createdEntry = result.createdEntries.find((entry) => (
+      entry.learningAssignmentId === assignment.id
+    ));
+    if (!createdEntry) return;
+    const student = findStudentById(studentId);
+    if (!student) return;
+    notifyStudentAboutNewHomework(student, createdEntry).catch((error) => {
+      console.error(`[push] group homework notify failed for student ${student.id}:`, error);
+    });
+    broadcastHomeworkAssigned(student, createdEntry);
+  });
+};
+
 const serializeLearningAttendanceForAuth = (record) => ({
   ...record,
   student: serializeLearningStudentSummary(record.studentId),
@@ -21062,6 +21227,9 @@ app.post('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, 
     actorId: req.auth.id,
   });
   writeLearningAssignmentsDb([assignment, ...readLearningAssignmentsDb()]);
+  synchronizeLearningGroupAssignmentHomeworks(assignment, {
+    notify: assignment.status === 'assigned',
+  });
   return res.status(201).json({ assignment: serializeLearningAssignmentForAuth(assignment, req.auth) });
 }));
 
@@ -21083,6 +21251,9 @@ app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearn
   if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
   const updated = updateLearningAssignment(assignment, req.body || {}, { actorId: req.auth.id });
   writeLearningAssignmentsDb(replaceLearningStoreEntry(readLearningAssignmentsDb(), updated));
+  synchronizeLearningGroupAssignmentHomeworks(updated, {
+    notify: assignment.status === 'draft' && updated.status === 'assigned',
+  });
   return res.json({ assignment: serializeLearningAssignmentForAuth(updated, req.auth) });
 }));
 
@@ -21094,6 +21265,7 @@ app.delete('/api/learning-groups/:groupId/assignments/:assignmentId', handleLear
   const now = new Date().toISOString();
   const deleted = { ...assignment, status: 'closed', deletedAt: now, updatedAt: now };
   writeLearningAssignmentsDb(replaceLearningStoreEntry(readLearningAssignmentsDb(), deleted));
+  synchronizeLearningGroupAssignmentHomeworks(deleted);
   return res.json({ ok: true, assignment: serializeLearningAssignmentForAuth(deleted, req.auth) });
 }));
 
@@ -31878,6 +32050,7 @@ app.get('/api/student-next-lesson', async (req, res) => {
   const { studentId } = req.query;
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
+  synchronizeLearningGroupHomeworksForStudent(student.id);
   let storedData = getStudentData(student.id);
   let calendarSync = null;
   try {

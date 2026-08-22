@@ -489,6 +489,7 @@ export const normalizeLearningAssignment = (value) => {
     materialIds: normalizeStringIds(value.materialIds, 100),
     recipientIds: normalizeStringIds(value.recipientIds, 5),
     status,
+    publishedAt: normalizeIsoTimestamp(value.publishedAt),
     createdAt: normalizeIsoTimestamp(value.createdAt),
     updatedAt: normalizeIsoTimestamp(value.updatedAt),
     deletedAt: normalizeIsoTimestamp(value.deletedAt),
@@ -521,6 +522,7 @@ export const createLearningAssignment = (groupValue, payload = {}, options = {})
     materialIds: payload.materialIds,
     recipientIds: getActiveLearningGroupMembers(group).map((member) => member.studentId),
     status: payload.status === 'draft' ? 'draft' : 'assigned',
+    publishedAt: payload.status === 'draft' ? '' : now,
     createdAt: now,
     updatedAt: now,
   });
@@ -544,6 +546,9 @@ export const updateLearningAssignment = (assignmentValue, patch = {}, options = 
   if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
     const status = cleanText(patch.status, 30);
     if (!ASSIGNMENT_STATUSES.has(status)) fail('Некорректный статус задания', 'invalid_assignment_status');
+    if (status === 'assigned' && assignment.status === 'draft' && !next.publishedAt) {
+      next.publishedAt = getNowIso(options.now);
+    }
     next.status = status;
   }
   if (!next.title && !next.content) fail('Заполните домашнее задание', 'assignment_content_required');

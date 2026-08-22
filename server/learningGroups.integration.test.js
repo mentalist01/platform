@@ -615,6 +615,113 @@ test('learning groups keep shared work isolated while legacy student schedules r
       ['student-a', 'student-b', 'student-c']
     );
 
+    const studentAHomework = await jsonRequest(baseUrl, '/api/student-next-lesson', {
+      token: studentA.token,
+    });
+    const studentAGroupHomework = studentAHomework.homeworks.find((homework) => (
+      homework.learningAssignmentId === assignmentId
+    ));
+    assert.ok(studentAGroupHomework);
+    assert.equal(studentAGroupHomework.source, 'learning-group');
+    assert.equal(studentAGroupHomework.learningGroupId, groupId);
+    assert.equal(studentAGroupHomework.learningGroupName, 'Algorithms mini-group');
+    assert.equal(studentAGroupHomework.learningAssignmentTitle, 'Graph traversal homework');
+    assert.equal(studentAGroupHomework.homeWork, 'Solve both tasks independently');
+    assert.equal(studentAGroupHomework.dueAt, '2026-09-10T18:00:00.000Z');
+    assert.ok(studentAGroupHomework.checklistItems.length > 0);
+
+    const studentBHomeworkBefore = await jsonRequest(baseUrl, '/api/student-next-lesson', {
+      token: studentB.token,
+    });
+    const studentBGroupHomeworkBefore = studentBHomeworkBefore.homeworks.find((homework) => (
+      homework.learningAssignmentId === assignmentId
+    ));
+    assert.ok(studentBGroupHomeworkBefore);
+    assert.equal(studentBGroupHomeworkBefore.checklistItems[0].completedAt, null);
+
+    const checkedStudentAHomework = await jsonRequest(
+      baseUrl,
+      `/api/student-next-lesson/${encodeURIComponent(studentAGroupHomework.id)}/checklist`,
+      {
+        token: studentA.token,
+        method: 'PATCH',
+        body: {
+          itemId: studentAGroupHomework.checklistItems[0].id,
+          completed: true,
+        },
+      }
+    );
+    assert.ok(checkedStudentAHomework.homework.checklistItems[0].completedAt);
+
+    const studentBHomeworkAfter = await jsonRequest(baseUrl, '/api/student-next-lesson', {
+      token: studentB.token,
+    });
+    const studentBGroupHomeworkAfter = studentBHomeworkAfter.homeworks.find((homework) => (
+      homework.learningAssignmentId === assignmentId
+    ));
+    assert.equal(studentBGroupHomeworkAfter.checklistItems[0].completedAt, null);
+
+    const foreignHomework = await jsonRequest(baseUrl, '/api/student-next-lesson', {
+      token: foreignStudent.token,
+    });
+    assert.equal(
+      foreignHomework.homeworks.some((homework) => homework.learningAssignmentId === assignmentId),
+      false
+    );
+
+    const draftAssignmentCreated = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/assignments`, {
+      token: teacher.token,
+      method: 'POST',
+      status: 201,
+      body: {
+        title: 'Draft group homework',
+        content: 'This should appear only after publication',
+        status: 'draft',
+      },
+    });
+    const draftAssignmentId = draftAssignmentCreated.assignment.id;
+    const homeworkWhileDraft = await jsonRequest(baseUrl, '/api/student-next-lesson', {
+      token: studentA.token,
+    });
+    assert.equal(
+      homeworkWhileDraft.homeworks.some((homework) => homework.learningAssignmentId === draftAssignmentId),
+      false
+    );
+
+    const publishedDraft = await jsonRequest(
+      baseUrl,
+      `/api/learning-groups/${groupId}/assignments/${draftAssignmentId}`,
+      {
+        token: teacher.token,
+        method: 'PATCH',
+        body: { status: 'assigned' },
+      }
+    );
+    assert.ok(publishedDraft.assignment.publishedAt);
+    const homeworkAfterDraftPublication = await jsonRequest(baseUrl, '/api/student-next-lesson', {
+      token: studentA.token,
+    });
+    assert.equal(
+      homeworkAfterDraftPublication.homeworks.some((homework) => homework.learningAssignmentId === draftAssignmentId),
+      true
+    );
+    const preservedMainHomework = homeworkAfterDraftPublication.homeworks.find((homework) => (
+      homework.learningAssignmentId === assignmentId
+    ));
+    assert.ok(preservedMainHomework.checklistItems[0].completedAt);
+
+    await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/assignments/${draftAssignmentId}`, {
+      token: teacher.token,
+      method: 'DELETE',
+    });
+    const homeworkAfterDraftDelete = await jsonRequest(baseUrl, '/api/student-next-lesson', {
+      token: studentA.token,
+    });
+    assert.equal(
+      homeworkAfterDraftDelete.homeworks.some((homework) => homework.learningAssignmentId === draftAssignmentId),
+      false
+    );
+
     const studentAssignments = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/assignments`, {
       token: studentA.token,
     });

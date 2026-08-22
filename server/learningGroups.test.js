@@ -14,6 +14,7 @@ import {
   reviewLearningSubmission,
   setLearningGroupSchedule,
   startLearningGroup,
+  updateLearningAssignment,
   updateLearningLessonSession,
   upsertLearningAttendanceRecord,
   upsertLearningBoardResponse,
@@ -150,6 +151,7 @@ test('one assignment has per-student submissions and private reviews', () => {
     dueAt: '2026-09-08T15:00:00.000Z',
   }, { id: 'assignment-a', now: NOW });
   assert.deepEqual(assignment.recipientIds.sort(), ['student-a', 'student-b']);
+  assert.equal(assignment.publishedAt, NOW);
   const submitted = upsertLearningSubmission(null, assignment, 'student-a', {
     content: 'Моё решение',
     status: 'submitted',
@@ -162,6 +164,22 @@ test('one assignment has per-student submissions and private reviews', () => {
   assert.equal(reviewed.status, 'reviewed');
   assert.equal(reviewed.grade, 5);
   assert.equal(reviewed.privateComment, 'Хорошая работа');
+});
+
+test('an assignment draft gets one stable publication timestamp when assigned', () => {
+  const active = startLearningGroup(add(add(makeGroup(), 'student-a'), 'student-b'), { now: NOW });
+  const draft = createLearningAssignment(active, {
+    title: 'Черновик домашней работы',
+    status: 'draft',
+  }, { id: 'assignment-draft', now: NOW });
+  assert.equal(draft.publishedAt, '');
+  const publishedAt = '2026-08-23T09:00:00.000Z';
+  const assigned = updateLearningAssignment(draft, { status: 'assigned' }, { now: publishedAt });
+  assert.equal(assigned.publishedAt, publishedAt);
+  const edited = updateLearningAssignment(assigned, { content: 'Обновлённое условие' }, {
+    now: '2026-08-24T09:00:00.000Z',
+  });
+  assert.equal(edited.publishedAt, publishedAt);
 });
 
 test('attendance can be marked only for a lesson participant', () => {

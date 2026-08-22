@@ -16985,7 +16985,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         'schedule',
-        'groups',
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -17824,7 +17823,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Сегодня', icon: Calendar },
-        { id: 'groups', label: 'Мини-группы', icon: Users },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -17842,7 +17840,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
-        'groups',
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -17863,7 +17860,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const studentDesktopMainNav = user.role === 'student'
     ? [
-      ...['review', 'schedule', 'groups', 'progress']
+      ...['review', 'schedule', 'progress']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
@@ -17898,7 +17895,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : [];
   const studentMobileMorePreferredIds = [
     ...(studentCanSeeReview ? ['review'] : []),
-    'groups',
     'python',
     ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []),
     'rating',
@@ -19456,9 +19452,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const handleLeaveLearningGroupLesson = useCallback(() => {
     setActiveLearningLesson(null);
-    navigateToView('groups');
+    navigateToView(user.role === 'teacher' ? 'groups' : 'schedule');
     setMenuOpen(false);
-  }, [navigateToView]);
+  }, [navigateToView, user.role]);
+
+  const handleOpenLearningGroupStudentHomework = useCallback((studentId) => {
+    if (user.role !== 'teacher') return;
+    const normalizedStudentId = normalizeTeacherStudentId(studentId);
+    if (!normalizedStudentId) return;
+    handleSelectStudent(normalizedStudentId);
+    navigateToView('schedule');
+    setMenuOpen(false);
+  }, [handleSelectStudent, navigateToView, user.role]);
 
   useEffect(() => {
     if (user.role !== 'student' || typeof window === 'undefined') return undefined;
@@ -21170,14 +21175,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         return [];
       };
 
-      const entry = sorted.find((item) => normalizeEntryGoals(item).length > 0);
+      const entry = sorted[0] || null;
       if (!entry) {
         setGoalState(null);
         return;
       }
       const goals = normalizeEntryGoals(entry);
       if (goals.length === 0) {
-        setGoalState(null);
+        setGoalState({
+          entry,
+          goals: [],
+          completed: false,
+        });
         return;
       }
       const taskGoals = goals.filter((goal) => goal.type === GOAL_TYPE_TASK);
@@ -23426,7 +23435,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               )}
             </div>
           )}
-          {view === 'groups' && (user.role === 'teacher' || user.role === 'student') && (
+          {view === 'groups' && user.role === 'teacher' && (
             <LearningGroupsSection
               role={user.role}
               userId={user.id}
@@ -23435,6 +23444,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
               activeLearningLesson={activeLearningLesson}
               onOpenLessonRoom={handleOpenLearningGroupLesson}
+              onOpenStudentHomework={handleOpenLearningGroupStudentHomework}
             />
           )}
           {view === 'schedule' && user.role === 'student' && (
@@ -23464,7 +23474,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onResumeQuickHomework={handleResumeQuickHomework}
               onContinueHomework={() => {
                 if (!firstGoal) {
-                  navigateToView('progress');
+                  scheduleHomeworkFlyRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
                   return;
                 }
                 if (firstGoal.type === GOAL_TYPE_MOCK) {

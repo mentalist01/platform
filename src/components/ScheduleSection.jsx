@@ -2973,6 +2973,10 @@ const ScheduleSection = ({
     if (!entry) return null;
     const isNextSection = section === 'next';
     const dateText = formatDate(entry?.issuedAt);
+    const isLearningGroupHomework = String(entry?.source || '').trim() === 'learning-group'
+      && Boolean(String(entry?.learningGroupId || '').trim());
+    const learningGroupName = String(entry?.learningGroupName || '').trim();
+    const learningAssignmentTitle = String(entry?.learningAssignmentTitle || '').trim();
     const deadlineMeta = getHomeworkDeadlineMeta(entry, homeworkClock);
     const isEditing = editingId && entry?.id === editingId;
     const entryGoals = normalizeEntryGoals(entry);
@@ -3000,7 +3004,9 @@ const ScheduleSection = ({
       ? (tracksNextLesson ? 'К следующему уроку' : 'Срок задан вручную')
       : 'Предыдущая домашка';
     const summaryStatus = goalsSummary.goalCount === 0
-      ? { label: 'Цели не заданы', tone: 'border-slate-200 bg-white text-slate-600' }
+      ? (isLearningGroupHomework
+        ? { label: 'Общее задание', tone: 'border-violet-200 bg-violet-50 text-violet-700' }
+        : { label: 'Цели не заданы', tone: 'border-slate-200 bg-white text-slate-600' })
       : goalsSummary.requiredGoals.length === 0
         ? goalsSummary.optionalCompleted
           ? { label: 'Всё выполнено', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
@@ -3231,9 +3237,14 @@ const ScheduleSection = ({
               <div className="min-w-0">
                 <div className="text-[10px] font-black uppercase tracking-[0.16em] text-purple-500">{sectionLabel}</div>
                 <h4 className="student-today-homework__headline mt-1 text-xl font-black leading-tight text-slate-950 md:text-2xl">
-                  Домашняя работа
+                  {learningAssignmentTitle || 'Домашняя работа'}
                 </h4>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {isLearningGroupHomework && (
+                    <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700">
+                      {learningGroupName ? `Мини-группа: ${learningGroupName}` : 'Домашка мини-группы'}
+                    </span>
+                  )}
                   <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold ${deadlineMeta.tone}`}>
                     <Clock3 size={11} />
                     {deadlineMeta.label}
@@ -3306,7 +3317,11 @@ const ScheduleSection = ({
                   {goalsSummary.totalCount > 0 ? `${goalsSummary.progressPercent}%` : '—'}
                 </span>
               </div>
-              {role === 'teacher' && (
+              {role === 'teacher' && (isLearningGroupHomework ? (
+                <div className="max-w-[260px] rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-right text-[10px] font-bold leading-relaxed text-violet-700">
+                  Общее задание: управляйте им в разделе «Мини-группы».
+                </div>
+              ) : (
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
                     type="button"
@@ -3328,7 +3343,7 @@ const ScheduleSection = ({
                     </button>
                   )}
                 </div>
-              )}
+              ))}
             </div>
           </header>
 

@@ -70,14 +70,6 @@ const ASSIGNMENT_STATUS_META = {
   closed: { label: 'Закрыто', className: 'border-slate-200 bg-slate-100 text-slate-600' },
 };
 
-const SUBMISSION_STATUS_META = {
-  missing: { label: 'Не сдано', className: 'border-slate-200 bg-slate-50 text-slate-500' },
-  draft: { label: 'Черновик', className: 'border-amber-200 bg-amber-50 text-amber-700' },
-  submitted: { label: 'На проверке', className: 'border-sky-200 bg-sky-50 text-sky-700' },
-  reviewed: { label: 'Проверено', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
-  revision_requested: { label: 'Нужна доработка', className: 'border-rose-200 bg-rose-50 text-rose-700' },
-};
-
 const ATTENDANCE_STATUS_META = {
   pending: { label: 'Не отмечено', className: 'border-slate-200 bg-slate-50 text-slate-500' },
   unknown: { label: 'Не отмечено', className: 'border-slate-200 bg-slate-50 text-slate-500' },
@@ -234,34 +226,6 @@ const parseMaterialsPayload = (payload) => findArrayInPayload(
   ['materials', 'files', 'items']
 ).map(normalizeLearningGroupMaterial);
 
-const normalizeSubmission = (value, index = 0) => {
-  const source = asObject(value);
-  const studentId = cleanString(source.studentId || source.userId || source.student?.id);
-  return {
-    ...source,
-    id: cleanString(source.id || source.submissionId) || `submission-${index}`,
-    studentId,
-    content: cleanString(source.content || source.text || source.answer),
-    status: cleanString(source.status) || 'missing',
-    grade: source.grade ?? '',
-    privateComment: cleanString(source.privateComment || source.comment),
-    submittedAt: cleanString(source.submittedAt || source.updatedAt),
-    answerRefs: Array.isArray(source.answerRefs) ? source.answerRefs : [],
-  };
-};
-
-const parseSubmissionsPayload = (payload) => findArrayInPayload(
-  payload,
-  ['submissions', 'items']
-).map(normalizeSubmission).filter((submission) => submission.studentId);
-
-const parseSingleSubmissionPayload = (payload) => {
-  const source = findEntityInPayload(payload, ['submission', 'mySubmission']);
-  if (!source || Object.keys(source).length === 0) return null;
-  const normalized = normalizeSubmission(source);
-  return normalized.studentId || normalized.content || normalized.status !== 'missing' ? normalized : null;
-};
-
 const parseProgressPayload = (payload) => {
   const source = findEntityInPayload(payload, ['progress', 'myProgress']);
   return Object.keys(source).length > 0 ? source : null;
@@ -398,6 +362,7 @@ const LearningGroupsSection = ({
   studentsLoading = false,
   activeLearningLesson = null,
   onOpenLessonRoom,
+  onOpenStudentHomework,
 }) => {
   const isTeacher = role === 'teacher';
   const [groups, setGroups] = useState([]);
@@ -428,9 +393,6 @@ const LearningGroupsSection = ({
   const materialFileInputRef = useRef(null);
   const [assignmentForm, setAssignmentForm] = useState(EMPTY_ASSIGNMENT_FORM);
   const [expandedAssignmentId, setExpandedAssignmentId] = useState('');
-  const [submissionsByAssignment, setSubmissionsByAssignment] = useState({});
-  const [submissionDrafts, setSubmissionDrafts] = useState({});
-  const [reviewDrafts, setReviewDrafts] = useState({});
   const [attendanceLessonId, setAttendanceLessonId] = useState('');
   const [attendanceState, setAttendanceState] = useState({
     loading: false,
@@ -860,7 +822,7 @@ const LearningGroupsSection = ({
   };
 
   const handleDeleteAssignment = async (assignment) => {
-    if (!selectedGroup || !window.confirm(`Удалить задание «${assignment.title}»?`)) return;
+    if (!selectedGroup || !window.confirm(`Удалить задание «${assignment.title}» у всех учеников группы?`)) return;
     const assignmentId = getAssignmentId(assignment);
     const result = await runAction(
       `delete-assignment:${assignmentId}`,
@@ -870,58 +832,6 @@ const LearningGroupsSection = ({
     if (result) setExpandedAssignmentId('');
   };
 
-  const loadAssignmentSubmissions = useCallback(async (assignmentId) => {
-    if (!selectedGroup || !assignmentId) return;
-    setSubmissionsByAssignment((current) => ({
-      ...current,
-      [assignmentId]: { ...(current[assignmentId] || {}), loading: true, error: '' },
-    }));
-    try {
-      if (isTeacher) {
-        const payload = await api.getLearningGroupAssignmentSubmissions(selectedGroup.id, assignmentId);
-        const submissions = parseSubmissionsPayload(payload);
-        setSubmissionsByAssignment((current) => ({
-          ...current,
-          [assignmentId]: { loading: false, error: '', submissions },
-        }));
-        setReviewDrafts((current) => {
-          const next = { ...current };
-          submissions.forEach((submission) => {
-            const key = `${assignmentId}:${submission.studentId}`;
-            if (!next[key]) {
-              next[key] = {
-                grade: submission.grade ?? '',
-                privateComment: submission.privateComment || '',
-                status: submission.status === 'revision_requested' ? 'revision_requested' : 'reviewed',
-              };
-            }
-          });
-          return next;
-        });
-      } else {
-        const payload = await api.getLearningGroupAssignmentSubmission(selectedGroup.id, assignmentId);
-        const submission = parseSingleSubmissionPayload(payload);
-        setSubmissionsByAssignment((current) => ({
-          ...current,
-          [assignmentId]: { loading: false, error: '', submission },
-        }));
-        setSubmissionDrafts((current) => ({
-          ...current,
-          [assignmentId]: current[assignmentId] ?? submission?.content ?? '',
-        }));
-      }
-    } catch (requestError) {
-      setSubmissionsByAssignment((current) => ({
-        ...current,
-        [assignmentId]: {
-          ...(current[assignmentId] || {}),
-          loading: false,
-          error: requestError?.message || 'Не удалось загрузить решения.',
-        },
-      }));
-    }
-  }, [isTeacher, selectedGroup]);
-
   const toggleAssignment = (assignment) => {
     const assignmentId = getAssignmentId(assignment);
     if (expandedAssignmentId === assignmentId) {
@@ -929,44 +839,6 @@ const LearningGroupsSection = ({
       return;
     }
     setExpandedAssignmentId(assignmentId);
-    void loadAssignmentSubmissions(assignmentId);
-  };
-
-  const handleSaveSubmission = async (assignment, status) => {
-    if (!selectedGroup) return;
-    const assignmentId = getAssignmentId(assignment);
-    const result = await runAction(
-      `save-submission:${assignmentId}:${status}`,
-      () => api.saveLearningGroupAssignmentSubmission(selectedGroup.id, assignmentId, {
-        content: submissionDrafts[assignmentId] || '',
-        status,
-      }),
-      status === 'draft' ? 'Черновик сохранён.' : 'Решение отправлено.',
-      { refreshGroup: false }
-    );
-    if (result) await loadAssignmentSubmissions(assignmentId);
-  };
-
-  const handleReviewSubmission = async (assignmentId, studentId) => {
-    if (!selectedGroup) return;
-    const key = `${assignmentId}:${studentId}`;
-    const draft = reviewDrafts[key] || {};
-    const result = await runAction(
-      `review-submission:${key}`,
-      () => api.reviewLearningGroupAssignmentSubmission(
-        selectedGroup.id,
-        assignmentId,
-        studentId,
-        {
-          grade: draft.grade ?? '',
-          privateComment: draft.privateComment || '',
-          status: draft.status || 'reviewed',
-        }
-      ),
-      'Проверка сохранена.',
-      { refreshGroup: false }
-    );
-    if (result) await loadAssignmentSubmissions(assignmentId);
   };
 
   const loadAttendance = useCallback(async (lessonId) => {
@@ -2008,7 +1880,7 @@ const LearningGroupsSection = ({
                 {tab === 'assignments' && (
                   <div className="space-y-4">
                     {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                      <SectionCard title="Новое домашнее задание" subtitle="Задание назначается каждому текущему участнику отдельно.">
+                      <SectionCard title="Новое домашнее задание" subtitle="Создайте один раз — оно появится в обычной домашке каждого текущего участника.">
                         <form onSubmit={handleCreateAssignment} className="space-y-3">
                           <div className="grid gap-3 md:grid-cols-2">
                             <Field label="Название">
@@ -2077,22 +1949,27 @@ const LearningGroupsSection = ({
                     ) : assignments.map((assignment) => {
                       const assignmentId = getAssignmentId(assignment);
                       const isExpanded = expandedAssignmentId === assignmentId;
-                      const submissionState = submissionsByAssignment[assignmentId] || {};
                       const assignmentMeta = getStatusMeta(ASSIGNMENT_STATUS_META, assignment.status, 'assigned');
-                      const studentSubmission = submissionState.submission || null;
-                      const assignmentSubmissions = Array.isArray(submissionState.submissions)
-                        ? submissionState.submissions
-                        : [];
-                      const currentMemberIds = new Set(selectedGroup.members.map((member) => member.studentId));
-                      const reviewMembers = [
-                        ...selectedGroup.members,
-                        ...assignmentSubmissions
-                          .filter((submission) => !currentMemberIds.has(submission.studentId))
-                          .map((submission) => ({
-                            studentId: submission.studentId,
-                            name: cleanString(submission?.student?.name) || 'Ученик',
-                          })),
-                      ];
+                      const currentMembersById = new Map(
+                        selectedGroup.members.map((member) => [member.studentId, member])
+                      );
+                      const studentsById = new Map(
+                        students.map((student) => [cleanString(student?.id), student])
+                      );
+                      const assignmentMembers = (Array.isArray(assignment.recipientIds) ? assignment.recipientIds : [])
+                        .map((studentId) => {
+                          const normalizedStudentId = cleanString(studentId);
+                          const currentMember = currentMembersById.get(normalizedStudentId);
+                          const student = studentsById.get(normalizedStudentId);
+                          return {
+                            studentId: normalizedStudentId,
+                            name: cleanString(currentMember?.name)
+                              || cleanString(student?.nickname)
+                              || cleanString(student?.name)
+                              || 'Ученик',
+                          };
+                        })
+                        .filter((member) => member.studentId);
                       return (
                         <article key={assignmentId} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
                           <button
@@ -2146,118 +2023,31 @@ const LearningGroupsSection = ({
                                 </div>
                               )}
 
-                              {submissionState.loading ? (
-                                <div className="flex items-center gap-2 py-6 text-sm font-semibold text-slate-500"><Loader2 size={17} className="animate-spin" /> Загружаем решения...</div>
-                              ) : submissionState.error ? (
-                                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{submissionState.error}</div>
-                              ) : isTeacher ? (
-                                <div className="space-y-3">
-                                  {reviewMembers.map((member) => {
-                                    const submission = assignmentSubmissions.find((item) => item.studentId === member.studentId);
-                                    const submissionMeta = getStatusMeta(SUBMISSION_STATUS_META, submission?.status || 'missing', 'missing');
-                                    const reviewKey = `${assignmentId}:${member.studentId}`;
-                                    const reviewDraft = reviewDrafts[reviewKey] || { grade: '', privateComment: '', status: 'reviewed' };
-                                    return (
-                                      <div key={member.studentId} className="rounded-2xl border border-slate-200 bg-white p-3.5">
-                                        <div className="flex flex-wrap items-center justify-between gap-2">
-                                          <div className="font-bold text-slate-900">{member.name}</div>
-                                          <StatusPill meta={submissionMeta} />
-                                        </div>
-                                        {submission?.content && <div className="mt-3 whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-sm leading-relaxed text-slate-700">{submission.content}</div>}
-                                        {submission?.answerRefs?.length > 0 && (
-                                          <div className="mt-2 flex flex-wrap gap-2">
-                                            {submission.answerRefs.map((answerRef, index) => answerRef.url ? (
-                                              <a key={`${answerRef.url}-${index}`} href={answerRef.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-bold text-violet-700"><Link2 size={13} /> {answerRef.label || 'Вложение'}</a>
-                                            ) : null)}
-                                          </div>
-                                        )}
-                                        {submission && submission.status !== 'draft' && (
-                                          <div className="mt-3 grid gap-3 md:grid-cols-[130px_170px_minmax(0,1fr)_auto] md:items-end">
-                                            <Field label="Оценка">
-                                              <input
-                                                value={reviewDraft.grade}
-                                                onChange={(event) => setReviewDrafts((current) => ({ ...current, [reviewKey]: { ...reviewDraft, grade: event.target.value } }))}
-                                                className={inputClassName}
-                                                placeholder="Например, 8/10"
-                                              />
-                                            </Field>
-                                            <Field label="Результат">
-                                              <select
-                                                value={reviewDraft.status || 'reviewed'}
-                                                onChange={(event) => setReviewDrafts((current) => ({ ...current, [reviewKey]: { ...reviewDraft, status: event.target.value } }))}
-                                                className={inputClassName}
-                                              >
-                                                <option value="reviewed">Принять работу</option>
-                                                <option value="revision_requested">Вернуть на доработку</option>
-                                              </select>
-                                            </Field>
-                                            <Field label="Личный комментарий">
-                                              <input
-                                                value={reviewDraft.privateComment}
-                                                onChange={(event) => setReviewDrafts((current) => ({ ...current, [reviewKey]: { ...reviewDraft, privateComment: event.target.value } }))}
-                                                className={inputClassName}
-                                                placeholder="Что получилось и что доработать"
-                                              />
-                                            </Field>
-                                            <button
-                                              type="button"
-                                              onClick={() => void handleReviewSubmission(assignmentId, member.studentId)}
-                                              disabled={busyKey === `review-submission:${reviewKey}`}
-                                              className="inline-flex h-[42px] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
-                                            >
-                                              <BusyButtonContent busy={busyKey === `review-submission:${reviewKey}`} busyLabel="Сохраняем..." icon={Check}>Проверить</BusyButtonContent>
-                                            </button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
+                              {assignment.status === 'draft' ? (
+                                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+                                  Черновик ещё не виден ученикам. После публикации одна и та же домашка появится в обычном разделе «Сегодня» у каждого участника.
                                 </div>
                               ) : (
                                 <div className="space-y-3">
-                                  {studentSubmission && (
-                                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3">
+                                  <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-relaxed text-violet-800">
+                                    Домашка опубликована сразу для {assignmentMembers.length} учеников. Выполнение у каждого хранится отдельно и проверяется в его обычной карточке.
+                                  </div>
+                                  {assignmentMembers.map((member) => (
+                                    <div key={member.studentId} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3.5">
                                       <div>
-                                        <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Моя работа</div>
-                                        {studentSubmission.submittedAt && <div className="mt-1 text-xs text-slate-500">Отправлено {formatDate(studentSubmission.submittedAt, { withTime: true })}</div>}
+                                        <div className="font-bold text-slate-900">{member.name}</div>
+                                        <div className="mt-0.5 text-xs text-slate-500">Личная домашка ученика</div>
                                       </div>
-                                      <StatusPill meta={getStatusMeta(SUBMISSION_STATUS_META, studentSubmission.status, 'missing')} />
-                                    </div>
-                                  )}
-                                  <Field label="Решение">
-                                    <textarea
-                                      value={submissionDrafts[assignmentId] ?? studentSubmission?.content ?? ''}
-                                      onChange={(event) => setSubmissionDrafts((current) => ({ ...current, [assignmentId]: event.target.value }))}
-                                      className={`${inputClassName} min-h-36 resize-y`}
-                                      placeholder="Напишите решение или вставьте ссылку"
-                                      disabled={assignment.status === 'closed'}
-                                    />
-                                  </Field>
-                                  {['reviewed', 'revision_requested'].includes(studentSubmission?.status) && (
-                                    <div className={`rounded-2xl border p-4 ${studentSubmission.status === 'reviewed' ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'}`}>
-                                      <div className={`text-xs font-bold uppercase tracking-wider ${studentSubmission.status === 'reviewed' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        {studentSubmission.status === 'reviewed' ? 'Проверка преподавателя' : 'Нужна доработка'}
-                                      </div>
-                                      {studentSubmission.grade !== '' && <div className={`mt-2 text-lg font-black ${studentSubmission.status === 'reviewed' ? 'text-emerald-900' : 'text-rose-900'}`}>Оценка: {studentSubmission.grade}</div>}
-                                      {studentSubmission.privateComment && <p className={`mt-1 whitespace-pre-wrap text-sm ${studentSubmission.status === 'reviewed' ? 'text-emerald-800' : 'text-rose-800'}`}>{studentSubmission.privateComment}</p>}
-                                    </div>
-                                  )}
-                                  {assignment.status !== 'closed' && (
-                                    <div className="flex flex-wrap gap-2">
                                       <button
                                         type="button"
-                                        onClick={() => void handleSaveSubmission(assignment, 'draft')}
-                                        disabled={busyKey.startsWith(`save-submission:${assignmentId}`)}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-3.5 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
-                                      ><Save size={15} /> Сохранить черновик</button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleSaveSubmission(assignment, 'submitted')}
-                                        disabled={!cleanString(submissionDrafts[assignmentId] ?? studentSubmission?.content) || busyKey.startsWith(`save-submission:${assignmentId}`)}
-                                        className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3.5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
-                                      ><Send size={15} /> Отправить на проверку</button>
+                                        onClick={() => onOpenStudentHomework?.(member.studentId)}
+                                        disabled={typeof onOpenStudentHomework !== 'function'}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-bold text-violet-700 transition hover:bg-violet-50 disabled:opacity-50"
+                                      >
+                                        Открыть домашку <ChevronRight size={14} />
+                                      </button>
                                     </div>
-                                  )}
+                                  ))}
                                 </div>
                               )}
                             </div>

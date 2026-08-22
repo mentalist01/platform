@@ -166,6 +166,18 @@ const StudentTodayOverview = ({
   const pendingRequiredGoal = requiredGoals.find((goal) => !goal?.completed) || null;
   const pendingOptionalGoal = optionalGoals.find((goal) => !goal?.completed) || null;
   const pendingGoal = pendingRequiredGoal || pendingOptionalGoal || requiredGoals[0] || optionalGoals[0] || null;
+  const homeworkChecklistItems = Array.isArray(homeworkEntry?.checklistItems)
+    ? homeworkEntry.checklistItems
+    : [];
+  const hasTextHomework = Boolean(
+    homeworkEntry
+    && goals.length === 0
+    && (String(homeworkEntry?.homeWork || '').trim() || homeworkChecklistItems.length > 0)
+  );
+  const textHomeworkCompleted = hasTextHomework
+    && homeworkChecklistItems.length > 0
+    && homeworkChecklistItems.every((item) => Boolean(item?.completedAt));
+  const hasPendingTextHomework = hasTextHomework && !textHomeworkCompleted;
   const deadline = useMemo(() => getDeadlineSummary(homeworkEntry), [homeworkEntry]);
   const dateLabel = useMemo(() => (
     new Date().toLocaleDateString('ru-RU', {
@@ -180,7 +192,7 @@ const StudentTodayOverview = ({
     && requiredCompletedCount < requiredGoals.length
   );
   const hasOptionalHomework = Boolean(homeworkEntry && pendingOptionalGoal);
-  const hasHomework = hasRequiredHomework || hasOptionalHomework;
+  const hasHomework = hasRequiredHomework || hasOptionalHomework || hasPendingTextHomework;
   const quickHomeworkFinished = quickHomeworkStatus === 'done' && quickHomeworkAvailableCount <= 0;
   const availableTimePlans = Array.isArray(quickHomeworkPlans) ? quickHomeworkPlans : [];
   const normalizedBudgetMinutes = Math.max(0, Math.round(Number(quickHomeworkBudgetMinutes) || 0));
@@ -247,11 +259,17 @@ const StudentTodayOverview = ({
       previewLabel: '',
     };
   })();
-  const fallbackPrimaryTitle = hasHomework ? getGoalLabel(pendingGoal) : 'Выберите короткую практику';
+  const fallbackPrimaryTitle = hasPendingTextHomework
+    ? (String(homeworkEntry?.learningAssignmentTitle || '').trim() || 'Домашняя работа ждёт')
+    : hasHomework ? getGoalLabel(pendingGoal) : 'Выберите короткую практику';
   const fallbackPrimaryHint = hasRequiredHomework
     ? `Обязательная часть: выполнено ${requiredCompletedCount} из ${requiredGoals.length} целей`
     : hasOptionalHomework
       ? 'Основная домашка готова — это дополнительное задание по желанию.'
+      : hasPendingTextHomework
+        ? (String(homeworkEntry?.learningGroupName || '').trim()
+          ? `Общее задание мини-группы «${String(homeworkEntry.learningGroupName).trim()}» — откройте домашку ниже.`
+          : 'Откройте домашку ниже и выполните пункты задания.')
       : 'Начните с одной темы — платформа сохранит место, где вы остановились.';
   const primaryTitle = showQuickHomework ? quickHomeworkConfig.title : fallbackPrimaryTitle;
   const primaryHint = showQuickHomework ? quickHomeworkConfig.hint : fallbackPrimaryHint;
