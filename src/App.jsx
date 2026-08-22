@@ -105,6 +105,7 @@ import {
 import { normalizeTelemostUrl } from './utils/telemost';
 import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
 import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
+import { createDebouncedSerialQueue } from './utils/debouncedSerialQueue';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
   isPushFeatureSupported,
@@ -129,6 +130,7 @@ import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
 import {
   api,
   authenticatedUploadsFetch,
+  getStoredAuthToken,
   HOMEWORK_CHEST_GRANTED_EVENT,
   resolveAuthenticatedUploadsUrl,
   setUnauthorizedHandler,
@@ -144,6 +146,8 @@ const PythonSection = React.lazy(() => import('./components/PythonSection'));
 const ScheduleSection = React.lazy(() => import('./components/ScheduleSection'));
 const StudentChatSection = React.lazy(() => import('./components/StudentChatSection'));
 const StudentLeaderboardSection = React.lazy(() => import('./components/StudentLeaderboardSection'));
+const LearningGroupsSection = React.lazy(() => import('./components/LearningGroupsSection'));
+const GroupTelemostSection = React.lazy(() => import('./components/GroupTelemostSection'));
 const TeacherCalendarSection = React.lazy(() => import('./components/TeacherCalendarSection'));
 const TeacherFinanceSection = React.lazy(() => import('./components/TeacherFinanceSection'));
 const TeacherPanel = React.lazy(() => import('./components/TeacherPanel'));
@@ -3612,6 +3616,9 @@ const CollabSection = ({
   userId,
   userName,
   teacherId,
+  lessonId = '',
+  groupId = '',
+  participantIds = [],
   theme = THEME_LIGHT,
   withStudentId,
   tasks,
@@ -3622,16 +3629,26 @@ const CollabSection = ({
   openSaveToNotesToken = 0,
   onLessonReplayEvent = null,
   lessonReplayActive = false,
+  readOnly = false,
   sandbox = null,
   onSandboxStateChange = null,
 }) => {
   const isTeacher = role === 'teacher';
+  const learningLessonId = String(lessonId || '').trim();
+  const learningGroupId = String(groupId || '').trim();
+  const learningParticipantIds = useMemo(() => Array.from(new Set(
+    (Array.isArray(participantIds) ? participantIds : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  )), [participantIds]);
+  const isGroupLesson = Boolean(learningLessonId && learningGroupId);
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
   const isSandbox = Boolean(sandbox && typeof sandbox === 'object');
   const sandboxId = isSandbox
     ? (String(sandbox?.id || sandbox?.branchId || 'lesson-replay').trim() || 'lesson-replay')
     : '';
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
+  const collabReadOnly = sandboxReadOnly || Boolean(readOnly && isGroupLesson);
   const sandboxReadOnlyCodeState = isSandbox && sandboxReadOnly
     ? (sandbox?.code && typeof sandbox.code === 'object' ? sandbox.code : sandbox)
     : null;
@@ -3739,7 +3756,9 @@ const CollabSection = ({
     ? window.matchMedia('(max-width: 767px)').matches
     : false;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
-  const liveRoomId = effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null;
+  const liveRoomId = isGroupLesson
+    ? `collab-lesson-${learningLessonId}`
+    : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
@@ -3755,6 +3774,10 @@ const CollabSection = ({
     setSaveSuccess('');
   }, [effectiveStudentId, isTeacher, openSaveToNotesToken]);
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
+  const wsParams = useMemo(() => {
+    const authToken = getStoredAuthToken();
+    return authToken ? { _auth: authToken } : {};
+  }, []);
   const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
   const localColor = useMemo(
     () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
@@ -3850,6 +3873,7 @@ const CollabSection = ({
   const collabCursorLastSyncAtRef = useRef(0);
   const remoteEditorCursorSeenRef = useRef(new Map());
   const sandboxRef = useRef(sandbox);
+  const collabReadOnlyRef = useRef(collabReadOnly);
   const sandboxStateChangeRef = useRef(onSandboxStateChange);
   const sandboxReadyRef = useRef(false);
   const sandboxPlaybackSyncOriginRef = useRef(Symbol('lesson-replay-sandbox-playback-sync'));
@@ -3864,6 +3888,9 @@ const CollabSection = ({
   useEffect(() => {
     sandboxRef.current = sandbox;
   }, [sandbox]);
+  useEffect(() => {
+    collabReadOnlyRef.current = collabReadOnly;
+  }, [collabReadOnly]);
   useEffect(() => {
     sandboxStateChangeRef.current = onSandboxStateChange;
   }, [onSandboxStateChange]);
@@ -4151,9 +4178,9 @@ const CollabSection = ({
     glyphMargin: false,
     lineNumbersMinChars: 2,
     lineDecorationsWidth: 6,
-    readOnly: !roomId || sandboxReadOnly,
+    readOnly: !roomId || collabReadOnly,
     domReadOnly: false,
-  }), [roomId, sandboxReadOnly, editorFontSize, isCollabFullscreen]);
+  }), [roomId, collabReadOnly, editorFontSize, isCollabFullscreen]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
   const compactCollabHeight = '100%';
   const editorHeight = isCollabFullscreen
@@ -4407,7 +4434,7 @@ const CollabSection = ({
   }, [applyBreakpointDecorations, applyDebugInlineHints, applyDebugInlayHints, setDebugStep, stopDebugPlayback]);
 
   const handleDebugStepBack = useCallback(() => {
-    if (sandboxReadOnly || !debugActive) return;
+    if (collabReadOnly || !debugActive) return;
     stopDebugPlayback();
     const trace = debugTraceRef.current;
     if (!Array.isArray(trace) || !trace.length) return;
@@ -4419,10 +4446,10 @@ const CollabSection = ({
       debugStepIndex: nextIndex,
       debugPlaying: false,
     });
-  }, [debugActive, sandboxReadOnly, setDebugStep, stopDebugPlayback]);
+  }, [collabReadOnly, debugActive, setDebugStep, stopDebugPlayback]);
 
   const handleDebugStepForward = useCallback(() => {
-    if (sandboxReadOnly || !debugActive) return;
+    if (collabReadOnly || !debugActive) return;
     stopDebugPlayback();
     const trace = debugTraceRef.current;
     if (!Array.isArray(trace) || !trace.length) return;
@@ -4434,10 +4461,10 @@ const CollabSection = ({
       debugStepIndex: nextIndex,
       debugPlaying: false,
     });
-  }, [debugActive, sandboxReadOnly, setDebugStep, stopDebugPlayback]);
+  }, [collabReadOnly, debugActive, setDebugStep, stopDebugPlayback]);
 
   const handleDebugContinue = useCallback(() => {
-    if (sandboxReadOnly || !debugActive) return;
+    if (collabReadOnly || !debugActive) return;
     const trace = debugTraceRef.current;
     if (!Array.isArray(trace) || trace.length === 0) return;
     const currentIndex = debugStepIndexRef.current;
@@ -4468,10 +4495,10 @@ const CollabSection = ({
         publishRunStateRef.current?.({ debugPlaying: false });
       }
     }, COLLAB_DEBUG_AUTOPLAY_MS);
-  }, [debugActive, findContinueTargetIndex, sandboxReadOnly, setDebugStep, stopDebugPlayback]);
+  }, [collabReadOnly, debugActive, findContinueTargetIndex, setDebugStep, stopDebugPlayback]);
 
   const handleStopDebug = useCallback(() => {
-    if (sandboxReadOnly) return;
+    if (collabReadOnly) return;
     clearDebugSession(false);
     publishRunStateRef.current?.({
       debugActive: false,
@@ -4481,7 +4508,7 @@ const CollabSection = ({
       debugPlaying: false,
       debugSource: '',
     });
-  }, [clearDebugSession, sandboxReadOnly]);
+  }, [clearDebugSession, collabReadOnly]);
 
   const currentDebugStep = useMemo(() => {
     if (!debugActive) return null;
@@ -4656,7 +4683,7 @@ const CollabSection = ({
     debugGutterDisposableRef.current?.dispose?.();
     if (monaco?.editor?.MouseTargetType) {
       debugGutterDisposableRef.current = editor.onMouseDown((event) => {
-        if (sandboxRef.current?.readOnly) return;
+        if (collabReadOnlyRef.current) return;
         const type = event?.target?.type;
         const isGutterClick = type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN
           || type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
@@ -5863,7 +5890,7 @@ const CollabSection = ({
   };
 
   const handleTestFileTextChange = useCallback((value) => {
-    if (sandboxRef.current?.readOnly) return;
+    if (collabReadOnly) return;
     const normalized = normalizeCollabTextFileContent(value);
     setTestFileText((prev) => (prev === normalized ? prev : normalized));
     const ytext = collabTestFileRef.current;
@@ -5883,7 +5910,7 @@ const CollabSection = ({
       return;
     }
     applyChange();
-  }, []);
+  }, [collabReadOnly]);
 
   const mountRuntimeFilesInPyodide = useCallback((pyodide, runtimeFiles = []) => {
     if (!pyodide?.FS) return;
@@ -6017,7 +6044,7 @@ const CollabSection = ({
   }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText]);
 
   const handleUploadTaskFiles = async (fileList) => {
-    if (isSandbox) return;
+    if (isSandbox || collabReadOnly) return;
     const filesToUpload = Array.from(fileList || []).filter(Boolean);
     if (!filesToUpload.length) return;
     if (!effectiveStudentId) {
@@ -6057,7 +6084,7 @@ const CollabSection = ({
   };
 
   const handleToggleTaskFile = (fileId) => {
-    if (sandboxReadOnly || !fileId) return;
+    if (collabReadOnly || !fileId) return;
     setSelectedTaskFileIds((prev) => {
       if (prev.includes(fileId)) return prev.filter((id) => id !== fileId);
       return [...prev, fileId];
@@ -6065,7 +6092,7 @@ const CollabSection = ({
   };
 
   const handleToggleSelectAllTaskFiles = useCallback(() => {
-    if (sandboxReadOnly || !visibleTaskFiles.length) return;
+    if (collabReadOnly || !visibleTaskFiles.length) return;
     const visibleIds = visibleTaskFiles
       .map((file) => file?.id)
       .filter(Boolean);
@@ -6080,7 +6107,7 @@ const CollabSection = ({
       }
       return Array.from(next);
     });
-  }, [sandboxReadOnly, visibleTaskFiles]);
+  }, [collabReadOnly, visibleTaskFiles]);
   const handleTaskFilesListHeightStep = useCallback((direction) => {
     const stepDirection = Number(direction);
     if (!Number.isFinite(stepDirection) || stepDirection === 0) return;
@@ -6472,7 +6499,7 @@ const CollabSection = ({
   updateRunStateFromMapRef.current = updateRunStateFromMap;
 
   const publishRunState = (payload) => {
-    if (sandboxReadOnly) return;
+    if (collabReadOnly) return;
     const runMap = runMapRef.current;
     const doc = collabDocRef.current;
     if (!runMap || !doc) {
@@ -6866,7 +6893,7 @@ const CollabSection = ({
   };
 
   const handleFormatCode = () => {
-    if (sandboxReadOnly) return;
+    if (collabReadOnly) return;
     const editor = editorRef.current;
     const model = editor?.getModel?.();
     if (!editor || !model) return;
@@ -6911,7 +6938,7 @@ const CollabSection = ({
   };
 
   const handleRunCode = async (mode = 'all', debug = false) => {
-    if (sandboxReadOnly || !roomId || !editorRef.current) return;
+    if (collabReadOnly || !roomId || !editorRef.current) return;
     outputPanelDismissedRunTokenRef.current = null;
     setOutputPanelOpen(true);
     const requestedDebug = Boolean(debug);
@@ -7147,15 +7174,15 @@ const CollabSection = ({
       if (!isPlainF5 && !isCtrlEnter) return;
       event.preventDefault();
       event.stopPropagation();
-      if (event.repeat || sandboxReadOnly || runLoading || !roomId) return;
+      if (event.repeat || collabReadOnly || runLoading || !roomId) return;
       void handleRunCodeRef.current?.('all');
     };
     window.addEventListener('keydown', handleRunHotkey, true);
     return () => window.removeEventListener('keydown', handleRunHotkey, true);
-  }, [roomId, runLoading, sandboxReadOnly]);
+  }, [collabReadOnly, roomId, runLoading]);
 
   const handleStopRun = () => {
-    if (sandboxReadOnly || !runLoading) return;
+    if (collabReadOnly || !runLoading) return;
     stopDebugPlayback();
     runSessionRef.current += 1;
     if (runStreamTimerRef.current) {
@@ -7187,7 +7214,7 @@ const CollabSection = ({
   };
 
   const handleTopStop = useCallback(() => {
-    if (sandboxReadOnly) return;
+    if (collabReadOnly) return;
     if (runLoading) {
       handleStopRun();
       return;
@@ -7195,7 +7222,7 @@ const CollabSection = ({
     if (debugActive) {
       handleStopDebug();
     }
-  }, [runLoading, debugActive, handleStopDebug, handleStopRun, sandboxReadOnly]);
+  }, [collabReadOnly, runLoading, debugActive, handleStopDebug, handleStopRun]);
 
   useEffect(() => {
     const isEditableTarget = (target) => {
@@ -7235,7 +7262,7 @@ const CollabSection = ({
       return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
     };
     const handleDebugHotkeys = (event) => {
-      if (sandboxReadOnly) return;
+      if (collabReadOnly) return;
       if (isEditableTarget(event.target)) return;
       if (event.key === 'F10') {
         event.preventDefault();
@@ -7266,11 +7293,11 @@ const CollabSection = ({
     handleDebugContinue,
     handleDebugStepBack,
     handleStopDebug,
-    sandboxReadOnly,
+    collabReadOnly,
   ]);
 
   const handleClearRun = () => {
-    if (sandboxReadOnly) return;
+    if (collabReadOnly) return;
     setOutputPanelOpen(false);
     outputPanelDismissedRunTokenRef.current = null;
     clearDebugSession(false);
@@ -7492,7 +7519,7 @@ const CollabSection = ({
     setStatus('connecting');
     const doc = new Y.Doc();
     collabDocRef.current = doc;
-    const provider = new WebsocketProvider(wsUrl, roomId, doc);
+    const provider = new WebsocketProvider(wsUrl, roomId, doc, { params: wsParams });
     collabAwarenessRef.current = provider.awareness;
     const model = editorRef.current?.getModel?.();
     if (!model) {
@@ -7744,6 +7771,7 @@ const CollabSection = ({
     sandboxId,
     editorReady,
     wsUrl,
+    wsParams,
     localName,
     localColor,
     clearDebugSession,
@@ -7908,7 +7936,9 @@ const CollabSection = ({
     sandboxReadOnlyViewportSignature,
   ]);
 
-  const statusLabel = isSandbox
+  const statusLabel = collabReadOnly && !isSandbox
+    ? 'Архив · только просмотр'
+    : isSandbox
     ? (sandboxReadOnly ? 'Запись урока' : 'Локальная копия')
     : status === 'connected'
     ? 'Подключено'
@@ -8379,7 +8409,7 @@ const CollabSection = ({
   }, [clampNotesPdfHeight, isMobileViewport, isNotesBoardMode, preferredBoardTopPaneHeight]);
 
   const renderStudentPicker = () => {
-    if (!isTeacher) return null;
+    if (!isTeacher || isGroupLesson) return null;
     return (
       <div className={`collab-student-picker inline-flex w-full sm:w-auto items-center rounded-2xl border ${
         isCollabFullscreen
@@ -8967,7 +8997,7 @@ const CollabSection = ({
                   onScroll={syncCollabTestFileOverlayScroll}
                   rows={auxTextareaRows}
                   spellCheck={false}
-                  disabled={!roomId || sandboxReadOnly}
+                  disabled={!roomId || collabReadOnly}
                   placeholder={roomId ? 'Введите содержимое test.txt.' : 'Выберите ученика, чтобы редактировать test.txt.'}
                   style={{
                     ...(testFileTextareaHeight ? { height: `${testFileTextareaHeight}px` } : {}),
@@ -8984,7 +9014,7 @@ const CollabSection = ({
               <textarea
                 value={runInput}
                 onChange={(e) => setRunInput(e.target.value)}
-                disabled={sandboxReadOnly}
+                disabled={collabReadOnly}
                 rows={auxTextareaRows}
                 placeholder="Если нужен ввод, вставьте его сюда."
                 className={`w-full rounded-2xl border outline-none ${
@@ -9043,7 +9073,7 @@ const CollabSection = ({
               <select
                 value={runTaskNumber}
                 onChange={(e) => setRunTaskNumber(e.target.value)}
-                disabled={sandboxReadOnly || !effectiveStudentId || taskFileUploadBusy}
+                disabled={collabReadOnly || !effectiveStudentId || taskFileUploadBusy}
                 className={`collab-task-files-select rounded-xl border outline-none disabled:cursor-not-allowed disabled:opacity-60 ${
                   isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                 } ${
@@ -9061,7 +9091,7 @@ const CollabSection = ({
               <select
                 value={runTaskCategory}
                 onChange={(e) => setRunTaskCategory(e.target.value)}
-                disabled={sandboxReadOnly || !effectiveStudentId || taskFileUploadBusy}
+                disabled={collabReadOnly || !effectiveStudentId || taskFileUploadBusy}
                 className={`collab-task-files-select rounded-xl border outline-none disabled:cursor-not-allowed disabled:opacity-60 ${
                   isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                 } ${
@@ -9196,11 +9226,11 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={handleToggleSelectAllTaskFiles}
-                  disabled={sandboxReadOnly || activeTaskFilesLoading || !visibleTaskFiles.length}
+                  disabled={collabReadOnly || activeTaskFilesLoading || !visibleTaskFiles.length}
                   className={`collab-task-files-select-all inline-flex items-center rounded-xl border transition ${
                     isSplitCollabLayout ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
                   } ${
-                    sandboxReadOnly || activeTaskFilesLoading || !visibleTaskFiles.length
+                    collabReadOnly || activeTaskFilesLoading || !visibleTaskFiles.length
                       ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                       : (isFullscreenDark
                         ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
@@ -9244,7 +9274,7 @@ const CollabSection = ({
                         <label
                           key={file.id}
                           className={`collab-task-files-row flex items-start gap-2 border-b px-2 py-1.5 text-[11px] last:border-b-0 ${
-                            sandboxReadOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                            collabReadOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
                           } ${
                             isFullscreenDark
                               ? 'border-slate-800 text-slate-100'
@@ -9255,7 +9285,7 @@ const CollabSection = ({
                             type="checkbox"
                             checked={selectedTaskFileIds.includes(file.id)}
                             onChange={() => handleToggleTaskFile(file.id)}
-                            disabled={sandboxReadOnly}
+                            disabled={collabReadOnly}
                             className="collab-task-files-checkbox mt-0.5 h-3.5 w-3.5 rounded border-gray-300"
                           />
                           <span className="min-w-0 flex-1">
@@ -9545,6 +9575,9 @@ const CollabSection = ({
                     userId={userId}
                     userName={userName}
                     teacherId={teacherId}
+                    lessonId={learningLessonId}
+                    groupId={learningGroupId}
+                    participantIds={learningParticipantIds}
                     tasks={tasks}
                     students={students}
                     activeStudentId={activeStudentId}
@@ -9554,6 +9587,7 @@ const CollabSection = ({
                     onMemorySnapshotRenderer={setCollabBoardMemorySnapshotRenderer}
                     onLessonReplayEvent={isSandbox ? null : onLessonReplayEvent}
                     lessonReplayActive={!isSandbox && lessonReplayActive}
+                    readOnly={collabReadOnly}
                     sandbox={isSandbox ? {
                       id: `${sandboxId}-board`,
                       items: Array.isArray(sandbox?.board?.items)
@@ -10039,7 +10073,7 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleFormatCode}
-                disabled={sandboxReadOnly || !roomId}
+                disabled={collabReadOnly || !roomId}
                 className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
               >
                 Автоформат
@@ -10093,9 +10127,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all')}
-                disabled={sandboxReadOnly || runLoading || !roomId}
+                disabled={collabReadOnly || runLoading || !roomId}
                 className={`${collabIconButtonBase} collab-code-pill-button is-run ${
-                  sandboxReadOnly || runLoading || !roomId ? collabIconButtonDisabled : collabIconButtonPrimary
+                  collabReadOnly || runLoading || !roomId ? collabIconButtonDisabled : collabIconButtonPrimary
                 }`}
                 title="Запустить код"
                 aria-label="Запустить код"
@@ -10108,9 +10142,9 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={() => handleRunCode('all', true)}
-                  disabled={sandboxReadOnly || runLoading || !roomId}
+                  disabled={collabReadOnly || runLoading || !roomId}
                   className={`${collabIconButtonBase} collab-code-pill-button is-debug ${
-                    sandboxReadOnly || runLoading || !roomId
+                    collabReadOnly || runLoading || !roomId
                       ? collabIconButtonDisabled
                       : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
                   }`}
@@ -10123,9 +10157,9 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={handleTopStop}
-                  disabled={sandboxReadOnly || (!runLoading && !debugActive)}
+                  disabled={collabReadOnly || (!runLoading && !debugActive)}
                   className={`${collabIconButtonBase} collab-code-pill-button is-stop is-icon-only ${
-                    sandboxReadOnly || (!runLoading && !debugActive)
+                    collabReadOnly || (!runLoading && !debugActive)
                       ? collabIconButtonDisabled
                       : collabIconButtonDanger
                   }`}
@@ -10137,9 +10171,9 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={handleClearRun}
-                  disabled={sandboxReadOnly || !canClearRunState}
+                  disabled={collabReadOnly || !canClearRunState}
                   className={`${collabIconButtonBase} collab-code-pill-button is-restart is-icon-only ${
-                    !sandboxReadOnly && canClearRunState ? collabIconButtonNeutral : collabIconButtonDisabled
+                    !collabReadOnly && canClearRunState ? collabIconButtonNeutral : collabIconButtonDisabled
                   }`}
                   title="Очистить вывод и состояние запуска"
                   aria-label="Очистить вывод и состояние запуска"
@@ -10178,9 +10212,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all')}
-                disabled={sandboxReadOnly || runLoading || !roomId}
+                disabled={collabReadOnly || runLoading || !roomId}
                 className={`${collabIconButtonBase} ${
-                  sandboxReadOnly || runLoading || !roomId
+                  collabReadOnly || runLoading || !roomId
                     ? collabIconButtonDisabled
                     : collabIconButtonPrimary
                 }`}
@@ -10192,9 +10226,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('selection')}
-                disabled={sandboxReadOnly || runLoading || !roomId}
+                disabled={collabReadOnly || runLoading || !roomId}
                 className={`${collabIconButtonBase} ${
-                  sandboxReadOnly || runLoading || !roomId
+                  collabReadOnly || runLoading || !roomId
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -10206,9 +10240,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all', true)}
-                disabled={sandboxReadOnly || runLoading || !roomId}
+                disabled={collabReadOnly || runLoading || !roomId}
                 className={`${collabIconButtonBase} ${
-                  sandboxReadOnly || runLoading || !roomId
+                  collabReadOnly || runLoading || !roomId
                     ? collabIconButtonDisabled
                     : (debugActive
                       ? collabIconButtonPrimary
@@ -10245,9 +10279,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleDebugStepBack}
-                disabled={sandboxReadOnly || debugPlaying || debugStepIndex <= 0}
+                disabled={collabReadOnly || debugPlaying || debugStepIndex <= 0}
                 className={`${collabIconButtonBase} ${
-                  sandboxReadOnly || debugPlaying || debugStepIndex <= 0
+                  collabReadOnly || debugPlaying || debugStepIndex <= 0
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -10259,9 +10293,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleDebugStepForward}
-                disabled={sandboxReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1}
+                disabled={collabReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1}
                 className={`${collabIconButtonBase} ${
-                  sandboxReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1
+                  collabReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -10273,9 +10307,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleDebugContinue}
-                disabled={sandboxReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1}
+                disabled={collabReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1}
                 className={`${collabIconButtonBase} ${
-                  sandboxReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1
+                  collabReadOnly || debugPlaying || debugStepIndex >= debugTrace.length - 1
                     ? collabIconButtonDisabled
                     : collabIconButtonPrimary
                 }`}
@@ -10290,9 +10324,9 @@ const CollabSection = ({
                   stopDebugPlayback();
                   publishRunStateRef.current?.({ debugPlaying: false });
                 }}
-                disabled={sandboxReadOnly || !debugPlaying}
+                disabled={collabReadOnly || !debugPlaying}
                 className={`${collabIconButtonBase} ${
-                  sandboxReadOnly || !debugPlaying
+                  collabReadOnly || !debugPlaying
                     ? collabIconButtonDisabled
                     : 'is-warning'
                 }`}
@@ -10310,9 +10344,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleTopStop}
-                disabled={sandboxReadOnly || (!runLoading && !debugActive)}
+                disabled={collabReadOnly || (!runLoading && !debugActive)}
                 className={`${collabIconButtonBase} ${
-                  sandboxReadOnly || (!runLoading && !debugActive)
+                  collabReadOnly || (!runLoading && !debugActive)
                     ? collabIconButtonDisabled
                     : collabIconButtonDanger
                 }`}
@@ -10324,9 +10358,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleClearRun}
-                disabled={sandboxReadOnly || !canClearRunState}
+                disabled={collabReadOnly || !canClearRunState}
                 className={`${collabIconButtonBase} ${
-                  sandboxReadOnly || !canClearRunState
+                  collabReadOnly || !canClearRunState
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -10343,7 +10377,7 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleFormatCode}
-                disabled={sandboxReadOnly || !roomId}
+                disabled={collabReadOnly || !roomId}
                 className={`inline-flex h-7 items-center rounded-lg border px-2 py-0 text-[10px] font-semibold transition disabled:opacity-50 ${
                   isCollabFullscreen
                     ? (isFullscreenDark
@@ -10511,6 +10545,9 @@ const BoardSection = ({
   userId,
   userName,
   teacherId,
+  lessonId = '',
+  groupId = '',
+  participantIds = [],
   tasks,
   students,
   activeStudentId,
@@ -10523,25 +10560,41 @@ const BoardSection = ({
   onMemorySnapshotRenderer = null,
   onLessonReplayEvent = null,
   lessonReplayActive = false,
+  readOnly = false,
   sandbox = null,
   onSandboxItemsChange = null,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
+  const learningLessonId = String(lessonId || '').trim();
+  const learningGroupId = String(groupId || '').trim();
+  const learningParticipantIds = useMemo(() => Array.from(new Set(
+    (Array.isArray(participantIds) ? participantIds : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  )), [participantIds]);
+  const isGroupLesson = Boolean(learningLessonId && learningGroupId);
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const sandboxSessionId = String(sandbox?.id || '').trim();
   const isSandbox = Boolean(sandboxSessionId);
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
+  const boardReadOnly = sandboxReadOnly || Boolean(readOnly && isGroupLesson);
   const sandboxReadOnlyItemsSignature = isSandbox && sandboxReadOnly
     ? JSON.stringify(Array.isArray(sandbox?.items) ? sandbox.items : [])
     : '';
   const sandboxReadOnlyViewportSignature = isSandbox && sandboxReadOnly
     ? JSON.stringify(sandbox?.viewport || null)
     : '';
-  const liveRoomId = effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null;
+  const liveRoomId = isGroupLesson
+    ? `board-lesson-${learningLessonId}`
+    : (effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxSessionId}` : liveRoomId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
+  const wsParams = useMemo(() => {
+    const authToken = getStoredAuthToken();
+    return authToken ? { _auth: authToken } : {};
+  }, []);
   const localName = userName || (isTeacher ? 'Учитель' : 'Ученик');
   const localColor = useMemo(
     () => pickCollabColor(isTeacher ? `teacher-${teacherId}` : `student-${userId}`),
@@ -10597,6 +10650,9 @@ const BoardSection = ({
   const [taskCodeUiById, setTaskCodeUiById] = useState({});
   const [openTaskCodeId, setOpenTaskCodeId] = useState('');
   const [remoteTaskCodePresenceById, setRemoteTaskCodePresenceById] = useState({});
+  const [groupResponseStudentId, setGroupResponseStudentId] = useState('');
+  const [learningBoardResponsesById, setLearningBoardResponsesById] = useState({});
+  const [learningBoardResponsesLoading, setLearningBoardResponsesLoading] = useState(false);
 
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
@@ -10608,6 +10664,11 @@ const BoardSection = ({
   const awarenessRef = useRef(null);
   const taskCodePresenceRef = useRef({ taskId: '', action: '', publishedAt: 0 });
   const taskCodePresenceIdleTimerRef = useRef(null);
+  const learningBoardResponseSaveRef = useRef(null);
+  const learningBoardResponseSaveQueueRef = useRef(null);
+  const learningBoardResponsesRef = useRef({});
+  const learningBoardResponseStudentRef = useRef('');
+  const learningBoardResponseContextRef = useRef({ groupId: '', lessonId: '' });
   const undoManagerRef = useRef(null);
   const localOriginRef = useRef(Symbol('board-origin'));
   const sandboxPlaybackSyncOriginRef = useRef(Symbol('board-sandbox-playback-sync'));
@@ -10686,15 +10747,117 @@ const BoardSection = ({
   const lessonReplayLastBoardViewportSignatureRef = useRef('');
   const lessonReplayLastBoardViewportAtRef = useRef(0);
   const sandboxConfigRef = useRef(sandbox);
-  const sandboxReadOnlyRef = useRef(sandboxReadOnly);
+  const sandboxReadOnlyRef = useRef(boardReadOnly);
   const onSandboxItemsChangeRef = useRef(onSandboxItemsChange);
   const boardRevision = boardSnapshot.revision;
   const boardItemCount = boardSnapshot.itemCount;
   const boardTaskItems = boardItemsRef.current.filter((item) => item?.type === 'task');
+  const responseStudentId = isGroupLesson
+    ? (isTeacher ? groupResponseStudentId : String(userId || '').trim())
+    : effectiveStudentId;
+  const groupParticipantStudents = useMemo(() => {
+    const allowedIds = new Set(learningParticipantIds);
+    return (Array.isArray(students) ? students : []).filter((student) => (
+      allowedIds.has(String(student?.id || '').trim())
+    ));
+  }, [learningParticipantIds, students]);
+
+  if (!learningBoardResponseSaveQueueRef.current) {
+    learningBoardResponseSaveQueueRef.current = createDebouncedSerialQueue({
+      delayMs: 350,
+      persist: (entry) => learningBoardResponseSaveRef.current?.(
+        entry.boardItemId,
+        entry.payload,
+        entry.studentId,
+        entry.groupId,
+        entry.lessonId
+      ),
+      onError: (error, entry) => {
+        const currentContext = learningBoardResponseContextRef.current;
+        if (
+          currentContext.groupId !== entry?.groupId
+          || currentContext.lessonId !== entry?.lessonId
+          || learningBoardResponseStudentRef.current !== entry?.studentId
+        ) return;
+        setTaskCheckUiById((current) => ({
+          ...current,
+          [entry.boardItemId]: {
+            status: 'error',
+            message: error?.message || 'Не удалось сохранить личный ответ',
+          },
+        }));
+      },
+    });
+  }
 
   sandboxConfigRef.current = sandbox;
-  sandboxReadOnlyRef.current = sandboxReadOnly;
+  sandboxReadOnlyRef.current = boardReadOnly;
   onSandboxItemsChangeRef.current = onSandboxItemsChange;
+  learningBoardResponsesRef.current = learningBoardResponsesById;
+  learningBoardResponseStudentRef.current = responseStudentId;
+  learningBoardResponseContextRef.current = {
+    groupId: learningGroupId,
+    lessonId: learningLessonId,
+  };
+
+  useEffect(() => {
+    if (!isGroupLesson || !isTeacher) {
+      setGroupResponseStudentId('');
+      return;
+    }
+    setGroupResponseStudentId((current) => (
+      learningParticipantIds.includes(current) ? current : (learningParticipantIds[0] || '')
+    ));
+  }, [isGroupLesson, isTeacher, learningParticipantIds]);
+
+  useEffect(() => {
+    if (!isGroupLesson || isSandbox || !responseStudentId) {
+      setLearningBoardResponsesById({});
+      setLearningBoardResponsesLoading(false);
+      return undefined;
+    }
+    let active = true;
+    setLearningBoardResponsesLoading(true);
+    setTaskCheckUiById({});
+    setTaskCodeUiById({});
+    setOpenTaskCodeId('');
+    api.getLearningGroupLessonResponses(learningGroupId, learningLessonId, {
+      studentId: responseStudentId,
+    }).then((payload) => {
+      if (!active) return;
+      const responses = Array.isArray(payload?.responses) ? payload.responses : [];
+      const next = {};
+      responses.forEach((response) => {
+        const boardItemId = String(response?.boardItemId || '').trim();
+        if (!boardItemId || String(response?.studentId || '') !== responseStudentId) return;
+        next[boardItemId] = {
+          ...response,
+          codeSavedAt: response?.code ? String(response?.updatedAt || '') : '',
+        };
+      });
+      setLearningBoardResponsesById(next);
+    }).catch((error) => {
+      if (!active) return;
+      setLearningBoardResponsesById({});
+      setPasteError(error?.message || 'Не удалось загрузить личные ответы ученика');
+    }).finally(() => {
+      if (active) setLearningBoardResponsesLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [isGroupLesson, isSandbox, learningGroupId, learningLessonId, responseStudentId]);
+
+  useEffect(() => () => {
+    const prefix = `${learningGroupId}:${learningLessonId}:${responseStudentId}:`;
+    void Promise.allSettled(
+      learningBoardResponseSaveQueueRef.current?.flushWhere((key) => key.startsWith(prefix)) || []
+    );
+  }, [learningGroupId, learningLessonId, responseStudentId]);
+
+  useEffect(() => () => {
+    void Promise.allSettled(learningBoardResponseSaveQueueRef.current?.flushAll() || []);
+  }, []);
 
   useEffect(() => {
     lessonReplayEventRef.current = isSandbox ? null : onLessonReplayEvent;
@@ -11384,7 +11547,7 @@ const BoardSection = ({
   ]);
 
   useEffect(() => {
-    if (!sandboxReadOnly) return;
+    if (!boardReadOnly) return;
     imageResizeRef.current?.cleanup?.();
     if (typeof window !== 'undefined' && imageDragRafRef.current) {
       window.cancelAnimationFrame(imageDragRafRef.current);
@@ -11415,7 +11578,7 @@ const BoardSection = ({
     sandboxPinchRef.current.active = false;
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
     textBoxDrawRef.current = { active: false, start: null, current: null };
-  }, [sandboxReadOnly]);
+  }, [boardReadOnly]);
 
   useEffect(() => {
     if (tool !== 'move' && tool !== 'select' && selectedImageId) setSelectedImageId(null);
@@ -12127,10 +12290,135 @@ const BoardSection = ({
     return updated;
   };
 
+  const mergeLearningBoardResponse = (boardItemId, response, extras = {}) => {
+    if (!boardItemId || !response || typeof response !== 'object') return;
+    const codeSavedAt = Object.prototype.hasOwnProperty.call(extras, 'codeSavedAt')
+      ? extras.codeSavedAt
+      : Object.prototype.hasOwnProperty.call(response, 'codeSavedAt')
+        ? response.codeSavedAt
+        : (response.code ? String(response.updatedAt || '') : '');
+    const nextResponse = {
+      ...response,
+      ...extras,
+      codeSavedAt: String(codeSavedAt || ''),
+    };
+    const next = { ...learningBoardResponsesRef.current, [boardItemId]: nextResponse };
+    learningBoardResponsesRef.current = next;
+    setLearningBoardResponsesById(next);
+  };
+
+  const saveLearningBoardResponse = async (
+    boardItemId,
+    payload,
+    studentId = responseStudentId,
+    targetGroupId = learningGroupId,
+    targetLessonId = learningLessonId
+  ) => {
+    if (isTeacher || !targetGroupId || !targetLessonId || !boardItemId || !studentId) return null;
+    const result = await api.saveLearningGroupLessonResponse(
+      targetGroupId,
+      targetLessonId,
+      boardItemId,
+      { ...payload, studentId }
+    );
+    if (
+      learningGroupId === targetGroupId
+      && learningLessonId === targetLessonId
+      && learningBoardResponseStudentRef.current === studentId
+      && result?.response
+    ) {
+      const currentResponse = learningBoardResponsesRef.current?.[boardItemId] || {};
+      const optimisticExtras = {};
+      ['answers', 'code', 'checkState'].forEach((field) => {
+        if (!Object.prototype.hasOwnProperty.call(currentResponse, field)) return;
+        const submittedValue = Object.prototype.hasOwnProperty.call(payload, field)
+          ? payload[field]
+          : undefined;
+        if (
+          !Object.prototype.hasOwnProperty.call(payload, field)
+          || JSON.stringify(currentResponse[field]) !== JSON.stringify(submittedValue)
+        ) {
+          optimisticExtras[field] = currentResponse[field];
+        }
+      });
+      if (Object.prototype.hasOwnProperty.call(optimisticExtras, 'code')) {
+        optimisticExtras.codeSavedAt = currentResponse.codeSavedAt || '';
+      }
+      mergeLearningBoardResponse(boardItemId, result.response, optimisticExtras);
+    }
+    return result?.response || null;
+  };
+  learningBoardResponseSaveRef.current = saveLearningBoardResponse;
+
+  const getLearningBoardResponseSaveKey = (boardItemId, studentId = responseStudentId) => (
+    `${learningGroupId}:${learningLessonId}:${studentId}:${boardItemId}`
+  );
+
+  const enqueueLearningBoardResponseSave = (boardItemId, payload, studentId = responseStudentId) => {
+    if (!isGroupLesson || isTeacher || !boardItemId || !studentId) return Promise.resolve(null);
+    return learningBoardResponseSaveQueueRef.current.enqueue(
+      getLearningBoardResponseSaveKey(boardItemId, studentId),
+      {
+        boardItemId,
+        payload,
+        studentId,
+        groupId: learningGroupId,
+        lessonId: learningLessonId,
+      }
+    );
+  };
+
+  const flushLearningBoardResponseSave = (boardItemId, studentId = responseStudentId) => {
+    if (!isGroupLesson || isTeacher || !boardItemId || !studentId) return Promise.resolve(null);
+    return learningBoardResponseSaveQueueRef.current.flush(
+      getLearningBoardResponseSaveKey(boardItemId, studentId)
+    );
+  };
+
+  const queueLearningBoardResponseSave = (boardItemId, payload) => {
+    const studentId = responseStudentId;
+    if (!isGroupLesson || isTeacher || !boardItemId || !studentId) return;
+    learningBoardResponseSaveQueueRef.current.schedule(
+      getLearningBoardResponseSaveKey(boardItemId, studentId),
+      {
+        boardItemId,
+        payload,
+        studentId,
+        groupId: learningGroupId,
+        lessonId: learningLessonId,
+      }
+    );
+  };
+
   const handleBoardTaskAnswerChange = (item, answerIndex, value) => {
     if (sandboxReadOnlyRef.current || !item?.id) return;
     const answerCount = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Number(item.answerCount) || 1));
     const nextValue = String(value ?? '').slice(0, 500);
+    if (isGroupLesson) {
+      if (isTeacher || !responseStudentId) return;
+      const currentResponse = learningBoardResponsesRef.current?.[item.id] || {};
+      const answers = Array.from(
+        { length: answerCount },
+        (_, index) => String(currentResponse.answers?.[index] ?? '')
+      );
+      answers[answerIndex] = nextValue;
+      mergeLearningBoardResponse(item.id, {
+        ...currentResponse,
+        boardItemId: item.id,
+        studentId: responseStudentId,
+        answers,
+        code: String(currentResponse.code || ''),
+        checkState: 'idle',
+      });
+      queueLearningBoardResponseSave(item.id, { answers, checkState: 'idle' });
+      setTaskCheckUiById((current) => {
+        if (!current?.[item.id]) return current;
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      return;
+    }
     updateBoardTaskItem(item.id, (current) => {
       const userAnswers = Array.from(
         { length: answerCount },
@@ -12150,6 +12438,23 @@ const BoardSection = ({
   const handleBoardTaskCodeChange = (item, value) => {
     if (sandboxReadOnlyRef.current || !item?.id) return;
     const studentCode = String(value ?? '').slice(0, 20000);
+    if (isGroupLesson) {
+      if (isTeacher || !responseStudentId) return;
+      const currentResponse = learningBoardResponsesRef.current?.[item.id] || {};
+      mergeLearningBoardResponse(item.id, {
+        ...currentResponse,
+        boardItemId: item.id,
+        studentId: responseStudentId,
+        answers: Array.isArray(currentResponse.answers) ? currentResponse.answers : [],
+        code: studentCode,
+        checkState: String(currentResponse.checkState || 'idle'),
+      }, { codeSavedAt: '' });
+      setTaskCodeUiById((current) => ({
+        ...current,
+        [item.id]: { status: 'dirty', message: 'Есть несохранённые изменения' },
+      }));
+      return;
+    }
     updateBoardTaskItem(item.id, (current) => ({
       ...current,
       studentCode,
@@ -12195,6 +12500,49 @@ const BoardSection = ({
 
   const handleBoardTaskCodeSave = async (item) => {
     if (sandboxReadOnlyRef.current || !item?.id || taskCodeUiById?.[item.id]?.status === 'saving') return;
+    if (isGroupLesson) {
+      if (isTeacher) return;
+      const studentId = responseStudentId;
+      const currentResponse = learningBoardResponsesRef.current?.[item.id] || {};
+      if (!studentId) {
+        setTaskCodeUiById((current) => ({
+          ...current,
+          [item.id]: { status: 'error', message: 'Выберите ученика' },
+        }));
+        return;
+      }
+      setTaskCodeUiById((current) => ({ ...current, [item.id]: { status: 'saving', message: '' } }));
+      try {
+        void flushLearningBoardResponseSave(item.id, studentId).catch(() => undefined);
+        const savedCode = String(currentResponse.code || '');
+        const response = await enqueueLearningBoardResponseSave(item.id, {
+          code: savedCode,
+          answers: Array.isArray(currentResponse.answers) ? currentResponse.answers : [],
+          checkState: String(currentResponse.checkState || 'idle'),
+        }, studentId);
+        if (response) {
+          mergeLearningBoardResponse(item.id, response, {
+            codeSavedAt: String(response.updatedAt || new Date().toISOString()),
+          });
+        }
+        if (item.taskNumber && item.levelId && item.questionId) {
+          await api.saveQuestionCode(studentId, item.taskNumber, item.levelId, item.questionId, {
+            code: savedCode,
+            input: '',
+          });
+        }
+        setTaskCodeUiById((current) => ({
+          ...current,
+          [item.id]: { status: 'saved', message: 'Личный код сохранён' },
+        }));
+      } catch (error) {
+        setTaskCodeUiById((current) => ({
+          ...current,
+          [item.id]: { status: 'error', message: error?.message || 'Не удалось сохранить код' },
+        }));
+      }
+      return;
+    }
     const latest = boardItemsRef.current.find((entry) => entry?.id === item.id && entry.type === 'task') || item;
     const studentId = latest.sourceStudentId || effectiveStudentId;
     if (!studentId || !latest.taskNumber || !latest.levelId || !latest.questionId) {
@@ -12283,6 +12631,73 @@ const BoardSection = ({
   const handleBoardTaskCheck = async (item) => {
     if (sandboxReadOnlyRef.current || !item?.id || taskCheckUiById?.[item.id]?.status === 'checking') return;
     const answerCount = Math.max(1, Math.min(BOARD_TASK_MAX_ANSWERS, Number(item.answerCount) || 1));
+    if (isGroupLesson) {
+      if (isTeacher) return;
+      const studentId = responseStudentId;
+      const currentResponse = learningBoardResponsesRef.current?.[item.id] || {};
+      const answers = Array.from(
+        { length: answerCount },
+        (_, index) => String(currentResponse.answers?.[index] ?? '').trim()
+      );
+      if (!studentId) {
+        setTaskCheckUiById((current) => ({
+          ...current,
+          [item.id]: { status: 'error', message: 'Выберите ученика' },
+        }));
+        return;
+      }
+      void flushLearningBoardResponseSave(item.id, studentId).catch(() => undefined);
+      if (answers.every((value) => !value)) {
+        setTaskCheckUiById((current) => ({
+          ...current,
+          [item.id]: { status: 'error', message: 'Сначала введите ответ' },
+        }));
+        return;
+      }
+      setTaskCheckUiById((current) => ({ ...current, [item.id]: { status: 'checking', message: '' } }));
+      try {
+        const result = await api.checkQuestionAnswers({
+          studentId,
+          taskNumber: item.taskNumber,
+          levelId: item.levelId,
+          questionId: item.questionId,
+          answers,
+        });
+        const correct = result?.correct === true;
+        if (correct) {
+          const answerPayload = answerCount <= 1 ? answers[0] : JSON.stringify({ answers });
+          await api.solveQuestion({
+            studentId,
+            taskNumber: item.taskNumber,
+            levelId: item.levelId,
+            questionId: item.questionId,
+            code: answerPayload,
+            localDay: getLocalDayKey(),
+          });
+        }
+        const checkState = correct ? 'correct' : 'wrong';
+        mergeLearningBoardResponse(item.id, {
+          ...currentResponse,
+          boardItemId: item.id,
+          studentId,
+          answers,
+          code: String(currentResponse.code || ''),
+          checkState,
+        });
+        await enqueueLearningBoardResponseSave(item.id, { answers, checkState }, studentId);
+        setTaskCheckUiById((current) => {
+          const next = { ...current };
+          delete next[item.id];
+          return next;
+        });
+      } catch (error) {
+        setTaskCheckUiById((current) => ({
+          ...current,
+          [item.id]: { status: 'error', message: error?.message || 'Не удалось проверить ответ' },
+        }));
+      }
+      return;
+    }
     const answers = Array.from(
       { length: answerCount },
       (_, index) => String(item.userAnswers?.[index] ?? '').trim()
@@ -13747,7 +14162,9 @@ const BoardSection = ({
     const doc = new Y.Doc();
     lastSummonIdRef.current = null;
     docRef.current = doc;
-    const provider = isSandbox ? null : new WebsocketProvider(wsUrl, liveRoomId, doc);
+    const provider = isSandbox
+      ? null
+      : new WebsocketProvider(wsUrl, liveRoomId, doc, { params: wsParams });
     providerRef.current = provider;
     awarenessRef.current = provider?.awareness || null;
     const yItems = doc.getArray('items');
@@ -14025,7 +14442,7 @@ const BoardSection = ({
       docRef.current = null;
       yItemsRef.current = null;
     };
-  }, [roomId, wsUrl, liveRoomId, localName, localColor, isTeacher, isSandbox, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
+  }, [roomId, wsUrl, wsParams, liveRoomId, localName, localColor, isTeacher, isSandbox, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
 
   useEffect(() => {
     if (!isSandbox || !sandboxReadOnly) return;
@@ -14125,7 +14542,9 @@ const BoardSection = ({
                   if (!dataUrl) throw new Error('Не удалось подготовить локальное изображение');
                   storedImage = { dataUrl };
                 } else {
-                  const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId);
+                  const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId, {
+                    lessonId: learningLessonId,
+                  });
                   const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
                   if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');
                   storedImage = { assetId: String(uploaded.id), assetUrl };
@@ -14206,14 +14625,16 @@ const BoardSection = ({
             answerCount,
             answerLabels: boardTaskPayload.answerLabels,
             userAnswers: Array.from({ length: answerCount }, () => ''),
-            studentAnswers: boardTaskPayload.studentAnswers,
-            studentCode: boardTaskPayload.studentCode || '',
+            studentAnswers: isGroupLesson ? [] : boardTaskPayload.studentAnswers,
+            studentCode: isGroupLesson ? '' : (boardTaskPayload.studentCode || ''),
             codeSavedAt: '',
             codeSavedByName: '',
             codeSavedByRole: '',
             codePanelLayoutVersion: BOARD_TASK_CODE_LAYOUT_VERSION,
             checkState: 'idle',
-            sourceStudentId: boardTaskPayload.sourceStudentId || effectiveStudentId || '',
+            sourceStudentId: isGroupLesson
+              ? ''
+              : (boardTaskPayload.sourceStudentId || effectiveStudentId || ''),
             authorId: userId,
           };
           const capacity = ensureBoardCanAddItems([entry]);
@@ -14273,7 +14694,9 @@ const BoardSection = ({
           if (!dataUrl) throw new Error('Не удалось подготовить локальное изображение');
           storedImage = { dataUrl };
         } else {
-          const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId);
+          const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId, {
+            lessonId: learningLessonId,
+          });
           const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
           if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');
           storedImage = { assetId: String(uploaded.id), assetUrl };
@@ -14329,7 +14752,7 @@ const BoardSection = ({
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [effectiveStudentId, isSandbox, roomId, userId, ensureBoardCanAddItems]);
+  }, [effectiveStudentId, isGroupLesson, isSandbox, learningLessonId, roomId, userId, ensureBoardCanAddItems]);
 
   const schedulePreviewUpdate = () => {
     if (!awarenessRef.current) return;
@@ -14615,7 +15038,7 @@ const BoardSection = ({
     const point = rememberBoardPointer(event);
     scheduleCursorUpdate(point);
     if (event.pointerType === 'touch') event.preventDefault();
-    if (sandboxReadOnly) {
+    if (boardReadOnly) {
       event.preventDefault();
       if (event.pointerType === 'touch') {
         sandboxNavigationPointersRef.current.set(event.pointerId, {
@@ -14776,7 +15199,7 @@ const BoardSection = ({
   const handlePointerMove = (event) => {
     const point = rememberBoardPointer(event);
     scheduleCursorUpdate(point);
-    if (sandboxReadOnly) {
+    if (boardReadOnly) {
       if (
         event.pointerType === 'touch'
         && sandboxNavigationPointersRef.current.has(event.pointerId)
@@ -14864,7 +15287,7 @@ const BoardSection = ({
   };
 
   const handlePointerUp = (event) => {
-    if (sandboxReadOnly) {
+    if (boardReadOnly) {
       const wasPinching = sandboxPinchRef.current.active;
       if (event?.pointerType === 'touch') {
         sandboxNavigationPointersRef.current.delete(event.pointerId);
@@ -15234,11 +15657,13 @@ const BoardSection = ({
     && selectedImageScreenBox
     && selectedImageScreenBox.top + selectedImageScreenBox.height + 420 > boardSize.height
   );
-  const statusLabel = status === 'local'
+  const statusLabel = boardReadOnly && !isSandbox
+    ? 'Архив · только просмотр'
+    : (status === 'local'
     ? (sandboxReadOnly ? 'Запись урока' : 'Локальная копия')
     : (status === 'connected'
     ? 'Подключено'
-    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено'));
+    : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено')));
   const statusToneClass = status === 'connected' || status === 'local' ? 'is-connected' : 'is-waiting';
   const boardShellClass = isFullscreen
     ? 'animate-fadeIn h-full min-h-0 flex flex-col overflow-hidden'
@@ -15252,15 +15677,24 @@ const BoardSection = ({
       : 'board-surface-card board-surface-card--main relative overflow-visible rounded-none border-0 bg-transparent shadow-none flex min-h-0 flex-1 flex-col overflow-visible');
   const zoomLabel = `${Math.round((zoom || 1) * 100)}%`;
   const renderStudentPicker = () => {
-    if (isSandbox || !isTeacher || hideStudentPicker) return null;
+    if (isSandbox || !isTeacher || (hideStudentPicker && !isGroupLesson)) return null;
+    const pickerStudents = isGroupLesson
+      ? groupParticipantStudents
+      : (Array.isArray(students) ? students : []);
+    const pickerValue = isGroupLesson ? groupResponseStudentId : (activeStudentId || '');
     return (
       <div className="board-toolbar__student-picker">
-        <span className="board-toolbar__student-picker-label">Ученик</span>
+        <span className="board-toolbar__student-picker-label">
+          {isGroupLesson ? 'Личный ответ' : 'Ученик'}
+        </span>
         <StudentSearchSelect
-          students={students}
-          value={activeStudentId || ''}
-          onChange={(value) => onSelectStudent?.(value || null)}
-          disabled={studentsLoading || (students || []).length === 0}
+          students={pickerStudents}
+          value={pickerValue}
+          onChange={(value) => {
+            if (isGroupLesson) setGroupResponseStudentId(value || '');
+            else onSelectStudent?.(value || null);
+          }}
+          disabled={studentsLoading || pickerStudents.length === 0}
           className="board-toolbar__student-select"
           dark={isDarkTheme}
         />
@@ -15408,9 +15842,9 @@ const BoardSection = ({
 
       <div
         ref={containerRef}
-        tabIndex={roomId && !sandboxReadOnly ? 0 : -1}
+        tabIndex={roomId && !boardReadOnly ? 0 : -1}
         role="application"
-        aria-label={sandboxReadOnly
+        aria-label={boardReadOnly
           ? 'Запись доски. Перетаскивайте доску из любой точки и используйте колесо или жест щипка для масштаба.'
           : 'Доска урока. Нажмите, затем вставьте картинку через Ctrl+V.'}
         onFocus={() => { boardPasteFocusedRef.current = true; }}
@@ -15423,7 +15857,7 @@ const BoardSection = ({
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
       >
-        {!sandboxReadOnly && (
+        {!boardReadOnly && (
         <div className="board-tool-rail" role="toolbar" aria-label="Инструменты доски">
           <button
             type="button"
@@ -15723,7 +16157,7 @@ const BoardSection = ({
           className="absolute inset-0 w-full h-full"
           style={{
             touchAction: 'none',
-            cursor: sandboxReadOnly
+            cursor: boardReadOnly
               ? (panStateRef.current.active ? 'grabbing' : 'grab')
               : (isSpaceDown
               ? (panStateRef.current.active ? 'grabbing' : 'grab')
@@ -15742,10 +16176,24 @@ const BoardSection = ({
         />
         <div
           className={`board-task-controls-layer ${sandboxReadOnly ? 'pointer-events-none' : ''}`}
-          aria-label={sandboxReadOnly ? 'Записанные задания на доске' : 'Интерактивные задания на доске'}
+          aria-label={boardReadOnly ? 'Завершённые задания на доске' : 'Интерактивные задания на доске'}
         >
           {boardTaskItems.map((taskItem) => {
-            const displayItem = getSelectionDragPreviewItem(taskItem);
+            const sharedDisplayItem = getSelectionDragPreviewItem(taskItem);
+            const privateResponse = isGroupLesson
+              ? learningBoardResponsesById?.[taskItem.id]
+              : null;
+            const displayItem = isGroupLesson
+              ? {
+                  ...sharedDisplayItem,
+                  userAnswers: Array.isArray(privateResponse?.answers) ? privateResponse.answers : [],
+                  studentCode: String(privateResponse?.code || ''),
+                  checkState: String(privateResponse?.checkState || 'idle'),
+                  codeSavedAt: String(privateResponse?.codeSavedAt || ''),
+                  codeSavedByName: '',
+                  codeSavedByRole: '',
+                }
+              : sharedDisplayItem;
             const layout = getBoardTaskAnswerLayout(displayItem);
             const taskZoom = Math.max(
               BOARD_MIN_ZOOM,
@@ -15771,6 +16219,12 @@ const BoardSection = ({
               ? remoteCodePresenceMessage
               : (isCodeSaved ? savedByMessage : '');
             const isChecking = taskUi?.status === 'checking';
+            const privateControlsUnavailable = Boolean(
+              sandboxReadOnly
+              || (isGroupLesson && (!responseStudentId || learningBoardResponsesLoading))
+            );
+            const privateResponseReadOnly = Boolean(isGroupLesson && isTeacher);
+            const privateEditingDisabled = privateControlsUnavailable || privateResponseReadOnly || boardReadOnly;
             const status = ['correct', 'wrong'].includes(displayItem.checkState)
               ? displayItem.checkState
               : 'idle';
@@ -15802,6 +16256,7 @@ const BoardSection = ({
                     height: `${layout.codeButton.height}px`,
                   }}
                   onPointerDown={stopTaskControlPointer}
+                  disabled={privateControlsUnavailable}
                   onClick={(event) => {
                     event.stopPropagation();
                     setOpenTaskCodeId((current) => current === taskItem.id ? '' : taskItem.id);
@@ -15828,7 +16283,12 @@ const BoardSection = ({
                     <header className="board-task-controls__code-header">
                       <div>
                         <strong>Код к заданию</strong>
-                        <span>{remoteCodePresenceMessage || savedByMessage || 'Изменения сразу видны на общей доске'}</span>
+                        <span>{isGroupLesson
+                          ? (isTeacher
+                            ? 'Личный код ученика доступен преподавателю только для просмотра'
+                            : 'Код хранится отдельно и виден только вам и преподавателю')
+                          : (remoteCodePresenceMessage || savedByMessage || 'Изменения сразу видны на общей доске')}
+                        </span>
                       </div>
                       <button
                         type="button"
@@ -15843,7 +16303,7 @@ const BoardSection = ({
                       value={String(displayItem.studentCode || '')}
                       placeholder="# Вставьте или напишите код к заданию"
                       aria-label="Код к заданию"
-                      disabled={sandboxReadOnly}
+                      disabled={privateEditingDisabled || isChecking}
                       spellCheck={false}
                       autoFocus
                       className="board-task-controls__code"
@@ -15856,12 +16316,14 @@ const BoardSection = ({
                         role="status"
                         aria-live="polite"
                       >
-                        {displayedCodeStatus?.message || 'После изменения нажмите «Сохранить код»'}
+                        {privateResponseReadOnly
+                          ? 'Режим просмотра: ответы и код изменяет только ученик'
+                          : (displayedCodeStatus?.message || 'После изменения нажмите «Сохранить код»')}
                       </div>
                       <button
                         type="button"
                         className={`board-task-controls__save-code is-${taskCodeUi?.status || 'idle'}`}
-                        disabled={sandboxReadOnly || taskCodeUi?.status === 'saving'}
+                        disabled={privateEditingDisabled || taskCodeUi?.status === 'saving'}
                         onClick={() => { void handleBoardTaskCodeSave(taskItem); }}
                       >
                         {taskCodeUi?.status === 'saving' ? <RefreshCcw size={14} className="animate-spin" /> : <Save size={14} />}
@@ -15879,7 +16341,7 @@ const BoardSection = ({
                       value={String(displayItem.userAnswers?.[field.answerIndex] ?? '')}
                       placeholder={`Ответ ${label}`}
                       aria-label={`Ответ ${label}`}
-                      disabled={sandboxReadOnly}
+                      disabled={privateEditingDisabled || isChecking}
                       className="board-task-controls__input"
                       style={{
                         left: `${field.x}px`,
@@ -15903,7 +16365,7 @@ const BoardSection = ({
                     width: `${layout.button.width}px`,
                     height: `${layout.button.height}px`,
                   }}
-                  disabled={sandboxReadOnly || isChecking || status === 'correct'}
+                  disabled={privateEditingDisabled || isChecking || status === 'correct'}
                   onPointerDown={stopTaskControlPointer}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -15932,7 +16394,7 @@ const BoardSection = ({
             );
           })}
         </div>
-        {!sandboxReadOnly && textDraft && (
+        {!boardReadOnly && textDraft && (
           <textarea
             ref={textEditorRef}
             autoFocus
@@ -15972,7 +16434,7 @@ const BoardSection = ({
             placeholder="Введите текст…"
           />
         )}
-        {!sandboxReadOnly && (tool === 'move' || tool === 'select') && displaySelectedImage && selectedImageScreenBox && (
+        {!boardReadOnly && (tool === 'move' || tool === 'select') && displaySelectedImage && selectedImageScreenBox && (
           <div className="board-image-selection-layer" aria-label="Выбранное изображение">
             <div
               className={`board-image-selection ${isSelectedImageLocked ? 'is-locked' : ''}`}
@@ -16240,7 +16702,7 @@ const BoardSection = ({
               </span>
             )}
           </div>
-          {!sandboxReadOnly && (
+          {!boardReadOnly && (
           <div className="board-bottom-controls__pill board-bottom-controls__history" aria-label="История доски">
             <button
               type="button"
@@ -16280,7 +16742,7 @@ const BoardSection = ({
             >
               <MapIcon size={21} />
             </button>
-            {!sandboxReadOnly && (
+            {!boardReadOnly && (
             <button
               type="button"
               onClick={handleClearBoard}
@@ -16507,6 +16969,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : user.role === 'teacher'
       ? [
         'schedule',
+        'groups',
         'teacher-calendar',
         'finance',
         'progress',
@@ -16522,6 +16985,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         'schedule',
+        'groups',
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -16770,11 +17234,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [activeStudentId, setActiveStudentId] = useState(() => (
     user.role === 'teacher' ? storedActiveStudentId : null
   ));
+  const [activeLearningLesson, setActiveLearningLesson] = useState(null);
   const [homeworkStatsStudentId, setHomeworkStatsStudentId] = useState(null);
   const handleSelectStudent = useCallback((studentId) => {
     const normalizedStudentId = normalizeTeacherStudentId(studentId);
     storedActiveStudentIdRef.current = normalizedStudentId;
     setActiveStudentId(normalizedStudentId);
+    setActiveLearningLesson(null);
   }, []);
   const handleOpenHomeworkStats = useCallback((student) => {
     const studentId = normalizeTeacherStudentId(student?.id);
@@ -17342,6 +17808,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : user.role === 'teacher'
       ? [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
+        { id: 'groups', label: 'Мини-группы', icon: Users },
         { id: 'teacher-calendar', label: 'Общий календарь', icon: Users },
         { id: 'finance', label: 'Финансы', icon: Wallet },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
@@ -17357,6 +17824,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Сегодня', icon: Calendar },
+        { id: 'groups', label: 'Мини-группы', icon: Users },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -17374,6 +17842,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
+        'groups',
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -17394,7 +17863,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const studentDesktopMainNav = user.role === 'student'
     ? [
-      ...['review', 'schedule', 'progress']
+      ...['review', 'schedule', 'groups', 'progress']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
@@ -17429,6 +17898,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : [];
   const studentMobileMorePreferredIds = [
     ...(studentCanSeeReview ? ['review'] : []),
+    'groups',
     'python',
     ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []),
     'rating',
@@ -17457,7 +17927,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : visibleNav;
   const teacherDesktopPrimaryNav = user.role === 'teacher'
     ? [
-      ...['schedule', 'teacher-calendar', 'finance', 'progress', 'review', 'python', 'rating']
+      ...['schedule', 'groups', 'teacher-calendar', 'finance', 'progress', 'review', 'python', 'rating']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
@@ -17474,6 +17944,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : desktopPrimaryNav;
   const mobileNavLabels = {
     schedule: 'График',
+    groups: 'Группы',
     'teacher-calendar': 'Календ.',
     finance: 'Фин.',
     progress: 'Тесты',
@@ -17501,6 +17972,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   };
   const navToneById = {
     schedule: 'violet',
+    groups: 'violet',
     'teacher-calendar': 'violet',
     finance: 'violet',
     progress: 'violet',
@@ -18947,6 +19419,46 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     captureGoalFlySource(resolvedView);
     setView(resolvedView);
   }, [allowedViewsKey, captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
+
+  const handleOpenLearningGroupLesson = useCallback((lesson = {}) => {
+    const lessonId = String(lesson?.lessonId || '').trim();
+    const groupId = String(lesson?.groupId || '').trim();
+    const participantIds = Array.from(new Set(
+      (Array.isArray(lesson?.participantIds) ? lesson.participantIds : [])
+        .map((participantId) => String(participantId || '').trim())
+        .filter(Boolean)
+    ));
+    if (!lessonId || !groupId || participantIds.length === 0) return;
+    const requestedSurface = String(lesson?.surface || '').trim();
+    const surface = ['call', 'board', 'collab'].includes(requestedSurface)
+      ? requestedSurface
+      : (isCallViewAvailable ? 'call' : 'board');
+    setActiveLearningLesson({
+      lessonId,
+      groupId,
+      participantIds,
+      groupName: String(lesson?.groupName || '').trim(),
+      topic: String(lesson?.topic || '').trim(),
+      startsAt: String(lesson?.startsAt || '').trim(),
+      telemostUrl: String(lesson?.telemostUrl || '').trim(),
+      readOnly: Boolean(lesson?.readOnly),
+    });
+    if (user.role === 'teacher') {
+      storedActiveStudentIdRef.current = '';
+      setActiveStudentId(null);
+    }
+    if (surface === 'call') {
+      setCallPanelExpanded(true);
+    }
+    navigateToView(surface);
+    setMenuOpen(false);
+  }, [isCallViewAvailable, navigateToView, user.role]);
+
+  const handleLeaveLearningGroupLesson = useCallback(() => {
+    setActiveLearningLesson(null);
+    navigateToView('groups');
+    setMenuOpen(false);
+  }, [navigateToView]);
 
   useEffect(() => {
     if (user.role !== 'student' || typeof window === 'undefined') return undefined;
@@ -20420,6 +20932,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const handleOpenTeacherLessonWorkspace = useCallback((targetView, studentId) => {
     if (user.role !== 'teacher') return;
+    setActiveLearningLesson(null);
     const normalizedStudentId = String(studentId || '').trim();
     if (normalizedStudentId) {
       setActiveStudentId(normalizedStudentId);
@@ -20444,6 +20957,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const handleOpenStudentPlatformLesson = useCallback(() => {
     if (user.role !== 'student') return;
+    setActiveLearningLesson(null);
     if (isCallViewAvailable) {
       setCallPanelExpanded(true);
       setCallAutoStartToken((current) => current + 1);
@@ -22625,11 +23139,46 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       }`}
                     >
                       <Icon size={18} />
-                      <span className="truncate leading-none">{mobileNavLabels[item.id] || item.label}</span>
+                      <span className="truncate leading-none">
+                        {item.id === 'call' && activeLearningLesson
+                          ? 'Телемост'
+                          : (mobileNavLabels[item.id] || item.label)}
+                      </span>
                     </button>
                   );
                 })}
               </div>
+            </div>
+          )}
+          {activeLearningLesson && lessonQuickNavIds.includes(view) && (
+            <div className="mb-2 flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-emerald-900 shadow-sm">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
+                <Users size={18} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-bold">
+                  {activeLearningLesson.groupName || 'Мини-группа'}
+                </div>
+                <div className="truncate text-xs text-emerald-700">
+                  {activeLearningLesson.topic || 'Групповое занятие'}
+                  {activeLearningLesson.startsAt
+                    ? ` · ${new Date(activeLearningLesson.startsAt).toLocaleString('ru-RU', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}`
+                    : ''}
+                  {` · ${activeLearningLesson.participantIds.length} уч.`}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleLeaveLearningGroupLesson}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 transition hover:bg-emerald-100"
+              >
+                <ArrowLeft size={14} /> К мини-группе
+              </button>
             </div>
           )}
           {shouldShowQuickHomeworkCelebration && !studentTourActive && (
@@ -22877,6 +23426,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               )}
             </div>
           )}
+          {view === 'groups' && (user.role === 'teacher' || user.role === 'student') && (
+            <LearningGroupsSection
+              role={user.role}
+              userId={user.id}
+              teacherId={user.role === 'teacher' ? user.id : user.teacherId}
+              students={currentStudentsWithNicknames}
+              studentsLoading={studentsLoading}
+              activeLearningLesson={activeLearningLesson}
+              onOpenLessonRoom={handleOpenLearningGroupLesson}
+            />
+          )}
           {view === 'schedule' && user.role === 'student' && (
             <StudentTodayOverview
               studentName={user.name}
@@ -22984,6 +23544,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onStartLesson={user.role === 'teacher'
                 ? (studentId) => handleOpenTeacherLessonWorkspace('call-connect', studentId)
                 : null}
+              onOpenLearningGroupLesson={handleOpenLearningGroupLesson}
             />
           )}
           {view === 'review' && (user.role !== 'student' || studentCanSeeReview) && (
@@ -23006,6 +23567,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
+              onOpenLearningGroupLesson={handleOpenLearningGroupLesson}
               getStudentLabel={getStudentLabel}
               pushSupported={teacherSignupNotifySupported}
               pushPermission={teacherSignupNotifyPermission}
@@ -23212,6 +23774,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               userId={user.id}
               userName={user.name}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
+              lessonId={activeLearningLesson?.lessonId || ''}
+              groupId={activeLearningLesson?.groupId || ''}
+              participantIds={activeLearningLesson?.participantIds || []}
+              readOnly={Boolean(activeLearningLesson?.readOnly)}
               theme={theme}
               withStudentId={withStudentId}
               tasks={tasksWithTitles}
@@ -23220,11 +23786,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               openSaveToNotesToken={collabSaveToNotesToken}
-              onLessonReplayEvent={recordLessonReplayEvent}
-              lessonReplayActive={callSessionStatus === 'connected' || isTelemostLessonReplayActive}
+              onLessonReplayEvent={activeLearningLesson ? null : recordLessonReplayEvent}
+              lessonReplayActive={!activeLearningLesson && (callSessionStatus === 'connected' || isTelemostLessonReplayActive)}
             />
           )}
-          {isCallViewAvailable && (
+          {isCallViewAvailable && activeLearningLesson && view === 'call' && (
+            <GroupTelemostSection
+              role={user.role}
+              groupName={activeLearningLesson.groupName}
+              topic={activeLearningLesson.topic}
+              startsAt={activeLearningLesson.startsAt}
+              participantCount={activeLearningLesson.participantIds.length}
+              telemostUrl={activeLearningLesson.telemostUrl}
+              onOpenBoard={() => navigateToView('board')}
+              onOpenCollab={() => navigateToView('collab')}
+              onBack={handleLeaveLearningGroupLesson}
+            />
+          )}
+          {isCallViewAvailable && !activeLearningLesson && (
             <CallSection
               role={user.role}
               userId={user.id}
@@ -23256,6 +23835,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 students={currentStudentsWithNicknames}
                 getStudentLabel={getStudentLabel}
                 onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
+                onOpenLearningGroupLesson={handleOpenLearningGroupLesson}
               />
               <TeacherLessonEndPrompt
                 teacherId={user.id}
@@ -23268,6 +23848,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <StudentLessonJoinPrompt
               studentId={user.id}
               onOpenPlatformLesson={handleOpenStudentPlatformLesson}
+              onOpenLearningGroupLesson={handleOpenLearningGroupLesson}
               onTelemostLessonStart={applyTelemostLessonReplay}
             />
           )}
@@ -23277,14 +23858,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               userId={user.id}
               userName={user.name}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
+              lessonId={activeLearningLesson?.lessonId || ''}
+              groupId={activeLearningLesson?.groupId || ''}
+              participantIds={activeLearningLesson?.participantIds || []}
+              readOnly={Boolean(activeLearningLesson?.readOnly)}
               tasks={tasksWithTitles}
               students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               theme={theme}
-              onLessonReplayEvent={recordLessonReplayEvent}
-              lessonReplayActive={callSessionStatus === 'connected' || isTelemostLessonReplayActive}
+              onLessonReplayEvent={activeLearningLesson ? null : recordLessonReplayEvent}
+              lessonReplayActive={!activeLearningLesson && (callSessionStatus === 'connected' || isTelemostLessonReplayActive)}
             />
           )}
           {view === 'notes' && (

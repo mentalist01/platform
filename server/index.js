@@ -149,6 +149,51 @@ import {
 } from './boardAssets.js';
 import { createImageTilePyramidManager } from './imageTilePyramid.js';
 import {
+  LearningGroupDomainError,
+  addLearningGroupMember,
+  completeLearningGroup,
+  createLearningAssignment,
+  createLearningGroup,
+  createLearningLessonSession,
+  createLearningMaterial,
+  getActiveLearningGroupMembers,
+  normalizeLearningAssignmentsStore,
+  normalizeLearningBoardResponsesStore,
+  normalizeLearningGroupsStore,
+  normalizeLearningLessonSession,
+  normalizeLearningLessonSessionsStore,
+  normalizeLearningMaterialsStore,
+  normalizeLearningSubmissionsStore,
+  removeLearningGroupMember,
+  reviewLearningSubmission,
+  serializeLearningGroup,
+  serializeLearningSubmissionForStudent,
+  setLearningGroupSchedule,
+  startLearningGroup,
+  updateLearningAssignment,
+  updateLearningGroup,
+  updateLearningLessonSession,
+  upsertLearningBoardResponse,
+  upsertLearningSubmission,
+} from './learningGroups.js';
+import {
+  applyLearningAttendanceEvent,
+  authorizeLearningCollabUpgrade,
+  authorizeLearningRealtimeRoom,
+  buildLearningAttendanceKey,
+  buildLearningLessonRoomNames,
+  canAccessLearningLessonSession as canAccessLearningLessonSessionRecord,
+  createLearningAttendanceRoster,
+  finalizeLearningAttendanceRecord,
+  normalizeLearningAttendanceRecords,
+  parseLearningLessonRoomTarget,
+} from './learningLessonAccess.js';
+import {
+  buildGoogleCalendarLearningLessonId,
+  resolveGoogleCalendarLearningGroupMatch,
+} from './googleCalendarLearningGroups.js';
+import { installReadOnlyYWebsocketMessageFilter } from './collabReadOnly.js';
+import {
   buildQuestionCheckRawValue,
   createQuestionAnswerRules,
 } from './questionAnswerCheck.js';
@@ -450,10 +495,19 @@ const workbookHelperSessionsFile = path.join(dataDir, 'workbook-helper-sessions.
 const usageFile = path.join(dataDir, 'usage.json');
 const pushFile = path.join(dataDir, 'push.json');
 const boardAssetsFile = path.join(dataDir, 'board-assets.json');
+const learningGroupsFile = path.join(dataDir, 'learning-groups.json');
+const learningLessonSessionsFile = path.join(dataDir, 'learning-lesson-sessions.json');
+const learningAssignmentsFile = path.join(dataDir, 'learning-assignments.json');
+const learningSubmissionsFile = path.join(dataDir, 'learning-submissions.json');
+const learningAttendanceFile = path.join(dataDir, 'learning-attendance.json');
+const learningMaterialsFile = path.join(dataDir, 'learning-materials.json');
+const learningBoardResponsesFile = path.join(dataDir, 'learning-board-responses.json');
 const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENABLED, false);
 const JSON_STORAGE_BACKUPS_ENABLED = parseEnabledEnv(process.env.JSON_STORAGE_BACKUPS_ENABLED, true);
 const JSON_STORAGE_SPLIT_CHATS_ENABLED = parseEnabledEnv(process.env.JSON_STORAGE_SPLIT_CHATS_ENABLED, true);
+const LEARNING_GROUPS_ENABLED = parseEnabledEnv(process.env.LEARNING_GROUPS_ENABLED, true);
+const LEARNING_GROUP_RTC_ENABLED = parseEnabledEnv(process.env.LEARNING_GROUP_RTC_ENABLED, false);
 const BOARD_COLLAB_PERSISTENCE_RAW = process.env.BOARD_COLLAB_PERSISTENCE || process.env.COLLAB_PERSIST_BOARD;
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_LESSON_SHARED_TASK_BYTES = 500 * 1024 * 1024;
@@ -1944,6 +1998,76 @@ const writeBoardAssetsDb = (value) => {
   boardAssetsDbCache = normalized;
   return normalized;
 };
+
+const learningJsonStoreCache = new Map();
+const readLearningJsonStore = (filePath, normalize) => {
+  if (learningJsonStoreCache.has(filePath)) return learningJsonStoreCache.get(filePath);
+  let normalized = [];
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    normalized = normalize(JSON.parse(raw));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('[learning-groups] failed to read store:', path.basename(filePath), error?.message || error);
+    }
+  }
+  const result = Array.isArray(normalized) ? normalized : [];
+  learningJsonStoreCache.set(filePath, result);
+  return result;
+};
+
+const writeLearningJsonStore = (filePath, value, normalize) => {
+  const normalized = normalize(value);
+  const result = Array.isArray(normalized) ? normalized : [];
+  writeJsonFileAtomic(filePath, result);
+  learningJsonStoreCache.set(filePath, result);
+  return result;
+};
+
+const readLearningGroupsDb = () => readLearningJsonStore(learningGroupsFile, normalizeLearningGroupsStore);
+const writeLearningGroupsDb = (value) => writeLearningJsonStore(learningGroupsFile, value, normalizeLearningGroupsStore);
+const readLearningLessonSessionsDb = () => readLearningJsonStore(
+  learningLessonSessionsFile,
+  normalizeLearningLessonSessionsStore
+);
+const writeLearningLessonSessionsDb = (value) => writeLearningJsonStore(
+  learningLessonSessionsFile,
+  value,
+  normalizeLearningLessonSessionsStore
+);
+const readLearningAssignmentsDb = () => readLearningJsonStore(learningAssignmentsFile, normalizeLearningAssignmentsStore);
+const writeLearningAssignmentsDb = (value) => writeLearningJsonStore(
+  learningAssignmentsFile,
+  value,
+  normalizeLearningAssignmentsStore
+);
+const readLearningSubmissionsDb = () => readLearningJsonStore(learningSubmissionsFile, normalizeLearningSubmissionsStore);
+const writeLearningSubmissionsDb = (value) => writeLearningJsonStore(
+  learningSubmissionsFile,
+  value,
+  normalizeLearningSubmissionsStore
+);
+const readLearningAttendanceDb = () => readLearningJsonStore(learningAttendanceFile, normalizeLearningAttendanceRecords);
+const writeLearningAttendanceDb = (value) => writeLearningJsonStore(
+  learningAttendanceFile,
+  value,
+  normalizeLearningAttendanceRecords
+);
+const readLearningMaterialsDb = () => readLearningJsonStore(learningMaterialsFile, normalizeLearningMaterialsStore);
+const writeLearningMaterialsDb = (value) => writeLearningJsonStore(
+  learningMaterialsFile,
+  value,
+  normalizeLearningMaterialsStore
+);
+const readLearningBoardResponsesDb = () => readLearningJsonStore(
+  learningBoardResponsesFile,
+  normalizeLearningBoardResponsesStore
+);
+const writeLearningBoardResponsesDb = (value) => writeLearningJsonStore(
+  learningBoardResponsesFile,
+  value,
+  normalizeLearningBoardResponsesStore
+);
 
 const BOARD_ASSET_STUDENT_ACCESS_CACHE_MS = 5000;
 let boardAssetStudentAccessCache = { expiresAtMs: 0, byId: new Map() };
@@ -8554,6 +8678,21 @@ const extractFirstHttpUrl = (...values) => {
   return '';
 };
 
+const extractFirstTelemostUrl = (...values) => {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+    const direct = normalizeTelemostUrl(text);
+    if (direct) return direct;
+    const matches = text.match(/https?:\/\/[^\s<>"')]+/gi) || [];
+    for (const match of matches) {
+      const normalized = normalizeTelemostUrl(match.replace(/[.,;]+$/, ''));
+      if (normalized) return normalized;
+    }
+  }
+  return '';
+};
+
 const normalizeCalendarEventText = (value) => String(value || '')
   .toLowerCase()
   .replace(/ё/g, 'е')
@@ -8685,6 +8824,8 @@ const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
   const googleTitle = String(entry?.subject || '').trim();
   return {
     id: `google-student-${stableId}`,
+    studentId: String(student?.id || '').trim(),
+    studentName: String(student?.name || student?.nickname || '').trim(),
     date,
     day: weekdayMeta.label,
     weekdayKey: weekdayMeta.key,
@@ -8702,12 +8843,44 @@ const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
     externalEventId,
     externalCalendarName: String(entry?.externalCalendarName || '').trim(),
     googleCalendarTitle: googleTitle,
+    ...(entry?.isLearningGroupEvent && entry?.groupId ? {
+      isLearningGroupEvent: true,
+      groupId: String(entry.groupId).trim(),
+      groupName: String(entry?.groupName || '').trim(),
+      participantIds: Array.isArray(entry?.participantIds)
+        ? entry.participantIds.map((value) => String(value || '').trim()).filter(Boolean)
+        : [],
+      participants: Array.isArray(entry?.participants)
+        ? entry.participants.map((participant) => ({
+            studentId: String(participant?.studentId || '').trim(),
+            studentName: String(participant?.studentName || '').trim(),
+          })).filter((participant) => participant.studentId)
+        : [],
+      lessonId: String(entry?.lessonId || '').trim(),
+      telemostUrl: normalizeTelemostUrl(entry?.telemostUrl || entry?.lessonLink),
+      isTeacherSlot: false,
+    } : {}),
+    startAt: String(entry?.startAt || '').trim(),
     createdAt: entry?.createdAt || nowIso,
     createdByRole: actorRole,
     createdById: actorId,
     createdByName: actorName,
     updatedAt: nowIso,
   };
+};
+
+const doesGoogleCalendarLearningGroupEntryIncludeStudent = (entry, student) => {
+  const groupId = String(entry?.groupId || '').trim();
+  const studentId = String(student?.id || '').trim();
+  if (!entry?.isLearningGroupEvent || !groupId || !studentId || !isCurrentStudent(student)) return false;
+  const group = readLearningGroupsDb().find((candidate) => (
+    candidate.id === groupId
+    && !candidate.deletedAt
+    && !candidate.completedAt
+    && candidate.status !== 'completed'
+  ));
+  if (!group || normalizeTeacherId(group.teacherId) !== normalizeTeacherId(student.teacherId)) return false;
+  return getActiveLearningGroupMembers(group).some((member) => member.studentId === studentId);
 };
 
 const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}) => {
@@ -8756,7 +8929,10 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
       });
   const matchedEntries = googleEntries.filter((entry) => (
     isDayKeyWithinRange(entry?.date, syncRange.startDayKey, syncRange.endDayKey)
-    && googleCalendarTitleMatchesStudent(entry?.subject, student)
+    && (
+      doesGoogleCalendarLearningGroupEntryIncludeStudent(entry, student)
+      || (!entry?.isLearningGroupEvent && googleCalendarTitleMatchesStudent(entry?.subject, student))
+    )
   ));
   const existingGoogleEntriesById = new Map(
     currentSchedule
@@ -8850,7 +9026,206 @@ const resolveGoogleCalendarStudentMatch = (event, students = []) => {
   return pickUniqueGoogleCalendarStudentMatch(exactMatches.length > 0 ? exactMatches : candidates);
 };
 
-const buildGoogleCalendarScheduleEntry = (event, teacherId, students = []) => {
+const getGoogleCalendarLearningGroupParticipants = (group, students = []) => {
+  const normalizedTeacherId = normalizeTeacherId(group?.teacherId);
+  const studentsById = new Map(
+    (Array.isArray(students) ? students : [])
+      .filter((student) => (
+        isCurrentStudent(student)
+        && normalizeTeacherId(student?.teacherId) === normalizedTeacherId
+      ))
+      .map((student) => [String(student?.id || '').trim(), student])
+      .filter(([studentId]) => Boolean(studentId))
+  );
+  return getActiveLearningGroupMembers(group)
+    .map((member) => {
+      const studentId = String(member?.studentId || '').trim();
+      const student = studentsById.get(studentId);
+      if (!studentId || !student) return null;
+      return {
+        studentId,
+        studentName: String(student?.name || student?.nickname || 'Ученик').trim() || 'Ученик',
+      };
+    })
+    .filter(Boolean);
+};
+
+const clearGoogleCalendarLearningGroupProjection = (entry) => {
+  const {
+    groupId: _groupId,
+    groupName: _groupName,
+    participantIds: _participantIds,
+    participants: _participants,
+    lessonId: _lessonId,
+    telemostUrl: _telemostUrl,
+    isLearningGroupEvent: _isLearningGroupEvent,
+    learningGroupMatchAmbiguous: _learningGroupMatchAmbiguous,
+    ...rest
+  } = entry || {};
+  return {
+    ...rest,
+    studentName: String(entry?.subject || entry?.studentName || 'Google Calendar').trim(),
+    isTeacherSlot: !String(entry?.studentId || '').trim(),
+  };
+};
+
+const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => {
+  const groupId = String(group?.id || '').trim();
+  const teacherId = normalizeTeacherId(group?.teacherId);
+  const externalEventId = String(entry?.externalEventId || '').trim();
+  const externalOccurrenceId = String(entry?.id || '').trim();
+  const startAt = String(entry?.startAt || entry?.createdAt || '').trim();
+  const startMs = Date.parse(startAt);
+  if (!groupId || !teacherId || !externalEventId || !externalOccurrenceId || !Number.isFinite(startMs)) return null;
+
+  const sessions = readLearningLessonSessionsDb();
+  const stableLessonId = buildGoogleCalendarLearningLessonId({
+    teacherId,
+    groupId,
+    externalEventId,
+    startAt: new Date(startMs).toISOString(),
+  });
+  if (!stableLessonId) return null;
+  const stableSession = sessions.find((session) => session.id === stableLessonId) || null;
+  if (
+    stableSession
+    && (stableSession.groupId !== groupId || normalizeTeacherId(stableSession.teacherId) !== teacherId)
+  ) return null;
+  const sameStartSessions = sessions.filter((session) => (
+    session.groupId === groupId
+    && normalizeTeacherId(session.teacherId) === teacherId
+    && Date.parse(session.startAt) === startMs
+    && session.status !== 'cancelled'
+  ));
+  if (!stableSession && sameStartSessions.length > 1) return null;
+
+  let lesson = stableSession || sameStartSessions[0] || null;
+  const eventTelemostUrl = normalizeTelemostUrl(entry?.telemostUrl || entry?.lessonLink);
+  const participantIds = (Array.isArray(participants) ? participants : [])
+    .map((participant) => String(participant?.studentId || '').trim())
+    .filter(Boolean);
+  if (!lesson) {
+    if (String(group?.status || '').trim() !== 'active') return null;
+    lesson = createLearningLessonSession(group, {
+      startAt: new Date(startMs).toISOString(),
+      durationMinutes: entry?.durationMinutes,
+      topic: entry?.subject || group?.name,
+      note: entry?.note,
+      telemostUrl: eventTelemostUrl,
+      source: 'google-calendar',
+      externalCalendarProvider: 'Google Calendar',
+      externalEventId,
+      externalOccurrenceId,
+    }, {
+      id: stableLessonId,
+      actorId: teacherId,
+    });
+  } else {
+    const patch = {};
+    const normalizedStartAt = new Date(startMs).toISOString();
+    const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
+    const topic = String(entry?.subject || group?.name || '').trim();
+    if (lesson.startAt !== normalizedStartAt) patch.startAt = normalizedStartAt;
+    if (lesson.durationMinutes !== durationMinutes) patch.durationMinutes = durationMinutes;
+    if (lesson.topic !== topic) patch.topic = topic;
+    const calendarManaged = lesson.source === 'google-calendar' || lesson.id === stableLessonId;
+    const eventEndMs = startMs + (durationMinutes * 60 * 1000);
+    if (calendarManaged && lesson.status === 'cancelled' && eventEndMs >= Date.now()) {
+      patch.status = 'scheduled';
+    }
+    if (eventTelemostUrl && lesson.telemostUrl !== eventTelemostUrl) patch.telemostUrl = eventTelemostUrl;
+    if (calendarManaged && !eventTelemostUrl && lesson.telemostUrl) patch.telemostUrl = '';
+    if (Object.keys(patch).length > 0) {
+      lesson = updateLearningLessonSession(lesson, patch, { actorId: teacherId });
+    }
+    lesson = normalizeLearningLessonSession({
+      ...lesson,
+      ...(calendarManaged && lesson.status === 'scheduled' ? { participantIds } : {}),
+      source: lesson.source || 'google-calendar',
+      externalCalendarProvider: lesson.externalCalendarProvider || 'Google Calendar',
+      externalEventId: lesson.externalEventId || externalEventId,
+      externalOccurrenceId: lesson.externalOccurrenceId || externalOccurrenceId,
+    });
+  }
+  if (!lesson) return null;
+
+  const existing = sessions.find((session) => session.id === lesson.id) || null;
+  const lessonChanged = !existing || JSON.stringify(existing) !== JSON.stringify(lesson);
+  if (lessonChanged) {
+    writeLearningLessonSessionsDb(existing
+      ? replaceLearningStoreEntry(sessions, lesson)
+      : [lesson, ...sessions]);
+    const roster = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
+    writeLearningAttendanceUpdates(roster);
+  }
+  return lesson;
+};
+
+const reconcileGoogleCalendarLearningLessons = (
+  teacherId,
+  entries = [],
+  { fromMs = Date.now(), toMs = Number.POSITIVE_INFINITY } = {}
+) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  if (!normalizedTeacherId || !Number.isFinite(fromMs) || !Number.isFinite(toMs)) return false;
+  const retainedLessonIds = new Set(
+    (Array.isArray(entries) ? entries : [])
+      .filter((entry) => entry?.isLearningGroupEvent && entry?.groupId)
+      .map((entry) => String(entry?.lessonId || '').trim())
+      .filter(Boolean)
+  );
+  const sessions = readLearningLessonSessionsDb();
+  let changed = false;
+  const nextSessions = sessions.map((session) => {
+    if (
+      session.source !== 'google-calendar'
+      || normalizeTeacherId(session.teacherId) !== normalizedTeacherId
+      || session.status !== 'scheduled'
+      || retainedLessonIds.has(session.id)
+    ) return session;
+    const startMs = Date.parse(session.startAt);
+    const endMs = startMs + (normalizeScheduleDurationMinutes(session.durationMinutes) * 60 * 1000);
+    if (!Number.isFinite(startMs) || endMs < fromMs || startMs > toMs) return session;
+    changed = true;
+    return updateLearningLessonSession(session, { status: 'cancelled' }, { actorId: normalizedTeacherId });
+  });
+  if (changed) writeLearningLessonSessionsDb(nextSessions);
+  return changed;
+};
+
+const enrichGoogleCalendarLearningGroupEntry = (entry, teacherId, students = []) => {
+  if (!entry?.isLearningGroupEvent && !entry?.groupId) return entry;
+  const match = resolveGoogleCalendarLearningGroupMatch({
+    title: entry?.subject,
+    teacherId,
+    groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+  });
+  const group = match.group;
+  if (!group || (entry?.groupId && String(entry.groupId) !== String(group.id))) {
+    return {
+      ...clearGoogleCalendarLearningGroupProjection(entry),
+      ...(match.ambiguous ? { learningGroupMatchAmbiguous: true } : {}),
+    };
+  }
+  const participants = getGoogleCalendarLearningGroupParticipants(group, students);
+  const lesson = upsertGoogleCalendarLearningLesson(entry, group, participants);
+  const telemostUrl = normalizeTelemostUrl(lesson?.telemostUrl || entry?.telemostUrl || entry?.lessonLink);
+  return {
+    ...entry,
+    studentId: '',
+    studentName: group.name,
+    isTeacherSlot: false,
+    isLearningGroupEvent: true,
+    groupId: group.id,
+    groupName: group.name,
+    participantIds: participants.map((participant) => participant.studentId),
+    participants,
+    lessonId: String(lesson?.id || '').trim(),
+    telemostUrl,
+  };
+};
+
+const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], groups = []) => {
   if (!event || event.type !== 'VEVENT') return null;
   if (String(event.status || '').trim().toUpperCase() === 'CANCELLED') return null;
   if (!event.start || !event.end) return null;
@@ -8865,8 +9240,17 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = []) => {
   if (!weekdayMeta) return null;
   const summary = String(event.summary || '').trim() || 'Google Calendar';
   const matchedStudent = resolveGoogleCalendarStudentMatch(event, students);
+  const groupMatch = matchedStudent ? { group: null, ambiguous: false } : resolveGoogleCalendarLearningGroupMatch({
+    title: summary,
+    teacherId,
+    groups,
+  });
+  const matchedGroup = groupMatch.group;
+  const participants = matchedGroup
+    ? getGoogleCalendarLearningGroupParticipants(matchedGroup, students)
+    : [];
   const studentId = matchedStudent?.id ? String(matchedStudent.id) : '';
-  const studentName = matchedStudent?.name || summary;
+  const studentName = matchedStudent?.name || matchedGroup?.name || summary;
   const externalId = String(event.uid || event.id || `${summary}-${start.toISOString()}`).trim();
   const instanceId = crypto
     .createHash('sha1')
@@ -8874,6 +9258,9 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = []) => {
     .digest('hex')
     .slice(0, 18);
   const lessonLink = extractFirstHttpUrl(event.location, event.description, event.url);
+  const telemostUrl = matchedGroup
+    ? extractFirstTelemostUrl(event.location, event.description, event.url)
+    : '';
   return {
     id: `google-ical-${instanceId}`,
     date: startParts.dayKey,
@@ -8889,12 +9276,23 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = []) => {
     lessonLink,
     studentId,
     studentName,
-    isTeacherSlot: !studentId,
+    isTeacherSlot: !studentId && !matchedGroup,
+    ...(matchedGroup ? {
+      isLearningGroupEvent: true,
+      groupId: matchedGroup.id,
+      groupName: matchedGroup.name,
+      participantIds: participants.map((participant) => participant.studentId),
+      participants,
+      lessonId: '',
+      telemostUrl,
+    } : {}),
+    ...(!matchedStudent && groupMatch.ambiguous ? { learningGroupMatchAmbiguous: true } : {}),
     isExternalCalendarEvent: true,
     source: 'google-ical',
     externalCalendarProvider: 'Google Calendar',
     externalEventId: externalId,
     externalCalendarName: String(event.calendarName || '').trim(),
+    startAt: start.toISOString(),
     createdAt: start.toISOString(),
     updatedAt: start.toISOString(),
   };
@@ -8913,12 +9311,19 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
   const force = Boolean(options.force);
   const now = Date.now();
   const cache = teacherCalendarSyncCache.get(normalizedTeacherId);
+  const students = readStudentsDb().filter((student) => String(student?.teacherId || '').trim() === normalizedTeacherId);
+  const groups = LEARNING_GROUPS_ENABLED
+    ? readLearningGroupsDb().filter((group) => normalizeTeacherId(group?.teacherId) === normalizedTeacherId)
+    : [];
   if (!force && cache && cache.url === settings.icalUrl && now - cache.loadedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS) {
-    return cache.entries;
+    const entries = cache.entries.map((entry) => (
+      enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+    ));
+    cache.entries = entries;
+    return entries;
   }
 
   const to = new Date(now + (GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000));
-  const students = readStudentsDb().filter((student) => String(student?.teacherId || '').trim() === normalizedTeacherId);
   const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
   let timeoutId = null;
   if (abortController) {
@@ -8944,7 +9349,8 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
         const scheduleEntry = buildGoogleCalendarScheduleEntry(
           { ...event, ...instance, calendarName },
           normalizedTeacherId,
-          students
+          students,
+          groups
         );
         if (!scheduleEntry) return;
         const startMs = Date.parse(`${scheduleEntry.date}T${scheduleEntry.time}:00`);
@@ -8958,6 +9364,10 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
       const leftTime = Date.parse(`${left.date}T${left.time}:00`);
       const rightTime = Date.parse(`${right.date}T${right.time}:00`);
       return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
+    }).map((entry) => enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students));
+    reconcileGoogleCalendarLearningLessons(normalizedTeacherId, uniqueEntries, {
+      fromMs: now,
+      toMs: to.getTime(),
     });
     teacherCalendarSyncCache.set(normalizedTeacherId, {
       url: settings.icalUrl,
@@ -8979,7 +9389,9 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
       lastError: message,
     });
     if (options.throwOnError) throw new Error(message);
-    return cache?.entries || [];
+    return (cache?.entries || []).map((entry) => (
+      enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+    ));
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
@@ -14325,6 +14737,8 @@ const buildStudentSchedulePaymentState = ({
     overdue: status === 'unpaid' && finished,
     paid: paidMarked,
     trial: trialMarked,
+    paidMarkKey,
+    trialMarkKey,
     startMinutes,
     endMinutes,
   };
@@ -14427,7 +14841,8 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
   let googleEntries = [];
   try {
     googleEntries = (await fetchTeacherGoogleCalendarEntries(teacherId))
-      .filter((entry) => doesPaymentScheduleEntryMatchStudent(entry, student));
+      .map((entry) => projectGoogleCalendarEntryForPaymentStudent(entry, student))
+      .filter(Boolean);
   } catch {
     googleEntries = [];
   }
@@ -14551,9 +14966,98 @@ const doesPaymentScheduleEntryMatchStudent = (entry, student) => {
   return false;
 };
 
+const projectGoogleCalendarEntryForPaymentStudent = (entry, student) => {
+  if (entry?.isLearningGroupEvent && entry?.groupId) {
+    if (!doesGoogleCalendarLearningGroupEntryIncludeStudent(entry, student)) return null;
+    return buildStudentScheduleEntryFromGoogleCalendar(entry, student, null);
+  }
+  return doesPaymentScheduleEntryMatchStudent(entry, student) ? entry : null;
+};
+
+const expandGoogleCalendarLearningGroupPaymentEntries = (teacherId, entries = []) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const students = readStudentsDb().filter((student) => (
+    isCurrentStudent(student)
+    && normalizeTeacherId(student?.teacherId) === normalizedTeacherId
+  ));
+  return (Array.isArray(entries) ? entries : []).flatMap((entry) => {
+    if (!entry?.isLearningGroupEvent || !entry?.groupId) return [entry];
+    return students
+      .map((student) => projectGoogleCalendarEntryForPaymentStudent(entry, student))
+      .filter(Boolean);
+  });
+};
+
+const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry) => {
+  if (!entry?.isLearningGroupEvent || !entry?.groupId) return [];
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const studentsById = new Map(
+    readStudentsDb()
+      .filter((student) => (
+        isCurrentStudent(student)
+        && normalizeTeacherId(student?.teacherId) === normalizedTeacherId
+      ))
+      .map((student) => [String(student?.id || '').trim(), student])
+      .filter(([studentId]) => Boolean(studentId))
+  );
+  const marksDb = readTeacherCalendarMarksDb();
+  const teacherMarks = normalizeTeacherCalendarMarks(marksDb[normalizedTeacherId]);
+  const nowInfo = getStudentSchedulePaymentNowInfo();
+  const dayKey = normalizeDayKey(entry?.date);
+  const startMinutes = parseScheduleMinutes(entry?.time);
+  const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
+  const endMinutes = Number.isFinite(startMinutes) ? startMinutes + durationMinutes : NaN;
+  if (!dayKey || !Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return [];
+
+  return (Array.isArray(entry?.participantIds) ? entry.participantIds : [])
+    .map((rawStudentId) => {
+      const studentId = String(rawStudentId || '').trim();
+      const student = studentsById.get(studentId);
+      if (!student) return null;
+      const projectedEntry = projectGoogleCalendarEntryForPaymentStudent(entry, student);
+      if (!projectedEntry) return null;
+      const payment = buildStudentSchedulePaymentState({
+        teacherId: normalizedTeacherId,
+        studentId,
+        entry: projectedEntry,
+        sourceEntry: projectedEntry,
+        dayKey,
+        startMinutes,
+        endMinutes,
+        teacherMarks,
+        nowInfo,
+      });
+      if (!payment) return null;
+      return {
+        studentId,
+        studentName: String(student?.name || student?.nickname || 'Ученик').trim() || 'Ученик',
+        status: payment.status,
+        paid: payment.paid,
+        trial: payment.trial,
+        finished: payment.finished,
+        overdue: payment.overdue,
+        paidMarkKey: payment.paidMarkKey,
+        trialMarkKey: payment.trialMarkKey,
+      };
+    })
+    .filter(Boolean);
+};
+
+const annotateGoogleCalendarLearningGroupPaymentStatuses = (teacherId, entry) => (
+  entry?.isLearningGroupEvent && entry?.groupId
+    ? {
+        ...entry,
+        memberPaymentStatuses: buildGoogleCalendarLearningGroupMemberPaymentStatuses(teacherId, entry),
+      }
+    : entry
+);
+
 const getPaymentScheduleEntries = async (teacherId, options = {}) => {
   const localEntries = getTeacherScheduleEntries(teacherId, options);
-  const googleEntries = await fetchTeacherGoogleCalendarEntries(teacherId);
+  const googleEntries = expandGoogleCalendarLearningGroupPaymentEntries(
+    teacherId,
+    await fetchTeacherGoogleCalendarEntries(teacherId)
+  );
   return [...localEntries, ...googleEntries];
 };
 
@@ -17302,6 +17806,15 @@ const upload = multer({
   storage,
   limits: { fileSize: MAX_LESSON_SHARED_UPLOAD_FILE_BYTES },
 });
+const learningMaterialUpload = multer({
+  storage,
+  limits: {
+    files: 1,
+    fields: 12,
+    fieldSize: 32 * 1024,
+    fileSize: MAX_UPLOAD_FILE_BYTES,
+  },
+});
 const workbookHelperUpload = multer({
   storage,
   limits: {
@@ -18674,11 +19187,42 @@ const handleUploadRequest = (req, res) => {
   const boardAssetGrants = isBoardAsset
     ? readBoardAssetsDb().filter((entry) => entry.storageName === safeName)
     : [];
+  const learningMaterial = isBoardAsset
+    ? null
+    : readLearningMaterialsDb().find((entry) => (
+        path.basename(String(entry?.storageName || '').trim()) === safeName
+      )) || null;
+  let learningMaterialGroup = null;
+  if (learningMaterial) {
+    learningMaterialGroup = getLearningGroupById(learningMaterial.groupId);
+    const accessError = learningMaterialGroup
+      ? getLearningMaterialAccessError(req.auth, learningMaterialGroup, learningMaterial)
+      : 'Материал не найден';
+    if (accessError) {
+      return res.status(accessError === 'Материал не найден' ? 404 : 403).send(accessError);
+    }
+  }
   if (isParentRole(req.auth) && !isBoardAsset && !ownedFile) {
     return res.status(404).send('Файл не найден');
   }
   let boardAssetStudent = null;
+  let boardAssetGroup = null;
   const boardAsset = boardAssetGrants.find((entry) => {
+    const lessonId = String(entry?.lessonId || '').trim();
+    if (lessonId && LEARNING_GROUPS_ENABLED) {
+      const lesson = readLearningLessonSessionsDb().find((item) => item.id === lessonId);
+      const group = lesson ? getLearningGroupById(lesson.groupId) : null;
+      if (
+        lesson
+        && group
+        && entry.groupId === group.id
+        && canAccessLearningLessonSessionRecord(req.auth, lesson, { group, groups: [group] })
+      ) {
+        boardAssetGroup = group;
+        return true;
+      }
+      return false;
+    }
     const student = findBoardAssetStudentById(entry.studentId);
     if (student) boardAssetStudent = student;
     return Boolean(student && canAccessStudentByRole(req.auth, student, { allowDeleted: true }));
@@ -18690,9 +19234,9 @@ const handleUploadRequest = (req, res) => {
   let ownerTeacherId = '';
   const ownerIsLessonShared = Boolean(ownedFile && isLessonSharedFile(ownedFile));
   if (boardAsset) {
-    ownerStudentId = boardAsset.studentId;
-    ownerTeacherId = normalizeTeacherId(boardAsset.teacherId);
-  } else if (ownedFile) {
+    ownerStudentId = boardAsset.studentId || '';
+    ownerTeacherId = normalizeTeacherId(boardAsset.teacherId || boardAssetGroup?.teacherId);
+  } else if (ownedFile && !learningMaterialGroup) {
     if (ownerIsLessonShared) {
       ownerTeacherId = normalizeTeacherId(ownedFile.teacherId);
       if (!ownerTeacherId || !canReadLessonSharedByTeacher(req.auth, ownerTeacherId)) {
@@ -19791,6 +20335,37 @@ app.post('/api/admin/xp-rebalance', (req, res) => {
 });
 
 app.post('/api/board/reset', async (req, res) => {
+  const requestedLessonId = typeof req.body?.lessonId === 'string'
+    ? req.body.lessonId.trim()
+    : String(req.body?.lessonId || '').trim();
+  if (requestedLessonId) {
+    if (!LEARNING_GROUPS_ENABLED) return res.status(404).json({ error: 'Занятие не найдено' });
+    const lesson = readLearningLessonSessionsDb().find((entry) => entry.id === requestedLessonId) || null;
+    const group = lesson ? getLearningGroupById(lesson.groupId) : null;
+    if (!lesson || !group) return res.status(404).json({ error: 'Занятие не найдено' });
+    if (!canManageLearningGroup(req.auth, group)) return forbid(res);
+    const roomId = lesson.boardDocName || buildLearningLessonRoomNames(lesson.id)?.boardDocName;
+    if (!roomId) return res.status(400).json({ error: 'Для занятия не удалось определить доску' });
+    try {
+      const result = await resetCollabDoc(roomId, {
+        closeCode: 1012,
+        closeReason: 'Board reset',
+        bypassMs: 30000,
+      });
+      return res.json({
+        ok: true,
+        roomId,
+        lessonId: lesson.id,
+        groupId: group.id,
+        closedConnections: result.closedConnections,
+        hadActiveDoc: result.hadActiveDoc,
+        clearedPersistence: result.clearedPersistence,
+      });
+    } catch (error) {
+      console.error('[board] learning lesson reset failed:', error);
+      return res.status(500).json({ error: 'Не удалось сбросить доску' });
+    }
+  }
   const requestedStudentId = typeof req.body?.studentId === 'string'
     ? req.body.studentId.trim()
     : String(req.body?.studentId || '').trim();
@@ -19893,6 +20468,965 @@ app.get('/api/rtc/presence', (req, res) => {
     count: participants.length,
   });
 });
+
+const LEARNING_GROUP_STATUSES = new Set(['forming', 'ready', 'active', 'completed']);
+const LEARNING_LESSON_LIVE_STATUSES = ['scheduled', 'active'];
+
+const failLearningRequest = (message, code = 'invalid_learning_group', statusCode = 400) => {
+  throw new LearningGroupDomainError(message, { code, statusCode });
+};
+
+const handleLearningRoute = (handler) => async (req, res, next) => {
+  try {
+    return await handler(req, res);
+  } catch (error) {
+    if (error instanceof LearningGroupDomainError) {
+      return res.status(error.statusCode || 400).json({
+        error: error.message || 'Некорректный запрос',
+        code: error.code || 'invalid_learning_group',
+      });
+    }
+    return next(error);
+  }
+};
+
+app.use('/api/learning-groups', (_req, res, next) => {
+  if (LEARNING_GROUPS_ENABLED) return next();
+  return res.status(404).json({
+    error: 'Мини-группы отключены',
+    code: 'learning_groups_disabled',
+  });
+});
+
+const getLearningGroupById = (groupId) => {
+  const normalizedId = String(groupId || '').trim();
+  if (!normalizedId) return null;
+  return readLearningGroupsDb().find((entry) => entry.id === normalizedId && !entry.deletedAt) || null;
+};
+
+const getLearningLessonById = (groupId, lessonId) => {
+  const normalizedGroupId = String(groupId || '').trim();
+  const normalizedLessonId = String(lessonId || '').trim();
+  if (!normalizedGroupId || !normalizedLessonId) return null;
+  return readLearningLessonSessionsDb().find((entry) => (
+    entry.id === normalizedLessonId && entry.groupId === normalizedGroupId
+  )) || null;
+};
+
+const getLearningAssignmentById = (groupId, assignmentId) => {
+  const normalizedGroupId = String(groupId || '').trim();
+  const normalizedAssignmentId = String(assignmentId || '').trim();
+  if (!normalizedGroupId || !normalizedAssignmentId) return null;
+  return readLearningAssignmentsDb().find((entry) => (
+    entry.id === normalizedAssignmentId
+    && entry.groupId === normalizedGroupId
+    && !entry.deletedAt
+  )) || null;
+};
+
+const isLearningGroupMember = (group, studentId, options = {}) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!normalizedStudentId || !Array.isArray(group?.members)) return false;
+  return group.members.some((member) => (
+    member?.studentId === normalizedStudentId
+    && (options.activeOnly !== true || member?.status === 'active')
+  ));
+};
+
+const canReadLearningGroup = (auth, group) => {
+  if (!auth || !group || group.deletedAt) return false;
+  if (isAdminRole(auth)) return true;
+  if (isTeacherRole(auth)) return auth.id === group.teacherId;
+  if (isStudentRole(auth)) {
+    if (isLearningGroupMember(group, auth.id)) return true;
+    if (readLearningLessonSessionsDb().some((session) => (
+      session.groupId === group.id && session.participantIds.includes(auth.id)
+    ))) return true;
+    return readLearningAssignmentsDb().some((assignment) => (
+      assignment.groupId === group.id
+      && !assignment.deletedAt
+      && assignment.recipientIds.includes(auth.id)
+    ));
+  }
+  return false;
+};
+
+const canManageLearningGroup = (auth, group) => Boolean(
+  auth
+  && group
+  && !group.deletedAt
+  && (isAdminRole(auth) || (isTeacherRole(auth) && auth.id === group.teacherId))
+);
+
+const ensureLearningGroupReadAccess = (req, res, groupId) => {
+  const group = getLearningGroupById(groupId);
+  if (!group) {
+    res.status(404).json({ error: 'Группа не найдена', code: 'group_not_found' });
+    return null;
+  }
+  if (!canReadLearningGroup(req.auth, group)) {
+    res.status(403).json({ error: 'Недостаточно прав', code: 'group_forbidden' });
+    return null;
+  }
+  return group;
+};
+
+const ensureLearningGroupManageAccess = (req, res, groupId) => {
+  const group = getLearningGroupById(groupId);
+  if (!group) {
+    res.status(404).json({ error: 'Группа не найдена', code: 'group_not_found' });
+    return null;
+  }
+  if (!canManageLearningGroup(req.auth, group)) {
+    res.status(403).json({ error: 'Недостаточно прав', code: 'group_forbidden' });
+    return null;
+  }
+  return group;
+};
+
+const ensureLearningLessonAccess = (req, res, group, lessonId, options = {}) => {
+  const lesson = getLearningLessonById(group?.id, lessonId);
+  if (!lesson) {
+    res.status(404).json({ error: 'Занятие не найдено', code: 'lesson_not_found' });
+    return null;
+  }
+  const allowed = options.manage === true
+    ? canManageLearningGroup(req.auth, group)
+    : canAccessLearningLessonSessionRecord(req.auth, lesson, { group, groups: [group] });
+  if (!allowed) {
+    res.status(403).json({ error: 'Недостаточно прав', code: 'lesson_forbidden' });
+    return null;
+  }
+  return lesson;
+};
+
+const replaceLearningStoreEntry = (entries, nextEntry) => (
+  entries.map((entry) => entry.id === nextEntry.id ? nextEntry : entry)
+);
+
+const serializeLearningStudentSummary = (studentId) => {
+  const student = findStudentById(studentId, { allowDeleted: true });
+  if (!student) return { id: studentId, studentId, name: 'Ученик' };
+  const progress = getStudentData(student.id);
+  return {
+    id: student.id,
+    studentId: student.id,
+    name: String(student.nickname || student.name || 'Ученик').trim() || 'Ученик',
+    fullName: String(student.name || '').trim(),
+    nickname: String(student.nickname || '').trim(),
+    grade: normalizeStudentGrade(student.grade),
+    avatarDataUrl: normalizeStudentAvatarDataUrl(progress?.avatarDataUrl),
+  };
+};
+
+const LEARNING_SCHEDULE_WEEKDAY_INDEX = Object.freeze({
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+});
+
+const buildLearningScheduleOccurrence = (group, scheduleEntry, now = new Date()) => {
+  const timeMatch = String(scheduleEntry?.time || '').match(/^(\d{2}):(\d{2})$/);
+  if (!timeMatch) return null;
+  const hours = Number(timeMatch[1]);
+  const minutes = Number(timeMatch[2]);
+  let startsAt = null;
+  if (scheduleEntry.date) {
+    const dateMatch = String(scheduleEntry.date).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!dateMatch) return null;
+    startsAt = new Date(
+      Number(dateMatch[1]),
+      Number(dateMatch[2]) - 1,
+      Number(dateMatch[3]),
+      hours,
+      minutes,
+      0,
+      0
+    );
+  } else {
+    const weekday = LEARNING_SCHEDULE_WEEKDAY_INDEX[String(scheduleEntry.weekdayKey || '').toLowerCase()];
+    if (!Number.isInteger(weekday)) return null;
+    const daysAhead = (weekday - now.getDay() + 7) % 7;
+    startsAt = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + daysAhead,
+      hours,
+      minutes,
+      0,
+      0
+    );
+    if (startsAt.getTime() < now.getTime()) startsAt.setDate(startsAt.getDate() + 7);
+  }
+  if (!startsAt || !Number.isFinite(startsAt.getTime()) || startsAt.getTime() < now.getTime()) return null;
+  const dayKey = [
+    startsAt.getFullYear(),
+    String(startsAt.getMonth() + 1).padStart(2, '0'),
+    String(startsAt.getDate()).padStart(2, '0'),
+  ].join('-');
+  return {
+    id: `schedule-${scheduleEntry.id}-${dayKey}`,
+    lessonId: '',
+    groupId: group.id,
+    teacherId: group.teacherId,
+    participantIds: getActiveLearningGroupMembers(group).map((member) => member.studentId),
+    startAt: startsAt.toISOString(),
+    startsAt: startsAt.toISOString(),
+    durationMinutes: scheduleEntry.durationMinutes,
+    topic: scheduleEntry.subject || 'Занятие',
+    note: scheduleEntry.note || '',
+    scheduleEntryId: scheduleEntry.id,
+    status: 'scheduled',
+    synthetic: true,
+  };
+};
+
+const getLearningGroupNextLesson = (group, now = new Date()) => {
+  const groupSessions = readLearningLessonSessionsDb().filter((session) => (
+    session.groupId === group.id && session.status !== 'cancelled'
+  ));
+  const nextSession = groupSessions
+    .filter((session) => Date.parse(session.startAt) >= now.getTime())
+    .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))[0] || null;
+  if (nextSession) return serializeLearningLessonForAuth(nextSession);
+  if (groupSessions.length > 0) return null;
+  const occurrence = (Array.isArray(group.schedule) ? group.schedule : [])
+    .map((entry) => buildLearningScheduleOccurrence(group, entry, now))
+    .filter(Boolean)
+    .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))[0] || null;
+  return occurrence;
+};
+
+const serializeLearningGroupForAuth = (group, auth) => {
+  const serialized = serializeLearningGroup(group);
+  if (!serialized) return null;
+  const staffView = isAdminRole(auth) || isTeacherRole(auth);
+  const members = serialized.members
+    .filter((member) => staffView || member.status === 'active' || member.studentId === auth?.id)
+    .map((member) => {
+      const student = serializeLearningStudentSummary(member.studentId);
+      if (staffView) return { ...member, ...student, student };
+      const { addedById: _addedById, removedById: _removedById, overrideReason: _overrideReason, ...safeMember } = member;
+      return { ...safeMember, ...student, student };
+    });
+  return {
+    ...serialized,
+    members,
+    nextLesson: getLearningGroupNextLesson(group),
+  };
+};
+
+const serializeLearningLessonForAuth = (lesson) => {
+  const names = buildLearningLessonRoomNames(lesson?.id);
+  return { ...lesson, ...(names || {}) };
+};
+
+const getLearningMaterialStorage = (material) => {
+  let storageName = path.basename(String(material?.storageName || '').trim());
+  let originalName = String(material?.originalName || material?.title || 'Материал').trim();
+  let mimeType = String(material?.mimeType || '').trim();
+  let sizeBytes = Math.max(0, Number(material?.sizeBytes) || 0);
+  if (!storageName && material?.fileId) {
+    const file = readFilesDb().find((entry) => String(entry?.id || '').trim() === material.fileId);
+    if (file) {
+      storageName = path.basename(String(file.storageName || '').trim());
+      originalName = String(file.name || originalName).trim();
+      mimeType = String(file.mimeType || mimeType).trim();
+      sizeBytes = Math.max(0, Number(file.sizeBytes || file.size) || sizeBytes);
+    }
+  }
+  return { storageName, originalName, mimeType, sizeBytes };
+};
+
+const serializeLearningMaterialForAuth = (material, auth) => {
+  const storage = getLearningMaterialStorage(material);
+  const downloadUrl = storage.storageName
+    ? `/api/learning-groups/${encodeURIComponent(material.groupId)}/materials/${encodeURIComponent(material.id)}/download`
+    : '';
+  const serialized = {
+    ...material,
+    ...storage,
+    url: material.url || downloadUrl,
+    downloadUrl,
+  };
+  if (!isStudentRole(auth)) return serialized;
+  const { storageName: _storageName, ...studentProjection } = serialized;
+  return studentProjection;
+};
+
+const serializeLearningAssignmentForAuth = (assignment, auth) => ({
+  ...assignment,
+  ...(isStudentRole(auth) ? {
+    recipientIds: assignment.recipientIds.includes(auth.id) ? [auth.id] : [],
+  } : {}),
+  instructions: assignment.content,
+});
+
+const serializeLearningAttendanceForAuth = (record) => ({
+  ...record,
+  student: serializeLearningStudentSummary(record.studentId),
+  studentName: serializeLearningStudentSummary(record.studentId).name,
+});
+
+const writeLearningAttendanceUpdates = (records) => {
+  const byKey = new Map(readLearningAttendanceDb().map((record) => (
+    [buildLearningAttendanceKey(record.sessionId, record.studentId), record]
+  )));
+  normalizeLearningAttendanceRecords(records).forEach((record) => {
+    byKey.set(buildLearningAttendanceKey(record.sessionId, record.studentId), record);
+  });
+  return writeLearningAttendanceDb(Array.from(byKey.values()));
+};
+
+const getLearningMaterialAccessError = (auth, group, material) => {
+  if (!material || material.deletedAt || material.groupId !== group?.id) return 'Материал не найден';
+  if (!canReadLearningGroup(auth, group)) return 'Недостаточно прав';
+  if (material.visibility !== 'lesson') return '';
+  const lesson = getLearningLessonById(group.id, material.lessonId);
+  if (!lesson) return 'Материал не найден';
+  return canAccessLearningLessonSessionRecord(auth, lesson, { group, groups: [group] })
+    ? ''
+    : 'Недостаточно прав';
+};
+
+app.get('/api/learning-groups', handleLearningRoute((req, res) => {
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth) && !isStudentRole(req.auth)) return forbid(res);
+  const requestedStatus = String(req.query?.status || '').trim();
+  if (requestedStatus && !LEARNING_GROUP_STATUSES.has(requestedStatus)) {
+    failLearningRequest('Некорректный статус группы', 'invalid_group_status');
+  }
+  const includeCompleted = ['1', 'true', 'yes'].includes(String(req.query?.includeCompleted || '').toLowerCase());
+  const requestedTeacherId = String(req.query?.teacherId || '').trim();
+  const requestedStudentId = String(req.query?.studentId || '').trim();
+
+  let groups = readLearningGroupsDb().filter((group) => !group.deletedAt);
+  if (isTeacherRole(req.auth)) groups = groups.filter((group) => group.teacherId === req.auth.id);
+  if (isStudentRole(req.auth)) groups = groups.filter((group) => canReadLearningGroup(req.auth, group));
+  if (isAdminRole(req.auth) && requestedTeacherId) {
+    groups = groups.filter((group) => group.teacherId === requestedTeacherId);
+  }
+
+  if (requestedStudentId || isStudentRole(req.auth)) {
+    const effectiveStudentId = isStudentRole(req.auth) ? req.auth.id : requestedStudentId;
+    if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+    const student = findStudentById(effectiveStudentId, { allowDeleted: true });
+    if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
+    if (isTeacherRole(req.auth) && student.teacherId !== req.auth.id) return forbid(res);
+    groups = groups.filter((group) => (
+      isLearningGroupMember(group, effectiveStudentId)
+      || readLearningLessonSessionsDb().some((lesson) => (
+        lesson.groupId === group.id && lesson.participantIds.includes(effectiveStudentId)
+      ))
+      || readLearningAssignmentsDb().some((assignment) => (
+        assignment.groupId === group.id && assignment.recipientIds.includes(effectiveStudentId)
+      ))
+    ));
+  }
+
+  if (requestedStatus) groups = groups.filter((group) => group.status === requestedStatus);
+  else if (!includeCompleted) groups = groups.filter((group) => group.status !== 'completed');
+  groups = groups
+    .slice()
+    .sort((left, right) => Date.parse(right.updatedAt || right.createdAt || 0) - Date.parse(left.updatedAt || left.createdAt || 0));
+  return res.json({ groups: groups.map((group) => serializeLearningGroupForAuth(group, req.auth)) });
+}));
+
+app.post('/api/learning-groups', handleLearningRoute((req, res) => {
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth)) return forbid(res);
+  const teacherId = isTeacherRole(req.auth)
+    ? req.auth.id
+    : String(req.body?.teacherId || '').trim();
+  if (!teacherId || !findTeacherById(teacherId)) {
+    failLearningRequest('Преподаватель не найден', 'teacher_not_found', 404);
+  }
+  let group = createLearningGroup(req.body || {}, {
+    id: crypto.randomUUID(),
+    teacherId,
+  });
+  const requestedMembers = Array.from(new Set([
+    ...(Array.isArray(req.body?.studentIds) ? req.body.studentIds : []),
+    ...(Array.isArray(req.body?.memberIds) ? req.body.memberIds : []),
+  ].map((value) => String(value || '').trim()).filter(Boolean)));
+  requestedMembers.forEach((studentId) => {
+    const student = findStudentById(studentId);
+    if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
+    group = addLearningGroupMember(group, student, { actorId: req.auth.id });
+  });
+  writeLearningGroupsDb([group, ...readLearningGroupsDb()]);
+  return res.status(201).json({ group: serializeLearningGroupForAuth(group, req.auth) });
+}));
+
+app.get('/api/learning-groups/:groupId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  return res.json({ group: serializeLearningGroupForAuth(group, req.auth) });
+}));
+
+app.patch('/api/learning-groups/:groupId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const updated = updateLearningGroup(group, req.body || {});
+  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
+}));
+
+app.post('/api/learning-groups/:groupId/members', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const student = findStudentById(req.body?.studentId);
+  if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
+  const updated = addLearningGroupMember(group, student, {
+    actorId: req.auth.id,
+    lateAddReason: req.body?.lateAddReason || req.body?.overrideReason,
+  });
+  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
+}));
+
+app.delete('/api/learning-groups/:groupId/members/:studentId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const updated = removeLearningGroupMember(group, req.params.studentId, { actorId: req.auth.id });
+  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
+}));
+
+app.post('/api/learning-groups/:groupId/start', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const updated = startLearningGroup(group, { actorId: req.auth.id });
+  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
+}));
+
+app.post('/api/learning-groups/:groupId/complete', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const updated = completeLearningGroup(group, { actorId: req.auth.id });
+  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
+}));
+
+app.put('/api/learning-groups/:groupId/schedule', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const updated = setLearningGroupSchedule(group, req.body?.schedule, {
+    actorId: req.auth.id,
+    idFactory: () => crypto.randomUUID(),
+  });
+  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  return res.json({ group: serializeLearningGroupForAuth(updated, req.auth), schedule: updated.schedule });
+}));
+
+app.get('/api/learning-groups/:groupId/lessons', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  let lessons = readLearningLessonSessionsDb().filter((lesson) => lesson.groupId === group.id);
+  if (isStudentRole(req.auth)) {
+    lessons = lessons.filter((lesson) => canAccessLearningLessonSessionRecord(req.auth, lesson, { group, groups: [group] }));
+  }
+  const fromMs = Date.parse(String(req.query?.from || '').trim());
+  const toMs = Date.parse(String(req.query?.to || '').trim());
+  if (Number.isFinite(fromMs)) lessons = lessons.filter((lesson) => Date.parse(lesson.startAt) >= fromMs);
+  if (Number.isFinite(toMs)) lessons = lessons.filter((lesson) => Date.parse(lesson.startAt) <= toMs);
+  const rawLimit = Number(req.query?.limit);
+  const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(500, Math.round(rawLimit))) : 200;
+  lessons = lessons
+    .slice()
+    .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))
+    .slice(0, limit);
+  return res.json({ lessons: lessons.map((lesson) => serializeLearningLessonForAuth(lesson, req.auth)) });
+}));
+
+app.post('/api/learning-groups/:groupId/lessons', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = createLearningLessonSession(group, req.body || {}, {
+    id: crypto.randomUUID(),
+    actorId: req.auth.id,
+  });
+  writeLearningLessonSessionsDb([lesson, ...readLearningLessonSessionsDb()]);
+  const roster = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
+  writeLearningAttendanceUpdates(roster);
+  return res.status(201).json({ lesson: serializeLearningLessonForAuth(lesson, req.auth) });
+}));
+
+app.get('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId);
+  if (!lesson) return;
+  return res.json({ lesson: serializeLearningLessonForAuth(lesson, req.auth) });
+}));
+
+app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId, { manage: true });
+  if (!lesson) return;
+  const updated = updateLearningLessonSession(lesson, req.body || {}, { actorId: req.auth.id });
+  writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(), updated));
+  if (updated.status === 'completed' && lesson.status !== 'completed') {
+    const finalized = createLearningAttendanceRoster(updated, readLearningAttendanceDb())
+      .map((record) => finalizeLearningAttendanceRecord(record, updated.completedAt || updated.updatedAt))
+      .filter(Boolean);
+    writeLearningAttendanceUpdates(finalized);
+  }
+  return res.json({ lesson: serializeLearningLessonForAuth(updated, req.auth) });
+}));
+
+app.get('/api/learning-groups/:groupId/lessons/:lessonId/attendance', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId);
+  if (!lesson) return;
+  let records = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
+  if (isStudentRole(req.auth)) records = records.filter((record) => record.studentId === req.auth.id);
+  return res.json({ records: records.map(serializeLearningAttendanceForAuth) });
+}));
+
+app.put('/api/learning-groups/:groupId/lessons/:lessonId/attendance', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId, { manage: true });
+  if (!lesson) return;
+  if (!Array.isArray(req.body?.records)) {
+    failLearningRequest('Посещаемость должна быть массивом', 'invalid_attendance_records');
+  }
+  const existingByKey = new Map(createLearningAttendanceRoster(lesson, readLearningAttendanceDb()).map((record) => (
+    [buildLearningAttendanceKey(record.sessionId, record.studentId), record]
+  )));
+  const now = new Date().toISOString();
+  const updates = req.body.records.map((payload) => {
+    const studentId = String(payload?.studentId || '').trim();
+    if (!studentId || !lesson.participantIds.includes(studentId)) {
+      failLearningRequest('Ученик не является участником занятия', 'student_not_in_lesson', 409);
+    }
+    const key = buildLearningAttendanceKey(lesson.id, studentId);
+    const current = existingByKey.get(key);
+    const next = payload?.unmark === true || payload?.marked === false
+      ? applyLearningAttendanceEvent(current, { type: 'unmark' })
+      : applyLearningAttendanceEvent(current, {
+          type: 'mark',
+          status: payload?.status,
+          ...(Object.prototype.hasOwnProperty.call(payload || {}, 'presentSeconds')
+            || Object.prototype.hasOwnProperty.call(payload || {}, 'attendedSeconds')
+            ? { presentSeconds: payload?.presentSeconds ?? payload?.attendedSeconds }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(payload || {}, 'comment')
+            ? { comment: payload?.comment }
+            : {}),
+          at: now,
+          markedById: req.auth.id,
+        });
+    if (!next) failLearningRequest('Некорректная запись посещаемости', 'invalid_attendance_record');
+    existingByKey.set(key, next);
+    return next;
+  });
+  writeLearningAttendanceUpdates(updates);
+  const records = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
+  return res.json({ records: records.map(serializeLearningAttendanceForAuth) });
+}));
+
+app.get('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  let assignments = readLearningAssignmentsDb().filter((entry) => entry.groupId === group.id && !entry.deletedAt);
+  if (isStudentRole(req.auth)) {
+    assignments = assignments.filter((entry) => entry.status !== 'draft' && entry.recipientIds.includes(req.auth.id));
+  }
+  assignments = assignments.slice().sort((left, right) => (
+    Date.parse(right.createdAt || 0) - Date.parse(left.createdAt || 0)
+  ));
+  return res.json({ assignments: assignments.map((assignment) => serializeLearningAssignmentForAuth(assignment, req.auth)) });
+}));
+
+app.post('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lessonId = String(req.body?.lessonId || '').trim();
+  if (lessonId && !getLearningLessonById(group.id, lessonId)) {
+    failLearningRequest('Занятие не найдено', 'lesson_not_found', 404);
+  }
+  const materialIds = Array.isArray(req.body?.materialIds) ? req.body.materialIds.map(String) : [];
+  const foreignMaterial = materialIds.find((id) => !readLearningMaterialsDb().some((material) => (
+    material.id === id && material.groupId === group.id && !material.deletedAt
+  )));
+  if (foreignMaterial) failLearningRequest('Материал не найден', 'material_not_found', 404);
+  const assignment = createLearningAssignment(group, req.body || {}, {
+    id: crypto.randomUUID(),
+    actorId: req.auth.id,
+  });
+  writeLearningAssignmentsDb([assignment, ...readLearningAssignmentsDb()]);
+  return res.status(201).json({ assignment: serializeLearningAssignmentForAuth(assignment, req.auth) });
+}));
+
+app.get('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
+  if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
+  if (isStudentRole(req.auth) && (assignment.status === 'draft' || !assignment.recipientIds.includes(req.auth.id))) {
+    return forbid(res);
+  }
+  return res.json({ assignment: serializeLearningAssignmentForAuth(assignment, req.auth) });
+}));
+
+app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
+  if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
+  const updated = updateLearningAssignment(assignment, req.body || {}, { actorId: req.auth.id });
+  writeLearningAssignmentsDb(replaceLearningStoreEntry(readLearningAssignmentsDb(), updated));
+  return res.json({ assignment: serializeLearningAssignmentForAuth(updated, req.auth) });
+}));
+
+app.delete('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
+  if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
+  const now = new Date().toISOString();
+  const deleted = { ...assignment, status: 'closed', deletedAt: now, updatedAt: now };
+  writeLearningAssignmentsDb(replaceLearningStoreEntry(readLearningAssignmentsDb(), deleted));
+  return res.json({ ok: true, assignment: serializeLearningAssignmentForAuth(deleted, req.auth) });
+}));
+
+app.get('/api/learning-groups/:groupId/assignments/:assignmentId/submission', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
+  if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
+  let studentId = isStudentRole(req.auth) ? req.auth.id : String(req.query?.studentId || '').trim();
+  if (!studentId) failLearningRequest('studentId required', 'student_id_required');
+  if (isStudentRole(req.auth) && studentId !== req.auth.id) return forbid(res);
+  if (!assignment.recipientIds.includes(studentId)) return forbid(res);
+  const submission = readLearningSubmissionsDb().find((entry) => (
+    entry.assignmentId === assignment.id && entry.studentId === studentId
+  )) || null;
+  return res.json({
+    submission: isStudentRole(req.auth)
+      ? serializeLearningSubmissionForStudent(submission, req.auth.id)
+      : submission,
+  });
+}));
+
+app.put('/api/learning-groups/:groupId/assignments/:assignmentId/submission', handleLearningRoute((req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
+  if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
+  if (assignment.status !== 'assigned') {
+    failLearningRequest('Задание сейчас недоступно для отправки', 'assignment_not_open', 409);
+  }
+  const submissions = readLearningSubmissionsDb();
+  const existing = submissions.find((entry) => (
+    entry.assignmentId === assignment.id && entry.studentId === req.auth.id
+  ));
+  const submission = upsertLearningSubmission(existing, assignment, req.auth.id, req.body || {}, {
+    id: crypto.randomUUID(),
+    actorId: req.auth.id,
+  });
+  const next = existing ? replaceLearningStoreEntry(submissions, submission) : [submission, ...submissions];
+  writeLearningSubmissionsDb(next);
+  return res.json({ submission: serializeLearningSubmissionForStudent(submission, req.auth.id) });
+}));
+
+app.get('/api/learning-groups/:groupId/assignments/:assignmentId/submissions', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
+  if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
+  const submissions = readLearningSubmissionsDb()
+    .filter((entry) => entry.assignmentId === assignment.id)
+    .map((entry) => ({ ...entry, student: serializeLearningStudentSummary(entry.studentId) }));
+  return res.json({ submissions });
+}));
+
+app.patch('/api/learning-groups/:groupId/assignments/:assignmentId/submissions/:studentId/review', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
+  if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
+  const submissions = readLearningSubmissionsDb();
+  const submission = submissions.find((entry) => (
+    entry.assignmentId === assignment.id && entry.studentId === req.params.studentId
+  ));
+  if (!submission) failLearningRequest('Работа ученика не найдена', 'submission_not_found', 404);
+  const reviewed = reviewLearningSubmission(submission, req.body || {}, { actorId: req.auth.id });
+  writeLearningSubmissionsDb(replaceLearningStoreEntry(submissions, reviewed));
+  return res.json({ submission: reviewed });
+}));
+
+app.get('/api/learning-groups/:groupId/materials', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const requestedLessonId = String(req.query?.lessonId || '').trim();
+  if (requestedLessonId && !getLearningLessonById(group.id, requestedLessonId)) {
+    failLearningRequest('Занятие не найдено', 'lesson_not_found', 404);
+  }
+  let materials = readLearningMaterialsDb().filter((material) => (
+    material.groupId === group.id
+    && !material.deletedAt
+    && (!requestedLessonId || material.lessonId === requestedLessonId)
+  ));
+  materials = materials.filter((material) => !getLearningMaterialAccessError(req.auth, group, material));
+  return res.json({
+    materials: materials.map((material) => serializeLearningMaterialForAuth(material, req.auth)),
+  });
+}));
+
+app.post('/api/learning-groups/:groupId/materials', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lessonId = String(req.body?.lessonId || '').trim();
+  if (String(req.body?.visibility || 'group') === 'lesson' && !getLearningLessonById(group.id, lessonId)) {
+    failLearningRequest('Занятие не найдено', 'lesson_not_found', 404);
+  }
+  const payload = { ...(req.body || {}), storageName: '' };
+  if (payload.fileId) {
+    const file = readFilesDb().find((entry) => String(entry?.id || '').trim() === String(payload.fileId).trim());
+    if (file) {
+      const ownerStudent = file.studentId ? findStudentById(file.studentId, { allowDeleted: true }) : null;
+      const fileTeacherId = normalizeTeacherId(file.teacherId || ownerStudent?.teacherId);
+      if (fileTeacherId && fileTeacherId !== group.teacherId) return forbid(res);
+      payload.storageName = path.basename(String(file.storageName || '').trim());
+      payload.originalName = String(file.name || '').trim();
+      payload.mimeType = String(file.mimeType || '').trim();
+      payload.sizeBytes = Number(file.sizeBytes || file.size) || 0;
+    }
+  }
+  const material = createLearningMaterial(group, payload, {
+    id: crypto.randomUUID(),
+    actorId: req.auth.id,
+  });
+  writeLearningMaterialsDb([material, ...readLearningMaterialsDb()]);
+  return res.status(201).json({ material: serializeLearningMaterialForAuth(material, req.auth) });
+}));
+
+app.post(
+  '/api/learning-groups/:groupId/materials/upload',
+  learningMaterialUpload.single('file'),
+  handleLearningRoute((req, res) => {
+    const removeUploaded = () => {
+      const storageName = path.basename(String(req.file?.filename || '').trim());
+      if (storageName) fs.unlink(path.join(uploadsDir, storageName), () => {});
+    };
+    try {
+      const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+      if (!group) {
+        removeUploaded();
+        return;
+      }
+      if (!req.file) failLearningRequest('Файл не найден', 'material_file_required');
+      const visibility = String(req.body?.visibility || 'group').trim();
+      const lessonId = String(req.body?.lessonId || '').trim();
+      if (visibility === 'lesson' && !getLearningLessonById(group.id, lessonId)) {
+        failLearningRequest('Занятие не найдено', 'lesson_not_found', 404);
+      }
+      const material = createLearningMaterial(group, {
+        title: req.body?.title || req.file.originalname,
+        visibility,
+        lessonId,
+        storageName: req.file.filename,
+        originalName: normalizeFileName(req.file.originalname),
+        mimeType: req.file.mimetype,
+        sizeBytes: req.file.size,
+      }, {
+        id: crypto.randomUUID(),
+        actorId: req.auth.id,
+      });
+      writeLearningMaterialsDb([material, ...readLearningMaterialsDb()]);
+      return res.status(201).json({ material: serializeLearningMaterialForAuth(material, req.auth) });
+    } catch (error) {
+      removeUploaded();
+      throw error;
+    }
+  })
+);
+
+app.get('/api/learning-groups/:groupId/materials/:materialId/download', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const material = readLearningMaterialsDb().find((entry) => (
+    entry.id === req.params.materialId && entry.groupId === group.id && !entry.deletedAt
+  ));
+  const accessError = getLearningMaterialAccessError(req.auth, group, material);
+  if (accessError) {
+    return res.status(accessError === 'Материал не найден' ? 404 : 403).json({ error: accessError });
+  }
+  const storage = getLearningMaterialStorage(material);
+  const filePath = storage.storageName ? path.join(uploadsDir, storage.storageName) : '';
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Файл материала не найден' });
+  }
+  if (storage.mimeType) res.type(storage.mimeType);
+  return res.download(filePath, normalizeFileName(storage.originalName || material.title || 'Материал'));
+}));
+
+app.delete('/api/learning-groups/:groupId/materials/:materialId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const materials = readLearningMaterialsDb();
+  const material = materials.find((entry) => (
+    entry.id === req.params.materialId && entry.groupId === group.id && !entry.deletedAt
+  ));
+  if (!material) failLearningRequest('Материал не найден', 'material_not_found', 404);
+  const now = new Date().toISOString();
+  const deleted = { ...material, deletedAt: now, updatedAt: now };
+  const nextMaterials = replaceLearningStoreEntry(materials, deleted);
+  writeLearningMaterialsDb(nextMaterials);
+
+  const safeStorageName = path.basename(String(material.storageName || '').trim());
+  if (safeStorageName && !material.fileId) {
+    const referencedByMaterial = nextMaterials.some((entry) => (
+      entry.id !== material.id
+      && !entry.deletedAt
+      && path.basename(String(entry.storageName || '').trim()) === safeStorageName
+    ));
+    const referencedByFile = readFilesDb().some((entry) => (
+      path.basename(String(entry?.storageName || '').trim()) === safeStorageName
+    ));
+    const referencedByBoardAsset = readBoardAssetsDb().some((entry) => entry.storageName === safeStorageName);
+    if (!referencedByMaterial && !referencedByFile && !referencedByBoardAsset) {
+      fs.unlink(path.join(uploadsDir, safeStorageName), (error) => {
+        if (error && error.code !== 'ENOENT') {
+          console.warn('[learning-groups] failed to remove material upload:', error.message || error);
+        }
+      });
+    }
+  }
+  return res.json({ ok: true, material: serializeLearningMaterialForAuth(deleted, req.auth) });
+}));
+
+const resolveLearningBoardResponseStudentId = (req, lesson) => {
+  if (isStudentRole(req.auth)) {
+    const requested = String(req.query?.studentId || req.body?.studentId || '').trim();
+    if (requested && requested !== req.auth.id) {
+      failLearningRequest('Недостаточно прав', 'board_response_forbidden', 403);
+    }
+    return req.auth.id;
+  }
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth)) return '';
+  const studentId = String(req.query?.studentId || req.body?.studentId || '').trim();
+  return studentId && lesson.participantIds.includes(studentId) ? studentId : '';
+};
+
+app.get('/api/learning-groups/:groupId/lessons/:lessonId/responses', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId);
+  if (!lesson) return;
+  const requestedStudentId = String(req.query?.studentId || '').trim();
+  if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+  if (requestedStudentId && !lesson.participantIds.includes(requestedStudentId)) {
+    failLearningRequest('Ученик не является участником занятия', 'student_not_in_lesson', 404);
+  }
+  const effectiveStudentId = isStudentRole(req.auth) ? req.auth.id : requestedStudentId;
+  let responses = readLearningBoardResponsesDb().filter((response) => response.sessionId === lesson.id);
+  if (effectiveStudentId) responses = responses.filter((response) => response.studentId === effectiveStudentId);
+  if (isStudentRole(req.auth)) responses = responses.filter((response) => response.studentId === req.auth.id);
+  return res.json({ responses });
+}));
+
+app.get('/api/learning-groups/:groupId/lessons/:lessonId/responses/:boardItemId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId);
+  if (!lesson) return;
+  const studentId = resolveLearningBoardResponseStudentId(req, lesson);
+  if (!studentId) failLearningRequest('studentId required', 'student_id_required');
+  const response = readLearningBoardResponsesDb().find((entry) => (
+    entry.sessionId === lesson.id
+    && entry.boardItemId === req.params.boardItemId
+    && entry.studentId === studentId
+  )) || null;
+  return res.json({ response });
+}));
+
+app.put('/api/learning-groups/:groupId/lessons/:lessonId/responses/:boardItemId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId);
+  if (!lesson) return;
+  const studentId = resolveLearningBoardResponseStudentId(req, lesson);
+  if (!studentId) failLearningRequest('studentId required', 'student_id_required');
+  const responses = readLearningBoardResponsesDb();
+  const existing = responses.find((entry) => (
+    entry.sessionId === lesson.id
+    && entry.boardItemId === req.params.boardItemId
+    && entry.studentId === studentId
+  ));
+  const response = upsertLearningBoardResponse(
+    existing,
+    lesson,
+    req.params.boardItemId,
+    studentId,
+    req.body || {},
+    { id: crypto.randomUUID(), actorId: req.auth.id }
+  );
+  const next = existing ? replaceLearningStoreEntry(responses, response) : [response, ...responses];
+  writeLearningBoardResponsesDb(next);
+  return res.json({ response });
+}));
+
+app.get('/api/learning-groups/:groupId/progress', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const assignments = readLearningAssignmentsDb().filter((entry) => entry.groupId === group.id && !entry.deletedAt);
+  const lessons = readLearningLessonSessionsDb().filter((entry) => entry.groupId === group.id && entry.status !== 'cancelled');
+  const submissions = readLearningSubmissionsDb().filter((entry) => entry.groupId === group.id);
+  const attendance = readLearningAttendanceDb().filter((entry) => entry.groupId === group.id);
+  let memberIds = Array.from(new Set([
+    ...group.members.map((member) => member.studentId),
+    ...lessons.flatMap((lesson) => lesson.participantIds),
+    ...assignments.flatMap((assignment) => assignment.recipientIds),
+  ].filter(Boolean)));
+  if (isStudentRole(req.auth)) memberIds = memberIds.filter((id) => id === req.auth.id);
+  const members = memberIds.map((studentId) => {
+    const studentAssignments = assignments.filter((assignment) => assignment.recipientIds.includes(studentId));
+    const studentSubmissions = submissions.filter((submission) => submission.studentId === studentId);
+    const studentAttendance = attendance.filter((record) => record.studentId === studentId);
+    const submittedCount = studentSubmissions.filter((submission) => submission.status !== 'draft').length;
+    const reviewedCount = studentSubmissions.filter((submission) => submission.status === 'reviewed').length;
+    const attendanceCounts = studentAttendance.reduce((counts, record) => {
+      counts[record.status] = (counts[record.status] || 0) + 1;
+      return counts;
+    }, { pending: 0, present: 0, partial: 0, absent: 0, excused: 0 });
+    return {
+      studentId,
+      student: serializeLearningStudentSummary(studentId),
+      assignments: {
+        total: studentAssignments.length,
+        submitted: submittedCount,
+        reviewed: reviewedCount,
+        completionPercent: studentAssignments.length > 0
+          ? Math.round((submittedCount / studentAssignments.length) * 100)
+          : 0,
+      },
+      attendance: {
+        total: studentAttendance.length,
+        ...attendanceCounts,
+        presentSeconds: studentAttendance.reduce((sum, record) => sum + (Number(record.presentSeconds) || 0), 0),
+      },
+    };
+  });
+  const progress = {
+    groupId: group.id,
+    memberCount: members.length,
+    lessonCount: lessons.length,
+    assignmentCount: assignments.length,
+    members,
+    ...(isStudentRole(req.auth) ? { self: members[0] || null } : {}),
+  };
+  return res.json({ progress });
+}));
 
 app.get('/api/signup-chat/messages', (req, res) => {
   if (!isLeadRole(req.auth)) return forbid(res);
@@ -29372,7 +30906,10 @@ app.get('/api/teacher-schedule', async (req, res) => {
   if (!teacher) return;
   const localEntries = getTeacherScheduleEntries(teacher.id);
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
-  return res.json([...localEntries, ...googleEntries]);
+  return res.json([
+    ...localEntries,
+    ...googleEntries.map((entry) => annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry)),
+  ]);
 });
 
 app.get('/api/teacher-calendar-marks', (req, res) => {
@@ -31045,10 +32582,37 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
   try {
     if (!req.file?.buffer?.length) return res.status(400).json({ error: 'Изображение не найдено' });
     const requestedStudentId = typeof req.body?.studentId === 'string' ? req.body.studentId.trim() : '';
-    const effectiveStudentId = requestedStudentId || (isStudentRole(req.auth) ? req.auth.id : '');
-    if (!effectiveStudentId) return res.status(400).json({ error: 'studentId required' });
-    const student = ensureStudentAccess(req, res, effectiveStudentId);
-    if (!student) return;
+    const requestedLessonId = typeof req.body?.lessonId === 'string' ? req.body.lessonId.trim() : '';
+    let learningLesson = null;
+    let learningGroup = null;
+    let student = null;
+    if (requestedLessonId) {
+      if (!LEARNING_GROUPS_ENABLED) return res.status(404).json({ error: 'Занятие не найдено' });
+      learningLesson = readLearningLessonSessionsDb().find((entry) => entry.id === requestedLessonId) || null;
+      learningGroup = learningLesson ? getLearningGroupById(learningLesson.groupId) : null;
+      if (!learningLesson || !learningGroup) return res.status(404).json({ error: 'Занятие не найдено' });
+      if (!LEARNING_LESSON_LIVE_STATUSES.includes(learningLesson.status)) {
+        return res.status(409).json({ error: 'Занятие уже завершено или отменено' });
+      }
+      if (!canAccessLearningLessonSessionRecord(req.auth, learningLesson, {
+        group: learningGroup,
+        groups: [learningGroup],
+      })) return forbid(res);
+      if (requestedStudentId && !learningLesson.participantIds.includes(requestedStudentId)) {
+        return res.status(400).json({ error: 'Ученик не является участником занятия' });
+      }
+      if (isStudentRole(req.auth)) {
+        if (requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+        student = findStudentById(req.auth.id);
+      } else if (requestedStudentId) {
+        student = findStudentById(requestedStudentId);
+      }
+    } else {
+      const effectiveStudentId = requestedStudentId || (isStudentRole(req.auth) ? req.auth.id : '');
+      if (!effectiveStudentId) return res.status(400).json({ error: 'studentId required' });
+      student = ensureStudentAccess(req, res, effectiveStudentId);
+      if (!student) return;
+    }
 
     const mimeType = detectBoardAssetMimeType(req.file.buffer);
     if (!mimeType) {
@@ -31060,12 +32624,20 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
     if (!storageName) return res.status(400).json({ error: 'Некорректное изображение' });
 
     let entries = readBoardAssetsDb();
-    let entry = entries.find((item) => item.studentId === student.id && item.hash === hash) || null;
+    let entry = entries.find((item) => (
+      item.hash === hash
+      && (learningLesson
+        ? item.lessonId === learningLesson.id
+        : (!item.lessonId && item.studentId === student.id))
+    )) || null;
     let created = false;
     if (!entry) {
       const countedStorageNames = new Set();
       const currentTotal = entries.reduce((sum, item) => {
-        if (item.studentId !== student.id || countedStorageNames.has(item.storageName)) return sum;
+        const sameScope = learningLesson
+          ? item.lessonId === learningLesson.id
+          : (!item.lessonId && item.studentId === student.id);
+        if (!sameScope || countedStorageNames.has(item.storageName)) return sum;
         countedStorageNames.add(item.storageName);
         return sum + Math.max(0, Number(item.sizeBytes) || 0);
       }, 0);
@@ -31083,8 +32655,9 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
       const createdAt = new Date().toISOString();
       entry = normalizeBoardAssetEntry({
         id: crypto.randomUUID(),
-        studentId: student.id,
-        teacherId: normalizeTeacherId(student.teacherId),
+        studentId: learningLesson ? '' : student.id,
+        teacherId: normalizeTeacherId(learningGroup?.teacherId || student?.teacherId),
+        ...(learningLesson ? { groupId: learningGroup.id, lessonId: learningLesson.id } : {}),
         storageName,
         mimeType,
         hash,
@@ -31103,6 +32676,8 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
       mimeType: entry.mimeType,
       sizeBytes: entry.sizeBytes,
       hash: entry.hash,
+      ...(entry.groupId ? { groupId: entry.groupId } : {}),
+      ...(entry.lessonId ? { lessonId: entry.lessonId } : {}),
     });
   } catch (error) {
     return next(error);
@@ -32810,6 +34385,15 @@ const normalizeRtcRoomPart = (value) => {
 const parseRtcRoomId = (value) => {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) return null;
+  const lessonTarget = parseLearningLessonRoomTarget(normalized);
+  if (lessonTarget?.kind === 'rtc') {
+    return {
+      roomId: lessonTarget.roomId,
+      sessionId: lessonTarget.sessionId,
+      targetType: 'lesson',
+      legacy: false,
+    };
+  }
   const parts = normalized.split(':');
   if (parts.length !== 3 || parts[0] !== 'rtc') return null;
   const teacherId = normalizeRtcRoomPart(parts[1]);
@@ -32819,27 +34403,70 @@ const parseRtcRoomId = (value) => {
     roomId: `rtc:${teacherId}:${studentId}`,
     teacherId,
     studentId,
+    targetType: 'student',
+    legacy: true,
   };
 };
 
 const getRtcRoomAccessError = (auth, roomMeta) => {
   if (!auth || !roomMeta) return 'Требуется авторизация';
-  const { teacherId, studentId } = roomMeta;
-  const student = findStudentById(studentId);
-  if (!student) return 'Ученик не найден';
-  if (!student.teacherId || student.teacherId !== teacherId) return 'Некорректная комната созвона';
+  if (roomMeta.targetType === 'lesson' && !LEARNING_GROUP_RTC_ENABLED) {
+    return 'Групповые звонки доступны только в Яндекс Телемосте';
+  }
+  const access = authorizeLearningRealtimeRoom({
+    auth,
+    roomId: roomMeta.roomId,
+    sessions: LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [],
+    groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+    students: readStudentsDb(),
+    allowedKinds: ['rtc'],
+    allowedSessionStatuses: LEARNING_LESSON_LIVE_STATUSES,
+  });
+  if (access.allowed) return '';
+  if (access.reason === 'session-not-live') return 'Занятие уже завершено или отменено';
+  if (access.reason === 'unknown-room') return 'Комната созвона не найдена';
+  if (access.reason === 'invalid-room-kind' || access.reason === 'invalid-room') return 'Некорректная комната созвона';
+  return 'Недостаточно прав для этой комнаты';
+};
 
-  if (isAdminRole(auth)) return '';
-  if (isTeacherRole(auth)) {
-    if (auth.id !== teacherId) return 'Недостаточно прав для этой комнаты';
-    return '';
-  }
-  if (isStudentRole(auth)) {
-    if (auth.id !== studentId) return 'Недостаточно прав для этой комнаты';
-    if (!auth.teacherId || auth.teacherId !== teacherId) return 'Недостаточно прав для этой комнаты';
-    return '';
-  }
-  return 'Недостаточно прав';
+const applyLearningLessonConnectionAttendance = ({ auth, lesson, connectionId }, type, at = new Date().toISOString()) => {
+  if (!LEARNING_GROUPS_ENABLED || !isStudentRole(auth)) return false;
+  const studentId = String(auth?.id || '').trim();
+  const normalizedConnectionId = String(connectionId || '').trim();
+  if (
+    !lesson
+    || !LEARNING_LESSON_LIVE_STATUSES.includes(lesson.status)
+    || !studentId
+    || !normalizedConnectionId
+    || !Array.isArray(lesson.participantIds)
+    || !lesson.participantIds.includes(studentId)
+  ) return false;
+  const records = readLearningAttendanceDb();
+  const key = buildLearningAttendanceKey(lesson.id, studentId);
+  const existing = records.find((record) => (
+    buildLearningAttendanceKey(record.sessionId, record.studentId) === key
+  ));
+  const updated = applyLearningAttendanceEvent(existing, {
+    type,
+    groupId: lesson.groupId,
+    sessionId: lesson.id,
+    studentId,
+    clientId: normalizedConnectionId,
+    at,
+  });
+  if (updated) writeLearningAttendanceUpdates([updated]);
+  return Boolean(updated);
+};
+
+const applyLearningRtcAttendance = (client, roomId, type, at = new Date().toISOString()) => {
+  const target = parseLearningLessonRoomTarget(roomId);
+  if (!target || target.kind !== 'rtc') return false;
+  const lesson = readLearningLessonSessionsDb().find((entry) => entry.id === target.sessionId);
+  return applyLearningLessonConnectionAttendance({
+    auth: client?.auth,
+    lesson,
+    connectionId: client?.clientId,
+  }, type, at);
 };
 
 const serializeRtcPeer = (client) => ({
@@ -33142,6 +34769,7 @@ const leaveRtcRoom = (client) => {
   const roomId = client.roomId;
   const clientId = client.clientId;
   const room = rtcRooms.get(roomId);
+  applyLearningRtcAttendance(client, roomId, 'leave');
   client.roomId = '';
   client.isScreenSharing = false;
   client.isCameraEnabled = false;
@@ -33208,6 +34836,7 @@ const joinRtcRoom = (client, roomMeta) => {
   client.screenTrackId = '';
   client.cameraTrackId = '';
   client.joinedAt = Date.now();
+  applyLearningRtcAttendance(client, roomId, 'join', new Date(client.joinedAt).toISOString());
   upsertRtcPresenceFileFromClient(client);
 
   sendRtcPayload(client.ws, {
@@ -33486,6 +35115,26 @@ if (typeof rtcClientSweepInterval.unref === 'function') {
 server.on('upgrade', (request, socket, head) => {
   const pathname = getUpgradePathname(request?.url);
   if (pathname === '/collab' || pathname.startsWith('/collab/')) {
+    const token = getAuthTokenFromRequest(request);
+    const session = getAuthSession(token);
+    if (!session?.user) {
+      rejectUpgrade(socket, 401, 'Unauthorized');
+      return;
+    }
+    const access = authorizeLearningCollabUpgrade({
+      requestUrl: request.url,
+      auth: session.user,
+      sessions: LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [],
+      groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+      students: readStudentsDb(),
+    });
+    if (!access.allowed) {
+      const statusCode = access.reason === 'unknown-room' ? 404 : 403;
+      rejectUpgrade(socket, statusCode, access.reason || 'Forbidden');
+      return;
+    }
+    request.learningCollabAccess = access;
+    request.learningCollabAuth = session.user;
     collabWss.handleUpgrade(request, socket, head, (ws) => {
       collabWss.emit('connection', ws, request);
     });
@@ -33524,7 +35173,31 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 collabWss.on('connection', (ws, request) => {
+  const previousMessageListeners = new Set(ws.listeners('message'));
   setupWSConnection(ws, request);
+  const access = request?.learningCollabAccess;
+  if (access?.readOnly) {
+    installReadOnlyYWebsocketMessageFilter(ws, previousMessageListeners);
+  }
+  const lesson = access?.target?.targetType === 'lesson' ? access.target.session : null;
+  const connectionId = `collab:${crypto.randomUUID()}`;
+  const attendanceJoined = applyLearningLessonConnectionAttendance({
+    auth: request?.learningCollabAuth,
+    lesson,
+    connectionId,
+  }, 'join');
+  if (attendanceJoined) {
+    let attendanceLeft = false;
+    ws.once('close', () => {
+      if (attendanceLeft) return;
+      attendanceLeft = true;
+      applyLearningLessonConnectionAttendance({
+        auth: request?.learningCollabAuth,
+        lesson,
+        connectionId,
+      }, 'leave');
+    });
+  }
 });
 
 rtcWss.on('connection', (ws, _request, user) => {

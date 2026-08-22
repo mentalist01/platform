@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, Camera, CameraOff, CheckCircle2, ExternalLink, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, Save, SendHorizontal, Settings, Signal, Trash2, Users, Video, X } from 'lucide-react';
-import { api } from '../services/api';
+import { api, withStoredAuthToken } from '../services/api';
 import LinkifiedText from './LinkifiedText';
 import StudentSearchSelect from './StudentSearchSelect';
 import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
+import { normalizeRtcParticipantIds, resolveCallRtcRoom } from '../utils/rtcRooms';
 import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 
@@ -1292,6 +1293,9 @@ const CallSection = ({
   teacherId,
   students,
   activeStudentId,
+  lessonId,
+  groupId,
+  participantIds,
   onSelectStudent,
   onRequestStudentsRefresh,
   studentsLoading,
@@ -1310,8 +1314,18 @@ const CallSection = ({
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? String(activeStudentId || '').trim() : String(userId || '').trim();
   const effectiveTeacherId = String(teacherId || '').trim();
-  const roomId = effectiveTeacherId && effectiveStudentId ? `rtc:${effectiveTeacherId}:${effectiveStudentId}` : '';
-  const rtcWsUrl = useMemo(() => getRtcWsUrl(), []);
+  const rtcRoom = useMemo(() => resolveCallRtcRoom({
+    lessonId,
+    teacherId: effectiveTeacherId,
+    studentId: effectiveStudentId,
+  }), [effectiveStudentId, effectiveTeacherId, lessonId]);
+  const { isGroupLesson, roomId } = rtcRoom;
+  const normalizedGroupId = String(groupId ?? '').trim();
+  const normalizedParticipantIds = useMemo(
+    () => normalizeRtcParticipantIds(participantIds),
+    [participantIds]
+  );
+  const rtcWsUrl = useMemo(() => withStoredAuthToken(getRtcWsUrl()), []);
   const rtcIceConfig = useMemo(() => getRtcIceConfig(), []);
   const rtcPeerConnectionCtor = useMemo(() => getRtcPeerConnectionCtor(), []);
   const rtcIceServers = rtcIceConfig.servers;
@@ -1478,7 +1492,7 @@ const CallSection = ({
   const isFloatingUi = normalizedUiMode === 'floating';
   const isCollapsedUi = normalizedUiMode === 'collapsed';
   const isHiddenUi = normalizedUiMode === 'hidden';
-  const showInlineLessonChat = normalizedUiMode === 'full';
+  const showInlineLessonChat = normalizedUiMode === 'full' && !isGroupLesson;
   const isDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
 
   useEffect(() => {
@@ -1550,6 +1564,17 @@ const CallSection = ({
 
   useEffect(() => {
     let cancelled = false;
+    if (isGroupLesson) {
+      telemostStudentIdRef.current = '';
+      setTelemostUrl('');
+      setTelemostInput('');
+      setTelemostLoading(false);
+      setTelemostSaving(false);
+      setTelemostError('');
+      setTelemostNotice('');
+      return undefined;
+    }
+
     const studentId = String(effectiveStudentId || '').trim();
     const studentChanged = telemostStudentIdRef.current !== studentId;
     telemostStudentIdRef.current = studentId;
@@ -1590,7 +1615,7 @@ const CallSection = ({
     return () => {
       cancelled = true;
     };
-  }, [effectiveStudentId, isTeacher, selectedStudent?.telemostUrl]);
+  }, [effectiveStudentId, isGroupLesson, isTeacher, selectedStudent?.telemostUrl]);
 
   useEffect(() => {
     if (!showInlineLessonChat) return undefined;
@@ -1679,6 +1704,7 @@ const CallSection = ({
     setLessonChatExpanded(false);
     setLessonChatImageDataUrl('');
     setLessonChatImageName('');
+    setLessonChatPreviewImage(null);
   }, [showInlineLessonChat]);
 
   useEffect(() => {
@@ -4154,7 +4180,7 @@ const CallSection = ({
   }, [stopCall]);
 
   const persistTeacherTelemostUrl = useCallback(async (rawValue) => {
-    if (!isTeacher || !effectiveStudentId || telemostSaving) return;
+    if (isGroupLesson || !isTeacher || !effectiveStudentId || telemostSaving) return;
     const parsed = parseTelemostUrl(rawValue);
     if (parsed.error) {
       setTelemostError(parsed.error);
@@ -4179,10 +4205,10 @@ const CallSection = ({
     } finally {
       setTelemostSaving(false);
     }
-  }, [effectiveStudentId, isTeacher, onRequestStudentsRefresh, telemostSaving]);
+  }, [effectiveStudentId, isGroupLesson, isTeacher, onRequestStudentsRefresh, telemostSaving]);
 
   const signalTelemostLessonStart = useCallback((activity = null) => {
-    if (typeof onTelemostLessonStart !== 'function' || !effectiveStudentId) return;
+    if (isGroupLesson || typeof onTelemostLessonStart !== 'function' || !effectiveStudentId) return;
     if (activity && typeof activity === 'object') {
       onTelemostLessonStart(activity);
       return;
@@ -4193,10 +4219,10 @@ const CallSection = ({
       studentId: effectiveStudentId,
       occurrenceKey: '',
     });
-  }, [effectiveStudentId, onTelemostLessonStart]);
+  }, [effectiveStudentId, isGroupLesson, onTelemostLessonStart]);
 
   const handleStudentTelemostOpen = useCallback(() => {
-    if (isTeacher || !telemostUrl) return;
+    if (isGroupLesson || isTeacher || !telemostUrl) return;
     signalTelemostLessonStart();
     stopCall();
     setTelemostError('');
@@ -4214,10 +4240,10 @@ const CallSection = ({
         setTelemostNotice('');
         setTelemostError(notifyError?.message || 'Телемост открыт, но уведомить учителя не удалось.');
       });
-  }, [isTeacher, signalTelemostLessonStart, stopCall, telemostUrl]);
+  }, [isGroupLesson, isTeacher, signalTelemostLessonStart, stopCall, telemostUrl]);
 
   const handleTeacherTelemostOpen = useCallback(() => {
-    if (!isTeacher || !effectiveStudentId || !telemostUrl) return;
+    if (isGroupLesson || !isTeacher || !effectiveStudentId || !telemostUrl) return;
     signalTelemostLessonStart();
     stopCall();
     setTelemostError('');
@@ -4231,7 +4257,7 @@ const CallSection = ({
         setTelemostNotice('');
         setTelemostError(activateError?.message || 'Телемост открыт, но продолжить запись урока не удалось.');
       });
-  }, [effectiveStudentId, isTeacher, signalTelemostLessonStart, stopCall, telemostUrl]);
+  }, [effectiveStudentId, isGroupLesson, isTeacher, signalTelemostLessonStart, stopCall, telemostUrl]);
 
   const startCall = useCallback(async (options = {}) => {
     const isReconnect = Boolean(options?.isReconnect);
@@ -4241,7 +4267,13 @@ const CallSection = ({
     }
     if (!roomId) {
       setPresenceError('');
-      setError(isTeacher ? 'Сначала выберите ученика для созвона.' : 'Комната урока пока не готова. Попробуйте через пару секунд.');
+      setError(
+        isGroupLesson
+          ? 'Комната группового урока пока не готова. Попробуйте через пару секунд.'
+          : isTeacher
+            ? 'Сначала выберите ученика для созвона.'
+            : 'Комната урока пока не готова. Попробуйте через пару секунд.'
+      );
       return;
     }
     if (!rtcWsUrl) {
@@ -4424,7 +4456,7 @@ const CallSection = ({
         setError(connectErrorText);
       }
     }
-  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, primeAlertSounds, resetIceTransportPolicy, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, isGroupLesson, isTeacher, primeAlertSounds, resetIceTransportPolicy, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   useEffect(() => {
     startCallRef.current = startCall;
@@ -4433,7 +4465,7 @@ const CallSection = ({
   useEffect(() => {
     const token = Number(autoStartToken) || 0;
     if (!token || handledAutoStartTokenRef.current === token) return;
-    if (!roomId || !effectiveStudentId || isHiddenUi) return;
+    if (!roomId || (!isGroupLesson && !effectiveStudentId) || isHiddenUi) return;
 
     const currentStatus = statusRef.current;
     if (currentStatus === 'connected' && activeRoomRef.current === roomId) {
@@ -4446,7 +4478,7 @@ const CallSection = ({
     if (typeof callStarter !== 'function') return;
     handledAutoStartTokenRef.current = token;
     callStarter();
-  }, [autoStartToken, effectiveStudentId, isHiddenUi, roomId, status]);
+  }, [autoStartToken, effectiveStudentId, isGroupLesson, isHiddenUi, roomId, status]);
 
   useEffect(() => {
     const hasOnlyPendingPeerConnections = status === 'connected'
@@ -5471,8 +5503,12 @@ const CallSection = ({
     : (lessonChatMeta?.teacherName || 'Преподаватель');
   const lessonChatPlaceholder = 'Сообщение...';
   const lessonChatDisabled = Boolean(isTeacher && !effectiveStudentId);
-  const remoteParticipantTitle = isTeacher ? 'Ученик' : 'Преподаватель';
-  const remoteParticipantName = lessonChatPeerName || remoteParticipantTitle;
+  const groupRosterSize = normalizedParticipantIds.length;
+  const groupRosterLabel = groupRosterSize > 0
+    ? `Мини-группа · ${groupRosterSize} учен.`
+    : 'Мини-группа';
+  const remoteParticipantTitle = isGroupLesson ? 'Участники' : (isTeacher ? 'Ученик' : 'Преподаватель');
+  const remoteParticipantName = isGroupLesson ? groupRosterLabel : (lessonChatPeerName || remoteParticipantTitle);
   const remoteParticipantInitial = String(remoteParticipantName || remoteParticipantTitle).trim().charAt(0).toUpperCase() || 'У';
   const remotePresenceCount = isConnected ? remotePeers.length : visiblePeers.length;
   const hasRemoteParticipant = remotePresenceCount > 0;
@@ -5498,7 +5534,8 @@ const CallSection = ({
     : isConnecting
         ? 'Подключение'
         : '';
-  const callHeaderTitle = !activeStudentId && isTeacher
+  const isMissingLegacyTeacherStudent = !isGroupLesson && !activeStudentId && isTeacher;
+  const callHeaderTitle = isMissingLegacyTeacherStudent
     ? 'Подготовка к звонку'
     : hasMediaConnectionIssue
       ? 'Связь требует внимания'
@@ -5506,8 +5543,8 @@ const CallSection = ({
         ? 'Комната урока'
         : isConnecting
           ? 'Подключаем к уроку'
-          : 'Подготовка к звонку';
-  const callHeaderSubtitle = !activeStudentId && isTeacher
+          : (isGroupLesson ? 'Подготовка к групповому уроку' : 'Подготовка к звонку');
+  const callHeaderSubtitle = isMissingLegacyTeacherStudent
     ? 'Выберите ученика'
     : hasMediaConnectionIssue
       ? 'Пробуем восстановить соединение'
@@ -5521,22 +5558,22 @@ const CallSection = ({
     : isConnecting
       ? 'Подключаем к звонку'
       : isConnected
-        ? hasRemoteParticipant
-          ? 'Звонок активен'
-          : `Ждём ${remoteParticipantName}`
+          ? hasRemoteParticipant
+            ? 'Звонок активен'
+            : (isGroupLesson ? 'Ждём участников' : `Ждём ${remoteParticipantName}`)
         : prejoinHasProblem
           ? 'Проверьте настройки'
           : prejoinAllReady
             ? 'Всё готово к уроку'
             : hasRemoteParticipant
-              ? `${remoteParticipantName} уже в комнате`
+              ? (isGroupLesson ? 'Участники уже в комнате' : `${remoteParticipantName} уже в комнате`)
               : 'Готовы к уроку?';
   const callHeroEyebrow = hasMediaConnectionIssue
     ? 'Проблема со связью'
     : isConnecting
       ? 'Подключаем...'
       : '';
-  const callHeroDescription = !activeStudentId && isTeacher
+  const callHeroDescription = isMissingLegacyTeacherStudent
     ? 'Сначала выберите ученика.'
     : !roomId
       ? 'Комната урока пока не готова.'
@@ -5547,13 +5584,13 @@ const CallSection = ({
         : isConnected
           ? hasRemoteParticipant
             ? ''
-            : `${remoteParticipantName} пока не в звонке.`
+            : (isGroupLesson ? 'Остальные участники пока не в звонке.' : `${remoteParticipantName} пока не в звонке.`)
           : prejoinHasProblem
             ? 'Некоторые параметры требуют внимания перед входом.'
             : prejoinAllReady
               ? 'Микрофон, камера и связь готовы.'
               : hasRemoteParticipant
-                ? 'Второй участник уже ждёт в комнате.'
+                ? (isGroupLesson ? 'Участники уже ждут в комнате.' : 'Второй участник уже ждёт в комнате.')
                 : 'Настройте звук и видео, затем присоединяйтесь к уроку.';
   const joinButtonLabel = isConnected
     ? 'Вы в звонке'
@@ -5571,7 +5608,7 @@ const CallSection = ({
     ]
     : [
       ...((!roomId && isTeacher)
-        ? [{ key: 'setup', text: 'Выберите ученика', tone: 'idle' }]
+        ? [{ key: 'setup', text: isGroupLesson ? 'Комната не готова' : 'Выберите ученика', tone: 'idle' }]
         : []),
       ...(connectionStats.quality === 'poor'
         ? [{ key: 'connection', text: connectionStatusShort, tone: 'problem' }]
@@ -5593,9 +5630,13 @@ const CallSection = ({
         ? 'good'
         : 'idle';
   const prejoinCheckButtonLabel = prejoinCheck.status === 'idle' ? 'Проверить подключение' : 'Проверить снова';
-  const prejoinWaitingCopy = hasRemoteParticipant
-    ? (isTeacher ? 'Ученик уже ждёт начала урока.' : 'Преподаватель уже ждёт в комнате.')
-    : (isTeacher ? 'Можно войти и подготовить комнату.' : 'Преподаватель ещё не подключился. Можно войти в урок сейчас.');
+  const prejoinWaitingCopy = isGroupLesson
+    ? (hasRemoteParticipant
+      ? 'Участники уже подключаются к уроку.'
+      : (isTeacher ? 'Можно войти и подготовить групповую комнату.' : 'Можно войти в групповой урок сейчас.'))
+    : hasRemoteParticipant
+      ? (isTeacher ? 'Ученик уже ждёт начала урока.' : 'Преподаватель уже ждёт в комнате.')
+      : (isTeacher ? 'Можно войти и подготовить комнату.' : 'Преподаватель ещё не подключился. Можно войти в урок сейчас.');
   const lessonChatMetaSummary = chatBadgeText
     ? `${chatBadgeText} ${Number(chatBadgeText) === 1 ? 'новое сообщение' : 'новых сообщения'}`
     : (isConnected ? 'Сообщения по уроку' : 'Можно написать до начала урока');
@@ -5671,7 +5712,7 @@ const CallSection = ({
   const teacherSelectClass = isDarkTheme
     ? 'call-student-select h-9 w-full rounded-xl border border-violet-500/12 bg-slate-950/72 px-3 text-sm text-slate-100 outline-none transition focus:border-violet-400/50'
     : 'call-student-select h-9 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400';
-  const teacherPickerNode = !isTeacher ? null : (
+  const teacherPickerNode = !isTeacher || isGroupLesson ? null : (
     <div className={teacherCardClass}>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-[auto_minmax(240px,1fr)] md:items-center">
         <label className={teacherLabelClass} htmlFor="call-student-select">
@@ -6060,6 +6101,10 @@ const CallSection = ({
       style={isFloatingUi ? floatingPanelStyle : inlinePanelStyle}
       data-tour="call"
       data-call-role={isTeacher ? 'teacher' : 'student'}
+      data-call-mode={isGroupLesson ? 'group' : 'individual'}
+      data-call-lesson-id={isGroupLesson ? rtcRoom.lessonId || undefined : undefined}
+      data-call-group-id={isGroupLesson ? normalizedGroupId || undefined : undefined}
+      data-call-roster-size={isGroupLesson ? normalizedParticipantIds.length : undefined}
       data-call-phase={isConnected ? 'connected' : 'prejoin'}
     >
       <section className={sectionShellClass}>
@@ -6291,7 +6336,7 @@ const CallSection = ({
                         {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
                         <span className="call-control-label">{joinButtonLabel}</span>
                       </button>
-                      {!isTeacher && telemostUrl && (
+                      {!isGroupLesson && !isTeacher && telemostUrl && (
                         <a
                           href={telemostUrl}
                           target="_blank"
@@ -6314,15 +6359,15 @@ const CallSection = ({
                         </button>
                       )}
                     </div>
-                    {!isTeacher && !telemostLoading && !telemostUrl && !telemostError && (
+                    {!isGroupLesson && !isTeacher && !telemostLoading && !telemostUrl && !telemostError && (
                       <p className="call-telemost-status" data-tone="muted">
                         Резервная ссылка Телемоста пока не настроена.
                       </p>
                     )}
-                    {!isTeacher && telemostError && (
+                    {!isGroupLesson && !isTeacher && telemostError && (
                       <p className="call-telemost-status" data-tone="error" role="alert">{telemostError}</p>
                     )}
-                    {!isTeacher && !telemostError && telemostNotice && (
+                    {!isGroupLesson && !isTeacher && !telemostError && telemostNotice && (
                       <p className="call-telemost-status" data-tone="success">{telemostNotice}</p>
                     )}
 
@@ -6466,7 +6511,7 @@ const CallSection = ({
                 </>
               )}
 
-              {!isTeacher && isConnected && telemostUrl && (
+              {!isGroupLesson && !isTeacher && isConnected && telemostUrl && (
                 <aside className="call-telemost-fallback" aria-label="Резервный звонок через Яндекс Телемост">
                   <span className="call-telemost-fallback__icon" aria-hidden="true">
                     <Signal size={17} />
@@ -7115,7 +7160,7 @@ const CallSection = ({
         </section>
       )}
 
-      {lessonChatPreviewImage && typeof document !== 'undefined' && createPortal(
+      {!isGroupLesson && lessonChatPreviewImage && typeof document !== 'undefined' && createPortal(
         <div
           className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm"
           onMouseDown={() => setLessonChatPreviewImage(null)}

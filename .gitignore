@@ -28,6 +28,13 @@ server/data/homework-drafts.json
 server/data/_codex_upload_test.txt
 server/data/broadcast-notifications.json
 server/data/board-assets.json
+server/data/learning-groups.json
+server/data/learning-lesson-sessions.json
+server/data/learning-assignments.json
+server/data/learning-submissions.json
+server/data/learning-attendance.json
+server/data/learning-materials.json
+server/data/learning-board-responses.json
 server/data/recovered-access-codes.json
 server/data/signup-chats.json
 server/data/student-chats.json

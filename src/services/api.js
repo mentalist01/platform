@@ -3,7 +3,7 @@
 import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl, resolveUploadsUrl } from '../utils/runtimeUrls';
 import { USER_SESSION_KEY } from '../utils/theme';
 
-const getStoredAuthToken = () => {
+export const getStoredAuthToken = () => {
   if (typeof localStorage === 'undefined') return '';
   try {
     const raw = localStorage.getItem(USER_SESSION_KEY);
@@ -256,6 +256,33 @@ export const uploadFileMemorySnapshot = async (id, file, itemCount = 0) => {
   });
   if (!res.ok) throw new Error(await parseApiError(res));
   return res.json();
+};
+
+// Keep the mini-group transport behind one small adapter. The UI intentionally
+// does not assemble these paths itself, so the server contract can evolve
+// without spreading group-specific URL knowledge across components.
+export const LEARNING_GROUPS_API_BASE = '/api/learning-groups';
+
+const getLearningGroupApiPath = (groupId = '', ...segments) => {
+  const normalizedGroupId = String(groupId || '').trim();
+  const suffix = [normalizedGroupId, ...segments]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join('/');
+  return suffix ? `${LEARNING_GROUPS_API_BASE}/${suffix}` : LEARNING_GROUPS_API_BASE;
+};
+
+const requestLearningGroupJson = async (path, options = {}) => {
+  const method = String(options?.method || 'GET').toUpperCase();
+  const init = { method };
+  if (Object.prototype.hasOwnProperty.call(options, 'body')) {
+    init.headers = { 'Content-Type': 'application/json' };
+    init.body = JSON.stringify(options.body ?? {});
+  }
+  const res = await apiFetch(path, init);
+  if (!res.ok) throw new Error(await parseApiError(res));
+  return parseJsonResponse(res);
 };
 
 export const api = {
@@ -870,6 +897,176 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  getLearningGroups: async (options = {}) => {
+    const params = new URLSearchParams();
+    if (options?.status) params.set('status', String(options.status));
+    if (options?.includeCompleted) params.set('includeCompleted', '1');
+    if (options?.teacherId) params.set('teacherId', String(options.teacherId));
+    if (options?.studentId) params.set('studentId', String(options.studentId));
+    const query = params.toString();
+    return requestLearningGroupJson(query ? `${LEARNING_GROUPS_API_BASE}?${query}` : LEARNING_GROUPS_API_BASE);
+  },
+  getLearningGroup: async (groupId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId))
+  ),
+  createLearningGroup: async (payload = {}) => (
+    requestLearningGroupJson(LEARNING_GROUPS_API_BASE, { method: 'POST', body: payload })
+  ),
+  updateLearningGroup: async (groupId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId), { method: 'PATCH', body: payload })
+  ),
+  addLearningGroupMember: async (groupId, studentId, options = {}) => {
+    const normalizedStudentId = String(studentId || '').trim();
+    if (!normalizedStudentId) throw new Error('studentId required');
+    const lateAddReason = String(options?.lateAddReason || options?.overrideReason || '').trim();
+    return requestLearningGroupJson(getLearningGroupApiPath(groupId, 'members'), {
+      method: 'POST',
+      body: {
+        studentId: normalizedStudentId,
+        ...(lateAddReason ? { lateAddReason } : {}),
+      },
+    });
+  },
+  removeLearningGroupMember: async (groupId, studentId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'members', studentId), { method: 'DELETE' })
+  ),
+  startLearningGroup: async (groupId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'start'), { method: 'POST', body: {} })
+  ),
+  completeLearningGroup: async (groupId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'complete'), { method: 'POST', body: {} })
+  ),
+  updateLearningGroupSchedule: async (groupId, schedule = []) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'schedule'), {
+      method: 'PUT',
+      body: { schedule: Array.isArray(schedule) ? schedule : [] },
+    })
+  ),
+  getLearningGroupLessons: async (groupId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options?.from) params.set('from', String(options.from));
+    if (options?.to) params.set('to', String(options.to));
+    if (Number.isFinite(Number(options?.limit))) params.set('limit', String(Math.max(1, Math.round(Number(options.limit)))));
+    const query = params.toString();
+    const path = getLearningGroupApiPath(groupId, 'lessons');
+    return requestLearningGroupJson(query ? `${path}?${query}` : path);
+  },
+  createLearningGroupLesson: async (groupId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons'), { method: 'POST', body: payload })
+  ),
+  getLearningGroupLesson: async (groupId, lessonId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId))
+  ),
+  updateLearningGroupLesson: async (groupId, lessonId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId), { method: 'PATCH', body: payload })
+  ),
+  getLearningGroupLessonAttendance: async (groupId, lessonId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'attendance'))
+  ),
+  updateLearningGroupLessonAttendance: async (groupId, lessonId, records = []) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'attendance'), {
+      method: 'PUT',
+      body: { records: Array.isArray(records) ? records : [] },
+    })
+  ),
+  getLearningGroupAssignments: async (groupId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments'))
+  ),
+  createLearningGroupAssignment: async (groupId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments'), { method: 'POST', body: payload })
+  ),
+  getLearningGroupAssignment: async (groupId, assignmentId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId))
+  ),
+  updateLearningGroupAssignment: async (groupId, assignmentId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId), { method: 'PATCH', body: payload })
+  ),
+  deleteLearningGroupAssignment: async (groupId, assignmentId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId), { method: 'DELETE' })
+  ),
+  getLearningGroupAssignmentSubmission: async (groupId, assignmentId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options?.studentId) params.set('studentId', String(options.studentId));
+    const query = params.toString();
+    const path = getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'submission');
+    return requestLearningGroupJson(query ? `${path}?${query}` : path);
+  },
+  saveLearningGroupAssignmentSubmission: async (groupId, assignmentId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'submission'), {
+      method: 'PUT',
+      body: {
+        content: String(payload?.content || ''),
+        status: String(payload?.status || 'submitted'),
+        ...(Array.isArray(payload?.answerRefs) ? { answerRefs: payload.answerRefs } : {}),
+      },
+    })
+  ),
+  getLearningGroupAssignmentSubmissions: async (groupId, assignmentId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'submissions'))
+  ),
+  reviewLearningGroupAssignmentSubmission: async (groupId, assignmentId, studentId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'submissions', studentId, 'review'), {
+      method: 'PATCH',
+      body: {
+        grade: payload?.grade ?? '',
+        privateComment: String(payload?.privateComment || ''),
+        ...(payload?.status ? { status: String(payload.status) } : {}),
+      },
+    })
+  ),
+  getLearningGroupMaterials: async (groupId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options?.lessonId) params.set('lessonId', String(options.lessonId));
+    const query = params.toString();
+    const path = getLearningGroupApiPath(groupId, 'materials');
+    return requestLearningGroupJson(query ? `${path}?${query}` : path);
+  },
+  createLearningGroupMaterial: async (groupId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'materials'), { method: 'POST', body: payload })
+  ),
+  uploadLearningGroupMaterial: async (groupId, file, payload = {}) => {
+    if (!(file instanceof Blob)) throw new Error('Выберите файл материала');
+    const form = new FormData();
+    form.append('file', file, typeof file.name === 'string' && file.name ? file.name : 'material');
+    const title = String(payload?.title || '').trim();
+    const visibility = String(payload?.visibility || 'group').trim() || 'group';
+    const lessonId = String(payload?.lessonId || '').trim();
+    if (title) form.append('title', title);
+    form.append('visibility', visibility);
+    if (visibility === 'lesson' && lessonId) form.append('lessonId', lessonId);
+    const res = await apiFetch(getLearningGroupApiPath(groupId, 'materials', 'upload'), {
+      method: 'POST',
+      body: form,
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteLearningGroupMaterial: async (groupId, materialId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'materials', materialId), { method: 'DELETE' })
+  ),
+  getLearningGroupLessonResponses: async (groupId, lessonId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options?.studentId) params.set('studentId', String(options.studentId));
+    const query = params.toString();
+    const path = getLearningGroupApiPath(groupId, 'lessons', lessonId, 'responses');
+    return requestLearningGroupJson(query ? `${path}?${query}` : path);
+  },
+  getLearningGroupLessonResponse: async (groupId, lessonId, boardItemId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options?.studentId) params.set('studentId', String(options.studentId));
+    const query = params.toString();
+    const path = getLearningGroupApiPath(groupId, 'lessons', lessonId, 'responses', boardItemId);
+    return requestLearningGroupJson(query ? `${path}?${query}` : path);
+  },
+  saveLearningGroupLessonResponse: async (groupId, lessonId, boardItemId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'responses', boardItemId), {
+      method: 'PUT',
+      body: payload,
+    })
+  ),
+  getLearningGroupProgress: async (groupId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'progress'))
+  ),
   getStudentsLeaderboard: async (teacherIdOrOptions = '', maybeOptions = {}) => {
     const options = teacherIdOrOptions && typeof teacherIdOrOptions === 'object'
       ? teacherIdOrOptions
@@ -2250,10 +2447,11 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  uploadBoardAsset: async (file, studentId) => {
+  uploadBoardAsset: async (file, studentId, options = {}) => {
     const form = new FormData();
     form.append('file', file);
     if (studentId) form.append('studentId', String(studentId));
+    if (options?.lessonId) form.append('lessonId', String(options.lessonId));
     const res = await apiFetch('/api/board-assets', { method: 'POST', body: form });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);

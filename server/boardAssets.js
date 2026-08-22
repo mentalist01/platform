@@ -67,12 +67,15 @@ export const normalizeBoardAssetEntry = (value) => {
   const id = String(value.id || '').trim();
   const studentId = String(value.studentId || '').trim();
   const teacherId = String(value.teacherId || '').trim();
+  const groupId = String(value.groupId || value.learningGroupId || '').trim();
+  const lessonId = String(value.lessonId || value.learningLessonId || value.sessionId || '').trim();
   const storageName = path.basename(String(value.storageName || '').trim());
   const mimeType = String(value.mimeType || '').trim().toLowerCase();
   const hash = String(value.hash || '').trim().toLowerCase();
   const sizeBytes = Math.max(0, Math.floor(Number(value.sizeBytes) || 0));
   const createdAt = String(value.createdAt || '').trim();
-  if (!id || !studentId || !storageName || !getBoardAssetExtension(mimeType)) return null;
+  if (!id || (!studentId && !lessonId) || !storageName || !getBoardAssetExtension(mimeType)) return null;
+  if (lessonId && (!groupId || !teacherId)) return null;
   if (!storageName.startsWith('board-asset-')) return null;
   return {
     id,
@@ -83,6 +86,7 @@ export const normalizeBoardAssetEntry = (value) => {
     hash: /^[a-f0-9]{64}$/.test(hash) ? hash : '',
     sizeBytes,
     createdAt,
+    ...(lessonId ? { groupId, lessonId } : {}),
   };
 };
 

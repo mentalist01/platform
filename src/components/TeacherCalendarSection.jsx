@@ -20,6 +20,7 @@ import {
   Search,
   SlidersHorizontal,
   Unlink,
+  Users,
   Wallet,
   X,
 } from 'lucide-react';
@@ -44,6 +45,7 @@ const HOLIDAY_DEFINITIONS = [
 const EVENT_COLORS = ['#0ea5e9', '#14b8a6', '#6366f1', '#f59e0b', '#ec4899', '#22c55e', '#8b5cf6', '#f97316'];
 const CALENDAR_PAID_EVENT_COLOR = '#10b981';
 const CALENDAR_UNPAID_PAST_EVENT_COLOR = '#f43f5e';
+const CALENDAR_PARTIAL_PAYMENT_EVENT_COLOR = '#f59e0b';
 const CALENDAR_TRIAL_EVENT_COLOR = '#f59e0b';
 
 const CALENDAR_START_HOUR = 0;
@@ -263,7 +265,40 @@ const formatMinutesAsDisplayTime = (minutes, use24HourFormat = true) => {
   return `${hour12}:${String(mins).padStart(2, '0')} ${amPm}`;
 };
 
-const isTrialEntry = (entry) => !String(entry?.studentId || '').trim();
+const isLearningGroupCalendarEntry = (entry) => Boolean(
+  entry?.isLearningGroupEvent && String(entry?.groupId || '').trim()
+);
+
+const getLearningGroupCalendarParticipants = (entry, studentNameById = {}) => {
+  if (!isLearningGroupCalendarEntry(entry)) return [];
+  const byId = new Map();
+  const addParticipant = (value) => {
+    const studentId = String(value?.studentId || value?.id || value || '').trim();
+    if (!studentId) return;
+    const previous = byId.get(studentId) || {};
+    const studentName = String(
+      value?.studentName
+      || value?.name
+      || studentNameById[studentId]
+      || previous.studentName
+      || 'Ученик'
+    ).trim();
+    byId.set(studentId, {
+      ...previous,
+      ...(value && typeof value === 'object' ? value : {}),
+      studentId,
+      studentName,
+    });
+  };
+  (Array.isArray(entry?.participantIds) ? entry.participantIds : []).forEach(addParticipant);
+  (Array.isArray(entry?.participants) ? entry.participants : []).forEach(addParticipant);
+  (Array.isArray(entry?.memberPaymentStatuses) ? entry.memberPaymentStatuses : []).forEach(addParticipant);
+  return Array.from(byId.values());
+};
+
+const isTrialEntry = (entry) => (
+  !String(entry?.studentId || '').trim() && !isLearningGroupCalendarEntry(entry)
+);
 const isExternalCalendarEntry = (entry) => Boolean(
   entry?.isExternalCalendarEvent || String(entry?.source || '').trim() === 'google-ical'
 );
@@ -474,6 +509,56 @@ const getCalendarLessonPaymentState = (teacherId, lessonInfo, marks, now = new D
     trialMarked,
     finished,
     shouldRemindPayment: finished && !paidMarked && !trialMarked,
+  };
+};
+
+const getLearningGroupPaymentState = (
+  teacherId,
+  lessonInfo,
+  marks,
+  now = new Date(),
+  studentNameById = {}
+) => {
+  const event = lessonInfo?.event || {};
+  const members = getLearningGroupCalendarParticipants(event, studentNameById).map((member) => {
+    const memberEvent = { ...event, studentId: member.studentId };
+    const memberLessonInfo = { ...lessonInfo, event: memberEvent };
+    const paidMarkKey = String(member?.paidMarkKey || '').trim()
+      || buildLessonPanelMarkKey(teacherId, memberLessonInfo, 'paid');
+    const trialMarkKey = String(member?.trialMarkKey || '').trim()
+      || buildLessonPanelMarkKey(teacherId, memberLessonInfo, 'trial');
+    const paidMarked = Boolean(paidMarkKey && marks?.[paidMarkKey]);
+    const trialMarked = Boolean(trialMarkKey && marks?.[trialMarkKey]);
+    const finished = isCalendarLessonFinished(
+      lessonInfo?.dayKey || event.date,
+      event.endMinutes,
+      now
+    );
+    const status = trialMarked ? 'trial' : (paidMarked ? 'paid' : (finished ? 'unpaid' : 'pending'));
+    return {
+      ...member,
+      paidMarkKey,
+      trialMarkKey,
+      paidMarked,
+      trialMarked,
+      finished,
+      status,
+      shouldRemindPayment: finished && !paidMarked && !trialMarked,
+    };
+  });
+  const paidCount = members.filter((member) => member.status === 'paid').length;
+  const trialCount = members.filter((member) => member.status === 'trial').length;
+  const unpaidCount = members.filter((member) => member.status === 'unpaid').length;
+  const settledCount = paidCount + trialCount;
+  return {
+    members,
+    paidCount,
+    trialCount,
+    unpaidCount,
+    settledCount,
+    totalCount: members.length,
+    allSettled: members.length > 0 && settledCount === members.length,
+    partiallySettled: settledCount > 0 && settledCount < members.length,
   };
 };
 
@@ -788,6 +873,7 @@ const TeacherCalendarSection = ({
   activeStudentId = '',
   onSelectStudent = null,
   onOpenStudentWorkspace = null,
+  onOpenLearningGroupLesson = null,
 }) => {
   const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const [entries, setEntries] = useState([]);
@@ -1621,11 +1707,14 @@ const TeacherCalendarSection = ({
 
       const entry = nextDue.entry;
       const hasStudent = Boolean(String(entry?.studentId || '').trim());
+      const isGroupEvent = isLearningGroupCalendarEntry(entry);
       const studentName = studentNameById[String(entry?.studentId || '').trim()] || entry?.studentName || 'Ученик';
       const subject = String(entry?.subject || '').trim();
-      const primaryLabel = hasStudent
-        ? studentName
-        : (subject || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT);
+      const primaryLabel = isGroupEvent
+        ? String(entry?.groupName || subject || 'Мини-группа').trim()
+        : (hasStudent
+          ? studentName
+          : (subject || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT));
       const startsAtDate = new Date(nextDue.reminder.startMs);
       const startMinutes = (startsAtDate.getHours() * 60) + startsAtDate.getMinutes();
       const startLabel = formatMinutesAsDisplayTime(startMinutes, use24HourFormat);
@@ -1709,10 +1798,14 @@ const TeacherCalendarSection = ({
     return byType.filter((entry) => {
       const studentName = studentNameById[entry.studentId] || entry.studentName || '';
       const subject = String(entry?.subject || '').trim();
+      const groupName = String(entry?.groupName || '').trim();
+      const participantNames = getLearningGroupCalendarParticipants(entry, studentNameById)
+        .map((member) => member.studentName)
+        .join(' ');
       const day = String(entry?.day || '').trim();
       const date = String(entry?.date || '').trim();
       const time = String(entry?.time || '').trim();
-      const haystack = `${studentName} ${subject} ${day} ${date} ${time}`.toLowerCase();
+      const haystack = `${studentName} ${groupName} ${participantNames} ${subject} ${day} ${date} ${time}`.toLowerCase();
       return haystack.includes(normalizedSearchQuery);
     });
   }, [lessonTypeFilter, normalizedSearchQuery, studentNameById, visibleEntries]);
@@ -1886,58 +1979,82 @@ const TeacherCalendarSection = ({
         startMinutes,
         endMinutes,
       };
+      const lessonStartMs = dayDate.getTime() + (startMinutes * 60 * 1000);
+      const lessonEndMs = dayDate.getTime() + (endMinutes * 60 * 1000);
+      if (!Number.isFinite(lessonEndMs)) return;
+
+      const pushStudentReminder = ({ studentId, label, paymentState, groupName = '' }) => {
+        if (!paymentState?.shouldRemindPayment) return;
+        const groupKey = studentId
+          ? `student:${studentId}`
+          : `lesson:${String(label || '').toLocaleLowerCase('ru-RU')}`;
+        const lesson = {
+          key: `${groupKey}:${normalizedDayKey}:${startMinutes}:${event?.id || index}`,
+          studentId,
+          label,
+          groupName,
+          dayKey: normalizedDayKey,
+          dateLabel: formatDayMonth(dayDate),
+          timeLabel: `${formatMinutesAsDisplayTime(startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(endMinutes, use24HourFormat)}`,
+          endMinutes,
+          startMs: lessonStartMs,
+          endMs: lessonEndMs,
+          isExternal: isExternalCalendarEntry(event),
+        };
+        const current = groups.get(groupKey) || {
+          key: groupKey,
+          studentId,
+          label,
+          count: 0,
+          latestAtMs: 0,
+          latestDateLabel: '',
+          latestTimeLabel: '',
+          hasExternal: false,
+          lessons: [],
+        };
+        current.count += 1;
+        current.hasExternal = current.hasExternal || lesson.isExternal;
+        current.lessons.push(lesson);
+        if (lessonEndMs >= current.latestAtMs) {
+          current.latestAtMs = lessonEndMs;
+          current.latestDateLabel = lesson.dateLabel;
+          current.latestTimeLabel = lesson.timeLabel;
+        }
+        groups.set(groupKey, current);
+      };
+
+      if (isLearningGroupCalendarEntry(event)) {
+        const groupPayment = getLearningGroupPaymentState(
+          teacherId,
+          { event, dayKey: normalizedDayKey },
+          lessonPanelMarks,
+          now,
+          studentNameById
+        );
+        groupPayment.members.forEach((member) => pushStudentReminder({
+          studentId: member.studentId,
+          label: member.studentName,
+          groupName: String(event?.groupName || event?.subject || '').trim(),
+          paymentState: member,
+        }));
+        return;
+      }
+
       const paymentState = getCalendarLessonPaymentState(
         teacherId,
         { event, dayKey: normalizedDayKey },
         lessonPanelMarks,
         now
       );
-      if (!paymentState.shouldRemindPayment) return;
-
-      const lessonStartMs = dayDate.getTime() + (startMinutes * 60 * 1000);
-      const lessonEndMs = dayDate.getTime() + (endMinutes * 60 * 1000);
-      if (!Number.isFinite(lessonEndMs)) return;
-
       const studentId = String(event?.studentId || '').trim();
       const studentName = studentId
         ? (studentNameById[studentId] || event?.studentName || 'Ученик')
         : String(event?.studentName || event?.subject || DEFAULT_ONE_TIME_LESSON_SUBJECT).trim();
-      const label = String(studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT).trim();
-      const groupKey = studentId
-        ? `student:${studentId}`
-        : `lesson:${label.toLocaleLowerCase('ru-RU')}`;
-      const lesson = {
-        key: `${groupKey}:${normalizedDayKey}:${startMinutes}:${event?.id || index}`,
+      pushStudentReminder({
         studentId,
-        label,
-        dayKey: normalizedDayKey,
-        dateLabel: formatDayMonth(dayDate),
-        timeLabel: `${formatMinutesAsDisplayTime(startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(endMinutes, use24HourFormat)}`,
-        endMinutes,
-        startMs: lessonStartMs,
-        endMs: lessonEndMs,
-        isExternal: isExternalCalendarEntry(event),
-      };
-      const current = groups.get(groupKey) || {
-        key: groupKey,
-        studentId,
-        label,
-        count: 0,
-        latestAtMs: 0,
-        latestDateLabel: '',
-        latestTimeLabel: '',
-        hasExternal: false,
-        lessons: [],
-      };
-      current.count += 1;
-      current.hasExternal = current.hasExternal || lesson.isExternal;
-      current.lessons.push(lesson);
-      if (lessonEndMs >= current.latestAtMs) {
-        current.latestAtMs = lessonEndMs;
-        current.latestDateLabel = lesson.dateLabel;
-        current.latestTimeLabel = lesson.timeLabel;
-      }
-      groups.set(groupKey, current);
+        label: String(studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT).trim(),
+        paymentState,
+      });
     };
 
     filteredEntries.forEach((entry, index) => {
@@ -2136,11 +2253,19 @@ const TeacherCalendarSection = ({
   }, [currentTimeLineNow, entries, studentNameById]);
 
   const lessonPanelStudentId = String(lessonPanelInfo?.event?.studentId || '').trim();
+  const lessonPanelIsGroup = isLearningGroupCalendarEntry(lessonPanelInfo?.event);
+  const lessonPanelGroupParticipants = useMemo(
+    () => getLearningGroupCalendarParticipants(lessonPanelInfo?.event, studentNameById),
+    [lessonPanelInfo?.event, studentNameById]
+  );
   const lessonPanelHasStudent = Boolean(lessonPanelStudentId);
+  const lessonPanelCanOpenGroup = lessonPanelIsGroup
+    && Boolean(String(lessonPanelInfo?.event?.lessonId || '').trim())
+    && lessonPanelGroupParticipants.length > 0;
   const lessonPanelStudentSelected = lessonPanelHasStudent
     && String(activeStudentId || '').trim() === lessonPanelStudentId;
   const lessonPanelStudentName = String(
-    lessonPanelInfo?.event?.studentName
+    (lessonPanelIsGroup ? lessonPanelInfo?.event?.groupName : lessonPanelInfo?.event?.studentName)
     || lessonPanelInfo?.event?.subject
     || DEFAULT_ONE_TIME_LESSON_SUBJECT
   ).trim();
@@ -2154,7 +2279,8 @@ const TeacherCalendarSection = ({
   const lessonPanelStatusLabel = lessonPanelInfo?.status === 'current'
     ? 'Идёт сейчас'
     : (lessonPanelInfo?.status === 'past' ? 'Последний урок' : 'Ближайший урок');
-  const lessonPanelLink = normalizeLessonPanelUrl(lessonPanelInfo?.event?.lessonLink)
+  const lessonPanelLink = normalizeLessonPanelUrl(lessonPanelInfo?.event?.telemostUrl)
+    || normalizeLessonPanelUrl(lessonPanelInfo?.event?.lessonLink)
     || normalizeLessonPanelUrl(lessonPanelInfo?.event?.boardLink);
   const lessonPanelCompletedMarkKey = lessonPanelInfo
     ? buildLessonPanelMarkKey(teacherId, lessonPanelInfo, 'completed')
@@ -2228,23 +2354,51 @@ const TeacherCalendarSection = ({
     openStudentWorkspace(viewId, lessonPanelStudentId);
   }, [lessonPanelStudentId, openStudentWorkspace]);
 
+  const openLessonPanelGroupWorkspace = useCallback((surface = 'call') => {
+    const event = lessonPanelInfo?.event || {};
+    if (!lessonPanelCanOpenGroup || typeof onOpenLearningGroupLesson !== 'function') return;
+    const startLabel = formatMinutesAsTime(event.startMinutes);
+    const fallbackStartsAt = lessonPanelInfo?.dayKey && startLabel && startLabel !== '--:--'
+      ? `${lessonPanelInfo.dayKey}T${startLabel}:00`
+      : '';
+    onOpenLearningGroupLesson({
+      lessonId: String(event.lessonId || '').trim(),
+      groupId: String(event.groupId || '').trim(),
+      participantIds: lessonPanelGroupParticipants.map((member) => member.studentId),
+      groupName: String(event.groupName || event.subject || 'Мини-группа').trim(),
+      topic: String(event.topic || event.subject || 'Групповое занятие').trim(),
+      startsAt: String(event.startsAt || event.startAt || fallbackStartsAt).trim(),
+      telemostUrl: String(event.telemostUrl || event.lessonLink || '').trim(),
+      surface,
+    });
+  }, [
+    lessonPanelCanOpenGroup,
+    lessonPanelGroupParticipants,
+    lessonPanelInfo,
+    onOpenLearningGroupLesson,
+  ]);
+
   const openLessonPanelCall = useCallback(() => {
+    if (lessonPanelIsGroup) {
+      openLessonPanelGroupWorkspace('call');
+      return;
+    }
     openLessonPanelWorkspace('call-connect');
-  }, [openLessonPanelWorkspace]);
+  }, [lessonPanelIsGroup, openLessonPanelGroupWorkspace, openLessonPanelWorkspace]);
 
   const handleLessonPanelClick = useCallback((event) => {
-    if (!lessonPanelHasStudent) return;
+    if (!lessonPanelHasStudent && !lessonPanelCanOpenGroup) return;
     const interactiveTarget = event.target?.closest?.('button, a, input, textarea, select, label');
     if (interactiveTarget && event.currentTarget.contains(interactiveTarget)) return;
     openLessonPanelCall();
-  }, [lessonPanelHasStudent, openLessonPanelCall]);
+  }, [lessonPanelCanOpenGroup, lessonPanelHasStudent, openLessonPanelCall]);
 
   const handleLessonPanelKeyDown = useCallback((event) => {
-    if (!lessonPanelHasStudent) return;
+    if (!lessonPanelHasStudent && !lessonPanelCanOpenGroup) return;
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
     openLessonPanelCall();
-  }, [lessonPanelHasStudent, openLessonPanelCall]);
+  }, [lessonPanelCanOpenGroup, lessonPanelHasStudent, openLessonPanelCall]);
 
   const openLessonPanelLink = useCallback(() => {
     if (!lessonPanelLink || typeof window === 'undefined') return;
@@ -2385,6 +2539,11 @@ const TeacherCalendarSection = ({
 
   const eventDetailsStudentId = String(eventDetails?.studentId || '').trim();
   const eventDetailsHasStudent = Boolean(eventDetailsStudentId);
+  const eventDetailsIsGroup = isLearningGroupCalendarEntry(eventDetails);
+  const eventDetailsGroupParticipants = useMemo(
+    () => getLearningGroupCalendarParticipants(eventDetails, studentNameById),
+    [eventDetails, studentNameById]
+  );
   const eventDetailsStudentSelected = eventDetailsHasStudent
     && String(activeStudentId || '').trim() === eventDetailsStudentId;
   const eventDetailsStudentName = String(
@@ -2410,11 +2569,13 @@ const TeacherCalendarSection = ({
   const eventDetailsTimeRangeLabel = eventDetails
     ? `${formatMinutesAsDisplayTime(eventDetails.startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(eventDetails.endMinutes, use24HourFormat)}`
     : '';
-  const eventDetailsLink = normalizeLessonPanelUrl(eventDetails?.lessonLink)
+  const eventDetailsLink = normalizeLessonPanelUrl(eventDetails?.telemostUrl)
+    || normalizeLessonPanelUrl(eventDetails?.lessonLink)
     || normalizeLessonPanelUrl(eventDetails?.boardLink);
-  const eventDetailsLessonInfo = eventDetails
-    ? { event: eventDetails, dayKey: eventDetailsDayKey }
-    : null;
+  const eventDetailsLessonInfo = useMemo(
+    () => (eventDetails ? { event: eventDetails, dayKey: eventDetailsDayKey } : null),
+    [eventDetails, eventDetailsDayKey]
+  );
   const eventDetailsCompletedMarkKey = eventDetailsLessonInfo
     ? buildLessonPanelMarkKey(teacherId, eventDetailsLessonInfo, 'completed')
     : '';
@@ -2427,6 +2588,15 @@ const TeacherCalendarSection = ({
   const eventDetailsCompletedMarked = Boolean(lessonPanelMarks[eventDetailsCompletedMarkKey]);
   const eventDetailsPaidMarked = Boolean(lessonPanelMarks[eventDetailsPaidMarkKey]);
   const eventDetailsTrialMarked = Boolean(lessonPanelMarks[eventDetailsTrialMarkKey]);
+  const eventDetailsGroupPayment = eventDetailsIsGroup && eventDetailsLessonInfo
+    ? getLearningGroupPaymentState(
+      teacherId,
+      eventDetailsLessonInfo,
+      lessonPanelMarks,
+      currentTimeLineNow,
+      studentNameById
+    )
+    : null;
   const eventDetailsStatusLabel = useMemo(() => {
     if (!eventDetails) return 'Урок';
     if (isTrialEntry(eventDetails) || eventDetailsTrialMarked) return 'Пробное';
@@ -2461,6 +2631,30 @@ const TeacherCalendarSection = ({
   const openEventDetailsWorkspace = useCallback((viewId) => {
     openStudentWorkspace(viewId, eventDetailsStudentId);
   }, [eventDetailsStudentId, openStudentWorkspace]);
+
+  const openEventDetailsGroupWorkspace = useCallback((surface = 'call') => {
+    if (!eventDetailsIsGroup || typeof onOpenLearningGroupLesson !== 'function') return;
+    const startLabel = formatMinutesAsTime(eventDetails?.startMinutes);
+    const fallbackStartsAt = eventDetailsDayKey && startLabel && startLabel !== '--:--'
+      ? `${eventDetailsDayKey}T${startLabel}:00`
+      : '';
+    onOpenLearningGroupLesson({
+      lessonId: String(eventDetails?.lessonId || '').trim(),
+      groupId: String(eventDetails?.groupId || '').trim(),
+      participantIds: eventDetailsGroupParticipants.map((member) => member.studentId),
+      groupName: String(eventDetails?.groupName || eventDetails?.subject || 'Мини-группа').trim(),
+      topic: String(eventDetails?.topic || eventDetails?.subject || 'Групповое занятие').trim(),
+      startsAt: String(eventDetails?.startsAt || eventDetails?.startAt || fallbackStartsAt).trim(),
+      telemostUrl: String(eventDetails?.telemostUrl || eventDetails?.lessonLink || '').trim(),
+      surface,
+    });
+  }, [
+    eventDetails,
+    eventDetailsDayKey,
+    eventDetailsGroupParticipants,
+    eventDetailsIsGroup,
+    onOpenLearningGroupLesson,
+  ]);
 
   const openEventDetailsLink = useCallback(() => {
     if (!eventDetailsLink || typeof window === 'undefined') return;
@@ -2565,6 +2759,36 @@ const TeacherCalendarSection = ({
     eventDetailsLessonInfo,
     eventDetailsPaidMarkKey,
     eventDetailsStudentId,
+    lessonPanelFinanceBusy,
+    lessonPanelMarks,
+    removeLessonPanelMark,
+    saveLessonPanelMark,
+    teacherId,
+  ]);
+
+  const handleGroupMemberPaymentToggle = useCallback(async (member) => {
+    const studentId = String(member?.studentId || '').trim();
+    const markKey = String(member?.paidMarkKey || '').trim();
+    if (!eventDetailsIsGroup || !studentId || !markKey || !teacherId || lessonPanelFinanceBusy) return;
+    const undo = Boolean(lessonPanelMarks[markKey]);
+    setLessonPanelFinanceBusy(`group-paid:${studentId}`);
+    setLessonPanelError('');
+    setLessonPanelSuccess('');
+    try {
+      if (undo) await removeLessonPanelMark(markKey);
+      else await saveLessonPanelMark(markKey);
+      setLessonPanelSuccess(
+        undo
+          ? `Оплата ученика «${member.studentName || 'Ученик'}» отменена.`
+          : `Оплата ученика «${member.studentName || 'Ученик'}» отмечена.`
+      );
+    } catch (err) {
+      setLessonPanelError(err?.message || 'Не удалось обновить оплату ученика.');
+    } finally {
+      setLessonPanelFinanceBusy('');
+    }
+  }, [
+    eventDetailsIsGroup,
     lessonPanelFinanceBusy,
     lessonPanelMarks,
     removeLessonPanelMark,
@@ -3394,14 +3618,17 @@ const TeacherCalendarSection = ({
 
   const openEventDetailsModal = useCallback((event, dayKey) => {
     const hasStudent = Boolean(String(event?.studentId || '').trim());
+    const isGroupEvent = isLearningGroupCalendarEntry(event);
     const studentName = studentNameById[event?.studentId] || event?.studentName || 'Ученик';
     const subject = String(event?.subject || '').trim();
-    const subjectLabel = !hasStudent && subject && subject.toLowerCase() !== 'занятие'
+    const subjectLabel = !hasStudent && !isGroupEvent && subject && subject.toLowerCase() !== 'занятие'
       ? subject
       : '';
-    const primaryLabel = hasStudent
-      ? studentName
-      : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT);
+    const primaryLabel = isGroupEvent
+      ? String(event?.groupName || subject || 'Мини-группа').trim()
+      : (hasStudent
+        ? studentName
+        : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT));
     const startMinutes = Number(event?.startMinutes);
     const endMinutes = Number(event?.endMinutes);
     const fallbackStart = parseScheduleTimeToMinutes(event?.time);
@@ -4064,6 +4291,9 @@ const TeacherCalendarSection = ({
                     <div className="mt-2 space-y-1 text-[11px] text-slate-500">
                       <div className="truncate">{calendarSyncSettings.calendarName || calendarSyncSettings.maskedUrl}</div>
                       <div>{`Автообновление: ${GOOGLE_CALENDAR_AUTO_REFRESH_LABEL}`}</div>
+                      <div className="rounded-lg border border-violet-100 bg-violet-50 px-2 py-1.5 text-violet-700">
+                        Для мини-группы назовите событие точно как группу, например «Группа 1». Название группы должно быть уникальным; событие появится у всех участников.
+                      </div>
                       {calendarSyncSettings.lastFetchedAt && (
                         <div>{`Синхр.: ${formatCalendarSyncTimestamp(calendarSyncSettings.lastFetchedAt)}`}</div>
                       )}
@@ -4098,7 +4328,7 @@ const TeacherCalendarSection = ({
                           className="w-full rounded-lg border border-sky-100 bg-sky-50/80 px-2 py-1.5 text-left hover:border-sky-200 hover:bg-sky-100/70"
                         >
                           <div className="truncate text-[11px] font-semibold text-slate-800">
-                            {String(event.studentName || event.subject || 'Google Calendar').trim()}
+                            {String(event.groupName || event.studentName || event.subject || 'Google Calendar').trim()}
                           </div>
                           <div className="text-[10px] text-slate-500">
                             {formatDayMonth(new Date(`${event.dayKey}T00:00:00`))}, {formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat)}
@@ -4398,12 +4628,12 @@ const TeacherCalendarSection = ({
             <div className="teacher-calendar-shell__lesson-strip border-b border-slate-200/80 bg-white/82 px-5 py-3 backdrop-blur-md">
               <div
                 className={`teacher-calendar-shell__lesson-panel flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200/80 bg-white/86 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition ${
-                  lessonPanelHasStudent ? 'cursor-pointer hover:border-sky-300/80 hover:bg-sky-50/70 focus:outline-none focus:ring-2 focus:ring-sky-300/60' : ''
+                  lessonPanelHasStudent || lessonPanelCanOpenGroup ? 'cursor-pointer hover:border-sky-300/80 hover:bg-sky-50/70 focus:outline-none focus:ring-2 focus:ring-sky-300/60' : ''
                 }`}
                 onClick={handleLessonPanelClick}
                 onKeyDown={handleLessonPanelKeyDown}
-                tabIndex={lessonPanelHasStudent ? 0 : undefined}
-                aria-label={lessonPanelHasStudent ? `Открыть созвон: ${lessonPanelStudentName}` : undefined}
+                tabIndex={lessonPanelHasStudent || lessonPanelCanOpenGroup ? 0 : undefined}
+                aria-label={lessonPanelHasStudent || lessonPanelCanOpenGroup ? `Открыть занятие: ${lessonPanelStudentName}` : undefined}
               >
                 <div className="min-w-[260px] flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -4438,7 +4668,12 @@ const TeacherCalendarSection = ({
                       <div className="truncate text-xs font-semibold text-slate-500">{lessonPanelSubject}</div>
                     )}
                   </div>
-                  {lessonPanelHasStudent ? (
+                  {lessonPanelIsGroup ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-violet-700">
+                      <Users size={13} />
+                      <span>{`${lessonPanelGroupParticipants.length} ${pluralizeRu(lessonPanelGroupParticipants.length, 'ученик', 'ученика', 'учеников')} • групповое занятие через Телемост`}</span>
+                    </div>
+                  ) : lessonPanelHasStudent ? (
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
                       {lessonPanelHomeworkLoading ? (
                         <span>Домашка загружается...</span>
@@ -4465,6 +4700,44 @@ const TeacherCalendarSection = ({
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {lessonPanelIsGroup ? (
+                    <>
+                      {lessonPanelLink && (
+                        <button
+                          type="button"
+                          onClick={openLessonPanelLink}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+                        >
+                          <ExternalLink size={12} /> Телемост
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={openLessonPanelCall}
+                        disabled={!lessonPanelCanOpenGroup}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Clock3 size={12} /> Комната группы
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openLessonPanelGroupWorkspace('board')}
+                        disabled={!lessonPanelCanOpenGroup}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Brush size={12} /> Общая доска
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openLessonPanelGroupWorkspace('collab')}
+                        disabled={!lessonPanelCanOpenGroup}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Code2 size={12} /> Общий код
+                      </button>
+                    </>
+                  ) : (
+                    <>
                   <button
                     type="button"
                     onClick={openLessonInfoModal}
@@ -4584,6 +4857,8 @@ const TeacherCalendarSection = ({
                       ? '...'
                       : (lessonPanelPaidMarked ? 'Отменить оплату' : '+ оплата')}
                   </button>
+                    </>
+                  )}
                 </div>
               </div>
               {(lessonPanelError || lessonPanelSuccess) && (
@@ -4716,14 +4991,19 @@ const TeacherCalendarSection = ({
                                   ((event.endMinutes - event.startMinutes) / 60) * hourHeight - 2
                                 );
                                 const hasStudent = Boolean(String(event.studentId || '').trim());
+                                const isGroupEvent = isLearningGroupCalendarEntry(event);
+                                const groupName = String(event.groupName || event.subject || 'Мини-группа').trim();
+                                const groupParticipants = getLearningGroupCalendarParticipants(event, studentNameById);
                                 const studentName = studentNameById[event.studentId] || event.studentName || 'Ученик';
                                 const subject = String(event.subject || '').trim();
-                                const subjectLabel = !hasStudent && subject && subject.toLowerCase() !== 'занятие'
+                                const subjectLabel = !hasStudent && !isGroupEvent && subject && subject.toLowerCase() !== 'занятие'
                                   ? subject
                                   : '';
-                                const primaryLabel = hasStudent
-                                  ? studentName
-                                  : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT);
+                                const primaryLabel = isGroupEvent
+                                  ? groupName
+                                  : (hasStudent
+                                    ? studentName
+                                    : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT));
                                 const showSubjectInCard = Boolean(subjectLabel && subjectLabel !== primaryLabel);
                                 const startLabel = formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat);
                                 const endLabel = formatMinutesAsDisplayTime(event.endMinutes, use24HourFormat);
@@ -4737,20 +5017,39 @@ const TeacherCalendarSection = ({
                                   lessonPanelMarks,
                                   currentTimeLineNow
                                 );
+                                const groupPaymentState = isGroupEvent
+                                  ? getLearningGroupPaymentState(
+                                    teacherId,
+                                    { event, dayKey },
+                                    lessonPanelMarks,
+                                    currentTimeLineNow,
+                                    studentNameById
+                                  )
+                                  : null;
                                 const eventFinished = paymentState.finished;
                                 const paidMarked = paymentState.paidMarked;
                                 const trialMarked = paymentState.trialMarked;
-                                const color = trialMarked
-                                  ? CALENDAR_TRIAL_EVENT_COLOR
-                                  : (paidMarked
+                                const color = isGroupEvent
+                                  ? (groupPaymentState?.allSettled
                                     ? CALENDAR_PAID_EVENT_COLOR
-                                    : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor));
-                                const paymentStateLabel = trialMarked
-                                  ? ' • пробное занятие'
-                                  : (paidMarked
-                                    ? ' • оплата отмечена'
-                                    : (eventFinished ? ' • оплата не отмечена' : ''));
-                                const paymentColorApplied = trialMarked || paidMarked || eventFinished;
+                                    : (groupPaymentState?.partiallySettled
+                                      ? CALENDAR_PARTIAL_PAYMENT_EVENT_COLOR
+                                      : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor)))
+                                  : (trialMarked
+                                    ? CALENDAR_TRIAL_EVENT_COLOR
+                                    : (paidMarked
+                                      ? CALENDAR_PAID_EVENT_COLOR
+                                      : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor)));
+                                const paymentStateLabel = isGroupEvent
+                                  ? ` • оплачено ${groupPaymentState?.paidCount || 0} из ${groupPaymentState?.totalCount || groupParticipants.length}`
+                                  : (trialMarked
+                                    ? ' • пробное занятие'
+                                    : (paidMarked
+                                      ? ' • оплата отмечена'
+                                      : (eventFinished ? ' • оплата не отмечена' : '')));
+                                const paymentColorApplied = isGroupEvent
+                                  ? Boolean(groupPaymentState?.settledCount || eventFinished)
+                                  : (trialMarked || paidMarked || eventFinished);
                                 const laneWidth = 100 / Math.max(1, event.laneCount || 1);
                                 const left = (event.lane || 0) * laneWidth;
                                 const hasConflict = Number(event.laneCount || 1) > 1;
@@ -4781,6 +5080,12 @@ const TeacherCalendarSection = ({
                                     }}
                                   >
                                     <div className="truncate text-[11px] font-bold leading-tight">{primaryLabel}</div>
+                                    {isGroupEvent && (
+                                      <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold leading-tight text-white/95">
+                                        <Users size={10} />
+                                        <span>{`${groupParticipants.length} уч. • оплачено ${groupPaymentState?.paidCount || 0}/${groupPaymentState?.totalCount || groupParticipants.length}`}</span>
+                                      </div>
+                                    )}
                                     {showSubjectInCard && (
                                       <div className="truncate text-[10px] font-semibold leading-tight text-white/95">
                                         {subjectLabel}
@@ -4851,6 +5156,7 @@ const TeacherCalendarSection = ({
                             <div className="truncate text-sm font-black text-slate-900">{lesson.label}</div>
                             <div className="mt-0.5 text-[11px] font-semibold text-slate-500">
                               {lesson.dateLabel}, {lesson.timeLabel}
+                              {lesson.groupName ? ` • ${lesson.groupName}` : ''}
                             </div>
                           </div>
                           <span className="shrink-0 rounded-full border border-rose-200 bg-white px-2 py-0.5 text-[11px] font-bold text-rose-700">
@@ -5358,9 +5664,11 @@ const TeacherCalendarSection = ({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-semibold text-slate-900">
-                  {String(eventDetails.studentId || '').trim()
-                    ? (eventDetails.studentName || 'Ученик')
-                    : (eventDetails.subjectLabel || eventDetails.subject || 'Занятие')}
+                  {eventDetailsIsGroup
+                    ? (eventDetails.groupName || eventDetails.studentName || eventDetails.subject || 'Мини-группа')
+                    : (String(eventDetails.studentId || '').trim()
+                      ? (eventDetails.studentName || 'Ученик')
+                      : (eventDetails.subjectLabel || eventDetails.subject || 'Занятие'))}
                 </div>
                 <div className="text-xs text-slate-500">{eventDetailsDateLabel}</div>
               </div>
@@ -5501,7 +5809,48 @@ const TeacherCalendarSection = ({
                     <div className="truncate text-xs font-semibold text-slate-500">{eventDetailsSubject}</div>
                   )}
                 </div>
-                {eventDetailsHasStudent ? (
+                {eventDetailsIsGroup ? (
+                  <div className="mt-2 rounded-xl border border-violet-200 bg-white/80 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-violet-800">
+                        <Users size={14} /> Участники и оплата
+                      </span>
+                      <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">
+                        {`${eventDetailsGroupPayment?.paidCount || 0}/${eventDetailsGroupPayment?.totalCount || eventDetailsGroupParticipants.length} оплачено`}
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-1.5">
+                      {(eventDetailsGroupPayment?.members || eventDetailsGroupParticipants).map((member) => {
+                        const busy = lessonPanelFinanceBusy === `group-paid:${member.studentId}`;
+                        const status = String(member?.status || 'pending');
+                        const paid = status === 'paid';
+                        const trial = status === 'trial';
+                        const statusLabel = trial
+                          ? 'Пробное'
+                          : (paid ? 'Оплатил(а)' : (status === 'unpaid' ? 'Не оплатил(а)' : 'Ожидаем оплату'));
+                        return (
+                          <div key={`group-payment-${member.studentId}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                            <span className="min-w-0 truncate text-xs font-semibold text-slate-800">{member.studentName || 'Ученик'}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleGroupMemberPaymentToggle(member)}
+                              disabled={trial || Boolean(lessonPanelFinanceBusy)}
+                              className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-60 ${
+                                paid
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : (status === 'unpaid'
+                                    ? 'border-rose-200 bg-rose-50 text-rose-700'
+                                    : 'border-amber-200 bg-amber-50 text-amber-700')
+                              }`}
+                            >
+                              {busy ? '...' : statusLabel}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : eventDetailsHasStudent ? (
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
                     {eventDetailsHomeworkLoading ? (
                       <span>Домашка загружается...</span>
@@ -5527,6 +5876,48 @@ const TeacherCalendarSection = ({
                 )}
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  {eventDetailsIsGroup ? (
+                    <>
+                      {eventDetailsLink && (
+                        <button
+                          type="button"
+                          onClick={openEventDetailsLink}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+                        >
+                          <ExternalLink size={12} />
+                          Телемост
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openEventDetailsGroupWorkspace('call')}
+                        disabled={!eventDetails?.lessonId || eventDetailsGroupParticipants.length === 0}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Clock3 size={12} />
+                        Комната группы
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEventDetailsGroupWorkspace('board')}
+                        disabled={!eventDetails?.lessonId || eventDetailsGroupParticipants.length === 0}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Brush size={12} />
+                        Общая доска
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEventDetailsGroupWorkspace('collab')}
+                        disabled={!eventDetails?.lessonId || eventDetailsGroupParticipants.length === 0}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Code2 size={12} />
+                        Общий код
+                      </button>
+                    </>
+                  ) : (
+                    <>
                   <button
                     type="button"
                     onClick={openEventDetailsInfoModal}
@@ -5646,6 +6037,8 @@ const TeacherCalendarSection = ({
                       ? '...'
                       : (eventDetailsPaidMarked ? 'Отменить оплату' : '+ оплата')}
                   </button>
+                    </>
+                  )}
                 </div>
                 {(lessonPanelError || lessonPanelSuccess) && (
                   <div className={`mt-2 text-xs ${lessonPanelError ? 'text-rose-600' : 'text-emerald-700'}`}>

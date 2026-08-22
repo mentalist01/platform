@@ -18,6 +18,8 @@ module.exports = {
         PLATFORM_DATA_DIR: '/root/platform-data',
         PLATFORM_UPLOADS_DIR: '/root/platform-uploads',
         PLATFORM_COLLAB_DIR: '/root/platform-collab',
+        LEARNING_GROUPS_ENABLED: '1',
+        LEARNING_GROUP_RTC_ENABLED: '0',
         COLLAB_PERSISTENCE: '1',
         BOARD_COLLAB_SNAPSHOT_PERSISTENCE: '1',
         BOARD_COLLAB_SNAPSHOT_WRITE_DEBOUNCE_MS: '60000',

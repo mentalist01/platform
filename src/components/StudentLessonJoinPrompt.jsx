@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BellRing, CalendarDays, Clock3, ExternalLink, PhoneCall, Video, X } from 'lucide-react';
+import { BellRing, CalendarDays, Clock3, ExternalLink, PhoneCall, Users, Video, X } from 'lucide-react';
 
 import { api } from '../services/api';
 import { normalizeHttpUrl } from '../utils/linkifyText';
@@ -88,6 +88,10 @@ const getEntryStartMinutes = (entry) => {
   if (Number.isFinite(fromStart) && fromStart >= 0 && fromStart < 24 * 60) {
     return Math.floor(fromStart);
   }
+  const startsAt = new Date(entry?.startsAt || entry?.startAt || '');
+  if (!Number.isNaN(startsAt.getTime())) {
+    return (startsAt.getHours() * 60) + startsAt.getMinutes();
+  }
   return NaN;
 };
 
@@ -130,6 +134,8 @@ const resolveEntryWeekdayOrder = (entry) => {
 const getEntryCandidateDayKeys = (entry, now) => {
   const explicitDate = normalizeDayKey(entry?.date || entry?.dayKey || entry?.currentWeekDate);
   if (explicitDate) return [explicitDate];
+  const startsAt = new Date(entry?.startsAt || entry?.startAt || '');
+  if (!Number.isNaN(startsAt.getTime())) return [toDayKey(startsAt)];
 
   const weekdayOrder = resolveEntryWeekdayOrder(entry);
   if (!weekdayOrder) return [];
@@ -228,12 +234,18 @@ const findDueLessonPrompt = ({ entries, nextLesson, telemostUrl, now, dismissedK
   const candidates = [];
 
   (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    const isLearningGroupEvent = Boolean(
+      entry?.isLearningGroupEvent && String(entry?.groupId || '').trim()
+    );
     const startMinutes = getEntryStartMinutes(entry);
     if (!Number.isFinite(startMinutes)) return;
 
     const durationMinutes = getLessonDurationMinutes(entry);
     const excludedDayKeys = normalizeExcludedDayKeys(entry?.excludedDates);
-    const boardUrl = normalizeHttpUrl(entry?.boardLink) || fallbackBoardUrl;
+    const boardUrl = normalizeHttpUrl(entry?.boardLink) || (isLearningGroupEvent ? '' : fallbackBoardUrl);
+    const entryTelemostUrl = isLearningGroupEvent
+      ? normalizeTelemostUrl(entry?.telemostUrl)
+      : telemostMeetingUrl;
 
     getEntryCandidateDayKeys(entry, now).forEach((dayKey) => {
       if (!dayKey || excludedDayKeys.has(dayKey)) return;
@@ -249,13 +261,20 @@ const findDueLessonPrompt = ({ entries, nextLesson, telemostUrl, now, dismissedK
 
       const subject = String(entry?.subject || '').trim();
       candidates.push({
+        ...entry,
         occurrenceKey,
-        subject: subject || 'Занятие',
+        isLearningGroupEvent,
+        groupId: String(entry?.groupId || '').trim(),
+        groupName: String(entry?.groupName || subject || 'Мини-группа').trim(),
+        lessonId: String(entry?.lessonId || '').trim(),
+        participantIds: Array.isArray(entry?.participantIds) ? entry.participantIds : [],
+        participants: Array.isArray(entry?.participants) ? entry.participants : [],
+        subject: subject || (isLearningGroupEvent ? String(entry?.groupName || 'Мини-группа').trim() : 'Занятие'),
         dateLabel: formatDateLabel(dayKey, now),
         timeLabel: `${formatMinutesAsTime(startMinutes)}-${formatMinutesAsTime(startMinutes + durationMinutes)}`,
         startMs,
         msUntilStart,
-        telemostUrl: telemostMeetingUrl,
+        telemostUrl: entryTelemostUrl,
         boardUrl,
       });
     });
@@ -265,7 +284,12 @@ const findDueLessonPrompt = ({ entries, nextLesson, telemostUrl, now, dismissedK
   return candidates[0] || null;
 };
 
-const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson, onTelemostLessonStart }) => {
+const StudentLessonJoinPrompt = ({
+  studentId,
+  onOpenPlatformLesson,
+  onOpenLearningGroupLesson = null,
+  onTelemostLessonStart,
+}) => {
   const [scheduleEntries, setScheduleEntries] = useState([]);
   const [nextLesson, setNextLesson] = useState({});
   const [telemostUrl, setTelemostUrl] = useState('');
@@ -371,6 +395,12 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson, onTelemostLe
   const openPlatformLesson = useCallback(() => {
     if (!activePrompt) return;
     markPromptOpened();
+    if (activePrompt.isLearningGroupEvent) {
+      if (typeof onOpenLearningGroupLesson === 'function') {
+        onOpenLearningGroupLesson(activePrompt);
+      }
+      return;
+    }
     if (typeof onOpenPlatformLesson === 'function') {
       onOpenPlatformLesson(activePrompt);
       return;
@@ -378,11 +408,12 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson, onTelemostLe
     if (activePrompt.boardUrl && typeof window !== 'undefined') {
       window.open(activePrompt.boardUrl, '_blank', 'noopener,noreferrer');
     }
-  }, [activePrompt, markPromptOpened, onOpenPlatformLesson]);
+  }, [activePrompt, markPromptOpened, onOpenLearningGroupLesson, onOpenPlatformLesson]);
 
   const openTelemostLesson = useCallback(() => {
     if (!activePrompt?.telemostUrl) return;
     markPromptOpened();
+    if (activePrompt.isLearningGroupEvent) return;
     if (typeof onTelemostLessonStart === 'function') {
       onTelemostLessonStart({
         active: true,
@@ -409,6 +440,11 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson, onTelemostLe
 
   const countdownLabel = formatCountdown(activePrompt.msUntilStart);
   const leadLabel = formatLeadLabel(activePrompt.msUntilStart);
+  const groupLessonReady = !activePrompt.isLearningGroupEvent || Boolean(
+    String(activePrompt?.lessonId || '').trim()
+    && Array.isArray(activePrompt?.participantIds)
+    && activePrompt.participantIds.length >= 2
+  );
 
   const promptNode = (
     <div className="student-lesson-join-prompt" role="dialog" aria-modal="true" aria-labelledby="student-lesson-join-title">
@@ -437,12 +473,12 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson, onTelemostLe
 
         <div className="student-lesson-join-prompt__body">
           <div className="student-lesson-join-prompt__icon" aria-hidden="true">
-            <PhoneCall size={30} />
+            {activePrompt.isLearningGroupEvent ? <Users size={30} /> : <PhoneCall size={30} />}
           </div>
           <div className="student-lesson-join-prompt__copy">
             <h2 id="student-lesson-join-title">Пора подключаться</h2>
             <p>
-              {activePrompt.subject}
+              {activePrompt.isLearningGroupEvent ? activePrompt.groupName : activePrompt.subject}
               {' · '}
               {activePrompt.dateLabel}
               {' · '}
@@ -455,13 +491,18 @@ const StudentLessonJoinPrompt = ({ studentId, onOpenPlatformLesson, onTelemostLe
           <button
             type="button"
             onClick={openPlatformLesson}
+            disabled={activePrompt.isLearningGroupEvent && (
+              !groupLessonReady || typeof onOpenLearningGroupLesson !== 'function'
+            )}
             className="student-lesson-join-prompt__primary"
           >
-            <PhoneCall size={20} />
-            Подключиться по платформе
+            {activePrompt.isLearningGroupEvent ? <Users size={20} /> : <PhoneCall size={20} />}
+            {activePrompt.isLearningGroupEvent
+              ? (groupLessonReady ? 'Открыть занятие группы' : 'Группа ещё не запущена')
+              : 'Подключиться по платформе'}
           </button>
 
-          {activePrompt.telemostUrl && (
+          {groupLessonReady && activePrompt.telemostUrl && (
             <a
               href={activePrompt.telemostUrl}
               target="_blank"

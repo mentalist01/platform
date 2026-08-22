@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, WifiOff, X } from 'lucide-react';
+import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, Users, Video, WifiOff, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
@@ -22,6 +22,7 @@ import {
   normalizeHomeworkAssignmentTier,
 } from '../utils/homeworkAssignmentTier';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
+import { normalizeTelemostUrl } from '../utils/telemost';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { getStudentUnpaidLessonOccurrences } from '../utils/studentPaymentReminder';
 import {
@@ -252,15 +253,26 @@ const resolveScheduleWeekdayMeta = (entry) => {
 
 const normalizeScheduleEntry = (entry) => {
   if (!entry || typeof entry !== 'object') return null;
-  const weekdayMeta = resolveScheduleWeekdayMeta(entry);
-  return {
+  const startsAt = new Date(entry?.startsAt || entry?.startAt || '');
+  const hasStartsAt = !Number.isNaN(startsAt.getTime());
+  const derivedDate = hasStartsAt
+    ? `${startsAt.getFullYear()}-${String(startsAt.getMonth() + 1).padStart(2, '0')}-${String(startsAt.getDate()).padStart(2, '0')}`
+    : '';
+  const sourceEntry = {
     ...entry,
+    date: String(entry?.date || '').trim() || derivedDate,
+  };
+  const weekdayMeta = resolveScheduleWeekdayMeta(sourceEntry);
+  return {
+    ...sourceEntry,
     weekdayKey: weekdayMeta?.key || '',
     day: weekdayMeta?.label || String(entry?.day || '').trim(),
     weekdayOrder: Number.isFinite(Number(entry?.weekdayOrder))
       ? Number(entry.weekdayOrder)
       : (weekdayMeta?.order || 99),
-    time: String(entry?.time || '').trim(),
+    time: String(entry?.time || '').trim() || (hasStartsAt
+      ? `${String(startsAt.getHours()).padStart(2, '0')}:${String(startsAt.getMinutes()).padStart(2, '0')}`
+      : ''),
     subject: String(entry?.subject || '').trim() || DEFAULT_SCHEDULE_SUBJECT,
     note: String(entry?.note || '').trim(),
     createdByRole: String(entry?.createdByRole || '').trim(),
@@ -389,6 +401,8 @@ const getScheduleTimeRangeLabel = (entry) => {
 };
 
 const getScheduleEntryStartDate = (entry) => {
+  const startsAt = new Date(entry?.startsAt || entry?.startAt || '');
+  if (!Number.isNaN(startsAt.getTime())) return startsAt;
   const date = parseScheduleDayKey(entry?.currentWeekDate || entry?.date);
   const time = String(entry?.time || '').trim();
   if (!date || !/^\d{2}:\d{2}$/.test(time)) return null;
@@ -449,6 +463,7 @@ const isScheduleEntryOverdueUnpaid = (entry) => {
 };
 
 const getStudentScheduleOccurrenceKey = (entry) => [
+  String(entry?.groupId || '').trim(),
   String(entry?.currentWeekDate || entry?.date || '').trim(),
   String(entry?.time || '').trim(),
   String(entry?.durationMinutes || 60),
@@ -661,6 +676,7 @@ const ScheduleSection = ({
   createPythonWorker = null,
   renderLessonReplaySandbox = null,
   onStartLesson = null,
+  onOpenLearningGroupLesson = null,
   getAnswerCountForTask = null,
   getExpectedAnswers = null,
   GAME_THEORY_TASK = null,
@@ -1717,7 +1733,17 @@ const ScheduleSection = ({
               const timingState = lessonStateByKey.get(lessonKey) || getScheduleEntryTimingState(entry, now);
               const isNextLesson = lessonKey === nextLessonKey;
               const isOverdueUnpaid = isScheduleEntryOverdueUnpaid(entry);
-              const lessonUrl = normalizeHttpUrl(entry?.lessonLink);
+              const isLearningGroupEvent = Boolean(
+                entry?.isLearningGroupEvent && String(entry?.groupId || '').trim()
+              );
+              const groupName = String(entry?.groupName || entry?.subject || 'Мини-группа').trim();
+              const groupTelemostUrl = isLearningGroupEvent ? normalizeTelemostUrl(entry?.telemostUrl) : '';
+              const groupLessonReady = !isLearningGroupEvent || Boolean(
+                String(entry?.lessonId || '').trim()
+                && Array.isArray(entry?.participantIds)
+                && entry.participantIds.length >= 2
+              );
+              const lessonUrl = isLearningGroupEvent ? groupTelemostUrl : normalizeHttpUrl(entry?.lessonLink);
               const duration = Number(entry?.durationMinutes);
               const durationLabel = Number.isFinite(duration) && duration > 0 ? `${Math.round(duration)} мин` : '60 мин';
               const lessonDate = parseScheduleDayKey(entry?.currentWeekDate || entry?.date);
@@ -1725,7 +1751,7 @@ const ScheduleSection = ({
               const topicKey = getLessonTopicOccurrenceKey(effectiveStudentId, entry);
               const lessonTopic = topicKey ? lessonTopicsByOccurrence[topicKey] : null;
               const lessonTopicText = getLessonTopicDisplayText(lessonTopic);
-              const canOpenLessonDetail = timingState === 'past';
+              const canOpenLessonDetail = timingState === 'past' && !isLearningGroupEvent;
               const emptyTopicText = timingState === 'past'
                 ? 'Конспекты к занятию не найдены'
                 : 'Тема пока не задана';
@@ -1758,14 +1784,25 @@ const ScheduleSection = ({
                       <strong>{getScheduleTimeRangeLabel(entry)}</strong>
                       <span>{durationLabel}</span>
                     </div>
-                    <div
-                      className={`schedule-shell__student-lesson-topic${lessonTopic ? ` schedule-shell__student-lesson-topic--${lessonTopic.source}` : ' schedule-shell__student-lesson-topic--empty'}`}
-                      title={lessonTopicText || emptyTopicText}
-                    >
-                      <BookOpen size={13} />
-                      <span>{lessonTopic?.source === 'teacher' ? 'Тема учителя' : (lessonTopic ? 'По конспектам' : 'Тема')}</span>
-                      <strong>{lessonTopicText || (lessonTopicsLoading ? 'Определяем тему…' : emptyTopicText)}</strong>
-                    </div>
+                    {isLearningGroupEvent ? (
+                      <div
+                        className="schedule-shell__student-lesson-topic schedule-shell__student-lesson-topic--teacher"
+                        title={`Мини-группа: ${groupName}`}
+                      >
+                        <Users size={13} />
+                        <span>Мини-группа</span>
+                        <strong>{groupName}</strong>
+                      </div>
+                    ) : (
+                      <div
+                        className={`schedule-shell__student-lesson-topic${lessonTopic ? ` schedule-shell__student-lesson-topic--${lessonTopic.source}` : ' schedule-shell__student-lesson-topic--empty'}`}
+                        title={lessonTopicText || emptyTopicText}
+                      >
+                        <BookOpen size={13} />
+                        <span>{lessonTopic?.source === 'teacher' ? 'Тема учителя' : (lessonTopic ? 'По конспектам' : 'Тема')}</span>
+                        <strong>{lessonTopicText || (lessonTopicsLoading ? 'Определяем тему…' : emptyTopicText)}</strong>
+                      </div>
+                    )}
                   </div>
                   {canOpenLessonDetail && (
                     <div className="schedule-shell__student-lesson-detail-hint" aria-hidden="true">
@@ -1773,7 +1810,33 @@ const ScheduleSection = ({
                       <ChevronRight size={13} />
                     </div>
                   )}
-                  {lessonUrl && !canOpenLessonDetail && (
+                  {isLearningGroupEvent && typeof onOpenLearningGroupLesson === 'function' && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenLearningGroupLesson({ ...entry, telemostUrl: groupTelemostUrl });
+                      }}
+                      disabled={!groupLessonReady}
+                      className="schedule-shell__student-lesson-link"
+                    >
+                      <Users size={13} />
+                      {groupLessonReady ? 'Открыть группу' : 'Группа ещё формируется'}
+                    </button>
+                  )}
+                  {isLearningGroupEvent && groupLessonReady && typeof onOpenLearningGroupLesson !== 'function' && lessonUrl && (
+                    <a
+                      href={lessonUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(event) => event.stopPropagation()}
+                      className="schedule-shell__student-lesson-link"
+                    >
+                      <Video size={13} />
+                      Телемост
+                    </a>
+                  )}
+                  {!isLearningGroupEvent && lessonUrl && !canOpenLessonDetail && (
                     <a
                       href={lessonUrl}
                       target="_blank"

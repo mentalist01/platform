@@ -1,8 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Clock3, FileText, Loader2, PhoneCall, X } from 'lucide-react';
+import {
+  BookOpen,
+  CheckCircle,
+  Clock3,
+  ExternalLink,
+  FileText,
+  Loader2,
+  PhoneCall,
+  Users,
+  Video,
+  X,
+} from 'lucide-react';
 
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
+import { normalizeTelemostUrl } from '../utils/telemost';
 
 const LESSON_PROMPT_LEAD_MS = 60 * 1000;
 const LESSON_PROMPT_AFTER_START_MS = 5 * 60 * 1000;
@@ -83,6 +95,10 @@ const getEntryStartMinutes = (entry) => {
   if (Number.isFinite(fromStart) && fromStart >= 0 && fromStart < 24 * 60) {
     return Math.floor(fromStart);
   }
+  const startsAt = new Date(entry?.startsAt || entry?.startAt || '');
+  if (!Number.isNaN(startsAt.getTime())) {
+    return (startsAt.getHours() * 60) + startsAt.getMinutes();
+  }
   return NaN;
 };
 
@@ -136,6 +152,8 @@ const resolveEntryWeekdayOrder = (entry) => {
 const getEntryCandidateDayKeys = (entry, now) => {
   const explicitDate = normalizeDayKey(entry?.date || entry?.dayKey);
   if (explicitDate) return [explicitDate];
+  const startsAt = new Date(entry?.startsAt || entry?.startAt || '');
+  if (!Number.isNaN(startsAt.getTime())) return [toDayKey(startsAt)];
   const weekdayOrder = resolveEntryWeekdayOrder(entry);
   if (!weekdayOrder) return [];
   const today = cloneAsDateOnly(now);
@@ -160,6 +178,23 @@ const formatPromptDateLabel = (dayKey) => {
 const getReminderStorageKey = (teacherId) => (
   `${LESSON_PROMPT_DISMISSED_STORAGE_PREFIX}:${String(teacherId || '').trim()}`
 );
+
+const loadDismissedPromptKeys = (storageKey) => {
+  const result = new Set();
+  if (typeof window === 'undefined' || !storageKey) return result;
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(storageKey) || '[]');
+    if (Array.isArray(parsed)) {
+      parsed.forEach((key) => {
+        const normalized = String(key || '').trim();
+        if (normalized) result.add(normalized);
+      });
+    }
+  } catch {
+    // Session storage can be unavailable in strict privacy modes.
+  }
+  return result;
+};
 
 const parseLessonInfoDateMs = (value) => {
   const raw = String(value || '').trim();
@@ -279,14 +314,106 @@ const getHomeworkGoalLabels = (homework) => (
     .filter(Boolean)
 );
 
+const isLearningGroupScheduleEntry = (entry) => (
+  Boolean(entry?.isLearningGroupEvent && String(entry?.groupId || '').trim())
+);
+
+const getParticipantId = (participant) => String(
+  participant?.studentId || participant?.id || participant?.userId || ''
+).trim();
+
+const getParticipantName = (participant, studentsById) => {
+  const participantId = getParticipantId(participant);
+  return String(
+    participant?.studentName
+    || participant?.displayName
+    || participant?.name
+    || participant?.nickname
+    || studentsById?.get(participantId)
+    || 'Ученик'
+  ).trim();
+};
+
+const getGroupParticipantRows = (prompt, studentsById) => {
+  if (!prompt?.isLearningGroupEvent) return [];
+  const participantById = new Map();
+  (Array.isArray(prompt?.participants) ? prompt.participants : []).forEach((participant, index) => {
+    if (!participant || typeof participant !== 'object') return;
+    const id = getParticipantId(participant) || `participant-${index}`;
+    participantById.set(id, {
+      id,
+      name: getParticipantName(participant, studentsById),
+      participant,
+    });
+  });
+  (Array.isArray(prompt?.participantIds) ? prompt.participantIds : []).forEach((value) => {
+    const id = String(value || '').trim();
+    if (!id || participantById.has(id)) return;
+    participantById.set(id, {
+      id,
+      name: String(studentsById?.get(id) || 'Ученик').trim(),
+      participant: null,
+    });
+  });
+
+  const paymentById = new Map();
+  const rawStatuses = prompt?.memberPaymentStatuses;
+  if (Array.isArray(rawStatuses)) {
+    rawStatuses.forEach((payment, index) => {
+      if (!payment || typeof payment !== 'object') return;
+      const id = getParticipantId(payment) || `payment-${index}`;
+      paymentById.set(id, payment);
+      if (!participantById.has(id)) {
+        participantById.set(id, {
+          id,
+          name: getParticipantName(payment, studentsById),
+          participant: null,
+        });
+      }
+    });
+  } else if (rawStatuses && typeof rawStatuses === 'object') {
+    Object.entries(rawStatuses).forEach(([rawId, value]) => {
+      const id = String(rawId || '').trim();
+      if (!id) return;
+      const payment = value && typeof value === 'object' ? value : { status: value };
+      paymentById.set(id, payment);
+      if (!participantById.has(id)) {
+        participantById.set(id, {
+          id,
+          name: getParticipantName({ ...payment, studentId: id }, studentsById),
+          participant: null,
+        });
+      }
+    });
+  }
+
+  return Array.from(participantById.values()).map((row) => {
+    const payment = paymentById.get(row.id)
+      || (row.participant?.payment && typeof row.participant.payment === 'object'
+        ? row.participant.payment
+        : null);
+    const normalizedStatus = String(payment?.status || payment?.paymentStatus || '').trim().toLowerCase();
+    const isPaid = payment?.paid === true || payment?.isPaid === true || normalizedStatus === 'paid';
+    const isUnpaid = payment?.paid === false
+      || payment?.isPaid === false
+      || ['unpaid', 'overdue', 'pending'].includes(normalizedStatus);
+    return {
+      ...row,
+      paymentStatus: isPaid ? 'paid' : (isUnpaid ? 'unpaid' : 'unknown'),
+    };
+  });
+};
+
 const findDueLessonPrompt = ({ entries, now, studentsById, dismissedKeys }) => {
   const safeNow = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
   const nowMs = safeNow.getTime();
   const candidates = [];
 
   (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    const isLearningGroupEvent = isLearningGroupScheduleEntry(entry);
     const studentId = String(entry?.studentId || '').trim();
-    if (!studentId) return;
+    const groupId = String(entry?.groupId || '').trim();
+    if (!isLearningGroupEvent && !studentId) return;
     const startMinutes = getEntryStartMinutes(entry);
     if (!Number.isFinite(startMinutes)) return;
     const duration = Number.isFinite(Number(entry?.durationMinutes))
@@ -304,7 +431,7 @@ const findDueLessonPrompt = ({ entries, now, studentsById, dismissedKeys }) => {
       if (msUntilStart > LESSON_PROMPT_LEAD_MS || msUntilStart < -LESSON_PROMPT_AFTER_START_MS) return;
       const occurrenceKey = [
         String(entry?.id || entry?.externalEventId || '').trim(),
-        studentId,
+        isLearningGroupEvent ? groupId : studentId,
         dayKey,
         startLabel,
       ].join(':');
@@ -313,7 +440,16 @@ const findDueLessonPrompt = ({ entries, now, studentsById, dismissedKeys }) => {
       const studentName = String(studentLabel || entry?.studentName || 'Ученик').trim();
       const subject = String(entry?.subject || '').trim();
       candidates.push({
+        ...entry,
         occurrenceKey,
+        isLearningGroupEvent,
+        groupId,
+        groupName: String(entry?.groupName || subject || 'Мини-группа').trim(),
+        lessonId: String(entry?.lessonId || '').trim(),
+        participantIds: Array.isArray(entry?.participantIds) ? entry.participantIds : [],
+        participants: Array.isArray(entry?.participants) ? entry.participants : [],
+        memberPaymentStatuses: entry?.memberPaymentStatuses,
+        telemostUrl: normalizeTelemostUrl(entry?.telemostUrl),
         studentId,
         studentName,
         subject,
@@ -344,54 +480,47 @@ const TeacherLessonStartPrompt = ({
   students = [],
   getStudentLabel = null,
   onOpenStudentWorkspace = null,
+  onOpenLearningGroupLesson = null,
 }) => {
   const [scheduleEntries, setScheduleEntries] = useState([]);
   const [scheduleReady, setScheduleReady] = useState(false);
   const [now, setNow] = useState(() => new Date());
-  const [activePrompt, setActivePrompt] = useState(null);
-  const [dismissVersion, setDismissVersion] = useState(0);
+  const [dismissedPromptState, setDismissedPromptState] = useState(() => ({
+    storageKey: getReminderStorageKey(teacherId),
+    keys: loadDismissedPromptKeys(getReminderStorageKey(teacherId)),
+  }));
   const [homework, setHomework] = useState(null);
   const [homeworkLoading, setHomeworkLoading] = useState(false);
   const [files, setFiles] = useState([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState('');
-  const dismissedKeysRef = useRef(new Set());
   const calendarSyncConfiguredRef = useRef(null);
 
   const storageKey = useMemo(() => getReminderStorageKey(teacherId), [teacherId]);
+  const dismissedKeys = useMemo(() => (
+    dismissedPromptState.storageKey === storageKey
+      ? dismissedPromptState.keys
+      : loadDismissedPromptKeys(storageKey)
+  ), [dismissedPromptState, storageKey]);
 
   useEffect(() => {
     calendarSyncConfiguredRef.current = null;
   }, [teacherId]);
 
-  useEffect(() => {
-    const nextSet = new Set();
-    if (typeof window !== 'undefined' && storageKey) {
-      try {
-        const parsed = JSON.parse(window.sessionStorage.getItem(storageKey) || '[]');
-        if (Array.isArray(parsed)) {
-          parsed.forEach((key) => {
-            const normalized = String(key || '').trim();
-            if (normalized) nextSet.add(normalized);
-          });
-        }
-      } catch {}
-    }
-    dismissedKeysRef.current = nextSet;
-    setDismissVersion((value) => value + 1);
-  }, [storageKey]);
-
   const rememberDismissedPrompt = useCallback((occurrenceKey) => {
     const normalized = String(occurrenceKey || '').trim();
     if (!normalized) return;
-    dismissedKeysRef.current.add(normalized);
-    setDismissVersion((value) => value + 1);
+    const nextSet = new Set(dismissedKeys);
+    nextSet.add(normalized);
+    setDismissedPromptState({ storageKey, keys: nextSet });
     if (typeof window === 'undefined' || !storageKey) return;
     try {
-      const values = Array.from(dismissedKeysRef.current).slice(-80);
+      const values = Array.from(nextSet).slice(-80);
       window.sessionStorage.setItem(storageKey, JSON.stringify(values));
-    } catch {}
-  }, [storageKey]);
+    } catch {
+      // Dismissing the in-page prompt must not depend on storage access.
+    }
+  }, [dismissedKeys, storageKey]);
 
   const refreshSchedule = useCallback(async () => {
     if (!teacherId) {
@@ -473,27 +602,15 @@ const TeacherLessonStartPrompt = ({
       entries: scheduleEntries,
       now,
       studentsById,
-      dismissedKeys: dismissedKeysRef.current,
+      dismissedKeys,
     });
-  }, [dismissVersion, now, scheduleEntries, scheduleReady, studentsById]);
+  }, [dismissedKeys, now, scheduleEntries, scheduleReady, studentsById]);
 
-  useEffect(() => {
-    if (!duePrompt) return;
-    setActivePrompt((current) => (
-      current?.occurrenceKey === duePrompt.occurrenceKey
-        ? { ...current, ...duePrompt }
-        : duePrompt
-    ));
-  }, [duePrompt]);
+  const activePrompt = duePrompt;
 
   useEffect(() => {
     const studentId = String(activePrompt?.studentId || '').trim();
-    if (!studentId) {
-      setHomework(null);
-      setHomeworkLoading(false);
-      setFiles([]);
-      setFilesLoading(false);
-      setFilesError('');
+    if (activePrompt?.isLearningGroupEvent || !studentId) {
       return undefined;
     }
 
@@ -534,24 +651,35 @@ const TeacherLessonStartPrompt = ({
     return () => {
       cancelled = true;
     };
-  }, [activePrompt?.occurrenceKey, activePrompt?.studentId]);
+  }, [activePrompt?.isLearningGroupEvent, activePrompt?.occurrenceKey, activePrompt?.studentId]);
 
   const closePrompt = useCallback(() => {
     if (activePrompt?.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
-    setActivePrompt(null);
   }, [activePrompt, rememberDismissedPrompt]);
 
   const joinCall = useCallback(() => {
-    if (!activePrompt?.studentId) return;
+    if (activePrompt?.isLearningGroupEvent || !activePrompt?.studentId) return;
     if (activePrompt?.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
-    setActivePrompt(null);
     if (typeof onOpenStudentWorkspace === 'function') {
       onOpenStudentWorkspace('call-connect', activePrompt.studentId);
     }
   }, [activePrompt, onOpenStudentWorkspace, rememberDismissedPrompt]);
 
+  const openLearningGroupLesson = useCallback(() => {
+    if (!activePrompt?.isLearningGroupEvent) return;
+    if (activePrompt?.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
+    if (typeof onOpenLearningGroupLesson === 'function') {
+      onOpenLearningGroupLesson(activePrompt);
+    }
+  }, [activePrompt, onOpenLearningGroupLesson, rememberDismissedPrompt]);
+
+  const markGroupTelemostOpened = useCallback(() => {
+    if (!activePrompt?.isLearningGroupEvent) return;
+    if (activePrompt?.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
+  }, [activePrompt, rememberDismissedPrompt]);
+
   const openNotes = useCallback(() => {
-    if (!activePrompt?.studentId) return;
+    if (activePrompt?.isLearningGroupEvent || !activePrompt?.studentId) return;
     if (typeof onOpenStudentWorkspace === 'function') {
       onOpenStudentWorkspace('notes', activePrompt.studentId);
     }
@@ -565,6 +693,13 @@ const TeacherLessonStartPrompt = ({
   const subtitle = [activePrompt.dateLabel, activePrompt.timeLabel].filter(Boolean).join(', ');
   const subject = String(activePrompt.subject || '').trim();
   const leadLabel = getPromptLeadLabel(activePrompt);
+  const isLearningGroupEvent = Boolean(activePrompt.isLearningGroupEvent);
+  const groupParticipantRows = getGroupParticipantRows(activePrompt, studentsById);
+  const groupLessonReady = Boolean(
+    String(activePrompt?.lessonId || '').trim()
+    && Array.isArray(activePrompt?.participantIds)
+    && activePrompt.participantIds.length >= 2
+  );
 
   const promptOverlay = (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm">
@@ -586,9 +721,9 @@ const TeacherLessonStartPrompt = ({
               )}
             </div>
             <h2 className="mt-2 truncate text-2xl font-black text-white">
-              {activePrompt.studentName}
+              {isLearningGroupEvent ? activePrompt.groupName : activePrompt.studentName}
             </h2>
-            {subject && subject !== activePrompt.studentName && (
+            {subject && subject !== (isLearningGroupEvent ? activePrompt.groupName : activePrompt.studentName) && (
               <div className="mt-0.5 truncate text-sm font-semibold text-slate-400">{subject}</div>
             )}
           </div>
@@ -603,16 +738,91 @@ const TeacherLessonStartPrompt = ({
         </div>
 
         <div className="max-h-[calc(92vh-92px)] overflow-y-auto px-5 py-4">
-          <button
-            type="button"
-            onClick={joinCall}
-            disabled={!activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'}
-            className="flex w-full items-center justify-center gap-3 rounded-2xl border border-cyan-200/50 bg-cyan-200 px-5 py-5 text-lg font-black text-slate-950 shadow-[0_18px_42px_rgba(34,211,238,0.24)] transition hover:-translate-y-0.5 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <PhoneCall size={24} />
-            Присоединиться к созвону
-          </button>
+          {isLearningGroupEvent ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={openLearningGroupLesson}
+                disabled={!groupLessonReady || typeof onOpenLearningGroupLesson !== 'function'}
+                className="flex w-full items-center justify-center gap-3 rounded-2xl border border-cyan-200/50 bg-cyan-200 px-5 py-5 text-base font-black text-slate-950 shadow-[0_18px_42px_rgba(34,211,238,0.24)] transition hover:-translate-y-0.5 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Users size={22} />
+                Открыть занятие группы
+              </button>
+              {groupLessonReady && activePrompt.telemostUrl ? (
+                <a
+                  href={activePrompt.telemostUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={markGroupTelemostOpened}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-300/45 bg-violet-300/12 px-5 py-5 text-base font-black text-violet-100 transition hover:-translate-y-0.5 hover:bg-violet-300/20"
+                >
+                  <Video size={21} />
+                  Открыть Телемост
+                  <ExternalLink size={16} />
+                </a>
+              ) : (
+                <div className="flex items-center justify-center rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-center text-sm font-semibold text-amber-100">
+                  {groupLessonReady
+                    ? 'Ссылка на Телемост для этого занятия не указана.'
+                    : 'Группа ещё не запущена. Для старта нужны минимум два ученика и статус «Занимается».'}
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={joinCall}
+              disabled={!activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'}
+              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-cyan-200/50 bg-cyan-200 px-5 py-5 text-lg font-black text-slate-950 shadow-[0_18px_42px_rgba(34,211,238,0.24)] transition hover:-translate-y-0.5 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <PhoneCall size={24} />
+              Присоединиться к созвону
+            </button>
+          )}
 
+          {isLearningGroupEvent ? (
+            <section className="mt-4 rounded-2xl border border-violet-300/35 bg-violet-950/20 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-violet-200">
+                  <Users size={15} />
+                  Участники группы
+                </div>
+                <span className="text-[11px] font-semibold text-slate-400">
+                  {groupParticipantRows.length > 0 ? `${groupParticipantRows.length} уч.` : 'Список уточняется'}
+                </span>
+              </div>
+              {groupParticipantRows.length > 0 ? (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {groupParticipantRows.map((row) => (
+                    <div
+                      key={row.id}
+                      className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5"
+                    >
+                      <span className="truncate text-sm font-black text-white">{row.name}</span>
+                      <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black ${
+                        row.paymentStatus === 'paid'
+                          ? 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100'
+                          : row.paymentStatus === 'unpaid'
+                            ? 'border-rose-300/30 bg-rose-400/12 text-rose-100'
+                            : 'border-slate-300/20 bg-slate-300/10 text-slate-300'
+                      }`}
+                      >
+                        {row.paymentStatus === 'paid' ? <CheckCircle size={11} /> : <Clock3 size={11} />}
+                        {row.paymentStatus === 'paid'
+                          ? 'Оплачено'
+                          : (row.paymentStatus === 'unpaid' ? 'Не оплачено' : 'Нет данных')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 text-sm font-semibold text-slate-300">
+                  Участники появятся после обновления расписания.
+                </div>
+              )}
+            </section>
+          ) : (
           <div className="mt-4 grid gap-3">
             <section className="rounded-2xl border border-emerald-400/45 bg-emerald-950/18 p-4">
               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-emerald-200">
@@ -706,17 +916,20 @@ const TeacherLessonStartPrompt = ({
               )}
             </section>
           </div>
+          )}
 
           <div className="mt-4 flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={openNotes}
-              disabled={!activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'}
-              className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/40 bg-amber-300/12 px-4 py-2 text-sm font-black text-amber-100 transition hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <BookOpen size={15} />
-              Конспекты
-            </button>
+            {!isLearningGroupEvent && (
+              <button
+                type="button"
+                onClick={openNotes}
+                disabled={!activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'}
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/40 bg-amber-300/12 px-4 py-2 text-sm font-black text-amber-100 transition hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <BookOpen size={15} />
+                Конспекты
+              </button>
+            )}
             <button
               type="button"
               onClick={closePrompt}
