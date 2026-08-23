@@ -524,6 +524,37 @@ test('learning groups keep shared work isolated while legacy student schedules r
       body: { sessionId: studentReplaySession.sessionId },
     });
 
+    const teacherGroupLessons = await jsonRequest(
+      baseUrl,
+      `/api/learning-groups/${groupId}/lessons`,
+      { token: teacher.token }
+    );
+    const storedReplayLesson = teacherGroupLessons.lessons.find((lesson) => (
+      lesson.id === replayLessonId
+    ));
+    assert.ok(storedReplayLesson?.replayStorage, JSON.stringify(teacherGroupLessons));
+    assert.ok(storedReplayLesson.replayStorage.totalBytes >= replayAudioBytes.length);
+    assert.equal(teacherGroupLessons.replayStorageStatus, 'ready');
+    assert.equal(
+      teacherGroupLessons.replayStorageTotalBytes,
+      storedReplayLesson.replayStorage.totalBytes,
+      'shared group replay storage must only be counted once'
+    );
+
+    const studentGroupLessons = await jsonRequest(
+      baseUrl,
+      `/api/learning-groups/${groupId}/lessons`,
+      { token: studentA.token }
+    );
+    assert.equal(Object.hasOwn(studentGroupLessons, 'replayStorageTotalBytes'), false);
+    assert.equal(
+      Object.hasOwn(
+        studentGroupLessons.lessons.find((lesson) => lesson.id === replayLessonId),
+        'replayStorage'
+      ),
+      false
+    );
+
     const studentAHistory = await jsonRequest(
       baseUrl,
       '/api/lesson-history?studentId=student-a&limit=50',

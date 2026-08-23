@@ -15,6 +15,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  HardDrive,
   Link2,
   Loader2,
   PanelTop,
@@ -218,6 +219,19 @@ const parseLessonsPayload = (payload) => findArrayInPayload(
   ['lessons', 'sessions', 'items']
 ).map(normalizeLearningGroupLesson);
 
+const parseReplayStoragePayload = (payload) => {
+  const source = asObject(payload);
+  if (!Object.prototype.hasOwnProperty.call(source, 'replayStorageStatus')) return null;
+  const totalBytes = Number(source.replayStorageTotalBytes);
+  const knownBytes = Number(source.replayStorageKnownBytes);
+  return {
+    totalBytes: Number.isFinite(totalBytes) ? Math.max(0, totalBytes) : null,
+    knownBytes: Number.isFinite(knownBytes) ? Math.max(0, knownBytes) : 0,
+    status: source.replayStorageStatus === 'indexing' ? 'indexing' : 'ready',
+    pendingCount: Math.max(0, Math.round(Number(source.replayStoragePendingCount) || 0)),
+  };
+};
+
 const parseAssignmentsPayload = (payload) => findArrayInPayload(
   payload,
   ['assignments', 'homeworks', 'items']
@@ -278,7 +292,10 @@ const formatFileSize = (bytesValue) => {
   const bytes = Math.max(0, Number(bytesValue) || 0);
   if (bytes < 1024) return `${Math.round(bytes)} Б`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} КБ`;
-  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} МБ`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} МБ`;
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 * 1024 ? 1 : 0)} ГБ`;
 };
 
 const toDateTimeLocal = (value) => {
@@ -590,6 +607,7 @@ const LearningGroupsSection = ({
       const nextGroup = decorateGroup({
         ...detail,
         lessons: parseLessonsPayload(lessonsPayload),
+        replayStorage: parseReplayStoragePayload(lessonsPayload),
         assignments: parseAssignmentsPayload(assignmentsPayload),
         materials: parseMaterialsPayload(materialsPayload),
         progress: parseProgressPayload(progressPayload) || detail.progress || null,
@@ -1795,6 +1813,34 @@ const LearningGroupsSection = ({
 
                 {tab === 'lessons' && (
                   <div className="space-y-4">
+                    {isTeacher && selectedGroup.replayStorage && (
+                      <div className="flex flex-col gap-3 rounded-3xl border border-violet-200 bg-violet-50/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-violet-100 text-violet-700">
+                            <HardDrive size={20} />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="font-black text-slate-900">Все записи группы</p>
+                            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                              Запись занятия хранится один раз для всей группы. Участники открывают одну общую запись без создания копий.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="shrink-0 sm:text-right">
+                          <p className="text-xl font-black text-violet-700">
+                            {selectedGroup.replayStorage.status === 'indexing'
+                              ? 'Считаем…'
+                              : formatFileSize(selectedGroup.replayStorage.totalBytes)}
+                          </p>
+                          {selectedGroup.replayStorage.status === 'indexing' && selectedGroup.replayStorage.knownBytes > 0 && (
+                            <p className="mt-1 text-xs font-semibold text-slate-500">
+                              Уже найдено {formatFileSize(selectedGroup.replayStorage.knownBytes)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {isTeacher && selectedGroup.status === LEARNING_GROUP_STATUS_ACTIVE && (
                       <SectionCard title="Запланировать занятие" subtitle="Участники фиксируются на момент создания, а встреча проходит в Яндекс Телемосте.">
                         <form onSubmit={handleCreateLesson} className="grid gap-3 lg:grid-cols-[190px_130px_minmax(0,1fr)_auto] lg:items-end">
@@ -1872,6 +1918,11 @@ const LearningGroupsSection = ({
                                     <span className="inline-flex items-center gap-1.5"><CalendarDays size={15} /> {formatDate(getLessonStart(lesson), { withTime: true })}</span>
                                     <span className="inline-flex items-center gap-1.5"><Clock3 size={15} /> {formatDuration(lesson.durationMinutes)}</span>
                                     <span className="inline-flex items-center gap-1.5"><Users size={15} /> {getLessonParticipants(lesson, selectedGroup).length}</span>
+                                    {isTeacher && Number(lesson?.replayStorage?.totalBytes) > 0 && (
+                                      <span className="inline-flex items-center gap-1.5 font-semibold text-violet-700" title="Общий размер записи этого занятия">
+                                        <HardDrive size={15} /> Запись: {formatFileSize(lesson.replayStorage.totalBytes)}
+                                      </span>
+                                    )}
                                   </div>
                                   {lesson.note && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{lesson.note}</p>}
                                 </div>

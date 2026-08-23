@@ -20537,6 +20537,41 @@ const getLessonHistoryReplayKey = (occurrence) => (
   String(occurrence?.replayKey || occurrence?.key || '').trim()
 );
 
+const buildLearningGroupReplayStorageUsage = async (lessons = []) => {
+  const storageByLessonId = new Map();
+  let totalBytes = 0;
+  let pendingCount = 0;
+  const uniqueLessons = Array.from(new Map(
+    (Array.isArray(lessons) ? lessons : [])
+      .map((lesson) => [String(lesson?.id || '').trim(), lesson])
+      .filter(([lessonId]) => Boolean(lessonId))
+  ).values());
+
+  await Promise.all(uniqueLessons.map(async (lesson) => {
+    const lessonId = String(lesson.id || '').trim();
+    const replayKey = buildLearningGroupLessonReplayKey(lessonId);
+    let storage = getLessonReplayStorageSummary(replayKey, { priority: true });
+    if (!storage) {
+      try {
+        storage = await reconcileLessonReplayStorageSummary(replayKey);
+      } catch (error) {
+        pendingCount += 1;
+        console.warn('[learning-groups] failed to reconcile replay storage:', error?.message || error);
+      }
+    }
+    if (!storage) return;
+    storageByLessonId.set(lessonId, storage);
+    totalBytes += getLessonReplayStorageTotalBytes(storage);
+  }));
+
+  return {
+    storageByLessonId,
+    totalBytes,
+    pendingCount,
+    status: pendingCount > 0 ? 'indexing' : 'ready',
+  };
+};
+
 const getLearningAssignmentById = (groupId, assignmentId) => {
   const normalizedGroupId = String(groupId || '').trim();
   const normalizedAssignmentId = String(assignmentId || '').trim();
@@ -21156,7 +21191,7 @@ app.put('/api/learning-groups/:groupId/schedule', handleLearningRoute((req, res)
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth), schedule: updated.schedule });
 }));
 
-app.get('/api/learning-groups/:groupId/lessons', handleLearningRoute((req, res) => {
+app.get('/api/learning-groups/:groupId/lessons', handleLearningRoute(async (req, res) => {
   const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
   if (!group) return;
   let lessons = readLearningLessonSessionsDb().filter((lesson) => lesson.groupId === group.id);
@@ -21173,7 +21208,24 @@ app.get('/api/learning-groups/:groupId/lessons', handleLearningRoute((req, res) 
     .slice()
     .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))
     .slice(0, limit);
-  return res.json({ lessons: lessons.map((lesson) => serializeLearningLessonForAuth(lesson, req.auth, group)) });
+  const includeReplayStorage = isAdminRole(req.auth) || isTeacherRole(req.auth);
+  const replayStorageUsage = includeReplayStorage
+    ? await buildLearningGroupReplayStorageUsage(lessons)
+    : null;
+  return res.json({
+    lessons: lessons.map((lesson) => ({
+      ...serializeLearningLessonForAuth(lesson, req.auth, group),
+      ...(includeReplayStorage && replayStorageUsage.storageByLessonId.has(lesson.id)
+        ? { replayStorage: replayStorageUsage.storageByLessonId.get(lesson.id) }
+        : {}),
+    })),
+    ...(includeReplayStorage ? {
+      replayStorageTotalBytes: replayStorageUsage.pendingCount > 0 ? null : replayStorageUsage.totalBytes,
+      replayStorageKnownBytes: replayStorageUsage.totalBytes,
+      replayStorageStatus: replayStorageUsage.status,
+      replayStoragePendingCount: replayStorageUsage.pendingCount,
+    } : {}),
+  });
 }));
 
 app.post('/api/learning-groups/:groupId/lessons', handleLearningRoute((req, res) => {
