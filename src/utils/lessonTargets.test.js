@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildLearningGroupTargetValue,
   getStudentActiveLearningGroups,
+  isLearningGroupLessonReplayActive,
   parseLessonTargetValue,
   selectLearningGroupWorkspaceLesson,
 } from './lessonTargets.js';
@@ -16,6 +17,13 @@ test('encodes and parses a learning group lesson target', () => {
 test('keeps legacy student ids unchanged', () => {
   assert.deepEqual(parseLessonTargetValue('student-7'), { type: 'student', id: 'student-7' });
   assert.deepEqual(parseLessonTargetValue(''), { type: 'student', id: '' });
+});
+
+test('selecting a group workspace does not pretend that a Telemost lesson is running', () => {
+  const selectedLesson = { lessonId: 'lesson-1', readOnly: false, replayActive: false };
+  assert.equal(isLearningGroupLessonReplayActive(selectedLesson), false);
+  assert.equal(isLearningGroupLessonReplayActive({ ...selectedLesson, replayActive: true }), true);
+  assert.equal(isLearningGroupLessonReplayActive({ ...selectedLesson, replayActive: true, readOnly: true }), false);
 });
 
 test('uses only a current active membership for the student workspace', () => {

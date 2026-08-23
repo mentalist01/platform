@@ -111,6 +111,7 @@ import {
 import {
   buildLearningGroupTargetValue,
   getStudentActiveLearningGroups,
+  isLearningGroupLessonReplayActive,
   parseLessonTargetValue,
   selectLearningGroupWorkspaceLesson,
 } from './utils/lessonTargets';
@@ -17125,6 +17126,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [callSessionStatus, setCallSessionStatus] = useState('idle');
   const [telemostLessonReplay, setTelemostLessonReplay] = useState(null);
   const [telemostLessonFinishBusy, setTelemostLessonFinishBusy] = useState(false);
+  const [telemostLessonFinishError, setTelemostLessonFinishError] = useState('');
   const [telemostAudioCapture, setTelemostAudioCapture] = useState({ status: 'idle', message: '' });
   const telemostAudioCaptureRef = useRef(null);
   const telemostAudioCaptureStartGenerationRef = useRef(0);
@@ -17383,9 +17385,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       || Date.parse(telemostLessonReplay.autoFinishAt) > Date.now()
     )
   );
-  const isGroupLessonReplayActive = Boolean(
-    activeLearningLesson?.lessonId && !activeLearningLesson?.readOnly
-  );
+  const isGroupLessonReplayActive = isLearningGroupLessonReplayActive(activeLearningLesson);
   const isAnyTelemostLessonReplayActive = isTelemostLessonReplayActive || isGroupLessonReplayActive;
   useEffect(() => {
     const blockerKey = `active-call:${user.role}:${user.id}`;
@@ -17467,9 +17467,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return capture.stopPromise;
   }, []);
 
-  const startTelemostAudioCapture = useCallback(async () => {
+  const startTelemostAudioCapture = useCallback(async ({ force = false } = {}) => {
     if (
-      !isAnyTelemostLessonReplayActive
+      (!isAnyTelemostLessonReplayActive && !force)
       || telemostAudioCaptureRef.current
       || telemostAudioCaptureStartingRef.current
       || !navigator.mediaDevices?.getDisplayMedia
@@ -17735,9 +17735,36 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [user.id, user.role]);
 
   const handleFinishTelemostLesson = useCallback(async () => {
+    const learningGroupId = String(activeLearningLesson?.groupId || '').trim();
+    const learningLessonId = String(activeLearningLesson?.lessonId || '').trim();
+    if (learningGroupId && learningLessonId && activeLearningLesson?.replayActive) {
+      if (telemostLessonFinishBusy) return;
+      setTelemostLessonFinishBusy(true);
+      setTelemostLessonFinishError('');
+      try {
+        await stopTelemostAudioCapture();
+        await finishLessonReplayNow();
+        await api.updateLearningGroupLesson(learningGroupId, learningLessonId, { status: 'completed' });
+        setActiveLearningLesson((current) => (
+          current?.lessonId === learningLessonId
+            ? { ...current, status: 'completed', replayActive: false, readOnly: true }
+            : current
+        ));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('learning-groups-changed'));
+        }
+      } catch (error) {
+        console.error('[lesson-replay] failed to finish group Telemost lesson:', error);
+        setTelemostLessonFinishError(error?.message || 'Не удалось завершить групповое занятие.');
+      } finally {
+        setTelemostLessonFinishBusy(false);
+      }
+      return;
+    }
     const studentId = String(telemostLessonReplay?.studentId || '').trim();
     if (!studentId || telemostLessonFinishBusy) return;
     setTelemostLessonFinishBusy(true);
+    setTelemostLessonFinishError('');
     try {
       await stopTelemostAudioCapture();
       await finishLessonReplayNow();
@@ -17745,14 +17772,100 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       setTelemostLessonReplay(null);
     } catch (error) {
       console.error('[lesson-replay] failed to finish Telemost lesson:', error);
+      setTelemostLessonFinishError(error?.message || 'Не удалось завершить занятие.');
     } finally {
       setTelemostLessonFinishBusy(false);
     }
   }, [
+    activeLearningLesson,
     finishLessonReplayNow,
     stopTelemostAudioCapture,
     telemostLessonFinishBusy,
     telemostLessonReplay,
+  ]);
+
+  const handleOpenLearningGroupTelemost = useCallback((meetingUrl) => {
+    const normalizedUrl = String(meetingUrl || '').trim();
+    if (!normalizedUrl || !activeLearningLesson?.lessonId || !activeLearningLesson?.groupId) return;
+    window.open(normalizedUrl, '_blank', 'noopener,noreferrer');
+    setTelemostLessonFinishError('');
+    setActiveLearningLesson((current) => (
+      current?.lessonId === activeLearningLesson.lessonId
+        ? { ...current, status: 'active', replayActive: true, readOnly: false }
+        : current
+    ));
+    if (user.role !== 'teacher') return;
+    void (async () => {
+      try {
+        if (activeLearningLesson.status !== 'active') {
+          await api.updateLearningGroupLesson(
+            activeLearningLesson.groupId,
+            activeLearningLesson.lessonId,
+            { status: 'active' }
+          );
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('learning-groups-changed'));
+          }
+        }
+        await startTelemostAudioCapture({ force: true });
+      } catch (error) {
+        console.error('[lesson-replay] failed to start group Telemost lesson:', error);
+        await stopTelemostAudioCapture();
+        setActiveLearningLesson((current) => (
+          current?.lessonId === activeLearningLesson.lessonId
+            ? {
+                ...current,
+                status: activeLearningLesson.status || 'scheduled',
+                replayActive: false,
+              }
+            : current
+        ));
+        setTelemostAudioCapture({
+          status: 'error',
+          message: error?.message || 'Телемост открыт, но запись занятия не запустилась.',
+        });
+      }
+    })();
+  }, [
+    activeLearningLesson,
+    startTelemostAudioCapture,
+    stopTelemostAudioCapture,
+    user.role,
+  ]);
+
+  useEffect(() => {
+    if (!isGroupLessonReplayActive) return undefined;
+    const startsAtMs = Date.parse(String(activeLearningLesson?.startsAt || '').trim());
+    if (!Number.isFinite(startsAtMs)) return undefined;
+    const durationMs = Math.max(15, Number(activeLearningLesson?.durationMinutes) || 60) * 60 * 1000;
+    const endAtMs = startsAtMs + durationMs;
+    const finishAtCalendarEnd = () => {
+      if (user.role === 'teacher') {
+        void handleFinishTelemostLesson();
+        return;
+      }
+      setActiveLearningLesson((current) => (
+        current?.lessonId === activeLearningLesson?.lessonId
+          ? { ...current, status: 'completed', replayActive: false, readOnly: true }
+          : current
+      ));
+      void finishLessonReplayNow();
+    };
+    const delayMs = endAtMs - Date.now();
+    if (delayMs <= 0) {
+      finishAtCalendarEnd();
+      return undefined;
+    }
+    const timerId = window.setTimeout(finishAtCalendarEnd, delayMs);
+    return () => window.clearTimeout(timerId);
+  }, [
+    activeLearningLesson?.durationMinutes,
+    activeLearningLesson?.lessonId,
+    activeLearningLesson?.startsAt,
+    finishLessonReplayNow,
+    handleFinishTelemostLesson,
+    isGroupLessonReplayActive,
+    user.role,
   ]);
   const isBoardView = view === 'board';
   const isCallView = view === 'call';
@@ -19592,6 +19705,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       startsAt: String(lesson?.startsAt || '').trim(),
       durationMinutes: Math.max(15, Number(lesson?.durationMinutes) || 60),
       telemostUrl: String(lesson?.telemostUrl || '').trim(),
+      status: String(lesson?.status || '').trim() || (lesson?.readOnly ? 'completed' : 'scheduled'),
+      replayActive: Boolean(lesson?.replayActive),
       readOnly: Boolean(lesson?.readOnly),
     });
     if (user.role === 'student') {
@@ -19683,9 +19798,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         startsAt: selectedLesson.startsAt || selectedLesson.startAt || '',
         durationMinutes: Math.max(15, Number(selectedLesson.durationMinutes) || 60),
         telemostUrl: selectedLesson.telemostUrl || '',
+        status: String(selectedLesson.status || '').trim() || (lessonIsPast ? 'completed' : 'scheduled'),
+        replayActive: false,
         readOnly: lessonIsPast || ['completed', 'cancelled'].includes(String(selectedLesson.status || '').trim()),
       };
-      setActiveLearningLesson(nextLessonContext);
+      setActiveLearningLesson((current) => (
+        current?.lessonId === nextLessonContext.lessonId && current?.replayActive
+          ? { ...nextLessonContext, replayActive: true }
+          : nextLessonContext
+      ));
       return nextLessonContext;
     } catch (requestError) {
       if (studentLessonWorkspaceRequestRef.current !== requestId) return null;
@@ -22343,8 +22464,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (studentTourActive) stopGoalFlyAnimation();
   }, [studentTourActive, stopGoalFlyAnimation]);
 
-  const telemostLessonAutoFinishLabel = telemostLessonReplay?.autoFinishAt
-    ? new Date(telemostLessonReplay.autoFinishAt).toLocaleTimeString('ru-RU', {
+  const groupLessonAutoFinishAt = isGroupLessonReplayActive
+    ? (() => {
+        const startMs = Date.parse(String(activeLearningLesson?.startsAt || '').trim());
+        if (!Number.isFinite(startMs)) return '';
+        return new Date(
+          startMs + Math.max(15, Number(activeLearningLesson?.durationMinutes) || 60) * 60 * 1000
+        ).toISOString();
+      })()
+    : '';
+  const telemostLessonAutoFinishAt = groupLessonAutoFinishAt || telemostLessonReplay?.autoFinishAt || '';
+  const telemostLessonAutoFinishLabel = telemostLessonAutoFinishAt
+    ? new Date(telemostLessonAutoFinishAt).toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit',
     })
@@ -22369,7 +22500,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {isGroupLessonReplayActive ? 'Группа занимается в Телемосте' : 'Урок идёт в Телемосте'}
             </p>
             <p className="truncate text-[10px] font-semibold text-slate-500">
-              {telemostAudioCapture.message || (telemostLessonAutoFinishLabel
+              {telemostLessonFinishError || telemostAudioCapture.message || (telemostLessonAutoFinishLabel
                 ? `Доска и код пишутся до ${telemostLessonAutoFinishLabel}`
                 : 'Доска и код продолжают записываться')}
             </p>
@@ -24297,10 +24428,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               readOnly={Boolean(activeLearningLesson.readOnly)}
               audioCaptureStatus={telemostAudioCapture.status}
               audioCaptureMessage={telemostAudioCapture.message}
-              onOpenTelemost={(meetingUrl) => {
-                window.open(meetingUrl, '_blank', 'noopener,noreferrer');
-                if (user.role === 'teacher') void startTelemostAudioCapture();
-              }}
+              onOpenTelemost={handleOpenLearningGroupTelemost}
               onOpenBoard={() => navigateToView('board')}
               onOpenCollab={() => navigateToView('collab')}
               onBack={handleLeaveLearningGroupLesson}

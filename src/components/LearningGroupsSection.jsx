@@ -630,6 +630,16 @@ const LearningGroupsSection = ({
   }, [loadGroupDetails, selectedGroupId]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const refreshAfterExternalChange = () => {
+      void refreshGroups(selectedGroupId);
+      if (selectedGroupId) void loadGroupDetails(selectedGroupId);
+    };
+    window.addEventListener('learning-groups-changed', refreshAfterExternalChange);
+    return () => window.removeEventListener('learning-groups-changed', refreshAfterExternalChange);
+  }, [loadGroupDetails, refreshGroups, selectedGroupId]);
+
+  useEffect(() => {
     if (!selectedGroup) return;
     setEditForm({
       name: selectedGroup.name,
@@ -1110,6 +1120,7 @@ const LearningGroupsSection = ({
       topic: lesson.topic,
       startsAt: getLessonStart(lesson),
       telemostUrl: getLessonTelemostUrl(lesson),
+      status: String(lesson?.status || '').trim(),
       readOnly: String(lesson?.status || '').trim() === 'completed',
       surface,
     });

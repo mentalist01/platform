@@ -16,6 +16,12 @@ export const parseLessonTargetValue = (value) => {
   return { type: 'student', id: normalizedValue };
 };
 
+export const isLearningGroupLessonReplayActive = (lesson) => Boolean(
+  lesson?.lessonId
+  && lesson?.replayActive === true
+  && lesson?.readOnly !== true
+);
+
 const parseTimestamp = (value) => {
   const timestamp = Date.parse(String(value || '').trim());
   return Number.isFinite(timestamp) ? timestamp : 0;
