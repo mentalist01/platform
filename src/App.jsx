@@ -3768,23 +3768,27 @@ const CollabSection = ({
     ? window.matchMedia('(max-width: 767px)').matches
     : false;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
+  const canSaveToNotesTarget = isGroupLesson
+    ? Boolean(isTeacher && learningParticipantIds.length > 0)
+    : Boolean(effectiveStudentId);
   const liveRoomId = isGroupLesson
     ? `collab-lesson-${learningLessonId}`
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
-    return buildNotesSaveDraftStorageKey('code', ownerId, effectiveStudentId);
-  }, [effectiveStudentId, isTeacher, teacherId, userId]);
+    const targetId = isGroupLesson ? `group-lesson-${learningLessonId}` : effectiveStudentId;
+    return buildNotesSaveDraftStorageKey('code', ownerId, targetId);
+  }, [effectiveStudentId, isGroupLesson, isTeacher, learningLessonId, teacherId, userId]);
   useEffect(() => {
     const token = Number(openSaveToNotesToken) || 0;
     if (!token || openSaveToNotesTokenRef.current === token) return;
     openSaveToNotesTokenRef.current = token;
-    if (!isTeacher || !effectiveStudentId) return;
+    if (!isTeacher || !canSaveToNotesTarget) return;
     setSaveModalOpen(true);
     setSaveError('');
     setSaveSuccess('');
-  }, [effectiveStudentId, isTeacher, openSaveToNotesToken]);
+  }, [canSaveToNotesTarget, isTeacher, openSaveToNotesToken]);
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
   const wsParams = useMemo(() => {
     const authToken = getStoredAuthToken();
@@ -5674,7 +5678,7 @@ const CollabSection = ({
   ]);
 
   useEffect(() => {
-    if (isSandbox || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
+    if (isSandbox || isGroupLesson || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
       setFolders([]);
       setFoldersError('');
       setFoldersLoading(false);
@@ -5697,7 +5701,7 @@ const CollabSection = ({
         if (!cancelled) setFoldersLoading(false);
       });
     return () => { cancelled = true; };
-  }, [effectiveStudentId, isSandbox, saveTaskNumber, saveCategory]);
+  }, [effectiveStudentId, isGroupLesson, isSandbox, saveTaskNumber, saveCategory]);
 
   useEffect(() => {
     setSaveError('');
@@ -6129,7 +6133,7 @@ const CollabSection = ({
   }, []);
 
   const handleCreateFolder = async () => {
-    if (isSandbox) return;
+    if (isSandbox || isGroupLesson) return;
     const name = newFolderName.trim();
     if (!name) {
       setFoldersError('Введите название папки.');
@@ -6159,8 +6163,8 @@ const CollabSection = ({
       setSaveError('Локальная копия урока не сохраняется в реальные конспекты.');
       return;
     }
-    if (!effectiveStudentId) {
-      setSaveError('Сначала выберите ученика.');
+    if (!canSaveToNotesTarget) {
+      setSaveError(isGroupLesson ? 'В групповом занятии нет участников.' : 'Сначала выберите ученика.');
       return;
     }
     if (!saveTaskNumber || !saveCategory) {
@@ -6198,11 +6202,15 @@ const CollabSection = ({
         file,
         Number(saveTaskNumber),
         saveCategory,
-        saveFolderId || null,
-        effectiveStudentId,
+        isGroupLesson ? null : (saveFolderId || null),
+        isGroupLesson ? '' : effectiveStudentId,
         {
           source: fileSource,
           memory: buildCollabCodeMemory(baseName, fileSource, code),
+          ...(isGroupLesson ? {
+            learningGroupId,
+            learningLessonId,
+          } : {}),
         }
       );
       const snapshotResult = (saveAsCodeOnly || saveAsCheatsheet)
@@ -8500,7 +8508,11 @@ const CollabSection = ({
         <div className="pr-8">
           <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сохранение</div>
           <h3 className="mt-1 text-xl font-bold text-gray-900">Сохранить в конспекты</h3>
-          <p className="mt-1 text-xs text-gray-500">Файл появится в разделе «Конспекты» выбранного ученика.</p>
+          <p className="mt-1 text-xs text-gray-500">
+            {isGroupLesson
+              ? 'Файл сохранится один раз и появится в «Конспектах» всех участников этого занятия.'
+              : 'Файл появится в разделе «Конспекты» выбранного ученика.'}
+          </p>
         </div>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -8533,18 +8545,26 @@ const CollabSection = ({
 
           <div className="space-y-1">
             <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
-            <select
-              value={saveFolderId}
-              onChange={(e) => setSaveFolderId(e.target.value)}
-              disabled={!effectiveStudentId || foldersLoading}
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
-            >
-              <option value="">Без папки</option>
-              {folders.map((folder) => (
-                <option key={folder.id} value={folder.id}>{folder.name}</option>
-              ))}
-            </select>
-            {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
+            {isGroupLesson ? (
+              <div className="w-full rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-sm text-purple-700">
+                Общие конспекты группы
+              </div>
+            ) : (
+              <>
+                <select
+                  value={saveFolderId}
+                  onChange={(e) => setSaveFolderId(e.target.value)}
+                  disabled={!effectiveStudentId || foldersLoading}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+                >
+                  <option value="">Без папки</option>
+                  {folders.map((folder) => (
+                    <option key={folder.id} value={folder.id}>{folder.name}</option>
+                  ))}
+                </select>
+                {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
+              </>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -8607,7 +8627,7 @@ const CollabSection = ({
           })}
         </div>
 
-        <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        {!isGroupLesson && <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input
             type="text"
             value={newFolderName}
@@ -8624,7 +8644,7 @@ const CollabSection = ({
             <FolderPlus size={16} />
             {creatingFolder ? 'Создаём...' : 'Создать папку'}
           </Button>
-        </div>
+        </div>}
 
         {foldersError && <div className="mt-2 text-xs text-rose-600">{foldersError}</div>}
         {saveError && <div className="mt-2 text-xs text-rose-600">{saveError}</div>}
@@ -8634,7 +8654,7 @@ const CollabSection = ({
           <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Отмена</Button>
           <Button
             onClick={handleSaveToNotes}
-            disabled={saveBusy || !effectiveStudentId || !saveTaskNumber || !saveCategory}
+            disabled={saveBusy || !canSaveToNotesTarget || !saveTaskNumber || !saveCategory}
             className="flex items-center justify-center gap-2"
           >
             <Save size={16} />
@@ -9920,7 +9940,7 @@ const CollabSection = ({
         : (isDesktopCollabCompact ? 'gap-1.5' : 'gap-2')
     }`}>
       {!isSandbox && isTeacher && (!isCollabFullscreen || !activeStudentId) && renderStudentPicker()}
-      {!isSandbox && (
+      {!isSandbox && (!isGroupLesson || isTeacher) && (
         <button
           type="button"
           onClick={() => setSaveModalOpen(true)}
@@ -10205,11 +10225,11 @@ const CollabSection = ({
                 <span>Ввод и файлы</span>
                 <ChevronDown size={14} />
               </button>
-              {!isSandbox && (
+              {!isSandbox && (!isGroupLesson || isTeacher) && (
                 <button
                   type="button"
                   onClick={() => setSaveModalOpen(true)}
-                  disabled={!effectiveStudentId}
+                  disabled={!canSaveToNotesTarget}
                   className={`${collabIconButtonBase} collab-code-pill-button is-menu is-files`}
                   title="Сохранить код в конспекты"
                   aria-label="Сохранить код в конспекты"
@@ -10587,6 +10607,9 @@ const BoardSection = ({
   )), [participantIds]);
   const isGroupLesson = Boolean(learningLessonId && learningGroupId);
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
+  const canSaveToNotesTarget = isGroupLesson
+    ? Boolean(isTeacher && learningParticipantIds.length > 0)
+    : Boolean(effectiveStudentId);
   const sandboxSessionId = String(sandbox?.id || '').trim();
   const isSandbox = Boolean(sandboxSessionId);
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
@@ -11669,7 +11692,7 @@ const BoardSection = ({
   }, [boardRevision]);
 
   useEffect(() => {
-    if (isSandbox || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
+    if (isSandbox || isGroupLesson || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
       setFolders([]);
       setFoldersError('');
       setFoldersLoading(false);
@@ -11692,7 +11715,7 @@ const BoardSection = ({
         if (!cancelled) setFoldersLoading(false);
       });
     return () => { cancelled = true; };
-  }, [effectiveStudentId, isSandbox, saveTaskNumber, saveCategory]);
+  }, [effectiveStudentId, isGroupLesson, isSandbox, saveTaskNumber, saveCategory]);
 
   useEffect(() => {
     setSaveFolderId('');
@@ -11968,7 +11991,7 @@ const BoardSection = ({
   };
 
   const handleCreateFolder = async () => {
-    if (isSandbox) return;
+    if (isSandbox || isGroupLesson) return;
     const name = newFolderName.trim();
     if (!name) {
       setFoldersError('Введите название папки.');
@@ -12140,8 +12163,8 @@ const BoardSection = ({
     setSaveError('');
     setSaveSuccess('');
     setSaveNameError(false);
-    if (!effectiveStudentId) {
-      setSaveError('Сначала выберите ученика.');
+    if (!canSaveToNotesTarget) {
+      setSaveError(isGroupLesson ? 'В групповом занятии нет участников.' : 'Сначала выберите ученика.');
       return;
     }
     if (!saveTaskNumber || !saveCategory) {
@@ -12174,14 +12197,25 @@ const BoardSection = ({
         safeName += '.png';
       }
       const file = new File([blob], safeName, { type: 'image/png' });
-      await api.uploadFile(file, Number(saveTaskNumber), saveCategory, saveFolderId || null, effectiveStudentId, {
+      await api.uploadFile(
+        file,
+        Number(saveTaskNumber),
+        saveCategory,
+        isGroupLesson ? null : (saveFolderId || null),
+        isGroupLesson ? '' : effectiveStudentId,
+        {
         source: 'board-save',
         memory: {
           taskNumber: Number(saveTaskNumber),
           source: 'board-save',
           description: 'Снимок доски',
         },
-      });
+          ...(isGroupLesson ? {
+            learningGroupId,
+            learningLessonId,
+          } : {}),
+        }
+      );
       setSaveSuccess('Сохранено в конспекты.');
     } catch (err) {
       setSaveError(err?.message || err);
@@ -15730,7 +15764,9 @@ const BoardSection = ({
           <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сохранение</div>
           <h3 className="mt-1 text-xl font-bold text-gray-900">Сохранить доску в конспекты</h3>
           <p className="mt-1 text-xs text-gray-500">
-            Сохраняется PNG снимок всей доски и появится в разделе «Конспекты» выбранного ученика.
+            {isGroupLesson
+              ? 'PNG-снимок сохранится один раз и появится в «Конспектах» всех участников этого занятия.'
+              : 'Сохраняется PNG снимок всей доски и появится в разделе «Конспекты» выбранного ученика.'}
           </p>
         </div>
 
@@ -15764,18 +15800,26 @@ const BoardSection = ({
 
           <div className="space-y-1">
             <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
-            <select
-              value={saveFolderId}
-              onChange={(e) => setSaveFolderId(e.target.value)}
-              disabled={!effectiveStudentId || foldersLoading}
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
-            >
-              <option value="">Без папки</option>
-              {folders.map((folder) => (
-                <option key={folder.id} value={folder.id}>{folder.name}</option>
-              ))}
-            </select>
-            {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
+            {isGroupLesson ? (
+              <div className="w-full rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-sm text-purple-700">
+                Общие конспекты группы
+              </div>
+            ) : (
+              <>
+                <select
+                  value={saveFolderId}
+                  onChange={(e) => setSaveFolderId(e.target.value)}
+                  disabled={!effectiveStudentId || foldersLoading}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500 disabled:opacity-70"
+                >
+                  <option value="">Без папки</option>
+                  {folders.map((folder) => (
+                    <option key={folder.id} value={folder.id}>{folder.name}</option>
+                  ))}
+                </select>
+                {foldersLoading && <div className="text-[11px] text-gray-400">Загрузка папок...</div>}
+              </>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -15801,7 +15845,7 @@ const BoardSection = ({
           </div>
         </div>
 
-        <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        {!isGroupLesson && <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input
             type="text"
             value={newFolderName}
@@ -15818,7 +15862,7 @@ const BoardSection = ({
             <FolderPlus size={16} />
             {creatingFolder ? 'Создаём...' : 'Создать папку'}
           </Button>
-        </div>
+        </div>}
 
         {foldersError && <div className="mt-2 text-xs text-rose-600">{foldersError}</div>}
         {saveError && <div className="mt-2 text-xs text-rose-600">{saveError}</div>}
@@ -15828,7 +15872,7 @@ const BoardSection = ({
           <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Отмена</Button>
           <Button
             onClick={handleSaveBoardToNotes}
-            disabled={saveBusy || !effectiveStudentId || !saveTaskNumber || !saveCategory}
+            disabled={saveBusy || !canSaveToNotesTarget || !saveTaskNumber || !saveCategory}
             className="flex items-center justify-center gap-2"
           >
             <Save size={16} />
@@ -16678,7 +16722,7 @@ const BoardSection = ({
 
         <div ref={boardBottomControlsRef} className="board-bottom-controls">
           <div className="board-bottom-controls__pill board-bottom-controls__session" aria-label="Состояние доски">
-            {!isSandbox && (
+            {!isSandbox && (!isGroupLesson || isTeacher) && (
               <button
                 type="button"
                 onClick={() => setSaveModalOpen(true)}

@@ -35,6 +35,7 @@ import {
   summarizeMockExamProgress,
 } from '../src/utils/mockExamProgress.js';
 import {
+  LEARNING_GROUP_NOTES_SCOPE,
   LESSON_SHARED_SCOPE,
   LESSON_SHARE_MODE_COMMON,
   LESSON_SHARE_MODE_PRIVATE,
@@ -9529,6 +9530,46 @@ const isLessonSharedFile = (entry) => (
   entry?.sharedScope === LESSON_SHARED_SCOPE
 );
 
+const isLearningGroupNotesFile = (entry) => (
+  entry?.sharedScope === LEARNING_GROUP_NOTES_SCOPE || entry?.isLearningGroupShared === true
+);
+
+const isSharedNotesFile = (entry) => isLessonSharedFile(entry) || isLearningGroupNotesFile(entry);
+
+const buildLearningGroupNotesStudentId = (groupId) => {
+  const normalizedGroupId = String(groupId || '').trim();
+  return normalizedGroupId ? `learning-group-notes:${normalizedGroupId}` : '';
+};
+
+const getLearningGroupNotesParticipantIds = (entry) => Array.from(new Set(
+  (Array.isArray(entry?.participantIds) ? entry.participantIds : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+));
+
+const canReadLearningGroupNotesFile = (auth, entry) => {
+  if (!auth || !isLearningGroupNotesFile(entry)) return false;
+  if (isAdminRole(auth)) return true;
+  const teacherId = normalizeTeacherId(entry?.teacherId);
+  if (isTeacherRole(auth)) return Boolean(teacherId && String(auth.id || '').trim() === teacherId);
+  const participantIds = getLearningGroupNotesParticipantIds(entry);
+  if (isStudentRole(auth)) return participantIds.includes(String(auth.id || '').trim());
+  if (isParentRole(auth)) {
+    return participantIds.some((studentId) => {
+      const student = findStudentById(studentId, { allowDeleted: true });
+      return Boolean(student && canAccessStudentByRole(auth, student, { allowDeleted: true }));
+    });
+  }
+  return false;
+};
+
+const canWriteLearningGroupNotesFile = (auth, entry) => {
+  if (!auth || !isLearningGroupNotesFile(entry)) return false;
+  if (isAdminRole(auth)) return true;
+  return isTeacherRole(auth)
+    && String(auth.id || '').trim() === normalizeTeacherId(entry?.teacherId);
+};
+
 const isLessonSharedFolderEntry = (entry) => (
   entry?.sharedScope === LESSON_SHARED_SCOPE || entry?.isLessonShared === true
 );
@@ -17899,6 +17940,9 @@ const getWorkbookFileContentHash = (entry) => {
 
 const isWorkbookFileAccessibleToStudent = (student, entry) => {
   if (!student || !entry) return false;
+  if (isLearningGroupNotesFile(entry)) {
+    return getLearningGroupNotesParticipantIds(entry).includes(String(student.id || '').trim());
+  }
   if (isLessonSharedFile(entry)) {
     return Boolean(
       normalizeTeacherId(student.teacherId)
@@ -17927,7 +17971,7 @@ const findWorkbookSolutionEntry = (
   const legacySolutionKey = buildWorkbookSolutionKey(normalizedStudentId, normalizedSourceFileId);
   const list = Array.isArray(files) ? files : [];
   const candidates = list.filter((entry) => (
-    !isLessonSharedFile(entry)
+    !isSharedNotesFile(entry)
     && String(entry?.studentId || '').trim() === normalizedStudentId
     && String(entry?.workbookSourceFileId || '').trim() === normalizedSourceFileId
   ));
@@ -19248,11 +19292,17 @@ const handleUploadRequest = (req, res) => {
   let ownerStudentId = '';
   let ownerTeacherId = '';
   const ownerIsLessonShared = Boolean(ownedFile && isLessonSharedFile(ownedFile));
+  const ownerIsLearningGroupShared = Boolean(ownedFile && isLearningGroupNotesFile(ownedFile));
   if (boardAsset) {
     ownerStudentId = boardAsset.studentId || '';
     ownerTeacherId = normalizeTeacherId(boardAsset.teacherId || boardAssetGroup?.teacherId);
   } else if (ownedFile && !learningMaterialGroup) {
-    if (ownerIsLessonShared) {
+    if (ownerIsLearningGroupShared) {
+      ownerTeacherId = normalizeTeacherId(ownedFile.teacherId);
+      if (!ownerTeacherId || !canReadLearningGroupNotesFile(req.auth, ownedFile)) {
+        return res.status(403).send('Недостаточно прав');
+      }
+    } else if (ownerIsLessonShared) {
       ownerTeacherId = normalizeTeacherId(ownedFile.teacherId);
       if (!ownerTeacherId || !canReadLessonSharedByTeacher(req.auth, ownerTeacherId)) {
         return res.status(403).send('Недостаточно прав');
@@ -19274,7 +19324,11 @@ const handleUploadRequest = (req, res) => {
     const student = findStudentById(queryStudentId);
     if (!student) return res.status(404).send('Ученик не найден');
     if (!canAccessStudentByRole(req.auth, student)) return res.status(403).send('Недостаточно прав');
-    if (ownerIsLessonShared) {
+    if (ownerIsLearningGroupShared) {
+      if (!getLearningGroupNotesParticipantIds(ownedFile).includes(queryStudentId)) {
+        return res.status(400).send('Некорректный studentId');
+      }
+    } else if (ownerIsLessonShared) {
       const studentTeacherId = normalizeTeacherId(student.teacherId);
       if (ownerTeacherId && studentTeacherId !== ownerTeacherId) {
         return res.status(400).send('Некорректный studentId');
@@ -24849,7 +24903,7 @@ app.get('/api/students', async (req, res) => {
   const notesUsageByStudentId = new Map();
   const filesDb = readFilesDb();
   filesDb.forEach((entry) => {
-    if (!entry || isLessonSharedFile(entry)) return;
+    if (!entry || isSharedNotesFile(entry)) return;
     const studentId = typeof entry.studentId === 'string' ? entry.studentId.trim() : '';
     if (!studentId) return;
     const sizeBytes = getEntrySizeBytes(entry);
@@ -29216,7 +29270,7 @@ const serializeStudentLessonHistoryEntry = (entry, replayStorage = null) => ({
 const getLessonMaterialFileStudentId = (file) => {
   const explicitStudentId = String(file?.lessonStudentId || file?.originalStudentId || '').trim();
   if (explicitStudentId) return explicitStudentId;
-  if (isLessonSharedFile(file)) return '';
+  if (isSharedNotesFile(file)) return '';
   return String(file?.studentId || '').trim();
 };
 
@@ -29303,7 +29357,15 @@ const collectStudentLessonMaterials = (student, occurrence) => {
     const fileStudentId = getLessonMaterialFileStudentId(file);
     const isSharedForTeacher = isLessonSharedFile(file)
       && normalizeTeacherId(file?.teacherId) === normalizeTeacherId(student?.teacherId);
-    if (fileStudentId !== studentId && !isSharedForTeacher) return;
+    const isSharedForLearningGroup = isLearningGroupNotesFile(file)
+      && getLearningGroupNotesParticipantIds(file).includes(studentId)
+      && String(file?.lessonId || '').trim() === String(occurrence?.lessonId || '').trim();
+    if (fileStudentId !== studentId && !isSharedForTeacher && !isSharedForLearningGroup) return;
+
+    if (isSharedForLearningGroup) {
+      materials.push(serializeStudentLessonMaterial(file, [], getLessonMaterialLegacyTimestamp(file)));
+      return;
+    }
 
     const activityEntries = matchingActivitiesByFileId.get(String(file.id)) || [];
     if (activityEntries.length > 0) {
@@ -29843,6 +29905,9 @@ app.get('/api/student-search', async (req, res) => {
     readFilesDb().filter((file) => {
       if (isWorkbookQuestionVirtualSource(file)) return false;
       if (String(file?.studentId || '').trim() === student.id) return true;
+      if (isLearningGroupNotesFile(file)) {
+        return getLearningGroupNotesParticipantIds(file).includes(student.id);
+      }
       return isLessonSharedFile(file) && normalizeTeacherId(file?.teacherId) === teacherId;
     }),
     readFoldersDb()
@@ -33538,9 +33603,16 @@ const resolveFileImageTileAccess = (req, res) => {
   }
 
   const ownerIsLessonShared = isLessonSharedFile(file);
+  const ownerIsLearningGroupShared = isLearningGroupNotesFile(file);
   let ownerStudentId = '';
   let ownerTeacherId = '';
-  if (ownerIsLessonShared) {
+  if (ownerIsLearningGroupShared) {
+    ownerTeacherId = normalizeTeacherId(file.teacherId);
+    if (!ownerTeacherId || !canReadLearningGroupNotesFile(req.auth, file)) {
+      res.status(403).json({ error: 'Недостаточно прав' });
+      return null;
+    }
+  } else if (ownerIsLessonShared) {
     ownerTeacherId = normalizeTeacherId(file.teacherId);
     if (!ownerTeacherId || !canReadLessonSharedByTeacher(req.auth, ownerTeacherId)) {
       res.status(403).json({ error: 'Недостаточно прав' });
@@ -33571,7 +33643,12 @@ const resolveFileImageTileAccess = (req, res) => {
       res.status(403).json({ error: 'Недостаточно прав' });
       return null;
     }
-    if (ownerIsLessonShared) {
+    if (ownerIsLearningGroupShared) {
+      if (!getLearningGroupNotesParticipantIds(file).includes(queryStudentId)) {
+        res.status(400).json({ error: 'Некорректный studentId' });
+        return null;
+      }
+    } else if (ownerIsLessonShared) {
       if (ownerTeacherId && normalizeTeacherId(queryStudent.teacherId) !== ownerTeacherId) {
         res.status(400).json({ error: 'Некорректный studentId' });
         return null;
@@ -33662,6 +33739,10 @@ app.get('/api/files', (req, res) => {
     files = files.filter((entry) => {
       const fileStudentId = typeof entry?.studentId === 'string' ? entry.studentId.trim() : '';
       if (fileStudentId === effectiveStudentId) return true;
+      if (isLearningGroupNotesFile(entry)) {
+        return normalizeTeacherId(entry?.teacherId) === teacherId
+          && getLearningGroupNotesParticipantIds(entry).includes(effectiveStudentId);
+      }
       if (!isLessonSharedFile(entry)) return false;
       const fileTeacherId = normalizeTeacherId(entry?.teacherId);
       return Boolean(teacherId && fileTeacherId === teacherId);
@@ -33679,30 +33760,80 @@ app.get('/api/files', (req, res) => {
 });
 
 app.post('/api/files', upload.single('file'), (req, res) => {
-  const { taskNumber, category, folderId, studentId } = req.body;
+  const {
+    taskNumber,
+    category,
+    folderId,
+    studentId,
+    learningGroupId,
+    learningLessonId,
+  } = req.body;
   if (!req.file) return res.status(400).json({ error: 'Файл не найден' });
+
+  const removeUploadedFile = () => {
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch {}
+  };
 
   const taskNum = Number(taskNumber);
   const normalizedCategory = String(category || '').trim();
   if (!Number.isFinite(taskNum) || !normalizedCategory) {
-    try {
-      fs.unlinkSync(req.file.path);
-    } catch {}
+    removeUploadedFile();
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
-  const student = ensureStudentAccess(req, res, studentId);
-  if (!student) {
-    try {
-      fs.unlinkSync(req.file.path);
-    } catch {}
-    return;
+
+  const normalizedLearningGroupId = String(learningGroupId || '').trim();
+  const normalizedLearningLessonId = String(learningLessonId || '').trim();
+  const hasLearningGroupTarget = Boolean(normalizedLearningGroupId || normalizedLearningLessonId);
+  let learningGroup = null;
+  let learningLesson = null;
+  let learningParticipantIds = [];
+  let student = null;
+  let studentTeacherId = '';
+  if (hasLearningGroupTarget) {
+    if (!normalizedLearningGroupId || !normalizedLearningLessonId) {
+      removeUploadedFile();
+      return res.status(400).json({ error: 'Не удалось определить групповое занятие' });
+    }
+    learningGroup = ensureLearningGroupManageAccess(req, res, normalizedLearningGroupId);
+    if (!learningGroup) {
+      removeUploadedFile();
+      return;
+    }
+    learningLesson = getLearningLessonById(learningGroup.id, normalizedLearningLessonId);
+    if (!learningLesson) {
+      removeUploadedFile();
+      return res.status(404).json({ error: 'Групповое занятие не найдено' });
+    }
+    learningParticipantIds = Array.from(new Set(
+      (Array.isArray(learningLesson.participantIds) ? learningLesson.participantIds : [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    ));
+    if (learningParticipantIds.length === 0) {
+      removeUploadedFile();
+      return res.status(400).json({ error: 'В групповом занятии нет участников' });
+    }
+    studentTeacherId = normalizeTeacherId(learningGroup.teacherId);
+  } else {
+    student = ensureStudentAccess(req, res, studentId);
+    if (!student) {
+      removeUploadedFile();
+      return;
+    }
+    studentTeacherId = normalizeTeacherId(student.teacherId);
   }
 
-  const studentTeacherId = normalizeTeacherId(student.teacherId);
   const normalizedFolderId = normalizeParentFolderId(folderId);
   let folderName = null;
   let folderRef = null;
   let isLessonSharedUpload = false;
+  const isLearningGroupNotesUpload = Boolean(learningGroup && learningLesson);
+  if (normalizedFolderId && isLearningGroupNotesUpload) {
+    removeUploadedFile();
+    return res.status(400).json({ error: 'Групповой конспект сохраняется без личной папки ученика' });
+  }
   if (normalizedFolderId) {
     if (isLessonSharedCategory(normalizedCategory) && isLessonSharedFolderIdForTeacher(normalizedFolderId, studentTeacherId, taskNum)) {
       if (!canWriteLessonSharedByTeacher(req.auth, studentTeacherId)) {
@@ -33755,17 +33886,22 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   }
 
   const db = readFilesDb();
-  const fileLimitBytes = getUploadFileLimitBytes(isLessonSharedUpload);
+  const isSharedUpload = isLessonSharedUpload || isLearningGroupNotesUpload;
+  const fileLimitBytes = getUploadFileLimitBytes(isSharedUpload);
   if (req.file.size > fileLimitBytes) {
     try {
       fs.unlinkSync(req.file.path);
     } catch {}
     return res.status(413).json({ error: getUploadFileLimitError(fileLimitBytes) });
   }
-  const taskLimitBytes = getTaskLimitBytes(isLessonSharedUpload);
+  const taskLimitBytes = getTaskLimitBytes(isSharedUpload);
   const currentTotal = db
     .filter((entry) => {
       if (entry?.taskNumber !== taskNum) return false;
+      if (isLearningGroupNotesUpload) {
+        return isLearningGroupNotesFile(entry)
+          && String(entry?.groupId || '').trim() === learningGroup.id;
+      }
       if (isLessonSharedUpload) {
         return isLessonSharedFile(entry) && normalizeTeacherId(entry?.teacherId) === studentTeacherId;
       }
@@ -33780,7 +33916,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   }
 
   if (folderRef) {
-    const folderLimitBytes = getFolderLimitBytes(isLessonSharedUpload);
+    const folderLimitBytes = getFolderLimitBytes(isSharedUpload);
     const currentFolderTotal = getFolderTotalBytes(db, folderRef.id);
     if (currentFolderTotal + req.file.size > folderLimitBytes) {
       try {
@@ -33801,7 +33937,9 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   });
   const entry = {
     id,
-    studentId: isLessonSharedUpload ? buildLessonSharedStudentId(studentTeacherId) : student.id,
+    studentId: isLearningGroupNotesUpload
+      ? buildLearningGroupNotesStudentId(learningGroup.id)
+      : (isLessonSharedUpload ? buildLessonSharedStudentId(studentTeacherId) : student.id),
     taskNumber: taskNum,
     category: normalizedCategory,
     folderId: folderRef?.id || null,
@@ -33816,8 +33954,18 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     memory,
     url: `/uploads/${req.file.filename}`,
     storageName: req.file.filename,
-    ...(normalizedCategory === 'class' ? {
+    ...(!isLearningGroupNotesUpload && normalizedCategory === 'class' ? {
       lessonStudentId: student.id,
+      lessonSavedAt: createdAt,
+    } : {}),
+    ...(isLearningGroupNotesUpload ? {
+      teacherId: studentTeacherId,
+      groupId: learningGroup.id,
+      lessonId: learningLesson.id,
+      participantIds: learningParticipantIds,
+      sharedScope: LEARNING_GROUP_NOTES_SCOPE,
+      isLearningGroupShared: true,
+      lessonShareMode: LESSON_SHARE_MODE_COMMON,
       lessonSavedAt: createdAt,
     } : {}),
     ...(isLessonSharedUpload ? {
@@ -33830,7 +33978,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
 
   db.unshift(entry);
   writeFilesDb(db);
-  if (normalizedCategory === 'class') {
+  if (!isLearningGroupNotesUpload && normalizedCategory === 'class') {
     appendLessonNoteActivity({
       studentId: student.id,
       teacherId: studentTeacherId,
@@ -33868,6 +34016,10 @@ app.put('/api/files/:id/content', upload.single('file'), (req, res) => {
   if (isLessonSharedFile(target)) {
     removeUploadedFile();
     return res.status(403).json({ error: 'Общий исходный файл нельзя перезаписать' });
+  }
+  if (isLearningGroupNotesFile(target)) {
+    removeUploadedFile();
+    return res.status(403).json({ error: 'Конспект группового занятия нельзя перезаписать' });
   }
   const student = ensureStudentAccess(req, res, target?.studentId, {
     allowDeleted: true,
@@ -33971,7 +34123,9 @@ app.delete('/api/files/:id', (req, res) => {
   if (isWorkbookQuestionVirtualSource(target)) {
     return res.status(404).json({ error: 'Файл не найден' });
   }
-  if (isLessonSharedFile(target)) {
+  if (isLearningGroupNotesFile(target)) {
+    if (!canWriteLearningGroupNotesFile(req.auth, target)) return forbid(res);
+  } else if (isLessonSharedFile(target)) {
     if (!canWriteLessonSharedByTeacher(req.auth, target.teacherId)) return forbid(res);
   } else if (!ensureStudentAccess(req, res, target?.studentId, {
     allowDeleted: true,
@@ -34012,7 +34166,10 @@ app.patch('/api/files/:id', (req, res) => {
     return res.status(404).json({ error: 'Файл не найден' });
   }
   const isCurrentLessonShared = isLessonSharedFile(current);
-  if (isCurrentLessonShared) {
+  const isCurrentLearningGroupShared = isLearningGroupNotesFile(current);
+  if (isCurrentLearningGroupShared) {
+    if (!canWriteLearningGroupNotesFile(req.auth, current)) return forbid(res);
+  } else if (isCurrentLessonShared) {
     if (!canWriteLessonSharedByTeacher(req.auth, current?.teacherId)) return forbid(res);
   } else if (!ensureStudentAccess(req, res, current?.studentId, {
     allowDeleted: true,
@@ -34020,10 +34177,14 @@ app.patch('/api/files/:id', (req, res) => {
   })) {
     return;
   }
-  const ownerStudent = isCurrentLessonShared ? null : findStudentById(current?.studentId, { allowDeleted: true });
-  const ownerTeacherId = isCurrentLessonShared
+  const ownerStudent = isSharedNotesFile(current) ? null : findStudentById(current?.studentId, { allowDeleted: true });
+  const ownerTeacherId = isSharedNotesFile(current)
     ? normalizeTeacherId(current?.teacherId)
     : normalizeTeacherId(ownerStudent?.teacherId);
+
+  if (isCurrentLearningGroupShared && (hasLessonSharedField || hasLessonShareModeField)) {
+    return res.status(400).json({ error: 'Доступ к групповому конспекту определяется участниками занятия' });
+  }
 
   let updated = { ...current };
   let lessonActivityAt = '';
@@ -34125,6 +34286,9 @@ app.patch('/api/files/:id', (req, res) => {
   }
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, 'folderId')) {
+    if (isCurrentLearningGroupShared) {
+      return res.status(400).json({ error: 'Групповой конспект нельзя переместить в личную папку ученика' });
+    }
     const folderIdRaw = req.body.folderId;
     const folderId = normalizeParentFolderId(folderIdRaw);
     if (!folderId) {
@@ -34217,6 +34381,9 @@ app.patch('/api/files/:id', (req, res) => {
   }
 
   if (hasContentField) {
+    if (isCurrentLearningGroupShared) {
+      return res.status(403).json({ error: 'Содержимое группового конспекта доступно только для просмотра' });
+    }
     if (typeof content !== 'string') {
       return res.status(400).json({ error: 'Некорректное содержимое файла' });
     }
@@ -34329,7 +34496,12 @@ app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => 
   }
 
   const current = db[idx];
-  if (isLessonSharedFile(current)) {
+  if (isLearningGroupNotesFile(current)) {
+    if (!canWriteLearningGroupNotesFile(req.auth, current)) {
+      cleanupUploadedSnapshot();
+      return forbid(res);
+    }
+  } else if (isLessonSharedFile(current)) {
     if (!canWriteLessonSharedByTeacher(req.auth, current?.teacherId)) {
       cleanupUploadedSnapshot();
       return forbid(res);
@@ -34357,7 +34529,7 @@ app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => 
   const lessonStudentId = String(
     current?.lessonStudentId
     || current?.originalStudentId
-    || (isLessonSharedFile(current) ? '' : current?.studentId)
+    || (isSharedNotesFile(current) ? '' : current?.studentId)
     || ''
   ).trim();
   const lessonOwnerStudent = lessonStudentId

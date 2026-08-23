@@ -1278,6 +1278,66 @@ test('learning groups keep shared work isolated while legacy student schedules r
       ['student-a', 'student-b', 'student-c']
     );
 
+    const groupNoteForm = new FormData();
+    groupNoteForm.append('file', new Blob(['print("shared group note")'], { type: 'text/plain' }), 'group-note.py');
+    groupNoteForm.append('taskNumber', '27');
+    groupNoteForm.append('category', 'class');
+    groupNoteForm.append('learningGroupId', groupId);
+    groupNoteForm.append('learningLessonId', lessonId);
+    groupNoteForm.append('source', 'collab-code');
+    const groupNoteResponse = await fetch(`${baseUrl}/api/files`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${teacher.token}` },
+      body: groupNoteForm,
+    });
+    const groupNoteRaw = await groupNoteResponse.text();
+    assert.equal(groupNoteResponse.status, 200, groupNoteRaw);
+    const groupNote = JSON.parse(groupNoteRaw);
+    assert.equal(groupNote.sharedScope, 'learning-group-notes');
+    assert.equal(groupNote.groupId, groupId);
+    assert.equal(groupNote.lessonId, lessonId);
+    assert.deepEqual(groupNote.participantIds.sort(), ['student-a', 'student-b', 'student-c']);
+
+    for (const studentSession of [studentA, studentB]) {
+      const studentFiles = await jsonRequest(baseUrl, '/api/files?taskNumber=27&category=class', {
+        token: studentSession.token,
+      });
+      assert.equal(studentFiles.filter((file) => file.id === groupNote.id).length, 1);
+    }
+    const teacherStudentCFiles = await jsonRequest(
+      baseUrl,
+      '/api/files?studentId=student-c&taskNumber=27&category=class',
+      { token: teacher.token }
+    );
+    assert.equal(teacherStudentCFiles.filter((file) => file.id === groupNote.id).length, 1);
+    const foreignFiles = await jsonRequest(baseUrl, '/api/files?taskNumber=27&category=class', {
+      token: foreignStudent.token,
+    });
+    assert.equal(foreignFiles.some((file) => file.id === groupNote.id), false);
+
+    const storedGroupNotes = JSON.parse(fs.readFileSync(path.join(dataDir, 'files.json'), 'utf8'))
+      .filter((file) => file.id === groupNote.id);
+    assert.equal(storedGroupNotes.length, 1);
+
+    const groupNoteDownload = await fetch(`${baseUrl}${groupNote.url}?studentId=student-a`, {
+      headers: { Authorization: `Bearer ${studentA.token}` },
+    });
+    assert.equal(groupNoteDownload.status, 200);
+    assert.equal(await groupNoteDownload.text(), 'print("shared group note")');
+
+    const unauthorizedGroupNoteForm = new FormData();
+    unauthorizedGroupNoteForm.append('file', new Blob(['forbidden'], { type: 'text/plain' }), 'forbidden.py');
+    unauthorizedGroupNoteForm.append('taskNumber', '27');
+    unauthorizedGroupNoteForm.append('category', 'class');
+    unauthorizedGroupNoteForm.append('learningGroupId', groupId);
+    unauthorizedGroupNoteForm.append('learningLessonId', lessonId);
+    const unauthorizedGroupNoteResponse = await fetch(`${baseUrl}/api/files`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${studentA.token}` },
+      body: unauthorizedGroupNoteForm,
+    });
+    assert.equal(unauthorizedGroupNoteResponse.status, 403);
+
     const legacyCreated = await jsonRequest(baseUrl, '/api/student-schedule', {
       token: teacher.token,
       method: 'POST',

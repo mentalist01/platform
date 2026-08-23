@@ -1,4 +1,5 @@
 export const LESSON_SHARED_SCOPE = 'lesson-files';
+export const LEARNING_GROUP_NOTES_SCOPE = 'learning-group-notes';
 export const LESSON_SHARE_MODE_COMMON = 'common';
 export const LESSON_SHARE_MODE_TEMPLATE = 'template';
 export const LESSON_SHARE_MODE_PRIVATE = 'private';
@@ -11,7 +12,13 @@ export const normalizeNotesLessonShareMode = (value, { allowPrivate = true } = {
 };
 
 export const isNotesLessonSharedFile = (file) => (
-  file?.sharedScope === LESSON_SHARED_SCOPE || file?.isLessonShared === true
+  file?.sharedScope === LESSON_SHARED_SCOPE
+  || file?.sharedScope === LEARNING_GROUP_NOTES_SCOPE
+  || file?.isLessonShared === true
+);
+
+export const isNotesLearningGroupSharedFile = (file) => (
+  file?.sharedScope === LEARNING_GROUP_NOTES_SCOPE || file?.isLearningGroupShared === true
 );
 
 const isLegacyNotesTemplateFile = (file) => {

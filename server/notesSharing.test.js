@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  LEARNING_GROUP_NOTES_SCOPE,
   LESSON_SHARE_MODE_COMMON,
   LESSON_SHARE_MODE_PRIVATE,
   LESSON_SHARE_MODE_TEMPLATE,
   getNotesLessonShareMode,
   isNotesCommonSharedFile,
+  isNotesLearningGroupSharedFile,
   isNotesSharedTemplateFile,
   normalizeNotesLessonShareMode,
 } from '../src/utils/notesSharing.js';
@@ -46,4 +48,18 @@ test('share mode normalization rejects unknown values', () => {
   assert.equal(normalizeNotesLessonShareMode(' TEMPLATE '), LESSON_SHARE_MODE_TEMPLATE);
   assert.equal(normalizeNotesLessonShareMode('private'), LESSON_SHARE_MODE_PRIVATE);
   assert.equal(normalizeNotesLessonShareMode('unknown'), '');
+});
+
+test('a learning group note is one common file shared with lesson participants', () => {
+  const groupNote = {
+    name: 'group-board.png',
+    sharedScope: LEARNING_GROUP_NOTES_SCOPE,
+    groupId: 'group-1',
+    lessonId: 'lesson-1',
+    participantIds: ['student-a', 'student-b'],
+  };
+
+  assert.equal(isNotesLearningGroupSharedFile(groupNote), true);
+  assert.equal(getNotesLessonShareMode(groupNote), LESSON_SHARE_MODE_COMMON);
+  assert.equal(isNotesCommonSharedFile(groupNote), true);
 });

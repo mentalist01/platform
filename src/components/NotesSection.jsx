@@ -37,6 +37,7 @@ import {
   LESSON_SHARE_MODE_TEMPLATE,
   getNotesLessonShareMode,
   isNotesCommonSharedFile,
+  isNotesLearningGroupSharedFile,
   isNotesLessonSharedFile,
   isNotesSharedTemplateFile,
 } from '../utils/notesSharing';
@@ -64,6 +65,7 @@ const NOTES_PREVIEW_CLOSE_MS = 200;
 const NOTES_FOLDER_CREATOR_ID = 'notes-folder-creator-panel';
 const NOTES_PYTHON_CREATOR_ID = 'notes-python-creator-panel';
 const isLessonSharedFile = isNotesLessonSharedFile;
+const isLearningGroupSharedFile = isNotesLearningGroupSharedFile;
 const isSharedTemplateFile = isNotesSharedTemplateFile;
 const isCommonLessonSharedFile = isNotesCommonSharedFile;
 const getLessonShareMode = getNotesLessonShareMode;
@@ -3719,6 +3721,7 @@ const NotesSection = ({
                     const hasBoardSnapshot = Boolean(memory?.boardSnapshot?.url);
                     const memorySnapshotUrl = hasBoardSnapshot ? getMemorySnapshotUrl(f) : '';
                     const isSharedFile = isLessonSharedFile(f);
+                    const isLearningGroupShared = isLearningGroupSharedFile(f);
                     const isWorkbookAutoSyncActive = Boolean(
                       workbookAutoSyncState?.active
                       && String(workbookAutoSyncState?.sourceFileId || '') === String(f.id)
@@ -3763,7 +3766,7 @@ const NotesSection = ({
                     const favoriteMotion = favoriteMotionIds[f.id] || '';
                     const showFavoriteBadge = isPinned || favoriteMotion === 'removing';
                     const showFavoriteButton = !isSharedFile;
-                    const canToggleTeacherShared = role === 'teacher' && manageable;
+                    const canToggleTeacherShared = role === 'teacher' && manageable && !isLearningGroupShared;
                     const canReturnSharedFileToPersonal = !isSharedFile || Boolean(f?.notesShared || f?.originalStudentId);
                     const hasLoadedPyContent = Object.prototype.hasOwnProperty.call(pyContent, f.id);
                     const inlineCodeSource = hasLoadedPyContent ? pyContent[f.id] : (memory?.codePreview || '');
@@ -3972,7 +3975,7 @@ const NotesSection = ({
                                               {isSharedTemplate
                                                 ? <Sparkles size={12} strokeWidth={2.2} />
                                                 : <Users size={12} strokeWidth={2.2} />}
-                                              {isSharedTemplate ? 'Шаблон' : 'Общее'}
+                                              {isSharedTemplate ? 'Шаблон' : (isLearningGroupShared ? 'Мини-группа' : 'Общее')}
                                             </span>
                                           )}
                                         </div>
@@ -4013,7 +4016,7 @@ const NotesSection = ({
                                               {isSharedTemplate
                                                 ? <Sparkles size={12} strokeWidth={2.2} />
                                                 : <Users size={12} strokeWidth={2.2} />}
-                                              {isSharedTemplate ? 'Шаблон' : 'Общее'}
+                                              {isSharedTemplate ? 'Шаблон' : (isLearningGroupShared ? 'Мини-группа' : 'Общее')}
                                             </span>
                                           )}
                                         </div>
@@ -4042,7 +4045,7 @@ const NotesSection = ({
                                             {isSharedTemplate
                                               ? <Sparkles size={12} strokeWidth={2.2} />
                                               : <Users size={12} strokeWidth={2.2} />}
-                                            {isSharedTemplate ? 'Шаблон' : 'Общее'}
+                                            {isSharedTemplate ? 'Шаблон' : (isLearningGroupShared ? 'Мини-группа' : 'Общее')}
                                           </span>
                                         )}
                                         {sourceLabel && (

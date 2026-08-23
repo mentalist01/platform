@@ -2347,9 +2347,11 @@ export const api = {
     form.append('file', file);
     form.append('taskNumber', String(taskNumber));
     form.append('category', category);
-    form.append('studentId', studentId);
+    if (studentId) form.append('studentId', studentId);
     if (folderId) form.append('folderId', folderId);
     if (options?.source) form.append('source', String(options.source));
+    if (options?.learningGroupId) form.append('learningGroupId', String(options.learningGroupId));
+    if (options?.learningLessonId) form.append('learningLessonId', String(options.learningLessonId));
     if (options?.memory && typeof options.memory === 'object') {
       form.append('memory', JSON.stringify(options.memory));
     }
