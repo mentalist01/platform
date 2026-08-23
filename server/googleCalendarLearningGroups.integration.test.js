@@ -160,6 +160,7 @@ test('Google group occurrences create one stable lesson and project independent 
   const individualDay = shiftDayKey(todayKey, 5);
   const ambiguousDay = shiftDayKey(todayKey, 6);
   const telemostUrl = 'https://telemost.yandex.ru/j/group-room';
+  const readyTelemostUrl = 'https://telemost.yandex.ru/j/ready-group-room';
   const icalBody = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -274,6 +275,7 @@ test('Google group occurrences create one stable lesson and project independent 
       learningGroup({
         id: 'group-ready',
         name: 'Подготовительная группа',
+        telemostUrl: readyTelemostUrl,
         admissionsOpen: true,
         startedAt: '',
       }),
@@ -364,7 +366,8 @@ test('Google group occurrences create one stable lesson and project independent 
     const readyEntry = googleEntries.find((entry) => entry.externalEventId === 'ready-group@example.test');
     assert.equal(readyEntry.isLearningGroupEvent, true);
     assert.equal(readyEntry.groupId, 'group-ready');
-    assert.equal(readyEntry.lessonId, '');
+    assert.ok(readyEntry.lessonId);
+    assert.equal(readyEntry.telemostUrl, readyTelemostUrl);
 
     const individualEntry = googleEntries.find((entry) => entry.externalEventId === 'individual@example.test');
     assert.equal(individualEntry.studentId, 'student-a');
@@ -377,18 +380,34 @@ test('Google group occurrences create one stable lesson and project independent 
     assert.equal(ambiguousEntry.isTeacherSlot, true);
 
     const lessons = JSON.parse(fs.readFileSync(path.join(dataDir, 'learning-lesson-sessions.json'), 'utf8'));
-    assert.equal(lessons.length, 1);
-    assert.equal(lessons[0].id, activeEntry.lessonId);
-    assert.equal(lessons[0].groupId, 'group-active');
-    assert.equal(lessons[0].source, 'google-calendar');
-    assert.equal(lessons[0].externalEventId, 'active-group@example.test');
-    assert.deepEqual(lessons[0].participantIds, ['student-a', 'student-b']);
-    assert.equal(lessons[0].telemostUrl, telemostUrl);
+    assert.equal(lessons.length, 2);
+    const activeLessonRecord = lessons.find((lesson) => lesson.id === activeEntry.lessonId);
+    const readyLessonRecord = lessons.find((lesson) => lesson.id === readyEntry.lessonId);
+    assert.equal(activeLessonRecord.groupId, 'group-active');
+    assert.equal(activeLessonRecord.source, 'google-calendar');
+    assert.equal(activeLessonRecord.externalEventId, 'active-group@example.test');
+    assert.deepEqual(activeLessonRecord.participantIds, ['student-a', 'student-b']);
+    assert.equal(activeLessonRecord.telemostUrl, telemostUrl);
+    assert.equal(readyLessonRecord.groupId, 'group-ready');
+    assert.equal(readyLessonRecord.telemostUrl, '');
+
+    const readyGroupLessons = await jsonRequest(baseUrl, '/api/learning-groups/group-ready/lessons', {
+      token: teacher.token,
+    });
+    assert.equal(readyGroupLessons.lessons.length, 1);
+    assert.equal(readyGroupLessons.lessons[0].telemostUrl, readyTelemostUrl);
+    assert.equal(readyGroupLessons.lessons[0].telemostUrlOverride, '');
+    assert.equal(readyGroupLessons.lessons[0].usesGroupTelemostUrl, true);
 
     const attendance = JSON.parse(fs.readFileSync(path.join(dataDir, 'learning-attendance.json'), 'utf8'));
     assert.deepEqual(
-      attendance.map((item) => item.studentId).sort(),
-      ['student-a', 'student-b']
+      attendance.map((item) => [item.sessionId, item.studentId]).sort(),
+      [
+        [activeEntry.lessonId, 'student-a'],
+        [activeEntry.lessonId, 'student-b'],
+        [readyEntry.lessonId, 'student-a'],
+        [readyEntry.lessonId, 'student-b'],
+      ].sort()
     );
 
     const scheduleA = await jsonRequest(baseUrl, '/api/student-schedule', { token: studentA.token });
@@ -431,8 +450,9 @@ test('Google group occurrences create one stable lesson and project independent 
     });
     assert.equal(secondRefresh.importedCount, 4);
     const lessonsAfterRefresh = JSON.parse(fs.readFileSync(path.join(dataDir, 'learning-lesson-sessions.json'), 'utf8'));
-    assert.equal(lessonsAfterRefresh.length, 1);
-    assert.equal(lessonsAfterRefresh[0].id, activeEntry.lessonId);
+    assert.equal(lessonsAfterRefresh.length, 2);
+    assert.ok(lessonsAfterRefresh.some((lesson) => lesson.id === activeEntry.lessonId));
+    assert.ok(lessonsAfterRefresh.some((lesson) => lesson.id === readyEntry.lessonId));
 
     await jsonRequest(baseUrl, '/api/learning-groups/group-active/members/student-b', {
       token: teacher.token,
@@ -454,7 +474,10 @@ test('Google group occurrences create one stable lesson and project independent 
     const reducedLessonStore = JSON.parse(
       fs.readFileSync(path.join(dataDir, 'learning-lesson-sessions.json'), 'utf8')
     );
-    assert.deepEqual(reducedLessonStore[0].participantIds, ['student-a']);
+    assert.deepEqual(
+      reducedLessonStore.find((lesson) => lesson.id === activeEntry.lessonId).participantIds,
+      ['student-a']
+    );
     const reducedStudentBSchedule = await jsonRequest(baseUrl, '/api/student-schedule', {
       token: studentB.token,
     });
@@ -473,8 +496,12 @@ test('Google group occurrences create one stable lesson and project independent 
     const cancelledLessonStore = JSON.parse(
       fs.readFileSync(path.join(dataDir, 'learning-lesson-sessions.json'), 'utf8')
     );
-    assert.equal(cancelledLessonStore[0].id, activeEntry.lessonId);
-    assert.equal(cancelledLessonStore[0].status, 'cancelled');
+    const cancelledActiveLesson = cancelledLessonStore.find((lesson) => lesson.id === activeEntry.lessonId);
+    assert.equal(cancelledActiveLesson.status, 'cancelled');
+    assert.equal(
+      cancelledLessonStore.find((lesson) => lesson.id === readyEntry.lessonId).status,
+      'scheduled'
+    );
     const scheduleAfterDeletion = await jsonRequest(baseUrl, '/api/student-schedule', {
       token: studentA.token,
     });

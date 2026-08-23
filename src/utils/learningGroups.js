@@ -193,6 +193,7 @@ export const normalizeLearningGroup = (value, index = 0) => {
     id: cleanString(source.id || source.groupId || source._id) || `group-${index}`,
     groupId: cleanString(source.groupId || source.id || source._id) || `group-${index}`,
     name: cleanString(source.name || source.title) || `Мини-группа ${index + 1}`,
+    telemostUrl: cleanString(source.telemostUrl),
     plannedStartDate: cleanString(
       source.plannedStartDate || source.plannedStart || source.startDate
     ),

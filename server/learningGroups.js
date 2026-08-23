@@ -251,6 +251,7 @@ export const normalizeLearningGroup = (value) => {
     id,
     teacherId,
     name,
+    telemostUrl: normalizeTelemostUrl(value.telemostUrl),
     plannedStartDate: normalizeDayKey(value.plannedStartDate || value.startDate),
     maxStudents,
     admissionsOpen: !startedAt && !completedAt && value.admissionsOpen !== false,
@@ -290,11 +291,14 @@ export const createLearningGroup = (payload = {}, options = {}) => {
   const rawPlannedStart = cleanText(payload.plannedStartDate || payload.startDate, 20);
   const plannedStartDate = rawPlannedStart ? normalizeDayKey(rawPlannedStart) : '';
   if (rawPlannedStart && !plannedStartDate) fail('Некорректная дата старта', 'invalid_start_date');
+  const telemost = parseTelemostUrl(payload.telemostUrl);
+  if (telemost.error) fail(telemost.error, 'invalid_group_telemost_url');
   const now = getNowIso(options.now);
   return normalizeLearningGroup({
     id,
     teacherId,
     name,
+    telemostUrl: telemost.url,
     plannedStartDate,
     maxStudents,
     admissionsOpen: true,
@@ -329,6 +333,11 @@ export const updateLearningGroup = (groupValue, patch = {}, options = {}) => {
       fail('Сначала удалите лишних учеников из группы', 'group_capacity_below_members', 409);
     }
     next.maxStudents = maxStudents;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'telemostUrl')) {
+    const telemost = parseTelemostUrl(patch.telemostUrl);
+    if (telemost.error) fail(telemost.error, 'invalid_group_telemost_url');
+    next.telemostUrl = telemost.url;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'admissionsOpen') && !group.startedAt && !group.completedAt) {
     next.admissionsOpen = patch.admissionsOpen === true;
@@ -478,7 +487,10 @@ export const normalizeLearningLessonSessionsStore = (value) => (
 export const createLearningLessonSession = (groupValue, payload = {}, options = {}) => {
   const group = normalizeLearningGroup(groupValue);
   if (!group || group.deletedAt) fail('Группа не найдена', 'group_not_found', 404);
-  if (group.status !== LEARNING_GROUP_STATUS_ACTIVE) {
+  if (group.status === LEARNING_GROUP_STATUS_COMPLETED) {
+    fail('Завершённой группе нельзя добавлять занятия', 'group_completed', 409);
+  }
+  if (group.status !== LEARNING_GROUP_STATUS_ACTIVE && options.allowBeforeStart !== true) {
     fail('Занятия можно создавать только после старта группы', 'group_not_active', 409);
   }
   const id = cleanText(options.id || payload.id, 180);

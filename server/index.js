@@ -9063,6 +9063,7 @@ const clearGoogleCalendarLearningGroupProjection = (entry) => {
     participants: _participants,
     lessonId: _lessonId,
     telemostUrl: _telemostUrl,
+    telemostUrlOverride: _telemostUrlOverride,
     isLearningGroupEvent: _isLearningGroupEvent,
     learningGroupMatchAmbiguous: _learningGroupMatchAmbiguous,
     ...rest
@@ -9105,12 +9106,13 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
   if (!stableSession && sameStartSessions.length > 1) return null;
 
   let lesson = stableSession || sameStartSessions[0] || null;
-  const eventTelemostUrl = normalizeTelemostUrl(entry?.telemostUrl || entry?.lessonLink);
+  const eventTelemostUrl = normalizeTelemostUrl(
+    entry?.telemostUrlOverride ?? entry?.telemostUrl ?? entry?.lessonLink
+  );
   const participantIds = (Array.isArray(participants) ? participants : [])
     .map((participant) => String(participant?.studentId || '').trim())
     .filter(Boolean);
   if (!lesson) {
-    if (String(group?.status || '').trim() !== 'active') return null;
     lesson = createLearningLessonSession(group, {
       startAt: new Date(startMs).toISOString(),
       durationMinutes: entry?.durationMinutes,
@@ -9124,6 +9126,7 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
     }, {
       id: stableLessonId,
       actorId: teacherId,
+      allowBeforeStart: true,
     });
   } else {
     const patch = {};
@@ -9213,8 +9216,13 @@ const enrichGoogleCalendarLearningGroupEntry = (entry, teacherId, students = [])
     };
   }
   const participants = getGoogleCalendarLearningGroupParticipants(group, students);
+  const telemostUrlOverride = normalizeTelemostUrl(
+    entry?.telemostUrlOverride ?? entry?.telemostUrl ?? entry?.lessonLink
+  );
   const lesson = upsertGoogleCalendarLearningLesson(entry, group, participants);
-  const telemostUrl = normalizeTelemostUrl(lesson?.telemostUrl || entry?.telemostUrl || entry?.lessonLink);
+  const telemostUrl = normalizeTelemostUrl(
+    lesson?.telemostUrl || telemostUrlOverride || group?.telemostUrl
+  );
   return {
     ...entry,
     studentId: '',
@@ -9227,6 +9235,7 @@ const enrichGoogleCalendarLearningGroupEntry = (entry, teacherId, students = [])
     participants,
     lessonId: String(lesson?.id || '').trim(),
     telemostUrl,
+    telemostUrlOverride,
   };
 };
 
@@ -9290,6 +9299,7 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], group
       participants,
       lessonId: '',
       telemostUrl,
+      telemostUrlOverride: telemostUrl,
     } : {}),
     ...(!matchedStudent && groupMatch.ambiguous ? { learningGroupMatchAmbiguous: true } : {}),
     isExternalCalendarEvent: true,
@@ -20693,32 +20703,43 @@ const buildLearningScheduleOccurrence = (group, scheduleEntry, now = new Date())
     durationMinutes: scheduleEntry.durationMinutes,
     topic: scheduleEntry.subject || 'Занятие',
     note: scheduleEntry.note || '',
+    telemostUrl: normalizeTelemostUrl(group.telemostUrl),
+    telemostUrlOverride: '',
+    usesGroupTelemostUrl: Boolean(normalizeTelemostUrl(group.telemostUrl)),
     scheduleEntryId: scheduleEntry.id,
     status: 'scheduled',
     synthetic: true,
   };
 };
 
-const getLearningGroupNextLesson = (group, now = new Date()) => {
+const getLearningGroupNextLesson = (group, now = new Date(), auth = null) => {
+  const currentStudentMember = isStudentRole(auth) && group?.status !== 'completed' && getActiveLearningGroupMembers(group)
+    .some((member) => member.studentId === auth?.id);
+  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || currentStudentMember;
   const groupSessions = readLearningLessonSessionsDb().filter((session) => (
     session.groupId === group.id && session.status !== 'cancelled'
   ));
   const nextSession = groupSessions
     .filter((session) => Date.parse(session.startAt) >= now.getTime())
     .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))[0] || null;
-  if (nextSession) return serializeLearningLessonForAuth(nextSession);
+  if (nextSession) return serializeLearningLessonForAuth(nextSession, auth, group);
   if (groupSessions.length > 0) return null;
   const occurrence = (Array.isArray(group.schedule) ? group.schedule : [])
     .map((entry) => buildLearningScheduleOccurrence(group, entry, now))
     .filter(Boolean)
     .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))[0] || null;
-  return occurrence;
+  return occurrence && !canUseTelemost
+    ? { ...occurrence, telemostUrl: '', usesGroupTelemostUrl: false }
+    : occurrence;
 };
 
 const serializeLearningGroupForAuth = (group, auth) => {
   const serialized = serializeLearningGroup(group);
   if (!serialized) return null;
   const staffView = isAdminRole(auth) || isTeacherRole(auth);
+  const currentStudentMember = isStudentRole(auth) && group?.status !== 'completed' && getActiveLearningGroupMembers(group)
+    .some((member) => member.studentId === auth?.id);
+  const canUseTelemost = staffView || currentStudentMember;
   const members = serialized.members
     .filter((member) => staffView || member.status === 'active' || member.studentId === auth?.id)
     .map((member) => {
@@ -20729,14 +20750,29 @@ const serializeLearningGroupForAuth = (group, auth) => {
     });
   return {
     ...serialized,
+    telemostUrl: canUseTelemost ? serialized.telemostUrl : '',
     members,
-    nextLesson: getLearningGroupNextLesson(group),
+    nextLesson: getLearningGroupNextLesson(group, new Date(), auth),
   };
 };
 
-const serializeLearningLessonForAuth = (lesson) => {
+const serializeLearningLessonForAuth = (lesson, auth = null, groupValue = null) => {
   const names = buildLearningLessonRoomNames(lesson?.id);
-  return { ...lesson, ...(names || {}) };
+  const group = groupValue && String(groupValue?.id || '').trim() === String(lesson?.groupId || '').trim()
+    ? groupValue
+    : readLearningGroupsDb().find((entry) => entry.id === lesson?.groupId) || null;
+  const currentStudentMember = isStudentRole(auth) && group?.status !== 'completed' && getActiveLearningGroupMembers(group)
+    .some((member) => member.studentId === auth?.id);
+  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || currentStudentMember;
+  const telemostUrlOverride = canUseTelemost ? normalizeTelemostUrl(lesson?.telemostUrl) : '';
+  const groupTelemostUrl = canUseTelemost ? normalizeTelemostUrl(group?.telemostUrl) : '';
+  return {
+    ...lesson,
+    ...(names || {}),
+    telemostUrl: telemostUrlOverride || groupTelemostUrl,
+    telemostUrlOverride,
+    usesGroupTelemostUrl: !telemostUrlOverride && Boolean(groupTelemostUrl),
+  };
 };
 
 const getLearningMaterialStorage = (material) => {
@@ -21137,7 +21173,7 @@ app.get('/api/learning-groups/:groupId/lessons', handleLearningRoute((req, res) 
     .slice()
     .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))
     .slice(0, limit);
-  return res.json({ lessons: lessons.map((lesson) => serializeLearningLessonForAuth(lesson, req.auth)) });
+  return res.json({ lessons: lessons.map((lesson) => serializeLearningLessonForAuth(lesson, req.auth, group)) });
 }));
 
 app.post('/api/learning-groups/:groupId/lessons', handleLearningRoute((req, res) => {
@@ -21150,7 +21186,7 @@ app.post('/api/learning-groups/:groupId/lessons', handleLearningRoute((req, res)
   writeLearningLessonSessionsDb([lesson, ...readLearningLessonSessionsDb()]);
   const roster = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
   writeLearningAttendanceUpdates(roster);
-  return res.status(201).json({ lesson: serializeLearningLessonForAuth(lesson, req.auth) });
+  return res.status(201).json({ lesson: serializeLearningLessonForAuth(lesson, req.auth, group) });
 }));
 
 app.get('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute((req, res) => {
@@ -21158,7 +21194,7 @@ app.get('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute((
   if (!group) return;
   const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId);
   if (!lesson) return;
-  return res.json({ lesson: serializeLearningLessonForAuth(lesson, req.auth) });
+  return res.json({ lesson: serializeLearningLessonForAuth(lesson, req.auth, group) });
 }));
 
 app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute((req, res) => {
@@ -21174,7 +21210,7 @@ app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute
       .filter(Boolean);
     writeLearningAttendanceUpdates(finalized);
   }
-  return res.json({ lesson: serializeLearningLessonForAuth(updated, req.auth) });
+  return res.json({ lesson: serializeLearningLessonForAuth(updated, req.auth, group) });
 }));
 
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/attendance', handleLearningRoute((req, res) => {

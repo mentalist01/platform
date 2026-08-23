@@ -14,6 +14,7 @@ import {
   reviewLearningSubmission,
   setLearningGroupSchedule,
   startLearningGroup,
+  updateLearningGroup,
   updateLearningAssignment,
   updateLearningLessonSession,
   upsertLearningAttendanceRecord,
@@ -44,6 +45,19 @@ test('new groups are forming and capacity is constrained to 2..5', () => {
   assert.throws(
     () => makeGroup({ maxStudents: 6 }),
     (error) => error instanceof LearningGroupDomainError && error.code === 'invalid_group_capacity'
+  );
+});
+
+test('group stores one validated permanent Telemost link', () => {
+  const group = makeGroup({ telemostUrl: 'telemost.yandex.ru/j/group-room' });
+  assert.equal(group.telemostUrl, 'https://telemost.yandex.ru/j/group-room');
+  const updated = updateLearningGroup(group, {
+    telemostUrl: 'https://telemost.yandex.ru/j/new-group-room',
+  }, { now: '2026-08-22T10:00:00.000Z' });
+  assert.equal(updated.telemostUrl, 'https://telemost.yandex.ru/j/new-group-room');
+  assert.throws(
+    () => updateLearningGroup(group, { telemostUrl: 'https://example.com/not-telemost' }),
+    (error) => error.code === 'invalid_group_telemost_url'
   );
 });
 

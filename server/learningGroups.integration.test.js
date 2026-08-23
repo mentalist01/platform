@@ -234,12 +234,14 @@ test('learning groups keep shared work isolated while legacy student schedules r
         name: 'Algorithms mini-group',
         plannedStartDate: '2026-09-01',
         maxStudents: 5,
+        telemostUrl: 'telemost.yandex.ru/j/12345678901234',
         studentIds: ['student-a'],
       },
     });
     const groupId = created.group.id;
     assert.equal(created.group.status, 'ready');
     assert.equal(created.group.memberCount, 1);
+    assert.equal(created.group.telemostUrl, 'https://telemost.yandex.ru/j/12345678901234');
     assert.deepEqual(created.group.members.map((member) => member.studentId), ['student-a']);
 
     const foreignMember = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/members`, {
@@ -322,7 +324,6 @@ test('learning groups keep shared work isolated while legacy student schedules r
         startAt: '2026-09-07T15:30:00.000Z',
         durationMinutes: 75,
         topic: 'Graph traversal',
-        telemostUrl: 'telemost.yandex.ru/j/12345678901234',
         scheduleEntryId: scheduled.schedule[0].id,
       },
     });
@@ -334,6 +335,25 @@ test('learning groups keep shared work isolated while legacy student schedules r
     assert.equal(lessonCreated.lesson.roomId, `lesson:${lessonId}`);
     assert.equal(lessonCreated.lesson.rtcRoomId, `rtc:lesson:${lessonId}`);
     assert.equal(lessonCreated.lesson.telemostUrl, 'https://telemost.yandex.ru/j/12345678901234');
+    assert.equal(lessonCreated.lesson.telemostUrlOverride, '');
+    assert.equal(lessonCreated.lesson.usesGroupTelemostUrl, true);
+
+    const changedGroupTelemost = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}`, {
+      token: teacher.token,
+      method: 'PATCH',
+      body: { telemostUrl: 'https://telemost.yandex.ru/j/22222222222222' },
+    });
+    assert.equal(changedGroupTelemost.group.telemostUrl, 'https://telemost.yandex.ru/j/22222222222222');
+    const lessonAfterGroupTelemostChange = await jsonRequest(
+      baseUrl,
+      `/api/learning-groups/${groupId}/lessons/${lessonId}`,
+      { token: teacher.token }
+    );
+    assert.equal(
+      lessonAfterGroupTelemostChange.lesson.telemostUrl,
+      'https://telemost.yandex.ru/j/22222222222222'
+    );
+    assert.equal(lessonAfterGroupTelemostChange.lesson.usesGroupTelemostUrl, true);
 
     const groupRtcDenied = await jsonRequest(
       baseUrl,
@@ -545,6 +565,7 @@ test('learning groups keep shared work isolated while legacy student schedules r
       token: studentC.token,
     });
     assert.deepEqual(studentGroups.groups.map((group) => group.id), [groupId]);
+    assert.equal(studentGroups.groups[0].telemostUrl, 'https://telemost.yandex.ru/j/22222222222222');
     const projectedLateMember = studentGroups.groups[0].members.find((member) => (
       member.studentId === 'student-c'
     ));

@@ -99,6 +99,7 @@ const EMPTY_GROUP_FORM = {
   name: '',
   plannedStartDate: '',
   maxStudents: 5,
+  telemostUrl: '',
 };
 
 const EMPTY_LESSON_FORM = {
@@ -325,6 +326,7 @@ const getLessonStart = (lesson) => cleanString(
 const getLessonId = (lesson) => cleanString(lesson?.lessonId || lesson?.id);
 
 const getLessonTelemostUrl = (lesson) => parseTelemostUrl(lesson?.telemostUrl).url;
+const getLessonTelemostOverrideUrl = (lesson) => parseTelemostUrl(lesson?.telemostUrlOverride).url;
 
 const isGoogleCalendarLesson = (lesson) => (
   cleanString(lesson?.source).toLowerCase() === 'google-calendar'
@@ -615,6 +617,7 @@ const LearningGroupsSection = ({
       name: selectedGroup.name,
       plannedStartDate: selectedGroup.plannedStartDate || '',
       maxStudents: selectedGroup.maxStudents || 5,
+      telemostUrl: parseTelemostUrl(selectedGroup.telemostUrl).url,
     });
     setAddStudentId('');
     setLateAddReason('');
@@ -927,12 +930,18 @@ const LearningGroupsSection = ({
 
   const handleCreateGroup = async (event) => {
     event.preventDefault();
+    const parsedTelemost = parseTelemostUrl(createForm.telemostUrl);
+    if (parsedTelemost.error) {
+      setError(parsedTelemost.error);
+      return;
+    }
     const result = await runAction(
       'create-group',
       () => api.createLearningGroup({
         name: cleanString(createForm.name),
         plannedStartDate: createForm.plannedStartDate,
         maxStudents: Number(createForm.maxStudents),
+        telemostUrl: parsedTelemost.url,
       }),
       'Мини-группа создана.',
       { refreshGroup: false }
@@ -947,12 +956,18 @@ const LearningGroupsSection = ({
   const handleUpdateGroup = async (event) => {
     event.preventDefault();
     if (!selectedGroup) return;
+    const parsedTelemost = parseTelemostUrl(editForm.telemostUrl);
+    if (parsedTelemost.error) {
+      setError(parsedTelemost.error);
+      return;
+    }
     await runAction(
       'update-group',
       () => api.updateLearningGroup(selectedGroup.id, {
         name: cleanString(editForm.name),
         plannedStartDate: editForm.plannedStartDate,
         maxStudents: Number(editForm.maxStudents),
+        telemostUrl: parsedTelemost.url,
       }),
       'Настройки группы сохранены.'
     );
@@ -998,8 +1013,9 @@ const LearningGroupsSection = ({
     event.preventDefault();
     if (!selectedGroup) return;
     const parsedTelemost = parseTelemostUrl(lessonForm.telemostUrl);
-    if (!parsedTelemost.url) {
-      setError(parsedTelemost.error || 'Укажите ссылку на встречу в Телемосте.');
+    const groupTelemostUrl = parseTelemostUrl(selectedGroup.telemostUrl).url;
+    if (parsedTelemost.error || (!parsedTelemost.url && !groupTelemostUrl)) {
+      setError(parsedTelemost.error || 'Сначала укажите постоянную ссылку Телемоста в настройках группы.');
       return;
     }
     const result = await runAction(
@@ -1027,7 +1043,7 @@ const LearningGroupsSection = ({
       durationMinutes: Number(lesson.durationMinutes) || 60,
       topic: cleanString(lesson.topic),
       note: cleanString(lesson.note),
-      telemostUrl: getLessonTelemostUrl(lesson),
+      telemostUrl: getLessonTelemostOverrideUrl(lesson),
     });
     setError('');
   };
@@ -1037,8 +1053,9 @@ const LearningGroupsSection = ({
     if (!selectedGroup) return;
     const lessonId = getLessonId(lesson);
     const parsedTelemost = parseTelemostUrl(lessonEditForm.telemostUrl);
-    if (!parsedTelemost.url) {
-      setError(parsedTelemost.error || 'Укажите ссылку на встречу в Телемосте.');
+    const groupTelemostUrl = parseTelemostUrl(selectedGroup.telemostUrl).url;
+    if (parsedTelemost.error || (!parsedTelemost.url && !groupTelemostUrl)) {
+      setError(parsedTelemost.error || 'Сначала укажите постоянную ссылку Телемоста в настройках группы.');
       return;
     }
     const result = await runAction(
@@ -1369,6 +1386,18 @@ const LearningGroupsSection = ({
             >
               <BusyButtonContent busy={busyKey === 'create-group'} busyLabel="Создаём..." icon={Plus}>Создать</BusyButtonContent>
             </button>
+            <div className="md:col-span-4">
+              <Field label="Постоянная ссылка Телемоста" hint="можно добавить позже">
+                <input
+                  value={createForm.telemostUrl}
+                  onChange={(event) => setCreateForm((current) => ({ ...current, telemostUrl: event.target.value }))}
+                  className={inputClassName}
+                  placeholder="https://telemost.yandex.ru/j/..."
+                  inputMode="url"
+                  autoComplete="url"
+                />
+              </Field>
+            </div>
           </form>
         </SectionCard>
       )}
@@ -1568,6 +1597,17 @@ const LearningGroupsSection = ({
                               </select>
                             </Field>
                           </div>
+                          <Field label="Постоянная ссылка Телемоста" hint="используется во всех занятиях группы">
+                            <input
+                              value={editForm.telemostUrl}
+                              onChange={(event) => setEditForm((current) => ({ ...current, telemostUrl: event.target.value }))}
+                              className={inputClassName}
+                              placeholder="https://telemost.yandex.ru/j/..."
+                              inputMode="url"
+                              autoComplete="url"
+                              disabled={selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
+                            />
+                          </Field>
                           <button
                             type="submit"
                             disabled={busyKey === 'update-group' || selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
@@ -1792,15 +1832,14 @@ const LearningGroupsSection = ({
                             <BusyButtonContent busy={busyKey === 'create-lesson'} busyLabel="Добавляем..." icon={Plus}>Добавить</BusyButtonContent>
                           </button>
                           <div className="lg:col-span-4">
-                            <Field label="Ссылка на Телемост" hint="обязательно">
+                            <Field label="Другая ссылка для этого занятия" hint="необязательно">
                               <input
                                 value={lessonForm.telemostUrl}
                                 onChange={(event) => setLessonForm((current) => ({ ...current, telemostUrl: event.target.value }))}
                                 className={inputClassName}
-                                placeholder="https://telemost.yandex.ru/j/..."
+                                placeholder={selectedGroup.telemostUrl ? 'Пусто — используется ссылка группы' : 'https://telemost.yandex.ru/j/...'}
                                 inputMode="url"
                                 autoComplete="url"
-                                required
                               />
                             </Field>
                           </div>
@@ -1903,15 +1942,14 @@ const LearningGroupsSection = ({
                                     </Field>
                                   </div>
                                   <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                                    <Field label="Ссылка на Телемост" hint="обязательно">
+                                    <Field label="Другая ссылка для этого занятия" hint="пусто — ссылка группы">
                                       <input
                                         value={lessonEditForm.telemostUrl}
                                         onChange={(event) => setLessonEditForm((current) => ({ ...current, telemostUrl: event.target.value }))}
                                         className={inputClassName}
-                                        placeholder="https://telemost.yandex.ru/j/..."
+                                        placeholder={selectedGroup.telemostUrl ? 'Используется постоянная ссылка' : 'https://telemost.yandex.ru/j/...'}
                                         inputMode="url"
                                         autoComplete="url"
-                                        required
                                       />
                                     </Field>
                                     <Field label="Заметка">
