@@ -47,9 +47,9 @@ test('new groups are forming and capacity is constrained to 2..5', () => {
   );
 });
 
-test('second same-teacher member makes a group ready and members stay unique', () => {
+test('first same-teacher member makes a group ready and members stay unique', () => {
   let group = add(makeGroup(), 'student-a');
-  assert.equal(group.status, 'forming');
+  assert.equal(group.status, 'ready');
   group = add(group, 'student-b');
   assert.equal(group.status, 'ready');
   assert.equal(getActiveLearningGroupMembers(group).length, 2);
@@ -60,14 +60,13 @@ test('second same-teacher member makes a group ready and members stay unique', (
   );
 });
 
-test('a group cannot start with one member and closes admissions after start', () => {
-  const oneMember = add(makeGroup(), 'student-a');
+test('a group can start with one member and closes admissions after start', () => {
   assert.throws(
-    () => startLearningGroup(oneMember, { now: NOW }),
+    () => startLearningGroup(makeGroup(), { now: NOW }),
     (error) => error.code === 'not_enough_members' && error.statusCode === 409
   );
-  const ready = add(oneMember, 'student-b');
-  const active = startLearningGroup(ready, { now: NOW });
+  const oneMember = add(makeGroup(), 'student-a');
+  const active = startLearningGroup(oneMember, { now: NOW });
   assert.equal(active.status, 'active');
   assert.equal(active.admissionsOpen, false);
   assert.ok(active.startedAt);

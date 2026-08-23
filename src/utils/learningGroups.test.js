@@ -33,6 +33,16 @@ test('accepts wrapped student projections and keeps only returned groups', () =>
   assert.equal(groups[0].status, 'active');
 });
 
+test('treats a one-student group as ready to start', () => {
+  const group = normalizeLearningGroup({
+    id: 'group-one',
+    name: 'Один участник',
+    members: [{ studentId: 'student-a', name: 'Анна' }],
+  });
+  assert.equal(group.status, 'ready');
+  assert.equal(group.memberCount, 1);
+});
+
 test('attendance fills missing roster entries without sharing another student record', () => {
   const records = normalizeLearningGroupAttendance({
     records: [{ studentId: 'student-a', status: 'present', attendedSeconds: 3200 }],

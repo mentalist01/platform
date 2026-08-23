@@ -1741,7 +1741,7 @@ const ScheduleSection = ({
               const groupLessonReady = !isLearningGroupEvent || Boolean(
                 String(entry?.lessonId || '').trim()
                 && Array.isArray(entry?.participantIds)
-                && entry.participantIds.length >= 2
+                && entry.participantIds.length >= 1
               );
               const lessonUrl = isLearningGroupEvent ? groupTelemostUrl : normalizeHttpUrl(entry?.lessonLink);
               const duration = Number(entry?.durationMinutes);

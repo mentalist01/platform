@@ -443,7 +443,7 @@ const StudentLessonJoinPrompt = ({
   const groupLessonReady = !activePrompt.isLearningGroupEvent || Boolean(
     String(activePrompt?.lessonId || '').trim()
     && Array.isArray(activePrompt?.participantIds)
-    && activePrompt.participantIds.length >= 2
+    && activePrompt.participantIds.length >= 1
   );
 
   const promptNode = (

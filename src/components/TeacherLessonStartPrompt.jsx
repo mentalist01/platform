@@ -698,7 +698,7 @@ const TeacherLessonStartPrompt = ({
   const groupLessonReady = Boolean(
     String(activePrompt?.lessonId || '').trim()
     && Array.isArray(activePrompt?.participantIds)
-    && activePrompt.participantIds.length >= 2
+    && activePrompt.participantIds.length >= 1
   );
 
   const promptOverlay = (
@@ -765,7 +765,7 @@ const TeacherLessonStartPrompt = ({
                 <div className="flex items-center justify-center rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-center text-sm font-semibold text-amber-100">
                   {groupLessonReady
                     ? 'Ссылка на Телемост для этого занятия не указана.'
-                    : 'Группа ещё не запущена. Для старта нужны минимум два ученика и статус «Занимается».'}
+                    : 'Группа ещё не запущена. Для старта нужен хотя бы один ученик и статус «Занимается».'}
                 </div>
               )}
             </div>

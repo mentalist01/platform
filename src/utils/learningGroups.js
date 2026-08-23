@@ -69,7 +69,7 @@ export const normalizeLearningGroupStatus = (value, memberCount = 0) => {
   if (['forming', 'draft', 'recruiting', 'формируется'].includes(normalized)) {
     return LEARNING_GROUP_STATUS_FORMING;
   }
-  return Number(memberCount) >= 2
+  return Number(memberCount) >= 1
     ? LEARNING_GROUP_STATUS_READY
     : LEARNING_GROUP_STATUS_FORMING;
 };

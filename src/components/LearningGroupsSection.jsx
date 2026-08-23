@@ -1333,7 +1333,7 @@ const LearningGroupsSection = ({
       )}
 
       {showCreateForm && isTeacher && (
-        <SectionCard title="Новая мини-группа" subtitle="После создания добавьте от 2 до 5 учеников и настройте расписание.">
+        <SectionCard title="Новая мини-группа" subtitle="После создания добавьте хотя бы одного ученика и настройте расписание. Позже состав можно увеличить до пяти.">
           <form onSubmit={handleCreateGroup} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_140px_auto] md:items-end">
             <Field label="Название">
               <input
@@ -1473,9 +1473,9 @@ const LearningGroupsSection = ({
                               () => api.startLearningGroup(selectedGroup.id),
                               'Мини-группа начала занятия.'
                             )}
-                            disabled={selectedGroup.memberCount < 2 || busyKey === 'start-group'}
+                            disabled={selectedGroup.memberCount < 1 || busyKey === 'start-group'}
                             className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3.5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                            title={selectedGroup.memberCount < 2 ? 'Для старта нужны минимум два ученика' : undefined}
+                            title={selectedGroup.memberCount < 1 ? 'Для старта нужен хотя бы один ученик' : undefined}
                           >
                             <BusyButtonContent busy={busyKey === 'start-group'} busyLabel="Запускаем..." icon={Play}>Начать обучение</BusyButtonContent>
                           </button>

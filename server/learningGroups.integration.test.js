@@ -238,17 +238,9 @@ test('learning groups keep shared work isolated while legacy student schedules r
       },
     });
     const groupId = created.group.id;
-    assert.equal(created.group.status, 'forming');
+    assert.equal(created.group.status, 'ready');
     assert.equal(created.group.memberCount, 1);
     assert.deepEqual(created.group.members.map((member) => member.studentId), ['student-a']);
-
-    const earlyStart = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/start`, {
-      token: teacher.token,
-      method: 'POST',
-      status: 409,
-      body: {},
-    });
-    assert.equal(earlyStart.code, 'not_enough_members');
 
     const foreignMember = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/members`, {
       token: teacher.token,

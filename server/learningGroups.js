@@ -21,7 +21,8 @@ export const LEARNING_GROUP_STATUS_FORMING = 'forming';
 export const LEARNING_GROUP_STATUS_READY = 'ready';
 export const LEARNING_GROUP_STATUS_ACTIVE = 'active';
 export const LEARNING_GROUP_STATUS_COMPLETED = 'completed';
-export const LEARNING_GROUP_MIN_STUDENTS = 2;
+export const LEARNING_GROUP_MIN_STUDENTS = 1;
+export const LEARNING_GROUP_MIN_CAPACITY = 2;
 export const LEARNING_GROUP_MAX_STUDENTS = 5;
 
 export class LearningGroupDomainError extends Error {
@@ -230,7 +231,7 @@ export const normalizeLearningGroup = (value) => {
   if (!id || !teacherId || !name) return null;
   const rawMaxStudents = Math.round(Number(value.maxStudents));
   const maxStudents = Number.isFinite(rawMaxStudents)
-    ? Math.min(LEARNING_GROUP_MAX_STUDENTS, Math.max(LEARNING_GROUP_MIN_STUDENTS, rawMaxStudents))
+    ? Math.min(LEARNING_GROUP_MAX_STUDENTS, Math.max(LEARNING_GROUP_MIN_CAPACITY, rawMaxStudents))
     : LEARNING_GROUP_MAX_STUDENTS;
   const members = [];
   const memberIndex = new Map();
@@ -283,7 +284,7 @@ export const createLearningGroup = (payload = {}, options = {}) => {
   const maxStudents = Math.round(Number(payload.maxStudents ?? LEARNING_GROUP_MAX_STUDENTS));
   if (!id || !teacherId) fail('Не удалось определить группу и преподавателя');
   if (!name) fail('Введите название группы', 'group_name_required');
-  if (!Number.isInteger(maxStudents) || maxStudents < LEARNING_GROUP_MIN_STUDENTS || maxStudents > LEARNING_GROUP_MAX_STUDENTS) {
+  if (!Number.isInteger(maxStudents) || maxStudents < LEARNING_GROUP_MIN_CAPACITY || maxStudents > LEARNING_GROUP_MAX_STUDENTS) {
     fail('Максимальное количество учеников должно быть от 2 до 5', 'invalid_group_capacity');
   }
   const rawPlannedStart = cleanText(payload.plannedStartDate || payload.startDate, 20);
@@ -321,7 +322,7 @@ export const updateLearningGroup = (groupValue, patch = {}, options = {}) => {
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'maxStudents')) {
     const maxStudents = Math.round(Number(patch.maxStudents));
-    if (!Number.isInteger(maxStudents) || maxStudents < LEARNING_GROUP_MIN_STUDENTS || maxStudents > LEARNING_GROUP_MAX_STUDENTS) {
+    if (!Number.isInteger(maxStudents) || maxStudents < LEARNING_GROUP_MIN_CAPACITY || maxStudents > LEARNING_GROUP_MAX_STUDENTS) {
       fail('Максимальное количество учеников должно быть от 2 до 5', 'invalid_group_capacity');
     }
     if (getActiveLearningGroupMembers(group).length > maxStudents) {
@@ -395,7 +396,7 @@ export const startLearningGroup = (groupValue, options = {}) => {
   if (group.status === LEARNING_GROUP_STATUS_COMPLETED) fail('Группа уже завершена', 'group_completed', 409);
   if (group.status === LEARNING_GROUP_STATUS_ACTIVE) fail('Группа уже занимается', 'group_already_started', 409);
   if (getActiveLearningGroupMembers(group).length < LEARNING_GROUP_MIN_STUDENTS) {
-    fail('Для старта группы нужны минимум два ученика', 'not_enough_members', 409);
+    fail('Для старта группы нужен хотя бы один ученик', 'not_enough_members', 409);
   }
   const now = getNowIso(options.now);
   return normalizeLearningGroup({

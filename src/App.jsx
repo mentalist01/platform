@@ -19701,8 +19701,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           .map((participantId) => String(participantId || '').trim())
           .filter(Boolean)
       ));
-      if (participantIds.length < 2) {
-        throw new Error('Групповое занятие можно открыть после добавления минимум двух учеников.');
+      if (participantIds.length < 1) {
+        throw new Error('Групповое занятие можно открыть после добавления хотя бы одного ученика.');
       }
 
       const lessonsPayload = await api.getLearningGroupLessons(selectedGroup.id, { limit: 100 });
