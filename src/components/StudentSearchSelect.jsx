@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { isCurrentStudent } from '../utils/studentStudyStatus';
+import { buildLearningGroupTargetValue } from '../utils/lessonTargets';
 
 const normalizeSearchText = (value) => String(value || '').trim().toLowerCase();
 
@@ -35,6 +36,7 @@ const normalizeStudents = (students, { includeGraduates = false } = {}) => (
       const fallbackLabel = String(student?.label || student?.displayName || student?.publicName || '').trim();
       return {
         id,
+        kind: 'student',
         label,
         primaryName,
         nickname,
@@ -42,6 +44,27 @@ const normalizeStudents = (students, { includeGraduates = false } = {}) => (
           .filter(Boolean)
           .join(' ')
           .toLowerCase(),
+      };
+    })
+    .filter(Boolean)
+);
+
+const normalizeGroups = (groups) => (
+  (Array.isArray(groups) ? groups : [])
+    .map((group) => {
+      const groupId = String(group?.id || group?.groupId || '').trim();
+      if (!groupId) return null;
+      const label = String(group?.name || group?.title || group?.label || 'Мини-группа').trim();
+      const secondaryLabel = String(group?.secondaryLabel || group?.metaLabel || '').trim();
+      return {
+        id: buildLearningGroupTargetValue(groupId),
+        groupId,
+        kind: 'group',
+        label,
+        secondaryLabel,
+        primaryName: label,
+        nickname: '',
+        searchText: [label, secondaryLabel].filter(Boolean).join(' ').toLowerCase(),
       };
     })
     .filter(Boolean)
@@ -63,6 +86,7 @@ const getMatchRank = (student, query) => {
 const StudentSearchSelect = ({
   id,
   students,
+  groups = [],
   value = '',
   onChange,
   disabled = false,
@@ -83,7 +107,12 @@ const StudentSearchSelect = ({
   const [activeIndex, setActiveIndex] = useState(0);
   const [menuStyle, setMenuStyle] = useState(null);
 
-  const options = useMemo(() => normalizeStudents(students, { includeGraduates }), [includeGraduates, students]);
+  const studentOptions = useMemo(
+    () => normalizeStudents(students, { includeGraduates }),
+    [includeGraduates, students]
+  );
+  const groupOptions = useMemo(() => normalizeGroups(groups), [groups]);
+  const options = useMemo(() => [...studentOptions, ...groupOptions], [groupOptions, studentOptions]);
   const selectedId = String(value || '').trim();
   const selectedOption = options.find((student) => student.id === selectedId) || null;
   const normalizedQuery = normalizeSearchText(query);
@@ -99,18 +128,24 @@ const StudentSearchSelect = ({
   const emptyClassName = dark ? 'text-slate-400' : 'text-slate-500';
 
   const filteredOptions = useMemo(() => {
-    if (!normalizedQuery) {
-      return [...options].sort((left, right) => left.label.localeCompare(right.label, 'ru'));
-    }
+    const filterAndSort = (items) => {
+      if (!normalizedQuery) {
+        return [...items].sort((left, right) => left.label.localeCompare(right.label, 'ru'));
+      }
+      return items
+        .map((student) => ({ student, rank: getMatchRank(student, normalizedQuery) }))
+        .filter((entry) => Number.isFinite(entry.rank))
+        .sort((left, right) => {
+          if (left.rank !== right.rank) return left.rank - right.rank;
+          return left.student.label.localeCompare(right.student.label, 'ru');
+        })
+        .map((entry) => entry.student);
+    };
 
-    return options
-      .map((student) => ({ student, rank: getMatchRank(student, normalizedQuery) }))
-      .filter((entry) => Number.isFinite(entry.rank))
-      .sort((left, right) => {
-        if (left.rank !== right.rank) return left.rank - right.rank;
-        return left.student.label.localeCompare(right.student.label, 'ru');
-      })
-      .map((entry) => entry.student);
+    return [
+      ...filterAndSort(options.filter((option) => option.kind === 'student')),
+      ...filterAndSort(options.filter((option) => option.kind === 'group')),
+    ];
   }, [normalizedQuery, options]);
 
   useEffect(() => {
@@ -223,23 +258,44 @@ const StudentSearchSelect = ({
       {filteredOptions.length > 0 ? (
         filteredOptions.map((student, index) => {
           const active = index === activeIndex;
+          const previousKind = filteredOptions[index - 1]?.kind;
+          const showSectionLabel = options.some((option) => option.kind === 'group')
+            && previousKind !== student.kind;
           return (
-            <button
-              key={student.id}
-              type="button"
-              role="option"
-              aria-selected={student.id === selectedId}
-              className={`block w-full px-3 py-2 text-left transition ${
-                active || student.id === selectedId
-                  ? activeOptionClassName
-                  : idleOptionClassName
-              }`}
-              onMouseEnter={() => setActiveIndex(index)}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => commitOption(student)}
-            >
-              <span className="block truncate">{student.label}</span>
-            </button>
+            <React.Fragment key={student.id}>
+              {showSectionLabel && (
+                <div className={`px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.14em] ${emptyClassName}`}>
+                  {student.kind === 'group' ? 'Мини-группы' : 'Ученики'}
+                </div>
+              )}
+              <button
+                type="button"
+                role="option"
+                aria-selected={student.id === selectedId}
+                className={`block w-full px-3 py-2 text-left transition ${
+                  active || student.id === selectedId
+                    ? activeOptionClassName
+                    : idleOptionClassName
+                }`}
+                onMouseEnter={() => setActiveIndex(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => commitOption(student)}
+              >
+                <span className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="min-w-0 truncate">{student.label}</span>
+                  {student.kind === 'group' && (
+                    <span className="shrink-0 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-bold text-violet-600">
+                      группа
+                    </span>
+                  )}
+                </span>
+                {student.secondaryLabel && (
+                  <span className={`mt-0.5 block truncate text-[11px] ${emptyClassName}`}>
+                    {student.secondaryLabel}
+                  </span>
+                )}
+              </button>
+            </React.Fragment>
           );
         })
       ) : (

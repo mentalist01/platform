@@ -101,9 +101,15 @@ const useLessonReplayRecorder = ({
   viewLabel = '',
   mode = 'platform',
   occurrenceKey = '',
+  learningLessonId = '',
 } = {}) => {
   const normalizedMode = normalizeRecorderMode(mode);
   const normalizedOccurrenceKey = String(occurrenceKey || '').trim();
+  const normalizedLearningLessonId = String(learningLessonId || '').trim();
+  const recorderTargetKey = normalizedLearningLessonId
+    ? `learning-group:${normalizedLearningLessonId}`
+    : `student:${String(studentId || '').trim()}`;
+  const hasRecorderTarget = Boolean(normalizedLearningLessonId || studentId);
   const sessionRef = useRef(null);
   const sessionGenerationRef = useRef(0);
   const queueRef = useRef([]);
@@ -121,7 +127,7 @@ const useLessonReplayRecorder = ({
   const screenSnapshotDisabledSessionRef = useRef('');
   const audioUploadDisabledSessionRef = useRef('');
   const audioUploadQueuesRef = useRef(new Map());
-  const enabledRef = useRef(Boolean(active && studentId));
+  const enabledRef = useRef(Boolean(active && hasRecorderTarget));
   const modeRef = useRef(normalizedMode);
   const occurrenceKeyRef = useRef(normalizedOccurrenceKey);
 
@@ -129,9 +135,9 @@ const useLessonReplayRecorder = ({
   occurrenceKeyRef.current = normalizedOccurrenceKey;
 
   useEffect(() => {
-    if (active && studentId) enabledRef.current = true;
+    if (active && hasRecorderTarget) enabledRef.current = true;
     else if (!sessionRef.current?.sessionId) enabledRef.current = false;
-  }, [active, studentId]);
+  }, [active, hasRecorderTarget]);
 
   const flush = useCallback(async () => {
     const session = sessionRef.current;
@@ -293,7 +299,7 @@ const useLessonReplayRecorder = ({
     sessionGenerationRef.current = generation;
     window.clearTimeout(stopTimerRef.current);
     window.clearTimeout(startRetryTimerRef.current);
-    if (!active || !normalizedStudentId) {
+    if (!active || !hasRecorderTarget) {
       const previous = sessionRef.current;
       window.clearTimeout(flushTimerRef.current);
       if (previous?.sessionId) {
@@ -312,7 +318,7 @@ const useLessonReplayRecorder = ({
     }
 
     const previous = sessionRef.current;
-    const hasReusableSession = previous?.sessionId && previous.studentId === normalizedStudentId;
+    const hasReusableSession = previous?.sessionId && previous.targetKey === recorderTargetKey;
     if (hasReusableSession) {
       scheduleFlush(0);
     }
@@ -338,6 +344,7 @@ const useLessonReplayRecorder = ({
       api.startLessonReplaySession(normalizedStudentId, {
         via: requestedMode,
         occurrenceKey: requestedOccurrenceKey,
+        learningLessonId: normalizedLearningLessonId,
       })
         .then((session) => {
           const responseReceivedAtMs = Date.now();
@@ -362,6 +369,8 @@ const useLessonReplayRecorder = ({
           sessionRef.current = {
             ...session,
             studentId: normalizedStudentId,
+            learningLessonId: normalizedLearningLessonId,
+            targetKey: recorderTargetKey,
             via: sessionMode,
             clockOffsetMs,
             occurrenceKey: String(
@@ -396,19 +405,27 @@ const useLessonReplayRecorder = ({
       window.clearTimeout(startRetryTimerRef.current);
       if (startSessionRef.current === startSession) startSessionRef.current = null;
     };
-  }, [active, finishSession, scheduleFlush, studentId]);
+  }, [
+    active,
+    finishSession,
+    hasRecorderTarget,
+    normalizedLearningLessonId,
+    recorderTargetKey,
+    scheduleFlush,
+    studentId,
+  ]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.clearTimeout(modeSwitchRetryTimerRef.current);
     }
-    if (active && studentId) syncSessionMode();
-  }, [active, normalizedMode, studentId, syncSessionMode]);
+    if (active && hasRecorderTarget) syncSessionMode();
+  }, [active, hasRecorderTarget, normalizedMode, syncSessionMode]);
 
   useEffect(() => {
-    if (!active || !studentId || !view) return;
+    if (!active || !hasRecorderTarget || !view) return;
     recordEvent('navigation', { view, label: viewLabel }, { immediate: true, dedupeMs: 5000 });
-  }, [active, recordEvent, studentId, view, viewLabel]);
+  }, [active, hasRecorderTarget, recordEvent, view, viewLabel]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;

@@ -166,6 +166,38 @@ test('one assignment has per-student submissions and private reviews', () => {
   assert.equal(reviewed.privateComment, 'Хорошая работа');
 });
 
+test('a group assignment preserves the regular homework template', () => {
+  const active = startLearningGroup(add(add(makeGroup(), 'student-a'), 'student-b'), { now: NOW });
+  const assignment = createLearningAssignment(active, {
+    title: 'Домашняя работа',
+    content: 'Повторить конспект',
+    dueAt: '2026-09-08T15:00:00.000Z',
+    homework: {
+      homeWork: 'Повторить конспект',
+      lessonLink: 'https://example.com/lesson',
+      boardLink: 'https://example.com/board',
+      dueAt: '2026-09-08T15:00:00.000Z',
+      dueAtMode: 'manual',
+      calendarOffsetMinutes: 180,
+      daysToComplete: 6,
+      goals: [{
+        type: 'task',
+        assignmentTier: 'required',
+        taskNumber: 6,
+        levelId: 'basic',
+        includeAll: false,
+        targetQuestions: [1, 2, 3],
+        targetQuestionIds: ['q-1', 'q-2', 'q-3'],
+      }],
+    },
+  }, { id: 'assignment-template', now: NOW });
+
+  assert.equal(assignment.homework.homeWork, 'Повторить конспект');
+  assert.equal(assignment.homework.calendarOffsetMinutes, 180);
+  assert.deepEqual(assignment.homework.goals[0].targetQuestions, [1, 2, 3]);
+  assert.deepEqual(assignment.homework.goals[0].targetQuestionIds, ['q-1', 'q-2', 'q-3']);
+});
+
 test('an assignment draft gets one stable publication timestamp when assigned', () => {
   const active = startLearningGroup(add(add(makeGroup(), 'student-a'), 'student-b'), { now: NOW });
   const draft = createLearningAssignment(active, {

@@ -3604,9 +3604,18 @@ const ScheduleSection = ({
               <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${summaryStatus.tone}`}>
                 {summaryStatus.label}
               </span>
+              {isLearningGroupHomework && (
+                <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+                  {learningGroupName ? `Мини-группа: ${learningGroupName}` : 'Домашка мини-группы'}
+                </span>
+              )}
             </div>
           </div>
-          {role === 'teacher' && (
+          {role === 'teacher' && (isLearningGroupHomework ? (
+            <div className="max-w-[280px] rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-right text-[11px] font-semibold leading-relaxed text-violet-700">
+              Общее задание группы. Здесь виден личный прогресс ученика, а редактирование доступно в разделе «Мини-группы».
+            </div>
+          ) : (
             <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
@@ -3626,7 +3635,7 @@ const ScheduleSection = ({
                 </button>
               )}
             </div>
-          )}
+          ))}
         </div>
         {goalViews.length > 0 ? (
           <div className={`rounded-2xl border p-3 md:p-4 space-y-3 ${

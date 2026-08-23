@@ -17,6 +17,7 @@ import {
   createLearningAttendanceRoster,
   extractCollabDocNameFromRequestUrl,
   finalizeLearningAttendanceRecord,
+  hasActiveLearningGroupWorkspace,
   normalizeLearningAttendanceRecord,
   normalizeLearningAttendanceRecords,
   parseLearningLessonRoomTarget,
@@ -172,6 +173,23 @@ test('realtime authorization protects lesson rooms and preserves exact legacy ro
   });
   assert.equal(legacyAccess.allowed, true);
   assert.equal(legacyAccess.target?.legacy, true);
+});
+
+test('an active group member cannot open a separate legacy board or code room', () => {
+  const activeGroup = { ...group, status: 'active' };
+  const activeStudent = { id: 'student-a', teacherId: 'teacher-a' };
+  assert.equal(hasActiveLearningGroupWorkspace('student-a', 'teacher-a', [activeGroup]), true);
+  for (const roomId of ['board-teacher-a-student-a', 'collab-teacher-a-student-a']) {
+    const access = authorizeLearningRealtimeRoom({
+      auth: { role: 'student', id: 'student-a', teacherId: 'teacher-a' },
+      roomId,
+      sessions: [session],
+      groups: [activeGroup],
+      students: [...legacyStudents, activeStudent],
+    });
+    assert.equal(access.allowed, false);
+    assert.equal(access.reason, 'group-workspace-required');
+  }
 });
 
 test('realtime authorization denies unauthenticated, unknown, wrong-kind and cross-student access', () => {

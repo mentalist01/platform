@@ -58229,6 +58229,25 @@ html[data-theme='dark'] .collab-workspace-card--glass-board .collab-board-code-r
   background: rgba(255, 228, 230, 0.82);
 }
 
+.teacher-homework-question-selector {
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.teacher-homework-question-selector.is-dragging {
+  cursor: grabbing;
+}
+
+.teacher-homework-question-selector__item {
+  -webkit-user-drag: none;
+}
+
+.teacher-homework-question-selector.is-dragging .teacher-homework-question-selector__item {
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.08);
+}
+
 .student-test-question-panel > :last-child,
 .student-test-question-panel > :last-child > :last-child {
   margin-bottom: 0;

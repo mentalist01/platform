@@ -109,6 +109,14 @@ export const normalizeLessonHistoryRecord = (value, { timeZone = 'Europe/Moscow'
   const startMs = zonedLessonDateTimeToUtcMs(dayKey, time, timeZone);
   if (!Number.isFinite(startMs)) return null;
   const recordedAtMs = Date.parse(String(value.recordedAt || '').trim());
+  const groupId = String(value.groupId || '').trim().slice(0, 160);
+  const lessonId = String(value.lessonId || value.learningLessonId || '').trim().slice(0, 160);
+  const participantIds = Array.from(new Set(
+    (Array.isArray(value.participantIds) ? value.participantIds : [])
+      .map((entry) => String(entry || '').trim().slice(0, 160))
+      .filter(Boolean)
+  )).slice(0, 5);
+  const replayKey = String(value.replayKey || '').trim().slice(0, 760);
   return {
     key,
     studentId,
@@ -122,6 +130,13 @@ export const normalizeLessonHistoryRecord = (value, { timeZone = 'Europe/Moscow'
     sourceEntryId: String(value.sourceEntryId || '').trim().slice(0, 320),
     sourceSignature: String(value.sourceSignature || '').trim().slice(0, 700),
     source: String(value.source || 'snapshot').trim().slice(0, 80) || 'snapshot',
+    ...(groupId ? {
+      groupId,
+      groupName: String(value.groupName || '').trim().slice(0, 240),
+      lessonId,
+      participantIds,
+      replayKey,
+    } : {}),
     topic: normalizeTopicSnapshot(value.topic),
     recordedAt: Number.isFinite(recordedAtMs) ? new Date(recordedAtMs).toISOString() : '',
   };
@@ -367,6 +382,11 @@ export const buildStudentLessonHistory = ({
         sourceEntryId,
         sourceSignature,
         source: entry.source || (entry.isExternalCalendarEvent ? 'google-calendar' : 'schedule'),
+        groupId: entry.groupId,
+        groupName: entry.groupName,
+        lessonId: entry.lessonId || entry.learningLessonId,
+        participantIds: entry.participantIds,
+        replayKey: entry.replayKey,
       }, entry.isExternalCalendarEvent ? 4 : 3, normalizedNowMs, timeZone, excludedOccurrenceKeys);
     }
   });

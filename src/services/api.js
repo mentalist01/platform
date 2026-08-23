@@ -1982,10 +1982,11 @@ export const api = {
   startLessonReplaySession: async (studentId, options = {}) => {
     const via = options?.via === 'telemost' ? 'telemost' : 'platform';
     const occurrenceKey = String(options?.occurrenceKey || '').trim();
+    const learningLessonId = String(options?.learningLessonId || '').trim();
     const res = await apiFetch('/api/lesson-replay/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ studentId, via, occurrenceKey }),
+      body: JSON.stringify({ studentId, learningLessonId, via, occurrenceKey }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);

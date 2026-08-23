@@ -103,6 +103,17 @@ import {
   saveHomeworkLessonBaskets,
 } from './utils/homeworkLessonBasket';
 import { normalizeTelemostUrl } from './utils/telemost';
+import {
+  getLearningGroupStatusMeta,
+  normalizeLearningGroupLesson,
+  normalizeLearningGroupList,
+} from './utils/learningGroups';
+import {
+  buildLearningGroupTargetValue,
+  getStudentActiveLearningGroups,
+  parseLessonTargetValue,
+  selectLearningGroupWorkspaceLesson,
+} from './utils/lessonTargets';
 import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
 import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
 import { createDebouncedSerialQueue } from './utils/debouncedSerialQueue';
@@ -3626,6 +3637,7 @@ const CollabSection = ({
   activeStudentId,
   onSelectStudent,
   studentsLoading,
+  hideStudentPicker = false,
   openSaveToNotesToken = 0,
   onLessonReplayEvent = null,
   lessonReplayActive = false,
@@ -8409,7 +8421,7 @@ const CollabSection = ({
   }, [clampNotesPdfHeight, isMobileViewport, isNotesBoardMode, preferredBoardTopPaneHeight]);
 
   const renderStudentPicker = () => {
-    if (!isTeacher || isGroupLesson) return null;
+    if (!isTeacher || isGroupLesson || hideStudentPicker) return null;
     return (
       <div className={`collab-student-picker inline-flex w-full sm:w-auto items-center rounded-2xl border ${
         isCollabFullscreen
@@ -10048,7 +10060,7 @@ const CollabSection = ({
         </div>
       )}
 
-      {isTeacher && !activeStudentId && (
+      {isTeacher && !isGroupLesson && !activeStudentId && (
         <div className={`flex items-start gap-2 rounded-2xl border ${
           isCollabFullscreen
             ? (isFullscreenDark
@@ -16815,7 +16827,7 @@ const BoardSection = ({
         }
       }}
     >
-      {!isSandbox && isTeacher && !activeStudentId && (
+      {!isSandbox && isTeacher && !isGroupLesson && !activeStudentId && (
         <div className="mb-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
@@ -17234,13 +17246,72 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'teacher' ? storedActiveStudentId : null
   ));
   const [activeLearningLesson, setActiveLearningLesson] = useState(null);
+  const [studentLessonWorkspace, setStudentLessonWorkspace] = useState(() => ({
+    status: user.role === 'student' ? 'loading' : 'individual',
+    group: null,
+    error: '',
+  }));
+  const [lessonTargetGroups, setLessonTargetGroups] = useState([]);
+  const [lessonTargetGroupsLoading, setLessonTargetGroupsLoading] = useState(false);
+  const [lessonTargetSelectionLoading, setLessonTargetSelectionLoading] = useState(false);
+  const [lessonTargetError, setLessonTargetError] = useState('');
+  const lessonTargetSelectionRequestRef = useRef(0);
+  const studentLessonWorkspaceRequestRef = useRef(0);
+  const refreshLessonTargetGroups = useCallback(async () => {
+    if (user.role !== 'teacher') return [];
+    setLessonTargetGroupsLoading(true);
+    try {
+      const payload = await api.getLearningGroups({
+        teacherId: user.id,
+        includeCompleted: true,
+      });
+      const normalizedGroups = normalizeLearningGroupList(payload)
+        .filter((group) => String(group?.status || '').trim() !== 'completed')
+        .map((group) => {
+          const statusMeta = getLearningGroupStatusMeta(group.status);
+          const participantIds = (Array.isArray(group.members) ? group.members : [])
+            .filter((member) => String(member?.status || '').trim() === 'active')
+            .map((member) => String(member?.studentId || member?.id || '').trim())
+            .filter(Boolean);
+          const memberCount = participantIds.length;
+          return {
+            ...group,
+            participantIds,
+            memberCount,
+            secondaryLabel: `${statusMeta.label} · ${memberCount} уч.`,
+          };
+        });
+      setLessonTargetGroups(normalizedGroups);
+      setLessonTargetError('');
+      return normalizedGroups;
+    } catch (requestError) {
+      setLessonTargetError(requestError?.message || 'Не удалось загрузить мини-группы.');
+      return [];
+    } finally {
+      setLessonTargetGroupsLoading(false);
+    }
+  }, [user.id, user.role]);
   const [homeworkStatsStudentId, setHomeworkStatsStudentId] = useState(null);
   const handleSelectStudent = useCallback((studentId) => {
     const normalizedStudentId = normalizeTeacherStudentId(studentId);
     storedActiveStudentIdRef.current = normalizedStudentId;
     setActiveStudentId(normalizedStudentId);
     setActiveLearningLesson(null);
+    setLessonTargetError('');
   }, []);
+
+  useEffect(() => {
+    if (user.role !== 'teacher') return undefined;
+    void refreshLessonTargetGroups();
+    if (typeof window === 'undefined') return undefined;
+    const refresh = () => void refreshLessonTargetGroups();
+    window.addEventListener('learning-groups-changed', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.removeEventListener('learning-groups-changed', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [refreshLessonTargetGroups, user.role]);
   const handleOpenHomeworkStats = useCallback((student) => {
     const studentId = normalizeTeacherStudentId(student?.id);
     if (studentId) setHomeworkStatsStudentId(studentId);
@@ -17268,22 +17339,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       || Date.parse(telemostLessonReplay.autoFinishAt) > Date.now()
     )
   );
+  const isGroupLessonReplayActive = Boolean(
+    activeLearningLesson?.lessonId && !activeLearningLesson?.readOnly
+  );
+  const isAnyTelemostLessonReplayActive = isTelemostLessonReplayActive || isGroupLessonReplayActive;
   useEffect(() => {
     const blockerKey = `active-call:${user.role}:${user.id}`;
     setClientBuildReloadBlocked(
       blockerKey,
-      isCallSessionActive || isTelemostLessonReplayActive
+      isCallSessionActive || isAnyTelemostLessonReplayActive
     );
     return () => setClientBuildReloadBlocked(blockerKey, false);
-  }, [isCallSessionActive, isTelemostLessonReplayActive, user.id, user.role]);
-  const lessonReplayStudentId = callSessionStatus === 'connected'
+  }, [isAnyTelemostLessonReplayActive, isCallSessionActive, user.id, user.role]);
+  const lessonReplayStudentId = isGroupLessonReplayActive
+    ? (user.role === 'student' ? user.id : '')
+    : (callSessionStatus === 'connected'
     ? (user.role === 'student' ? user.id : activeStudentId)
     : (isTelemostLessonReplayActive
       ? telemostLessonReplay.studentId
-      : (user.role === 'student' ? user.id : activeStudentId));
-  const lessonReplayMode = callSessionStatus === 'connected'
+      : (user.role === 'student' ? user.id : activeStudentId)));
+  const lessonReplayMode = isGroupLessonReplayActive
+    ? 'telemost'
+    : (callSessionStatus === 'connected'
     ? 'platform'
-    : (isTelemostLessonReplayActive ? 'telemost' : '');
+    : (isTelemostLessonReplayActive ? 'telemost' : ''));
   const applyTelemostLessonReplay = useCallback((payload = {}) => {
     const activity = payload?.activity || payload?.request?.activity || payload;
     const studentId = String(
@@ -17311,10 +17390,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     uploadLessonReplayScreenSnapshot,
     uploadLessonReplayAudioSegment,
   } = useLessonReplayRecorder({
-    active: callSessionStatus === 'connected' || isTelemostLessonReplayActive,
+    active: callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive,
     studentId: lessonReplayStudentId,
     mode: lessonReplayMode || 'platform',
     occurrenceKey: isTelemostLessonReplayActive ? telemostLessonReplay?.occurrenceKey : '',
+    learningLessonId: isGroupLessonReplayActive ? activeLearningLesson.lessonId : '',
     view,
     viewLabel: LESSON_REPLAY_VIEW_LABELS[view] || view,
   });
@@ -17345,7 +17425,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const startTelemostAudioCapture = useCallback(async () => {
     if (
-      !isTelemostLessonReplayActive
+      !isAnyTelemostLessonReplayActive
       || telemostAudioCaptureRef.current
       || telemostAudioCaptureStartingRef.current
       || !navigator.mediaDevices?.getDisplayMedia
@@ -17502,15 +17582,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       }
     }
   }, [
-    isTelemostLessonReplayActive,
+    isAnyTelemostLessonReplayActive,
     stopTelemostAudioCapture,
     uploadLessonReplayAudioSegment,
   ]);
 
   useEffect(() => {
-    if (isTelemostLessonReplayActive && callSessionStatus !== 'connected') return;
+    if (isAnyTelemostLessonReplayActive && callSessionStatus !== 'connected') return;
     stopTelemostAudioCapture();
-  }, [callSessionStatus, isTelemostLessonReplayActive, stopTelemostAudioCapture]);
+  }, [callSessionStatus, isAnyTelemostLessonReplayActive, stopTelemostAudioCapture]);
+
+  useEffect(() => {
+    stopTelemostAudioCapture();
+  }, [
+    activeLearningLesson?.lessonId,
+    stopTelemostAudioCapture,
+    telemostLessonReplay?.occurrenceKey,
+  ]);
 
   useEffect(() => () => stopTelemostAudioCapture(), [stopTelemostAudioCapture]);
   const {
@@ -17652,6 +17740,23 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     () => studentsWithNicknames.filter(isCurrentStudent),
     [studentsWithNicknames]
   );
+  const activeLearningGroupByStudentId = useMemo(() => {
+    const result = new Map();
+    lessonTargetGroups
+      .filter((group) => String(group?.status || '').trim() === 'active')
+      .forEach((group) => {
+        (Array.isArray(group?.participantIds) ? group.participantIds : []).forEach((studentId) => {
+          const normalizedStudentId = String(studentId || '').trim();
+          if (normalizedStudentId && !result.has(normalizedStudentId)) result.set(normalizedStudentId, group);
+        });
+      });
+    return result;
+  }, [lessonTargetGroups]);
+  const individualLessonTargetStudents = useMemo(() => (
+    currentStudentsWithNicknames.filter((student) => (
+      !activeLearningGroupByStudentId.has(String(student?.id || '').trim())
+    ))
+  ), [activeLearningGroupByStudentId, currentStudentsWithNicknames]);
   const activeHomeworkLessonBasketItems = useMemo(
     () => getHomeworkLessonBasketItems(homeworkLessonBaskets, activeStudentId),
     [activeStudentId, homeworkLessonBaskets]
@@ -17881,6 +17986,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     .map((id) => visibleNav.find((item) => item.id === id))
     .filter(Boolean);
   const studentDefaultLessonView = lessonQuickNav[0]?.id || 'progress';
+  const studentLessonWorkspaceBlocked = Boolean(
+    user.role === 'student'
+    && !activeLearningLesson
+    && studentLessonWorkspace.status !== 'individual'
+  );
   const studentMobilePrimaryNavIds = ['schedule', 'progress', 'notes'];
   const studentMobilePrimaryNav = user.role === 'student'
     ? [
@@ -19436,9 +19546,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       groupName: String(lesson?.groupName || '').trim(),
       topic: String(lesson?.topic || '').trim(),
       startsAt: String(lesson?.startsAt || '').trim(),
+      durationMinutes: Math.max(15, Number(lesson?.durationMinutes) || 60),
       telemostUrl: String(lesson?.telemostUrl || '').trim(),
       readOnly: Boolean(lesson?.readOnly),
     });
+    if (user.role === 'student') {
+      setStudentLessonWorkspace((current) => ({
+        status: 'group',
+        group: current.group?.id === groupId
+          ? current.group
+          : { id: groupId, groupId, name: String(lesson?.groupName || 'Мини-группа').trim() },
+        error: '',
+      }));
+    }
     if (user.role === 'teacher') {
       storedActiveStudentIdRef.current = '';
       setActiveStudentId(null);
@@ -19449,6 +19569,227 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     navigateToView(surface);
     setMenuOpen(false);
   }, [isCallViewAvailable, navigateToView, user.role]);
+
+  const refreshStudentLessonWorkspace = useCallback(async ({ silent = false } = {}) => {
+    if (user.role !== 'student') return null;
+    const requestId = studentLessonWorkspaceRequestRef.current + 1;
+    studentLessonWorkspaceRequestRef.current = requestId;
+    if (!silent) {
+      setStudentLessonWorkspace((current) => (
+        current.status === 'group' ? current : { ...current, status: 'loading', error: '' }
+      ));
+    }
+    try {
+      const groupsPayload = await api.getLearningGroups({
+        studentId: user.id,
+        includeCompleted: true,
+      });
+      const activeGroups = getStudentActiveLearningGroups(
+        normalizeLearningGroupList(groupsPayload),
+        user.id
+      );
+      if (studentLessonWorkspaceRequestRef.current !== requestId) return null;
+      if (activeGroups.length === 0) {
+        setStudentLessonWorkspace({ status: 'individual', group: null, error: '' });
+        setActiveLearningLesson(null);
+        return null;
+      }
+
+      const lessonResults = await Promise.allSettled(
+        activeGroups.map((group) => api.getLearningGroupLessons(group.id, { limit: 200 }))
+      );
+      if (studentLessonWorkspaceRequestRef.current !== requestId) return null;
+      const workspaceLessons = [];
+      lessonResults.forEach((result, index) => {
+        if (result.status !== 'fulfilled') return;
+        const payload = result.value;
+        const rawLessons = Array.isArray(payload)
+          ? payload
+          : (Array.isArray(payload?.lessons) ? payload.lessons : []);
+        rawLessons.forEach((lesson, lessonIndex) => {
+          workspaceLessons.push({
+            ...normalizeLearningGroupLesson(lesson, lessonIndex),
+            workspaceGroupId: activeGroups[index].id,
+          });
+        });
+      });
+      const selectedLesson = selectLearningGroupWorkspaceLesson(workspaceLessons);
+      const selectedGroup = activeGroups.find((group) => group.id === selectedLesson?.workspaceGroupId)
+        || activeGroups[0];
+      setStudentLessonWorkspace({ status: 'group', group: selectedGroup, error: '' });
+      if (!selectedLesson) {
+        setActiveLearningLesson(null);
+        return null;
+      }
+
+      const participantIds = Array.from(new Set(
+        (Array.isArray(selectedLesson.participantIds) ? selectedLesson.participantIds : selectedGroup.participantIds || [])
+          .map((participantId) => String(participantId || '').trim())
+          .filter(Boolean)
+      ));
+      const lessonStartMs = Date.parse(selectedLesson.startsAt || selectedLesson.startAt || '');
+      const lessonEndMs = lessonStartMs + Math.max(15, Number(selectedLesson.durationMinutes) || 60) * 60 * 1000;
+      const lessonIsPast = Number.isFinite(lessonEndMs) && lessonEndMs < Date.now();
+      const nextLessonContext = {
+        lessonId: String(selectedLesson.lessonId || selectedLesson.id || '').trim(),
+        groupId: selectedGroup.id,
+        participantIds,
+        groupName: selectedGroup.name,
+        topic: selectedLesson.topic || 'Групповое занятие',
+        startsAt: selectedLesson.startsAt || selectedLesson.startAt || '',
+        durationMinutes: Math.max(15, Number(selectedLesson.durationMinutes) || 60),
+        telemostUrl: selectedLesson.telemostUrl || '',
+        readOnly: lessonIsPast || ['completed', 'cancelled'].includes(String(selectedLesson.status || '').trim()),
+      };
+      setActiveLearningLesson(nextLessonContext);
+      return nextLessonContext;
+    } catch (requestError) {
+      if (studentLessonWorkspaceRequestRef.current !== requestId) return null;
+      setStudentLessonWorkspace((current) => ({
+        ...current,
+        status: current.group ? 'group' : 'error',
+        error: requestError?.message || 'Не удалось определить занятие мини-группы.',
+      }));
+      return null;
+    }
+  }, [user.id, user.role]);
+
+  useEffect(() => {
+    if (user.role !== 'student') return undefined;
+    void refreshStudentLessonWorkspace();
+    if (typeof window === 'undefined') return undefined;
+    const refresh = () => void refreshStudentLessonWorkspace({ silent: true });
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    const timer = window.setInterval(refresh, 60 * 1000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [refreshStudentLessonWorkspace, user.role]);
+
+  const handleSelectLessonTarget = useCallback(async (targetValue) => {
+    if (user.role !== 'teacher') return;
+    const target = parseLessonTargetValue(targetValue);
+    const requestId = lessonTargetSelectionRequestRef.current + 1;
+    lessonTargetSelectionRequestRef.current = requestId;
+
+    if (target.type !== 'group') {
+      setLessonTargetSelectionLoading(false);
+      handleSelectStudent(target.id || null);
+      return;
+    }
+
+    if (!target.id) return;
+    setLessonTargetSelectionLoading(true);
+    setLessonTargetError('');
+    try {
+      let availableGroups = lessonTargetGroups;
+      let selectedGroup = availableGroups.find((group) => group.id === target.id) || null;
+      if (!selectedGroup) {
+        availableGroups = await refreshLessonTargetGroups();
+        selectedGroup = availableGroups.find((group) => group.id === target.id) || null;
+      }
+      if (!selectedGroup) throw new Error('Мини-группа не найдена. Обновите список групп.');
+
+      const participantIds = Array.from(new Set(
+        (Array.isArray(selectedGroup.participantIds) ? selectedGroup.participantIds : [])
+          .map((participantId) => String(participantId || '').trim())
+          .filter(Boolean)
+      ));
+      if (participantIds.length < 2) {
+        throw new Error('Групповое занятие можно открыть после добавления минимум двух учеников.');
+      }
+
+      const lessonsPayload = await api.getLearningGroupLessons(selectedGroup.id, { limit: 100 });
+      const rawLessons = Array.isArray(lessonsPayload)
+        ? lessonsPayload
+        : (Array.isArray(lessonsPayload?.lessons) ? lessonsPayload.lessons : []);
+      const lessonById = new Map();
+      [...rawLessons, selectedGroup.nextLesson]
+        .filter(Boolean)
+        .map((lesson, index) => normalizeLearningGroupLesson(lesson, index))
+        .forEach((lesson) => {
+          const lessonId = String(lesson?.lessonId || lesson?.id || '').trim();
+          if (lessonId) lessonById.set(lessonId, lesson);
+        });
+      const liveLessons = Array.from(lessonById.values()).filter((lesson) => (
+        !['cancelled', 'completed'].includes(String(lesson?.status || '').trim())
+      ));
+      const parseStart = (lesson) => {
+        const timestamp = Date.parse(lesson?.startsAt || lesson?.startAt || '');
+        return Number.isFinite(timestamp) ? timestamp : 0;
+      };
+      const now = Date.now();
+      const activeLesson = liveLessons
+        .filter((lesson) => String(lesson?.status || '').trim() === 'active')
+        .sort((left, right) => parseStart(right) - parseStart(left))[0] || null;
+      const currentScheduledLesson = liveLessons
+        .filter((lesson) => {
+          const startsAt = parseStart(lesson);
+          const durationMs = Math.max(15, Number(lesson?.durationMinutes) || 60) * 60 * 1000;
+          return startsAt > 0 && startsAt <= now && now <= startsAt + durationMs + (30 * 60 * 1000);
+        })
+        .sort((left, right) => parseStart(right) - parseStart(left))[0] || null;
+      const upcomingLesson = liveLessons
+        .filter((lesson) => parseStart(lesson) >= now)
+        .sort((left, right) => parseStart(left) - parseStart(right))[0] || null;
+      const latestScheduledLesson = liveLessons
+        .sort((left, right) => parseStart(right) - parseStart(left))[0] || null;
+      const lesson = activeLesson || currentScheduledLesson || upcomingLesson || latestScheduledLesson;
+      if (!lesson) {
+        throw new Error('У группы пока нет занятия. Добавьте его в Google Календарь или в разделе «Мини-группы».');
+      }
+      if (lessonTargetSelectionRequestRef.current !== requestId) return;
+
+      handleOpenLearningGroupLesson({
+        ...lesson,
+        lessonId: String(lesson.lessonId || lesson.id || '').trim(),
+        groupId: selectedGroup.id,
+        participantIds: Array.isArray(lesson.participantIds) && lesson.participantIds.length > 0
+          ? lesson.participantIds
+          : participantIds,
+        groupName: selectedGroup.name,
+        topic: lesson.topic || 'Групповое занятие',
+        startsAt: lesson.startsAt || lesson.startAt || '',
+        telemostUrl: lesson.telemostUrl || '',
+        surface: ['call', 'board', 'collab'].includes(view) ? view : 'board',
+      });
+    } catch (requestError) {
+      if (lessonTargetSelectionRequestRef.current === requestId) {
+        setLessonTargetError(requestError?.message || 'Не удалось открыть занятие мини-группы.');
+      }
+    } finally {
+      if (lessonTargetSelectionRequestRef.current === requestId) {
+        setLessonTargetSelectionLoading(false);
+      }
+    }
+  }, [
+    handleOpenLearningGroupLesson,
+    handleSelectStudent,
+    lessonTargetGroups,
+    refreshLessonTargetGroups,
+    user.role,
+    view,
+  ]);
+
+  useEffect(() => {
+    if (user.role !== 'teacher' || !['call', 'board', 'collab'].includes(view) || !activeStudentId) return;
+    const group = activeLearningGroupByStudentId.get(String(activeStudentId || '').trim());
+    if (!group || activeLearningLesson?.groupId === group.id) return;
+    void handleSelectLessonTarget(buildLearningGroupTargetValue(group.id));
+  }, [
+    activeLearningGroupByStudentId,
+    activeLearningLesson?.groupId,
+    activeStudentId,
+    handleSelectLessonTarget,
+    user.role,
+    view,
+  ]);
 
   const handleLeaveLearningGroupLesson = useCallback(() => {
     setActiveLearningLesson(null);
@@ -20962,6 +21303,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const handleOpenStudentPlatformLesson = useCallback(() => {
     if (user.role !== 'student') return;
+    if (studentLessonWorkspace.status !== 'individual') {
+      if (!activeLearningLesson) void refreshStudentLessonWorkspace();
+      if (isCallViewAvailable && activeLearningLesson) {
+        setCallPanelExpanded(true);
+        navigateToView('call');
+      } else {
+        navigateToView('board');
+      }
+      setMenuOpen(false);
+      return;
+    }
     setActiveLearningLesson(null);
     if (isCallViewAvailable) {
       setCallPanelExpanded(true);
@@ -20971,7 +21323,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       navigateToView('board');
     }
     setMenuOpen(false);
-  }, [isCallViewAvailable, navigateToView, user.role]);
+  }, [activeLearningLesson, isCallViewAvailable, navigateToView, refreshStudentLessonWorkspace, studentLessonWorkspace.status, user.role]);
 
   const handleExpandGoalBlock = useCallback(() => {
     setGoalCollapsed(false);
@@ -21963,20 +22315,22 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
-      {user.role === 'teacher' && isTelemostLessonReplayActive && (
+      {user.role === 'teacher' && isAnyTelemostLessonReplayActive && (
         <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1350] flex max-w-[calc(100vw-1.5rem)] items-center gap-3 rounded-2xl border border-violet-200/90 bg-white/95 px-3 py-2.5 shadow-[0_16px_42px_rgba(91,33,182,0.22)] backdrop-blur-xl md:bottom-5 md:right-5">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white shadow-md shadow-violet-200/70">
             <Video size={18} />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-xs font-black text-slate-800">Урок идёт в Телемосте</p>
+            <p className="truncate text-xs font-black text-slate-800">
+              {isGroupLessonReplayActive ? 'Группа занимается в Телемосте' : 'Урок идёт в Телемосте'}
+            </p>
             <p className="truncate text-[10px] font-semibold text-slate-500">
               {telemostAudioCapture.message || (telemostLessonAutoFinishLabel
                 ? `Доска и код пишутся до ${telemostLessonAutoFinishLabel}`
                 : 'Доска и код продолжают записываться')}
             </p>
           </div>
-          <button
+          {!isGroupLessonReplayActive && <button
             type="button"
             onClick={telemostAudioCapture.status === 'recording'
               ? stopTelemostAudioCapture
@@ -21995,7 +22349,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 ? 'Звук пишется'
                 : (telemostAudioCapture.status === 'requesting' ? 'Выбери вкладку…' : 'Записать звук')}
             </span>
-          </button>
+          </button>}
           <button
             type="button"
             onClick={handleFinishTelemostLesson}
@@ -23159,6 +23513,52 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               </div>
             </div>
           )}
+          {user.role === 'teacher' && lessonQuickNavIds.includes(view) && (
+            <div className="mb-2 rounded-2xl border border-violet-200/80 bg-white/95 px-3 py-2.5 shadow-sm">
+              <div className="grid gap-2 sm:grid-cols-[auto_minmax(240px,420px)_auto] sm:items-center">
+                <label
+                  htmlFor="lesson-target-select"
+                  className="text-[11px] font-bold uppercase tracking-[0.12em] text-violet-700"
+                >
+                  Занятие
+                </label>
+                <StudentSearchSelect
+                  id="lesson-target-select"
+                  students={individualLessonTargetStudents}
+                  groups={lessonTargetGroups}
+                  value={activeLearningLesson?.groupId
+                    ? buildLearningGroupTargetValue(activeLearningLesson.groupId)
+                    : (activeStudentId || '')}
+                  onChange={(nextTarget) => void handleSelectLessonTarget(nextTarget)}
+                  onOpen={() => {
+                    refreshStudentsForPicker?.();
+                    void refreshLessonTargetGroups();
+                  }}
+                  disabled={lessonTargetSelectionLoading || (
+                    studentsLoading
+                    && lessonTargetGroupsLoading
+                    && currentStudentsWithNicknames.length === 0
+                    && lessonTargetGroups.length === 0
+                  )}
+                  placeholder="Выберите ученика или мини-группу"
+                  ariaLabel="Выберите ученика или мини-группу"
+                  emptyText="Ученики и мини-группы не найдены"
+                  className="h-9 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:cursor-wait disabled:opacity-70"
+                />
+                {(lessonTargetSelectionLoading || lessonTargetGroupsLoading) && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-violet-600">
+                    <RefreshCcw size={14} className="animate-spin" /> Обновляем
+                  </span>
+                )}
+              </div>
+              {lessonTargetError && (
+                <div className="mt-2 flex items-start gap-2 text-xs font-semibold text-rose-600">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                  <span>{lessonTargetError}</span>
+                </div>
+              )}
+            </div>
+          )}
           {activeLearningLesson && lessonQuickNavIds.includes(view) && (
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-emerald-900 shadow-sm">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
@@ -23445,6 +23845,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               activeLearningLesson={activeLearningLesson}
               onOpenLessonRoom={handleOpenLearningGroupLesson}
               onOpenStudentHomework={handleOpenLearningGroupStudentHomework}
+              tasks={tasksWithTitles}
+              GOAL_TYPE_TASK={GOAL_TYPE_TASK}
+              GOAL_TYPE_MOCK={GOAL_TYPE_MOCK}
+              normalizeGoalType={normalizeGoalType}
+              normalizeTaskNumber={normalizeTaskNumber}
+              isPythonTaskNumber={isPythonTaskNumber}
+              getPythonTaskInfo={getPythonTaskInfo}
+              getTaskDisplayNumber={getTaskDisplayNumber}
+              formatTaskNumber={formatTaskNumber}
+              normalizeMockExamId={normalizeMockExamId}
+              PYTHON_TASKS={PYTHON_TASKS}
+              PYTHON_LEVEL_ID={PYTHON_LEVEL_ID}
+              LEVELS={LEVELS}
             />
           )}
           {view === 'schedule' && user.role === 'student' && (
@@ -23778,7 +24191,33 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               ALLOW_MAIN_THREAD_PYTHON_FALLBACK={ALLOW_MAIN_THREAD_PYTHON_FALLBACK}
             />
           )}
-          {view === 'collab' && (
+          {studentLessonWorkspaceBlocked && lessonQuickNavIds.includes(view) && (
+            <Card className="border-violet-200 bg-violet-50/70 p-6 text-center">
+              <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-white text-violet-700 shadow-sm">
+                {studentLessonWorkspace.status === 'loading'
+                  ? <RefreshCcw size={22} className="animate-spin" />
+                  : <Users size={22} />}
+              </span>
+              <h2 className="mt-4 text-lg font-bold text-slate-900">
+                {studentLessonWorkspace.status === 'loading'
+                  ? 'Определяем комнату занятия'
+                  : (studentLessonWorkspace.group?.name || 'Мини-группа')}
+              </h2>
+              <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-slate-600">
+                {studentLessonWorkspace.status === 'error'
+                  ? studentLessonWorkspace.error
+                  : 'Личной доски и отдельного кода для участника мини-группы нет. Общая комната появится после добавления занятия группы в Google Календарь.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => void refreshStudentLessonWorkspace()}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700"
+              >
+                <RefreshCcw size={16} /> Проверить расписание
+              </button>
+            </Card>
+          )}
+          {view === 'collab' && !studentLessonWorkspaceBlocked && (
             <CollabSection
               role={user.role}
               userId={user.id}
@@ -23795,9 +24234,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
+              hideStudentPicker={user.role === 'teacher'}
               openSaveToNotesToken={collabSaveToNotesToken}
-              onLessonReplayEvent={activeLearningLesson ? null : recordLessonReplayEvent}
-              lessonReplayActive={!activeLearningLesson && (callSessionStatus === 'connected' || isTelemostLessonReplayActive)}
+              onLessonReplayEvent={recordLessonReplayEvent}
+              lessonReplayActive={activeLearningLesson
+                ? isGroupLessonReplayActive
+                : (callSessionStatus === 'connected' || isTelemostLessonReplayActive)}
             />
           )}
           {isCallViewAvailable && activeLearningLesson && view === 'call' && (
@@ -23808,12 +24250,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               startsAt={activeLearningLesson.startsAt}
               participantCount={activeLearningLesson.participantIds.length}
               telemostUrl={activeLearningLesson.telemostUrl}
+              readOnly={Boolean(activeLearningLesson.readOnly)}
+              audioCaptureStatus={telemostAudioCapture.status}
+              audioCaptureMessage={telemostAudioCapture.message}
+              onOpenTelemost={(meetingUrl) => {
+                window.open(meetingUrl, '_blank', 'noopener,noreferrer');
+                if (user.role === 'teacher') void startTelemostAudioCapture();
+              }}
               onOpenBoard={() => navigateToView('board')}
               onOpenCollab={() => navigateToView('collab')}
               onBack={handleLeaveLearningGroupLesson}
             />
           )}
-          {isCallViewAvailable && !activeLearningLesson && (
+          {isCallViewAvailable && !activeLearningLesson && !studentLessonWorkspaceBlocked && (
             <CallSection
               role={user.role}
               userId={user.id}
@@ -23825,6 +24274,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={handleSelectStudent}
               onRequestStudentsRefresh={refreshStudentsForPicker}
               studentsLoading={studentsLoading}
+              hideStudentPicker={user.role === 'teacher'}
               uiMode={callUiMode}
               theme={theme}
               autoStartToken={callAutoStartToken}
@@ -23862,7 +24312,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onTelemostLessonStart={applyTelemostLessonReplay}
             />
           )}
-          {view === 'board' && (
+          {view === 'board' && !studentLessonWorkspaceBlocked && (
             <BoardSection
               role={user.role}
               userId={user.id}
@@ -23877,9 +24327,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
+              hideStudentPicker={user.role === 'teacher'}
               theme={theme}
-              onLessonReplayEvent={activeLearningLesson ? null : recordLessonReplayEvent}
-              lessonReplayActive={!activeLearningLesson && (callSessionStatus === 'connected' || isTelemostLessonReplayActive)}
+              onLessonReplayEvent={recordLessonReplayEvent}
+              lessonReplayActive={activeLearningLesson
+                ? isGroupLessonReplayActive
+                : (callSessionStatus === 'connected' || isTelemostLessonReplayActive)}
             />
           )}
           {view === 'notes' && (

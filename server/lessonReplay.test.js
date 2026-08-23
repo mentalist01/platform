@@ -30,6 +30,24 @@ const eventContext = {
   nowMs: START_MS,
 };
 
+test('keeps a bounded participant snapshot on a shared group replay', () => {
+  const replay = normalizeLessonReplay({
+    occurrence: {
+      ...occurrence,
+      key: 'learning-group-replay|lesson-1',
+      studentId: '',
+      scope: 'learning-group',
+      groupId: 'group-1',
+      lessonId: 'lesson-1',
+      participantIds: ['student-1', 'student-2', 'student-2'],
+    },
+  });
+  assert.equal(replay.occurrence.scope, 'learning-group');
+  assert.equal(replay.occurrence.groupId, 'group-1');
+  assert.equal(replay.occurrence.lessonId, 'lesson-1');
+  assert.deepEqual(replay.occurrence.participantIds, ['student-1', 'student-2']);
+});
+
 test('normalizes a replay event and drops unsupported event types', () => {
   const event = normalizeLessonReplayEvent({
     id: 'event-1',

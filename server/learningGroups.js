@@ -82,6 +82,75 @@ const normalizeStringIds = (value, limit = 100) => {
   return result;
 };
 
+const normalizeLearningHomeworkGoals = (value) => (
+  (Array.isArray(value) ? value : [])
+    .slice(0, 50)
+    .map((goal) => {
+      if (!goal || typeof goal !== 'object' || Array.isArray(goal)) return null;
+      const type = cleanText(goal.type, 20).toLowerCase() === 'mock' ? 'mock' : 'task';
+      const assignmentTier = cleanText(goal.assignmentTier, 20).toLowerCase() === 'optional'
+        ? 'optional'
+        : 'required';
+      if (type === 'mock') {
+        const mockExamId = cleanText(goal.mockExamId, 180);
+        if (!mockExamId) return null;
+        const mode = cleanText(goal.mode, 20).toLowerCase() === 'classic' ? 'classic' : 'timer';
+        const continuationOfHomeworkId = cleanText(goal.continuationOfHomeworkId, 180);
+        return {
+          type,
+          assignmentTier,
+          mockExamId,
+          mode,
+          targetTaskKeys: normalizeStringIds(goal.targetTaskKeys, 200),
+          ...(continuationOfHomeworkId ? { continuationOfHomeworkId } : {}),
+        };
+      }
+      const taskNumber = Number(goal.taskNumber);
+      if (!Number.isFinite(taskNumber) || taskNumber <= 0) return null;
+      const levelId = cleanText(goal.levelId, 40);
+      const targetQuestions = Array.from(new Set(
+        (Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [])
+          .slice(0, 200)
+          .map((entry) => Math.trunc(Number(entry)))
+          .filter((entry) => Number.isFinite(entry) && entry > 0)
+      )).sort((left, right) => left - right);
+      const targetQuestionIds = (Array.isArray(goal.targetQuestionIds) ? goal.targetQuestionIds : [])
+        .slice(0, 200)
+        .map((entry) => cleanText(entry, 180));
+      return {
+        type,
+        assignmentTier,
+        taskNumber,
+        levelId,
+        includeAll: Boolean(goal.includeAll),
+        targetQuestions,
+        ...(targetQuestionIds.some(Boolean) ? { targetQuestionIds } : {}),
+      };
+    })
+    .filter(Boolean)
+);
+
+const normalizeLearningHomeworkTemplate = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const dueAtMode = cleanText(value.dueAtMode, 30).toLowerCase() === 'next-lesson'
+    ? 'next-lesson'
+    : 'manual';
+  const calendarOffset = Math.round(Number(value.calendarOffsetMinutes));
+  const days = Math.round(Number(value.daysToComplete));
+  return {
+    homeWork: cleanText(value.homeWork ?? value.content, 50000),
+    lessonLink: cleanText(value.lessonLink, 2000),
+    boardLink: cleanText(value.boardLink, 2000),
+    dueAt: normalizeIsoTimestamp(value.dueAt),
+    dueAtMode,
+    calendarOffsetMinutes: Number.isFinite(calendarOffset)
+      ? Math.max(-14 * 60, Math.min(14 * 60, calendarOffset))
+      : 0,
+    daysToComplete: Number.isFinite(days) && days > 0 ? Math.min(365, days) : 7,
+    goals: normalizeLearningHomeworkGoals(value.goals),
+  };
+};
+
 const getNowIso = (value) => normalizeIsoTimestamp(value) || new Date().toISOString();
 
 const getIdFactory = (options = {}) => (
@@ -486,6 +555,7 @@ export const normalizeLearningAssignment = (value) => {
     title: cleanText(value.title, 240),
     content: cleanText(value.content ?? value.homeWork, 50000),
     dueAt: normalizeIsoTimestamp(value.dueAt),
+    homework: normalizeLearningHomeworkTemplate(value.homework || value.homeworkTemplate),
     materialIds: normalizeStringIds(value.materialIds, 100),
     recipientIds: normalizeStringIds(value.recipientIds, 5),
     status,
@@ -519,6 +589,7 @@ export const createLearningAssignment = (groupValue, payload = {}, options = {})
     title,
     content,
     dueAt,
+    homework: payload.homework || payload.homeworkTemplate,
     materialIds: payload.materialIds,
     recipientIds: getActiveLearningGroupMembers(group).map((member) => member.studentId),
     status: payload.status === 'draft' ? 'draft' : 'assigned',
@@ -543,6 +614,9 @@ export const updateLearningAssignment = (assignmentValue, patch = {}, options = 
     next.dueAt = dueAt;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'materialIds')) next.materialIds = normalizeStringIds(patch.materialIds, 100);
+  if (Object.prototype.hasOwnProperty.call(patch, 'homework') || Object.prototype.hasOwnProperty.call(patch, 'homeworkTemplate')) {
+    next.homework = normalizeLearningHomeworkTemplate(patch.homework || patch.homeworkTemplate);
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
     const status = cleanText(patch.status, 30);
     if (!ASSIGNMENT_STATUSES.has(status)) fail('Некорректный статус задания', 'invalid_assignment_status');

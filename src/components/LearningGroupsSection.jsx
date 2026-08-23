@@ -34,12 +34,12 @@ import {
   X,
 } from 'lucide-react';
 import { api, resolveAuthenticatedApiUrl, withStoredAuthToken } from '../services/api';
+import TeacherHomeworkComposer from './TeacherHomeworkComposer';
 import {
   LEARNING_GROUP_STATUS_ACTIVE,
   LEARNING_GROUP_STATUS_COMPLETED,
   LEARNING_GROUP_STATUS_FORMING,
   LEARNING_GROUP_STATUS_READY,
-  LEARNING_GROUP_WEEKDAYS,
   getLearningGroupStatusMeta,
   normalizeLearningGroup,
   normalizeLearningGroupAssignment,
@@ -48,6 +48,13 @@ import {
   normalizeLearningGroupList,
   normalizeLearningGroupMaterial,
 } from '../utils/learningGroups';
+import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
+import { normalizeHomeworkAssignmentTier } from '../utils/homeworkAssignmentTier';
+import {
+  HOMEWORK_DUE_AT_MODE_MANUAL,
+  HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
+} from '../utils/homeworkDueAt';
+import { normalizeAssignedMockExamMode } from '../utils/mockExamMode';
 import { parseTelemostUrl } from '../utils/telemost';
 
 const GROUP_TONE_CLASSES = {
@@ -110,13 +117,7 @@ const EMPTY_MATERIAL_FORM = {
   lessonId: '',
 };
 
-const EMPTY_ASSIGNMENT_FORM = {
-  title: '',
-  content: '',
-  dueAt: '',
-  lessonId: '',
-  status: 'assigned',
-};
+const DEFAULT_GROUP_HOMEWORK_PLAN_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
 
 const LEARNING_MATERIAL_MAX_FILE_BYTES = 64 * 1024 * 1024;
 
@@ -250,6 +251,28 @@ const formatDuration = (minutesValue) => {
   return rest ? `${hours} ч ${rest} мин` : `${hours} ч`;
 };
 
+const formatCalendarLessonDate = (value) => {
+  const parsed = Date.parse(cleanString(value));
+  if (!Number.isFinite(parsed)) return 'Дата не указана';
+  return new Intl.DateTimeFormat('ru-RU', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(parsed));
+};
+
+const formatCalendarLessonTime = (lesson) => {
+  const startMs = Date.parse(getLessonStart(lesson));
+  if (!Number.isFinite(startMs)) return 'Время не указано';
+  const durationMinutes = Math.max(1, Number(lesson?.durationMinutes) || 60);
+  const formatter = new Intl.DateTimeFormat('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `${formatter.format(new Date(startMs))}–${formatter.format(new Date(startMs + durationMinutes * 60 * 1000))}`;
+};
+
 const formatFileSize = (bytesValue) => {
   const bytes = Math.max(0, Number(bytesValue) || 0);
   if (bytes < 1024) return `${Math.round(bytes)} Б`;
@@ -269,6 +292,32 @@ const toIsoDateTime = (value) => {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : '';
 };
 
+const getHomeworkCalendarOffsetMinutes = () => -new Date().getTimezoneOffset();
+
+const parseHomeworkTargetInput = (input, maxCount) => {
+  const safeMax = Number.isFinite(Number(maxCount)) && Number(maxCount) > 0
+    ? Math.floor(Number(maxCount))
+    : 200;
+  const values = new Set();
+  String(input || '')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\s*-\s*/g, '-')
+    .split(/[\s,;]+/)
+    .filter(Boolean)
+    .forEach((part) => {
+      const range = part.match(/^(\d+)-(\d+)$/);
+      if (range) {
+        const start = Math.max(1, Math.min(Number(range[1]), Number(range[2])));
+        const end = Math.min(safeMax, Math.max(Number(range[1]), Number(range[2])));
+        for (let value = start; value <= end; value += 1) values.add(Math.trunc(value));
+        return;
+      }
+      const value = Math.trunc(Number(part));
+      if (Number.isFinite(value) && value > 0 && value <= safeMax) values.add(value);
+    });
+  return Array.from(values).sort((left, right) => left - right);
+};
+
 const getLessonStart = (lesson) => cleanString(
   lesson?.startsAt || lesson?.startAt || lesson?.dateTime
 );
@@ -276,6 +325,12 @@ const getLessonStart = (lesson) => cleanString(
 const getLessonId = (lesson) => cleanString(lesson?.lessonId || lesson?.id);
 
 const getLessonTelemostUrl = (lesson) => parseTelemostUrl(lesson?.telemostUrl).url;
+
+const isGoogleCalendarLesson = (lesson) => (
+  cleanString(lesson?.source).toLowerCase() === 'google-calendar'
+  || cleanString(lesson?.externalCalendarProvider).toLowerCase() === 'google calendar'
+  || Boolean(cleanString(lesson?.externalEventId))
+);
 
 const getAssignmentId = (assignment) => cleanString(assignment?.assignmentId || assignment?.id);
 
@@ -363,6 +418,19 @@ const LearningGroupsSection = ({
   activeLearningLesson = null,
   onOpenLessonRoom,
   onOpenStudentHomework,
+  tasks = [],
+  GOAL_TYPE_TASK = 'task',
+  GOAL_TYPE_MOCK = 'mock',
+  normalizeGoalType = (goal) => (cleanString(goal?.type).toLowerCase() === 'mock' ? 'mock' : 'task'),
+  normalizeTaskNumber = (value) => Number(value),
+  isPythonTaskNumber = () => false,
+  getPythonTaskInfo = () => null,
+  getTaskDisplayNumber = (task) => task?.number,
+  formatTaskNumber = (value) => String(value ?? ''),
+  normalizeMockExamId = (value) => cleanString(value),
+  PYTHON_TASKS = [],
+  PYTHON_LEVEL_ID = 'python',
+  LEVELS = {},
 }) => {
   const isTeacher = role === 'teacher';
   const [groups, setGroups] = useState([]);
@@ -380,7 +448,6 @@ const LearningGroupsSection = ({
   const [editForm, setEditForm] = useState(EMPTY_GROUP_FORM);
   const [addStudentId, setAddStudentId] = useState('');
   const [lateAddReason, setLateAddReason] = useState('');
-  const [scheduleDraft, setScheduleDraft] = useState([]);
   const [lessonForm, setLessonForm] = useState(() => ({
     ...EMPTY_LESSON_FORM,
     startAt: toDateTimeLocal(),
@@ -391,7 +458,16 @@ const LearningGroupsSection = ({
   const [materialMode, setMaterialMode] = useState('content');
   const [materialFile, setMaterialFile] = useState(null);
   const materialFileInputRef = useRef(null);
-  const [assignmentForm, setAssignmentForm] = useState(EMPTY_ASSIGNMENT_FORM);
+  const [assignmentComposerOpen, setAssignmentComposerOpen] = useState(false);
+  const [assignmentComposerEditing, setAssignmentComposerEditing] = useState(null);
+  const [assignmentComposerSaving, setAssignmentComposerSaving] = useState(false);
+  const [assignmentComposerDraftSaving, setAssignmentComposerDraftSaving] = useState(false);
+  const [assignmentComposerLoading, setAssignmentComposerLoading] = useState(false);
+  const [assignmentComposerError, setAssignmentComposerError] = useState('');
+  const [assignmentTestsDb, setAssignmentTestsDb] = useState({});
+  const [assignmentMockExams, setAssignmentMockExams] = useState([]);
+  const [assignmentMockExamsLoading, setAssignmentMockExamsLoading] = useState(false);
+  const [assignmentComposerForm, setAssignmentComposerForm] = useState(null);
   const [expandedAssignmentId, setExpandedAssignmentId] = useState('');
   const [attendanceLessonId, setAttendanceLessonId] = useState('');
   const [attendanceState, setAttendanceState] = useState({
@@ -433,6 +509,20 @@ const LearningGroupsSection = ({
     [...(Array.isArray(selectedGroup?.lessons) ? selectedGroup.lessons : [])]
       .sort((left, right) => Date.parse(getLessonStart(left)) - Date.parse(getLessonStart(right)))
   ), [selectedGroup?.lessons]);
+
+  const calendarLessons = useMemo(() => {
+    const upcoming = [];
+    const past = [];
+    const now = Date.now();
+    lessons.filter(isGoogleCalendarLesson).forEach((lesson) => {
+      const startMs = Date.parse(getLessonStart(lesson));
+      const endMs = startMs + Math.max(1, Number(lesson?.durationMinutes) || 60) * 60 * 1000;
+      if (Number.isFinite(endMs) && endMs >= now && lesson.status !== 'completed') upcoming.push(lesson);
+      else past.push(lesson);
+    });
+    past.sort((left, right) => Date.parse(getLessonStart(right)) - Date.parse(getLessonStart(left)));
+    return [...upcoming, ...past];
+  }, [lessons]);
 
   const assignments = useMemo(() => (
     Array.isArray(selectedGroup?.assignments) ? selectedGroup.assignments : []
@@ -526,7 +616,6 @@ const LearningGroupsSection = ({
       plannedStartDate: selectedGroup.plannedStartDate || '',
       maxStudents: selectedGroup.maxStudents || 5,
     });
-    setScheduleDraft((selectedGroup.schedule || []).map((entry) => ({ ...entry })));
     setAddStudentId('');
     setLateAddReason('');
     setExpandedAssignmentId('');
@@ -556,6 +645,12 @@ const LearningGroupsSection = ({
     try {
       const result = await action();
       if (successText) setNotice(successText);
+      if (
+        typeof window !== 'undefined'
+        && (key.startsWith('add-member:') || key.startsWith('remove-member:'))
+      ) {
+        window.dispatchEvent(new Event('learning-groups-changed'));
+      }
       const preferredId = cleanString(options.groupId || selectedGroupId);
       if (options.refreshList) await refreshGroups(preferredId);
       else if (options.refreshGroup !== false && preferredId) await loadGroupDetails(preferredId);
@@ -567,6 +662,268 @@ const LearningGroupsSection = ({
       setBusyKey('');
     }
   }, [busyKey, loadGroupDetails, refreshGroups, selectedGroupId]);
+
+  const getDefaultGroupHomeworkDueAt = useCallback(() => {
+    const now = Date.now();
+    const upcomingLesson = lessons.find((lesson) => {
+      const startMs = Date.parse(getLessonStart(lesson));
+      return Number.isFinite(startMs) && startMs > now && lesson.status !== 'cancelled';
+    });
+    return toDateTimeLocal(
+      upcomingLesson ? getLessonStart(upcomingLesson) : now + (7 * 24 * 60 * 60 * 1000)
+    );
+  }, [lessons]);
+
+  const createDefaultGroupHomeworkGoal = useCallback((type = GOAL_TYPE_TASK) => ({
+    type: type === GOAL_TYPE_MOCK ? GOAL_TYPE_MOCK : GOAL_TYPE_TASK,
+    assignmentTier: 'required',
+    taskNumber: '',
+    levelId: 'basic',
+    targetInput: '',
+    includeAll: false,
+    targetQuestionIds: [],
+    targetSelectionDirty: false,
+    mockExamId: '',
+    mode: 'timer',
+  }), [GOAL_TYPE_MOCK, GOAL_TYPE_TASK]);
+
+  const buildGroupHomeworkComposerForm = useCallback((assignment = null) => {
+    const template = asObject(assignment?.homework || assignment?.homeworkTemplate);
+    const sourceGoals = Array.isArray(template.goals) ? template.goals : [];
+    const goals = sourceGoals.map((goal) => {
+      const type = normalizeGoalType(goal);
+      if (type === GOAL_TYPE_MOCK) {
+        return {
+          ...createDefaultGroupHomeworkGoal(GOAL_TYPE_MOCK),
+          type: GOAL_TYPE_MOCK,
+          assignmentTier: normalizeHomeworkAssignmentTier(goal?.assignmentTier),
+          mockExamId: normalizeMockExamId(goal?.mockExamId),
+          mode: normalizeAssignedMockExamMode(goal?.mode),
+          targetTaskKeys: Array.isArray(goal?.targetTaskKeys) ? goal.targetTaskKeys : [],
+          continuationOfHomeworkId: cleanString(goal?.continuationOfHomeworkId),
+        };
+      }
+      const taskNumber = normalizeTaskNumber(goal?.taskNumber);
+      return {
+        ...createDefaultGroupHomeworkGoal(GOAL_TYPE_TASK),
+        type: GOAL_TYPE_TASK,
+        assignmentTier: normalizeHomeworkAssignmentTier(goal?.assignmentTier),
+        taskNumber: Number.isFinite(Number(taskNumber)) ? String(taskNumber) : '',
+        levelId: isPythonTaskNumber(taskNumber) ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
+        includeAll: Boolean(goal?.includeAll),
+        targetInput: goal?.includeAll ? '' : formatHomeworkQuestionRanges(goal?.targetQuestions),
+        targetQuestionIds: Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [],
+        targetSelectionDirty: false,
+      };
+    }).filter((goal) => (
+      goal.type === GOAL_TYPE_MOCK ? Boolean(goal.mockExamId) : Boolean(goal.taskNumber)
+    ));
+    const dueAt = template.dueAt || assignment?.dueAt || '';
+    return {
+      homeWork: template.homeWork ?? assignment?.content ?? assignment?.instructions ?? '',
+      lessonLink: template.lessonLink || '',
+      boardLink: template.boardLink || '',
+      dueAt: dueAt ? toDateTimeLocal(dueAt) : getDefaultGroupHomeworkDueAt(),
+      dueAtMode: template.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+        ? HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+        : (assignment ? HOMEWORK_DUE_AT_MODE_MANUAL : HOMEWORK_DUE_AT_MODE_NEXT_LESSON),
+      daysToComplete: Number(template.daysToComplete) || 7,
+      goals: goals.length > 0 ? goals : [createDefaultGroupHomeworkGoal()],
+      dayPlanEnabled: true,
+      dayPlanSessionCount: 3,
+      dayPlanWeekdays: [...DEFAULT_GROUP_HOMEWORK_PLAN_WEEKDAYS],
+      dayPlanManualLayout: null,
+      issuedAt: assignment?.publishedAt || '',
+    };
+  }, [
+    GOAL_TYPE_MOCK,
+    GOAL_TYPE_TASK,
+    PYTHON_LEVEL_ID,
+    createDefaultGroupHomeworkGoal,
+    getDefaultGroupHomeworkDueAt,
+    isPythonTaskNumber,
+    normalizeGoalType,
+    normalizeMockExamId,
+    normalizeTaskNumber,
+  ]);
+
+  const openAssignmentComposer = async (assignment = null) => {
+    if (!selectedGroup) return;
+    setAssignmentComposerEditing(assignment);
+    setAssignmentComposerForm(buildGroupHomeworkComposerForm(assignment));
+    setAssignmentComposerError('');
+    setAssignmentComposerOpen(true);
+    setAssignmentComposerLoading(true);
+    setAssignmentMockExamsLoading(true);
+    const [testsResult, mocksResult] = await Promise.allSettled([
+      api.getTests(),
+      api.getMockExams(),
+    ]);
+    if (testsResult.status === 'fulfilled') {
+      setAssignmentTestsDb(asObject(testsResult.value));
+    } else {
+      setAssignmentTestsDb({});
+      setAssignmentComposerError(`Не удалось загрузить базу заданий: ${testsResult.reason?.message || testsResult.reason}`);
+    }
+    if (mocksResult.status === 'fulfilled') {
+      setAssignmentMockExams(Array.isArray(mocksResult.value) ? mocksResult.value : []);
+    } else {
+      setAssignmentMockExams([]);
+      setAssignmentComposerError((current) => (
+        current || `Не удалось загрузить пробники: ${mocksResult.reason?.message || mocksResult.reason}`
+      ));
+    }
+    setAssignmentMockExamsLoading(false);
+    setAssignmentComposerLoading(false);
+  };
+
+  const closeAssignmentComposer = () => {
+    if (assignmentComposerSaving || assignmentComposerDraftSaving) return;
+    setAssignmentComposerOpen(false);
+    setAssignmentComposerEditing(null);
+    setAssignmentComposerError('');
+  };
+
+  const updateAssignmentComposerGoal = (index, patch) => {
+    setAssignmentComposerForm((current) => {
+      if (!current) return current;
+      const goals = Array.isArray(current.goals) ? [...current.goals] : [];
+      if (!goals[index]) return current;
+      goals[index] = { ...goals[index], ...(patch || {}) };
+      return { ...current, goals };
+    });
+  };
+
+  const addAssignmentComposerGoal = (type = GOAL_TYPE_TASK) => {
+    setAssignmentComposerForm((current) => ({
+      ...current,
+      goals: [...(Array.isArray(current?.goals) ? current.goals : []), createDefaultGroupHomeworkGoal(type)],
+    }));
+  };
+
+  const removeAssignmentComposerGoal = (index) => {
+    setAssignmentComposerForm((current) => ({
+      ...current,
+      goals: (Array.isArray(current?.goals) ? current.goals : []).filter((_, goalIndex) => goalIndex !== index),
+    }));
+  };
+
+  const saveAssignmentComposer = async (status = 'assigned') => {
+    if (!selectedGroup || !assignmentComposerForm) return;
+    const dueAt = toIsoDateTime(assignmentComposerForm.dueAt);
+    if (!dueAt) {
+      setAssignmentComposerError('Укажите дату и время сдачи домашки.');
+      return;
+    }
+    let validationError = '';
+    const goals = (Array.isArray(assignmentComposerForm.goals) ? assignmentComposerForm.goals : [])
+      .map((goal) => {
+        const type = normalizeGoalType(goal);
+        if (type === GOAL_TYPE_MOCK) {
+          const mockExamId = normalizeMockExamId(goal?.mockExamId);
+          if (!mockExamId) return null;
+          const targetTaskKeys = uniqueStrings(goal?.targetTaskKeys);
+          return {
+            type: GOAL_TYPE_MOCK,
+            assignmentTier: normalizeHomeworkAssignmentTier(goal?.assignmentTier),
+            mockExamId,
+            mode: normalizeAssignedMockExamMode(goal?.mode),
+            ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
+            ...(cleanString(goal?.continuationOfHomeworkId)
+              ? { continuationOfHomeworkId: cleanString(goal.continuationOfHomeworkId) }
+              : {}),
+          };
+        }
+        const taskNumber = normalizeTaskNumber(goal?.taskNumber);
+        if (!Number.isFinite(Number(taskNumber))) return null;
+        const levelId = isPythonTaskNumber(taskNumber) ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic');
+        const questionList = assignmentTestsDb?.[String(taskNumber)]?.[levelId];
+        const questions = Array.isArray(questionList) ? questionList : [];
+        const includeAll = Boolean(goal?.includeAll);
+        const targetQuestions = includeAll
+          ? []
+          : parseHomeworkTargetInput(goal?.targetInput, questions.length || 200);
+        if (!includeAll && targetQuestions.length === 0) {
+          validationError = `Для задания ${formatTaskNumber(taskNumber) || taskNumber} выберите хотя бы один номер или включите «Все номера».`;
+          return null;
+        }
+        const derivedTargetQuestionIds = (includeAll
+          ? questions
+          : targetQuestions.map((questionNumber) => questions[questionNumber - 1]))
+          .map((question) => cleanString(question?.id));
+        const expectedCount = includeAll ? questions.length : targetQuestions.length;
+        const storedTargetQuestionIds = (Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [])
+          .map(cleanString);
+        const targetQuestionIds = expectedCount > 0 && derivedTargetQuestionIds.length === expectedCount
+          && derivedTargetQuestionIds.every(Boolean)
+          ? derivedTargetQuestionIds
+          : (!goal?.targetSelectionDirty && storedTargetQuestionIds.length === expectedCount
+              && storedTargetQuestionIds.every(Boolean)
+            ? storedTargetQuestionIds
+            : []);
+        return {
+          type: GOAL_TYPE_TASK,
+          assignmentTier: normalizeHomeworkAssignmentTier(goal?.assignmentTier),
+          taskNumber: Number(taskNumber),
+          levelId,
+          includeAll,
+          targetQuestions,
+          ...(targetQuestionIds.length > 0 ? { targetQuestionIds } : {}),
+        };
+      })
+      .filter(Boolean);
+    if (validationError) {
+      setAssignmentComposerError(validationError);
+      return;
+    }
+    const homeWork = cleanString(assignmentComposerForm.homeWork);
+    if (!homeWork && goals.length === 0) {
+      setAssignmentComposerError('Добавьте текст, задание или пробник.');
+      return;
+    }
+    const matchingLesson = lessons.find((lesson) => Date.parse(getLessonStart(lesson)) === Date.parse(dueAt));
+    const payload = {
+      title: cleanString(assignmentComposerEditing?.title) || 'Домашняя работа',
+      content: homeWork,
+      dueAt,
+      lessonId: getLessonId(matchingLesson) || cleanString(assignmentComposerEditing?.lessonId),
+      status,
+      homework: {
+        homeWork,
+        lessonLink: cleanString(assignmentComposerForm.lessonLink),
+        boardLink: cleanString(assignmentComposerForm.boardLink),
+        dueAt,
+        dueAtMode: assignmentComposerForm.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+          ? HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+          : HOMEWORK_DUE_AT_MODE_MANUAL,
+        calendarOffsetMinutes: getHomeworkCalendarOffsetMinutes(),
+        daysToComplete: Number(assignmentComposerForm.daysToComplete) || 7,
+        goals,
+      },
+    };
+    const draft = status === 'draft';
+    const savingNewDraft = draft && !assignmentComposerEditing;
+    if (savingNewDraft) setAssignmentComposerDraftSaving(true);
+    else setAssignmentComposerSaving(true);
+    setAssignmentComposerError('');
+    try {
+      const assignmentId = getAssignmentId(assignmentComposerEditing);
+      if (assignmentId) {
+        await api.updateLearningGroupAssignment(selectedGroup.id, assignmentId, payload);
+      } else {
+        await api.createLearningGroupAssignment(selectedGroup.id, payload);
+      }
+      setNotice(draft ? 'Черновик групповой домашки сохранён.' : 'Домашнее задание назначено всей группе.');
+      setAssignmentComposerOpen(false);
+      setAssignmentComposerEditing(null);
+      await loadGroupDetails(selectedGroup.id);
+    } catch (requestError) {
+      setAssignmentComposerError(requestError?.message || 'Не удалось сохранить домашнее задание.');
+    } finally {
+      setAssignmentComposerSaving(false);
+      setAssignmentComposerDraftSaving(false);
+    }
+  };
 
   const handleCreateGroup = async (event) => {
     event.preventDefault();
@@ -628,21 +985,12 @@ const LearningGroupsSection = ({
     );
   };
 
-  const handleSaveSchedule = async () => {
-    if (!selectedGroup) return;
-    const payload = scheduleDraft.map((entry) => ({
-      id: cleanString(entry.id).startsWith('draft-') ? '' : cleanString(entry.id),
-      date: entry.date || null,
-      weekdayKey: entry.date ? '' : entry.weekdayKey,
-      time: entry.time,
-      durationMinutes: Number(entry.durationMinutes),
-      subject: cleanString(entry.subject || entry.topic) || 'Занятие',
-      note: cleanString(entry.note),
-    }));
+  const handleRefreshCalendarSchedule = async () => {
+    if (!selectedGroup || !isTeacher) return;
     await runAction(
-      'save-schedule',
-      () => api.updateLearningGroupSchedule(selectedGroup.id, payload),
-      'Расписание сохранено.'
+      'refresh-calendar-schedule',
+      () => api.refreshTeacherCalendarSync(cleanString(teacherId || userId)),
+      'Расписание обновлено из Google Календаря.'
     );
   };
 
@@ -792,23 +1140,6 @@ const LearningGroupsSection = ({
       () => api.deleteLearningGroupMaterial(selectedGroup.id, getMaterialId(material)),
       'Материал удалён.'
     );
-  };
-
-  const handleCreateAssignment = async (event) => {
-    event.preventDefault();
-    if (!selectedGroup) return;
-    const result = await runAction(
-      'create-assignment',
-      () => api.createLearningGroupAssignment(selectedGroup.id, {
-        title: cleanString(assignmentForm.title),
-        content: cleanString(assignmentForm.content),
-        dueAt: assignmentForm.dueAt ? toIsoDateTime(assignmentForm.dueAt) : '',
-        lessonId: assignmentForm.lessonId,
-        status: assignmentForm.status,
-      }),
-      assignmentForm.status === 'draft' ? 'Черновик сохранён.' : 'Домашнее задание назначено.'
-    );
-    if (result) setAssignmentForm(EMPTY_ASSIGNMENT_FORM);
   };
 
   const handleAssignmentStatus = async (assignment, status) => {
@@ -1356,92 +1687,68 @@ const LearningGroupsSection = ({
 
                 {tab === 'schedule' && (
                   <SectionCard
-                    title="Регулярное расписание"
-                    subtitle="Дни и время еженедельных встреч мини-группы."
-                    action={isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED ? (
+                    title="Расписание из Google Календаря"
+                    subtitle="Занятия этой мини-группы автоматически берутся из общего календаря."
+                    action={isTeacher ? (
                       <button
                         type="button"
-                        onClick={() => setScheduleDraft((current) => [...current, {
-                          id: `draft-${Date.now()}-${current.length}`,
-                          weekdayKey: 'monday',
-                          time: '17:00',
-                          durationMinutes: 60,
-                          subject: 'Занятие',
-                          note: '',
-                        }])}
+                        onClick={() => void handleRefreshCalendarSchedule()}
+                        disabled={busyKey === 'refresh-calendar-schedule'}
                         className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-bold text-violet-700 hover:bg-violet-100"
                       >
-                        <Plus size={16} /> Добавить слот
+                        <RefreshCcw size={16} className={busyKey === 'refresh-calendar-schedule' ? 'animate-spin' : ''} />
+                        {busyKey === 'refresh-calendar-schedule' ? 'Обновляем...' : 'Обновить из Google'}
                       </button>
                     ) : null}
                   >
-                    {scheduleDraft.length === 0 ? (
-                      <EmptyState icon={CalendarDays} title="Расписание пока не задано" text={isTeacher ? 'Добавьте еженедельный слот занятия.' : 'Преподаватель ещё настраивает расписание.'} />
+                    <div className="mb-4 flex items-start gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-4 text-sm text-violet-900">
+                      <CalendarDays size={20} className="mt-0.5 shrink-0 text-violet-600" />
+                      <div>
+                        <p className="font-bold">Отдельно сохранять расписание здесь не нужно.</p>
+                        <p className="mt-1 leading-relaxed text-violet-700">
+                          Создайте или измените событие с названием «{selectedGroup.name}» в Google Календаре — после синхронизации оно появится здесь и в расписании участников группы.
+                        </p>
+                      </div>
+                    </div>
+                    {calendarLessons.length === 0 ? (
+                      <EmptyState
+                        icon={CalendarDays}
+                        title="Занятий группы в общем календаре пока нет"
+                        text={isTeacher
+                          ? `Создайте в Google Календаре событие «${selectedGroup.name}» и нажмите «Обновить из Google».`
+                          : 'Когда преподаватель добавит занятие в общий календарь, оно появится здесь автоматически.'}
+                      />
                     ) : (
                       <div className="space-y-3">
-                        {scheduleDraft.map((entry, index) => (
-                          <div key={entry.id || index} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-3 md:grid-cols-[180px_120px_120px_minmax(0,1fr)_auto] md:items-end">
-                            <Field label="День">
-                              <select
-                                value={entry.weekdayKey || 'monday'}
-                                onChange={(event) => setScheduleDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, weekdayKey: event.target.value, date: null } : item))}
-                                className={inputClassName}
-                                disabled={!isTeacher || selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
-                              >
-                                {LEARNING_GROUP_WEEKDAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}
-                              </select>
-                            </Field>
-                            <Field label="Начало">
-                              <input
-                                type="time"
-                                value={entry.time || ''}
-                                onChange={(event) => setScheduleDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, time: event.target.value } : item))}
-                                className={inputClassName}
-                                disabled={!isTeacher || selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
-                              />
-                            </Field>
-                            <Field label="Длительность">
-                              <select
-                                value={entry.durationMinutes || 60}
-                                onChange={(event) => setScheduleDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, durationMinutes: Number(event.target.value) } : item))}
-                                className={inputClassName}
-                                disabled={!isTeacher || selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
-                              >
-                                {[45, 60, 75, 90, 120].map((minutes) => <option key={minutes} value={minutes}>{formatDuration(minutes)}</option>)}
-                              </select>
-                            </Field>
-                            <Field label="Тема слота">
-                              <input
-                                value={entry.subject || entry.topic || ''}
-                                onChange={(event) => setScheduleDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, subject: event.target.value } : item))}
-                                className={inputClassName}
-                                disabled={!isTeacher || selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
-                                placeholder="Занятие"
-                              />
-                            </Field>
-                            {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                              <button
-                                type="button"
-                                onClick={() => setScheduleDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                                className="grid h-[42px] w-[42px] place-items-center rounded-xl border border-rose-200 bg-white text-rose-600 hover:bg-rose-50"
-                                aria-label="Удалить слот"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            )}
-                          </div>
-                        ))}
+                        {calendarLessons.map((lesson) => {
+                          const lessonId = getLessonId(lesson);
+                          const lessonStartMs = Date.parse(getLessonStart(lesson));
+                          const lessonEndMs = lessonStartMs + Math.max(1, Number(lesson.durationMinutes) || 60) * 60 * 1000;
+                          const isPast = Number.isFinite(lessonEndMs) && lessonEndMs < Date.now();
+                          const statusMeta = getStatusMeta(LESSON_STATUS_META, lesson.status, isPast ? 'completed' : 'scheduled');
+                          return (
+                            <div key={lessonId} className={`flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${isPast ? 'border-slate-200 bg-slate-50/60' : 'border-violet-100 bg-white shadow-sm'}`}>
+                              <div className="flex min-w-0 items-start gap-3">
+                                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${isPast ? 'bg-slate-100 text-slate-500' : 'bg-violet-100 text-violet-700'}`}>
+                                  <CalendarDays size={20} />
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="font-bold capitalize text-slate-900">{formatCalendarLessonDate(getLessonStart(lesson))}</p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+                                    <span className="inline-flex items-center gap-1.5 font-semibold"><Clock3 size={14} /> {formatCalendarLessonTime(lesson)}</span>
+                                    <span>{formatDuration(lesson.durationMinutes)}</span>
+                                    <span className="truncate">{lesson.topic || selectedGroup.name}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+                                <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700">Google Calendar</span>
+                                <StatusPill meta={statusMeta} />
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
-                    {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                      <button
-                        type="button"
-                        onClick={() => void handleSaveSchedule()}
-                        disabled={busyKey === 'save-schedule'}
-                        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
-                      >
-                        <BusyButtonContent busy={busyKey === 'save-schedule'} busyLabel="Сохраняем..." icon={Save}>Сохранить расписание</BusyButtonContent>
-                      </button>
                     )}
                   </SectionCard>
                 )}
@@ -1880,67 +2187,20 @@ const LearningGroupsSection = ({
                 {tab === 'assignments' && (
                   <div className="space-y-4">
                     {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                      <SectionCard title="Новое домашнее задание" subtitle="Создайте один раз — оно появится в обычной домашке каждого текущего участника.">
-                        <form onSubmit={handleCreateAssignment} className="space-y-3">
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <Field label="Название">
-                              <input
-                                value={assignmentForm.title}
-                                onChange={(event) => setAssignmentForm((current) => ({ ...current, title: event.target.value }))}
-                                className={inputClassName}
-                                placeholder="Домашняя работа №1"
-                              />
-                            </Field>
-                            <Field label="Срок сдачи">
-                              <input
-                                type="datetime-local"
-                                value={assignmentForm.dueAt}
-                                onChange={(event) => setAssignmentForm((current) => ({ ...current, dueAt: event.target.value }))}
-                                className={inputClassName}
-                              />
-                            </Field>
-                          </div>
-                          <Field label="Задание">
-                            <textarea
-                              value={assignmentForm.content}
-                              onChange={(event) => setAssignmentForm((current) => ({ ...current, content: event.target.value }))}
-                              className={`${inputClassName} min-h-32 resize-y`}
-                              placeholder="Условие, требования к решению и подсказки"
-                              required={!assignmentForm.title}
-                            />
-                          </Field>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <Field label="Связать с занятием">
-                              <select
-                                value={assignmentForm.lessonId}
-                                onChange={(event) => setAssignmentForm((current) => ({ ...current, lessonId: event.target.value }))}
-                                className={inputClassName}
-                              >
-                                <option value="">Без привязки</option>
-                                {lessons.map((lesson) => <option key={getLessonId(lesson)} value={getLessonId(lesson)}>{lesson.topic}</option>)}
-                              </select>
-                            </Field>
-                            <Field label="Публикация">
-                              <select
-                                value={assignmentForm.status}
-                                onChange={(event) => setAssignmentForm((current) => ({ ...current, status: event.target.value }))}
-                                className={inputClassName}
-                              >
-                                <option value="assigned">Назначить сейчас</option>
-                                <option value="draft">Сохранить черновик</option>
-                              </select>
-                            </Field>
+                      <SectionCard title="Домашнее задание для группы" subtitle="Тот же конструктор, что и для одного ученика. После назначения работа появится отдельно в разделе «Сегодня» у каждого участника.">
+                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-4">
+                          <div>
+                            <div className="font-bold text-slate-900">Одно задание — отдельное выполнение у каждого</div>
+                            <div className="mt-1 text-sm text-slate-600">Можно выбрать задания ЕГЭ, отдельные номера, пробник, срок и добавить ссылки.</div>
                           </div>
                           <button
-                            type="submit"
-                            disabled={busyKey === 'create-assignment' || (!cleanString(assignmentForm.title) && !cleanString(assignmentForm.content))}
-                            className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
+                            type="button"
+                            onClick={() => void openAssignmentComposer()}
+                            className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-violet-700"
                           >
-                            <BusyButtonContent busy={busyKey === 'create-assignment'} busyLabel="Сохраняем..." icon={Send}>
-                              {assignmentForm.status === 'draft' ? 'Сохранить черновик' : 'Назначить группе'}
-                            </BusyButtonContent>
+                            <Plus size={16} /> Задать домашку группе
                           </button>
-                        </form>
+                        </div>
                       </SectionCard>
                     )}
 
@@ -2001,6 +2261,13 @@ const LearningGroupsSection = ({
 
                               {isTeacher && (
                                 <div className="mb-4 flex flex-wrap gap-2">
+                                  {assignment.status !== 'closed' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void openAssignmentComposer(assignment)}
+                                      className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50"
+                                    ><Pencil size={14} /> Редактировать</button>
+                                  )}
                                   {assignment.status === 'draft' && (
                                     <button
                                       type="button"
@@ -2207,6 +2474,60 @@ const LearningGroupsSection = ({
             )}
           </main>
         </div>
+      )}
+
+      {isTeacher && assignmentComposerOpen && assignmentComposerForm && (
+        <TeacherHomeworkComposer
+          open
+          editing={Boolean(assignmentComposerEditing)}
+          preparing={false}
+          preparationError={assignmentComposerError || (assignmentComposerLoading ? 'Загружаем базу заданий…' : '')}
+          saving={assignmentComposerSaving}
+          draftSaving={assignmentComposerDraftSaving}
+          discarding={false}
+          draftRestoredAt=""
+          studentId=""
+          studentLabel={selectedGroup?.name || 'Мини-группа'}
+          targetType="group"
+          form={assignmentComposerForm}
+          carryoverSummary={null}
+          taskOptions={Array.isArray(tasks) ? tasks : []}
+          pythonTaskOptions={Array.isArray(PYTHON_TASKS) ? PYTHON_TASKS : []}
+          mockExams={assignmentMockExams}
+          mockExamsLoading={assignmentMockExamsLoading}
+          testsDb={assignmentTestsDb}
+          levels={LEVELS}
+          pythonLevelId={PYTHON_LEVEL_ID}
+          goalTypeTask={GOAL_TYPE_TASK}
+          goalTypeMock={GOAL_TYPE_MOCK}
+          normalizeGoalType={normalizeGoalType}
+          normalizeTaskNumber={normalizeTaskNumber}
+          isPythonTaskNumber={isPythonTaskNumber}
+          getTaskDisplayNumber={getTaskDisplayNumber}
+          formatTaskNumber={formatTaskNumber}
+          getPythonTaskInfo={getPythonTaskInfo}
+          normalizeMockExamId={normalizeMockExamId}
+          parseTargetInput={parseHomeworkTargetInput}
+          onChangeForm={(patch) => setAssignmentComposerForm((current) => {
+            if (!current) return current;
+            const nextPatch = { ...(patch || {}) };
+            if (
+              nextPatch.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+              && !Object.prototype.hasOwnProperty.call(nextPatch, 'dueAt')
+            ) {
+              nextPatch.dueAt = getDefaultGroupHomeworkDueAt();
+            }
+            return { ...current, ...nextPatch };
+          })}
+          onUpdateGoal={updateAssignmentComposerGoal}
+          onAddGoal={addAssignmentComposerGoal}
+          onRemoveGoal={removeAssignmentComposerGoal}
+          onClose={closeAssignmentComposer}
+          onSaveDraft={() => void saveAssignmentComposer('draft')}
+          onSave={() => void saveAssignmentComposer(
+            assignmentComposerEditing?.status === 'draft' ? 'draft' : 'assigned'
+          )}
+        />
       )}
     </div>
   );

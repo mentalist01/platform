@@ -4,6 +4,7 @@ import {
   Code2,
   ExternalLink,
   LayoutDashboard,
+  Mic,
   ShieldCheck,
   Users,
   Video,
@@ -27,6 +28,10 @@ const GroupTelemostSection = ({
   startsAt = '',
   participantCount = 0,
   telemostUrl = '',
+  readOnly = false,
+  audioCaptureStatus = 'idle',
+  audioCaptureMessage = '',
+  onOpenTelemost,
   onOpenBoard,
   onOpenCollab,
   onBack,
@@ -41,7 +46,7 @@ const GroupTelemostSection = ({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-violet-100">
-              <Video size={16} /> Групповой звонок
+              <Video size={16} /> {readOnly ? 'Архив группового занятия' : 'Групповой звонок'}
             </div>
             <h2 className="mt-3 truncate text-2xl font-black sm:text-3xl">
               {groupName || 'Мини-группа'}
@@ -84,20 +89,37 @@ const GroupTelemostSection = ({
               материалов, заданий и личных ответов.
             </p>
 
-            {meetingUrl ? (
-              <a
-                href={meetingUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+            {!readOnly && meetingUrl ? (
+              <button
+                type="button"
+                onClick={() => onOpenTelemost?.(meetingUrl)}
                 className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-rose-600 px-5 py-3.5 text-base font-black text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-700"
               >
                 <ExternalLink size={19} /> Войти в Телемост
-              </a>
+              </button>
+            ) : readOnly ? (
+              <div className="mt-6 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-700">
+                Занятие завершено. Его общая доска и код сохранены и доступны только для просмотра.
+              </div>
             ) : (
               <div className="mt-6 w-full rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold text-amber-900">
                 {isTeacher
                   ? 'Ссылка ещё не указана. Добавьте её в карточке занятия в разделе мини-группы.'
                   : 'Преподаватель ещё не добавил ссылку Телемоста. Она появится здесь перед занятием.'}
+              </div>
+            )}
+            {!readOnly && meetingUrl && isTeacher && (
+              <div className={`mt-4 flex max-w-xl items-start gap-2 rounded-2xl border px-4 py-3 text-left text-xs font-semibold ${
+                audioCaptureStatus === 'recording'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                  : (audioCaptureStatus === 'error'
+                    ? 'border-rose-200 bg-rose-50 text-rose-700'
+                    : 'border-violet-200 bg-violet-50 text-violet-700')
+              }`}>
+                <Mic size={16} className="mt-0.5 shrink-0" />
+                <span>
+                  {audioCaptureMessage || 'При входе браузер попросит выбрать вкладку Телемоста с включённым звуком и разрешить микрофон.'}
+                </span>
               </div>
             )}
           </div>

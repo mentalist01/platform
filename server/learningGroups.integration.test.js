@@ -417,6 +417,138 @@ test('learning groups keep shared work isolated while legacy student schedules r
     assert.equal(studentLesson.lesson.telemostUrl, 'https://telemost.yandex.ru/j/99999999999999');
     assert.equal(studentLesson.lesson.status, 'active');
 
+    const replayLessonStart = new Date(Date.now() - (20 * 60 * 1000)).toISOString();
+    const replayLessonCreated = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/lessons`, {
+      token: teacher.token,
+      method: 'POST',
+      status: 201,
+      body: {
+        startAt: replayLessonStart,
+        durationMinutes: 15,
+        topic: 'Shared replay lesson',
+        telemostUrl: 'https://telemost.yandex.ru/j/88888888888888',
+      },
+    });
+    const replayLessonId = replayLessonCreated.lesson.id;
+    let teacherReplaySession;
+    try {
+      teacherReplaySession = await jsonRequest(baseUrl, '/api/lesson-replay/session', {
+        token: teacher.token,
+        method: 'POST',
+        body: { learningLessonId: replayLessonId, via: 'telemost' },
+      });
+    } catch (error) {
+      throw new Error(`${error.message}\n${serverLogs}`);
+    }
+    const studentReplaySession = await jsonRequest(baseUrl, '/api/lesson-replay/session', {
+      token: studentA.token,
+      method: 'POST',
+      body: { learningLessonId: replayLessonId, via: 'telemost' },
+    });
+    assert.equal(teacherReplaySession.occurrence.scope, 'learning-group');
+    assert.equal(teacherReplaySession.occurrence.lessonId, replayLessonId);
+    assert.equal(studentReplaySession.occurrenceKey, teacherReplaySession.occurrenceKey);
+
+    await jsonRequest(baseUrl, '/api/lesson-replay/events', {
+      token: teacher.token,
+      method: 'POST',
+      body: {
+        sessionId: teacherReplaySession.sessionId,
+        events: [{
+          id: 'shared-code-event',
+          type: 'code',
+          occurredAt: new Date().toISOString(),
+          payload: { language: 'python', code: 'print("group")' },
+        }],
+      },
+    });
+    await jsonRequest(baseUrl, '/api/lesson-replay/events', {
+      token: studentA.token,
+      method: 'POST',
+      body: {
+        sessionId: studentReplaySession.sessionId,
+        events: [{
+          id: 'shared-board-event',
+          type: 'board',
+          occurredAt: new Date().toISOString(),
+          payload: { mode: 'snapshot', items: [] },
+        }],
+      },
+    });
+    const replayAudioBytes = Buffer.from('group-audio');
+    const preparedAudio = await jsonRequest(baseUrl, '/api/lesson-replay/audio/prepare', {
+      token: teacher.token,
+      method: 'POST',
+      body: {
+        sessionId: teacherReplaySession.sessionId,
+        occurredAt: new Date().toISOString(),
+        durationMs: 1000,
+        mimeType: 'audio/webm',
+        sizeBytes: replayAudioBytes.length,
+      },
+    });
+    const audioUploadResponse = await fetch(`${baseUrl}${preparedAudio.uploadUrl}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${teacher.token}`,
+        'Content-Type': 'audio/webm',
+      },
+      body: replayAudioBytes,
+    });
+    assert.equal(audioUploadResponse.status, 200);
+    await jsonRequest(baseUrl, '/api/lesson-replay/audio/complete', {
+      token: teacher.token,
+      method: 'POST',
+      body: { audioId: preparedAudio.audioId },
+    });
+    await jsonRequest(baseUrl, '/api/lesson-replay/finish', {
+      token: teacher.token,
+      method: 'POST',
+      body: { sessionId: teacherReplaySession.sessionId },
+    });
+    await jsonRequest(baseUrl, '/api/lesson-replay/finish', {
+      token: studentA.token,
+      method: 'POST',
+      body: { sessionId: studentReplaySession.sessionId },
+    });
+
+    const studentAHistory = await jsonRequest(
+      baseUrl,
+      '/api/lesson-history?studentId=student-a&limit=50',
+      { token: studentA.token }
+    );
+    const studentBHistory = await jsonRequest(
+      baseUrl,
+      '/api/lesson-history?studentId=student-b&limit=50',
+      { token: studentB.token }
+    );
+    const studentAReplayLesson = studentAHistory.items.find((entry) => entry.lessonId === replayLessonId);
+    const studentBReplayLesson = studentBHistory.items.find((entry) => entry.lessonId === replayLessonId);
+    assert.ok(studentAReplayLesson, JSON.stringify(studentAHistory));
+    assert.ok(studentBReplayLesson, JSON.stringify(studentBHistory));
+    const studentAReplayDetail = await jsonRequest(
+      baseUrl,
+      `/api/lesson-history/detail?studentId=student-a&occurrenceKey=${encodeURIComponent(studentAReplayLesson.key)}`,
+      { token: studentA.token }
+    );
+    const studentBReplayDetail = await jsonRequest(
+      baseUrl,
+      `/api/lesson-history/detail?studentId=student-b&occurrenceKey=${encodeURIComponent(studentBReplayLesson.key)}`,
+      { token: studentB.token }
+    );
+    assert.equal(studentAReplayDetail.replay.occurrence.key, teacherReplaySession.occurrenceKey);
+    assert.equal(studentBReplayDetail.replay.occurrence.key, teacherReplaySession.occurrenceKey);
+    assert.ok(studentBReplayDetail.replay.events.some((event) => event.id === 'shared-code-event'));
+    const replayAudioEvent = studentBReplayDetail.replay.events.find((event) => event.type === 'audio');
+    assert.ok(replayAudioEvent);
+    const replayAudioResponse = await fetch(
+      `${baseUrl}/api/lesson-replay/audio/${encodeURIComponent(replayAudioEvent.payload.audioId)}`
+        + `?occurrenceKey=${encodeURIComponent(teacherReplaySession.occurrenceKey)}&studentId=student-b`,
+      { headers: { Authorization: `Bearer ${studentB.token}` } }
+    );
+    assert.equal(replayAudioResponse.status, 200);
+    assert.deepEqual(Buffer.from(await replayAudioResponse.arrayBuffer()), replayAudioBytes);
+
     const studentGroups = await jsonRequest(baseUrl, '/api/learning-groups', {
       token: studentC.token,
     });
@@ -607,6 +739,23 @@ test('learning groups keep shared work isolated while legacy student schedules r
         content: 'Solve both tasks independently',
         dueAt: '2026-09-10T18:00:00.000Z',
         materialIds: [commonMaterial.material.id, lessonMaterial.material.id],
+        homework: {
+          homeWork: 'Solve both tasks independently',
+          lessonLink: 'https://example.com/group-lesson',
+          boardLink: 'https://example.com/group-board',
+          dueAt: '2026-09-10T18:00:00.000Z',
+          dueAtMode: 'manual',
+          calendarOffsetMinutes: 180,
+          daysToComplete: 7,
+          goals: [{
+            type: 'task',
+            assignmentTier: 'required',
+            taskNumber: 1,
+            levelId: 'basic',
+            includeAll: false,
+            targetQuestions: [1],
+          }],
+        },
       },
     });
     const assignmentId = assignmentCreated.assignment.id;
@@ -628,7 +777,23 @@ test('learning groups keep shared work isolated while legacy student schedules r
     assert.equal(studentAGroupHomework.learningAssignmentTitle, 'Graph traversal homework');
     assert.equal(studentAGroupHomework.homeWork, 'Solve both tasks independently');
     assert.equal(studentAGroupHomework.dueAt, '2026-09-10T18:00:00.000Z');
+    assert.equal(studentAGroupHomework.lessonLink, 'https://example.com/group-lesson');
+    assert.equal(studentAGroupHomework.boardLink, 'https://example.com/group-board');
+    assert.equal(studentAGroupHomework.goals[0].taskNumber, 1);
+    assert.deepEqual(studentAGroupHomework.goals[0].targetQuestions, [1]);
     assert.ok(studentAGroupHomework.checklistItems.length > 0);
+
+    const directGroupHomeworkEdit = await jsonRequest(
+      baseUrl,
+      `/api/student-next-lesson/${encodeURIComponent(studentAGroupHomework.id)}`,
+      {
+        token: teacher.token,
+        method: 'PATCH',
+        status: 409,
+        body: { studentId: 'student-a', homeWork: 'Must not become personal' },
+      }
+    );
+    assert.equal(directGroupHomeworkEdit.code, 'learning_group_homework_managed_by_group');
 
     const studentBHomeworkBefore = await jsonRequest(baseUrl, '/api/student-next-lesson', {
       token: studentB.token,
@@ -668,6 +833,28 @@ test('learning groups keep shared work isolated while legacy student schedules r
       foreignHomework.homeworks.some((homework) => homework.learningAssignmentId === assignmentId),
       false
     );
+
+    await jsonRequest(baseUrl, '/api/student-next-lesson', {
+      token: teacher.token,
+      method: 'PATCH',
+      body: {
+        studentId: 'student-a',
+        homeWork: 'Personal extra task',
+        dueAt: '2026-09-11T18:00:00.000Z',
+        dueAtMode: 'manual',
+        daysToComplete: 7,
+        goals: [],
+      },
+    });
+    const studentACombinedHomework = await jsonRequest(baseUrl, '/api/student-next-lesson', {
+      token: studentA.token,
+    });
+    assert.ok(studentACombinedHomework.homeworks.some((homework) => (
+      homework.learningAssignmentId === assignmentId
+    )));
+    assert.ok(studentACombinedHomework.homeworks.some((homework) => (
+      homework.source !== 'learning-group' && homework.homeWork === 'Personal extra task'
+    )));
 
     const draftAssignmentCreated = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/assignments`, {
       token: teacher.token,

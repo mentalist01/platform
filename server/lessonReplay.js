@@ -519,11 +519,21 @@ export const normalizeLessonReplay = (value) => {
   const occurrence = isPlainObject(source.occurrence) ? source.occurrence : {};
   const startMs = Number(occurrence.startMs);
   const endMs = Number(occurrence.endMs);
+  const scope = occurrence.scope === 'learning-group' ? 'learning-group' : 'student';
+  const participantIds = Array.from(new Set(
+    (Array.isArray(occurrence.participantIds) ? occurrence.participantIds : [])
+      .map((entry) => clampText(entry, 160).trim())
+      .filter(Boolean)
+  )).slice(0, 5);
   const normalized = {
     version: REPLAY_VERSION,
     occurrence: {
       key: clampText(occurrence.key, 760).trim(),
       studentId: clampText(occurrence.studentId, 160).trim(),
+      scope,
+      groupId: scope === 'learning-group' ? clampText(occurrence.groupId, 160).trim() : '',
+      lessonId: scope === 'learning-group' ? clampText(occurrence.lessonId, 160).trim() : '',
+      participantIds: scope === 'learning-group' ? participantIds : [],
       dayKey: clampText(occurrence.dayKey, 20).trim(),
       time: clampText(occurrence.time, 12).trim(),
       durationMinutes: clampNumber(occurrence.durationMinutes, 15, 360, 60),

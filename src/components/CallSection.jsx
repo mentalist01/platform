@@ -1299,6 +1299,7 @@ const CallSection = ({
   onSelectStudent,
   onRequestStudentsRefresh,
   studentsLoading,
+  hideStudentPicker = false,
   uiMode = 'full',
   onRequestExpand,
   onRequestCollapse,
@@ -5712,25 +5713,27 @@ const CallSection = ({
   const teacherSelectClass = isDarkTheme
     ? 'call-student-select h-9 w-full rounded-xl border border-violet-500/12 bg-slate-950/72 px-3 text-sm text-slate-100 outline-none transition focus:border-violet-400/50'
     : 'call-student-select h-9 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400';
-  const teacherPickerNode = !isTeacher || isGroupLesson ? null : (
+  const teacherPickerNode = !isTeacher || isGroupLesson || (hideStudentPicker && !effectiveStudentId) ? null : (
     <div className={teacherCardClass}>
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-[auto_minmax(240px,1fr)] md:items-center">
-        <label className={teacherLabelClass} htmlFor="call-student-select">
-          Ученик
-        </label>
-        <StudentSearchSelect
-          id="call-student-select"
-          students={students}
-          className={teacherSelectClass}
-          value={activeStudentId || ''}
-          onChange={(nextStudentId) => onSelectStudent?.(nextStudentId || null)}
-          onOpen={onRequestStudentsRefresh}
-          disabled={studentsLoading}
-          placeholder="Выбери ученика"
-          dark={isDarkTheme}
-          menuClassName={isDarkTheme ? 'border-violet-500/20' : ''}
-        />
-      </div>
+      {!hideStudentPicker && (
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-[auto_minmax(240px,1fr)] md:items-center">
+          <label className={teacherLabelClass} htmlFor="call-student-select">
+            Ученик
+          </label>
+          <StudentSearchSelect
+            id="call-student-select"
+            students={students}
+            className={teacherSelectClass}
+            value={activeStudentId || ''}
+            onChange={(nextStudentId) => onSelectStudent?.(nextStudentId || null)}
+            onOpen={onRequestStudentsRefresh}
+            disabled={studentsLoading}
+            placeholder="Выбери ученика"
+            dark={isDarkTheme}
+            menuClassName={isDarkTheme ? 'border-violet-500/20' : ''}
+          />
+        </div>
+      )}
       {effectiveStudentId && (
         <div className="call-telemost-editor">
           <div className="call-telemost-editor__head">

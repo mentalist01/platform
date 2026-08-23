@@ -234,6 +234,20 @@ export const canAccessLegacyLearningRoom = (auth, target) => {
   return false;
 };
 
+export const hasActiveLearningGroupWorkspace = (studentIdValue, teacherIdValue, groups) => {
+  const studentId = normalizeText(studentIdValue);
+  const teacherId = normalizeText(teacherIdValue);
+  if (!studentId || !teacherId) return false;
+  return normalizeCollection(groups, 'groups').some((group) => (
+    normalizeText(group?.status, 40).toLowerCase() === 'active'
+    && normalizeText(group?.teacherId) === teacherId
+    && (Array.isArray(group?.members) ? group.members : []).some((member) => (
+      normalizeText(typeof member === 'string' ? member : (member?.studentId || member?.id)) === studentId
+      && isActiveLearningGroupMember(member)
+    ))
+  ));
+};
+
 export const resolveLearningRealtimeRoomTarget = ({ roomId, sessions, students } = {}) => {
   const parsedLessonTarget = parseLearningLessonRoomTarget(roomId);
   if (parsedLessonTarget) {
@@ -304,6 +318,14 @@ export const authorizeLearningRealtimeRoom = ({
     && !acceptedSessionStatuses.has(normalizeText(target.session?.status, 40))
   ) {
     return { allowed: false, reason: 'session-not-live', target };
+  }
+
+  if (
+    target.targetType === 'student'
+    && ['board', 'collab'].includes(target.kind)
+    && hasActiveLearningGroupWorkspace(target.studentId, target.teacherId, groups)
+  ) {
+    return { allowed: false, reason: 'group-workspace-required', target };
   }
 
   const allowed = target.targetType === 'lesson'

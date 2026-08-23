@@ -2682,9 +2682,14 @@ const writeLessonReplay = (replay, options = {}) => {
     ? replay
     : appendLessonReplayEvents(replay, [], {
       maxBytes: LESSON_REPLAY_MAX_FILE_BYTES,
-    }).replay;
+  }).replay;
   const occurrenceKey = normalized.occurrence.key;
-  if (!occurrenceKey || !normalized.occurrence.studentId) {
+  const hasReplayOwner = normalized.occurrence.studentId || (
+    normalized.occurrence.scope === 'learning-group'
+    && normalized.occurrence.groupId
+    && normalized.occurrence.lessonId
+  );
+  if (!occurrenceKey || !hasReplayOwner) {
     throw new Error('Lesson replay occurrence is required');
   }
   lessonReplayStorageSummaryCacheByOccurrenceKey.delete(occurrenceKey);
@@ -9140,7 +9145,7 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
     }
     lesson = normalizeLearningLessonSession({
       ...lesson,
-      ...(calendarManaged && lesson.status === 'scheduled' ? { participantIds } : {}),
+      ...(calendarManaged && lesson.status === 'scheduled' && eventEndMs >= Date.now() ? { participantIds } : {}),
       source: lesson.source || 'google-calendar',
       externalCalendarProvider: lesson.externalCalendarProvider || 'Google Calendar',
       externalEventId: lesson.externalEventId || externalEventId,
@@ -20513,6 +20518,15 @@ const getLearningLessonById = (groupId, lessonId) => {
   )) || null;
 };
 
+const buildLearningGroupLessonReplayKey = (lessonId) => {
+  const normalizedLessonId = String(lessonId || '').trim().slice(0, 160);
+  return normalizedLessonId ? `learning-group-replay|${normalizedLessonId}` : '';
+};
+
+const getLessonHistoryReplayKey = (occurrence) => (
+  String(occurrence?.replayKey || occurrence?.key || '').trim()
+);
+
 const getLearningAssignmentById = (groupId, assignmentId) => {
   const normalizedGroupId = String(groupId || '').trim();
   const normalizedAssignmentId = String(assignmentId || '').trim();
@@ -20857,10 +20871,25 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
     if (!entryId) return;
     const existingIndex = nextHomeworks.findIndex((entry) => String(entry?.id || '') === entryId);
     const existing = existingIndex >= 0 ? nextHomeworks[existingIndex] : null;
+    const homeworkTemplate = assignment?.homework && typeof assignment.homework === 'object'
+      ? assignment.homework
+      : {};
     const issuedAt = assignment.publishedAt || assignment.createdAt || assignment.updatedAt || new Date().toISOString();
-    const dueAt = assignment.dueAt || calculateHomeworkDueAt(issuedAt, 7);
-    const daysToComplete = calculateHomeworkDaysToComplete(issuedAt, dueAt, 7);
-    const homeWork = buildLearningGroupHomeworkText(assignment);
+    const dueAt = homeworkTemplate.dueAt || assignment.dueAt || calculateHomeworkDueAt(issuedAt, 7);
+    const daysToComplete = calculateHomeworkDaysToComplete(
+      issuedAt,
+      dueAt,
+      homeworkTemplate.daysToComplete || 7
+    );
+    const homeWork = String(homeworkTemplate.homeWork || '').trim()
+      || buildLearningGroupHomeworkText(assignment);
+    const testsDb = readTestsDb();
+    const goals = snapshotHomeworkGoalTargets({
+      goals: normalizeGoals(homeworkTemplate.goals, testsDb),
+      testsDb,
+      mockExams: readMockExamsDb(),
+    });
+    const primaryTaskGoal = goals.find((goal) => normalizeGoalType(goal) === GOAL_TYPE_TASK) || null;
     const nextEntry = {
       ...(existing && typeof existing === 'object' ? existing : {}),
       id: entryId,
@@ -20873,19 +20902,23 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       learningAssignmentUpdatedAt: assignment.updatedAt || '',
       teacherId: assignment.teacherId,
       issuedAt,
-      updatedAt: existing?.updatedAt || assignment.updatedAt || issuedAt,
+      updatedAt: assignment.updatedAt || existing?.updatedAt || issuedAt,
       dueAt,
-      dueAtMode: 'manual',
-      calendarOffsetMinutes: Number(existing?.calendarOffsetMinutes) || 0,
+      dueAtMode: normalizeHomeworkDueAtMode(homeworkTemplate.dueAtMode),
+      calendarOffsetMinutes: normalizeHomeworkCalendarOffset(
+        homeworkTemplate.calendarOffsetMinutes,
+        issuedAt
+      ),
       daysToComplete,
       homeWork,
-      lessonLink: existing?.lessonLink || '',
-      boardLink: existing?.boardLink || '',
-      taskNumber: existing?.taskNumber ?? null,
-      levelId: existing?.levelId ?? null,
-      targetQuestions: Array.isArray(existing?.targetQuestions) ? existing.targetQuestions : [],
-      targetQuestionIds: Array.isArray(existing?.targetQuestionIds) ? existing.targetQuestionIds : [],
-      goals: Array.isArray(existing?.goals) ? existing.goals : [],
+      lessonLink: String(homeworkTemplate.lessonLink || '').trim(),
+      boardLink: String(homeworkTemplate.boardLink || '').trim(),
+      taskNumber: primaryTaskGoal?.taskNumber ?? null,
+      levelId: primaryTaskGoal?.levelId ?? null,
+      includeAll: Boolean(primaryTaskGoal?.includeAll),
+      targetQuestions: Array.isArray(primaryTaskGoal?.targetQuestions) ? primaryTaskGoal.targetQuestions : [],
+      targetQuestionIds: Array.isArray(primaryTaskGoal?.targetQuestionIds) ? primaryTaskGoal.targetQuestionIds : [],
+      goals,
       checklistItems: normalizeHomeworkChecklistItems(entryId, homeWork, existing?.checklistItems),
     };
     if (existingIndex >= 0) nextHomeworks[existingIndex] = nextEntry;
@@ -28556,6 +28589,49 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
     : await getScheduleForLessonTopics(student, auth);
   schedule = Array.isArray(schedule) ? schedule : [];
 
+  const learningGroupsById = new Map(
+    readLearningGroupsDb().map((group) => [String(group?.id || '').trim(), group])
+  );
+  const groupLessonSchedule = readLearningLessonSessionsDb()
+    .filter((lesson) => (
+      Array.isArray(lesson?.participantIds)
+      && lesson.participantIds.includes(studentId)
+      && String(lesson?.status || '').trim() !== 'cancelled'
+    ))
+    .map((lesson) => {
+      const start = new Date(lesson.startAt);
+      if (Number.isNaN(start.getTime())) return null;
+      const startParts = getDatePartsInCalendarTimeZone(start);
+      const weekdayMeta = getScheduleWeekdayMetaFromDate(startParts?.dayKey);
+      if (!startParts?.dayKey || !startParts?.time || !weekdayMeta) return null;
+      const group = learningGroupsById.get(String(lesson.groupId || '').trim());
+      return {
+        id: `learning-group-session-${lesson.id}`,
+        studentId,
+        studentName: String(student?.nickname || student?.name || '').trim(),
+        date: startParts.dayKey,
+        day: weekdayMeta.label,
+        weekdayKey: weekdayMeta.key,
+        weekdayOrder: weekdayMeta.order,
+        excludedDates: [],
+        time: startParts.time,
+        durationMinutes: normalizeScheduleDurationMinutes(lesson.durationMinutes),
+        subject: String(group?.name || lesson.topic || 'Мини-группа').trim(),
+        isLearningGroupEvent: true,
+        groupId: String(lesson.groupId || '').trim(),
+        groupName: String(group?.name || 'Мини-группа').trim(),
+        participantIds: lesson.participantIds,
+        lessonId: String(lesson.id || '').trim(),
+        replayKey: buildLearningGroupLessonReplayKey(lesson.id),
+        startAt: start.toISOString(),
+        source: 'learning-group-session',
+        createdAt: lesson.createdAt || start.toISOString(),
+        updatedAt: lesson.updatedAt || lesson.createdAt || start.toISOString(),
+      };
+    })
+    .filter(Boolean);
+  schedule = [...schedule, ...groupLessonSchedule];
+
   if (options.includeGoogle !== false && student.teacherId) {
     try {
       const googleEntries = (await fetchTeacherGoogleCalendarEntries(student.teacherId))
@@ -28889,6 +28965,129 @@ const isLessonReplaySessionWritable = (session, student, nowMs = Date.now()) => 
   );
 };
 
+const getLearningGroupReplayContext = (lessonId) => {
+  const normalizedLessonId = String(lessonId || '').trim();
+  if (!normalizedLessonId) return null;
+  const lesson = readLearningLessonSessionsDb().find((entry) => entry.id === normalizedLessonId) || null;
+  if (!lesson) return null;
+  const group = getLearningGroupById(lesson.groupId);
+  if (!group) return null;
+  return { group, lesson };
+};
+
+const canReadLearningGroupReplay = (auth, context, participantIds = null) => {
+  if (!auth || !context?.group || !context?.lesson) return false;
+  if (isAdminRole(auth)) return true;
+  if (isTeacherRole(auth)) return String(auth.id || '').trim() === context.group.teacherId;
+  const effectiveStudentId = isParentRole(auth)
+    ? String(auth.studentId || '').trim()
+    : (isStudentRole(auth) ? String(auth.id || '').trim() : '');
+  if (!effectiveStudentId) return false;
+  const snapshot = Array.isArray(participantIds)
+    ? participantIds
+    : context.lesson.participantIds;
+  return snapshot.includes(effectiveStudentId);
+};
+
+const ensureLearningGroupReplayAccess = (req, res, lessonId, participantIds = null) => {
+  const context = getLearningGroupReplayContext(lessonId);
+  if (!context) {
+    res.status(404).json({ error: 'Групповое занятие не найдено' });
+    return null;
+  }
+  if (!canReadLearningGroupReplay(req.auth, context, participantIds)) {
+    forbid(res);
+    return null;
+  }
+  return context;
+};
+
+const buildLearningGroupReplayOccurrence = (context) => {
+  const startMs = Date.parse(String(context?.lesson?.startAt || '').trim());
+  if (!Number.isFinite(startMs)) return null;
+  const durationMinutes = Math.max(15, Math.min(360, Math.round(
+    Number(context.lesson.durationMinutes) || 60
+  )));
+  const zoned = getLessonReplayZonedParts(startMs);
+  const participantIds = Array.from(new Set(
+    (Array.isArray(context.lesson.participantIds) ? context.lesson.participantIds : [])
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean)
+  )).slice(0, 5);
+  return {
+    key: buildLearningGroupLessonReplayKey(context.lesson.id),
+    studentId: '',
+    scope: 'learning-group',
+    groupId: context.group.id,
+    lessonId: context.lesson.id,
+    participantIds,
+    dayKey: zoned.dayKey,
+    time: zoned.time,
+    durationMinutes,
+    startMs,
+    endMs: startMs + (durationMinutes * 60 * 1000),
+  };
+};
+
+const isLearningGroupReplaySessionWritable = (session, context, nowMs = Date.now()) => {
+  if (!session || !context?.lesson) return false;
+  if (!['scheduled', 'active'].includes(String(context.lesson.status || '').trim())) return false;
+  const startMs = Date.parse(String(context.lesson.startAt || '').trim());
+  const durationMs = Math.max(15, Number(context.lesson.durationMinutes) || 60) * 60 * 1000;
+  if (!Number.isFinite(startMs)) return false;
+  return Number(nowMs) >= startMs - (60 * 60 * 1000)
+    && Number(nowMs) <= startMs + durationMs + TELEMOST_LESSON_BUFFER_MS;
+};
+
+const ensureLessonReplaySessionAccess = (req, res, session) => {
+  if (session?.scope === 'learning-group') {
+    const context = ensureLearningGroupReplayAccess(
+      req,
+      res,
+      session.learningLessonId,
+      session.participantIds
+    );
+    return context ? { scope: 'learning-group', ...context } : null;
+  }
+  const student = ensureStudentAccess(req, res, session?.studentId);
+  return student ? { scope: 'student', student } : null;
+};
+
+const isLessonReplayWritableForAccess = (session, access, nowMs = Date.now()) => (
+  access?.scope === 'learning-group'
+    ? isLearningGroupReplaySessionWritable(session, access, nowMs)
+    : isLessonReplaySessionWritable(session, access?.student, nowMs)
+);
+
+const replayMatchesLessonReplayAccess = (replay, access) => {
+  if (!replay || !access) return false;
+  if (access.scope === 'learning-group') {
+    return replay.occurrence?.scope === 'learning-group'
+      && replay.occurrence?.groupId === access.group.id
+      && replay.occurrence?.lessonId === access.lesson.id;
+  }
+  return replay.occurrence?.studentId === access.student.id;
+};
+
+const ensureLessonReplayReadAccess = (req, res, replay, requestedStudentId = '') => {
+  if (replay?.occurrence?.scope === 'learning-group') {
+    const context = ensureLearningGroupReplayAccess(
+      req,
+      res,
+      replay.occurrence.lessonId,
+      replay.occurrence.participantIds
+    );
+    return context ? { scope: 'learning-group', ...context } : null;
+  }
+  const student = ensureStudentAccess(req, res, requestedStudentId);
+  if (!student) return null;
+  if (!replay || replay.occurrence?.studentId !== student.id) {
+    res.status(404).json({ error: 'Запись занятия не найдена' });
+    return null;
+  }
+  return { scope: 'student', student };
+};
+
 const serializeLessonReplayForClient = (replay) => {
   if (!replay) return null;
   const summary = getLessonReplaySummary(replay.occurrence.key, replay);
@@ -28917,6 +29116,11 @@ const serializeStudentLessonHistoryEntry = (entry, replayStorage = null) => ({
   startMs: entry.startMs,
   endMs: entry.endMs,
   subject: entry.subject,
+  ...(entry.groupId ? {
+    groupId: entry.groupId,
+    groupName: entry.groupName || '',
+    lessonId: entry.lessonId || '',
+  } : {}),
   topic: entry.topic || null,
   ...(replayStorage ? { replayStorage } : {}),
 });
@@ -29756,17 +29960,14 @@ app.get('/api/lesson-replay/activity', (req, res) => {
 });
 
 app.get('/api/lesson-replay/snapshot/:snapshotId', (req, res) => {
-  const student = ensureStudentAccess(req, res, req.query?.studentId);
-  if (!student) return;
   const occurrenceKey = String(req.query?.occurrenceKey || '').trim();
   const snapshotId = normalizeLessonReplaySnapshotId(req.params?.snapshotId);
   if (!occurrenceKey || occurrenceKey.length > 760 || !snapshotId) {
     return res.status(400).json({ error: 'Некорректный снимок занятия' });
   }
   const replay = readLessonReplay(occurrenceKey);
-  if (!replay || replay.occurrence?.studentId !== student.id) {
-    return res.status(404).json({ error: 'Запись занятия не найдена' });
-  }
+  if (!replay) return res.status(404).json({ error: 'Запись занятия не найдена' });
+  if (!ensureLessonReplayReadAccess(req, res, replay, req.query?.studentId)) return;
   const snapshotEvent = replay.events.find((event) => (
     event?.type === 'screen' && event.payload?.snapshotId === snapshotId
   ));
@@ -29805,10 +30006,10 @@ app.post(
       session.actorId !== String(req.auth?.id || '').trim()
       || session.actorRole !== String(req.auth?.role || '').trim()
     ) return forbid(res);
-    const student = ensureStudentAccess(req, res, session.studentId);
-    if (!student) return;
+    const access = ensureLessonReplaySessionAccess(req, res, session);
+    if (!access) return;
     const nowMs = Date.now();
-    if (session.via !== 'platform' || !isLessonReplaySessionWritable(session, student, nowMs)) {
+    if (session.via !== 'platform' || !isLessonReplayWritableForAccess(session, access, nowMs)) {
       return res.status(410).json({ error: 'Демонстрация этого урока уже завершена' });
     }
     const buffer = req.file?.buffer;
@@ -29832,7 +30033,7 @@ app.post(
           return { closed: true };
         }
         const replay = readLessonReplay(session.occurrenceKey);
-        if (!replay || replay.occurrence?.studentId !== student.id) {
+        if (!replayMatchesLessonReplayAccess(replay, access)) {
           const notFoundError = new Error('Запись занятия не найдена');
           notFoundError.statusCode = 404;
           throw notFoundError;
@@ -29944,17 +30145,14 @@ app.post(
 );
 
 app.get('/api/lesson-replay/audio/:audioId', async (req, res) => {
-  const student = ensureStudentAccess(req, res, req.query?.studentId);
-  if (!student) return;
   const occurrenceKey = String(req.query?.occurrenceKey || '').trim();
   const audioId = normalizeLessonReplayAudioId(req.params?.audioId);
   if (!occurrenceKey || occurrenceKey.length > 760 || !audioId) {
     return res.status(400).json({ error: 'Некорректный фрагмент аудиозаписи' });
   }
   const replay = readLessonReplay(occurrenceKey);
-  if (!replay || replay.occurrence?.studentId !== student.id) {
-    return res.status(404).json({ error: 'Запись занятия не найдена' });
-  }
+  if (!replay) return res.status(404).json({ error: 'Запись занятия не найдена' });
+  if (!ensureLessonReplayReadAccess(req, res, replay, req.query?.studentId)) return;
   const audioEvent = replay.events.find((event) => (
     event?.type === 'audio' && event.payload?.audioId === audioId
   ));
@@ -30012,16 +30210,18 @@ app.post('/api/lesson-replay/audio/prepare', async (req, res) => {
     session.actorId !== String(req.auth?.id || '').trim()
     || session.actorRole !== String(req.auth?.role || '').trim()
   ) return forbid(res);
-  const student = ensureStudentAccess(req, res, session.studentId);
-  if (!student) return;
+  const access = ensureLessonReplaySessionAccess(req, res, session);
+  if (!access) return;
   const nowMs = Date.now();
-  const expiredTelemost = activeTelemostLessonReplayByStudentId.get(student.id);
+  const expiredTelemost = access.scope === 'student'
+    ? activeTelemostLessonReplayByStudentId.get(access.student.id)
+    : null;
   const canDrainTelemost = Boolean(
     session.via === 'telemost'
     && expiredTelemost?.occurrence?.key === session.occurrenceKey
     && nowMs <= Number(expiredTelemost.autoFinishAtMs || 0) + TELEMOST_LESSON_DRAIN_MS
   );
-  if (!isLessonReplaySessionWritable(session, student, nowMs) && !canDrainTelemost) {
+  if (!isLessonReplayWritableForAccess(session, access, nowMs) && !canDrainTelemost) {
     return res.status(410).json({ error: 'Запись этого урока уже завершена' });
   }
   const mimeType = normalizeLessonReplayAudioMimeType(req.body?.mimeType);
@@ -30071,7 +30271,10 @@ app.post('/api/lesson-replay/audio/prepare', async (req, res) => {
     audioId,
     sessionId,
     occurrenceKey: session.occurrenceKey,
-    studentId: student.id,
+    studentId: access.scope === 'student' ? access.student.id : '',
+    scope: session.scope || 'student',
+    learningLessonId: session.learningLessonId || '',
+    participantIds: Array.isArray(session.participantIds) ? session.participantIds : [],
     actorId: session.actorId,
     actorRole: session.actorRole,
     actorName: session.actorName,
@@ -30139,8 +30342,7 @@ app.put(
       ticket.actorId !== String(req.auth?.id || '').trim()
       || ticket.actorRole !== String(req.auth?.role || '').trim()
     ) return forbid(res);
-    const student = ensureStudentAccess(req, res, ticket.studentId);
-    if (!student) return;
+    if (!ensureLessonReplaySessionAccess(req, res, ticket)) return;
     const requestMimeType = normalizeLessonReplayAudioMimeType(req.headers['content-type']);
     if (!requestMimeType || requestMimeType !== ticket.mimeType) {
       return res.status(400).json({ error: 'Формат аудиофрагмента не совпадает' });
@@ -30190,8 +30392,8 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
     ticket.actorId !== String(req.auth?.id || '').trim()
     || ticket.actorRole !== String(req.auth?.role || '').trim()
   ) return forbid(res);
-  const student = ensureStudentAccess(req, res, ticket.studentId);
-  if (!student) return;
+  const access = ensureLessonReplaySessionAccess(req, res, ticket);
+  if (!access) return;
   if (ticket.completed && ticket.completedResponse) {
     return res.json(ticket.completedResponse);
   }
@@ -30226,7 +30428,7 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
     }
     const result = await withLessonReplayWriteLock(ticket.occurrenceKey, () => {
       const replay = readLessonReplay(ticket.occurrenceKey);
-      if (!replay || replay.occurrence?.studentId !== student.id) {
+      if (!replayMatchesLessonReplayAccess(replay, access)) {
         const notFoundError = new Error('Запись занятия не найдена');
         notFoundError.statusCode = 404;
         throw notFoundError;
@@ -30279,41 +30481,64 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
 });
 
 app.post('/api/lesson-replay/session', async (req, res) => {
-  const student = ensureStudentAccess(req, res, req.body?.studentId);
-  if (!student) return;
   if (!isTeacherRole(req.auth) && !isStudentRole(req.auth)) return forbid(res);
+  const learningLessonId = String(req.body?.learningLessonId || '').trim();
+  let student = null;
+  let learningContext = null;
+  if (learningLessonId) {
+    learningContext = ensureLearningGroupReplayAccess(req, res, learningLessonId);
+    if (!learningContext) return;
+  } else {
+    student = ensureStudentAccess(req, res, req.body?.studentId);
+    if (!student) return;
+  }
   try {
     const nowMs = Date.now();
-    const requestedVia = req.body?.via === 'telemost' ? 'telemost' : 'platform';
+    const requestedVia = learningContext
+      ? 'telemost'
+      : (req.body?.via === 'telemost' ? 'telemost' : 'platform');
     const requestedOccurrenceKey = String(req.body?.occurrenceKey || '').trim();
-    const telemost = getTelemostLessonReplayEntry(student.id, nowMs);
-    if (requestedVia === 'telemost' && !telemost) {
+    const telemost = student ? getTelemostLessonReplayEntry(student.id, nowMs) : null;
+    if (!learningContext && requestedVia === 'telemost' && !telemost) {
       return res.status(409).json({ error: 'Запись Телемоста уже не активна' });
     }
-    if (requestedVia === 'platform' && !hasActivePlatformLessonCall(student)) {
+    if (!learningContext && requestedVia === 'platform' && !hasActivePlatformLessonCall(student)) {
       return res.status(409).json({ error: 'Запись начнётся после подключения учителя и ученика к звонку' });
     }
     if (
+      !learningContext
+      &&
       requestedVia === 'telemost'
       && requestedOccurrenceKey
       && requestedOccurrenceKey !== telemost.occurrence?.key
     ) {
       return res.status(409).json({ error: 'Это занятие Телемоста уже не активно' });
     }
-    const occurrence = requestedVia === 'telemost'
-      ? telemost.occurrence
-      : await resolveCurrentLessonReplayOccurrence(student, req.auth, nowMs, {
-        preferredOccurrenceKey: requestedOccurrenceKey,
-        preferActive: true,
-      });
+    const occurrence = learningContext
+      ? buildLearningGroupReplayOccurrence(learningContext)
+      : (requestedVia === 'telemost'
+        ? telemost.occurrence
+        : await resolveCurrentLessonReplayOccurrence(student, req.auth, nowMs, {
+          preferredOccurrenceKey: requestedOccurrenceKey,
+          preferActive: true,
+        }));
     if (!occurrence) return res.status(409).json({ error: 'Не удалось определить текущее занятие' });
+    if (
+      learningContext
+      && !isLearningGroupReplaySessionWritable({ scope: 'learning-group' }, learningContext, nowMs)
+    ) {
+      return res.status(409).json({ error: 'Запись группы доступна только во время занятия' });
+    }
     const actorRole = isTeacherRole(req.auth) ? 'teacher' : 'student';
     const actorId = String(req.auth.id || '').trim();
-    const actorName = String(req.auth.name || (actorRole === 'teacher' ? 'Учитель' : student.name) || '').trim();
+    const actorName = String(
+      req.auth.name || (actorRole === 'teacher' ? 'Учитель' : student?.name) || ''
+    ).trim();
     const result = await withLessonReplayWriteLock(occurrence.key, () => {
       const reusable = Array.from(activeLessonReplaySessions.values()).find((session) => (
         session.occurrenceKey === occurrence.key
-        && session.studentId === student.id
+        && session.studentId === (student?.id || '')
+        && session.learningLessonId === (learningContext?.lesson?.id || '')
         && session.actorId === actorId
         && session.actorRole === actorRole
         && session.expiresAt >= nowMs
@@ -30351,7 +30576,10 @@ app.post('/api/lesson-replay/session', async (req, res) => {
       const session = {
         id: sessionId,
         occurrenceKey: occurrence.key,
-        studentId: student.id,
+        studentId: student?.id || '',
+        scope: learningContext ? 'learning-group' : 'student',
+        learningLessonId: learningContext?.lesson?.id || '',
+        participantIds: learningContext ? occurrence.participantIds : [],
         actorId,
         actorRole,
         actorName,
@@ -30407,16 +30635,23 @@ app.post('/api/lesson-replay/switch', async (req, res) => {
     session.actorId !== String(req.auth?.id || '').trim()
     || session.actorRole !== String(req.auth?.role || '').trim()
   ) return forbid(res);
-  const student = ensureStudentAccess(req, res, session.studentId);
-  if (!student) return;
+  const access = ensureLessonReplaySessionAccess(req, res, session);
+  if (!access) return;
   const via = req.body?.via === 'telemost' ? 'telemost' : 'platform';
   const nowMs = Date.now();
-  if (via === 'telemost') {
-    const telemost = getTelemostLessonReplayEntry(student.id, nowMs);
+  if (access.scope === 'learning-group') {
+    if (via !== 'telemost') {
+      return res.status(400).json({ error: 'Групповое занятие записывается в режиме Телемоста' });
+    }
+    if (!isLearningGroupReplaySessionWritable(session, access, nowMs)) {
+      return res.status(409).json({ error: 'Запись группового занятия уже не активна' });
+    }
+  } else if (via === 'telemost') {
+    const telemost = getTelemostLessonReplayEntry(access.student.id, nowMs);
     if (!telemost || telemost.occurrence?.key !== session.occurrenceKey) {
       return res.status(409).json({ error: 'Запись Телемоста уже не активна' });
     }
-  } else if (!hasActivePlatformLessonCall(student)) {
+  } else if (!hasActivePlatformLessonCall(access.student)) {
     return res.status(409).json({ error: 'Звонок на платформе уже не активен' });
   }
   if (session.via === via) return res.json({ ok: true, via, unchanged: true });
@@ -30461,11 +30696,13 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     session.actorId !== String(req.auth?.id || '').trim()
     || session.actorRole !== String(req.auth?.role || '').trim()
   ) return forbid(res);
-  const student = ensureStudentAccess(req, res, session.studentId);
-  if (!student) return;
+  const access = ensureLessonReplaySessionAccess(req, res, session);
+  if (!access) return;
   const nowMs = Date.now();
-  const writable = isLessonReplaySessionWritable(session, student, nowMs);
-  const expiredTelemost = activeTelemostLessonReplayByStudentId.get(student.id);
+  const writable = isLessonReplayWritableForAccess(session, access, nowMs);
+  const expiredTelemost = access.scope === 'student'
+    ? activeTelemostLessonReplayByStudentId.get(access.student.id)
+    : null;
   const canDrainTelemost = Boolean(
     !writable
     && expiredTelemost?.occurrence?.key === session.occurrenceKey
@@ -30491,7 +30728,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         return { closed: true };
       }
       const replay = readLessonReplay(session.occurrenceKey);
-      if (!replay || replay.occurrence.studentId !== student.id) {
+      if (!replayMatchesLessonReplayAccess(replay, access)) {
         const notFoundError = new Error('Запись занятия не найдена');
         notFoundError.statusCode = 404;
         throw notFoundError;
@@ -30535,8 +30772,10 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     }
     if (canDrainTelemost) activeLessonReplaySessions.delete(sessionId);
     session.expiresAt = Date.now() + LESSON_REPLAY_SESSION_TTL_MS;
-    const active = activeLessonReplayOccurrenceByStudentId.get(student.id);
-    if (active) active.lastSeenAt = Date.now();
+    if (access.scope === 'student') {
+      const active = activeLessonReplayOccurrenceByStudentId.get(access.student.id);
+      if (active) active.lastSeenAt = Date.now();
+    }
     return res.json({
       ok: true,
       added: result.appended.added,
@@ -30558,21 +30797,24 @@ app.post('/api/lesson-replay/finish', async (req, res) => {
     session.actorId !== String(req.auth?.id || '').trim()
     || session.actorRole !== String(req.auth?.role || '').trim()
   ) return forbid(res);
-  const student = ensureStudentAccess(req, res, session.studentId);
-  if (!student) return;
+  const access = ensureLessonReplaySessionAccess(req, res, session);
+  if (!access) return;
   const submittedEvents = Array.isArray(req.body?.events) ? req.body.events : [];
   if (submittedEvents.length > LESSON_REPLAY_MAX_BATCH_EVENTS) {
     return res.status(400).json({ error: `За один раз можно сохранить не более ${LESSON_REPLAY_MAX_BATCH_EVENTS} событий` });
   }
   const nowMs = Date.now();
-  const telemost = activeTelemostLessonReplayByStudentId.get(student.id);
+  const telemost = access.scope === 'student'
+    ? activeTelemostLessonReplayByStudentId.get(access.student.id)
+    : null;
   const telemostCutoffMs = telemost?.occurrence?.key === session.occurrenceKey
     ? Number(telemost.autoFinishAtMs || 0)
     : 0;
   const shouldApplyTelemostCutoff = Boolean(
     telemostCutoffMs > 0
     && nowMs >= telemostCutoffMs
-    && !hasActivePlatformLessonCall(student)
+    && access.scope === 'student'
+    && !hasActivePlatformLessonCall(access.student)
   );
   const rawEvents = shouldApplyTelemostCutoff
     ? submittedEvents.filter((event) => {
@@ -30584,11 +30826,13 @@ app.post('/api/lesson-replay/finish', async (req, res) => {
     await finishActiveLessonReplaySession(session, rawEvents, {
       nowMs: shouldApplyTelemostCutoff ? telemostCutoffMs : nowMs,
     });
-    const hasOtherStudentSession = Array.from(activeLessonReplaySessions.values())
-      .some((entry) => entry.studentId === student.id && entry.expiresAt >= Date.now());
-    const hasTelemostLesson = Boolean(getTelemostLessonReplayEntry(student.id));
-    if (!hasOtherStudentSession && !hasTelemostLesson) {
-      activeLessonReplayOccurrenceByStudentId.delete(student.id);
+    if (access.scope === 'student') {
+      const hasOtherStudentSession = Array.from(activeLessonReplaySessions.values())
+        .some((entry) => entry.studentId === access.student.id && entry.expiresAt >= Date.now());
+      const hasTelemostLesson = Boolean(getTelemostLessonReplayEntry(access.student.id));
+      if (!hasOtherStudentSession && !hasTelemostLesson) {
+        activeLessonReplayOccurrenceByStudentId.delete(access.student.id);
+      }
     }
     return res.json({ ok: true });
   } catch (error) {
@@ -30668,7 +30912,7 @@ const getParentLessonPayment = (student, occurrence, financeContext) => {
 };
 
 const serializeParentLessonHistoryEntry = (student, occurrence, financeContext) => {
-  const replay = getLessonReplaySummary(occurrence?.key);
+  const replay = getLessonReplaySummary(getLessonHistoryReplayKey(occurrence));
   return {
     ...serializeStudentLessonHistoryEntry(occurrence),
     payment: getParentLessonPayment(student, occurrence, financeContext),
@@ -30858,7 +31102,7 @@ app.get('/api/lesson-history/detail', async (req, res) => {
     return res.json({
       lesson: serializeStudentLessonHistoryEntry(occurrence),
       materials: collectStudentLessonMaterials(student, occurrence),
-      replay: serializeLessonReplayForClient(readLessonReplay(occurrence.key)),
+      replay: serializeLessonReplayForClient(readLessonReplay(getLessonHistoryReplayKey(occurrence))),
     });
   } catch (error) {
     console.error('[lesson-history] failed to build lesson detail:', error);
@@ -30879,10 +31123,10 @@ app.get('/api/lesson-history', async (req, res) => {
     let replayStoragePendingCount = 0;
     if (includeReplayStorage) {
       page.items.forEach((entry) => {
-        getLessonReplayStorageSummary(entry?.key, { priority: true });
+        getLessonReplayStorageSummary(getLessonHistoryReplayKey(entry), { priority: true });
       });
       history.forEach((entry) => {
-        const storage = getLessonReplayStorageSummary(entry?.key);
+        const storage = getLessonReplayStorageSummary(getLessonHistoryReplayKey(entry));
         if (!storage) {
           replayStoragePendingCount += 1;
           return;
@@ -32378,6 +32622,12 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   }
 
   const existing = homeworks[index] || {};
+  if (String(existing.source || '').trim() === LEARNING_GROUP_HOMEWORK_SOURCE) {
+    return res.status(409).json({
+      error: 'Общую домашку нужно редактировать в разделе мини-группы',
+      code: 'learning_group_homework_managed_by_group',
+    });
+  }
   const payloadHomeWork = typeof homeWork === 'string' ? homeWork.trim() : (existing.homeWork || '');
   const payloadLessonLink = typeof lessonLink === 'string' ? lessonLink.trim() : (existing.lessonLink || '');
   const payloadBoardLink = typeof boardLink === 'string' ? boardLink.trim() : (existing.boardLink || '');
@@ -32722,6 +32972,12 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
     const index = homeworks.findIndex((entry) => entry?.id === id);
     if (index === -1) {
       return res.status(404).json({ error: 'Домашка не найдена' });
+    }
+    if (String(homeworks[index]?.source || '').trim() === LEARNING_GROUP_HOMEWORK_SOURCE) {
+      return res.status(409).json({
+        error: 'Общую домашку нужно удалить в разделе мини-группы',
+        code: 'learning_group_homework_managed_by_group',
+      });
     }
     updatedHomeworks = homeworks.filter((_, idx) => idx !== index);
   }

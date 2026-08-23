@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft,
@@ -40,6 +40,7 @@ import {
 } from '../utils/homeworkDueAt';
 
 const EMPTY_GOALS = [];
+const QUESTION_SELECTION_CLICK_SUPPRESS_MS = 450;
 const HOMEWORK_PLAN_WEEKDAYS = [
   { value: 1, label: 'Пн' },
   { value: 2, label: 'Вт' },
@@ -183,6 +184,7 @@ const TeacherHomeworkComposer = ({
   draftRestoredAt = '',
   studentId = '',
   studentLabel = '',
+  targetType = 'student',
   form,
   carryoverSummary = null,
   taskOptions = [],
@@ -210,6 +212,7 @@ const TeacherHomeworkComposer = ({
   onSaveDraft,
   onSave,
 }) => {
+  const isGroupTarget = targetType === 'group';
   const goals = Array.isArray(form?.goals) ? form.goals : EMPTY_GOALS;
   const [activeGoalIndex, setActiveGoalIndex] = useState(0);
   const [previewIndex, setPreviewIndex] = useState(0);
@@ -219,6 +222,10 @@ const TeacherHomeworkComposer = ({
   const [solvedQuestionIds, setSolvedQuestionIds] = useState(() => new Set());
   const [questionTimingIndex, setQuestionTimingIndex] = useState({});
   const [questionTimingState, setQuestionTimingState] = useState('loading');
+  const [questionSelectionDragging, setQuestionSelectionDragging] = useState(false);
+  const questionSelectionDragRef = useRef(null);
+  const suppressQuestionSelectionClickRef = useRef(false);
+  const suppressQuestionSelectionClickTimerRef = useRef(null);
   const composerBusy = saving || draftSaving || discarding;
   const restoredDraftDate = draftRestoredAt ? new Date(draftRestoredAt) : null;
   const restoredDraftLabel = restoredDraftDate && !Number.isNaN(restoredDraftDate.getTime())
@@ -246,6 +253,39 @@ const TeacherHomeworkComposer = ({
       document.body.style.overflow = previousOverflow;
     };
   }, [expandedImage, onClose, open]);
+
+  useEffect(() => {
+    if (!open || typeof window === 'undefined') return undefined;
+    const finishQuestionSelectionDrag = (event) => {
+      const gesture = questionSelectionDragRef.current;
+      if (!gesture || (Number.isFinite(event?.pointerId) && event.pointerId !== gesture.pointerId)) return;
+      if (gesture.dragging) {
+        suppressQuestionSelectionClickRef.current = true;
+        if (suppressQuestionSelectionClickTimerRef.current) {
+          clearTimeout(suppressQuestionSelectionClickTimerRef.current);
+        }
+        suppressQuestionSelectionClickTimerRef.current = setTimeout(() => {
+          suppressQuestionSelectionClickRef.current = false;
+          suppressQuestionSelectionClickTimerRef.current = null;
+        }, QUESTION_SELECTION_CLICK_SUPPRESS_MS);
+      }
+      questionSelectionDragRef.current = null;
+      setQuestionSelectionDragging(false);
+    };
+    window.addEventListener('pointerup', finishQuestionSelectionDrag);
+    window.addEventListener('pointercancel', finishQuestionSelectionDrag);
+    return () => {
+      window.removeEventListener('pointerup', finishQuestionSelectionDrag);
+      window.removeEventListener('pointercancel', finishQuestionSelectionDrag);
+      questionSelectionDragRef.current = null;
+      setQuestionSelectionDragging(false);
+      if (suppressQuestionSelectionClickTimerRef.current) {
+        clearTimeout(suppressQuestionSelectionClickTimerRef.current);
+        suppressQuestionSelectionClickTimerRef.current = null;
+      }
+      suppressQuestionSelectionClickRef.current = false;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -322,18 +362,17 @@ const TeacherHomeworkComposer = ({
   const previewSelected = activeGoalType === goalTypeMock
     ? Boolean(previewItem && selectedMockTargetSet.has(String(previewItem.key)))
     : previewQuestionNumber != null && selectedTargetSet.has(previewQuestionNumber);
+  const canLoadSolvedQuestions = Boolean(
+    open
+    && studentId
+    && activeGoalType === goalTypeTask
+    && Number.isFinite(activeTaskNumber)
+    && activeLevelId
+  );
+  const visibleSolvedQuestionIds = canLoadSolvedQuestions ? solvedQuestionIds : new Set();
 
   useEffect(() => {
-    if (
-      !open
-      || !studentId
-      || activeGoalType !== goalTypeTask
-      || !Number.isFinite(activeTaskNumber)
-      || !activeLevelId
-    ) {
-      setSolvedQuestionIds(new Set());
-      return undefined;
-    }
+    if (!canLoadSolvedQuestions) return undefined;
     let cancelled = false;
     api.getSolvedQuestions(studentId, activeTaskNumber, activeLevelId)
       .then((items) => {
@@ -343,7 +382,7 @@ const TeacherHomeworkComposer = ({
         if (!cancelled) setSolvedQuestionIds(new Set());
       });
     return () => { cancelled = true; };
-  }, [activeGoalType, activeLevelId, activeTaskNumber, goalTypeTask, open, studentId]);
+  }, [activeLevelId, activeTaskNumber, canLoadSolvedQuestions, studentId]);
 
   const plannerGoals = goals.map((goal) => {
     const goalType = typeof normalizeGoalType === 'function'
@@ -602,6 +641,96 @@ const TeacherHomeworkComposer = ({
       carryover: null,
       continuationOfHomeworkId: '',
     });
+  };
+
+  const commitQuestionSelectionDragValue = (gesture, rawValue) => {
+    if (!gesture || gesture.goalIndex !== safeActiveGoalIndex || gesture.kind !== activeGoalType) return;
+    const normalizedValue = gesture.kind === goalTypeTask
+      ? Math.trunc(Number(rawValue))
+      : String(rawValue || '').trim();
+    if (
+      (gesture.kind === goalTypeTask && (!Number.isFinite(normalizedValue) || normalizedValue <= 0))
+      || (gesture.kind === goalTypeMock && !normalizedValue)
+      || gesture.visited.has(String(normalizedValue))
+    ) return;
+
+    gesture.visited.add(String(normalizedValue));
+    if (gesture.mode === 'select') gesture.next.add(normalizedValue);
+    else if (gesture.kind !== goalTypeMock || gesture.next.size > 1) gesture.next.delete(normalizedValue);
+
+    if (gesture.kind === goalTypeTask) {
+      const ordered = asPositiveIntegers(Array.from(gesture.next));
+      const includesAll = activeQuestions.length > 0 && ordered.length === activeQuestions.length;
+      onUpdateGoal?.(gesture.goalIndex, {
+        includeAll: includesAll,
+        targetInput: includesAll ? '' : formatHomeworkQuestionRanges(ordered),
+        targetSelectionDirty: true,
+      });
+      return;
+    }
+
+    const allTaskKeys = activeMockQuestions.map((item) => String(item.taskKey));
+    const ordered = allTaskKeys.filter((value) => gesture.next.has(value));
+    onUpdateGoal?.(gesture.goalIndex, {
+      targetTaskKeys: ordered.length === allTaskKeys.length ? [] : ordered,
+      origin: 'new',
+      carryover: null,
+      continuationOfHomeworkId: '',
+    });
+  };
+
+  const beginQuestionSelectionDrag = (event, rawValue, selected) => {
+    if (event.isPrimary === false || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    const normalizedValue = activeGoalType === goalTypeTask
+      ? Math.trunc(Number(rawValue))
+      : String(rawValue || '').trim();
+    if (
+      (activeGoalType === goalTypeTask && (!Number.isFinite(normalizedValue) || normalizedValue <= 0))
+      || (activeGoalType === goalTypeMock && !normalizedValue)
+    ) return;
+    questionSelectionDragRef.current = {
+      pointerId: event.pointerId,
+      kind: activeGoalType,
+      goalIndex: safeActiveGoalIndex,
+      mode: selected ? 'deselect' : 'select',
+      startValue: normalizedValue,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
+      visited: new Set(),
+      next: new Set(activeGoalType === goalTypeTask ? selectedTargetNumbers : selectedMockTargetSet),
+    };
+  };
+
+  const handleQuestionSelectionDragMove = (event) => {
+    const gesture = questionSelectionDragRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (event.pointerType === 'mouse' && event.buttons !== 1) return;
+    if (!gesture.dragging) {
+      const distance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+      if (distance < 5) return;
+      gesture.dragging = true;
+      setQuestionSelectionDragging(true);
+      commitQuestionSelectionDragValue(gesture, gesture.startValue);
+    }
+    const hovered = typeof document !== 'undefined'
+      ? document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-homework-selection-value]')
+      : null;
+    if (hovered && hovered.dataset.homeworkSelectionKind === gesture.kind) {
+      commitQuestionSelectionDragValue(gesture, hovered.dataset.homeworkSelectionValue);
+    }
+    if (event.cancelable) event.preventDefault();
+  };
+
+  const suppressQuestionSelectionClick = (event) => {
+    if (!suppressQuestionSelectionClickRef.current) return;
+    suppressQuestionSelectionClickRef.current = false;
+    if (suppressQuestionSelectionClickTimerRef.current) {
+      clearTimeout(suppressQuestionSelectionClickTimerRef.current);
+      suppressQuestionSelectionClickTimerRef.current = null;
+    }
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   const selectAllActiveQuestions = () => {
@@ -947,7 +1076,9 @@ const TeacherHomeworkComposer = ({
             <p className="mt-1.5 max-w-3xl text-xs font-medium text-[rgb(var(--ink-soft))] sm:text-sm">
               {editing
                 ? 'Проверьте состав домашки и условия заданий перед сохранением.'
-                : 'Незаконченные задания уже перенесены. Просматривайте условия справа и оставляйте только нужные номера.'}
+                : (isGroupTarget
+                    ? 'Одно задание появится в обычной домашке каждого участника группы. Выполнение и проверка останутся индивидуальными.'
+                    : 'Незаконченные задания уже перенесены. Просматривайте условия справа и оставляйте только нужные номера.')}
             </p>
             {!editing && restoredDraftLabel ? (
               <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50 px-2.5 py-1 text-[10px] font-black text-purple-700">
@@ -1443,11 +1574,16 @@ const TeacherHomeworkComposer = ({
                             : 'Выберите раздел слева')}
                     </strong>
                     {previewItems.length > 0 && (
-                      <span className="mt-0.5 block text-xs text-[rgb(var(--ink-soft))]">
-                        {activeGoalType === goalTypeTask
-                          ? `Выбрано ${selectedTargetNumbers.length} из ${previewItems.length}`
-                          : `Выбрано ${selectedMockTargetSet.size} из ${previewItems.length}`}
-                      </span>
+                      <>
+                        <span className="mt-0.5 block text-xs text-[rgb(var(--ink-soft))]">
+                          {activeGoalType === goalTypeTask
+                            ? `Выбрано ${selectedTargetNumbers.length} из ${previewItems.length}`
+                            : `Выбрано ${selectedMockTargetSet.size} из ${previewItems.length}`}
+                        </span>
+                        <span className="mt-0.5 block text-[9px] font-bold text-purple-500">
+                          Зажмите номер и проведите по остальным
+                        </span>
+                      </>
                     )}
                   </div>
                   {activeGoalType === goalTypeTask && activeQuestions.length > 0 && (
@@ -1468,11 +1604,15 @@ const TeacherHomeworkComposer = ({
                 </div>
 
                 {previewItems.length > 0 && (
-                  <div className="mt-3 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                  <div
+                    className={`teacher-homework-question-selector mt-3 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1 ${questionSelectionDragging ? 'is-dragging' : ''}`}
+                    onPointerMove={handleQuestionSelectionDragMove}
+                    onClickCapture={suppressQuestionSelectionClick}
+                  >
                     {previewItems.map((item, index) => {
                       const number = activeGoalType === goalTypeTask ? index + 1 : item.label;
                       const solved = activeGoalType === goalTypeTask
-                        && solvedQuestionIds.has(String(item.question?.id ?? index));
+                        && visibleSolvedQuestionIds.has(String(item.question?.id ?? index));
                       const selected = activeGoalType === goalTypeMock
                         ? selectedMockTargetSet.has(String(item.key))
                         : selectedTargetSet.has(Number(number));
@@ -1480,7 +1620,14 @@ const TeacherHomeworkComposer = ({
                       return (
                         <div
                           key={item.key}
-                          className={`inline-flex overflow-hidden rounded-lg border transition ${
+                          data-homework-selection-kind={activeGoalType}
+                          data-homework-selection-value={activeGoalType === goalTypeTask ? index + 1 : String(item.key)}
+                          onPointerDown={(event) => beginQuestionSelectionDrag(
+                            event,
+                            activeGoalType === goalTypeTask ? index + 1 : item.key,
+                            selected
+                          )}
+                          className={`teacher-homework-question-selector__item inline-flex overflow-hidden rounded-lg border transition ${
                             current
                               ? 'border-purple-500 ring-2 ring-purple-200'
                               : (selected ? 'border-purple-200' : 'border-slate-200')
@@ -1628,7 +1775,9 @@ const TeacherHomeworkComposer = ({
               className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-fuchsia-600 px-5 text-sm font-black text-white shadow-lg shadow-purple-500/20 transition hover:-translate-y-0.5 hover:shadow-xl disabled:translate-y-0 disabled:opacity-55"
             >
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              {saving ? 'Сохраняем…' : (editing ? 'Сохранить изменения' : 'Задать домашку')}
+              {saving
+                ? 'Сохраняем…'
+                : (editing ? 'Сохранить изменения' : (isGroupTarget ? 'Назначить группе' : 'Задать домашку'))}
             </button>
           </div>
         </footer>
