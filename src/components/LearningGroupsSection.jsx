@@ -91,7 +91,6 @@ const TAB_ITEMS = [
   { id: 'overview', label: 'Состав', icon: Users },
   { id: 'schedule', label: 'Расписание', icon: CalendarDays },
   { id: 'lessons', label: 'Занятия', icon: Video },
-  { id: 'materials', label: 'Материалы', icon: BookOpen },
   { id: 'assignments', label: 'Домашние задания', icon: ClipboardList },
   { id: 'attendance', label: 'Посещаемость', icon: UserCheck },
 ];
