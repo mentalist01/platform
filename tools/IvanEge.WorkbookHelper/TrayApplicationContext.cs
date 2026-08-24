@@ -32,13 +32,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
         bool notifyInstalled)
     {
         _singleInstance = singleInstance;
-        foreach (var request in initialRequests) _incoming.Enqueue(request);
+        var requests = initialRequests.ToList();
+        foreach (var request in requests) _incoming.Enqueue(request);
 
         _statusItem = new ToolStripMenuItem(_statusText) { Enabled = false };
         _openItem = new ToolStripMenuItem("Открыть текущую таблицу", null, (_, _) => OpenCurrentFile()) { Enabled = false };
         _pauseItem = new ToolStripMenuItem("Приостановить автосохранение", null, (_, _) => TogglePause()) { Enabled = false };
         _retryItem = new ToolStripMenuItem("Проверить и отправить сейчас", null, (_, _) => _latestSession?.RetryNow()) { Enabled = false };
         _stopItem = new ToolStripMenuItem("Остановить слежение", null, (_, _) => StopSession()) { Enabled = false };
+        var helpItem = new ToolStripMenuItem("Как пользоваться", null, (_, _) => ShowUsageInstructions());
+        var openPlatformItem = new ToolStripMenuItem("Открыть ivan100.ru", null, (_, _) => OpenPlatform());
         var clearTrustItem = new ToolStripMenuItem("Сбросить доверенные сайты", null, (_, _) => ClearTrustedOrigins());
         var exitItem = new ToolStripMenuItem("Выход", null, (_, _) => ExitThread());
 
@@ -52,6 +55,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _retryItem,
             _stopItem,
             new ToolStripSeparator(),
+            helpItem,
+            openPlatformItem,
             clearTrustItem,
             exitItem
         ]);
@@ -77,6 +82,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 "Помощник установлен",
                 "Теперь кнопка «Решать» сможет открыть таблицу и сохранять её в конспекты.",
                 ToolTipIcon.Info));
+        }
+        else if (requests.Count == 0)
+        {
+            _uiActions.Enqueue(ShowUsageInstructions);
         }
     }
 
@@ -398,6 +407,41 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (answer != DialogResult.Yes) return;
         _trustStore.Clear();
         ShowNotification("Готово", "Список доверенных сайтов очищен.", ToolTipIcon.Info);
+    }
+
+    private static void ShowUsageInstructions()
+    {
+        MessageBox.Show(
+            "Помощник запущен и ждёт задания в области уведомлений рядом с часами.\n\n"
+            + "1. Откройте https://ivan100.ru и войдите в учётную запись.\n"
+            + "2. Выберите учебную таблицу.\n"
+            + "3. Нажмите «Excel / LibreOffice».\n"
+            + "4. Сохраняйте файл как обычно — помощник отправит изменения обратно в конспекты.\n\n"
+            + "Для работы нужен Microsoft Excel или LibreOffice.",
+            "Иван на сотку — помощник таблиц",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+    }
+
+    private static void OpenPlatform()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://ivan100.ru",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception error)
+        {
+            AppLog.Error("Could not open platform website", error);
+            MessageBox.Show(
+                "Не удалось открыть сайт автоматически. Откройте https://ivan100.ru в браузере.",
+                "Иван на сотку",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 
     private void UpdateSessionMenu()

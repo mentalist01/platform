@@ -8,7 +8,7 @@ param(
     [string]$PackageIdentityName = 'IvanNaSotku.WorkbookHelper.Dev',
     [string]$PackagePublisher = 'CN=Ivan na sotku',
     [string]$PublisherDisplayName = 'Иван на сотку',
-    [string]$PackageVersion = '1.3.0.0',
+    [string]$PackageVersion = '1.3.1.0',
 
     [string]$CertificateThumbprint = '',
     [string]$TimestampUrl = 'http://timestamp.digicert.com',
