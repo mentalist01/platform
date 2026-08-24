@@ -12,14 +12,14 @@ internal static class Program
 
         try
         {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
             AppPaths.EnsureDataDirectories();
             AppPaths.CleanupStaleTemporaryFiles();
             AppPaths.CleanupStaleSolutionDownloads();
             var install = Installer.EnsureInstalledAndRegistered(arguments);
             if (install.ExitCurrentProcess) return 0;
 
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
             Application.ThreadException += (_, eventArgs) =>
             {
                 AppLog.Error("Unhandled UI error", eventArgs.Exception);

@@ -11,6 +11,13 @@ internal static class Installer
 
     public static InstallOutcome EnsureInstalledAndRegistered(string[] originalArguments)
     {
+        // MSIX/Microsoft Store owns installation and protocol registration. A packaged
+        // process must never copy itself out of the signed package or rewrite HKCU.
+        if (PackageIdentity.IsPackaged)
+        {
+            return new InstallOutcome(false, false);
+        }
+
         var currentExecutable = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(currentExecutable))
         {
@@ -22,6 +29,20 @@ internal static class Installer
         {
             Register(installedExecutable);
             return new InstallOutcome(false, false);
+        }
+
+        var installChoice = MessageBox.Show(
+            "Помощник установится только для вашей учётной записи Windows.\n\n"
+            + "Он скопирует программу в локальную папку «Иван на сотку» и зарегистрирует ссылку ivan-ege:, "
+            + "чтобы кнопка «Решать» могла открывать Excel или LibreOffice. Права администратора и автозапуск не используются.\n\n"
+            + "Продолжить установку?",
+            "Установка помощника «Иван на сотку»",
+            MessageBoxButtons.OKCancel,
+            MessageBoxIcon.Information,
+            MessageBoxDefaultButton.Button2);
+        if (installChoice != DialogResult.OK)
+        {
+            return new InstallOutcome(true, false);
         }
 
         Directory.CreateDirectory(AppPaths.InstallDirectory);

@@ -96,7 +96,7 @@ const useWorkbookHelper = () => {
           current.sourceFileId === sourceFileId && current.status === 'opening'
             ? buildState('fallback', {
                 ...current,
-                message: 'Не открылось? Установите помощник один раз или выберите «Через браузер».',
+                message: 'Не открылось? Локальный помощник должен быть установлен заранее. Для таблицы выберите «Решать» в браузере.',
               })
             : current
         ));

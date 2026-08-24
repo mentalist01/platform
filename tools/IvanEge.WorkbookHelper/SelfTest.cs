@@ -21,6 +21,7 @@ internal static class SelfTest
             TestTrustStore(temporaryDirectory);
             TestBuiltInTrustPolicy();
             TestMarkOfTheWeb(temporaryDirectory);
+            TestPackageIdentity();
             TestInstallerFallback();
             TestSessionKeys();
             TestSolutionNamingContract();
@@ -64,6 +65,11 @@ internal static class SelfTest
             "ivan-ege://open?origin=https%3A%2F%2Fexample.ru&origin=https%3A%2F%2Fother.ru&ticket=abcdefghijklmnop"));
         AssertThrows<FormatException>(() => ProtocolRequestParser.Parse(
             "ivan-ege://delete?origin=https%3A%2F%2Fexample.ru&ticket=abcdefghijklmnop"));
+    }
+
+    private static void TestPackageIdentity()
+    {
+        Assert(!PackageIdentity.IsPackaged, "Unpackaged self-test was incorrectly reported as MSIX-packaged");
     }
 
     private static void TestFileNames(string directory)
