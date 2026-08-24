@@ -371,9 +371,9 @@ export const authorizeLearningRealtimeRoom = ({
   const windowState = target.targetType === 'lesson'
     ? getLearningLessonWindowState(target.session)
     : { notStarted: false, past: false };
-  // A scheduled room may be opened by the teacher for preparation, but a
-  // student must not enter the call before its start time.  Past lesson rooms
-  // remain readable for board/code history, never writable.
+  // A scheduled workspace may be edited by the teacher for preparation, but
+  // students get only a read-only preview before the lesson starts. Students
+  // must not enter the call early. Past rooms remain readable for everyone.
   if (
     target.targetType === 'lesson'
     && target.kind === 'rtc'
@@ -401,7 +401,9 @@ export const authorizeLearningRealtimeRoom = ({
     windowState,
     readOnly: target.targetType === 'lesson' && (
       windowState.past
-      || windowState.notStarted
+      || (windowState.notStarted && !['teacher', 'admin'].includes(
+        normalizeText(auth.role, 40).toLowerCase()
+      ))
       || normalizeText(target.session?.status, 40).toLowerCase() === 'completed'
       || normalizeText(target.session?.status, 40).toLowerCase() === 'cancelled'
     ),

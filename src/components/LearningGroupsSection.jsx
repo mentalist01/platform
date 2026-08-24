@@ -1141,7 +1141,7 @@ const LearningGroupsSection = ({
     const groupCompleted = selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED;
     const lessonStatus = String(lesson?.status || '').trim();
     const lessonCompleted = lessonPast || groupCompleted || ['completed', 'cancelled'].includes(lessonStatus);
-    const readOnly = lessonCompleted || lessonNotStarted;
+    const readOnly = lessonCompleted || (lessonNotStarted && !isTeacher);
     onOpenLessonRoom({
       lessonId: getLessonId(lesson),
       groupId: selectedGroup.id,
@@ -1960,7 +1960,7 @@ const LearningGroupsSection = ({
                             || ['cancelled', 'completed'].includes(String(lesson.status || '').trim());
                           const isRoomOpenable = !lessonClosed && !lessonNotStarted;
                           const isWorkspaceOpenable = lesson.status !== 'cancelled';
-                          const isWorkspaceReadOnly = lessonClosed || lessonNotStarted;
+                          const isWorkspaceReadOnly = lessonClosed || (lessonNotStarted && !isTeacher);
                           const isEditing = editingLessonId === lessonId;
                           const telemostUrl = getLessonTelemostUrl(lesson);
                           const isCurrentContext = activeLearningLesson?.lessonId === lessonId;

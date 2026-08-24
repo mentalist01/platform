@@ -331,6 +331,32 @@ test('collab upgrade extracts one decoded document name and applies the same ACL
   assert.equal(cancelledAccess.reason, 'session-not-live');
 });
 
+test('teacher can prepare a future group workspace while students stay read-only', () => {
+  const futureSession = {
+    ...session,
+    startAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    durationMinutes: 60,
+  };
+  const requestUrl = `/collab/${encodeURIComponent(`board-lesson-${session.id}`)}`;
+  const teacherAccess = authorizeLearningCollabUpgrade({
+    requestUrl,
+    auth: { role: 'teacher', id: 'teacher-a' },
+    sessions: [futureSession],
+    groups: [group],
+  });
+  const studentAccess = authorizeLearningCollabUpgrade({
+    requestUrl,
+    auth: { role: 'student', id: 'student-a' },
+    sessions: [futureSession],
+    groups: [group],
+  });
+
+  assert.equal(teacherAccess.allowed, true);
+  assert.equal(teacherAccess.readOnly, false);
+  assert.equal(studentAccess.allowed, true);
+  assert.equal(studentAccess.readOnly, true);
+});
+
 test('attendance normalization creates a stable student-per-session identity', () => {
   const record = normalizeLearningAttendanceRecord({
     sessionId: 'session-a',

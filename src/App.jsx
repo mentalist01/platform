@@ -7788,6 +7788,7 @@ const CollabSection = ({
     };
   }, [
     roomId,
+    collabReadOnly,
     isSandbox,
     sandboxId,
     editorReady,
@@ -14489,7 +14490,7 @@ const BoardSection = ({
       docRef.current = null;
       yItemsRef.current = null;
     };
-  }, [roomId, wsUrl, wsParams, liveRoomId, localName, localColor, isTeacher, isSandbox, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
+  }, [roomId, wsUrl, wsParams, liveRoomId, localName, localColor, isTeacher, isSandbox, boardReadOnly, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
 
   useEffect(() => {
     if (!isSandbox || !sandboxReadOnly) return;
@@ -19964,7 +19965,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const lessonCompleted = lessonPast
       || ['completed', 'cancelled'].includes(lessonStatus)
       || ['completed', 'cancelled'].includes(String(lesson?.groupStatus || '').trim());
-    const readOnly = Boolean(lesson?.readOnly) || lessonCompleted || lessonNotStarted;
+    const readOnly = Boolean(lesson?.readOnly)
+      || lessonCompleted
+      || (lessonNotStarted && user.role !== 'teacher');
     setActiveLearningLesson({
       lessonId,
       groupId,
