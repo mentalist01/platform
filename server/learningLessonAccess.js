@@ -7,6 +7,9 @@ const LESSON_RTC_ROOM_PREFIX = 'rtc:lesson:';
 const LESSON_BOARD_DOC_PREFIX = 'board-lesson-';
 const LESSON_COLLAB_DOC_PREFIX = 'collab-lesson-';
 
+export const LEARNING_LESSON_EARLY_JOIN_MS = 5 * 60 * 1000;
+export const LEARNING_LESSON_OVERRUN_GRACE_MS = 30 * 60 * 1000;
+
 const SAFE_ROOM_TOKEN_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._~-]*$/;
 const INACTIVE_MEMBER_STATUSES = new Set(['left', 'removed', 'inactive', 'declined']);
 
@@ -65,8 +68,9 @@ const getLearningLessonWindowState = (session, nowMs = Date.now()) => {
   return {
     startMs,
     endMs,
+    autoCloseMs: Number.isFinite(endMs) ? endMs + LEARNING_LESSON_OVERRUN_GRACE_MS : NaN,
     notStarted: Number.isFinite(startMs) && startMs > nowMs,
-    past: Number.isFinite(endMs) && endMs <= nowMs,
+    past: Number.isFinite(endMs) && endMs + LEARNING_LESSON_OVERRUN_GRACE_MS <= nowMs,
   };
 };
 
@@ -201,25 +205,34 @@ export const canAccessLearningLessonSession = (auth, session, options = {}) => {
     const lessonAtMs = Date.parse(String(session?.startAt || session?.createdAt || '').trim());
     const lessonDurationMs = Math.max(15, Number(session?.durationMinutes) || 60) * 60 * 1000;
     const lessonEndMs = Number.isFinite(lessonAtMs) ? lessonAtMs + lessonDurationMs : NaN;
+    const lessonAutoCloseMs = Number.isFinite(lessonEndMs)
+      ? lessonEndMs + LEARNING_LESSON_OVERRUN_GRACE_MS
+      : NaN;
     // A stale `active` snapshot must not reopen the room for somebody who was
     // removed before that lesson ended.  The lifecycle sweep will eventually
     // mark it completed, but the ACL remains safe in the meantime.
-    if (session?.status === 'active'
-      && Number.isFinite(leftAtMs)
-      && Number.isFinite(lessonEndMs)
-      && leftAtMs < lessonEndMs) return false;
+    if (session?.status === 'active') return false;
     const lessonHasEnded = session?.status === 'completed'
-      || (Number.isFinite(lessonEndMs) && lessonEndMs <= Date.now());
+      || (Number.isFinite(lessonAutoCloseMs) && lessonAutoCloseMs <= Date.now());
     if (lessonHasEnded) {
-      // Once the room is closed, preserve the historical snapshot even when
-      // the participant left part-way through that lesson.
-      return !Number.isFinite(leftAtMs)
+      const membershipCoveredLessonStart = !Number.isFinite(leftAtMs)
         || !Number.isFinite(lessonAtMs)
         || lessonAtMs <= leftAtMs;
+      if (!membershipCoveredLessonStart) return false;
+      if (!Array.isArray(options.attendanceRecords)) return true;
+      return options.attendanceRecords.some((record) => (
+        normalizeText(record?.sessionId) === sessionId
+        && normalizeText(record?.studentId) === authId
+        && (
+          Number(record?.presentSeconds) > 0
+          || Boolean(normalizeIsoTimestamp(record?.firstJoinedAt))
+          || ['present', 'partial'].includes(normalizeText(record?.status, 40).toLowerCase())
+        )
+      ));
     }
     return !Number.isFinite(leftAtMs)
       || !Number.isFinite(lessonAtMs)
-      || (Number.isFinite(lessonEndMs) && lessonEndMs <= leftAtMs);
+      || (Number.isFinite(lessonAutoCloseMs) && lessonAutoCloseMs <= leftAtMs);
   }
   if (!group || normalizeText(group.id) !== normalizeText(session.groupId)) return false;
   if (teacherId && normalizeText(group.teacherId) && normalizeText(group.teacherId) !== teacherId) return false;
@@ -285,9 +298,10 @@ export const hasActiveLearningGroupWorkspace = (studentIdValue, teacherIdValue, 
   const teacherId = normalizeText(teacherIdValue);
   if (!studentId || !teacherId) return false;
   return normalizeCollection(groups, 'groups').some((group) => (
-    // Forming/ready groups already own the student's shared workspace.  Only
-    // a completed group releases the legacy individual board/code room.
-    ['forming', 'ready', 'active'].includes(normalizeText(group?.status, 40).toLowerCase())
+    // The shared room replaces the personal board/code only after the group
+    // has actually started. Forming and ready groups do not interrupt the
+    // student's current individual workspace.
+    normalizeText(group?.status, 40).toLowerCase() === 'active'
     && normalizeText(group?.teacherId) === teacherId
     && (Array.isArray(group?.members) ? group.members : []).some((member) => (
       normalizeText(typeof member === 'string' ? member : (member?.studentId || member?.id)) === studentId
@@ -315,6 +329,7 @@ export const authorizeLearningRealtimeRoom = ({
   roomId,
   sessions,
   groups,
+  attendanceRecords,
   students,
   allowedKinds,
   allowedSessionStatuses,
@@ -377,7 +392,11 @@ export const authorizeLearningRealtimeRoom = ({
   if (
     target.targetType === 'lesson'
     && target.kind === 'rtc'
-    && (windowState.notStarted || windowState.past)
+    && (
+      (Number.isFinite(windowState.startMs)
+        && windowState.startMs - LEARNING_LESSON_EARLY_JOIN_MS > Date.now())
+      || windowState.past
+    )
     && normalizeText(auth.role, 40).toLowerCase() === 'student'
   ) {
     return { allowed: false, reason: 'session-not-live', target, windowState };
@@ -392,7 +411,7 @@ export const authorizeLearningRealtimeRoom = ({
   }
 
   const allowed = target.targetType === 'lesson'
-    ? canAccessLearningLessonSession(auth, target.session, { groups })
+    ? canAccessLearningLessonSession(auth, target.session, { groups, attendanceRecords })
     : canAccessLegacyLearningRoom(auth, target);
   return {
     allowed,

@@ -1,4 +1,6 @@
 export const LEARNING_GROUP_TARGET_PREFIX = 'learning-group:';
+export const LEARNING_GROUP_TELEMOST_EARLY_JOIN_MS = 5 * 60 * 1000;
+export const LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS = 30 * 60 * 1000;
 
 export const buildLearningGroupTargetValue = (groupId) => {
   const normalizedGroupId = String(groupId || '').trim();
@@ -32,10 +34,10 @@ export const getStudentActiveLearningGroups = (groups, studentId) => {
   if (!normalizedStudentId) return [];
   return (Array.isArray(groups) ? groups : [])
     .filter((group) => (
-      // A student assigned to a forming/ready group already uses the group
-      // workspace, even before the first shared lesson exists.  Only a
-      // completed group releases the student back to the individual room.
-      String(group?.status || '').trim() !== 'completed'
+      // The shared board/code replaces the personal workspace only after the
+      // group has actually started. Merely waiting in a forming/ready group
+      // must not interrupt the student's individual lessons.
+      String(group?.status || '').trim() === 'active'
       && (Array.isArray(group?.members) ? group.members : []).some((member) => (
         String(member?.studentId || member?.id || '').trim() === normalizedStudentId
         && String(member?.status || '').trim() === 'active'
@@ -59,7 +61,7 @@ export const selectLearningGroupWorkspaceLesson = (lessons, nowValue = Date.now(
       const status = String(lesson?.status || '').trim();
       let priority = 4;
       if (status === 'active') priority = 0;
-      else if (startMs > 0 && startMs <= nowMs && nowMs <= endMs + (30 * 60 * 1000)) priority = 1;
+      else if (startMs > 0 && startMs <= nowMs && nowMs <= endMs + LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS) priority = 1;
       else if (startMs >= nowMs) priority = 2;
       else if (status !== 'completed') priority = 3;
       return { lesson, startMs, priority };

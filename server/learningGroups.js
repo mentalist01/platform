@@ -323,7 +323,14 @@ export const updateLearningGroup = (groupValue, patch = {}, options = {}) => {
   const group = normalizeLearningGroup(groupValue);
   if (!group || group.deletedAt) fail('Группа не найдена', 'group_not_found', 404);
   if (group.status === LEARNING_GROUP_STATUS_COMPLETED) {
-    fail('Завершённую группу нельзя изменять', 'group_completed', 409);
+    if (options.allowCompletedArchiveEdit !== true) {
+      fail('Завершённую группу нельзя изменять', 'group_completed', 409);
+    }
+    const allowedArchiveFields = new Set(['name', 'plannedStartDate', 'startDate']);
+    const containsStructuralChange = Object.keys(patch || {}).some((key) => !allowedArchiveFields.has(key));
+    if (containsStructuralChange) {
+      fail('В архиве можно исправить только название и дату старта группы', 'group_completed', 409);
+    }
   }
   const next = { ...group };
   if (Object.prototype.hasOwnProperty.call(patch, 'name')) {
@@ -584,7 +591,8 @@ export const updateLearningLessonSession = (sessionValue, patch = {}, options = 
   if (options.enforceStartTime === true && next.status === 'active') {
     const startMs = Date.parse(next.startAt);
     const nowMs = Date.parse(now);
-    if (Number.isFinite(startMs) && Number.isFinite(nowMs) && startMs > nowMs) {
+    const earlyStartMs = Math.max(0, Number(options.earlyStartMs) || 0);
+    if (Number.isFinite(startMs) && Number.isFinite(nowMs) && startMs > nowMs + earlyStartMs) {
       fail('Занятие ещё не началось', 'lesson_not_started', 409);
     }
   }

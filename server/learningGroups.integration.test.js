@@ -1384,6 +1384,44 @@ test('learning groups keep shared work isolated while legacy student schedules r
     assert.equal(typeof completed.group.completedAt, 'string');
     assert.notEqual(completed.group.completedAt, '');
 
+    const correctedArchiveGroup = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}`, {
+      token: teacher.token,
+      method: 'PATCH',
+      body: { name: 'Archive corrected group', plannedStartDate: '2026-09-02' },
+    });
+    assert.equal(correctedArchiveGroup.group.name, 'Archive corrected group');
+    assert.equal(correctedArchiveGroup.group.plannedStartDate, '2026-09-02');
+    const rejectedArchiveStructure = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}`, {
+      token: teacher.token,
+      method: 'PATCH',
+      status: 409,
+      body: { maxStudents: 4 },
+    });
+    assert.equal(rejectedArchiveStructure.code, 'group_completed');
+
+    const correctedArchiveLesson = await jsonRequest(
+      baseUrl,
+      `/api/learning-groups/${groupId}/lessons/${lessonId}`,
+      {
+        token: teacher.token,
+        method: 'PATCH',
+        body: { topic: 'Archive corrected topic', note: 'Corrected after completion' },
+      }
+    );
+    assert.equal(correctedArchiveLesson.lesson.topic, 'Archive corrected topic');
+    assert.equal(correctedArchiveLesson.lesson.note, 'Corrected after completion');
+
+    const correctedArchiveAssignment = await jsonRequest(
+      baseUrl,
+      `/api/learning-groups/${groupId}/assignments/${assignmentId}`,
+      {
+        token: teacher.token,
+        method: 'PATCH',
+        body: { content: 'Archive corrected homework text' },
+      }
+    );
+    assert.equal(correctedArchiveAssignment.assignment.content, 'Archive corrected homework text');
+
     const activeGroupsAfterCompletion = await jsonRequest(baseUrl, '/api/learning-groups', {
       token: teacher.token,
     });

@@ -57,6 +57,10 @@ import {
 } from '../utils/homeworkDueAt';
 import { normalizeAssignedMockExamMode } from '../utils/mockExamMode';
 import { parseTelemostUrl } from '../utils/telemost';
+import {
+  LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS,
+  LEARNING_GROUP_TELEMOST_EARLY_JOIN_MS,
+} from '../utils/lessonTargets';
 
 const GROUP_TONE_CLASSES = {
   amber: 'border-amber-200 bg-amber-50 text-amber-700',
@@ -554,7 +558,9 @@ const LearningGroupsSection = ({
     lessons.filter(isGoogleCalendarLesson).forEach((lesson) => {
       const startMs = Date.parse(getLessonStart(lesson));
       const endMs = startMs + Math.max(1, Number(lesson?.durationMinutes) || 60) * 60 * 1000;
-      if (Number.isFinite(endMs) && endMs >= now && lesson.status !== 'completed') upcoming.push(lesson);
+      if (Number.isFinite(endMs)
+        && endMs + LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS >= now
+        && lesson.status !== 'completed') upcoming.push(lesson);
       else past.push(lesson);
     });
     past.sort((left, right) => Date.parse(getLessonStart(right)) - Date.parse(getLessonStart(left)));
@@ -950,15 +956,23 @@ const LearningGroupsSection = ({
         goals,
       },
     };
+    const assignmentId = getAssignmentId(assignmentComposerEditing);
+    const requestPayload = assignmentId && selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED
+      ? {
+          title: payload.title,
+          content: payload.content,
+          dueAt: payload.dueAt,
+          homework: payload.homework,
+        }
+      : payload;
     const draft = status === 'draft';
     const savingNewDraft = draft && !assignmentComposerEditing;
     if (savingNewDraft) setAssignmentComposerDraftSaving(true);
     else setAssignmentComposerSaving(true);
     setAssignmentComposerError('');
     try {
-      const assignmentId = getAssignmentId(assignmentComposerEditing);
       if (assignmentId) {
-        await api.updateLearningGroupAssignment(selectedGroup.id, assignmentId, payload);
+        await api.updateLearningGroupAssignment(selectedGroup.id, assignmentId, requestPayload);
       } else {
         await api.createLearningGroupAssignment(selectedGroup.id, payload);
       }
@@ -1002,14 +1016,18 @@ const LearningGroupsSection = ({
   const handleUpdateGroup = async (event) => {
     event.preventDefault();
     if (!selectedGroup) return;
-    const parsedTelemost = parseTelemostUrl(editForm.telemostUrl);
+    const isCompleted = selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED;
+    const parsedTelemost = isCompleted ? { url: '', error: '' } : parseTelemostUrl(editForm.telemostUrl);
     if (parsedTelemost.error) {
       setError(parsedTelemost.error);
       return;
     }
     await runAction(
       'update-group',
-      () => api.updateLearningGroup(selectedGroup.id, {
+      () => api.updateLearningGroup(selectedGroup.id, isCompleted ? {
+        name: cleanString(editForm.name),
+        plannedStartDate: editForm.plannedStartDate,
+      } : {
         name: cleanString(editForm.name),
         plannedStartDate: editForm.plannedStartDate,
         maxStudents: Number(editForm.maxStudents),
@@ -1098,9 +1116,12 @@ const LearningGroupsSection = ({
     event.preventDefault();
     if (!selectedGroup) return;
     const lessonId = getLessonId(lesson);
-    const parsedTelemost = parseTelemostUrl(lessonEditForm.telemostUrl);
+    const isCompletedGroup = selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED;
+    const parsedTelemost = isCompletedGroup
+      ? { url: '', error: '' }
+      : parseTelemostUrl(lessonEditForm.telemostUrl);
     const groupTelemostUrl = parseTelemostUrl(selectedGroup.telemostUrl).url;
-    if (parsedTelemost.error || (!parsedTelemost.url && !groupTelemostUrl)) {
+    if (!isCompletedGroup && (parsedTelemost.error || (!parsedTelemost.url && !groupTelemostUrl))) {
       setError(parsedTelemost.error || 'Сначала укажите постоянную ссылку Телемоста в настройках группы.');
       return;
     }
@@ -1111,7 +1132,7 @@ const LearningGroupsSection = ({
         durationMinutes: Number(lessonEditForm.durationMinutes),
         topic: cleanString(lessonEditForm.topic),
         note: cleanString(lessonEditForm.note),
-        telemostUrl: parsedTelemost.url,
+        ...(!isCompletedGroup ? { telemostUrl: parsedTelemost.url } : {}),
       }),
       'Занятие обновлено.'
     );
@@ -1133,11 +1154,9 @@ const LearningGroupsSection = ({
     const startsAt = getLessonStart(lesson);
     const durationMinutes = Math.max(15, Number(lesson?.durationMinutes) || 60);
     const startsAtMs = Date.parse(startsAt);
-    const lessonNotStarted = Number.isFinite(startsAtMs)
-      && startsAtMs > Date.now()
-      && String(lesson?.status || '').trim() !== 'active';
+    const lessonNotStarted = Number.isFinite(startsAtMs) && startsAtMs > Date.now();
     const lessonPast = Number.isFinite(startsAtMs)
-      && startsAtMs + (durationMinutes * 60 * 1000) <= Date.now();
+      && startsAtMs + (durationMinutes * 60 * 1000) + LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS <= Date.now();
     const groupCompleted = selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED;
     const lessonStatus = String(lesson?.status || '').trim();
     const lessonCompleted = lessonPast || groupCompleted || ['completed', 'cancelled'].includes(lessonStatus);
@@ -1628,14 +1647,18 @@ const LearningGroupsSection = ({
                 {tab === 'overview' && (
                   <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                     {isTeacher && (
-                      <SectionCard title="Настройки группы" subtitle="Название и вместимость можно менять до завершения обучения.">
+                      <SectionCard
+                        title="Настройки группы"
+                        subtitle={selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED
+                          ? 'В архиве можно исправить название и дату старта. Состав и параметры обучения остаются зафиксированными.'
+                          : 'Название и вместимость можно менять до завершения обучения.'}
+                      >
                         <form onSubmit={handleUpdateGroup} className="space-y-3">
                           <Field label="Название">
                             <input
                               value={editForm.name}
                               onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))}
                               className={inputClassName}
-                              disabled={selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
                               required
                             />
                           </Field>
@@ -1646,7 +1669,6 @@ const LearningGroupsSection = ({
                                 value={editForm.plannedStartDate}
                                 onChange={(event) => setEditForm((current) => ({ ...current, plannedStartDate: event.target.value }))}
                                 className={inputClassName}
-                                disabled={selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
                               />
                             </Field>
                             <Field label="Вместимость">
@@ -1673,7 +1695,7 @@ const LearningGroupsSection = ({
                           </Field>
                           <button
                             type="submit"
-                            disabled={busyKey === 'update-group' || selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
+                            disabled={busyKey === 'update-group'}
                             className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
                           >
                             <BusyButtonContent busy={busyKey === 'update-group'} busyLabel="Сохраняем..." icon={Save}>Сохранить</BusyButtonContent>
@@ -1827,7 +1849,8 @@ const LearningGroupsSection = ({
                           const lessonId = getLessonId(lesson);
                           const lessonStartMs = Date.parse(getLessonStart(lesson));
                           const lessonEndMs = lessonStartMs + Math.max(1, Number(lesson.durationMinutes) || 60) * 60 * 1000;
-                          const isPast = Number.isFinite(lessonEndMs) && lessonEndMs < clockNowMs;
+                          const isPast = Number.isFinite(lessonEndMs)
+                            && lessonEndMs + LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS < clockNowMs;
                           const statusMeta = getStatusMeta(LESSON_STATUS_META, lesson.status, isPast ? 'completed' : 'scheduled');
                           return (
                             <div key={lessonId} className={`flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${isPast ? 'border-slate-200 bg-slate-50/60' : 'border-violet-100 bg-white shadow-sm'}`}>
@@ -1950,15 +1973,16 @@ const LearningGroupsSection = ({
                           const lessonEndMs = Number.isFinite(lessonStartMs)
                             ? lessonStartMs + (lessonDurationMinutes * 60 * 1000)
                             : NaN;
-                          const lessonPast = Number.isFinite(lessonEndMs) && lessonEndMs <= clockNowMs;
-                          const lessonNotStarted = Number.isFinite(lessonStartMs)
-                            && lessonStartMs > clockNowMs
-                            && String(lesson.status || '').trim() !== 'active';
+                          const lessonPast = Number.isFinite(lessonEndMs)
+                            && lessonEndMs + LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS <= clockNowMs;
+                          const lessonNotStarted = Number.isFinite(lessonStartMs) && lessonStartMs > clockNowMs;
+                          const telemostTooEarly = Number.isFinite(lessonStartMs)
+                            && lessonStartMs - LEARNING_GROUP_TELEMOST_EARLY_JOIN_MS > clockNowMs;
                           const groupCompleted = selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED;
                           const lessonClosed = groupCompleted
                             || lessonPast
                             || ['cancelled', 'completed'].includes(String(lesson.status || '').trim());
-                          const isRoomOpenable = !lessonClosed && !lessonNotStarted;
+                          const isRoomOpenable = !lessonClosed && !telemostTooEarly;
                           const isWorkspaceOpenable = lesson.status !== 'cancelled';
                           const isWorkspaceReadOnly = lessonClosed || (lessonNotStarted && !isTeacher);
                           const isEditing = editingLessonId === lessonId;
@@ -1986,7 +2010,7 @@ const LearningGroupsSection = ({
                                 </div>
                                 {isTeacher && (
                                   <div className="flex flex-wrap gap-2">
-                                    {!isEditing && !lessonClosed && (
+                                    {!isEditing && String(lesson.status || '').trim() !== 'cancelled' && (
                                       <button
                                         type="button"
                                         onClick={() => handleBeginEditLesson(lesson)}
@@ -1996,7 +2020,7 @@ const LearningGroupsSection = ({
                                         <Pencil size={14} /> Изменить
                                       </button>
                                     )}
-                                    {lesson.status === 'scheduled' && !lessonPast && !lessonNotStarted && !groupCompleted && (
+                                    {lesson.status === 'scheduled' && !lessonPast && !telemostTooEarly && !groupCompleted && (
                                       <button
                                         type="button"
                                         onClick={() => void handleUpdateLessonStatus(lesson, 'active')}
@@ -2051,16 +2075,18 @@ const LearningGroupsSection = ({
                                     </Field>
                                   </div>
                                   <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                                    <Field label="Другая ссылка для этого занятия" hint="пусто — ссылка группы">
-                                      <input
-                                        value={lessonEditForm.telemostUrl}
-                                        onChange={(event) => setLessonEditForm((current) => ({ ...current, telemostUrl: event.target.value }))}
-                                        className={inputClassName}
-                                        placeholder={selectedGroup.telemostUrl ? 'Используется постоянная ссылка' : 'https://telemost.yandex.ru/j/...'}
-                                        inputMode="url"
-                                        autoComplete="url"
-                                      />
-                                    </Field>
+                                    {selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
+                                      <Field label="Другая ссылка для этого занятия" hint="пусто — ссылка группы">
+                                        <input
+                                          value={lessonEditForm.telemostUrl}
+                                          onChange={(event) => setLessonEditForm((current) => ({ ...current, telemostUrl: event.target.value }))}
+                                          className={inputClassName}
+                                          placeholder={selectedGroup.telemostUrl ? 'Используется постоянная ссылка' : 'https://telemost.yandex.ru/j/...'}
+                                          inputMode="url"
+                                          autoComplete="url"
+                                        />
+                                      </Field>
+                                    )}
                                     <Field label="Заметка">
                                       <input
                                         value={lessonEditForm.note}
@@ -2117,8 +2143,8 @@ const LearningGroupsSection = ({
                                     disabled
                                     className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-200 px-3 py-2.5 text-sm font-bold text-slate-500"
                                   >
-                                    <Video size={16} /> {lessonNotStarted
-                                      ? 'Занятие ещё не началось'
+                                    <Video size={16} /> {telemostTooEarly
+                                      ? 'Доступ за 5 минут до начала'
                                       : (isRoomOpenable ? 'Ссылка не настроена' : 'Встреча закрыта')}
                                   </button>
                                 )}
@@ -2421,32 +2447,32 @@ const LearningGroupsSection = ({
 
                               {isTeacher && (
                                 <div className="mb-4 flex flex-wrap gap-2">
-                                  {assignment.status !== 'closed' && (
-                                    <button
-                                      type="button"
-                                      onClick={() => void openAssignmentComposer(assignment)}
-                                      className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50"
-                                    ><Pencil size={14} /> Редактировать</button>
-                                  )}
-                                  {assignment.status === 'draft' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void openAssignmentComposer(assignment)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50"
+                                  ><Pencil size={14} /> Редактировать</button>
+                                  {selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && assignment.status === 'draft' && (
                                     <button
                                       type="button"
                                       onClick={() => void handleAssignmentStatus(assignment, 'assigned')}
                                       className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700"
                                     ><Send size={14} /> Опубликовать</button>
                                   )}
-                                  {assignment.status === 'assigned' && (
+                                  {selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && assignment.status === 'assigned' && (
                                     <button
                                       type="button"
                                       onClick={() => void handleAssignmentStatus(assignment, 'closed')}
                                       className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
                                     ><CheckCircle2 size={14} /> Закрыть приём</button>
                                   )}
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleDeleteAssignment(assignment)}
-                                    className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50"
-                                  ><Trash2 size={14} /> Удалить</button>
+                                  {selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleDeleteAssignment(assignment)}
+                                      className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50"
+                                    ><Trash2 size={14} /> Удалить</button>
+                                  )}
                                 </div>
                               )}
 

@@ -106,7 +106,7 @@ test('active group completes without regressing its status', () => {
   assert.equal(completed.admissionsOpen, false);
 });
 
-test('completed groups are immutable but keep their archive readable', () => {
+test('completed groups allow archive metadata corrections but block structural changes', () => {
   const active = startLearningGroup(add(makeGroup(), 'student-a'), { now: NOW });
   const completed = completeLearningGroup(active, { now: '2027-05-20T09:00:00.000Z' });
   const rejectsCompletedGroup = (callback) => assert.throws(
@@ -115,6 +115,16 @@ test('completed groups are immutable but keep their archive readable', () => {
   );
 
   rejectsCompletedGroup(() => updateLearningGroup(completed, { name: 'Новое название' }, { now: NOW }));
+  const corrected = updateLearningGroup(completed, {
+    name: 'Исправленное название',
+    plannedStartDate: '2026-09-02',
+  }, { now: NOW, allowCompletedArchiveEdit: true });
+  assert.equal(corrected.name, 'Исправленное название');
+  assert.equal(corrected.plannedStartDate, '2026-09-02');
+  rejectsCompletedGroup(() => updateLearningGroup(completed, { maxStudents: 4 }, {
+    now: NOW,
+    allowCompletedArchiveEdit: true,
+  }));
   rejectsCompletedGroup(() => setLearningGroupSchedule(completed, [], { now: NOW }));
   rejectsCompletedGroup(() => createLearningLessonSession(completed, {
     startAt: '2027-05-21T09:00:00.000Z',
@@ -177,7 +187,7 @@ test('lesson session snapshots participants and exposes stable transport names',
   );
 });
 
-test('a scheduled lesson cannot be started before its calendar time', () => {
+test('a scheduled lesson can be started five minutes before its calendar time', () => {
   const active = startLearningGroup(add(makeGroup(), 'student-a'), { now: NOW });
   const lesson = createLearningLessonSession(active, {
     startAt: '2026-09-01T15:00:00.000Z',
@@ -185,14 +195,16 @@ test('a scheduled lesson cannot be started before its calendar time', () => {
 
   assert.throws(
     () => updateLearningLessonSession(lesson, { status: 'active' }, {
-      now: '2026-09-01T14:59:59.000Z',
+      now: '2026-09-01T14:54:59.000Z',
       enforceStartTime: true,
+      earlyStartMs: 5 * 60 * 1000,
     }),
     (error) => error.code === 'lesson_not_started' && error.statusCode === 409
   );
   const started = updateLearningLessonSession(lesson, { status: 'active' }, {
-    now: '2026-09-01T15:00:00.000Z',
+    now: '2026-09-01T14:55:00.000Z',
     enforceStartTime: true,
+    earlyStartMs: 5 * 60 * 1000,
   });
   assert.equal(started.status, 'active');
 });

@@ -114,7 +114,7 @@ test('participant snapshot keeps past lesson access after the member leaves the 
   ), true);
 });
 
-test('a member removed during a lesson cannot keep the live room, but keeps a fully finished lesson', () => {
+test('a removed member loses the live room and keeps the finished lesson only after attending', () => {
   const lesson = {
     ...session,
     participantIds: ['student-left'],
@@ -146,8 +146,19 @@ test('a member removed during a lesson cannot keep the live room, but keeps a fu
           leftAt: '2026-08-03T10:30:00.000Z',
         }],
       }],
+      attendanceRecords: [{
+        sessionId: lesson.id,
+        studentId: 'student-left',
+        status: 'partial',
+        presentSeconds: 1200,
+      }],
     }
   ), true);
+  assert.equal(canAccessLearningLessonSession(
+    { role: 'student', id: 'student-left' },
+    { ...lesson, status: 'completed' },
+    { groups: [removedDuringLesson], attendanceRecords: [] }
+  ), false);
 });
 
 test('legacy rooms are resolved by full generated name even when ids contain hyphens', () => {
@@ -228,7 +239,7 @@ test('an active group member cannot open a separate legacy board or code room', 
   }
 });
 
-test('a forming or ready group member also uses the shared workspace', () => {
+test('a forming or ready group member keeps the personal workspace', () => {
   const student = { id: 'student-a', teacherId: 'teacher-a' };
   for (const status of ['forming', 'ready']) {
     const groupForStatus = {
@@ -236,7 +247,7 @@ test('a forming or ready group member also uses the shared workspace', () => {
       status,
       members: [{ studentId: 'student-a', status: 'active' }],
     };
-    assert.equal(hasActiveLearningGroupWorkspace('student-a', 'teacher-a', [groupForStatus]), true);
+    assert.equal(hasActiveLearningGroupWorkspace('student-a', 'teacher-a', [groupForStatus]), false);
     const access = authorizeLearningRealtimeRoom({
       auth: { role: 'student', id: 'student-a', teacherId: 'teacher-a' },
       roomId: 'board-teacher-a-student-a',
@@ -245,8 +256,8 @@ test('a forming or ready group member also uses the shared workspace', () => {
       students: [...legacyStudents, student],
       allowedKinds: ['board'],
     });
-    assert.equal(access.allowed, false);
-    assert.equal(access.reason, 'group-workspace-required');
+    assert.equal(access.allowed, true);
+    assert.equal(access.reason, '');
   }
 });
 
@@ -355,6 +366,36 @@ test('teacher can prepare a future group workspace while students stay read-only
   assert.equal(teacherAccess.readOnly, false);
   assert.equal(studentAccess.allowed, true);
   assert.equal(studentAccess.readOnly, true);
+});
+
+test('students can enter Telemost five minutes early but not earlier', () => {
+  const now = Date.now();
+  const buildAccess = (startsInMs) => authorizeLearningRealtimeRoom({
+    auth: { role: 'student', id: 'student-a' },
+    roomId: `rtc:lesson:${session.id}`,
+    sessions: [{ ...session, startAt: new Date(now + startsInMs).toISOString() }],
+    groups: [group],
+    allowedKinds: ['rtc'],
+  });
+  assert.equal(buildAccess(4 * 60 * 1000).allowed, true);
+  assert.equal(buildAccess(6 * 60 * 1000).reason, 'session-not-live');
+});
+
+test('group workspace stays writable for the thirty-minute overrun window', () => {
+  const now = Date.now();
+  const buildAccess = (endedAgoMs) => authorizeLearningRealtimeRoom({
+    auth: { role: 'student', id: 'student-a' },
+    roomId: `board-lesson-${session.id}`,
+    sessions: [{
+      ...session,
+      startAt: new Date(now - 60 * 60 * 1000 - endedAgoMs).toISOString(),
+      durationMinutes: 60,
+    }],
+    groups: [group],
+    allowedKinds: ['board'],
+  });
+  assert.equal(buildAccess(15 * 60 * 1000).readOnly, false);
+  assert.equal(buildAccess(31 * 60 * 1000).readOnly, true);
 });
 
 test('attendance normalization creates a stable student-per-session identity', () => {
