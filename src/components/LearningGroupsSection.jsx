@@ -1986,7 +1986,7 @@ const LearningGroupsSection = ({
                                 </div>
                                 {isTeacher && (
                                   <div className="flex flex-wrap gap-2">
-                                    {!isEditing && (
+                                    {!isEditing && !lessonClosed && (
                                       <button
                                         type="button"
                                         onClick={() => handleBeginEditLesson(lesson)}
@@ -1996,7 +1996,7 @@ const LearningGroupsSection = ({
                                         <Pencil size={14} /> Изменить
                                       </button>
                                     )}
-                                    {lesson.status === 'scheduled' && !lessonPast && !groupCompleted && (
+                                    {lesson.status === 'scheduled' && !lessonPast && !lessonNotStarted && !groupCompleted && (
                                       <button
                                         type="button"
                                         onClick={() => void handleUpdateLessonStatus(lesson, 'active')}
@@ -2006,7 +2006,7 @@ const LearningGroupsSection = ({
                                         <Play size={14} /> Начать
                                       </button>
                                     )}
-                                    {lesson.status === 'active' && (
+                                    {lesson.status === 'active' && !groupCompleted && (
                                       <button
                                         type="button"
                                         onClick={() => void handleUpdateLessonStatus(lesson, 'completed')}

@@ -17131,6 +17131,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const telemostAudioCaptureRef = useRef(null);
   const telemostAudioCaptureStartGenerationRef = useRef(0);
   const telemostAudioCaptureStartingRef = useRef(0);
+  const telemostCaptureLossLessonKeyRef = useRef('');
+  const telemostCaptureLossTimerRef = useRef(null);
   const telemostLessonActivityMissesRef = useRef(0);
   const [callAutoStartToken, setCallAutoStartToken] = useState(0);
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
@@ -17760,7 +17762,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         }
       } catch (error) {
         console.error('[lesson-replay] failed to finish group Telemost lesson:', error);
-        setTelemostLessonFinishError(error?.message || 'Не удалось завершить групповое занятие.');
+        // A lifecycle/calendar sweep may have completed or cancelled the
+        // occurrence between the recorder stop and our PATCH. In that case
+        // the desired end state is already on the server; clear the stale
+        // local pill instead of showing a button that can never succeed.
+        let latestStatus = '';
+        try {
+          const latest = await api.getLearningGroupLesson(learningGroupId, learningLessonId);
+          latestStatus = String(latest?.lesson?.status || latest?.status || '').trim().toLowerCase();
+        } catch {
+          // Keep the original error when the status cannot be re-read.
+        }
+        if (['completed', 'cancelled'].includes(latestStatus)) {
+          setActiveLearningLesson((current) => (
+            current?.lessonId === learningLessonId
+              ? { ...current, status: latestStatus, replayActive: false, readOnly: true, notStarted: false }
+              : current
+          ));
+          setTelemostLessonFinishError('');
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('learning-groups-changed'));
+          }
+        } else {
+          setTelemostLessonFinishError(error?.message || 'Не удалось завершить групповое занятие.');
+        }
       } finally {
         setTelemostLessonFinishBusy(false);
       }
@@ -17865,7 +17890,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       durationMinutes,
       telemostUrl: normalizedUrl,
       status: sourceStatus || 'scheduled',
-      replayActive: false,
+      // A teacher's local replay becomes active only after the browser has
+      // granted display/audio capture and the server accepted the transition.
+      // Students do not capture audio in the platform, so their shared room
+      // can become active immediately after the click.
+      replayActive: user.role !== 'teacher',
       readOnly: false,
       notStarted: false,
       surface: 'call',
@@ -17877,8 +17906,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setTelemostLessonFinishError('');
     setActiveLearningLesson((current) => (
       current?.lessonId === lessonId
-        ? { ...current, ...lessonContext, status: 'active', replayActive: true }
-        : { ...lessonContext, status: 'active', replayActive: true }
+        ? { ...current, ...lessonContext }
+        : lessonContext
     ));
     if (user.role === 'teacher') {
       storedActiveStudentIdRef.current = '';
@@ -17905,6 +17934,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             window.dispatchEvent(new Event('learning-groups-changed'));
           }
         }
+        setActiveLearningLesson((current) => (
+          current?.lessonId === lessonId
+            ? { ...current, status: 'active', replayActive: true, readOnly: false, notStarted: false }
+            : current
+        ));
       } catch (error) {
         console.error('[lesson-replay] failed to start group Telemost lesson:', error);
         await stopTelemostAudioCapture();
@@ -17933,6 +17967,120 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     startTelemostAudioCapture,
     stopTelemostAudioCapture,
     navigateToView,
+    user.role,
+  ]);
+
+  // The browser ends display capture when the selected Telemost tab is
+  // closed. Finish the group occurrence as well, otherwise the old local
+  // floating pill would keep claiming that a lesson is running and the
+  // server would remain in `active` state indefinitely.
+  useEffect(() => {
+    const lessonId = String(activeLearningLesson?.lessonId || '').trim();
+    const groupId = String(activeLearningLesson?.groupId || '').trim();
+    const isTeacherGroupReplay = user.role === 'teacher'
+      && isGroupLessonReplayActive
+      && lessonId
+      && groupId;
+    if (!isTeacherGroupReplay) {
+      telemostCaptureLossLessonKeyRef.current = '';
+      if (telemostCaptureLossTimerRef.current) {
+        window.clearTimeout(telemostCaptureLossTimerRef.current);
+        telemostCaptureLossTimerRef.current = null;
+      }
+      return undefined;
+    }
+    const captureStatus = String(telemostAudioCapture.status || '').trim().toLowerCase();
+    const captureEnded = captureStatus === 'idle' || captureStatus === 'error';
+    const captureStillStarting = Boolean(telemostAudioCaptureStartingRef.current);
+    if (!captureEnded || captureStillStarting) {
+      telemostCaptureLossLessonKeyRef.current = '';
+      if (telemostCaptureLossTimerRef.current) {
+        window.clearTimeout(telemostCaptureLossTimerRef.current);
+        telemostCaptureLossTimerRef.current = null;
+      }
+      return undefined;
+    }
+    if (telemostLessonFinishBusy || telemostLessonFinishError) return undefined;
+    const lessonKey = `${groupId}:${lessonId}`;
+    if (telemostCaptureLossLessonKeyRef.current === lessonKey) return undefined;
+    telemostCaptureLossLessonKeyRef.current = lessonKey;
+    telemostCaptureLossTimerRef.current = window.setTimeout(() => {
+      telemostCaptureLossTimerRef.current = null;
+      if (telemostLessonFinishBusy || telemostLessonFinishError) return;
+      void handleFinishTelemostLesson();
+    }, 250);
+    return () => {
+      if (telemostCaptureLossTimerRef.current) {
+        window.clearTimeout(telemostCaptureLossTimerRef.current);
+        telemostCaptureLossTimerRef.current = null;
+      }
+    };
+  }, [
+    activeLearningLesson?.groupId,
+    activeLearningLesson?.lessonId,
+    handleFinishTelemostLesson,
+    isGroupLessonReplayActive,
+    telemostAudioCapture.status,
+    telemostLessonFinishBusy,
+    telemostLessonFinishError,
+    user.role,
+  ]);
+
+  // Google-calendar reconciliation can cancel an occurrence while the
+  // teacher still has the lesson screen open. Poll the authoritative lesson
+  // status so the local pill and recorder stop without requiring a reload.
+  useEffect(() => {
+    const lessonId = String(activeLearningLesson?.lessonId || '').trim();
+    const groupId = String(activeLearningLesson?.groupId || '').trim();
+    if (user.role !== 'teacher' || !isGroupLessonReplayActive || !lessonId || !groupId) {
+      return undefined;
+    }
+    let disposed = false;
+    let busy = false;
+    let timerId = null;
+    const schedule = (delayMs) => {
+      if (disposed) return;
+      window.clearTimeout(timerId);
+      timerId = window.setTimeout(refresh, delayMs);
+    };
+    const refresh = async () => {
+      if (disposed || busy) return;
+      busy = true;
+      try {
+        const latest = await api.getLearningGroupLesson(groupId, lessonId);
+        if (disposed) return;
+        const status = String(latest?.lesson?.status || latest?.status || '').trim().toLowerCase();
+        if (['completed', 'cancelled'].includes(status)) {
+          setActiveLearningLesson((current) => (
+            current?.lessonId === lessonId
+              ? { ...current, status, replayActive: false, readOnly: true, notStarted: false }
+              : current
+          ));
+          setTelemostLessonFinishError('');
+          await stopTelemostAudioCapture();
+          return;
+        }
+      } catch {
+        // A temporary network error must not terminate an otherwise active
+        // lesson. The next poll/focus event will retry.
+      } finally {
+        busy = false;
+        if (!disposed) schedule(15_000);
+      }
+    };
+    const handleFocus = () => schedule(0);
+    void refresh();
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timerId);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [
+    activeLearningLesson?.groupId,
+    activeLearningLesson?.lessonId,
+    isGroupLessonReplayActive,
+    stopTelemostAudioCapture,
     user.role,
   ]);
 
@@ -19851,15 +19999,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setMenuOpen(false);
   }, [isCallViewAvailable, navigateToView, user.role]);
 
+  const activeLearningLessonId = String(activeLearningLesson?.lessonId || '').trim();
+  const activeLearningLessonStartsAt = String(activeLearningLesson?.startsAt || '').trim();
+  const activeLearningLessonStatus = String(activeLearningLesson?.status || '').trim().toLowerCase();
+  const activeLearningLessonNotStarted = Boolean(activeLearningLesson?.notStarted);
+
   useEffect(() => {
-    const lesson = activeLearningLesson;
-    if (typeof window === 'undefined' || !lesson?.notStarted) return undefined;
-    const startMs = Date.parse(String(lesson.startsAt || '').trim());
+    if (typeof window === 'undefined' || !activeLearningLessonNotStarted) return undefined;
+    const startMs = Date.parse(activeLearningLessonStartsAt);
     if (!Number.isFinite(startMs)) return undefined;
     const promoteAtStart = () => {
       if (Date.now() < startMs) return;
       setActiveLearningLesson((current) => {
-        if (!current || current.lessonId !== lesson.lessonId) return current;
+        if (!current || current.lessonId !== activeLearningLessonId) return current;
         const status = String(current.status || '').trim().toLowerCase();
         if (['completed', 'cancelled'].includes(status)) return current;
         return {
@@ -19872,7 +20024,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const delayMs = Math.max(0, startMs - Date.now());
     const timerId = window.setTimeout(promoteAtStart, Math.min(delayMs, 2_147_000_000));
     return () => window.clearTimeout(timerId);
-  }, [activeLearningLesson?.lessonId, activeLearningLesson?.notStarted, activeLearningLesson?.startsAt]);
+  }, [activeLearningLessonId, activeLearningLessonNotStarted, activeLearningLessonStartsAt, activeLearningLessonStatus]);
 
   const refreshStudentLessonWorkspace = useCallback(async ({ silent = false } = {}) => {
     if (user.role !== 'student') return null;
@@ -19968,6 +20120,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       return null;
     }
   }, [user.id, user.role]);
+
+  // The server intentionally hides a student's permanent Telemost URL until
+  // the lesson starts. Refresh immediately at that boundary so a tab that was
+  // opened in advance receives the link without waiting for the 60-second poll.
+  useEffect(() => {
+    if (user.role !== 'student' || !activeLearningLessonNotStarted) return undefined;
+    const startMs = Date.parse(activeLearningLessonStartsAt);
+    if (!Number.isFinite(startMs)) return undefined;
+    const refreshAtStart = () => {
+      if (Date.now() >= startMs) void refreshStudentLessonWorkspace({ silent: true });
+    };
+    const delayMs = Math.max(0, startMs - Date.now()) + 250;
+    const timerId = window.setTimeout(refreshAtStart, Math.min(delayMs, 2_147_000_000));
+    return () => window.clearTimeout(timerId);
+  }, [activeLearningLessonNotStarted, activeLearningLessonStartsAt, refreshStudentLessonWorkspace, user.role]);
 
   useEffect(() => {
     if (user.role !== 'student') return undefined;

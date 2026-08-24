@@ -8807,6 +8807,25 @@ const isGoogleStudentScheduleEntry = (entry) => {
     || source === 'google-ical';
 };
 
+// A group can be closed or a student can leave after a lesson has already
+// happened.  Google synchronisation must remove future bookings in that case,
+// but must never erase the historical occurrence from the student's ordinary
+// schedule.  Keep the calculation local to the stored entry so it also works
+// for older records that do not have an ISO `startAt` field.
+const isHistoricalStudentGroupScheduleEntry = (entry, nowMs = Date.now()) => {
+  if (!entry?.isLearningGroupEvent || !isGoogleStudentScheduleEntry(entry)) return false;
+  const status = String(entry?.status || '').trim().toLowerCase();
+  if (['cancelled', 'canceled'].includes(status) || entry?.cancelled === true) return false;
+  const durationMs = Math.max(15, Number(entry?.durationMinutes) || 60) * 60 * 1000;
+  const explicitStartMs = Date.parse(String(entry?.startAt || entry?.startsAt || '').trim());
+  if (Number.isFinite(explicitStartMs)) return explicitStartMs + durationMs <= nowMs;
+  const date = normalizeDayKey(entry?.date || entry?.dayKey);
+  const time = normalizeScheduleTime(entry?.time || entry?.startTime);
+  if (!date || !time) return false;
+  const fallbackStartMs = Date.parse(`${date}T${time}:00`);
+  return Number.isFinite(fallbackStartMs) && fallbackStartMs + durationMs <= nowMs;
+};
+
 const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
   const date = normalizeDayKey(entry?.date);
   const weekdayMeta = resolveScheduleWeekdayMeta({
@@ -8830,6 +8849,17 @@ const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
     : null;
   const nowIso = new Date().toISOString();
   const googleTitle = String(entry?.subject || '').trim();
+  const isLearningGroupEvent = Boolean(entry?.isLearningGroupEvent && entry?.groupId);
+  const lessonStatus = String(entry?.status || entry?.lessonStatus || '').trim().toLowerCase();
+  const explicitLessonStartMs = Date.parse(String(entry?.startAt || entry?.startsAt || '').trim());
+  const lessonStartMs = Number.isFinite(explicitLessonStartMs)
+    ? explicitLessonStartMs
+    : Date.parse(`${date}T${time}:00`);
+  const learningGroupTelemostStarted = isLearningGroupEvent && (
+    (Boolean(lessonStatus) && lessonStatus !== 'scheduled')
+    || (Number.isFinite(lessonStartMs) && lessonStartMs <= Date.now())
+  );
+  const entryLessonLink = typeof entry?.lessonLink === 'string' ? entry.lessonLink.trim() : '';
   return {
     id: `google-student-${stableId}`,
     studentId: String(student?.id || '').trim(),
@@ -8844,14 +8874,14 @@ const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
     subject: 'Занятие',
     note: '',
     boardLink: '',
-    lessonLink: typeof entry?.lessonLink === 'string' ? entry.lessonLink.trim() : '',
+    lessonLink: isLearningGroupEvent && !learningGroupTelemostStarted ? '' : entryLessonLink,
     source: 'google-calendar',
     isGoogleCalendarSync: true,
     externalCalendarProvider: 'Google Calendar',
     externalEventId,
     externalCalendarName: String(entry?.externalCalendarName || '').trim(),
     googleCalendarTitle: googleTitle,
-    ...(entry?.isLearningGroupEvent && entry?.groupId ? {
+    ...(isLearningGroupEvent ? {
       isLearningGroupEvent: true,
       groupId: String(entry.groupId).trim(),
       groupName: String(entry?.groupName || '').trim(),
@@ -8865,7 +8895,9 @@ const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
           })).filter((participant) => participant.studentId)
         : [],
       lessonId: String(entry?.lessonId || '').trim(),
-      telemostUrl: normalizeTelemostUrl(entry?.telemostUrl || entry?.lessonLink),
+      telemostUrl: learningGroupTelemostStarted
+        ? normalizeTelemostUrl(entry?.telemostUrl || entry?.lessonLink)
+        : '',
       isTeacherSlot: false,
     } : {}),
     startAt: String(entry?.startAt || '').trim(),
@@ -8963,7 +8995,17 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
       };
   });
   const manualSchedule = currentSchedule.filter((entry) => !isGoogleStudentScheduleEntry(entry));
-  const schedule = [...importedEntries, ...manualSchedule];
+  // Keep already imported group lessons in the past even when the student was
+  // removed from the group later or the group was completed. They are
+  // historical records, not future bookings, and should remain visible in the
+  // student's ordinary schedule.
+  const historicalGroupEntries = currentSchedule.filter((entry) => (
+    isHistoricalStudentGroupScheduleEntry(entry)
+  ));
+  const schedule = Array.from(new Map(
+    [...historicalGroupEntries, ...importedEntries, ...manualSchedule]
+      .map((entry) => [String(entry?.id || crypto.randomUUID()), entry])
+  ).values());
   const shouldPersist = options.persist !== false;
   const changed = shouldPersist && JSON.stringify(schedule) !== JSON.stringify(currentSchedule);
   if (changed) {
@@ -9154,7 +9196,10 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
     if (eventTelemostUrl && lesson.telemostUrl !== eventTelemostUrl) patch.telemostUrl = eventTelemostUrl;
     if (calendarManaged && !eventTelemostUrl && lesson.telemostUrl) patch.telemostUrl = '';
     if (Object.keys(patch).length > 0) {
-      lesson = updateLearningLessonSession(lesson, patch, { actorId: teacherId });
+      lesson = updateLearningLessonSession(lesson, patch, {
+        actorId: teacherId,
+        ...(patch.status === 'scheduled' && lesson.status === 'cancelled' ? { allowCalendarReopen: true } : {}),
+      });
     }
     lesson = normalizeLearningLessonSession({
       ...lesson,
@@ -9194,20 +9239,35 @@ const reconcileGoogleCalendarLearningLessons = (
   );
   const sessions = readLearningLessonSessionsDb();
   let changed = false;
+  const newlyCancelledIds = new Set();
   const nextSessions = sessions.map((session) => {
     if (
       session.source !== 'google-calendar'
       || normalizeTeacherId(session.teacherId) !== normalizedTeacherId
-      || session.status !== 'scheduled'
+      || !['scheduled', 'active'].includes(session.status)
       || retainedLessonIds.has(session.id)
     ) return session;
     const startMs = Date.parse(session.startAt);
     const endMs = startMs + (normalizeScheduleDurationMinutes(session.durationMinutes) * 60 * 1000);
     if (!Number.isFinite(startMs) || endMs < fromMs || startMs > toMs) return session;
     changed = true;
-    return updateLearningLessonSession(session, { status: 'cancelled' }, { actorId: normalizedTeacherId });
+    const updated = updateLearningLessonSession(session, { status: 'cancelled' }, { actorId: normalizedTeacherId });
+    if (updated?.id) newlyCancelledIds.add(updated.id);
+    return updated;
   });
-  if (changed) writeLearningLessonSessionsDb(nextSessions);
+  if (changed) {
+    writeLearningLessonSessionsDb(nextSessions);
+    if (newlyCancelledIds.size > 0) {
+      // Close first so a late socket `leave` can settle the existing interval;
+      // the final cleanup below then removes the cancelled lesson entirely.
+      nextSessions
+        .filter((session) => newlyCancelledIds.has(session.id))
+        .forEach(closeLearningLessonCollabConnections);
+      const attendance = readLearningAttendanceDb();
+      const retainedAttendance = attendance.filter((record) => !newlyCancelledIds.has(record.sessionId));
+      if (retainedAttendance.length !== attendance.length) writeLearningAttendanceDb(retainedAttendance);
+    }
+  }
   return changed;
 };
 
@@ -15086,8 +15146,11 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry)
     && candidate.teacherId === normalizedTeacherId
     && !candidate.deletedAt
   ));
+  const rawGroupPrice = Number(group?.pricePerLesson);
   const lessonPrice = roundTeacherFinanceNumber(
-    Number(group?.pricePerLesson) || LEARNING_GROUP_DEFAULT_LESSON_PRICE
+    Number.isFinite(rawGroupPrice) && rawGroupPrice >= 0
+      ? rawGroupPrice
+      : LEARNING_GROUP_DEFAULT_LESSON_PRICE
   );
   const studentsById = new Map(
     readStudentsDb()
@@ -15276,7 +15339,9 @@ const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence)
       return {
         month,
         lessonPrice: roundTeacherFinanceNumber(
-          Number(group.pricePerLesson) || LEARNING_GROUP_DEFAULT_LESSON_PRICE
+          Number.isFinite(Number(group.pricePerLesson)) && Number(group.pricePerLesson) >= 0
+            ? Number(group.pricePerLesson)
+            : LEARNING_GROUP_DEFAULT_LESSON_PRICE
         ),
       };
     }
@@ -20782,18 +20847,48 @@ const canStudentReadLearningGroupAssignment = (group, studentId, assignment) => 
     assignment
     && assignment.groupId === group?.id
     && assignment.recipientIds?.includes(studentId)
-    && canStudentReadLearningGroupRecord(group, studentId, assignment.createdAt, [assignment.publishedAt, assignment.updatedAt])
+    // Publication is the moment an assignment becomes visible. A draft may
+    // have been created before a member left and published afterwards; that
+    // must not leak into the former student's archive.
+    && canStudentReadLearningGroupRecord(
+      group,
+      studentId,
+      assignment.publishedAt || assignment.createdAt,
+      [assignment.createdAt, assignment.updatedAt]
+    )
   )
 );
 
-const canStudentReadLearningGroupLesson = (group, studentId, lesson) => (
-  Boolean(
-    lesson
-    && lesson.groupId === group?.id
-    && lesson.participantIds?.includes(studentId)
-    && canStudentReadLearningGroupRecord(group, studentId, lesson.startAt, [lesson.createdAt, lesson.updatedAt])
-  )
-);
+const canStudentReadLearningGroupLesson = (group, studentId, lesson) => {
+  if (!lesson || lesson.groupId !== group?.id || !lesson.participantIds?.includes(studentId)) return false;
+  const member = getLearningGroupMember(group, studentId);
+  if (!member) return false;
+  if (member.status === 'active') return true;
+
+  // A removed participant keeps a lesson only when the whole lesson had
+  // already finished before the member left. Checking only startAt would
+  // expose the remainder of a live lesson after an early removal.
+  const leftAtMs = Date.parse(String(member.leftAt || '').trim());
+  const lessonStartMs = Date.parse(String(lesson.startAt || '').trim());
+  if (Number.isFinite(leftAtMs) && Number.isFinite(lessonStartMs)) {
+    const durationMs = Math.max(15, Number(lesson.durationMinutes) || 60) * 60 * 1000;
+    const lessonEndMs = lessonStartMs + durationMs;
+    // Keep a stale active snapshot closed for a member who left before the
+    // lesson ended. The lifecycle sweep may run a little later than the
+    // roster change, so the room/history ACL must not depend on that race.
+    if (lesson.status === 'active' && leftAtMs < lessonEndMs) return false;
+    const lessonHasEnded = lesson.status === 'completed'
+      || (lessonEndMs <= Date.now());
+    if (lessonHasEnded) return lessonStartMs <= leftAtMs;
+    return lessonEndMs <= leftAtMs;
+  }
+  return canStudentReadLearningGroupRecord(
+    group,
+    studentId,
+    lesson.startAt,
+    [lesson.createdAt, lesson.updatedAt]
+  );
+};
 
 const canReadLearningGroup = (auth, group) => {
   if (!auth || !group || group.deletedAt) return false;
@@ -20805,8 +20900,18 @@ const canReadLearningGroup = (auth, group) => {
     // because the historical membership row is still stored for audit.
     if (isLearningGroupMember(group, auth.id, { activeOnly: true })) return true;
     if (readLearningLessonSessionsDb().some((session) => canStudentReadLearningGroupLesson(group, auth.id, session))) return true;
-    return readLearningAssignmentsDb().some((assignment) => (
+    if (readLearningAssignmentsDb().some((assignment) => (
       !assignment.deletedAt && canStudentReadLearningGroupAssignment(group, auth.id, assignment)
+    ))) return true;
+    return readLearningMaterialsDb().some((material) => (
+      !material.deletedAt
+      && material.groupId === group.id
+      && canStudentReadLearningGroupRecord(
+        group,
+        auth.id,
+        material.createdAt,
+        [material.publishedAt, material.updatedAt]
+      )
     ));
   }
   return false;
@@ -20965,7 +21070,8 @@ const getLearningGroupNextLesson = (group, now = new Date(), auth = null) => {
     .map((entry) => buildLearningScheduleOccurrence(group, entry, now))
     .filter(Boolean)
     .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))[0] || null;
-  return occurrence && !canUseTelemost
+  const occurrenceStarted = occurrence && Date.parse(occurrence.startAt) <= now.getTime();
+  return occurrence && (!canUseTelemost || (isStudentRole(auth) && !occurrenceStarted))
     ? { ...occurrence, telemostUrl: '', usesGroupTelemostUrl: false }
     : occurrence;
 };
@@ -20978,7 +21084,7 @@ const serializeLearningGroupForAuth = (group, auth) => {
     .some((member) => member.studentId === auth?.id);
   const canUseTelemost = staffView || currentStudentMember;
   const members = serialized.members
-    .filter((member) => staffView || member.status === 'active' || member.studentId === auth?.id)
+    .filter((member) => staffView || (currentStudentMember && member.status === 'active') || member.studentId === auth?.id)
     .map((member) => {
       const student = serializeLearningStudentSummary(member.studentId);
       if (staffView) return { ...member, ...student, student };
@@ -20987,9 +21093,10 @@ const serializeLearningGroupForAuth = (group, auth) => {
     });
   return {
     ...serialized,
+    ...(staffView || currentStudentMember ? {} : { schedule: [] }),
     telemostUrl: canUseTelemost ? serialized.telemostUrl : '',
     members,
-    nextLesson: getLearningGroupNextLesson(group, new Date(), auth),
+    nextLesson: staffView || currentStudentMember ? getLearningGroupNextLesson(group, new Date(), auth) : null,
   };
 };
 
@@ -21000,7 +21107,9 @@ const serializeLearningLessonForAuth = (lesson, auth = null, groupValue = null) 
     : readLearningGroupsDb().find((entry) => entry.id === lesson?.groupId) || null;
   const currentStudentMember = isStudentRole(auth) && group?.status !== 'completed' && getActiveLearningGroupMembers(group)
     .some((member) => member.studentId === auth?.id);
-  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || currentStudentMember;
+  const lessonStarted = lesson?.status !== 'scheduled'
+    || Date.parse(String(lesson?.startAt || '')) <= Date.now();
+  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || (currentStudentMember && lessonStarted);
   const telemostUrlOverride = canUseTelemost ? normalizeTelemostUrl(lesson?.telemostUrl) : '';
   const groupTelemostUrl = canUseTelemost ? normalizeTelemostUrl(group?.telemostUrl) : '';
   return {
@@ -21366,6 +21475,35 @@ const syncLearningGroupUpcomingLessonParticipants = (group, nowMs = Date.now()) 
   return { changed: true, lessons: changedLessons };
 };
 
+// Removing a student while a lesson room is already open must revoke the
+// existing realtime connection as well as future access.  The lesson snapshot
+// itself remains intact for the historical archive, but the server closes the
+// live board/code sockets so the former participant cannot keep editing after
+// leaving the group.
+const closeLearningGroupStudentLessonConnections = (groupIdValue, studentIdValue, nowMs = Date.now()) => {
+  const groupId = String(groupIdValue || '').trim();
+  const studentId = String(studentIdValue || '').trim();
+  if (!groupId || !studentId) return 0;
+  let closed = 0;
+  readLearningLessonSessionsDb().forEach((lesson) => {
+    if (
+      lesson.groupId !== groupId
+      || !['scheduled', 'active'].includes(String(lesson.status || '').trim())
+      || !Array.isArray(lesson.participantIds)
+      || !lesson.participantIds.includes(studentId)
+    ) return;
+    const startMs = Date.parse(String(lesson.startAt || '').trim());
+    const durationMs = Math.max(15, Number(lesson.durationMinutes) || 60) * 60 * 1000;
+    const endMs = Number.isFinite(startMs) ? startMs + durationMs : NaN;
+    // Future scheduled rooms are handled by the roster synchroniser; only
+    // close an already reachable/current room here.
+    if (Number.isFinite(startMs) && startMs > nowMs) return;
+    if (Number.isFinite(endMs) && endMs <= nowMs) return;
+    closed += closeLearningLessonCollabConnections(lesson);
+  });
+  return closed;
+};
+
 let learningGroupLifecycleSweepInProgress = false;
 let learningGroupLifecycleLastSweepAt = 0;
 const reconcileLearningGroupLifecycle = (nowMs = Date.now(), options = {}) => {
@@ -21477,10 +21615,20 @@ app.get('/api/learning-groups', handleLearningRoute((req, res) => {
     if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
     if (isTeacherRole(req.auth) && student.teacherId !== req.auth.id) return forbid(res);
     groups = groups.filter((group) => (
-      isLearningGroupMember(group, effectiveStudentId)
+      isLearningGroupMember(group, effectiveStudentId, { activeOnly: true })
       || readLearningLessonSessionsDb().some((lesson) => canStudentReadLearningGroupLesson(group, effectiveStudentId, lesson))
       || readLearningAssignmentsDb().some((assignment) => (
         !assignment.deletedAt && canStudentReadLearningGroupAssignment(group, effectiveStudentId, assignment)
+      ))
+      || readLearningMaterialsDb().some((material) => (
+        !material.deletedAt
+        && material.groupId === group.id
+        && canStudentReadLearningGroupRecord(
+          group,
+          effectiveStudentId,
+          material.createdAt,
+          [material.publishedAt, material.updatedAt]
+        )
       ))
     ));
   }
@@ -21559,6 +21707,7 @@ app.delete('/api/learning-groups/:groupId/members/:studentId', handleLearningRou
   const removedStudentId = String(req.params.studentId || '').trim();
   const updated = removeLearningGroupMember(group, removedStudentId, { actorId: req.auth.id });
   writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  closeLearningGroupStudentLessonConnections(group.id, removedStudentId);
   syncLearningGroupUpcomingLessonParticipants(updated);
   synchronizeLearningGroupHomeworksForStudent(removedStudentId);
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
@@ -21653,9 +21802,15 @@ app.get('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute((
 app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!group) return;
+  if (group.status === 'completed') {
+    failLearningRequest('Завершённую группу нельзя изменять', 'group_completed', 409);
+  }
   const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId, { manage: true });
   if (!lesson) return;
-  const updated = updateLearningLessonSession(lesson, req.body || {}, { actorId: req.auth.id });
+  const updated = updateLearningLessonSession(lesson, req.body || {}, {
+    actorId: req.auth.id,
+    enforceStartTime: true,
+  });
   writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(), updated));
   if (updated.status === 'completed' && lesson.status !== 'completed') {
     const finalized = createLearningAttendanceRoster(updated, readLearningAttendanceDb())
@@ -21745,6 +21900,7 @@ app.get('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, r
 app.post('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!group) return;
+  if (group.status === 'completed') failLearningRequest('Завершённую группу нельзя изменять', 'group_completed', 409);
   const lessonId = String(req.body?.lessonId || '').trim();
   if (lessonId && !getLearningLessonById(group.id, lessonId)) {
     failLearningRequest('Занятие не найдено', 'lesson_not_found', 404);
@@ -21782,6 +21938,7 @@ app.get('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearnin
 app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!group) return;
+  if (group.status === 'completed') failLearningRequest('Завершённую группу нельзя изменять', 'group_completed', 409);
   const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
   if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
   const assignmentPatch = {
@@ -21792,6 +21949,13 @@ app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearn
         }
       : {}),
   };
+  if (Object.prototype.hasOwnProperty.call(assignmentPatch, 'recipientIds')) {
+    const activeStudentIds = new Set(getActiveLearningGroupMembers(group).map((member) => member.studentId));
+    const requestedIds = Array.isArray(assignmentPatch.recipientIds) ? assignmentPatch.recipientIds.map(String) : [];
+    if (requestedIds.some((studentId) => !activeStudentIds.has(studentId))) {
+      failLearningRequest('Получатель не является участником группы', 'invalid_assignment_recipient', 400);
+    }
+  }
   const updated = updateLearningAssignment(assignment, assignmentPatch, { actorId: req.auth.id });
   writeLearningAssignmentsDb(replaceLearningStoreEntry(readLearningAssignmentsDb(), updated));
   synchronizeLearningGroupAssignmentHomeworks(updated, {
@@ -21803,6 +21967,7 @@ app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearn
 app.delete('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!group) return;
+  if (group.status === 'completed') failLearningRequest('Завершённую группу нельзя изменять', 'group_completed', 409);
   const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
   if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
   const now = new Date().toISOString();
@@ -21994,6 +22159,7 @@ app.get('/api/learning-groups/:groupId/materials/:materialId/download', handleLe
 app.delete('/api/learning-groups/:groupId/materials/:materialId', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!group) return;
+  if (group.status === 'completed') failLearningRequest('Завершённую группу нельзя изменять', 'group_completed', 409);
   const materials = readLearningMaterialsDb();
   const material = materials.find((entry) => (
     entry.id === req.params.materialId && entry.groupId === group.id && !entry.deletedAt
@@ -22083,6 +22249,11 @@ app.put('/api/learning-groups/:groupId/lessons/:lessonId/responses/:boardItemId'
   const lessonEndMs = Number.isFinite(lessonStartMs) ? lessonStartMs + lessonDurationMs : NaN;
   const lessonClosed = ['completed', 'cancelled'].includes(String(lesson.status || '').trim())
     || (Number.isFinite(lessonEndMs) && lessonEndMs <= Date.now());
+  const lessonNotStarted = lesson.status === 'scheduled'
+    && Number.isFinite(lessonStartMs) && lessonStartMs > Date.now();
+  if (lessonNotStarted) {
+    failLearningRequest('До начала занятия доска доступна только для просмотра', 'lesson_not_started', 409);
+  }
   if (lessonClosed) {
     failLearningRequest('Ответы к завершённому занятию доступны только для просмотра', 'lesson_read_only', 409);
   }
@@ -22098,7 +22269,7 @@ app.put('/api/learning-groups/:groupId/lessons/:lessonId/responses/:boardItemId'
     req.params.boardItemId,
     studentId,
     req.body || {},
-    { id: crypto.randomUUID(), actorId: req.auth.id }
+    { id: crypto.randomUUID(), actorId: req.auth.id, enforceStartTime: true }
   );
   const next = existing ? replaceLearningStoreEntry(responses, response) : [response, ...responses];
   writeLearningBoardResponsesDb(next);
@@ -29145,6 +29316,14 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
       Array.isArray(lesson?.participantIds)
       && lesson.participantIds.includes(studentId)
       && String(lesson?.status || '').trim() !== 'cancelled'
+      // Keep the ordinary student's history aligned with the room ACL: a
+      // removed member may retain a finished snapshot, but must not receive a
+      // live/future lesson after leaving the group.
+      && canAccessLearningLessonSessionRecord(
+        { role: 'student', id: studentId },
+        lesson,
+        { group: learningGroupsById.get(String(lesson.groupId || '').trim()), groups: Array.from(learningGroupsById.values()) }
+      )
     ))
     .map((lesson) => {
       const start = new Date(lesson.startAt);
@@ -35564,11 +35743,21 @@ const applyLearningLessonConnectionAttendance = ({ auth, lesson, connectionId },
     || !Array.isArray(lesson.participantIds)
     || !lesson.participantIds.includes(studentId)
   ) return false;
+  const atMs = Date.parse(String(at || ''));
+  const startMs = Date.parse(String(lesson.startAt || ''));
+  const durationMs = Math.max(15, Number(lesson.durationMinutes) || 60) * 60 * 1000;
+  const endMs = Number.isFinite(startMs) ? startMs + durationMs : NaN;
+  if (!Number.isFinite(atMs) || !Number.isFinite(startMs)
+    || (lesson.status === 'scheduled' && (atMs < startMs || atMs >= endMs))) return false;
   const records = readLearningAttendanceDb();
   const key = buildLearningAttendanceKey(lesson.id, studentId);
   const existing = records.find((record) => (
     buildLearningAttendanceKey(record.sessionId, record.studentId) === key
   ));
+  // A close event can arrive after a cancelled room has already had its
+  // attendance roster deleted.  Do not recreate a phantom pending record for
+  // that late socket event; a leave without a prior join is also a no-op.
+  if (type === 'leave' && (!existing || lesson.status === 'cancelled')) return false;
   const updated = applyLearningAttendanceEvent(existing, {
     type,
     groupId: lesson.groupId,

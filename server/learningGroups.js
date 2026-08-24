@@ -322,6 +322,9 @@ export const createLearningGroup = (payload = {}, options = {}) => {
 export const updateLearningGroup = (groupValue, patch = {}, options = {}) => {
   const group = normalizeLearningGroup(groupValue);
   if (!group || group.deletedAt) fail('Группа не найдена', 'group_not_found', 404);
+  if (group.status === LEARNING_GROUP_STATUS_COMPLETED) {
+    fail('Завершённую группу нельзя изменять', 'group_completed', 409);
+  }
   const next = { ...group };
   if (Object.prototype.hasOwnProperty.call(patch, 'name')) {
     const name = cleanText(patch.name, 160);
@@ -445,6 +448,9 @@ export const completeLearningGroup = (groupValue, options = {}) => {
 export const setLearningGroupSchedule = (groupValue, scheduleValue, options = {}) => {
   const group = normalizeLearningGroup(groupValue);
   if (!group || group.deletedAt) fail('Группа не найдена', 'group_not_found', 404);
+  if (group.status === LEARNING_GROUP_STATUS_COMPLETED) {
+    fail('Завершённой группе нельзя менять расписание', 'group_completed', 409);
+  }
   if (!Array.isArray(scheduleValue)) fail('Расписание должно быть массивом', 'invalid_group_schedule');
   const now = getNowIso(options.now);
   const idFactory = getIdFactory(options);
@@ -539,6 +545,7 @@ export const updateLearningLessonSession = (sessionValue, patch = {}, options = 
   const session = normalizeLearningLessonSession(sessionValue);
   if (!session) fail('Занятие не найдено', 'lesson_not_found', 404);
   const next = { ...session };
+  const now = getNowIso(options.now);
   if (Object.prototype.hasOwnProperty.call(patch, 'startAt')) {
     const startAt = normalizeIsoTimestamp(patch.startAt);
     if (!startAt) fail('Укажите корректное время занятия', 'invalid_lesson_start');
@@ -559,9 +566,28 @@ export const updateLearningLessonSession = (sessionValue, patch = {}, options = 
   if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
     const status = cleanText(patch.status, 30);
     if (!LESSON_STATUSES.has(status)) fail('Некорректный статус занятия', 'invalid_lesson_status');
+    const previousStatus = session.status;
+    const allowedTransitions = {
+      scheduled: new Set(['scheduled', 'active', 'completed', 'cancelled']),
+      active: new Set(['active', 'completed', 'cancelled']),
+      completed: new Set(['completed']),
+      cancelled: new Set(['cancelled', 'scheduled']),
+    };
+    if (!allowedTransitions[previousStatus]?.has(status)) {
+      fail('Завершённое или отменённое занятие нельзя возобновить', 'lesson_status_terminal', 409);
+    }
+    if (previousStatus === 'cancelled' && status === 'scheduled' && options.allowCalendarReopen !== true) {
+      fail('Отменённое занятие можно вернуть только синхронизацией календаря', 'lesson_status_terminal', 409);
+    }
     next.status = status;
   }
-  const now = getNowIso(options.now);
+  if (options.enforceStartTime === true && next.status === 'active') {
+    const startMs = Date.parse(next.startAt);
+    const nowMs = Date.parse(now);
+    if (Number.isFinite(startMs) && Number.isFinite(nowMs) && startMs > nowMs) {
+      fail('Занятие ещё не началось', 'lesson_not_started', 409);
+    }
+  }
   next.updatedAt = now;
   if (next.status === 'completed') next.completedAt = session.completedAt || now;
   if (next.status === 'cancelled') next.cancelledAt = session.cancelledAt || now;
@@ -601,6 +627,9 @@ export const normalizeLearningAssignmentsStore = (value) => (
 export const createLearningAssignment = (groupValue, payload = {}, options = {}) => {
   const group = normalizeLearningGroup(groupValue);
   if (!group || group.deletedAt) fail('Группа не найдена', 'group_not_found', 404);
+  if (group.status === LEARNING_GROUP_STATUS_COMPLETED) {
+    fail('В завершённую группу нельзя добавлять задания', 'group_completed', 409);
+  }
   const id = cleanText(options.id || payload.id, 180);
   const title = cleanText(payload.title, 240);
   const content = cleanText(payload.content ?? payload.homeWork, 50000);
@@ -903,6 +932,9 @@ export const normalizeLearningMaterialsStore = (value) => (
 export const createLearningMaterial = (groupValue, payload = {}, options = {}) => {
   const group = normalizeLearningGroup(groupValue);
   if (!group || group.deletedAt) fail('Группа не найдена', 'group_not_found', 404);
+  if (group.status === LEARNING_GROUP_STATUS_COMPLETED) {
+    fail('В завершённую группу нельзя добавлять материалы', 'group_completed', 409);
+  }
   const visibility = cleanText(payload.visibility || 'group', 30);
   if (!MATERIAL_VISIBILITIES.has(visibility)) fail('Некорректная видимость материала', 'invalid_material_visibility');
   const lessonId = visibility === 'lesson' ? cleanText(payload.lessonId, 180) : '';
@@ -997,6 +1029,12 @@ export const upsertLearningBoardResponse = (existingValue, sessionValue, boardIt
   if (!session) fail('Занятие не найдено', 'lesson_not_found', 404);
   if (session.status !== 'scheduled' && session.status !== 'active') {
     fail('Завершённое или отменённое занятие доступно только для просмотра', 'lesson_read_only', 409);
+  }
+  const nowMs = Date.parse(getNowIso(options.now));
+  const startMs = Date.parse(session.startAt);
+  if (options.enforceStartTime === true && session.status === 'scheduled'
+    && Number.isFinite(nowMs) && Number.isFinite(startMs) && nowMs < startMs) {
+    fail('До начала занятия доска доступна только для просмотра', 'lesson_not_started', 409);
   }
   if (!boardItemId) fail('Некорректный элемент доски', 'invalid_board_item');
   if (!session.participantIds.includes(studentId)) {

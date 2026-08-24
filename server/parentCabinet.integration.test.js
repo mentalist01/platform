@@ -155,7 +155,8 @@ test('parent login exposes only the linked student read-only cabinet', {
     const overview = await overviewResponse.json();
     assert.deepEqual(overview.student, { id: 'student-a', name: 'Student A', grade: 11 });
     assert.equal(Array.isArray(overview.schedule), true);
-    assert.equal(overview.schedule.length, 1);
+    assert.equal(overview.schedule.some((entry) => entry.id === 'lesson-a'), true);
+    assert.equal(JSON.stringify(overview.schedule).includes('student-b'), false);
     assert.equal(Array.isArray(overview.lessons.items), true);
     assert.equal(Array.isArray(overview.mocks.entries), true);
     assert.equal(Array.isArray(overview.homework.entries), true);

@@ -199,9 +199,27 @@ export const canAccessLearningLessonSession = (auth, session, options = {}) => {
     if (!member || isActiveLearningGroupMember(member)) return true;
     const leftAtMs = Date.parse(String(member?.leftAt || '').trim());
     const lessonAtMs = Date.parse(String(session?.startAt || session?.createdAt || '').trim());
+    const lessonDurationMs = Math.max(15, Number(session?.durationMinutes) || 60) * 60 * 1000;
+    const lessonEndMs = Number.isFinite(lessonAtMs) ? lessonAtMs + lessonDurationMs : NaN;
+    // A stale `active` snapshot must not reopen the room for somebody who was
+    // removed before that lesson ended.  The lifecycle sweep will eventually
+    // mark it completed, but the ACL remains safe in the meantime.
+    if (session?.status === 'active'
+      && Number.isFinite(leftAtMs)
+      && Number.isFinite(lessonEndMs)
+      && leftAtMs < lessonEndMs) return false;
+    const lessonHasEnded = session?.status === 'completed'
+      || (Number.isFinite(lessonEndMs) && lessonEndMs <= Date.now());
+    if (lessonHasEnded) {
+      // Once the room is closed, preserve the historical snapshot even when
+      // the participant left part-way through that lesson.
+      return !Number.isFinite(leftAtMs)
+        || !Number.isFinite(lessonAtMs)
+        || lessonAtMs <= leftAtMs;
+    }
     return !Number.isFinite(leftAtMs)
       || !Number.isFinite(lessonAtMs)
-      || lessonAtMs <= leftAtMs;
+      || (Number.isFinite(lessonEndMs) && lessonEndMs <= leftAtMs);
   }
   if (!group || normalizeText(group.id) !== normalizeText(session.groupId)) return false;
   if (teacherId && normalizeText(group.teacherId) && normalizeText(group.teacherId) !== teacherId) return false;

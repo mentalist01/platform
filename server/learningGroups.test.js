@@ -106,6 +106,27 @@ test('active group completes without regressing its status', () => {
   assert.equal(completed.admissionsOpen, false);
 });
 
+test('completed groups are immutable but keep their archive readable', () => {
+  const active = startLearningGroup(add(makeGroup(), 'student-a'), { now: NOW });
+  const completed = completeLearningGroup(active, { now: '2027-05-20T09:00:00.000Z' });
+  const rejectsCompletedGroup = (callback) => assert.throws(
+    callback,
+    (error) => error.code === 'group_completed' && error.statusCode === 409
+  );
+
+  rejectsCompletedGroup(() => updateLearningGroup(completed, { name: 'Новое название' }, { now: NOW }));
+  rejectsCompletedGroup(() => setLearningGroupSchedule(completed, [], { now: NOW }));
+  rejectsCompletedGroup(() => createLearningLessonSession(completed, {
+    startAt: '2027-05-21T09:00:00.000Z',
+  }, { id: 'late-lesson', now: NOW }));
+  rejectsCompletedGroup(() => createLearningAssignment(completed, {
+    title: 'Поздняя домашняя работа',
+  }, { id: 'late-assignment', now: NOW }));
+  rejectsCompletedGroup(() => createLearningMaterial(completed, {
+    title: 'Поздний материал',
+  }, { id: 'late-material', now: NOW }));
+});
+
 test('group schedule validates recurring and dated slots', () => {
   let counter = 0;
   const group = setLearningGroupSchedule(makeGroup(), [
@@ -153,6 +174,51 @@ test('lesson session snapshots participants and exposes stable transport names',
       telemostUrl: 'https://example.com/j/not-telemost',
     }, { id: 'lesson-b', now: NOW }),
     (error) => error.code === 'invalid_lesson_telemost_url'
+  );
+});
+
+test('a scheduled lesson cannot be started before its calendar time', () => {
+  const active = startLearningGroup(add(makeGroup(), 'student-a'), { now: NOW });
+  const lesson = createLearningLessonSession(active, {
+    startAt: '2026-09-01T15:00:00.000Z',
+  }, { id: 'lesson-future', now: NOW });
+
+  assert.throws(
+    () => updateLearningLessonSession(lesson, { status: 'active' }, {
+      now: '2026-09-01T14:59:59.000Z',
+      enforceStartTime: true,
+    }),
+    (error) => error.code === 'lesson_not_started' && error.statusCode === 409
+  );
+  const started = updateLearningLessonSession(lesson, { status: 'active' }, {
+    now: '2026-09-01T15:00:00.000Z',
+    enforceStartTime: true,
+  });
+  assert.equal(started.status, 'active');
+});
+
+test('completed and cancelled lessons cannot be manually reopened', () => {
+  const active = startLearningGroup(add(makeGroup(), 'student-a'), { now: NOW });
+  const lesson = createLearningLessonSession(active, {
+    startAt: '2026-08-22T08:00:00.000Z',
+  }, { id: 'lesson-terminal', now: NOW });
+  const completed = updateLearningLessonSession(lesson, { status: 'completed' }, { now: NOW });
+  const cancelled = updateLearningLessonSession(lesson, { status: 'cancelled' }, { now: NOW });
+
+  assert.throws(
+    () => updateLearningLessonSession(completed, { status: 'active' }, { now: NOW }),
+    (error) => error.code === 'lesson_status_terminal'
+  );
+  assert.throws(
+    () => updateLearningLessonSession(cancelled, { status: 'scheduled' }, { now: NOW }),
+    (error) => error.code === 'lesson_status_terminal'
+  );
+  assert.equal(
+    updateLearningLessonSession(cancelled, { status: 'scheduled' }, {
+      now: NOW,
+      allowCalendarReopen: true,
+    }).status,
+    'scheduled'
   );
 });
 

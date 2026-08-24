@@ -114,6 +114,42 @@ test('participant snapshot keeps past lesson access after the member leaves the 
   ), true);
 });
 
+test('a member removed during a lesson cannot keep the live room, but keeps a fully finished lesson', () => {
+  const lesson = {
+    ...session,
+    participantIds: ['student-left'],
+    startAt: '2026-08-03T10:00:00.000Z',
+    durationMinutes: 60,
+    status: 'active',
+  };
+  const removedDuringLesson = {
+    ...group,
+    members: [{
+      studentId: 'student-left',
+      status: 'removed',
+      leftAt: '2026-08-03T10:30:00.000Z',
+    }],
+  };
+  assert.equal(canAccessLearningLessonSession(
+    { role: 'student', id: 'student-left' },
+    lesson,
+    { groups: [removedDuringLesson] }
+  ), false);
+  assert.equal(canAccessLearningLessonSession(
+    { role: 'student', id: 'student-left' },
+    { ...lesson, status: 'completed' },
+    {
+      groups: [{
+        ...removedDuringLesson,
+        members: [{
+          ...removedDuringLesson.members[0],
+          leftAt: '2026-08-03T10:30:00.000Z',
+        }],
+      }],
+    }
+  ), true);
+});
+
 test('legacy rooms are resolved by full generated name even when ids contain hyphens', () => {
   assert.deepEqual(
     resolveLegacyLearningRoomTarget(

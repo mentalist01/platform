@@ -316,12 +316,14 @@ test('learning groups keep shared work isolated while legacy student schedules r
     assert.deepEqual(studentAIndividualBefore.map((entry) => entry.id), ['legacy-existing-a']);
     assert.deepEqual(studentBIndividualBefore, []);
 
+    const futureLessonStartAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    const activeLessonStartAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const lessonCreated = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/lessons`, {
       token: teacher.token,
       method: 'POST',
       status: 201,
       body: {
-        startAt: '2026-09-07T15:30:00.000Z',
+        startAt: futureLessonStartAt,
         durationMinutes: 75,
         topic: 'Graph traversal',
         scheduleEntryId: scheduled.schedule[0].id,
@@ -391,13 +393,25 @@ test('learning groups keep shared work isolated while legacy student schedules r
     );
     assert.equal(updatedTelemost.lesson.telemostUrl, 'https://telemost.yandex.ru/j/99999999999999');
 
+    const prematureStart = await jsonRequest(
+      baseUrl,
+      `/api/learning-groups/${groupId}/lessons/${lessonId}`,
+      {
+        token: teacher.token,
+        method: 'PATCH',
+        status: 409,
+        body: { status: 'active' },
+      }
+    );
+    assert.equal(prematureStart.code, 'lesson_not_started');
+
     const activeLesson = await jsonRequest(
       baseUrl,
       `/api/learning-groups/${groupId}/lessons/${lessonId}`,
       {
         token: teacher.token,
         method: 'PATCH',
-        body: { status: 'active' },
+        body: { status: 'active', startAt: activeLessonStartAt },
       }
     );
     assert.equal(activeLesson.lesson.status, 'active');

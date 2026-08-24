@@ -384,6 +384,21 @@ const StudentLessonJoinPrompt = ({
     })
   ), [dismissedKeys, nextLesson, now, scheduleEntries, telemostUrl]);
 
+  // Group lesson links are hidden by the API until the exact start time.
+  // Refresh at that boundary so the prompt can reveal the link immediately
+  // instead of waiting for the regular minute-based poll.
+  useEffect(() => {
+    if (!activePrompt?.isLearningGroupEvent) return undefined;
+    const startMs = Number(activePrompt.startMs);
+    if (!Number.isFinite(startMs) || startMs <= Date.now()) return undefined;
+    const delayMs = Math.max(0, startMs - Date.now()) + 250;
+    const timerId = window.setTimeout(() => {
+      void refreshPromptData();
+      setNow(new Date());
+    }, Math.min(delayMs, 2_147_000_000));
+    return () => window.clearTimeout(timerId);
+  }, [activePrompt?.isLearningGroupEvent, activePrompt?.occurrenceKey, activePrompt?.startMs, refreshPromptData]);
+
   const closePrompt = useCallback(() => {
     if (activePrompt?.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
   }, [activePrompt, rememberDismissedPrompt]);
