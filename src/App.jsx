@@ -25412,6 +25412,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 };
 
 const GAME_ROUTE_PATH = '/game';
+const WORKBOOK_HELPER_PRIVACY_ROUTE_PATH = '/privacy/workbook-helper';
 
 const normalizePathname = (value) => {
   if (typeof value !== 'string' || !value.trim()) return '/';
@@ -25424,6 +25425,106 @@ const isStandaloneGameRoute = () => {
   if (typeof window === 'undefined') return false;
   return normalizePathname(window.location.pathname) === GAME_ROUTE_PATH;
 };
+
+const isWorkbookHelperPrivacyRoute = () => {
+  if (typeof window === 'undefined') return false;
+  return normalizePathname(window.location.pathname) === WORKBOOK_HELPER_PRIVACY_ROUTE_PATH;
+};
+
+const WorkbookHelperPrivacyPolicy = () => (
+  <main className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900 sm:px-6">
+    <article className="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-10">
+      <p className="text-sm font-bold uppercase tracking-[0.16em] text-purple-600">Иван на сотку</p>
+      <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">
+        Политика конфиденциальности помощника таблиц
+      </h1>
+      <p className="mt-3 text-sm text-slate-500">Дата вступления в силу: 25 августа 2026 года</p>
+
+      <div className="mt-8 space-y-8 text-base leading-7 text-slate-700">
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-900">Кто отвечает за приложение</h2>
+          <p className="mt-2">
+            Издатель приложения «Иван на сотку — помощник таблиц» — Иван Полоцкий.
+            Приложение работает вместе с образовательной платформой{' '}
+            <a className="font-semibold text-purple-700 underline underline-offset-2" href="https://ivan100.ru">
+              ivan100.ru
+            </a>.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-900">Какие данные обрабатывает помощник</h2>
+          <p className="mt-2">Только когда пользователь открывает таблицу через ivan100.ru, помощник обрабатывает:</p>
+          <ul className="mt-3 list-disc space-y-2 pl-6">
+            <li>содержимое выбранной учебной таблицы и имя файла;</li>
+            <li>сохранённые пользователем изменения и указанное им название решения;</li>
+            <li>технические идентификаторы выбранной работы, номер версии и контрольную сумму файла;</li>
+            <li>краткий локальный журнал работы и ошибок, необходимый для диагностики.</li>
+          </ul>
+          <p className="mt-3">
+            Помощник не запрашивает контакты, геолокацию, камеру, микрофон, платёжные данные
+            или пароль от учётной записи Windows.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-900">Зачем и как используются данные</h2>
+          <p className="mt-2">
+            Данные нужны, чтобы скачать выбранное задание, открыть его в Excel или LibreOffice,
+            заметить сохранение и отправить обновлённую таблицу обратно в конспекты пользователя на ivan100.ru.
+            Обмен выполняется по защищённому соединению HTTPS с помощью ограниченного по назначению токена.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-900">Хранение данных</h2>
+          <p className="mt-2">
+            Локальные копии заданий и решений сохраняются на компьютере пользователя в папке
+            «Иван на сотку» на рабочем столе или в документах. Технический журнал хранится локально
+            в данных приложения. Синхронизированное решение хранится на ivan100.ru как учебный материал
+            пользователя. Пользователь может удалить локальные файлы средствами Windows.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-900">Передача третьим лицам</h2>
+          <p className="mt-2">
+            Данные не продаются, не используются для рекламы и не передаются рекламным сетям.
+            Они могут обрабатываться только инфраструктурой, необходимой для работы ivan100.ru,
+            либо передаваться в случаях, прямо предусмотренных законом.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-900">Дети и учащиеся</h2>
+          <p className="mt-2">
+            Помощник предназначен в том числе для учащихся. Он не создаёт рекламных профилей и
+            обрабатывает только ту учебную таблицу, которую пользователь сам выбрал на платформе.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-900">Вопросы и удаление данных</h2>
+          <p className="mt-2">
+            По вопросам конфиденциальности или удаления синхронизированных материалов обратитесь
+            к издателю через раздел чатов и поддержки на{' '}
+            <a className="font-semibold text-purple-700 underline underline-offset-2" href="https://ivan100.ru">
+              ivan100.ru
+            </a>.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-900">Изменения политики</h2>
+          <p className="mt-2">
+            Актуальная версия политики всегда публикуется на этой странице. При существенных изменениях
+            дата вступления в силу будет обновлена.
+          </p>
+        </section>
+      </div>
+    </article>
+  </main>
+);
 
 const MainApp = () => {
   const [theme, setTheme] = useState(() => {
@@ -25771,6 +25872,10 @@ const MainApp = () => {
 };
 
 const App = () => {
+  if (isWorkbookHelperPrivacyRoute()) {
+    return <WorkbookHelperPrivacyPolicy />;
+  }
+
   if (isStandaloneGameRoute()) {
     return <MobileStrategyGame key="mobile-strategy-game-v4" />;
   }
