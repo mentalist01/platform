@@ -9,6 +9,7 @@ import {
   Users,
   Video,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 const formatLessonDate = (value) => {
   const timestamp = Date.parse(String(value || '').trim());
@@ -29,6 +30,8 @@ const GroupTelemostSection = ({
   participantCount = 0,
   telemostUrl = '',
   readOnly = false,
+  notStarted = false,
+  lessonStatus = '',
   audioCaptureStatus = 'idle',
   audioCaptureMessage = '',
   onOpenTelemost,
@@ -39,6 +42,25 @@ const GroupTelemostSection = ({
   const isTeacher = role === 'teacher';
   const meetingUrl = String(telemostUrl || '').trim();
   const lessonDate = formatLessonDate(startsAt);
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  const startMs = Date.parse(String(startsAt || '').trim());
+  const status = String(lessonStatus || '').trim().toLowerCase();
+
+  // The lesson card can stay mounted while the clock crosses the start time.
+  // Refreshing the whole group is unnecessary: wake the card at the exact
+  // moment when the permanent Telemost link becomes usable.
+  useEffect(() => {
+    if (status === 'active' || !Number.isFinite(startMs) || startMs <= clockMs) return undefined;
+    const delay = Math.max(250, Math.min(startMs - clockMs, 2_147_000_000));
+    const timerId = window.setTimeout(() => setClockMs(Date.now()), delay);
+    return () => window.clearTimeout(timerId);
+  }, [clockMs, startMs, status]);
+
+  const timeNotStarted = status !== 'active'
+    && Number.isFinite(startMs)
+    && startMs > clockMs;
+  const effectiveNotStarted = timeNotStarted || (Boolean(notStarted) && !Number.isFinite(startMs));
+  const effectiveReadOnly = Boolean(readOnly) && !effectiveNotStarted;
 
   return (
     <div className="animate-fadeIn flex min-h-0 flex-1 flex-col gap-4 pb-3">
@@ -46,7 +68,7 @@ const GroupTelemostSection = ({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-violet-100">
-              <Video size={16} /> {readOnly ? 'Архив группового занятия' : 'Групповой звонок'}
+              <Video size={16} /> {effectiveReadOnly ? 'Архив группового занятия' : 'Групповой звонок'}
             </div>
             <h2 className="mt-3 truncate text-2xl font-black sm:text-3xl">
               {groupName || 'Мини-группа'}
@@ -89,7 +111,7 @@ const GroupTelemostSection = ({
               материалов, заданий и личных ответов.
             </p>
 
-            {!readOnly && meetingUrl ? (
+            {!effectiveReadOnly && !effectiveNotStarted && meetingUrl ? (
               <button
                 type="button"
                 onClick={() => onOpenTelemost?.(meetingUrl)}
@@ -97,7 +119,11 @@ const GroupTelemostSection = ({
               >
                 <ExternalLink size={19} /> Войти в Телемост
               </button>
-            ) : readOnly ? (
+            ) : effectiveNotStarted ? (
+              <div className="mt-6 w-full rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold text-amber-900">
+                Занятие ещё не началось. Ссылка на Телемост станет доступна в момент начала.
+              </div>
+            ) : effectiveReadOnly ? (
               <div className="mt-6 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-700">
                 Занятие завершено. Его общая доска и код сохранены и доступны только для просмотра.
               </div>
@@ -108,7 +134,7 @@ const GroupTelemostSection = ({
                   : 'Преподаватель ещё не добавил ссылку Телемоста. Она появится здесь перед занятием.'}
               </div>
             )}
-            {!readOnly && meetingUrl && isTeacher && (
+            {!effectiveReadOnly && !effectiveNotStarted && meetingUrl && isTeacher && (
               <div className={`mt-4 flex max-w-xl items-start gap-2 rounded-2xl border px-4 py-3 text-left text-xs font-semibold ${
                 audioCaptureStatus === 'recording'
                   ? 'border-emerald-200 bg-emerald-50 text-emerald-800'

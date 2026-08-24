@@ -27,6 +27,7 @@ import {
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { resolveApiUrl } from '../utils/runtimeUrls';
+import { normalizeTelemostUrl } from '../utils/telemost';
 
 const SCHEDULE_WEEKDAYS = [
   { key: 'monday', label: 'Понедельник', shortLabel: 'Пн', order: 1 },
@@ -874,6 +875,7 @@ const TeacherCalendarSection = ({
   onSelectStudent = null,
   onOpenStudentWorkspace = null,
   onOpenLearningGroupLesson = null,
+  onOpenLearningGroupTelemost = null,
 }) => {
   const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const [entries, setEntries] = useState([]);
@@ -2262,6 +2264,42 @@ const TeacherCalendarSection = ({
   const lessonPanelCanOpenGroup = lessonPanelIsGroup
     && Boolean(String(lessonPanelInfo?.event?.lessonId || '').trim())
     && lessonPanelGroupParticipants.length > 0;
+  const lessonPanelGroupDurationMinutes = Math.max(
+    15,
+    Number(lessonPanelInfo?.event?.durationMinutes)
+      || (Number(lessonPanelInfo?.event?.endMinutes) - Number(lessonPanelInfo?.event?.startMinutes))
+      || DEFAULT_EVENT_DURATION_MINUTES
+  );
+  const lessonPanelGroupStatus = String(
+    lessonPanelInfo?.event?.status || lessonPanelInfo?.event?.lessonStatus || ''
+  ).trim().toLowerCase();
+  const lessonPanelGroupStartLabel = lessonPanelInfo
+    ? formatMinutesAsTime(lessonPanelInfo.event.startMinutes)
+    : '';
+  const lessonPanelGroupFallbackStartsAt = lessonPanelInfo?.dayKey
+    && lessonPanelGroupStartLabel
+    && lessonPanelGroupStartLabel !== '--:--'
+    ? `${lessonPanelInfo.dayKey}T${lessonPanelGroupStartLabel}:00`
+    : '';
+  const lessonPanelGroupStartsAt = String(
+    lessonPanelInfo?.event?.startsAt
+      || lessonPanelInfo?.event?.startAt
+      || lessonPanelGroupFallbackStartsAt
+      || ''
+  ).trim();
+  const lessonPanelGroupStartMs = Date.parse(lessonPanelGroupStartsAt);
+  const lessonPanelGroupNotStarted = lessonPanelIsGroup
+    && Number.isFinite(lessonPanelGroupStartMs)
+    && lessonPanelGroupStartMs > currentTimeLineNow.getTime()
+    && lessonPanelGroupStatus !== 'active';
+  const lessonPanelGroupClosed = lessonPanelIsGroup && (
+    lessonPanelInfo?.status === 'past'
+    || ['completed', 'cancelled'].includes(lessonPanelGroupStatus)
+    || String(lessonPanelInfo?.event?.groupStatus || '').trim().toLowerCase() === 'completed'
+  );
+  const lessonPanelGroupReadOnly = lessonPanelGroupClosed || lessonPanelGroupNotStarted;
+  const lessonPanelGroupCanOpenTelemost = lessonPanelCanOpenGroup
+    && !lessonPanelGroupReadOnly;
   const lessonPanelStudentSelected = lessonPanelHasStudent
     && String(activeStudentId || '').trim() === lessonPanelStudentId;
   const lessonPanelStudentName = String(
@@ -2282,6 +2320,7 @@ const TeacherCalendarSection = ({
   const lessonPanelLink = normalizeLessonPanelUrl(lessonPanelInfo?.event?.telemostUrl)
     || normalizeLessonPanelUrl(lessonPanelInfo?.event?.lessonLink)
     || normalizeLessonPanelUrl(lessonPanelInfo?.event?.boardLink);
+  const lessonPanelGroupLink = normalizeTelemostUrl(lessonPanelInfo?.event?.telemostUrl);
   const lessonPanelCompletedMarkKey = lessonPanelInfo
     ? buildLessonPanelMarkKey(teacherId, lessonPanelInfo, 'completed')
     : '';
@@ -2361,20 +2400,33 @@ const TeacherCalendarSection = ({
     const fallbackStartsAt = lessonPanelInfo?.dayKey && startLabel && startLabel !== '--:--'
       ? `${lessonPanelInfo.dayKey}T${startLabel}:00`
       : '';
-    onOpenLearningGroupLesson({
+    const lessonContext = {
       lessonId: String(event.lessonId || '').trim(),
       groupId: String(event.groupId || '').trim(),
       participantIds: lessonPanelGroupParticipants.map((member) => member.studentId),
       groupName: String(event.groupName || event.subject || 'Мини-группа').trim(),
       topic: String(event.topic || event.subject || 'Групповое занятие').trim(),
       startsAt: String(event.startsAt || event.startAt || fallbackStartsAt).trim(),
-      telemostUrl: String(event.telemostUrl || event.lessonLink || '').trim(),
+      durationMinutes: lessonPanelGroupDurationMinutes,
+      telemostUrl: normalizeTelemostUrl(event.telemostUrl),
+      status: lessonPanelGroupClosed ? 'completed' : String(event.status || '').trim(),
+      groupStatus: String(event.groupStatus || '').trim(),
+      readOnly: lessonPanelGroupReadOnly,
       surface,
-    });
+    };
+    if (surface === 'call' && !lessonPanelGroupReadOnly && typeof onOpenLearningGroupTelemost === 'function') {
+      onOpenLearningGroupTelemost(lessonContext);
+      return;
+    }
+    onOpenLearningGroupLesson(lessonContext);
   }, [
     lessonPanelCanOpenGroup,
     lessonPanelGroupParticipants,
+    lessonPanelGroupDurationMinutes,
+    lessonPanelGroupClosed,
+    lessonPanelGroupReadOnly,
     lessonPanelInfo,
+    onOpenLearningGroupTelemost,
     onOpenLearningGroupLesson,
   ]);
 
@@ -2572,6 +2624,7 @@ const TeacherCalendarSection = ({
   const eventDetailsLink = normalizeLessonPanelUrl(eventDetails?.telemostUrl)
     || normalizeLessonPanelUrl(eventDetails?.lessonLink)
     || normalizeLessonPanelUrl(eventDetails?.boardLink);
+  const eventDetailsGroupLink = normalizeTelemostUrl(eventDetails?.telemostUrl);
   const eventDetailsLessonInfo = useMemo(
     () => (eventDetails ? { event: eventDetails, dayKey: eventDetailsDayKey } : null),
     [eventDetails, eventDetailsDayKey]
@@ -2611,6 +2664,44 @@ const TeacherCalendarSection = ({
     if (startDate.getTime() < nowMs) return 'Прошедший урок';
     return 'Урок';
   }, [currentTimeLineNow, eventDetails, eventDetailsDayKey, eventDetailsTrialMarked]);
+  const eventDetailsGroupDurationMinutes = Math.max(
+    15,
+    Number(eventDetails?.durationMinutes)
+      || (Number(eventDetails?.endMinutes) - Number(eventDetails?.startMinutes))
+      || DEFAULT_EVENT_DURATION_MINUTES
+  );
+  const eventDetailsGroupStatus = String(
+    eventDetails?.status || eventDetails?.lessonStatus || ''
+  ).trim().toLowerCase();
+  const eventDetailsGroupStartLabel = eventDetails
+    ? formatMinutesAsTime(eventDetails.startMinutes)
+    : '';
+  const eventDetailsGroupFallbackStartsAt = eventDetailsDayKey
+    && eventDetailsGroupStartLabel
+    && eventDetailsGroupStartLabel !== '--:--'
+    ? `${eventDetailsDayKey}T${eventDetailsGroupStartLabel}:00`
+    : '';
+  const eventDetailsGroupStartsAt = String(
+    eventDetails?.startsAt
+      || eventDetails?.startAt
+      || eventDetailsGroupFallbackStartsAt
+      || ''
+  ).trim();
+  const eventDetailsGroupStartMs = Date.parse(eventDetailsGroupStartsAt);
+  const eventDetailsGroupNotStarted = eventDetailsIsGroup
+    && Number.isFinite(eventDetailsGroupStartMs)
+    && eventDetailsGroupStartMs > currentTimeLineNow.getTime()
+    && eventDetailsGroupStatus !== 'active';
+  const eventDetailsGroupClosed = eventDetailsIsGroup && (
+    eventDetailsStatusLabel === 'Прошедший урок'
+    || ['completed', 'cancelled'].includes(eventDetailsGroupStatus)
+    || String(eventDetails?.groupStatus || '').trim().toLowerCase() === 'completed'
+  );
+  const eventDetailsGroupReadOnly = eventDetailsGroupClosed || eventDetailsGroupNotStarted;
+  const eventDetailsGroupCanOpenTelemost = eventDetailsIsGroup
+    && eventDetailsGroupParticipants.length > 0
+    && Boolean(String(eventDetails?.lessonId || '').trim())
+    && !eventDetailsGroupReadOnly;
   const eventDetailsHomeworkText = String(eventDetailsHomework?.homeWork || '').trim();
   const eventDetailsHomeworkPreview = eventDetailsHomeworkText
     ? eventDetailsHomeworkText.split(/\r?\n/).map((line) => line.trim()).find(Boolean)
@@ -2638,21 +2729,34 @@ const TeacherCalendarSection = ({
     const fallbackStartsAt = eventDetailsDayKey && startLabel && startLabel !== '--:--'
       ? `${eventDetailsDayKey}T${startLabel}:00`
       : '';
-    onOpenLearningGroupLesson({
+    const lessonContext = {
       lessonId: String(eventDetails?.lessonId || '').trim(),
       groupId: String(eventDetails?.groupId || '').trim(),
       participantIds: eventDetailsGroupParticipants.map((member) => member.studentId),
       groupName: String(eventDetails?.groupName || eventDetails?.subject || 'Мини-группа').trim(),
       topic: String(eventDetails?.topic || eventDetails?.subject || 'Групповое занятие').trim(),
       startsAt: String(eventDetails?.startsAt || eventDetails?.startAt || fallbackStartsAt).trim(),
-      telemostUrl: String(eventDetails?.telemostUrl || eventDetails?.lessonLink || '').trim(),
+      durationMinutes: eventDetailsGroupDurationMinutes,
+      telemostUrl: normalizeTelemostUrl(eventDetails?.telemostUrl),
+      status: eventDetailsGroupClosed ? 'completed' : String(eventDetails?.status || '').trim(),
+      groupStatus: String(eventDetails?.groupStatus || '').trim(),
+      readOnly: eventDetailsGroupReadOnly,
       surface,
-    });
+    };
+    if (surface === 'call' && !eventDetailsGroupReadOnly && typeof onOpenLearningGroupTelemost === 'function') {
+      onOpenLearningGroupTelemost(lessonContext);
+      return;
+    }
+    onOpenLearningGroupLesson(lessonContext);
   }, [
     eventDetails,
     eventDetailsDayKey,
+    eventDetailsGroupDurationMinutes,
+    eventDetailsGroupClosed,
     eventDetailsGroupParticipants,
+    eventDetailsGroupReadOnly,
     eventDetailsIsGroup,
+    onOpenLearningGroupTelemost,
     onOpenLearningGroupLesson,
   ]);
 
@@ -2775,12 +2879,33 @@ const TeacherCalendarSection = ({
     setLessonPanelError('');
     setLessonPanelSuccess('');
     try {
+      const month = getFinanceMonthFromDayKey(eventDetailsDayKey);
+      const groupLessonPrice = normalizeFinanceAmount(member?.lessonPrice) || 1000;
+      const snapshot = await api.getTeacherFinance(month, teacherId);
+      const financeStudent = (Array.isArray(snapshot?.students) ? snapshot.students : [])
+        .find((entry) => String(entry?.id || '').trim() === studentId);
+      if (financeStudent) {
+        const record = financeStudent.record || {};
+        const profile = financeStudent.profile || {};
+        const currentPaid = normalizeFinanceAmount(record.paidAmount);
+        const nextPaid = undo
+          ? Math.max(0, currentPaid - groupLessonPrice)
+          : currentPaid + groupLessonPrice;
+        await api.updateTeacherFinanceStudent(
+          studentId,
+          buildTeacherFinanceLessonPayload(record, profile, {
+            month,
+            paidAmount: nextPaid,
+          }),
+          teacherId
+        );
+      }
       if (undo) await removeLessonPanelMark(markKey);
       else await saveLessonPanelMark(markKey);
       setLessonPanelSuccess(
         undo
-          ? `Оплата ученика «${member.studentName || 'Ученик'}» отменена.`
-          : `Оплата ученика «${member.studentName || 'Ученик'}» отмечена.`
+          ? `Оплата ученика «${member.studentName || 'Ученик'}» отменена (${groupLessonPrice.toLocaleString('ru-RU')} ₽).`
+          : `Оплата ученика «${member.studentName || 'Ученик'}» отмечена (${groupLessonPrice.toLocaleString('ru-RU')} ₽).`
       );
     } catch (err) {
       setLessonPanelError(err?.message || 'Не удалось обновить оплату ученика.');
@@ -2789,6 +2914,7 @@ const TeacherCalendarSection = ({
     }
   }, [
     eventDetailsIsGroup,
+    eventDetailsDayKey,
     lessonPanelFinanceBusy,
     lessonPanelMarks,
     removeLessonPanelMark,
@@ -4672,6 +4798,7 @@ const TeacherCalendarSection = ({
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-violet-700">
                       <Users size={13} />
                       <span>{`${lessonPanelGroupParticipants.length} ${pluralizeRu(lessonPanelGroupParticipants.length, 'ученик', 'ученика', 'учеников')} • групповое занятие через Телемост`}</span>
+                      {lessonPanelGroupNotStarted && <span className="font-semibold text-amber-700">Телемост откроется в начале занятия</span>}
                     </div>
                   ) : lessonPanelHasStudent ? (
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
@@ -4702,10 +4829,11 @@ const TeacherCalendarSection = ({
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                   {lessonPanelIsGroup ? (
                     <>
-                      {lessonPanelLink && (
+                      {lessonPanelGroupLink && (
                         <button
                           type="button"
-                          onClick={openLessonPanelLink}
+                          onClick={() => openLessonPanelGroupWorkspace('call')}
+                          disabled={!lessonPanelGroupCanOpenTelemost || typeof onOpenLearningGroupTelemost !== 'function'}
                           className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
                         >
                           <ExternalLink size={12} /> Телемост
@@ -4714,7 +4842,7 @@ const TeacherCalendarSection = ({
                       <button
                         type="button"
                         onClick={openLessonPanelCall}
-                        disabled={!lessonPanelCanOpenGroup}
+                        disabled={!lessonPanelGroupCanOpenTelemost}
                         className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Clock3 size={12} /> Комната группы
@@ -5878,10 +6006,12 @@ const TeacherCalendarSection = ({
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                   {eventDetailsIsGroup ? (
                     <>
-                      {eventDetailsLink && (
+                      {eventDetailsGroupLink && (
                         <button
                           type="button"
-                          onClick={openEventDetailsLink}
+                          onClick={() => openEventDetailsGroupWorkspace('call')}
+                          disabled={!eventDetailsGroupCanOpenTelemost || typeof onOpenLearningGroupTelemost !== 'function'}
+                          title={eventDetailsGroupNotStarted ? 'Телемост будет доступен в момент начала занятия' : 'Открыть Телемост'}
                           className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
                         >
                           <ExternalLink size={12} />
@@ -5891,7 +6021,8 @@ const TeacherCalendarSection = ({
                       <button
                         type="button"
                         onClick={() => openEventDetailsGroupWorkspace('call')}
-                        disabled={!eventDetails?.lessonId || eventDetailsGroupParticipants.length === 0}
+                        disabled={!eventDetailsGroupCanOpenTelemost}
+                        title={eventDetailsGroupNotStarted ? 'Комната группы будет доступна в момент начала занятия' : 'Открыть комнату группы'}
                         className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Clock3 size={12} />

@@ -26,13 +26,15 @@ test('selecting a group workspace does not pretend that a Telemost lesson is run
   assert.equal(isLearningGroupLessonReplayActive({ ...selectedLesson, replayActive: true, readOnly: true }), false);
 });
 
-test('uses only a current active membership for the student workspace', () => {
+test('uses every unfinished group membership for the student workspace', () => {
   const groups = [
     { id: 'past', status: 'completed', members: [{ studentId: 's1', status: 'active' }] },
     { id: 'removed', status: 'active', members: [{ studentId: 's1', status: 'removed' }] },
     { id: 'current', status: 'active', updatedAt: '2026-08-23T10:00:00.000Z', members: [{ studentId: 's1', status: 'active' }] },
+    { id: 'forming', status: 'forming', members: [{ studentId: 's1', status: 'active' }] },
+    { id: 'ready', status: 'ready', members: [{ studentId: 's1', status: 'active' }] },
   ];
-  assert.deepEqual(getStudentActiveLearningGroups(groups, 's1').map((group) => group.id), ['current']);
+  assert.deepEqual(getStudentActiveLearningGroups(groups, 's1').map((group) => group.id), ['current', 'forming', 'ready']);
 });
 
 test('prefers a current group lesson and keeps the latest past lesson as a fallback', () => {

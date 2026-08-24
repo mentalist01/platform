@@ -192,6 +192,28 @@ test('an active group member cannot open a separate legacy board or code room', 
   }
 });
 
+test('a forming or ready group member also uses the shared workspace', () => {
+  const student = { id: 'student-a', teacherId: 'teacher-a' };
+  for (const status of ['forming', 'ready']) {
+    const groupForStatus = {
+      ...group,
+      status,
+      members: [{ studentId: 'student-a', status: 'active' }],
+    };
+    assert.equal(hasActiveLearningGroupWorkspace('student-a', 'teacher-a', [groupForStatus]), true);
+    const access = authorizeLearningRealtimeRoom({
+      auth: { role: 'student', id: 'student-a', teacherId: 'teacher-a' },
+      roomId: 'board-teacher-a-student-a',
+      sessions: [session],
+      groups: [groupForStatus],
+      students: [...legacyStudents, student],
+      allowedKinds: ['board'],
+    });
+    assert.equal(access.allowed, false);
+    assert.equal(access.reason, 'group-workspace-required');
+  }
+});
+
 test('realtime authorization denies unauthenticated, unknown, wrong-kind and cross-student access', () => {
   assert.equal(authorizeLearningRealtimeRoom({
     roomId: `board-lesson-${session.id}`,

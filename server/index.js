@@ -158,6 +158,7 @@ import {
   createLearningLessonSession,
   createLearningMaterial,
   getActiveLearningGroupMembers,
+  LEARNING_GROUP_DEFAULT_LESSON_PRICE,
   normalizeLearningAssignmentsStore,
   normalizeLearningBoardResponsesStore,
   normalizeLearningGroupsStore,
@@ -191,6 +192,7 @@ import {
 } from './learningLessonAccess.js';
 import {
   buildGoogleCalendarLearningLessonId,
+  normalizeGoogleCalendarLearningGroupName,
   resolveGoogleCalendarLearningGroupMatch,
 } from './googleCalendarLearningGroups.js';
 import { installReadOnlyYWebsocketMessageFilter } from './collabReadOnly.js';
@@ -9083,7 +9085,14 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
   const externalOccurrenceId = String(entry?.id || '').trim();
   const startAt = String(entry?.startAt || entry?.createdAt || '').trim();
   const startMs = Date.parse(startAt);
-  if (!groupId || !teacherId || !externalEventId || !externalOccurrenceId || !Number.isFinite(startMs)) return null;
+  if (
+    !groupId
+    || !teacherId
+    || !externalEventId
+    || !externalOccurrenceId
+    || !Number.isFinite(startMs)
+    || String(group?.status || '').trim() === 'completed'
+  ) return null;
 
   const sessions = readLearningLessonSessionsDb();
   const stableLessonId = buildGoogleCalendarLearningLessonId({
@@ -9544,8 +9553,29 @@ const buildLearningGroupNotesStudentId = (groupId) => {
 const getLearningGroupNotesParticipantIds = (entry) => Array.from(new Set(
   (Array.isArray(entry?.participantIds) ? entry.participantIds : [])
     .map((value) => String(value || '').trim())
-    .filter(Boolean)
+  .filter(Boolean)
 ));
+
+// Group notes are stored once with the lesson participant snapshot.  An
+// active participant can read the shared file; a former participant keeps
+// only files created no later than the moment they left the group.
+const canReadLearningGroupNotesFileForStudent = (entry, studentId) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!normalizedStudentId || !getLearningGroupNotesParticipantIds(entry).includes(normalizedStudentId)) return false;
+  const groupId = String(entry?.groupId || '').trim();
+  const group = groupId
+    ? readLearningGroupsDb().find((candidate) => candidate.id === groupId && !candidate.deletedAt)
+    : null;
+  // Keep legacy files readable when their originating group was removed from
+  // storage; the participant snapshot is the only durable ACL in that case.
+  if (!group) return true;
+  return canStudentReadLearningGroupRecord(
+    group,
+    normalizedStudentId,
+    entry.createdAt,
+    [entry.lessonSavedAt, entry.updatedAt]
+  );
+};
 
 const canReadLearningGroupNotesFile = (auth, entry) => {
   if (!auth || !isLearningGroupNotesFile(entry)) return false;
@@ -9553,11 +9583,15 @@ const canReadLearningGroupNotesFile = (auth, entry) => {
   const teacherId = normalizeTeacherId(entry?.teacherId);
   if (isTeacherRole(auth)) return Boolean(teacherId && String(auth.id || '').trim() === teacherId);
   const participantIds = getLearningGroupNotesParticipantIds(entry);
-  if (isStudentRole(auth)) return participantIds.includes(String(auth.id || '').trim());
+  if (isStudentRole(auth)) return canReadLearningGroupNotesFileForStudent(entry, auth.id);
   if (isParentRole(auth)) {
     return participantIds.some((studentId) => {
       const student = findStudentById(studentId, { allowDeleted: true });
-      return Boolean(student && canAccessStudentByRole(auth, student, { allowDeleted: true }));
+      return Boolean(
+        student
+        && canAccessStudentByRole(auth, student, { allowDeleted: true })
+        && canReadLearningGroupNotesFileForStudent(entry, student.id)
+      );
     });
   }
   return false;
@@ -15047,6 +15081,14 @@ const expandGoogleCalendarLearningGroupPaymentEntries = (teacherId, entries = []
 const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry) => {
   if (!entry?.isLearningGroupEvent || !entry?.groupId) return [];
   const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const group = readLearningGroupsDb().find((candidate) => (
+    candidate.id === String(entry.groupId || '').trim()
+    && candidate.teacherId === normalizedTeacherId
+    && !candidate.deletedAt
+  ));
+  const lessonPrice = roundTeacherFinanceNumber(
+    Number(group?.pricePerLesson) || LEARNING_GROUP_DEFAULT_LESSON_PRICE
+  );
   const studentsById = new Map(
     readStudentsDb()
       .filter((student) => (
@@ -15094,6 +15136,7 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry)
         overdue: payment.overdue,
         paidMarkKey: payment.paidMarkKey,
         trialMarkKey: payment.trialMarkKey,
+        lessonPrice,
       };
     })
     .filter(Boolean);
@@ -15166,6 +15209,8 @@ const getPaymentCandidateLessonOccurrences = async (teacherId, student, received
         dayNumber,
         startMinutes,
         markKey,
+        groupId: String(event?.groupId || '').trim(),
+        isLearningGroupEvent: Boolean(event?.isLearningGroupEvent && event?.groupId),
       });
     };
 
@@ -15224,6 +15269,18 @@ const getTeacherFinanceStudentRecordForMonth = (teacherEntry, studentId, month) 
 const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence) => {
   const month = normalizeTeacherFinanceMonthKey(String(occurrence?.dayKey || '').slice(0, 7));
   if (!month) return { month: '', lessonPrice: 0 };
+  const groupId = String(occurrence?.groupId || '').trim();
+  if (groupId) {
+    const group = getLearningGroupById(groupId);
+    if (group) {
+      return {
+        month,
+        lessonPrice: roundTeacherFinanceNumber(
+          Number(group.pricePerLesson) || LEARNING_GROUP_DEFAULT_LESSON_PRICE
+        ),
+      };
+    }
+  }
   const { profile, record } = getTeacherFinanceStudentRecordForMonth(teacherEntry, studentId, month);
   const lessonPrice = roundTeacherFinanceNumber(record.lessonPrice || profile.lessonPrice);
   return { month, lessonPrice };
@@ -15362,6 +15419,7 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
         durationMinutes,
         sourceEntryId,
         sourceSignature,
+        groupId: String(entry?.groupId || '').trim(),
         trial: false,
         paid: false,
       };
@@ -15391,7 +15449,7 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
       occurrence.studentId,
       occurrence
     );
-    const lessonPrice = existing?.lessonPrice > 0
+    const lessonPrice = !occurrence.groupId && existing?.lessonPrice > 0
       ? existing.lessonPrice
       : roundTeacherFinanceNumber(resolvedLessonPrice);
     const nextEntry = {
@@ -17941,7 +17999,7 @@ const getWorkbookFileContentHash = (entry) => {
 const isWorkbookFileAccessibleToStudent = (student, entry) => {
   if (!student || !entry) return false;
   if (isLearningGroupNotesFile(entry)) {
-    return getLearningGroupNotesParticipantIds(entry).includes(String(student.id || '').trim());
+    return canReadLearningGroupNotesFileForStudent(entry, student.id);
   }
   if (isLessonSharedFile(entry)) {
     return Boolean(
@@ -20545,6 +20603,51 @@ const failLearningRequest = (message, code = 'invalid_learning_group', statusCod
   throw new LearningGroupDomainError(message, { code, statusCode });
 };
 
+// A student's group context is the shared lesson room.  Keeping one active
+// roster per teacher prevents ambiguous calendar matches and makes sure the
+// student cannot accidentally receive two different group boards/codes.
+const assertStudentAvailableForLearningGroup = (studentId, teacherId, excludedGroupId = '') => {
+  const normalizedStudentId = String(studentId || '').trim();
+  const normalizedTeacherId = String(teacherId || '').trim();
+  const normalizedExcludedId = String(excludedGroupId || '').trim();
+  if (!normalizedStudentId || !normalizedTeacherId) return;
+  const conflict = readLearningGroupsDb().find((entry) => (
+    !entry.deletedAt
+    && entry.id !== normalizedExcludedId
+    && entry.teacherId === normalizedTeacherId
+    && entry.status !== 'completed'
+    && getActiveLearningGroupMembers(entry).some((member) => member.studentId === normalizedStudentId)
+  ));
+  if (conflict) {
+    failLearningRequest(
+      `Ученик уже состоит в группе «${conflict.name}»`,
+      'student_already_in_learning_group',
+      409
+    );
+  }
+};
+
+const assertUniqueLearningGroupName = (teacherId, name, excludedGroupId = '') => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  const normalizedName = normalizeGoogleCalendarLearningGroupName(name);
+  const normalizedExcludedId = String(excludedGroupId || '').trim();
+  if (!normalizedTeacherId || !normalizedName) return;
+  const conflict = readLearningGroupsDb().find((entry) => (
+    !entry.deletedAt
+    && entry.id !== normalizedExcludedId
+    && entry.teacherId === normalizedTeacherId
+    && entry.status !== 'completed'
+    && normalizeGoogleCalendarLearningGroupName(entry.name) === normalizedName
+  ));
+  if (conflict) {
+    failLearningRequest(
+      `Группа с названием «${conflict.name}» уже существует`,
+      'group_name_conflict',
+      409
+    );
+  }
+};
+
 const handleLearningRoute = (handler) => async (req, res, next) => {
   try {
     return await handler(req, res);
@@ -20568,12 +20671,14 @@ app.use('/api/learning-groups', (_req, res, next) => {
 });
 
 const getLearningGroupById = (groupId) => {
+  reconcileLearningGroupLifecycle();
   const normalizedId = String(groupId || '').trim();
   if (!normalizedId) return null;
   return readLearningGroupsDb().find((entry) => entry.id === normalizedId && !entry.deletedAt) || null;
 };
 
 const getLearningLessonById = (groupId, lessonId) => {
+  reconcileLearningGroupLifecycle();
   const normalizedGroupId = String(groupId || '').trim();
   const normalizedLessonId = String(lessonId || '').trim();
   if (!normalizedGroupId || !normalizedLessonId) return null;
@@ -20646,19 +20751,62 @@ const isLearningGroupMember = (group, studentId, options = {}) => {
   ));
 };
 
+const getLearningGroupMember = (group, studentId) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!normalizedStudentId || !Array.isArray(group?.members)) return null;
+  return group.members.find((member) => member?.studentId === normalizedStudentId) || null;
+};
+
+// Removed members may inspect the part of a group that existed while they
+// were enrolled, but must not receive newly published group content.  Keep
+// this check in one place so materials, homework and progress use identical
+// retention semantics.
+const canStudentReadLearningGroupRecord = (group, studentId, timestampValue, fallbackTimestampValues = []) => {
+  const member = getLearningGroupMember(group, studentId);
+  if (!member) return false;
+  if (member.status === 'active') return true;
+  const leftAtMs = Date.parse(String(member.leftAt || '').trim());
+  if (!Number.isFinite(leftAtMs)) return false;
+  const primaryMs = Date.parse(String(timestampValue || '').trim());
+  if (Number.isFinite(primaryMs)) return primaryMs <= leftAtMs;
+  const fallbackMs = (Array.isArray(fallbackTimestampValues) ? fallbackTimestampValues : [])
+    .map((value) => Date.parse(String(value || '').trim()))
+    .filter(Number.isFinite);
+  // Older records did not always have a timestamp.  Preserve those records
+  // instead of hiding a student's historical archive by accident.
+  return fallbackMs.length === 0 || fallbackMs.some((value) => value <= leftAtMs);
+};
+
+const canStudentReadLearningGroupAssignment = (group, studentId, assignment) => (
+  Boolean(
+    assignment
+    && assignment.groupId === group?.id
+    && assignment.recipientIds?.includes(studentId)
+    && canStudentReadLearningGroupRecord(group, studentId, assignment.createdAt, [assignment.publishedAt, assignment.updatedAt])
+  )
+);
+
+const canStudentReadLearningGroupLesson = (group, studentId, lesson) => (
+  Boolean(
+    lesson
+    && lesson.groupId === group?.id
+    && lesson.participantIds?.includes(studentId)
+    && canStudentReadLearningGroupRecord(group, studentId, lesson.startAt, [lesson.createdAt, lesson.updatedAt])
+  )
+);
+
 const canReadLearningGroup = (auth, group) => {
   if (!auth || !group || group.deletedAt) return false;
   if (isAdminRole(auth)) return true;
   if (isTeacherRole(auth)) return auth.id === group.teacherId;
   if (isStudentRole(auth)) {
-    if (isLearningGroupMember(group, auth.id)) return true;
-    if (readLearningLessonSessionsDb().some((session) => (
-      session.groupId === group.id && session.participantIds.includes(auth.id)
-    ))) return true;
+    // A removed member keeps access to lesson/assignment snapshots that name
+    // them explicitly, but must not retain the live group workspace merely
+    // because the historical membership row is still stored for audit.
+    if (isLearningGroupMember(group, auth.id, { activeOnly: true })) return true;
+    if (readLearningLessonSessionsDb().some((session) => canStudentReadLearningGroupLesson(group, auth.id, session))) return true;
     return readLearningAssignmentsDb().some((assignment) => (
-      assignment.groupId === group.id
-      && !assignment.deletedAt
-      && assignment.recipientIds.includes(auth.id)
+      !assignment.deletedAt && canStudentReadLearningGroupAssignment(group, auth.id, assignment)
     ));
   }
   return false;
@@ -20973,8 +21121,8 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
   const visibleAssignments = readLearningAssignmentsDb().filter((assignment) => (
     !assignment.deletedAt
     && assignment.status !== 'draft'
-    && assignment.recipientIds.includes(studentId)
     && groupsById.has(assignment.groupId)
+    && canStudentReadLearningGroupAssignment(groupsById.get(assignment.groupId), studentId, assignment)
   ));
   const visibleAssignmentIds = new Set(visibleAssignments.map((assignment) => assignment.id));
   const data = getStudentData(studentId);
@@ -21089,6 +21237,52 @@ const synchronizeLearningGroupAssignmentHomeworks = (assignment, options = {}) =
   });
 };
 
+// A roster change must not leave a published group assignment addressed to an
+// obsolete snapshot.  New members receive currently open work; removed
+// members stay in the recipient list so their historical homework remains in
+// their personal «Сегодня» archive.
+const synchronizeLearningGroupAssignmentRecipients = (group, options = {}) => {
+  const groupId = String(group?.id || '').trim();
+  const addedStudentId = String(options.addedStudentId || '').trim();
+  if (!groupId || !addedStudentId) return [];
+  const assignments = readLearningAssignmentsDb();
+  const changed = [];
+  const nextAssignments = assignments.map((assignment) => {
+    if (
+      assignment.groupId !== groupId
+      || assignment.deletedAt
+      || !['draft', 'assigned'].includes(assignment.status)
+      || assignment.recipientIds.includes(addedStudentId)
+    ) return assignment;
+    const updated = updateLearningAssignment(
+      assignment,
+      { recipientIds: [...assignment.recipientIds, addedStudentId] },
+      { now: new Date().toISOString() }
+    );
+    if (updated) changed.push(updated);
+    return updated || assignment;
+  });
+  if (changed.length > 0) {
+    writeLearningAssignmentsDb(nextAssignments);
+    changed.forEach((assignment) => synchronizeLearningGroupAssignmentHomeworks(assignment, {
+      notify: assignment.status === 'assigned',
+    }));
+  }
+  return changed;
+};
+
+const isStudentHomeworkEntrySubmitted = (entry) => {
+  if (!entry || typeof entry !== 'object') return false;
+  const checklistItems = Array.isArray(entry.checklistItems) ? entry.checklistItems : [];
+  if (checklistItems.length > 0 && checklistItems.every((item) => Boolean(item?.completedAt))) return true;
+  return Boolean(
+    entry.submittedAt
+    || entry.submissionAt
+    || entry.submissionStatus === 'submitted'
+    || entry.submissionStatus === 'reviewed'
+  );
+};
+
 const serializeLearningAttendanceForAuth = (record) => ({
   ...record,
   student: serializeLearningStudentSummary(record.studentId),
@@ -21105,9 +21299,152 @@ const writeLearningAttendanceUpdates = (records) => {
   return writeLearningAttendanceDb(Array.from(byKey.values()));
 };
 
+// A lesson keeps a snapshot of its participants so that archived lessons remain
+// available to the students who attended them.  Upcoming lessons, however,
+// must follow the current group roster.  Keep that distinction in one place so
+// member changes cannot leave a future room with stale access or attendance.
+const closeLearningLessonCollabConnections = (lesson) => {
+  const roomNames = buildLearningLessonRoomNames(lesson?.id);
+  if (!roomNames) return 0;
+  let closedConnections = 0;
+  [roomNames.boardDocName, roomNames.collabDocName].forEach((docName) => {
+    const entry = getLoadedCollabDocEntry(docName);
+    const connections = entry?.doc?.conns instanceof Map
+      ? Array.from(entry.doc.conns.keys())
+      : [];
+    connections.forEach((connection) => {
+      if (!connection || typeof connection.close !== 'function') return;
+      try {
+        connection.close(1012, 'Состав или статус занятия изменился');
+        closedConnections += 1;
+      } catch {
+        // A client may already be closing; the next authorization still wins.
+      }
+    });
+  });
+  return closedConnections;
+};
+
+const syncLearningGroupUpcomingLessonParticipants = (group, nowMs = Date.now()) => {
+  const groupId = String(group?.id || '').trim();
+  if (!groupId) return { changed: false, lessons: [] };
+  const activeParticipantIds = getActiveLearningGroupMembers(group)
+    .map((member) => String(member?.studentId || '').trim())
+    .filter(Boolean);
+  const sessions = readLearningLessonSessionsDb();
+  const changedLessons = [];
+  const nextSessions = sessions.map((lesson) => {
+    if (
+      lesson.groupId !== groupId
+      || lesson.status !== 'scheduled'
+      || Date.parse(lesson.startAt) <= nowMs
+    ) return lesson;
+    const previousIds = Array.isArray(lesson.participantIds) ? lesson.participantIds : [];
+    if (JSON.stringify(previousIds) === JSON.stringify(activeParticipantIds)) return lesson;
+    const updated = normalizeLearningLessonSession({
+      ...lesson,
+      participantIds: activeParticipantIds,
+      updatedAt: new Date(nowMs).toISOString(),
+    });
+    if (updated) changedLessons.push(updated);
+    return updated || lesson;
+  });
+  if (changedLessons.length === 0) return { changed: false, lessons: [] };
+  writeLearningLessonSessionsDb(nextSessions);
+  const changedSessionIds = new Set(changedLessons.map((lesson) => lesson.id));
+  const currentAttendance = readLearningAttendanceDb();
+  const retainedAttendance = currentAttendance.filter((record) => (
+    !changedSessionIds.has(record.sessionId)
+    || activeParticipantIds.includes(record.studentId)
+  ));
+  if (retainedAttendance.length !== currentAttendance.length) writeLearningAttendanceDb(retainedAttendance);
+  const rosterUpdates = changedLessons.flatMap((lesson) => (
+    createLearningAttendanceRoster(lesson, retainedAttendance)
+  ));
+  if (rosterUpdates.length > 0) writeLearningAttendanceUpdates(rosterUpdates);
+  changedLessons.forEach(closeLearningLessonCollabConnections);
+  return { changed: true, lessons: changedLessons };
+};
+
+let learningGroupLifecycleSweepInProgress = false;
+let learningGroupLifecycleLastSweepAt = 0;
+const reconcileLearningGroupLifecycle = (nowMs = Date.now(), options = {}) => {
+  if (!LEARNING_GROUPS_ENABLED || learningGroupLifecycleSweepInProgress) {
+    return { changed: false, lessons: [] };
+  }
+  if (!options.force && nowMs - learningGroupLifecycleLastSweepAt < 1000) {
+    return { changed: false, lessons: [] };
+  }
+  learningGroupLifecycleSweepInProgress = true;
+  learningGroupLifecycleLastSweepAt = nowMs;
+  try {
+    const groupsById = new Map(readLearningGroupsDb().map((group) => [group.id, group]));
+    const sessions = readLearningLessonSessionsDb();
+    const changedLessons = [];
+    const cancelledSessionIds = new Set();
+    const nextSessions = sessions.map((lesson) => {
+      if (!['scheduled', 'active'].includes(lesson.status)) return lesson;
+      const group = groupsById.get(lesson.groupId);
+      const startMs = Date.parse(lesson.startAt);
+      const durationMs = Math.max(15, Number(lesson.durationMinutes) || 60) * 60 * 1000;
+      const endMs = Number.isFinite(startMs) ? startMs + durationMs : NaN;
+      const groupCompleted = group?.status === 'completed';
+      const groupLessonAlreadyStarted = groupCompleted
+        && Number.isFinite(startMs)
+        && startMs <= nowMs;
+      const shouldComplete = lesson.status === 'active'
+        ? groupCompleted || (Number.isFinite(endMs) && endMs <= nowMs)
+        : groupLessonAlreadyStarted || (Number.isFinite(endMs) && endMs <= nowMs);
+      const shouldCancel = lesson.status === 'scheduled'
+        && groupCompleted
+        && Number.isFinite(startMs)
+        && startMs > nowMs;
+      if (!shouldComplete && !shouldCancel) return lesson;
+      const nextStatus = shouldCancel ? 'cancelled' : 'completed';
+      const updated = updateLearningLessonSession(
+        lesson,
+        { status: nextStatus },
+        { now: new Date(nowMs).toISOString() }
+      );
+      if (!updated) return lesson;
+      changedLessons.push(updated);
+      if (nextStatus === 'cancelled') cancelledSessionIds.add(updated.id);
+      return updated;
+    });
+    if (changedLessons.length === 0) return { changed: false, lessons: [] };
+    writeLearningLessonSessionsDb(nextSessions);
+    const currentAttendance = readLearningAttendanceDb();
+    const retainedAttendance = currentAttendance.filter((record) => !cancelledSessionIds.has(record.sessionId));
+    if (retainedAttendance.length !== currentAttendance.length) writeLearningAttendanceDb(retainedAttendance);
+    changedLessons
+      .filter((lesson) => lesson.status === 'completed')
+      .flatMap((lesson) => createLearningAttendanceRoster(lesson, retainedAttendance))
+      .map((record) => finalizeLearningAttendanceRecord(record, record.updatedAt || new Date(nowMs).toISOString()))
+      .filter(Boolean)
+      .forEach((record) => writeLearningAttendanceUpdates([record]));
+    changedLessons.forEach(closeLearningLessonCollabConnections);
+    return { changed: true, lessons: changedLessons };
+  } finally {
+    learningGroupLifecycleSweepInProgress = false;
+  }
+};
+
+const learningGroupLifecycleSweepInterval = setInterval(() => {
+  reconcileLearningGroupLifecycle();
+}, 15 * 1000);
+if (typeof learningGroupLifecycleSweepInterval.unref === 'function') {
+  learningGroupLifecycleSweepInterval.unref();
+}
+
 const getLearningMaterialAccessError = (auth, group, material) => {
   if (!material || material.deletedAt || material.groupId !== group?.id) return 'Материал не найден';
   if (!canReadLearningGroup(auth, group)) return 'Недостаточно прав';
+  if (isStudentRole(auth) && !canStudentReadLearningGroupRecord(
+    group,
+    auth.id,
+    material.createdAt,
+    [material.publishedAt, material.updatedAt]
+  )) return 'Недостаточно прав';
   if (material.visibility !== 'lesson') return '';
   const lesson = getLearningLessonById(group.id, material.lessonId);
   if (!lesson) return 'Материал не найден';
@@ -21141,11 +21478,9 @@ app.get('/api/learning-groups', handleLearningRoute((req, res) => {
     if (isTeacherRole(req.auth) && student.teacherId !== req.auth.id) return forbid(res);
     groups = groups.filter((group) => (
       isLearningGroupMember(group, effectiveStudentId)
-      || readLearningLessonSessionsDb().some((lesson) => (
-        lesson.groupId === group.id && lesson.participantIds.includes(effectiveStudentId)
-      ))
+      || readLearningLessonSessionsDb().some((lesson) => canStudentReadLearningGroupLesson(group, effectiveStudentId, lesson))
       || readLearningAssignmentsDb().some((assignment) => (
-        assignment.groupId === group.id && assignment.recipientIds.includes(effectiveStudentId)
+        !assignment.deletedAt && canStudentReadLearningGroupAssignment(group, effectiveStudentId, assignment)
       ))
     ));
   }
@@ -21166,6 +21501,7 @@ app.post('/api/learning-groups', handleLearningRoute((req, res) => {
   if (!teacherId || !findTeacherById(teacherId)) {
     failLearningRequest('Преподаватель не найден', 'teacher_not_found', 404);
   }
+  assertUniqueLearningGroupName(teacherId, req.body?.name);
   let group = createLearningGroup(req.body || {}, {
     id: crypto.randomUUID(),
     teacherId,
@@ -21177,6 +21513,7 @@ app.post('/api/learning-groups', handleLearningRoute((req, res) => {
   requestedMembers.forEach((studentId) => {
     const student = findStudentById(studentId);
     if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
+    assertStudentAvailableForLearningGroup(student.id, teacherId);
     group = addLearningGroupMember(group, student, { actorId: req.auth.id });
   });
   writeLearningGroupsDb([group, ...readLearningGroupsDb()]);
@@ -21192,6 +21529,9 @@ app.get('/api/learning-groups/:groupId', handleLearningRoute((req, res) => {
 app.patch('/api/learning-groups/:groupId', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!group) return;
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'name')) {
+    assertUniqueLearningGroupName(group.teacherId, req.body?.name, group.id);
+  }
   const updated = updateLearningGroup(group, req.body || {});
   writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
@@ -21202,19 +21542,25 @@ app.post('/api/learning-groups/:groupId/members', handleLearningRoute((req, res)
   if (!group) return;
   const student = findStudentById(req.body?.studentId);
   if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
+  assertStudentAvailableForLearningGroup(student.id, group.teacherId, group.id);
   const updated = addLearningGroupMember(group, student, {
     actorId: req.auth.id,
     lateAddReason: req.body?.lateAddReason || req.body?.overrideReason,
   });
   writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  synchronizeLearningGroupAssignmentRecipients(updated, { addedStudentId: student.id });
+  syncLearningGroupUpcomingLessonParticipants(updated);
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
 app.delete('/api/learning-groups/:groupId/members/:studentId', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!group) return;
-  const updated = removeLearningGroupMember(group, req.params.studentId, { actorId: req.auth.id });
+  const removedStudentId = String(req.params.studentId || '').trim();
+  const updated = removeLearningGroupMember(group, removedStudentId, { actorId: req.auth.id });
   writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  syncLearningGroupUpcomingLessonParticipants(updated);
+  synchronizeLearningGroupHomeworksForStudent(removedStudentId);
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
@@ -21231,6 +21577,7 @@ app.post('/api/learning-groups/:groupId/complete', handleLearningRoute((req, res
   if (!group) return;
   const updated = completeLearningGroup(group, { actorId: req.auth.id });
   writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+  reconcileLearningGroupLifecycle(Date.now(), { force: true });
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
@@ -21316,6 +21663,14 @@ app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute
       .filter(Boolean);
     writeLearningAttendanceUpdates(finalized);
   }
+  if (updated.status === 'cancelled') {
+    const attendance = readLearningAttendanceDb();
+    const retained = attendance.filter((record) => record.sessionId !== updated.id);
+    if (retained.length !== attendance.length) writeLearningAttendanceDb(retained);
+  }
+  if (['completed', 'cancelled'].includes(updated.status)) {
+    closeLearningLessonCollabConnections(updated);
+  }
   return res.json({ lesson: serializeLearningLessonForAuth(updated, req.auth, group) });
 }));
 
@@ -21377,7 +21732,9 @@ app.get('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, r
   if (!group) return;
   let assignments = readLearningAssignmentsDb().filter((entry) => entry.groupId === group.id && !entry.deletedAt);
   if (isStudentRole(req.auth)) {
-    assignments = assignments.filter((entry) => entry.status !== 'draft' && entry.recipientIds.includes(req.auth.id));
+    assignments = assignments.filter((entry) => (
+      entry.status !== 'draft' && canStudentReadLearningGroupAssignment(group, req.auth.id, entry)
+    ));
   }
   assignments = assignments.slice().sort((left, right) => (
     Date.parse(right.createdAt || 0) - Date.parse(left.createdAt || 0)
@@ -21413,7 +21770,10 @@ app.get('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearnin
   if (!group) return;
   const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
   if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
-  if (isStudentRole(req.auth) && (assignment.status === 'draft' || !assignment.recipientIds.includes(req.auth.id))) {
+  if (isStudentRole(req.auth) && (
+    assignment.status === 'draft'
+    || !canStudentReadLearningGroupAssignment(group, req.auth.id, assignment)
+  )) {
     return forbid(res);
   }
   return res.json({ assignment: serializeLearningAssignmentForAuth(assignment, req.auth) });
@@ -21424,7 +21784,15 @@ app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearn
   if (!group) return;
   const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
   if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
-  const updated = updateLearningAssignment(assignment, req.body || {}, { actorId: req.auth.id });
+  const assignmentPatch = {
+    ...(req.body || {}),
+    ...(req.body?.status === 'assigned' && assignment.status === 'draft'
+      ? {
+          recipientIds: getActiveLearningGroupMembers(group).map((member) => member.studentId),
+        }
+      : {}),
+  };
+  const updated = updateLearningAssignment(assignment, assignmentPatch, { actorId: req.auth.id });
   writeLearningAssignmentsDb(replaceLearningStoreEntry(readLearningAssignmentsDb(), updated));
   synchronizeLearningGroupAssignmentHomeworks(updated, {
     notify: assignment.status === 'draft' && updated.status === 'assigned',
@@ -21453,6 +21821,9 @@ app.get('/api/learning-groups/:groupId/assignments/:assignmentId/submission', ha
   if (!studentId) failLearningRequest('studentId required', 'student_id_required');
   if (isStudentRole(req.auth) && studentId !== req.auth.id) return forbid(res);
   if (!assignment.recipientIds.includes(studentId)) return forbid(res);
+  if (isStudentRole(req.auth) && !canStudentReadLearningGroupAssignment(group, studentId, assignment)) {
+    return forbid(res);
+  }
   const submission = readLearningSubmissionsDb().find((entry) => (
     entry.assignmentId === assignment.id && entry.studentId === studentId
   )) || null;
@@ -21469,6 +21840,9 @@ app.put('/api/learning-groups/:groupId/assignments/:assignmentId/submission', ha
   if (!group) return;
   const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
   if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
+  if (!canStudentReadLearningGroupAssignment(group, req.auth.id, assignment)) {
+    return forbid(res);
+  }
   if (assignment.status !== 'assigned') {
     failLearningRequest('Задание сейчас недоступно для отправки', 'assignment_not_open', 409);
   }
@@ -21704,6 +22078,14 @@ app.put('/api/learning-groups/:groupId/lessons/:lessonId/responses/:boardItemId'
   if (!lesson) return;
   const studentId = resolveLearningBoardResponseStudentId(req, lesson);
   if (!studentId) failLearningRequest('studentId required', 'student_id_required');
+  const lessonStartMs = Date.parse(String(lesson.startAt || '').trim());
+  const lessonDurationMs = Math.max(15, Number(lesson.durationMinutes) || 60) * 60 * 1000;
+  const lessonEndMs = Number.isFinite(lessonStartMs) ? lessonStartMs + lessonDurationMs : NaN;
+  const lessonClosed = ['completed', 'cancelled'].includes(String(lesson.status || '').trim())
+    || (Number.isFinite(lessonEndMs) && lessonEndMs <= Date.now());
+  if (lessonClosed) {
+    failLearningRequest('Ответы к завершённому занятию доступны только для просмотра', 'lesson_read_only', 409);
+  }
   const responses = readLearningBoardResponsesDb();
   const existing = responses.find((entry) => (
     entry.sessionId === lesson.id
@@ -21730,17 +22112,41 @@ app.get('/api/learning-groups/:groupId/progress', handleLearningRoute((req, res)
   const lessons = readLearningLessonSessionsDb().filter((entry) => entry.groupId === group.id && entry.status !== 'cancelled');
   const submissions = readLearningSubmissionsDb().filter((entry) => entry.groupId === group.id);
   const attendance = readLearningAttendanceDb().filter((entry) => entry.groupId === group.id);
+  const visibleAssignments = isStudentRole(req.auth)
+    ? assignments.filter((assignment) => canStudentReadLearningGroupAssignment(group, req.auth.id, assignment))
+    : assignments;
+  const visibleLessons = isStudentRole(req.auth)
+    ? lessons.filter((lesson) => canStudentReadLearningGroupLesson(group, req.auth.id, lesson))
+    : lessons;
+  const visibleAssignmentIds = new Set(visibleAssignments.map((assignment) => assignment.id));
+  const visibleLessonIds = new Set(visibleLessons.map((lesson) => lesson.id));
+  const visibleSubmissions = submissions.filter((submission) => visibleAssignmentIds.has(submission.assignmentId));
+  const visibleAttendance = attendance.filter((record) => visibleLessonIds.has(record.sessionId));
   let memberIds = Array.from(new Set([
     ...group.members.map((member) => member.studentId),
-    ...lessons.flatMap((lesson) => lesson.participantIds),
-    ...assignments.flatMap((assignment) => assignment.recipientIds),
+    ...visibleLessons.flatMap((lesson) => lesson.participantIds),
+    ...visibleAssignments.flatMap((assignment) => assignment.recipientIds),
   ].filter(Boolean)));
   if (isStudentRole(req.auth)) memberIds = memberIds.filter((id) => id === req.auth.id);
   const members = memberIds.map((studentId) => {
-    const studentAssignments = assignments.filter((assignment) => assignment.recipientIds.includes(studentId));
-    const studentSubmissions = submissions.filter((submission) => submission.studentId === studentId);
-    const studentAttendance = attendance.filter((record) => record.studentId === studentId);
-    const submittedCount = studentSubmissions.filter((submission) => submission.status !== 'draft').length;
+    const studentAssignments = visibleAssignments.filter((assignment) => assignment.recipientIds.includes(studentId));
+    const studentSubmissions = visibleSubmissions.filter((submission) => submission.studentId === studentId);
+    const studentAttendance = visibleAttendance.filter((record) => record.studentId === studentId);
+    // Group homework is also mirrored into the ordinary student homework
+    // list.  Count a completed checklist there as a submission, while keeping
+    // the dedicated group submission API as a compatible fallback.
+    const studentData = getStudentData(studentId);
+    const studentHomeworkByAssignment = new Map(
+      (Array.isArray(studentData?.homeworks) ? studentData.homeworks : [])
+        .map((entry) => [String(entry?.learningAssignmentId || '').trim(), entry])
+        .filter(([assignmentId]) => assignmentId)
+    );
+    const submittedCount = studentAssignments.filter((assignment) => {
+      const dedicated = studentSubmissions.find((submission) => submission.assignmentId === assignment.id);
+      return Boolean(
+        dedicated && dedicated.status !== 'draft'
+      ) || isStudentHomeworkEntrySubmitted(studentHomeworkByAssignment.get(assignment.id));
+    }).length;
     const reviewedCount = studentSubmissions.filter((submission) => submission.status === 'reviewed').length;
     const attendanceCounts = studentAttendance.reduce((counts, record) => {
       counts[record.status] = (counts[record.status] || 0) + 1;
@@ -21767,8 +22173,8 @@ app.get('/api/learning-groups/:groupId/progress', handleLearningRoute((req, res)
   const progress = {
     groupId: group.id,
     memberCount: members.length,
-    lessonCount: lessons.length,
-    assignmentCount: assignments.length,
+    lessonCount: visibleLessons.length,
+    assignmentCount: visibleAssignments.length,
     members,
     ...(isStudentRole(req.auth) ? { self: members[0] || null } : {}),
   };
@@ -29128,7 +29534,15 @@ const canReadLearningGroupReplay = (auth, context, participantIds = null) => {
   const snapshot = Array.isArray(participantIds)
     ? participantIds
     : context.lesson.participantIds;
-  return snapshot.includes(effectiveStudentId);
+  if (!snapshot.includes(effectiveStudentId)) return false;
+  const lessonSnapshot = Array.isArray(participantIds)
+    ? { ...context.lesson, participantIds: snapshot }
+    : context.lesson;
+  return canAccessLearningLessonSessionRecord(
+    { ...auth, ...(isParentRole(auth) ? { role: 'student', id: effectiveStudentId } : {}) },
+    lessonSnapshot,
+    { group: context.group, groups: [context.group] }
+  );
 };
 
 const ensureLearningGroupReplayAccess = (req, res, lessonId, participantIds = null) => {
@@ -29177,7 +29591,9 @@ const isLearningGroupReplaySessionWritable = (session, context, nowMs = Date.now
   const startMs = Date.parse(String(context.lesson.startAt || '').trim());
   const durationMs = Math.max(15, Number(context.lesson.durationMinutes) || 60) * 60 * 1000;
   if (!Number.isFinite(startMs)) return false;
-  return Number(nowMs) >= startMs - (60 * 60 * 1000)
+  const lessonStatus = String(context.lesson.status || '').trim();
+  const started = lessonStatus === 'active' || Number(nowMs) >= startMs;
+  return started
     && Number(nowMs) <= startMs + durationMs + TELEMOST_LESSON_BUFFER_MS;
 };
 
@@ -29358,7 +29774,7 @@ const collectStudentLessonMaterials = (student, occurrence) => {
     const isSharedForTeacher = isLessonSharedFile(file)
       && normalizeTeacherId(file?.teacherId) === normalizeTeacherId(student?.teacherId);
     const isSharedForLearningGroup = isLearningGroupNotesFile(file)
-      && getLearningGroupNotesParticipantIds(file).includes(studentId)
+      && canReadLearningGroupNotesFileForStudent(file, studentId)
       && String(file?.lessonId || '').trim() === String(occurrence?.lessonId || '').trim();
     if (fileStudentId !== studentId && !isSharedForTeacher && !isSharedForLearningGroup) return;
 
@@ -29906,7 +30322,7 @@ app.get('/api/student-search', async (req, res) => {
       if (isWorkbookQuestionVirtualSource(file)) return false;
       if (String(file?.studentId || '').trim() === student.id) return true;
       if (isLearningGroupNotesFile(file)) {
-        return getLearningGroupNotesParticipantIds(file).includes(student.id);
+        return canReadLearningGroupNotesFileForStudent(file, student.id);
       }
       return isLessonSharedFile(file) && normalizeTeacherId(file?.teacherId) === teacherId;
     }),
@@ -30273,7 +30689,13 @@ app.post(
       });
       if (result?.closed) return res.status(410).json({ error: 'Запись этого урока уже завершена' });
       session.expiresAt = Date.now() + LESSON_REPLAY_SESSION_TTL_MS;
-      const active = activeLessonReplayOccurrenceByStudentId.get(student.id);
+      // Group replay sessions are shared and do not have a single student id.
+      // Keep the legacy per-student activity heartbeat only for individual
+      // sessions; dereferencing an out-of-scope `student` here used to turn a
+      // successful group snapshot upload into a 500 response.
+      const active = session.studentId
+        ? activeLessonReplayOccurrenceByStudentId.get(session.studentId)
+        : null;
       if (active) active.lastSeenAt = Date.now();
       return res.json({
         ok: true,
@@ -33001,6 +33423,18 @@ app.patch('/api/student-next-lesson/:id/checklist', (req, res) => {
   }
 
   const existing = homeworks[homeworkIndex] || {};
+  if (String(existing.source || '').trim() === LEARNING_GROUP_HOMEWORK_SOURCE) {
+    const assignment = getLearningAssignmentById(
+      existing.learningGroupId,
+      existing.learningAssignmentId
+    );
+    if (assignment && assignment.status !== 'assigned') {
+      return res.status(409).json({
+        error: 'Приём этой групповой домашки уже закрыт',
+        code: 'learning_group_homework_closed',
+      });
+    }
+  }
   const checklistItems = normalizeHomeworkChecklistItems(id, existing.homeWork, existing.checklistItems);
   const itemIndex = checklistItems.findIndex((item) => item.id === normalizedItemId);
   if (itemIndex < 0) {
@@ -33644,7 +34078,7 @@ const resolveFileImageTileAccess = (req, res) => {
       return null;
     }
     if (ownerIsLearningGroupShared) {
-      if (!getLearningGroupNotesParticipantIds(file).includes(queryStudentId)) {
+      if (!canReadLearningGroupNotesFileForStudent(file, queryStudentId)) {
         res.status(400).json({ error: 'Некорректный studentId' });
         return null;
       }
@@ -33741,7 +34175,7 @@ app.get('/api/files', (req, res) => {
       if (fileStudentId === effectiveStudentId) return true;
       if (isLearningGroupNotesFile(entry)) {
         return normalizeTeacherId(entry?.teacherId) === teacherId
-          && getLearningGroupNotesParticipantIds(entry).includes(effectiveStudentId);
+          && canReadLearningGroupNotesFileForStudent(entry, effectiveStudentId);
       }
       if (!isLessonSharedFile(entry)) return false;
       const fileTeacherId = normalizeTeacherId(entry?.teacherId);

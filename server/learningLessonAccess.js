@@ -56,6 +56,20 @@ const getEarliestIsoTimestamp = (left, right) => {
   return Date.parse(rightIso) <= Date.parse(leftIso) ? rightIso : leftIso;
 };
 
+const getLearningLessonWindowState = (session, nowMs = Date.now()) => {
+  const startMs = Date.parse(String(session?.startAt || '').trim());
+  const durationMinutes = Math.max(15, Number(session?.durationMinutes) || 60);
+  const endMs = Number.isFinite(startMs)
+    ? startMs + durationMinutes * 60 * 1000
+    : NaN;
+  return {
+    startMs,
+    endMs,
+    notStarted: Number.isFinite(startMs) && startMs > nowMs,
+    past: Number.isFinite(endMs) && endMs <= nowMs,
+  };
+};
+
 const normalizeCollection = (value, propertyName) => {
   if (Array.isArray(value)) return value;
   if (isPlainObject(value) && Array.isArray(value[propertyName])) return value[propertyName];
@@ -174,7 +188,21 @@ export const canAccessLearningLessonSession = (auth, session, options = {}) => {
   if (role === 'teacher') return Boolean(teacherId && authId === teacherId);
   if (role !== 'student') return false;
 
-  if (getLearningLessonParticipantIds(session).includes(authId)) return true;
+  const member = group && Array.isArray(group.members)
+    ? group.members.find((entry) => (
+      normalizeText(typeof entry === 'string' ? entry : (entry?.studentId || entry?.id)) === authId
+    ))
+    : null;
+  if (getLearningLessonParticipantIds(session).includes(authId)) {
+    // A removed student keeps the historical lesson snapshot, but not a
+    // future lesson that happened to retain the old participantIds array.
+    if (!member || isActiveLearningGroupMember(member)) return true;
+    const leftAtMs = Date.parse(String(member?.leftAt || '').trim());
+    const lessonAtMs = Date.parse(String(session?.startAt || session?.createdAt || '').trim());
+    return !Number.isFinite(leftAtMs)
+      || !Number.isFinite(lessonAtMs)
+      || lessonAtMs <= leftAtMs;
+  }
   if (!group || normalizeText(group.id) !== normalizeText(session.groupId)) return false;
   if (teacherId && normalizeText(group.teacherId) && normalizeText(group.teacherId) !== teacherId) return false;
   return (Array.isArray(group.members) ? group.members : []).some((member) => (
@@ -239,7 +267,9 @@ export const hasActiveLearningGroupWorkspace = (studentIdValue, teacherIdValue, 
   const teacherId = normalizeText(teacherIdValue);
   if (!studentId || !teacherId) return false;
   return normalizeCollection(groups, 'groups').some((group) => (
-    normalizeText(group?.status, 40).toLowerCase() === 'active'
+    // Forming/ready groups already own the student's shared workspace.  Only
+    // a completed group releases the legacy individual board/code room.
+    ['forming', 'ready', 'active'].includes(normalizeText(group?.status, 40).toLowerCase())
     && normalizeText(group?.teacherId) === teacherId
     && (Array.isArray(group?.members) ? group.members : []).some((member) => (
       normalizeText(typeof member === 'string' ? member : (member?.studentId || member?.id)) === studentId
@@ -320,6 +350,21 @@ export const authorizeLearningRealtimeRoom = ({
     return { allowed: false, reason: 'session-not-live', target };
   }
 
+  const windowState = target.targetType === 'lesson'
+    ? getLearningLessonWindowState(target.session)
+    : { notStarted: false, past: false };
+  // A scheduled room may be opened by the teacher for preparation, but a
+  // student must not enter the call before its start time.  Past lesson rooms
+  // remain readable for board/code history, never writable.
+  if (
+    target.targetType === 'lesson'
+    && target.kind === 'rtc'
+    && (windowState.notStarted || windowState.past)
+    && normalizeText(auth.role, 40).toLowerCase() === 'student'
+  ) {
+    return { allowed: false, reason: 'session-not-live', target, windowState };
+  }
+
   if (
     target.targetType === 'student'
     && ['board', 'collab'].includes(target.kind)
@@ -335,6 +380,13 @@ export const authorizeLearningRealtimeRoom = ({
     allowed,
     reason: allowed ? '' : 'forbidden',
     target,
+    windowState,
+    readOnly: target.targetType === 'lesson' && (
+      windowState.past
+      || windowState.notStarted
+      || normalizeText(target.session?.status, 40).toLowerCase() === 'completed'
+      || normalizeText(target.session?.status, 40).toLowerCase() === 'cancelled'
+    ),
   };
 };
 
@@ -372,7 +424,7 @@ export const authorizeLearningCollabUpgrade = ({ requestUrl, ...options } = {}) 
   const readOnly = Boolean(
     access.allowed
     && access.target?.targetType === 'lesson'
-    && normalizeText(access.target?.session?.status, 40) === 'completed'
+    && (access.readOnly || normalizeText(access.target?.session?.status, 40) === 'completed')
   );
   return { ...access, readOnly, docName };
 };

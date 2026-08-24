@@ -24,6 +24,9 @@ export const LEARNING_GROUP_STATUS_COMPLETED = 'completed';
 export const LEARNING_GROUP_MIN_STUDENTS = 1;
 export const LEARNING_GROUP_MIN_CAPACITY = 2;
 export const LEARNING_GROUP_MAX_STUDENTS = 5;
+// Group lessons have their own per-student rate.  It must not silently inherit
+// the student's individual lesson price (a common source of wrong payments).
+export const LEARNING_GROUP_DEFAULT_LESSON_PRICE = 1000;
 
 export class LearningGroupDomainError extends Error {
   constructor(message, { code = 'invalid_learning_group', statusCode = 400 } = {}) {
@@ -69,6 +72,11 @@ const normalizeTime = (value) => {
 const normalizeDurationMinutes = (value, fallback = 60) => {
   const parsed = Math.round(Number(value));
   return Number.isFinite(parsed) && parsed >= 15 && parsed <= 360 ? parsed : fallback;
+};
+
+const normalizeLessonPrice = (value, fallback = LEARNING_GROUP_DEFAULT_LESSON_PRICE) => {
+  const parsed = Math.round(Number(value));
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1_000_000 ? parsed : fallback;
 };
 
 const normalizeStringIds = (value, limit = 100) => {
@@ -254,6 +262,7 @@ export const normalizeLearningGroup = (value) => {
     telemostUrl: normalizeTelemostUrl(value.telemostUrl),
     plannedStartDate: normalizeDayKey(value.plannedStartDate || value.startDate),
     maxStudents,
+    pricePerLesson: normalizeLessonPrice(value.pricePerLesson ?? value.lessonPrice),
     admissionsOpen: !startedAt && !completedAt && value.admissionsOpen !== false,
     members,
     schedule: normalizeLearningGroupSchedule(value.schedule),
@@ -301,6 +310,7 @@ export const createLearningGroup = (payload = {}, options = {}) => {
     telemostUrl: telemost.url,
     plannedStartDate,
     maxStudents,
+    pricePerLesson: normalizeLessonPrice(payload.pricePerLesson ?? payload.lessonPrice),
     admissionsOpen: true,
     members: [],
     schedule: [],
@@ -333,6 +343,11 @@ export const updateLearningGroup = (groupValue, patch = {}, options = {}) => {
       fail('Сначала удалите лишних учеников из группы', 'group_capacity_below_members', 409);
     }
     next.maxStudents = maxStudents;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'pricePerLesson') || Object.prototype.hasOwnProperty.call(patch, 'lessonPrice')) {
+    const pricePerLesson = normalizeLessonPrice(patch.pricePerLesson ?? patch.lessonPrice, -1);
+    if (pricePerLesson < 0) fail('Стоимость занятия группы должна быть неотрицательной', 'invalid_group_price');
+    next.pricePerLesson = pricePerLesson;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'telemostUrl')) {
     const telemost = parseTelemostUrl(patch.telemostUrl);
@@ -627,6 +642,9 @@ export const updateLearningAssignment = (assignmentValue, patch = {}, options = 
     next.dueAt = dueAt;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'materialIds')) next.materialIds = normalizeStringIds(patch.materialIds, 100);
+  if (Object.prototype.hasOwnProperty.call(patch, 'recipientIds')) {
+    next.recipientIds = normalizeStringIds(patch.recipientIds, LEARNING_GROUP_MAX_STUDENTS);
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'homework') || Object.prototype.hasOwnProperty.call(patch, 'homeworkTemplate')) {
     next.homework = normalizeLearningHomeworkTemplate(patch.homework || patch.homeworkTemplate);
   }

@@ -32,7 +32,10 @@ export const getStudentActiveLearningGroups = (groups, studentId) => {
   if (!normalizedStudentId) return [];
   return (Array.isArray(groups) ? groups : [])
     .filter((group) => (
-      String(group?.status || '').trim() === 'active'
+      // A student assigned to a forming/ready group already uses the group
+      // workspace, even before the first shared lesson exists.  Only a
+      // completed group releases the student back to the individual room.
+      String(group?.status || '').trim() !== 'completed'
       && (Array.isArray(group?.members) ? group.members : []).some((member) => (
         String(member?.studentId || member?.id || '').trim() === normalizedStudentId
         && String(member?.status || '').trim() === 'active'

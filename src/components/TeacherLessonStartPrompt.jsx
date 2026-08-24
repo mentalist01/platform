@@ -429,6 +429,7 @@ const findDueLessonPrompt = ({ entries, now, studentsById, dismissedKeys }) => {
       const startMs = startDate.getTime();
       const msUntilStart = startMs - nowMs;
       if (msUntilStart > LESSON_PROMPT_LEAD_MS || msUntilStart < -LESSON_PROMPT_AFTER_START_MS) return;
+      if (nowMs >= startMs + (duration * 60 * 1000)) return;
       const occurrenceKey = [
         String(entry?.id || entry?.externalEventId || '').trim(),
         isLearningGroupEvent ? groupId : studentId,
@@ -456,6 +457,7 @@ const findDueLessonPrompt = ({ entries, now, studentsById, dismissedKeys }) => {
         dayKey,
         dateLabel: formatPromptDateLabel(dayKey),
         timeLabel: `${formatMinutesAsDisplayTime(startMinutes)}-${formatMinutesAsDisplayTime(startMinutes + duration)}`,
+        durationMinutes: duration,
         startMs,
         msUntilStart,
       });
@@ -481,6 +483,7 @@ const TeacherLessonStartPrompt = ({
   getStudentLabel = null,
   onOpenStudentWorkspace = null,
   onOpenLearningGroupLesson = null,
+  onOpenLearningGroupTelemost = null,
 }) => {
   const [scheduleEntries, setScheduleEntries] = useState([]);
   const [scheduleReady, setScheduleReady] = useState(false);
@@ -673,10 +676,15 @@ const TeacherLessonStartPrompt = ({
     }
   }, [activePrompt, onOpenLearningGroupLesson, rememberDismissedPrompt]);
 
-  const markGroupTelemostOpened = useCallback(() => {
+  const openLearningGroupTelemost = useCallback(() => {
     if (!activePrompt?.isLearningGroupEvent) return;
-    if (activePrompt?.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
-  }, [activePrompt, rememberDismissedPrompt]);
+    if (typeof onOpenLearningGroupTelemost === 'function') {
+      const accepted = onOpenLearningGroupTelemost(activePrompt);
+      if (accepted !== false && activePrompt?.occurrenceKey) {
+        rememberDismissedPrompt(activePrompt.occurrenceKey);
+      }
+    }
+  }, [activePrompt, onOpenLearningGroupTelemost, rememberDismissedPrompt]);
 
   const openNotes = useCallback(() => {
     if (activePrompt?.isLearningGroupEvent || !activePrompt?.studentId) return;
@@ -695,11 +703,22 @@ const TeacherLessonStartPrompt = ({
   const leadLabel = getPromptLeadLabel(activePrompt);
   const isLearningGroupEvent = Boolean(activePrompt.isLearningGroupEvent);
   const groupParticipantRows = getGroupParticipantRows(activePrompt, studentsById);
-  const groupLessonReady = Boolean(
+  const groupLessonClosed = [
+    activePrompt?.status,
+    activePrompt?.lessonStatus,
+    activePrompt?.groupStatus,
+  ].some((value) => ['completed', 'cancelled'].includes(String(value || '').trim().toLowerCase()));
+  const groupLessonWorkspaceReady = Boolean(
     String(activePrompt?.lessonId || '').trim()
     && Array.isArray(activePrompt?.participantIds)
     && activePrompt.participantIds.length >= 1
+    && !groupLessonClosed
   );
+  const groupLessonStartMs = Date.parse(String(activePrompt?.startsAt || activePrompt?.startAt || '').trim());
+  const groupLessonNotStarted = Number.isFinite(groupLessonStartMs)
+    && groupLessonStartMs > now.getTime()
+    && String(activePrompt?.status || activePrompt?.lessonStatus || '').trim().toLowerCase() !== 'active';
+  const groupLessonReady = groupLessonWorkspaceReady && !groupLessonNotStarted;
 
   const promptOverlay = (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm">
@@ -743,27 +762,30 @@ const TeacherLessonStartPrompt = ({
               <button
                 type="button"
                 onClick={openLearningGroupLesson}
-                disabled={!groupLessonReady || typeof onOpenLearningGroupLesson !== 'function'}
+                disabled={!groupLessonWorkspaceReady || typeof onOpenLearningGroupLesson !== 'function'}
                 className="flex w-full items-center justify-center gap-3 rounded-2xl border border-cyan-200/50 bg-cyan-200 px-5 py-5 text-base font-black text-slate-950 shadow-[0_18px_42px_rgba(34,211,238,0.24)] transition hover:-translate-y-0.5 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Users size={22} />
                 Открыть занятие группы
               </button>
               {groupLessonReady && activePrompt.telemostUrl ? (
-                <a
-                  href={activePrompt.telemostUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={markGroupTelemostOpened}
+                <button
+                  type="button"
+                  onClick={openLearningGroupTelemost}
+                  disabled={typeof onOpenLearningGroupTelemost !== 'function'}
                   className="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-300/45 bg-violet-300/12 px-5 py-5 text-base font-black text-violet-100 transition hover:-translate-y-0.5 hover:bg-violet-300/20"
                 >
                   <Video size={21} />
                   Открыть Телемост
                   <ExternalLink size={16} />
-                </a>
+                </button>
               ) : (
                 <div className="flex items-center justify-center rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-center text-sm font-semibold text-amber-100">
-                  {groupLessonReady
+                  {groupLessonClosed
+                    ? 'Занятие группы завершено.'
+                    : groupLessonNotStarted
+                    ? 'Телемост откроется в момент начала занятия.'
+                    : groupLessonReady
                     ? 'Ссылка на Телемост для этого занятия не указана.'
                     : 'Группа ещё не запущена. Для старта нужен хотя бы один ученик и статус «Занимается».'}
                 </div>

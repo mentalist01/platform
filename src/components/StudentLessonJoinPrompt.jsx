@@ -502,7 +502,9 @@ const StudentLessonJoinPrompt = ({
               : 'Подключиться по платформе'}
           </button>
 
-          {groupLessonReady && activePrompt.telemostUrl && (
+          {groupLessonReady
+            && activePrompt.telemostUrl
+            && (!activePrompt.isLearningGroupEvent || activePrompt.msUntilStart <= 0) && (
             <a
               href={activePrompt.telemostUrl}
               target="_blank"

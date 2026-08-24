@@ -91,6 +91,7 @@ const TAB_ITEMS = [
   { id: 'overview', label: 'Состав', icon: Users },
   { id: 'schedule', label: 'Расписание', icon: CalendarDays },
   { id: 'lessons', label: 'Занятия', icon: Video },
+  { id: 'materials', label: 'Материалы', icon: BookOpen },
   { id: 'assignments', label: 'Домашние задания', icon: ClipboardList },
   { id: 'attendance', label: 'Посещаемость', icon: UserCheck },
 ];
@@ -435,6 +436,7 @@ const LearningGroupsSection = ({
   studentsLoading = false,
   activeLearningLesson = null,
   onOpenLessonRoom,
+  onOpenLearningGroupTelemost = null,
   onOpenStudentHomework,
   tasks = [],
   GOAL_TYPE_TASK = 'task',
@@ -494,10 +496,17 @@ const LearningGroupsSection = ({
     records: [],
   });
   const [attendanceDrafts, setAttendanceDrafts] = useState({});
+  const [clockNowMs, setClockNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     groupsRef.current = groups;
   }, [groups]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const timerId = window.setInterval(() => setClockNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timerId);
+  }, []);
 
   const selectedGroup = useMemo(() => (
     groups.find((group) => cleanString(group.id) === selectedGroupId) || null
@@ -516,12 +525,22 @@ const LearningGroupsSection = ({
   const availableStudents = useMemo(() => {
     if (!selectedGroup) return [];
     const memberIds = new Set(selectedGroup.participantIds || []);
+    const occupiedByAnotherGroup = new Set(
+      groups
+        .filter((group) => group.id !== selectedGroup.id && group.status !== LEARNING_GROUP_STATUS_COMPLETED)
+        .flatMap((group) => Array.isArray(group.participantIds) ? group.participantIds : [])
+        .map(cleanString)
+        .filter(Boolean)
+    );
     return (Array.isArray(students) ? students : []).filter((student) => {
       const id = getStudentId(student);
       const studyStatus = cleanString(student?.studyStatus || student?.status).toLowerCase();
-      return id && !memberIds.has(id) && !['deleted', 'archived', 'inactive'].includes(studyStatus);
+      return id
+        && !memberIds.has(id)
+        && !occupiedByAnotherGroup.has(id)
+        && !['deleted', 'archived', 'inactive'].includes(studyStatus);
     });
-  }, [selectedGroup, students]);
+  }, [groups, selectedGroup, students]);
 
   const lessons = useMemo(() => (
     [...(Array.isArray(selectedGroup?.lessons) ? selectedGroup.lessons : [])]
@@ -531,7 +550,7 @@ const LearningGroupsSection = ({
   const calendarLessons = useMemo(() => {
     const upcoming = [];
     const past = [];
-    const now = Date.now();
+    const now = clockNowMs;
     lessons.filter(isGoogleCalendarLesson).forEach((lesson) => {
       const startMs = Date.parse(getLessonStart(lesson));
       const endMs = startMs + Math.max(1, Number(lesson?.durationMinutes) || 60) * 60 * 1000;
@@ -540,7 +559,7 @@ const LearningGroupsSection = ({
     });
     past.sort((left, right) => Date.parse(getLessonStart(right)) - Date.parse(getLessonStart(left)));
     return [...upcoming, ...past];
-  }, [lessons]);
+  }, [clockNowMs, lessons]);
 
   const assignments = useMemo(() => (
     Array.isArray(selectedGroup?.assignments) ? selectedGroup.assignments : []
@@ -1111,16 +1130,30 @@ const LearningGroupsSection = ({
 
   const handleOpenLesson = (lesson, surface) => {
     if (!selectedGroup || !['board', 'collab'].includes(surface) || typeof onOpenLessonRoom !== 'function') return;
+    const startsAt = getLessonStart(lesson);
+    const durationMinutes = Math.max(15, Number(lesson?.durationMinutes) || 60);
+    const startsAtMs = Date.parse(startsAt);
+    const lessonNotStarted = Number.isFinite(startsAtMs)
+      && startsAtMs > Date.now()
+      && String(lesson?.status || '').trim() !== 'active';
+    const lessonPast = Number.isFinite(startsAtMs)
+      && startsAtMs + (durationMinutes * 60 * 1000) <= Date.now();
+    const groupCompleted = selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED;
+    const lessonStatus = String(lesson?.status || '').trim();
+    const lessonCompleted = lessonPast || groupCompleted || ['completed', 'cancelled'].includes(lessonStatus);
+    const readOnly = lessonCompleted || lessonNotStarted;
     onOpenLessonRoom({
       lessonId: getLessonId(lesson),
       groupId: selectedGroup.id,
       participantIds: getLessonParticipants(lesson, selectedGroup),
       groupName: selectedGroup.name,
       topic: lesson.topic,
-      startsAt: getLessonStart(lesson),
+      startsAt,
+      durationMinutes,
       telemostUrl: getLessonTelemostUrl(lesson),
-      status: String(lesson?.status || '').trim(),
-      readOnly: String(lesson?.status || '').trim() === 'completed',
+      status: lessonCompleted ? 'completed' : lessonStatus,
+      groupStatus: selectedGroup.status,
+      readOnly,
       surface,
     });
   };
@@ -1571,7 +1604,9 @@ const LearningGroupsSection = ({
 
                 <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
                   <div className="flex min-w-max gap-1">
-                    {TAB_ITEMS.map((item) => {
+                    {TAB_ITEMS
+                      .filter((item) => item.id !== 'materials' || !isTeacher)
+                      .map((item) => {
                       const Icon = item.icon;
                       const isActive = tab === item.id;
                       return (
@@ -1792,7 +1827,7 @@ const LearningGroupsSection = ({
                           const lessonId = getLessonId(lesson);
                           const lessonStartMs = Date.parse(getLessonStart(lesson));
                           const lessonEndMs = lessonStartMs + Math.max(1, Number(lesson.durationMinutes) || 60) * 60 * 1000;
-                          const isPast = Number.isFinite(lessonEndMs) && lessonEndMs < Date.now();
+                          const isPast = Number.isFinite(lessonEndMs) && lessonEndMs < clockNowMs;
                           const statusMeta = getStatusMeta(LESSON_STATUS_META, lesson.status, isPast ? 'completed' : 'scheduled');
                           return (
                             <div key={lessonId} className={`flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${isPast ? 'border-slate-200 bg-slate-50/60' : 'border-violet-100 bg-white shadow-sm'}`}>
@@ -1910,9 +1945,22 @@ const LearningGroupsSection = ({
                         {lessons.map((lesson) => {
                           const lessonId = getLessonId(lesson);
                           const statusMeta = getStatusMeta(LESSON_STATUS_META, lesson.status, 'scheduled');
-                          const isRoomOpenable = !['cancelled', 'completed'].includes(lesson.status);
+                          const lessonStartMs = Date.parse(getLessonStart(lesson));
+                          const lessonDurationMinutes = Math.max(15, Number(lesson?.durationMinutes) || 60);
+                          const lessonEndMs = Number.isFinite(lessonStartMs)
+                            ? lessonStartMs + (lessonDurationMinutes * 60 * 1000)
+                            : NaN;
+                          const lessonPast = Number.isFinite(lessonEndMs) && lessonEndMs <= clockNowMs;
+                          const lessonNotStarted = Number.isFinite(lessonStartMs)
+                            && lessonStartMs > clockNowMs
+                            && String(lesson.status || '').trim() !== 'active';
+                          const groupCompleted = selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED;
+                          const lessonClosed = groupCompleted
+                            || lessonPast
+                            || ['cancelled', 'completed'].includes(String(lesson.status || '').trim());
+                          const isRoomOpenable = !lessonClosed && !lessonNotStarted;
                           const isWorkspaceOpenable = lesson.status !== 'cancelled';
-                          const isWorkspaceReadOnly = lesson.status === 'completed';
+                          const isWorkspaceReadOnly = lessonClosed || lessonNotStarted;
                           const isEditing = editingLessonId === lessonId;
                           const telemostUrl = getLessonTelemostUrl(lesson);
                           const isCurrentContext = activeLearningLesson?.lessonId === lessonId;
@@ -1948,7 +1996,7 @@ const LearningGroupsSection = ({
                                         <Pencil size={14} /> Изменить
                                       </button>
                                     )}
-                                    {lesson.status === 'scheduled' && (
+                                    {lesson.status === 'scheduled' && !lessonPast && !groupCompleted && (
                                       <button
                                         type="button"
                                         onClick={() => void handleUpdateLessonStatus(lesson, 'active')}
@@ -2044,21 +2092,34 @@ const LearningGroupsSection = ({
 
                               <div className="mt-4 grid gap-2 sm:grid-cols-3">
                                 {telemostUrl && isRoomOpenable ? (
-                                  <a
-                                    href={telemostUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2.5 text-sm font-bold text-white transition hover:bg-violet-700"
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenLearningGroupTelemost?.({
+                                      lessonId,
+                                      groupId: selectedGroup.id,
+                                      participantIds: getLessonParticipants(lesson, selectedGroup),
+                                      groupName: selectedGroup.name,
+                                      topic: lesson.topic,
+                                      startsAt: getLessonStart(lesson),
+                                      durationMinutes: lessonDurationMinutes,
+                                      telemostUrl,
+                                      status: String(lesson?.status || '').trim(),
+                                      groupStatus: selectedGroup.status,
+                                    })}
+                                    disabled={typeof onOpenLearningGroupTelemost !== 'function'}
+                                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2.5 text-sm font-bold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
                                   >
                                     <ExternalLink size={16} /> Открыть Телемост
-                                  </a>
+                                  </button>
                                 ) : (
                                   <button
                                     type="button"
                                     disabled
                                     className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-200 px-3 py-2.5 text-sm font-bold text-slate-500"
                                   >
-                                    <Video size={16} /> {isRoomOpenable ? 'Ссылка не настроена' : 'Встреча закрыта'}
+                                    <Video size={16} /> {lessonNotStarted
+                                      ? 'Занятие ещё не началось'
+                                      : (isRoomOpenable ? 'Ссылка не настроена' : 'Встреча закрыта')}
                                   </button>
                                 )}
                                 <button
