@@ -2,13 +2,13 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [ValidateSet('StoreMsix', 'SignedExe', 'All')]
+    [ValidateSet('StoreMsix', 'DirectExe', 'SignedExe', 'All')]
     [string]$Target = 'StoreMsix',
 
     [string]$PackageIdentityName = 'IvanNaSotku.WorkbookHelper.Dev',
     [string]$PackagePublisher = 'CN=Ivan na sotku',
     [string]$PublisherDisplayName = 'Иван на сотку',
-    [string]$PackageVersion = '1.3.1.0',
+    [string]$PackageVersion = '1.3.2.0',
 
     [string]$CertificateThumbprint = '',
     [string]$TimestampUrl = 'http://timestamp.digicert.com',
@@ -27,9 +27,9 @@ $selfTestReport = Join-Path ([System.IO.Path]::GetTempPath()) 'IvanEgeWorkbookHe
 $sourceLogo = Join-Path $repositoryRoot 'public\logo1.png'
 
 if ($PublishDownload -and $Target -eq 'StoreMsix') {
-    throw 'PublishDownload applies only to Target SignedExe or All.'
+    throw 'PublishDownload applies only to Target DirectExe, SignedExe or All.'
 }
-if ($PublishDownload -and [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+if ($PublishDownload -and $Target -in @('SignedExe', 'All') -and [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
     throw 'Refusing to publish an unsigned EXE. Pass CertificateThumbprint for a trusted code-signing certificate.'
 }
 
@@ -155,15 +155,23 @@ function Get-XmlEscapedValue {
     return [System.Security.SecurityElement]::Escape($Value)
 }
 
-function Build-SignedExecutable {
-    $publishDirectory = Reset-Directory -Path (Join-Path $projectDirectory 'bin\publish\signed-exe\win-x64')
+function Build-Executable {
+    param(
+        [Parameter(Mandatory = $true)][string]$ResultTarget,
+        [Parameter(Mandatory = $true)][string]$FolderName,
+        [Parameter(Mandatory = $true)][bool]$Compress,
+        [Parameter(Mandatory = $true)][bool]$AllowUnsigned
+    )
+
+    $publishDirectory = Reset-Directory -Path (Join-Path $projectDirectory "bin\publish\$FolderName\win-x64")
+    $compressionValue = if ($Compress) { 'true' } else { 'false' }
     dotnet publish $projectFile `
         --configuration $Configuration `
         --runtime win-x64 `
         --self-contained true `
         --output $publishDirectory `
         -p:PublishSingleFile=true `
-        -p:EnableCompressionInSingleFile=false `
+        -p:EnableCompressionInSingleFile=$compressionValue `
         -p:IncludeNativeLibrariesForSelfExtract=true `
         -p:PublishReadyToRun=false `
         -p:PublishTrimmed=false
@@ -179,7 +187,7 @@ function Build-SignedExecutable {
     $signed = Invoke-CodeSigning -Path $executable
 
     if ($PublishDownload) {
-        if (-not $signed) {
+        if (-not $signed -and -not $AllowUnsigned) {
             throw 'Refusing to publish an unsigned EXE. Pass CertificateThumbprint for a trusted code-signing certificate.'
         }
         New-Item -ItemType Directory -Path $downloadsDirectory -Force | Out-Null
@@ -189,7 +197,7 @@ function Build-SignedExecutable {
     $file = Get-Item -LiteralPath $executable
     $hash = Get-FileHash -LiteralPath $executable -Algorithm SHA256
     [PSCustomObject]@{
-        Target = 'SignedExe'
+        Target = $ResultTarget
         Path = $file.FullName
         PublishedPath = if ($PublishDownload) { $downloadExecutable } else { $null }
         Signed = $signed
@@ -276,7 +284,10 @@ $results = @()
 if ($Target -in @('StoreMsix', 'All')) {
     $results += Build-StoreMsix
 }
+if ($Target -eq 'DirectExe') {
+    $results += Build-Executable -ResultTarget 'DirectExe' -FolderName 'direct-exe' -Compress $true -AllowUnsigned $true
+}
 if ($Target -in @('SignedExe', 'All')) {
-    $results += Build-SignedExecutable
+    $results += Build-Executable -ResultTarget 'SignedExe' -FolderName 'signed-exe' -Compress $false -AllowUnsigned $false
 }
 $results

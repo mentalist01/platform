@@ -4433,13 +4433,17 @@ const StudentTestModal = ({
                                 onClick={() => void handleLaunchQuestionWorkbook(file, { startFresh: true })}
                                 disabled={isOpening}
                                 title="Открыть чистый исходник и сохранить отдельным решением"
-                                className={`inline-flex min-h-[30px] items-center gap-1 rounded-lg border px-2 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
-                                  isQuestionCodeDarkTheme
-                                    ? 'border-slate-600 bg-slate-900 text-slate-300 hover:border-violet-500 hover:text-violet-200'
-                                    : 'border-slate-200 bg-white text-slate-500 hover:border-violet-200 hover:text-violet-700'
+                                className={`inline-flex min-h-[30px] items-center gap-1 rounded-lg border px-2 text-[11px] transition disabled:cursor-wait disabled:opacity-60 ${
+                                  hasSolution
+                                    ? (isQuestionCodeDarkTheme
+                                      ? 'border-slate-600 bg-slate-900 font-semibold text-slate-300 hover:border-violet-500 hover:text-violet-200'
+                                      : 'border-slate-200 bg-white font-semibold text-slate-500 hover:border-violet-200 hover:text-violet-700')
+                                    : (isQuestionCodeDarkTheme
+                                      ? 'border-violet-400 bg-violet-500 font-extrabold text-white shadow-sm hover:bg-violet-400'
+                                      : 'border-violet-600 bg-gradient-to-r from-violet-600 to-fuchsia-500 font-extrabold text-white shadow-sm shadow-violet-200 hover:from-violet-700 hover:to-fuchsia-600')
                                 }`}
                               >
-                                <RefreshCcw size={13} />
+                                {hasSolution ? <RefreshCcw size={13} /> : <PlayCircle size={14} />}
                                 {isOpening && workbookHelperState.launchMode === 'fresh'
                                   ? 'Открываем…'
                                   : (hasSolution ? 'Решить заново' : 'Решать')}
@@ -5118,13 +5122,17 @@ const StudentTestModal = ({
                                 onClick={() => void handleLaunchQuestionWorkbook(file, { startFresh: true })}
                                 disabled={isOpening}
                                 title="Открыть чистый исходник и сохранить отдельным решением"
-                                className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
-                                  isQuestionCodeDarkTheme
-                                    ? 'border-slate-600 bg-slate-900 text-slate-300 hover:border-violet-500 hover:text-violet-200'
-                                    : 'border-slate-200 bg-white text-slate-500 hover:border-violet-200 hover:text-violet-700'
+                                className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 transition disabled:cursor-wait disabled:opacity-60 ${
+                                  hasSolution
+                                    ? (isQuestionCodeDarkTheme
+                                      ? 'border-slate-600 bg-slate-900 font-semibold text-slate-300 hover:border-violet-500 hover:text-violet-200'
+                                      : 'border-slate-200 bg-white font-semibold text-slate-500 hover:border-violet-200 hover:text-violet-700')
+                                    : (isQuestionCodeDarkTheme
+                                      ? 'border-violet-400 bg-violet-500 font-extrabold text-white shadow-sm hover:bg-violet-400'
+                                      : 'border-violet-600 bg-gradient-to-r from-violet-600 to-fuchsia-500 font-extrabold text-white shadow-sm shadow-violet-200 hover:from-violet-700 hover:to-fuchsia-600')
                                 }`}
                               >
-                                <RefreshCcw size={15} />
+                                {hasSolution ? <RefreshCcw size={15} /> : <PlayCircle size={16} />}
                                 {isOpening && workbookHelperState.launchMode === 'fresh'
                                   ? 'Открываем…'
                                   : (hasSolution ? 'Решить заново' : 'Решать')}

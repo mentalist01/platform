@@ -42,6 +42,11 @@ internal enum WorkbookStatusKind
 
 internal sealed record WorkbookStatus(WorkbookStatusKind Kind, string Message, bool Notify = false);
 
+internal sealed class WorkbookPathCandidateEventArgs(string path) : EventArgs
+{
+    public string Path { get; } = path;
+}
+
 internal sealed class HelperApiException : Exception
 {
     public HelperApiException(

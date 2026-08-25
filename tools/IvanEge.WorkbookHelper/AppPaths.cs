@@ -185,6 +185,45 @@ internal static class LocalWorkbookFiles
 
         return Path.Combine(directory, $"{baseName} ({Guid.NewGuid():N}){extension}");
     }
+
+    public static bool IsSupportedWorkingFilePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var fileName = Path.GetFileName(path);
+        if (string.IsNullOrWhiteSpace(fileName)
+            || fileName.StartsWith("~$", StringComparison.OrdinalIgnoreCase)
+            || fileName.StartsWith(".", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        return AllowedExtensions.Contains(Path.GetExtension(fileName));
+    }
+
+    public static bool IsPossibleSaveAsPath(string currentPath, string candidatePath)
+    {
+        try
+        {
+            var current = Path.GetFullPath(currentPath);
+            var candidate = Path.GetFullPath(candidatePath);
+            if (string.Equals(current, candidate, StringComparison.OrdinalIgnoreCase)) return false;
+            if (!IsSupportedWorkingFilePath(candidate)) return false;
+            if (!string.Equals(
+                    Path.GetDirectoryName(current),
+                    Path.GetDirectoryName(candidate),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            return string.Equals(
+                Path.GetExtension(current),
+                Path.GetExtension(candidate),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }
 
 internal static class LocalSourceTextFiles

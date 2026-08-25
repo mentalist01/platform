@@ -17,7 +17,7 @@ internal sealed class WorkbookSession : IDisposable
 
     private readonly HelperApiClient _api;
     private readonly WorkbookGrant _grant;
-    private readonly string _localPath;
+    private string _localPath;
     private readonly Func<string?, CancellationToken, Task<string?>> _requestSolutionName;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Channel<byte> _signals = Channel.CreateBounded<byte>(new BoundedChannelOptions(1)
@@ -57,9 +57,17 @@ internal sealed class WorkbookSession : IDisposable
     }
 
     public event EventHandler<WorkbookStatus>? StatusChanged;
+    public event EventHandler<WorkbookPathCandidateEventArgs>? SaveAsCandidate;
 
-    public string LocalPath => _localPath;
-    public string FileName => Path.GetFileName(_localPath);
+    public string LocalPath
+    {
+        get
+        {
+            lock (_watcherGate) return _localPath;
+        }
+    }
+    public string FileName => Path.GetFileName(LocalPath);
+    public WorkbookGrant Grant => _grant;
     public bool IsPaused => _paused;
     public bool RequiresManualMacroOpen { get; }
 
@@ -79,7 +87,7 @@ internal sealed class WorkbookSession : IDisposable
         lock (_watcherGate)
         {
             _watcher?.Dispose();
-            var directory = Path.GetDirectoryName(_localPath)
+            var directory = Path.GetDirectoryName(LocalPath)
                 ?? throw new InvalidOperationException("У рабочей таблицы нет каталога.");
             var watcher = new FileSystemWatcher(directory)
             {
@@ -104,12 +112,64 @@ internal sealed class WorkbookSession : IDisposable
 
     private void OnChanged(object sender, FileSystemEventArgs args)
     {
-        if (PathsEqual(args.FullPath, _localPath)) Signal();
+        var localPath = LocalPath;
+        if (PathsEqual(args.FullPath, localPath))
+        {
+            Signal();
+            return;
+        }
+        if (args.ChangeType == WatcherChangeTypes.Created
+            && LocalWorkbookFiles.IsPossibleSaveAsPath(localPath, args.FullPath))
+        {
+            PublishSaveAsCandidate(args.FullPath);
+        }
     }
 
     private void OnRenamed(object sender, RenamedEventArgs args)
     {
-        if (PathsEqual(args.FullPath, _localPath) || PathsEqual(args.OldFullPath, _localPath)) Signal();
+        var localPath = LocalPath;
+        if (PathsEqual(args.FullPath, localPath))
+        {
+            Signal();
+            return;
+        }
+        if (LocalWorkbookFiles.IsPossibleSaveAsPath(localPath, args.FullPath))
+        {
+            PublishSaveAsCandidate(args.FullPath);
+        }
+        if (PathsEqual(args.OldFullPath, localPath)) Signal();
+    }
+
+    public bool TryAdoptLocalPath(string candidatePath)
+    {
+        string previousPath;
+        string adoptedPath;
+        lock (_watcherGate)
+        {
+            previousPath = _localPath;
+            if (!LocalWorkbookFiles.IsPossibleSaveAsPath(previousPath, candidatePath)
+                || !File.Exists(candidatePath))
+            {
+                return false;
+            }
+            adoptedPath = Path.GetFullPath(candidatePath);
+            _localPath = adoptedPath;
+        }
+        AppLog.Info($"Workbook session adopted Save As path: {previousPath} -> {adoptedPath}");
+        Signal();
+        return true;
+    }
+
+    private void PublishSaveAsCandidate(string path)
+    {
+        try
+        {
+            SaveAsCandidate?.Invoke(this, new WorkbookPathCandidateEventArgs(path));
+        }
+        catch (Exception error)
+        {
+            AppLog.Error("Save As candidate subscriber failed", error);
+        }
     }
 
     private void OnWatcherError(object sender, ErrorEventArgs args)
@@ -177,8 +237,9 @@ internal sealed class WorkbookSession : IDisposable
         try
         {
             Publish(new WorkbookStatus(WorkbookStatusKind.Reading, "Проверяю сохранённую таблицу…"));
+            var localPath = LocalPath;
             using var snapshot = await StableFileSnapshot.CaptureAsync(
-                _localPath,
+                localPath,
                 TimeSpan.FromSeconds(30),
                 cancellationToken).ConfigureAwait(false);
             if (string.Equals(snapshot.ContentHash, _lastUploadedHash, StringComparison.OrdinalIgnoreCase))

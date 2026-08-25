@@ -17,6 +17,7 @@ internal static class SelfTest
             Directory.CreateDirectory(temporaryDirectory);
             TestProtocolParsing();
             TestFileNames(temporaryDirectory);
+            TestSaveAsCandidateRules(temporaryDirectory);
             TestStaleDownloadCleanup(temporaryDirectory);
             TestTrustStore(temporaryDirectory);
             TestBuiltInTrustPolicy();
@@ -105,6 +106,18 @@ internal static class SelfTest
         File.SetLastWriteTimeUtc(fresh, now);
         var removed = AppPaths.CleanupStaleSolutionDownloads(directory, now);
         Assert(removed == 1 && !File.Exists(stale) && File.Exists(fresh), "Stale .download cleanup failed");
+    }
+
+    private static void TestSaveAsCandidateRules(string directory)
+    {
+        var current = Path.Combine(directory, "Задание.xlsx");
+        var copy = Path.Combine(directory, "Задание готово.xlsx");
+        Assert(LocalWorkbookFiles.IsSupportedWorkingFilePath(copy), "Saved workbook copy was rejected");
+        Assert(LocalWorkbookFiles.IsPossibleSaveAsPath(current, copy), "Save As copy was not recognized");
+        Assert(!LocalWorkbookFiles.IsPossibleSaveAsPath(current, current), "Original path was treated as Save As");
+        Assert(!LocalWorkbookFiles.IsPossibleSaveAsPath(current, Path.Combine(directory, "~$Задание.xlsx")), "Office lock file was accepted");
+        Assert(!LocalWorkbookFiles.IsPossibleSaveAsPath(current, Path.Combine(directory, "Задание.ods")), "Changed workbook format was accepted");
+        Assert(!LocalWorkbookFiles.IsPossibleSaveAsPath(current, Path.Combine(directory, "sub", "Задание.xlsx")), "Workbook outside the watched directory was accepted");
     }
 
     private static void TestTrustStore(string directory)

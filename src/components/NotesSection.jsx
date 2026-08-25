@@ -13,6 +13,7 @@ import {
   FolderOpen,
   FolderPlus,
   Image as ImageIcon,
+  Monitor,
   Pencil,
   Plus,
   Search,
@@ -3292,17 +3293,22 @@ const NotesSection = ({
         </header>
 
         {role === 'student' && WORKBOOK_HELPER_TASK_NUMBERS.has(normalizedCurrentTask) && WORKBOOK_HELPER_INSTALL_URL && (
-          <aside className="mx-3 mt-3 flex flex-col gap-3 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <aside className="notes-workbook-install-card mx-3 mt-3 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3 sm:items-center">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white shadow-sm shadow-violet-200">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
                 <FileSpreadsheet size={20} aria-hidden="true" />
               </span>
               <div className="min-w-0">
-                <p className="text-sm font-extrabold text-slate-900">Помощник для Excel и LibreOffice</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-extrabold text-slate-900">Помощник для Excel и LibreOffice</p>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Установка один раз
+                  </span>
+                </div>
                 <p className="mt-0.5 text-xs font-medium leading-5 text-slate-600">
                   {TEXT_TO_WORKBOOK_TASK_NUMBERS.has(normalizedCurrentTask)
-                    ? 'Скачайте или обновите помощник — затем кнопка «Excel / LibreOffice» откроет текст и пустую таблицу вместе.'
-                    : 'Скачайте помощник один раз — затем кнопка «Excel / LibreOffice» откроет таблицу и синхронизирует сохранения. Без установки используйте «Решать» в браузере.'}
+                    ? 'Установите помощник один раз — затем основная кнопка «Excel / LibreOffice» откроет текст и пустую таблицу вместе.'
+                    : 'После установки основная кнопка «Excel / LibreOffice» откроет таблицу и синхронизирует сохранения. Без установки используйте «В браузере».'}
                 </p>
                 {workbookHelperState?.status && workbookHelperState.status !== 'idle' && (
                   <p className={`mt-1 text-xs font-semibold ${
@@ -3319,10 +3325,10 @@ const NotesSection = ({
                 download={WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD || undefined}
                 target={WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? undefined : '_blank'}
                 rel="noopener noreferrer"
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 text-xs font-extrabold text-violet-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
               >
-                <Download size={15} aria-hidden="true" />
-                {WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? 'Скачать для Windows' : 'Установить из Microsoft Store'}
+                <Download size={14} aria-hidden="true" />
+                {WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? 'Установить помощник' : 'Установить из Microsoft Store'}
               </a>
               <p className="max-w-[230px] text-center text-[10px] font-medium leading-4 text-slate-500">
                 {WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD
@@ -3742,12 +3748,6 @@ const NotesSection = ({
                     const isWorkbookHelperOpening = Boolean(
                       isWorkbookHelperCurrent
                       && isWorkbookHelperBusy
-                    );
-                    const isWorkbookSolution = Boolean(
-                      f?.workbookSourceFileId
-                      || f?.workbookSolutionKey
-                      || memory?.kind === 'workbook-solution'
-                      || sourceRaw === 'workbook-auto-sync'
                     );
                     const isTextToWorkbookSource = TEXT_TO_WORKBOOK_TASK_NUMBERS.has(Number(normalizedCurrentTask))
                       && /\.(txt|csv|tsv)$/i.test(String(f?.name || ''));
@@ -4214,9 +4214,9 @@ const NotesSection = ({
                                       e.stopPropagation();
                                       void handleStartWorkbookAutoSync(f);
                                     }}
-                                    className={`notes-explorer-file-action-btn notes-explorer-open-action !h-9 !w-auto !min-w-[104px] !gap-1.5 !rounded-xl !border !px-3 !py-1.5 !text-xs !font-extrabold !opacity-100 !shadow-sm transition ${
+                                    className={`notes-explorer-file-action-btn notes-workbook-action notes-workbook-action--secondary !h-9 !w-auto !min-w-[104px] !gap-1.5 !rounded-xl !border !px-3 !py-1.5 !text-xs !font-bold !opacity-100 transition ${
                                       isWorkbookAutoSyncActive
-                                        ? '!border-emerald-200 !bg-emerald-50 !text-emerald-700'
+                                        ? 'notes-workbook-action--connected'
                                         : ''
                                     }`}
                                     disabled={Boolean(workbookAutoSyncStartingId) || isWorkbookAutoSyncActive}
@@ -4227,15 +4227,15 @@ const NotesSection = ({
                                   >
                                     {isWorkbookAutoSyncActive
                                       ? <Check size={15} />
-                                      : <Download size={15} className={isWorkbookAutoSyncStarting ? 'animate-pulse' : ''} />}
-                                    <span>{isWorkbookAutoSyncActive ? 'Подключён' : (isWorkbookSolution ? 'Продолжить' : 'Решать')}</span>
+                                      : <Monitor size={15} className={isWorkbookAutoSyncStarting ? 'animate-pulse' : ''} />}
+                                    <span>В браузере</span>
                                   </button>}
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       void handleLaunchWorkbookHelper(f);
                                     }}
-                                    className="notes-explorer-file-action-btn !h-9 !w-auto !min-w-[104px] !gap-1.5 !rounded-xl !border !border-slate-200 !bg-white !px-3 !py-1.5 !text-xs !font-bold !text-slate-600 !opacity-100 transition hover:!border-violet-200 hover:!text-violet-700 disabled:!cursor-wait disabled:!opacity-70"
+                                    className="notes-explorer-file-action-btn notes-workbook-action notes-workbook-action--primary !h-9 !w-auto !min-w-[126px] !gap-1.5 !rounded-xl !border !px-3 !py-1.5 !text-xs !font-extrabold !opacity-100 transition disabled:!cursor-wait disabled:!opacity-70"
                                     disabled={isWorkbookHelperBusy}
                                     title="Открыть в локальном Excel или LibreOffice через заранее установленный помощник"
                                     type="button"

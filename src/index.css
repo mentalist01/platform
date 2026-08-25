@@ -84030,6 +84030,91 @@ html[data-theme='light'] .progress-section--mocks .mock-student-hero.mock-comman
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
+/* Workbook rows: the installed desktop helper is the primary workflow. */
+.notes-workbook-install-card {
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.04);
+}
+
+html[data-theme='dark'] .notes-workbook-install-card {
+  border-color: #314560 !important;
+  background: #101c30 !important;
+}
+
+html[data-theme='dark'] .notes-workbook-install-card .text-slate-900 {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme='dark'] .notes-workbook-install-card .text-slate-600,
+html[data-theme='dark'] .notes-workbook-install-card .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .notes-workbook-install-card .bg-violet-50 {
+  background: #241d3b !important;
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .notes-workbook-install-card .bg-slate-100,
+html[data-theme='dark'] .notes-workbook-install-card .bg-slate-50 {
+  background: #1b2c46 !important;
+  color: #a8b6ca !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-workbook-action {
+  width: auto !important;
+  opacity: 1 !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-workbook-action--primary {
+  border-color: #7c3aed !important;
+  background: linear-gradient(135deg, #7c3aed, #c026d3) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.2) !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-workbook-action--primary:hover:not(:disabled) {
+  border-color: #6d28d9 !important;
+  background: linear-gradient(135deg, #6d28d9, #a21caf) !important;
+  color: #fff !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-workbook-action--secondary {
+  border-color: #e2e8f0 !important;
+  background: #fff !important;
+  color: #64748b !important;
+  box-shadow: none !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-workbook-action--secondary:hover:not(:disabled) {
+  border-color: #c4b5fd !important;
+  background: #faf8ff !important;
+  color: #6d28d9 !important;
+}
+
+.notes-explorer-shell--workspace-v2 .notes-workbook-action--connected {
+  border-color: #a7f3d0 !important;
+  background: #ecfdf5 !important;
+  color: #047857 !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-workbook-action--primary {
+  border-color: #a78bfa !important;
+  background: linear-gradient(135deg, #7c3aed, #a21caf) !important;
+  color: #fff !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-workbook-action--secondary {
+  border-color: #314560 !important;
+  background: #101b2e !important;
+  color: #a8b6ca !important;
+}
+
+html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-resource-card .notes-workbook-action--connected {
+  border-color: #166534 !important;
+  background: #0d2f28 !important;
+  color: #6ee7b7 !important;
+}
+
 .progress-section--mocks .mock-tools-row {
   grid-template-columns: minmax(240px, 1fr) minmax(270px, 320px) auto;
   align-items: stretch;

@@ -20,6 +20,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _queueTimer;
     private readonly Dictionary<string, WorkbookSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<WorkbookSession> _sessionOrder = [];
+    private readonly ConcurrentDictionary<string, byte> _handledSaveAsCandidates = new(StringComparer.OrdinalIgnoreCase);
     private WorkbookSession? _latestSession;
     private bool _processingRequest;
     private string _statusText = "Ожидание задания с платформы";
@@ -294,6 +295,74 @@ internal sealed class TrayApplicationContext : ApplicationContext
         });
     }
 
+    private void OnSaveAsCandidate(object? sender, WorkbookPathCandidateEventArgs args)
+    {
+        string candidatePath;
+        try
+        {
+            candidatePath = Path.GetFullPath(args.Path);
+        }
+        catch
+        {
+            return;
+        }
+        if (!_handledSaveAsCandidates.TryAdd(candidatePath, 0)) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(650).ConfigureAwait(false);
+                _uiActions.Enqueue(() => HandleSaveAsCandidate(candidatePath));
+            }
+            catch (Exception error)
+            {
+                AppLog.Error("Could not queue Save As candidate", error);
+            }
+        });
+    }
+
+    private void HandleSaveAsCandidate(string candidatePath)
+    {
+        if (!File.Exists(candidatePath)
+            || _sessions.Values.Any(session => PathsEqual(session.LocalPath, candidatePath)))
+        {
+            return;
+        }
+
+        var matchingSessions = _sessionOrder
+            .Where(session => LocalWorkbookFiles.IsPossibleSaveAsPath(session.LocalPath, candidatePath))
+            .ToList();
+        if (matchingSessions.Count == 0) return;
+
+        WorkbookSession? selectedSession;
+        if (matchingSessions.Count == 1)
+        {
+            selectedSession = matchingSessions[0];
+        }
+        else
+        {
+            using var dialog = new SaveAsSessionDialog(candidatePath, matchingSessions);
+            selectedSession = dialog.ShowDialog() == DialogResult.OK
+                ? dialog.SelectedSession
+                : null;
+        }
+        if (selectedSession is null) return;
+
+        var previousPath = selectedSession.LocalPath;
+        if (!selectedSession.TryAdoptLocalPath(candidatePath)) return;
+        RekeySession(selectedSession, previousPath);
+        _sessionOrder.Remove(selectedSession);
+        _sessionOrder.Add(selectedSession);
+        _latestSession = selectedSession;
+        UpdateSessionMenu();
+        SetStatus($"Слежу за новой копией · {selectedSession.FileName}");
+        ShowNotification(
+            "Новая копия подключена",
+            $"Файл «{selectedSession.FileName}» теперь автоматически сохраняется в конспекты.",
+            ToolTipIcon.Info);
+    }
+
     private Task<string?> RequestSolutionNameAsync(string? suggestion, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
@@ -463,11 +532,19 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             _sessionOrder.Remove(previous);
             previous.StatusChanged -= OnSessionStatusChanged;
+            previous.SaveAsCandidate -= OnSaveAsCandidate;
             previous.Dispose();
         }
         _sessions[key] = session;
         _sessionOrder.Add(session);
         _latestSession = session;
+        session.SaveAsCandidate += OnSaveAsCandidate;
+    }
+
+    private void RekeySession(WorkbookSession session, string previousPath)
+    {
+        _sessions.Remove(BuildSessionKey(session.Grant, previousPath));
+        _sessions[BuildSessionKey(session.Grant, session.LocalPath)] = session;
     }
 
     private void RemoveSession(WorkbookSession session, bool dispose)
@@ -476,6 +553,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (!string.IsNullOrWhiteSpace(entry.Key)) _sessions.Remove(entry.Key);
         _sessionOrder.Remove(session);
         session.StatusChanged -= OnSessionStatusChanged;
+        session.SaveAsCandidate -= OnSaveAsCandidate;
         if (dispose) session.Dispose();
         _latestSession = _sessionOrder.LastOrDefault();
     }
@@ -485,6 +563,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     internal static string BuildSessionKey(WorkbookGrant grant, string localPath) =>
         $"{grant.Origin.GetLeftPart(UriPartial.Authority).TrimEnd('/').ToLowerInvariant()}\n{grant.WorkbookKey}\n{Path.GetFullPath(localPath)}";
+
+    private static bool PathsEqual(string left, string right)
+    {
+        try
+        {
+            return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private void SetStatus(string message)
     {
