@@ -11,6 +11,10 @@ import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/question
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import { normalizeTurtleScene, parseTurtleSceneJson } from '../utils/turtleScene';
 import {
+  WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD,
+  WORKBOOK_HELPER_INSTALL_URL,
+} from '../utils/workbookHelperInstall';
+import {
   QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE,
   hasEnoughQuestionDifficultyData,
 } from '../utils/questionDifficulty';
@@ -5136,10 +5140,17 @@ const StudentTestModal = ({
                   })}
                 </div>
                 {['fallback', 'error'].includes(workbookHelperState.status)
+                  && WORKBOOK_HELPER_INSTALL_URL
                   && extraFiles.some((file) => getTestAttachmentId(file) === workbookHelperState.sourceFileId) && (
                     <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
                       Помощник не открылся?{' '}
-                      <a className="underline underline-offset-2" href="/downloads/IvanEgeWorkbookHelper.exe" download>
+                      <a
+                        className="underline underline-offset-2"
+                        href={WORKBOOK_HELPER_INSTALL_URL}
+                        download={WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD || undefined}
+                        target={WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? undefined : '_blank'}
+                        rel="noopener noreferrer"
+                      >
                         Скачайте или обновите его
                       </a>
                       .

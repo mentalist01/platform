@@ -31,6 +31,10 @@ import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../s
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import {
+  WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD,
+  WORKBOOK_HELPER_INSTALL_URL,
+} from '../utils/workbookHelperInstall';
+import {
   LESSON_SHARED_SCOPE,
   LESSON_SHARE_MODE_COMMON,
   LESSON_SHARE_MODE_PRIVATE,
@@ -59,21 +63,6 @@ const mergeFolderLists = (lists) => {
 const AUTO_REFRESH_INTERVAL_MS = 30_000;
 const WORKBOOK_HELPER_TASK_NUMBERS = new Set([3, 9, 10, 12, 13, 18, 19, 20, 21, 22, 26, 27]);
 const TEXT_TO_WORKBOOK_TASK_NUMBERS = new Set([26, 27]);
-const resolveWorkbookHelperInstallUrl = (value) => {
-  const candidate = String(value || '').trim();
-  if (!candidate) return '';
-  if (/^\/(?!\/)/.test(candidate)) return candidate;
-  try {
-    const parsed = new URL(candidate);
-    return parsed.protocol === 'https:' ? parsed.toString() : '';
-  } catch {
-    return '';
-  }
-};
-const WORKBOOK_HELPER_INSTALL_URL = resolveWorkbookHelperInstallUrl(
-  typeof import.meta !== 'undefined' ? import.meta.env?.VITE_WORKBOOK_HELPER_INSTALL_URL : ''
-);
-const WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD = /\.exe(?:$|[?#])/i.test(WORKBOOK_HELPER_INSTALL_URL);
 const DEFAULT_NOTES_CATEGORY = 'class';
 const ROOT_FOLDER_LABEL = 'Материалы задания';
 const NOTES_PREVIEW_CLOSE_MS = 200;
@@ -3312,8 +3301,8 @@ const NotesSection = ({
                 <p className="text-sm font-extrabold text-slate-900">Помощник для Excel и LibreOffice</p>
                 <p className="mt-0.5 text-xs font-medium leading-5 text-slate-600">
                   {TEXT_TO_WORKBOOK_TASK_NUMBERS.has(normalizedCurrentTask)
-                    ? 'Установите или обновите проверенный помощник — затем кнопка «Excel / LibreOffice» откроет текст и пустую таблицу вместе.'
-                    : 'Установите проверенный помощник — затем кнопка «Excel / LibreOffice» откроет таблицу и синхронизирует сохранения. Без установки используйте «Решать» в браузере.'}
+                    ? 'Скачайте или обновите помощник — затем кнопка «Excel / LibreOffice» откроет текст и пустую таблицу вместе.'
+                    : 'Скачайте помощник один раз — затем кнопка «Excel / LibreOffice» откроет таблицу и синхронизирует сохранения. Без установки используйте «Решать» в браузере.'}
                 </p>
                 {workbookHelperState?.status && workbookHelperState.status !== 'idle' && (
                   <p className={`mt-1 text-xs font-semibold ${
@@ -3333,10 +3322,12 @@ const NotesSection = ({
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 text-xs font-extrabold text-violet-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50"
               >
                 <Download size={15} aria-hidden="true" />
-                {WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? 'Скачать подписанную версию' : 'Установить из Microsoft Store'}
+                {WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? 'Скачать для Windows' : 'Установить из Microsoft Store'}
               </a>
               <p className="max-w-[230px] text-center text-[10px] font-medium leading-4 text-slate-500">
-                Проверяйте имя издателя в окне установки Windows.
+                {WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD
+                  ? 'Временная версия до публикации в Microsoft Store. Windows может показать предупреждение при первом запуске.'
+                  : 'Установка и обновления выполняются через Microsoft Store.'}
               </p>
             </div>
           </aside>
