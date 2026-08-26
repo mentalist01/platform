@@ -2,6 +2,15 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export const CALENDAR_AVAILABILITY_EXPORT_START_HOUR = 8;
 export const CALENDAR_AVAILABILITY_EXPORT_END_HOUR = 24;
+export const CALENDAR_AVAILABILITY_DAY_LABELS = [
+  'Понедельник',
+  'Вторник',
+  'Среда',
+  'Четверг',
+  'Пятница',
+  'Суббота',
+  'Воскресенье',
+];
 
 const cloneDateOnly = (value) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -65,7 +74,7 @@ export const renderCalendarAvailabilityPng = async ({
   events = [],
   timezoneLabel = 'GMT+03',
   title = 'Занятость преподавателя',
-  dayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+  dayLabels = CALENDAR_AVAILABILITY_DAY_LABELS,
   width = 1800,
 } = {}) => {
   if (typeof document === 'undefined') return null;
@@ -120,14 +129,10 @@ export const renderCalendarAvailabilityPng = async ({
   context.textAlign = 'center';
   context.fillText(timezoneLabel, timeColumnWidth / 2, headerHeight + 40);
   dayLabels.slice(0, 7).forEach((label, index) => {
-    const dayDate = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
     const x = timeColumnWidth + (index * dayWidth);
-    context.fillStyle = '#334155';
-    context.font = '700 17px system-ui, -apple-system, Segoe UI, sans-serif';
-    context.fillText(label, x + (dayWidth / 2), headerHeight + 25);
     context.fillStyle = '#0f172a';
-    context.font = '700 25px system-ui, -apple-system, Segoe UI, sans-serif';
-    context.fillText(String(dayDate.getDate()), x + (dayWidth / 2), headerHeight + 54);
+    context.font = '700 18px system-ui, -apple-system, Segoe UI, sans-serif';
+    context.fillText(label, x + (dayWidth / 2), headerHeight + 41);
   });
   context.textAlign = 'left';
 

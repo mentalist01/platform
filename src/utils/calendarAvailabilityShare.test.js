@@ -1,11 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CALENDAR_AVAILABILITY_DAY_LABELS,
   CALENDAR_AVAILABILITY_EXPORT_END_HOUR,
   CALENDAR_AVAILABILITY_EXPORT_START_HOUR,
   formatAvailabilityShareWeekLabel,
   getAvailabilityShareWeekStart,
 } from './calendarAvailabilityShare.js';
+
+test('availability image uses full weekday names without calendar dates', () => {
+  assert.deepEqual(CALENDAR_AVAILABILITY_DAY_LABELS, [
+    'Понедельник',
+    'Вторник',
+    'Среда',
+    'Четверг',
+    'Пятница',
+    'Суббота',
+    'Воскресенье',
+  ]);
+});
 
 test('availability image shows the readable part of the day', () => {
   assert.equal(CALENDAR_AVAILABILITY_EXPORT_START_HOUR, 8);
