@@ -82,10 +82,10 @@ export const renderCalendarAvailabilityPng = async ({
   if (!start) return null;
 
   const safeWidth = Math.max(1200, Math.round(Number(width) || 1800));
-  const timeColumnWidth = 116;
+  const timeColumnWidth = 132;
   const dayWidth = (safeWidth - timeColumnWidth) / 7;
   const headerHeight = 148;
-  const dayHeaderHeight = 68;
+  const dayHeaderHeight = 76;
   const hourHeight = 60;
   const visibleStartMinutes = CALENDAR_AVAILABILITY_EXPORT_START_HOUR * 60;
   const visibleEndMinutes = CALENDAR_AVAILABILITY_EXPORT_END_HOUR * 60;
@@ -125,14 +125,14 @@ export const renderCalendarAvailabilityPng = async ({
   context.fillStyle = '#f1f5f9';
   context.fillRect(0, headerHeight, canvas.width, dayHeaderHeight);
   context.fillStyle = '#64748b';
-  context.font = '700 16px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.font = '700 18px system-ui, -apple-system, Segoe UI, sans-serif';
   context.textAlign = 'center';
-  context.fillText(timezoneLabel, timeColumnWidth / 2, headerHeight + 40);
+  context.fillText(timezoneLabel, timeColumnWidth / 2, headerHeight + 47);
   dayLabels.slice(0, 7).forEach((label, index) => {
     const x = timeColumnWidth + (index * dayWidth);
     context.fillStyle = '#0f172a';
-    context.font = '700 18px system-ui, -apple-system, Segoe UI, sans-serif';
-    context.fillText(label, x + (dayWidth / 2), headerHeight + 41);
+    context.font = '700 25px system-ui, -apple-system, Segoe UI, sans-serif';
+    context.fillText(label, x + (dayWidth / 2), headerHeight + 49);
   });
   context.textAlign = 'left';
 
@@ -152,10 +152,10 @@ export const renderCalendarAvailabilityPng = async ({
     context.lineTo(canvas.width, y + 0.5);
     context.stroke();
     if (hour < CALENDAR_AVAILABILITY_EXPORT_END_HOUR) {
-      context.fillStyle = '#94a3b8';
-      context.font = '600 16px system-ui, -apple-system, Segoe UI, sans-serif';
+      context.fillStyle = '#64748b';
+      context.font = '700 22px system-ui, -apple-system, Segoe UI, sans-serif';
       context.textAlign = 'right';
-      context.fillText(formatClock(hour * 60), timeColumnWidth - 16, y + 23);
+      context.fillText(formatClock(hour * 60), timeColumnWidth - 18, y + 28);
     }
   }
   for (let day = 0; day <= 7; day += 1) {
