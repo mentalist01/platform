@@ -228,7 +228,11 @@ import { synchronizeHomeworkDueAtWithSchedule } from '../src/utils/homeworkSched
 import { snapshotHomeworkGoalTargets } from '../src/utils/homeworkStats.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 import { applyTeacherBaseNotes } from './teacherBaseNotes.js';
-import { createAccessCodeLookupHash, getAccessCodeCandidates } from './accessCodeLookup.js';
+import {
+  createAccessCodeLookupHash,
+  getAccessCodeCandidates,
+  getAccessCodeRecoveryCandidates,
+} from './accessCodeLookup.js';
 import { BoundedExecutionSlots, SlidingWindowRateLimiter } from './pythonExecutionLimiter.js';
 import { buildQuestionDifficultyIndex } from './questionDifficulty.js';
 
@@ -6657,6 +6661,23 @@ const findVerifiedAccessCodeRecord = async (records, code) => {
     if (record?.code && record.code === code) return record;
   }
   return null;
+};
+
+const findVerifiedAccessCodeRecordWithRecovery = async (
+  records,
+  lookupHash,
+  code,
+  predicate = null
+) => {
+  const primaryMatch = await findVerifiedAccessCodeRecord(
+    getAccessCodeCandidates(records, lookupHash, predicate),
+    code
+  );
+  if (primaryMatch) return primaryMatch;
+  return findVerifiedAccessCodeRecord(
+    getAccessCodeRecoveryCandidates(records, lookupHash, predicate),
+    code
+  );
 };
 
 const getCodeHint = (code) => {
@@ -17625,19 +17646,19 @@ const normalizeTeacherName = (name) => {
 
 const isPlaceholderName = (value) => typeof value === 'string' && /^\?+$/.test(value.trim());
 
-const codeMatchesStudents = (code, students) => getAccessCodeCandidates(
-  students,
-  getAccessCodeLookupHash(code)
-).some((student) => {
+const codeMatchesStudents = (code, students) => [
+  ...getAccessCodeCandidates(students, getAccessCodeLookupHash(code)),
+  ...getAccessCodeRecoveryCandidates(students, getAccessCodeLookupHash(code)),
+].some((student) => {
   if (student?.codeHash) return verifyCode(code, student.codeHash);
   if (student?.code) return student.code === code;
   return false;
 });
 
-const codeMatchesTeachers = (code, teachers) => getAccessCodeCandidates(
-  teachers,
-  getAccessCodeLookupHash(code)
-).some((teacher) => {
+const codeMatchesTeachers = (code, teachers) => [
+  ...getAccessCodeCandidates(teachers, getAccessCodeLookupHash(code)),
+  ...getAccessCodeRecoveryCandidates(teachers, getAccessCodeLookupHash(code)),
+].some((teacher) => {
   if (teacher?.codeHash) return verifyCode(code, teacher.codeHash);
   return false;
 });
@@ -19711,8 +19732,10 @@ app.post('/api/login', async (req, res, next) => {
   const codeLookupHash = getAccessCodeLookupHash(normalizedCode);
   const adminLookupHash = String(adminAuth?.adminCodeLookupHash || '').trim();
   const shouldVerifyAdmin = !adminLookupHash || adminLookupHash === codeLookupHash;
-  if (shouldVerifyAdmin && await verifyCodeAsync(normalizedCode, adminAuth?.adminCodeHash)) {
-    if (!adminLookupHash) {
+  const tryAdminLogin = async (allowLookupRecovery = false) => {
+    if (!allowLookupRecovery && !shouldVerifyAdmin) return false;
+    if (!await verifyCodeAsync(normalizedCode, adminAuth?.adminCodeHash)) return false;
+    if (adminLookupHash !== codeLookupHash) {
       adminAuth = {
         ...adminAuth,
         adminCodeLookupHash: codeLookupHash,
@@ -19722,16 +19745,19 @@ app.post('/api/login', async (req, res, next) => {
     }
     clearLoginFailures(clientKey);
     const session = createAuthSession({ id: 'admin1', name: ADMIN_NAME, role: 'admin' });
-    return respondWithSession(res, session);
-  }
+    respondWithSession(res, session);
+    return true;
+  };
+  if (await tryAdminLogin()) return;
 
   const teachers = readTeachersDb();
-  const teacher = await findVerifiedAccessCodeRecord(
-    getAccessCodeCandidates(teachers, codeLookupHash),
+  const teacher = await findVerifiedAccessCodeRecordWithRecovery(
+    teachers,
+    codeLookupHash,
     normalizedCode
   );
   if (teacher) {
-    if (!teacher.codeLookupHash) {
+    if (String(teacher.codeLookupHash || '').trim() !== codeLookupHash) {
       const teacherIndex = teachers.findIndex((entry) => entry?.id === teacher.id);
       if (teacherIndex >= 0) {
         teachers[teacherIndex] = { ...teacher, codeLookupHash };
@@ -19749,17 +19775,22 @@ app.post('/api/login', async (req, res, next) => {
   }
 
   const students = readStudentsDb();
-  const student = await findVerifiedAccessCodeRecord(
-    getAccessCodeCandidates(students, codeLookupHash, (entry) => !entry?.deletedAt),
-    normalizedCode
+  const student = await findVerifiedAccessCodeRecordWithRecovery(
+    students,
+    codeLookupHash,
+    normalizedCode,
+    (entry) => !entry?.deletedAt
   );
   if (!student) {
-    const deletedMatch = await findVerifiedAccessCodeRecord(
-      getAccessCodeCandidates(students, codeLookupHash, (entry) => Boolean(entry?.deletedAt)),
-      normalizedCode
+    if (!shouldVerifyAdmin && await tryAdminLogin(true)) return;
+    const deletedMatch = await findVerifiedAccessCodeRecordWithRecovery(
+      students,
+      codeLookupHash,
+      normalizedCode,
+      (entry) => Boolean(entry?.deletedAt)
     );
     if (deletedMatch) {
-      if (!deletedMatch.codeLookupHash) {
+      if (String(deletedMatch.codeLookupHash || '').trim() !== codeLookupHash) {
         const deletedIndex = students.findIndex((entry) => entry?.id === deletedMatch.id);
         if (deletedIndex >= 0) {
           students[deletedIndex] = { ...deletedMatch, codeLookupHash };
@@ -19778,7 +19809,7 @@ app.post('/api/login', async (req, res, next) => {
     return res.status(401).json({ error: 'Неверный код доступа' });
   }
 
-  if (!student.codeLookupHash) {
+  if (String(student.codeLookupHash || '').trim() !== codeLookupHash) {
     const studentIndex = students.findIndex((entry) => entry?.id === student.id);
     if (studentIndex >= 0) {
       students[studentIndex] = { ...student, codeLookupHash };
@@ -19817,14 +19848,18 @@ app.post('/api/parent/login', async (req, res, next) => {
 
     const codeLookupHash = getAccessCodeLookupHash(normalizedCode);
     const students = readStudentsDb();
-    const student = await findVerifiedAccessCodeRecord(
-      getAccessCodeCandidates(students, codeLookupHash, (entry) => !entry?.deletedAt),
-      normalizedCode
+    const student = await findVerifiedAccessCodeRecordWithRecovery(
+      students,
+      codeLookupHash,
+      normalizedCode,
+      (entry) => !entry?.deletedAt
     );
     if (!student) {
-      const deletedMatch = await findVerifiedAccessCodeRecord(
-        getAccessCodeCandidates(students, codeLookupHash, (entry) => Boolean(entry?.deletedAt)),
-        normalizedCode
+      const deletedMatch = await findVerifiedAccessCodeRecordWithRecovery(
+        students,
+        codeLookupHash,
+        normalizedCode,
+        (entry) => Boolean(entry?.deletedAt)
       );
       if (deletedMatch) {
         return res.status(403).json({ error: 'Ученик удалён. Обратитесь к учителю.' });
@@ -19839,7 +19874,7 @@ app.post('/api/parent/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Неверный код ученика' });
     }
 
-    if (!student.codeLookupHash) {
+    if (String(student.codeLookupHash || '').trim() !== codeLookupHash) {
       const studentIndex = students.findIndex((entry) => entry?.id === student.id);
       if (studentIndex >= 0) {
         students[studentIndex] = { ...student, codeLookupHash };

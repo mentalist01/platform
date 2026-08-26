@@ -32,3 +32,15 @@ export const getAccessCodeCandidates = (records, lookupHash, predicate = null) =
 
   return [...matching, ...legacy];
 };
+
+export const getAccessCodeRecoveryCandidates = (records, lookupHash, predicate = null) => {
+  const normalizedLookupHash = typeof lookupHash === 'string' ? lookupHash.trim() : '';
+  const filter = typeof predicate === 'function' ? predicate : () => true;
+  return (Array.isArray(records) ? records : []).filter((record) => {
+    if (!record || typeof record !== 'object' || !filter(record)) return false;
+    const storedLookupHash = typeof record.codeLookupHash === 'string'
+      ? record.codeLookupHash.trim()
+      : '';
+    return Boolean(storedLookupHash && storedLookupHash !== normalizedLookupHash);
+  });
+};
