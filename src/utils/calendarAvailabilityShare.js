@@ -1,5 +1,8 @@
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+export const CALENDAR_AVAILABILITY_EXPORT_START_HOUR = 8;
+export const CALENDAR_AVAILABILITY_EXPORT_END_HOUR = 24;
+
 const cloneDateOnly = (value) => {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
@@ -63,22 +66,27 @@ export const renderCalendarAvailabilityPng = async ({
   timezoneLabel = 'GMT+03',
   title = 'Занятость преподавателя',
   dayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
-  width = 1600,
+  width = 1800,
 } = {}) => {
   if (typeof document === 'undefined') return null;
   const start = cloneDateOnly(weekStartDate);
   if (!start) return null;
 
-  const safeWidth = Math.max(980, Math.round(Number(width) || 1600));
-  const timeColumnWidth = 84;
+  const safeWidth = Math.max(1200, Math.round(Number(width) || 1800));
+  const timeColumnWidth = 116;
   const dayWidth = (safeWidth - timeColumnWidth) / 7;
-  const headerHeight = 112;
-  const hourHeight = 38;
-  const calendarHeight = 24 * hourHeight;
-  const footerHeight = 48;
+  const headerHeight = 148;
+  const dayHeaderHeight = 68;
+  const hourHeight = 60;
+  const visibleStartMinutes = CALENDAR_AVAILABILITY_EXPORT_START_HOUR * 60;
+  const visibleEndMinutes = CALENDAR_AVAILABILITY_EXPORT_END_HOUR * 60;
+  const visibleHourCount = CALENDAR_AVAILABILITY_EXPORT_END_HOUR
+    - CALENDAR_AVAILABILITY_EXPORT_START_HOUR;
+  const calendarHeight = visibleHourCount * hourHeight;
+  const footerHeight = 58;
   const canvas = document.createElement('canvas');
   canvas.width = safeWidth;
-  canvas.height = headerHeight + calendarHeight + footerHeight;
+  canvas.height = headerHeight + dayHeaderHeight + calendarHeight + footerHeight;
   const context = canvas.getContext('2d');
   if (!context) return null;
 
@@ -88,54 +96,61 @@ export const renderCalendarAvailabilityPng = async ({
   context.fillRect(0, 0, canvas.width, headerHeight);
 
   context.fillStyle = '#0f172a';
-  context.font = '700 26px system-ui, -apple-system, Segoe UI, sans-serif';
-  context.fillText(title, 28, 38);
+  context.font = '700 38px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.fillText(title, 32, 51);
   context.fillStyle = '#64748b';
-  context.font = '600 14px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.font = '600 20px system-ui, -apple-system, Segoe UI, sans-serif';
   const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
   const rangeLabel = `${formatAvailabilityShareDate(start)} – ${formatAvailabilityShareDate(end)}`;
-  context.fillText(`${rangeLabel} • ${timezoneLabel}`, 28, 67);
+  context.fillText(`${rangeLabel} • ${timezoneLabel}`, 32, 84);
   context.fillStyle = '#2563eb';
-  context.fillRect(28, 84, 14, 14);
+  context.fillRect(32, 108, 19, 19);
   context.fillStyle = '#334155';
-  context.font = '600 12px system-ui, -apple-system, Segoe UI, sans-serif';
-  context.fillText('занято', 50, 95);
+  context.font = '600 17px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.fillText('занято', 61, 124);
   context.fillStyle = '#e2e8f0';
-  context.fillRect(122, 84, 14, 14);
+  context.fillRect(157, 108, 19, 19);
   context.fillStyle = '#334155';
-  context.fillText('свободно', 144, 95);
+  context.fillText('свободно', 186, 124);
 
   context.fillStyle = '#f1f5f9';
-  context.fillRect(0, headerHeight, canvas.width, 38);
+  context.fillRect(0, headerHeight, canvas.width, dayHeaderHeight);
   context.fillStyle = '#64748b';
-  context.font = '700 11px system-ui, -apple-system, Segoe UI, sans-serif';
-  context.fillText(timezoneLabel, 16, headerHeight + 24);
+  context.font = '700 16px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.textAlign = 'center';
+  context.fillText(timezoneLabel, timeColumnWidth / 2, headerHeight + 40);
   dayLabels.slice(0, 7).forEach((label, index) => {
     const dayDate = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
     const x = timeColumnWidth + (index * dayWidth);
     context.fillStyle = '#334155';
-    context.font = '700 12px system-ui, -apple-system, Segoe UI, sans-serif';
-    context.textAlign = 'center';
-    context.fillText(`${label} ${dayDate.getDate()}`, x + (dayWidth / 2), headerHeight + 24);
+    context.font = '700 17px system-ui, -apple-system, Segoe UI, sans-serif';
+    context.fillText(label, x + (dayWidth / 2), headerHeight + 25);
+    context.fillStyle = '#0f172a';
+    context.font = '700 25px system-ui, -apple-system, Segoe UI, sans-serif';
+    context.fillText(String(dayDate.getDate()), x + (dayWidth / 2), headerHeight + 54);
   });
   context.textAlign = 'left';
 
-  const gridTop = headerHeight + 38;
+  const gridTop = headerHeight + dayHeaderHeight;
   context.fillStyle = '#ffffff';
   context.fillRect(0, gridTop, canvas.width, calendarHeight);
   context.strokeStyle = '#e2e8f0';
   context.lineWidth = 1;
-  for (let hour = 0; hour <= 24; hour += 1) {
-    const y = gridTop + (hour * hourHeight);
+  for (
+    let hour = CALENDAR_AVAILABILITY_EXPORT_START_HOUR;
+    hour <= CALENDAR_AVAILABILITY_EXPORT_END_HOUR;
+    hour += 1
+  ) {
+    const y = gridTop + ((hour - CALENDAR_AVAILABILITY_EXPORT_START_HOUR) * hourHeight);
     context.beginPath();
     context.moveTo(0, y + 0.5);
     context.lineTo(canvas.width, y + 0.5);
     context.stroke();
-    if (hour < 24) {
+    if (hour < CALENDAR_AVAILABILITY_EXPORT_END_HOUR) {
       context.fillStyle = '#94a3b8';
-      context.font = '600 11px system-ui, -apple-system, Segoe UI, sans-serif';
+      context.font = '600 16px system-ui, -apple-system, Segoe UI, sans-serif';
       context.textAlign = 'right';
-      context.fillText(formatClock(hour * 60), timeColumnWidth - 12, y + 16);
+      context.fillText(formatClock(hour * 60), timeColumnWidth - 16, y + 23);
     }
   }
   for (let day = 0; day <= 7; day += 1) {
@@ -156,32 +171,43 @@ export const renderCalendarAvailabilityPng = async ({
       lane: Math.max(0, Math.trunc(Number(event?.lane) || 0)),
       laneCount: Math.max(1, Math.trunc(Number(event?.laneCount) || 1)),
     }))
-    .filter((event) => event.endMinutes > event.startMinutes);
+    .filter((event) => (
+      event.endMinutes > event.startMinutes
+      && event.endMinutes > visibleStartMinutes
+      && event.startMinutes < visibleEndMinutes
+    ));
 
   normalizedEvents.forEach((event) => {
     const laneWidth = dayWidth / event.laneCount;
-    const x = timeColumnWidth + (event.dayIndex * dayWidth) + (event.lane * laneWidth) + 4;
-    const y = gridTop + ((event.startMinutes / 60) * hourHeight) + 2;
-    const height = Math.max(22, ((event.endMinutes - event.startMinutes) / 60) * hourHeight - 4);
-    const cardWidth = Math.max(18, laneWidth - 8);
+    const visibleEventStart = Math.max(event.startMinutes, visibleStartMinutes);
+    const visibleEventEnd = Math.min(event.endMinutes, visibleEndMinutes);
+    const x = timeColumnWidth + (event.dayIndex * dayWidth) + (event.lane * laneWidth) + 5;
+    const y = gridTop + (
+      ((visibleEventStart - visibleStartMinutes) / 60) * hourHeight
+    ) + 3;
+    const height = Math.max(
+      34,
+      ((visibleEventEnd - visibleEventStart) / 60) * hourHeight - 6
+    );
+    const cardWidth = Math.max(24, laneWidth - 10);
     const gradient = context.createLinearGradient(x, y, x + cardWidth, y + height);
     gradient.addColorStop(0, '#3b82f6');
     gradient.addColorStop(1, '#1d4ed8');
     context.fillStyle = gradient;
-    drawRoundedRect(context, x, y, cardWidth, height, 7);
+    drawRoundedRect(context, x, y, cardWidth, height, 9);
     context.fill();
     context.fillStyle = '#ffffff';
-    context.font = '700 12px system-ui, -apple-system, Segoe UI, sans-serif';
-    context.fillText('Занятие', x + 8, y + 16);
-    if (height >= 34) {
-      context.font = '600 10px system-ui, -apple-system, Segoe UI, sans-serif';
-      context.fillText(`${formatClock(event.startMinutes)}–${formatClock(event.endMinutes)}`, x + 8, y + 30);
+    context.font = '700 18px system-ui, -apple-system, Segoe UI, sans-serif';
+    context.fillText('Занятие', x + 11, y + 23);
+    if (height >= 48) {
+      context.font = '600 14px system-ui, -apple-system, Segoe UI, sans-serif';
+      context.fillText(`${formatClock(event.startMinutes)}–${formatClock(event.endMinutes)}`, x + 11, y + 43);
     }
   });
 
   context.fillStyle = '#64748b';
-  context.font = '500 11px system-ui, -apple-system, Segoe UI, sans-serif';
-  context.fillText('Время без карточки — свободное для нового занятия.', 16, canvas.height - 18);
+  context.font = '500 15px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.fillText('Время без карточки — свободное для нового занятия.', 22, canvas.height - 22);
 
   return new Promise((resolve) => {
     canvas.toBlob((blob) => {

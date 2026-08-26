@@ -4939,7 +4939,7 @@ const TeacherCalendarSection = ({
                       <img
                         src={availabilityShareImage.url}
                         alt={`Предпросмотр занятости на неделю ${availabilityShareWeekLabel}`}
-                        className="block max-h-64 w-full object-contain"
+                        className="block max-h-[360px] w-full object-contain"
                       />
                     </div>
                   )}

@@ -9,10 +9,15 @@ import {
 
 test('buildCalendarHomeworkProgressEntries keeps upcoming homework and normalizes its progress', () => {
   const result = buildCalendarHomeworkProgressEntries({
-    homeworks: [{ id: 'homework-1', dueAt: '2026-08-27T06:00:00.000Z' }],
+    homeworks: [{
+      id: 'homework-1',
+      issuedAt: '2026-08-20T06:00:00.000Z',
+      dueAt: '2026-08-27T06:00:00.000Z',
+    }],
     statistics: [{
       id: 'homework-1',
       title: 'Домашняя работа',
+      issuedAt: '2026-08-20T06:00:00.000Z',
       dueAt: '2026-08-27T06:00:00.000Z',
       percent: 49.6,
       completedCount: 1,
@@ -25,6 +30,7 @@ test('buildCalendarHomeworkProgressEntries keeps upcoming homework and normalize
   assert.deepEqual(result, [{
     homeworkId: 'homework-1',
     title: 'Домашняя работа',
+    issuedAt: '2026-08-20T06:00:00.000Z',
     dueAt: '2026-08-27T06:00:00.000Z',
     dueDayKey: '2026-08-27',
     dueMinutes: 540,
@@ -85,6 +91,37 @@ test('resolveCalendarEventHomeworkProgress preserves an arbitrary percentage', (
   assert.equal(result?.percent, 37);
 });
 
+test('resolveCalendarEventHomeworkProgress ignores an older homework with the same deadline', () => {
+  const result = resolveCalendarEventHomeworkProgress({
+    homeworkProgressEntries: [
+      {
+        homeworkId: 'old-homework',
+        issuedAt: '2026-08-19T18:00:00.000Z',
+        dueDayKey: '2026-08-26',
+        dueMinutes: 1140,
+        percent: 100,
+        completedCount: 12,
+        totalCount: 12,
+      },
+      {
+        homeworkId: 'current-homework',
+        issuedAt: '2026-08-25T18:00:00.000Z',
+        dueDayKey: '2026-08-26',
+        dueMinutes: 1140,
+        percent: 0,
+        completedCount: 0,
+        totalCount: 17,
+      },
+    ],
+  }, '2026-08-26', 1140);
+
+  assert.equal(result?.homeworkId, 'current-homework');
+  assert.equal(result?.percent, 0);
+  assert.equal(result?.completedCount, 0);
+  assert.equal(result?.totalCount, 17);
+  assert.equal(result?.homeworkCount, 1);
+});
+
 test('resolveCalendarEventHomeworkProgress aggregates group progress by task count', () => {
   const result = resolveCalendarEventHomeworkProgress({
     participantIds: ['student-1', 'student-2'],
@@ -116,4 +153,46 @@ test('resolveCalendarEventHomeworkProgress aggregates group progress by task cou
   assert.equal(result?.completedCount, 4);
   assert.equal(result?.totalCount, 6);
   assert.equal(result?.membersWithHomework, 2);
+});
+
+test('group progress uses only the latest homework per student and lesson', () => {
+  const result = resolveCalendarEventHomeworkProgress({
+    participantIds: ['student-1', 'student-2'],
+    studentHomeworkProgress: [
+      {
+        studentId: 'student-1',
+        entries: [
+          {
+            issuedAt: '2026-08-18T18:00:00.000Z',
+            dueDayKey: '2026-08-27',
+            dueMinutes: 540,
+            completedCount: 8,
+            totalCount: 8,
+          },
+          {
+            issuedAt: '2026-08-26T08:00:00.000Z',
+            dueDayKey: '2026-08-27',
+            dueMinutes: 540,
+            completedCount: 0,
+            totalCount: 10,
+          },
+        ],
+      },
+      {
+        studentId: 'student-2',
+        entries: [{
+          issuedAt: '2026-08-26T09:00:00.000Z',
+          dueDayKey: '2026-08-27',
+          dueMinutes: 540,
+          completedCount: 5,
+          totalCount: 10,
+        }],
+      },
+    ],
+  }, '2026-08-27', 540);
+
+  assert.equal(result?.percent, 25);
+  assert.equal(result?.completedCount, 5);
+  assert.equal(result?.totalCount, 20);
+  assert.equal(result?.homeworkCount, 2);
 });

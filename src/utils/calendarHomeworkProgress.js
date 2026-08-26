@@ -53,6 +53,8 @@ export const buildCalendarHomeworkProgressEntries = ({
       const dueAt = normalizeText(entry?.dueAt || source?.dueAt);
       const dueAtMs = Date.parse(dueAt);
       if (!Number.isFinite(dueAtMs) || dueAtMs < safeNowMs) return null;
+      const issuedAt = normalizeText(entry?.issuedAt || source?.issuedAt);
+      const issuedAtMs = Date.parse(issuedAt);
       const dueParts = getDateParts(new Date(dueAtMs));
       const dueDayKey = normalizeDayKey(dueParts?.dayKey);
       const dueMinutes = parseTimeToMinutes(dueParts?.time);
@@ -61,6 +63,7 @@ export const buildCalendarHomeworkProgressEntries = ({
       return {
         homeworkId,
         title: normalizeText(entry?.title),
+        issuedAt: Number.isFinite(issuedAtMs) ? new Date(issuedAtMs).toISOString() : '',
         dueAt: new Date(dueAtMs).toISOString(),
         dueDayKey,
         dueMinutes,
@@ -81,20 +84,19 @@ export const findCalendarHomeworkProgressForOccurrence = (
   const normalizedDayKey = normalizeDayKey(dayKey);
   const normalizedStartMinutes = normalizeMinutes(startMinutes);
   if (!normalizedDayKey || normalizedStartMinutes == null) return null;
-  return (Array.isArray(entries) ? entries : []).find((entry) => (
-    normalizeDayKey(entry?.dueDayKey) === normalizedDayKey
-    && normalizeMinutes(entry?.dueMinutes) === normalizedStartMinutes
-  )) || null;
-};
-
-const getCalendarHomeworkProgressForOccurrence = (entries, dayKey, startMinutes) => {
-  const normalizedDayKey = normalizeDayKey(dayKey);
-  const normalizedStartMinutes = normalizeMinutes(startMinutes);
-  if (!normalizedDayKey || normalizedStartMinutes == null) return [];
-  return (Array.isArray(entries) ? entries : []).filter((entry) => (
+  const matchingEntries = (Array.isArray(entries) ? entries : []).filter((entry) => (
     normalizeDayKey(entry?.dueDayKey) === normalizedDayKey
     && normalizeMinutes(entry?.dueMinutes) === normalizedStartMinutes
   ));
+  return matchingEntries.reduce((latest, entry) => {
+    if (!latest) return entry;
+    const latestIssuedAtMs = Date.parse(normalizeText(latest?.issuedAt));
+    const entryIssuedAtMs = Date.parse(normalizeText(entry?.issuedAt));
+    if (Number.isFinite(entryIssuedAtMs) && !Number.isFinite(latestIssuedAtMs)) return entry;
+    if (Number.isFinite(entryIssuedAtMs) && entryIssuedAtMs >= latestIssuedAtMs) return entry;
+    if (!Number.isFinite(entryIssuedAtMs) && !Number.isFinite(latestIssuedAtMs)) return entry;
+    return latest;
+  }, null);
 };
 
 const summarizeProgressEntries = (entries) => {
@@ -121,16 +123,16 @@ const summarizeProgressEntries = (entries) => {
 };
 
 export const resolveCalendarEventHomeworkProgress = (event, dayKey, startMinutes) => {
-  const individualEntries = getCalendarHomeworkProgressForOccurrence(
+  const individualEntry = findCalendarHomeworkProgressForOccurrence(
     event?.homeworkProgressEntries,
     dayKey,
     startMinutes
   );
-  if (individualEntries.length > 0) {
+  if (individualEntry) {
     return {
-      ...(individualEntries.length === 1 ? individualEntries[0] : {}),
-      ...summarizeProgressEntries(individualEntries),
-      homeworkCount: individualEntries.length,
+      ...individualEntry,
+      ...summarizeProgressEntries([individualEntry]),
+      homeworkCount: 1,
       membersWithHomework: 1,
       memberCount: 1,
     };
@@ -139,14 +141,14 @@ export const resolveCalendarEventHomeworkProgress = (event, dayKey, startMinutes
   const memberProgress = (Array.isArray(event?.studentHomeworkProgress)
     ? event.studentHomeworkProgress
     : [])
-    .flatMap((member) => {
-      const progressEntries = getCalendarHomeworkProgressForOccurrence(
+    .map((member) => {
+      const progress = findCalendarHomeworkProgressForOccurrence(
         member?.entries,
         dayKey,
         startMinutes
       );
       const studentId = normalizeText(member?.studentId);
-      return progressEntries.map((progress) => ({ studentId, progress }));
+      return progress ? { studentId, progress } : null;
     })
     .filter(Boolean);
   if (memberProgress.length === 0) return null;
