@@ -391,6 +391,22 @@ test('homework read and teacher refresh cascade deleted Google lessons into day 
         `Student A:${followingLessonDay}T20:00`,
         `Student B:${followingLessonDay}T20:00`,
       ]);
+    const studentACalendarEntry = teacherSchedule.find((entry) => (
+      entry?.source === 'google-ical' && entry?.studentId === studentId
+    ));
+    assert.deepEqual(studentACalendarEntry?.homeworkProgressEntries?.map((entry) => ({
+      dueDayKey: entry.dueDayKey,
+      dueMinutes: entry.dueMinutes,
+      percent: entry.percent,
+      completedCount: entry.completedCount,
+      totalCount: entry.totalCount,
+    })), [{
+      dueDayKey: followingLessonDay,
+      dueMinutes: 20 * 60,
+      percent: 0,
+      completedCount: 0,
+      totalCount: 2,
+    }]);
 
     const persistedDb = JSON.parse(fs.readFileSync(path.join(dataDir, 'progress.json'), 'utf8'));
     const persistedStudent = persistedDb[studentId];

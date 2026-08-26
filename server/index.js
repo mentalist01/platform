@@ -30,6 +30,7 @@ import {
   buildHomeworkStatistics,
   summarizeHomeworkStatistics,
 } from '../src/utils/homeworkStats.js';
+import { buildCalendarHomeworkProgressEntries } from '../src/utils/calendarHomeworkProgress.js';
 import {
   buildMockExamProgressEntries,
   summarizeMockExamProgress,
@@ -9550,6 +9551,73 @@ const getTeacherScheduleEntries = (teacherId, options = {}) => {
   });
 
   return entries;
+};
+
+const buildTeacherCalendarHomeworkProgressByStudentId = (teacherId, nowMs = Date.now()) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  const progressByStudentId = new Map();
+  if (!normalizedTeacherId) return progressByStudentId;
+  const testsDb = getTestsDbWithPythonInfiniteTraining(readTestsDb());
+  const mockExams = readMockExamsDb();
+  const students = readStudentsDb().filter((student) => (
+    isCurrentStudent(student)
+    && String(student?.teacherId || '').trim() === normalizedTeacherId
+  ));
+
+  students.forEach((student) => {
+    const studentId = String(student?.id || '').trim();
+    if (!studentId) return;
+    try {
+      const studentData = getStudentData(studentId);
+      const homeworks = Array.isArray(studentData?.homeworks) ? studentData.homeworks : [];
+      if (homeworks.length === 0) return;
+      const statistics = buildHomeworkStatistics({
+        homeworks,
+        studentData,
+        testsDb,
+        mockExams,
+        mockAttemptsByExam: studentData?.mockAttempts,
+        nowMs,
+      });
+      const entries = buildCalendarHomeworkProgressEntries({
+        homeworks,
+        statistics,
+        getDateParts: getDatePartsInCalendarTimeZone,
+        nowMs,
+      });
+      if (entries.length > 0) progressByStudentId.set(studentId, entries);
+    } catch (error) {
+      console.warn('[calendar] failed to calculate homework progress:', studentId, error?.message || error);
+    }
+  });
+
+  return progressByStudentId;
+};
+
+const annotateTeacherCalendarEntryWithHomeworkProgress = (entry, progressByStudentId) => {
+  if (!entry || typeof entry !== 'object' || !(progressByStudentId instanceof Map)) return entry;
+  const participantIds = Array.from(new Set(
+    (Array.isArray(entry?.participantIds) ? entry.participantIds : [])
+      .map((studentId) => String(studentId || '').trim())
+      .filter(Boolean)
+  ));
+  if (participantIds.length > 0) {
+    const studentHomeworkProgress = participantIds
+      .map((studentId) => ({
+        studentId,
+        entries: progressByStudentId.get(studentId) || [],
+      }))
+      .filter((item) => item.entries.length > 0);
+    return studentHomeworkProgress.length > 0
+      ? { ...entry, studentHomeworkProgress }
+      : entry;
+  }
+
+  const studentId = String(entry?.studentId || '').trim();
+  const homeworkProgressEntries = studentId ? progressByStudentId.get(studentId) : null;
+  return Array.isArray(homeworkProgressEntries) && homeworkProgressEntries.length > 0
+    ? { ...entry, homeworkProgressEntries }
+    : entry;
 };
 
 const normalizeTaskNumber = (value) => {
@@ -28005,6 +28073,15 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     homeworkIds: homeworkAssignment ? [homeworkAssignment.id] : [],
   });
   const updated = setStudentData(student.id, homeworkChestAward.data);
+  if (homeworkAssignment) {
+    notifyScheduleSyncUpdate({
+      scope: 'homework-progress',
+      action: 'homework-progress-updated',
+      teacherId: student.teacherId,
+      studentId: student.id,
+      entryId: homeworkAssignment.id,
+    });
+  }
   const homeworkChestGranted = homeworkChestAward.grants[0] || null;
   const dropPayloadByRecord = new Map();
   const mockArtifactDrops = artifactDropRecords
@@ -28565,6 +28642,14 @@ app.post('/api/progress/solve', async (req, res) => {
     grantedAt: submittedAt,
   });
   const updated = setStudentData(student.id, homeworkChestAward.data);
+  if (solvedAdded) {
+    notifyScheduleSyncUpdate({
+      scope: 'homework-progress',
+      action: 'homework-progress-updated',
+      teacherId: student.teacherId,
+      studentId: student.id,
+    });
+  }
   const homeworkChestGranted = homeworkChestAward.grants[0] || null;
   res.json({
     taskProgress,
@@ -32141,11 +32226,16 @@ app.get('/api/teacher-schedule', async (req, res) => {
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
-  const localEntries = getTeacherScheduleEntries(teacher.id);
+  const homeworkProgressByStudentId = buildTeacherCalendarHomeworkProgressByStudentId(teacher.id);
+  const localEntries = getTeacherScheduleEntries(teacher.id)
+    .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(entry, homeworkProgressByStudentId));
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
   return res.json([
     ...localEntries,
-    ...googleEntries.map((entry) => annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry)),
+    ...googleEntries.map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(
+      annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry),
+      homeworkProgressByStudentId
+    )),
   ]);
 });
 
@@ -33387,6 +33477,13 @@ app.patch('/api/student-next-lesson', (req, res) => {
     console.error(`[push] post-save "new homework" notify failed for student ${student.id}:`, error);
   });
   broadcastHomeworkAssigned(student, newEntry);
+  notifyScheduleSyncUpdate({
+    scope: 'homework-progress',
+    action: 'homework-assigned',
+    teacherId: student.teacherId,
+    studentId: student.id,
+    entryId: newEntry.id,
+  });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
@@ -33624,6 +33721,13 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     : (data.nextLesson || { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] });
 
   const updated = setStudentData(student.id, { ...data, nextLesson, homeworks });
+  notifyScheduleSyncUpdate({
+    scope: 'homework-progress',
+    action: 'homework-updated',
+    teacherId: student.teacherId,
+    studentId: student.id,
+    entryId: updatedEntry.id,
+  });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
@@ -33706,6 +33810,13 @@ app.patch('/api/student-next-lesson/:id/checklist', (req, res) => {
       }
     : data.nextLesson;
   setStudentData(student.id, { ...data, nextLesson, homeworks });
+  notifyScheduleSyncUpdate({
+    scope: 'homework-progress',
+    action: 'homework-progress-updated',
+    teacherId: student.teacherId,
+    studentId: student.id,
+    entryId: updatedEntry.id,
+  });
   res.json({ homework: decorateHomeworkEntry(updatedEntry) });
 });
 
@@ -33837,6 +33948,13 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
     : { homeWork: '', lessonLink: '', boardLink: '', issuedAt: '', dueAt: '', dueAtMode: 'manual', daysToComplete: 7, taskNumber: null, levelId: null, targetQuestions: [], goals: [], checklistItems: [] };
 
   const updated = setStudentData(student.id, { ...data, nextLesson, homeworks: updatedHomeworks });
+  notifyScheduleSyncUpdate({
+    scope: 'homework-progress',
+    action: 'homework-deleted',
+    teacherId: student.teacherId,
+    studentId: student.id,
+    entryId: id,
+  });
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 

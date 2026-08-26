@@ -23,11 +23,19 @@ import {
   Users,
   Wallet,
   X,
+  ImageDown,
+  Share2,
 } from 'lucide-react';
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { resolveApiUrl } from '../utils/runtimeUrls';
 import { normalizeTelemostUrl } from '../utils/telemost';
+import { resolveCalendarEventHomeworkProgress } from '../utils/calendarHomeworkProgress';
+import {
+  formatAvailabilityShareWeekLabel,
+  getAvailabilityShareWeekStart,
+  renderCalendarAvailabilityPng,
+} from '../utils/calendarAvailabilityShare';
 
 const SCHEDULE_WEEKDAYS = [
   { key: 'monday', label: 'Понедельник', shortLabel: 'Пн', order: 1 },
@@ -128,6 +136,16 @@ const hexToRgba = (value, alpha = 0.22) => {
 const buildEventCardBackground = (value) => {
   const base = normalizeHexColor(value);
   return `linear-gradient(135deg, ${mixHexColor(base, '#ffffff', 0.14)} 0%, ${base} 52%, ${mixHexColor(base, '#020617', 0.18)} 100%)`;
+};
+
+const buildEventCardHomeworkProgressBackground = (value, progressPercent) => {
+  const base = normalizeHexColor(value);
+  const pale = mixHexColor(base, '#ffffff', 0.58);
+  const progress = Math.max(0, Math.min(100, Math.round(Number(progressPercent) || 0)));
+  return [
+    'linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 52%, rgba(2,6,23,0.18) 100%)',
+    `linear-gradient(90deg, ${base} 0%, ${base} ${progress}%, ${pale} ${progress}%, ${pale} 100%)`,
+  ].join(', ');
 };
 
 const SCHEDULE_WEEKDAY_BY_KEY = SCHEDULE_WEEKDAYS.reduce((acc, weekday) => {
@@ -496,6 +514,18 @@ const isCalendarLessonFinished = (dayKey, endMinutes, now = new Date()) => {
   return normalizedEndMinutes <= currentMinuteOfDay;
 };
 
+const isCalendarLessonUpcoming = (dayKey, startMinutes, now = new Date()) => {
+  const normalizedDayKey = normalizeScheduleDateKey(dayKey);
+  const safeNow = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  const todayKey = toDayKey(safeNow);
+  const normalizedStartMinutes = Number(startMinutes);
+  if (!normalizedDayKey || !Number.isFinite(normalizedStartMinutes)) return false;
+  if (normalizedDayKey > todayKey) return true;
+  if (normalizedDayKey < todayKey) return false;
+  const currentMinuteOfDay = (safeNow.getHours() * 60) + safeNow.getMinutes();
+  return normalizedStartMinutes > currentMinuteOfDay;
+};
+
 const getCalendarLessonPaymentState = (teacherId, lessonInfo, marks, now = new Date()) => {
   const paidMarkKey = buildLessonPanelMarkKey(teacherId, lessonInfo, 'paid');
   const trialMarkKey = buildLessonPanelMarkKey(teacherId, lessonInfo, 'trial');
@@ -859,6 +889,58 @@ const assignOverlapLanes = (events) => {
   return result;
 };
 
+const buildCalendarWeekEventsByDayIndex = ({
+  entries = [],
+  weekDays = [],
+  dayStartMinutes = 0,
+  dayEndMinutes = 24 * 60,
+} = {}) => {
+  const buckets = Array.from({ length: 7 }, () => []);
+  const dayKeyToIndex = new Map(
+    weekDays.map((date, index) => [toDayKey(date), index])
+  );
+
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    const startMinutesRaw = parseScheduleTimeToMinutes(entry?.time);
+    if (!Number.isFinite(startMinutesRaw)) return;
+
+    const explicitDateKey = normalizeScheduleDateKey(entry?.date);
+    let dayIndex = null;
+    if (explicitDateKey) {
+      dayIndex = dayKeyToIndex.get(explicitDateKey);
+      if (!Number.isFinite(dayIndex)) return;
+    } else {
+      const weekdayOrder = Number(entry?.weekdayOrder) || resolveScheduleWeekdayMeta(entry)?.order;
+      if (Number.isFinite(weekdayOrder) && weekdayOrder >= 1 && weekdayOrder <= 7) {
+        dayIndex = weekdayOrder - 1;
+      }
+    }
+    if (!Number.isFinite(dayIndex) || dayIndex < 0 || dayIndex > 6) return;
+
+    const dayKey = toDayKey(weekDays[dayIndex]);
+    const excludedDates = new Set(normalizeExcludedDayKeys(entry?.excludedDates));
+    if (!explicitDateKey && excludedDates.has(dayKey)) return;
+
+    const clampedStart = Math.max(dayStartMinutes, Math.min(dayEndMinutes - 15, startMinutesRaw));
+    const durationMinutes = Number.isFinite(Number(entry?.durationMinutes))
+      ? Math.max(15, Number(entry.durationMinutes))
+      : DEFAULT_EVENT_DURATION_MINUTES;
+    const clampedEnd = Math.max(
+      clampedStart + 20,
+      Math.min(dayEndMinutes, startMinutesRaw + durationMinutes)
+    );
+    buckets[dayIndex].push({
+      ...entry,
+      startMinutes: clampedStart,
+      endMinutes: clampedEnd,
+      dayKey,
+      dayIndex,
+    });
+  });
+
+  return buckets.map((list) => assignOverlapLanes(list));
+};
+
 const TeacherCalendarSection = ({
   teacherId,
   students,
@@ -928,6 +1010,12 @@ const TeacherCalendarSection = ({
   const [showConflictsOnly, setShowConflictsOnly] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
+  const [availabilityShareMode, setAvailabilityShareMode] = useState(false);
+  const [availabilityShareOffsetWeeks, setAvailabilityShareOffsetWeeks] = useState(4);
+  const [availabilityShareImage, setAvailabilityShareImage] = useState(null);
+  const [availabilityShareBusy, setAvailabilityShareBusy] = useState(false);
+  const [availabilityShareError, setAvailabilityShareError] = useState('');
+  const [availabilityShareSuccess, setAvailabilityShareSuccess] = useState('');
   const [paymentReminderOpen, setPaymentReminderOpen] = useState(false);
   const [quickCreateFindingSlot, setQuickCreateFindingSlot] = useState(false);
   const [eventQuickActionBusy, setEventQuickActionBusy] = useState(false);
@@ -962,6 +1050,9 @@ const TeacherCalendarSection = ({
   const calendarGridRef = useRef(null);
   const timelineDefaultScrollAppliedRef = useRef(false);
   const calendarSyncAutoRefreshBusyRef = useRef(false);
+  const availabilityShareReturnFocusDateRef = useRef(null);
+  const availabilityShareReturnShowWeekendsRef = useRef(null);
+  const availabilityShareImageUrlRef = useRef('');
 
   const weekStartDate = useMemo(() => getWeekStart(focusDate), [focusDate]);
   const weekDays = useMemo(
@@ -1842,6 +1933,168 @@ const TeacherCalendarSection = ({
     return `${formatDayMonth(firstDate)} - ${formatDayMonth(lastDate)}`;
   }, [displayWeekDays, weekDays]);
 
+  const availabilityShareEventsByDayIndex = useMemo(
+    () => buildCalendarWeekEventsByDayIndex({
+      entries,
+      weekDays,
+      dayStartMinutes,
+      dayEndMinutes,
+    }),
+    [dayEndMinutes, dayStartMinutes, entries, weekDays]
+  );
+
+  const availabilityShareEventsFlat = useMemo(
+    () => availabilityShareEventsByDayIndex.flatMap((dayEvents, dayIndex) => (
+      dayEvents.map((event) => ({ ...event, dayIndex }))
+    )),
+    [availabilityShareEventsByDayIndex]
+  );
+
+  const availabilityShareWeekLabel = useMemo(
+    () => formatAvailabilityShareWeekLabel(weekStartDate),
+    [weekStartDate]
+  );
+
+  const generateAvailabilityShareImage = useCallback(async () => {
+    if (!availabilityShareMode) return;
+    setAvailabilityShareBusy(true);
+    setAvailabilityShareError('');
+    setAvailabilityShareSuccess('');
+    try {
+      const rendered = await renderCalendarAvailabilityPng({
+        weekStartDate,
+        events: availabilityShareEventsFlat,
+        timezoneLabel,
+      });
+      if (!rendered) throw new Error('Не удалось сформировать изображение календаря.');
+      const previousUrl = availabilityShareImageUrlRef.current;
+      if (previousUrl && typeof URL !== 'undefined' && URL.revokeObjectURL) {
+        try {
+          URL.revokeObjectURL(previousUrl);
+        } catch {}
+      }
+      availabilityShareImageUrlRef.current = rendered.url || '';
+      setAvailabilityShareImage(rendered);
+      setAvailabilityShareSuccess('Изображение недели готово к отправке.');
+    } catch (err) {
+      setAvailabilityShareError(err?.message || 'Не удалось сформировать изображение календаря.');
+    } finally {
+      setAvailabilityShareBusy(false);
+    }
+  }, [
+    availabilityShareEventsFlat,
+    availabilityShareMode,
+    timezoneLabel,
+    weekStartDate,
+  ]);
+
+  const openAvailabilityShareMode = useCallback((offsetWeeks = 4) => {
+    if (!availabilityShareMode) {
+      availabilityShareReturnFocusDateRef.current = focusDate;
+      availabilityShareReturnShowWeekendsRef.current = showWeekends;
+    }
+    const safeOffset = Number(offsetWeeks) === 5 ? 5 : 4;
+    setAvailabilityShareOffsetWeeks(safeOffset);
+    setAvailabilityShareMode(true);
+    setAvailabilityShareError('');
+    setAvailabilityShareSuccess('');
+    setAvailabilityShareImage(null);
+    setCalendarSettingsOpen(false);
+    setEventDetails(null);
+    setQuickCreateDraft(null);
+    setEventEditDraft(null);
+    setDragRecurringChoiceModal(null);
+    setPaymentReminderOpen(false);
+    setLessonInfoModalOpen(false);
+    setShowWeekends(true);
+    setFocusDate(getAvailabilityShareWeekStart(new Date(), safeOffset));
+  }, [availabilityShareMode, focusDate, showWeekends]);
+
+  const closeAvailabilityShareMode = useCallback(() => {
+    setAvailabilityShareMode(false);
+    setAvailabilityShareError('');
+    setAvailabilityShareSuccess('');
+    setAvailabilityShareBusy(false);
+    setAvailabilityShareImage(null);
+    const previousUrl = availabilityShareImageUrlRef.current;
+    if (previousUrl && typeof URL !== 'undefined' && URL.revokeObjectURL) {
+      try {
+        URL.revokeObjectURL(previousUrl);
+      } catch {}
+    }
+    availabilityShareImageUrlRef.current = '';
+    if (availabilityShareReturnFocusDateRef.current) {
+      setFocusDate(availabilityShareReturnFocusDateRef.current);
+      availabilityShareReturnFocusDateRef.current = null;
+    }
+    if (availabilityShareReturnShowWeekendsRef.current !== null) {
+      setShowWeekends(availabilityShareReturnShowWeekendsRef.current);
+      availabilityShareReturnShowWeekendsRef.current = null;
+    }
+  }, []);
+
+  const handleAvailabilityShareOffsetChange = useCallback((offsetWeeks) => {
+    const safeOffset = Number(offsetWeeks) === 5 ? 5 : 4;
+    setAvailabilityShareOffsetWeeks(safeOffset);
+    setAvailabilityShareError('');
+    setAvailabilityShareSuccess('');
+    setAvailabilityShareImage(null);
+    setFocusDate(getAvailabilityShareWeekStart(new Date(), safeOffset));
+  }, []);
+
+  const handleDownloadAvailabilityShareImage = useCallback(() => {
+    const image = availabilityShareImage;
+    if (!image?.blob || typeof document === 'undefined') return;
+    const anchor = document.createElement('a');
+    anchor.href = image.url || URL.createObjectURL(image.blob);
+    anchor.download = `занятость-${toDayKey(weekStartDate)}.png`;
+    anchor.click();
+    if (!image.url && anchor.href.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
+      window.setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
+    }
+    setAvailabilityShareSuccess('PNG скачан.');
+  }, [availabilityShareImage, weekStartDate]);
+
+  const handleNativeAvailabilityShare = useCallback(async () => {
+    const image = availabilityShareImage;
+    if (!image?.blob) return;
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof File === 'function') {
+        const file = new File([image.blob], `занятость-${toDayKey(weekStartDate)}.png`, { type: 'image/png' });
+        if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'Моя занятость',
+            text: `Свободное и занятое время: ${availabilityShareWeekLabel}`,
+          });
+          setAvailabilityShareSuccess('Изображение отправлено.');
+          return;
+        }
+      }
+      handleDownloadAvailabilityShareImage();
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      setAvailabilityShareError(err?.message || 'Не удалось отправить изображение.');
+    }
+  }, [availabilityShareImage, availabilityShareWeekLabel, handleDownloadAvailabilityShareImage, weekStartDate]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !availabilityShareMode || loading) return undefined;
+    const timerId = window.setTimeout(() => {
+      generateAvailabilityShareImage();
+    }, 80);
+    return () => window.clearTimeout(timerId);
+  }, [availabilityShareMode, generateAvailabilityShareImage, loading, weekStartDate]);
+
+  useEffect(() => () => {
+    const previousUrl = availabilityShareImageUrlRef.current;
+    if (previousUrl && typeof URL !== 'undefined' && URL.revokeObjectURL) {
+      try {
+        URL.revokeObjectURL(previousUrl);
+      } catch {}
+    }
+  }, []);
+
   const miniMonthLabel = useMemo(() => formatMonthYear(miniMonthCursor), [miniMonthCursor]);
   const miniMonthDays = useMemo(() => buildMiniMonthDays(miniMonthCursor), [miniMonthCursor]);
 
@@ -1928,6 +2181,10 @@ const TeacherCalendarSection = ({
   const visibleLessonsCount = useMemo(
     () => visibleDayIndexes.reduce((sum, dayIndex) => sum + (displayEventsByDayIndex[dayIndex]?.length || 0), 0),
     [displayEventsByDayIndex, visibleDayIndexes]
+  );
+  const availabilityShareLessonsCount = useMemo(
+    () => availabilityShareEventsByDayIndex.reduce((sum, dayEvents) => sum + dayEvents.length, 0),
+    [availabilityShareEventsByDayIndex]
   );
 
   const weekEventsFlat = useMemo(() => {
@@ -4193,29 +4450,46 @@ const TeacherCalendarSection = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={openQuickCreateForFocusDate}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/70 bg-gradient-to-r from-sky-600 to-teal-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_16px_rgba(14,165,233,0.22)] hover:from-sky-700 hover:to-teal-700"
+              onClick={() => (availabilityShareMode ? closeAvailabilityShareMode() : openAvailabilityShareMode(4))}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
+                availabilityShareMode
+                  ? 'border-violet-300 bg-violet-100 text-violet-800 hover:bg-violet-200'
+                  : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100'
+              }`}
+              aria-pressed={availabilityShareMode}
             >
-              <Plus size={14} />
-              Создать
+              {availabilityShareMode ? <X size={14} /> : <Share2 size={14} />}
+              {availabilityShareMode ? 'Выйти из режима' : 'Поделиться занятостью'}
             </button>
-            <button
-              type="button"
-              onClick={() => loadTeacherCalendar({ silent: true })}
-              disabled={loading || refreshing}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/85 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <RefreshCcw size={13} className={refreshing ? 'animate-spin' : ''} />
-              {refreshing ? '...' : 'Обновить'}
-            </button>
+            {!availabilityShareMode && (
+              <>
+                <button
+                  type="button"
+                  onClick={openQuickCreateForFocusDate}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/70 bg-gradient-to-r from-sky-600 to-teal-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_16px_rgba(14,165,233,0.22)] hover:from-sky-700 hover:to-teal-700"
+                >
+                  <Plus size={14} />
+                  Создать
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadTeacherCalendar({ silent: true })}
+                  disabled={loading || refreshing}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/85 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCcw size={13} className={refreshing ? 'animate-spin' : ''} />
+                  {refreshing ? '...' : 'Обновить'}
+                </button>
+              </>
+            )}
           </div>
         </div>
 
         <div
           className="min-h-0 flex-1 grid"
-          style={{ gridTemplateColumns: `${sidebarCollapsed ? 72 : 296}px minmax(0, 1fr)` }}
+          style={{ gridTemplateColumns: `${availabilityShareMode ? 0 : (sidebarCollapsed ? 72 : 296)}px minmax(0, 1fr)` }}
         >
-          <aside className={`teacher-calendar-shell__sidebar teacher-calendar-shell__sidebar-scroll ${sidebarCollapsed ? 'w-[72px]' : 'w-[296px]'} min-h-0 overflow-y-auto overflow-x-hidden border-r border-slate-200/75 bg-white/72 p-4 backdrop-blur-md`}>
+          <aside className={`${availabilityShareMode ? 'hidden' : ''} teacher-calendar-shell__sidebar teacher-calendar-shell__sidebar-scroll ${sidebarCollapsed ? 'w-[72px]' : 'w-[296px]'} min-h-0 overflow-y-auto overflow-x-hidden border-r border-slate-200/75 bg-white/72 p-4 backdrop-blur-md`}>
             <button
               type="button"
               onClick={openQuickCreateForFocusDate}
@@ -4468,7 +4742,10 @@ const TeacherCalendarSection = ({
             )}
           </aside>
 
-          <div className="teacher-calendar-shell__main flex min-h-0 min-w-0 flex-1 flex-col bg-white/80 backdrop-blur-[2px]">
+          <div
+            className="teacher-calendar-shell__main flex min-h-0 min-w-0 flex-1 flex-col bg-white/80 backdrop-blur-[2px]"
+            style={availabilityShareMode ? { gridColumn: '1 / -1' } : undefined}
+          >
             <div className="teacher-calendar-shell__toolbar border-b border-slate-200/80 bg-white/84 px-5 py-3 backdrop-blur-md">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
@@ -4505,11 +4782,11 @@ const TeacherCalendarSection = ({
                     {timezoneLabel}
                   </span>
                   <span className="teacher-calendar-shell__metric-chip rounded-full border border-slate-200/80 bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
-                    Слотов: {visibleLessonsCount}
+                    Слотов: {availabilityShareMode ? availabilityShareLessonsCount : visibleLessonsCount}
                   </span>
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className={`mt-3 flex flex-wrap items-center gap-2 ${availabilityShareMode ? 'hidden' : ''}`}>
                 <label className="relative min-w-[260px] flex-1 md:max-w-md">
                   <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
@@ -4602,7 +4879,73 @@ const TeacherCalendarSection = ({
                   Настройки
                 </button>
               </div>
-              {calendarSettingsOpen && (
+              {availabilityShareMode && (
+                <div className="mt-3 rounded-xl border border-violet-200/80 bg-violet-50/70 p-3 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-violet-800">Режим отправки занятости</div>
+                      <div className="mt-1 text-[11px] text-violet-700">
+                        Имена скрыты, на карточках показано только «Занятие». Неделя: {availabilityShareWeekLabel}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {[4, 5].map((offsetWeeks) => (
+                        <button
+                          key={`availability-offset-${offsetWeeks}`}
+                          type="button"
+                          onClick={() => handleAvailabilityShareOffsetChange(offsetWeeks)}
+                          className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                            availabilityShareOffsetWeeks === offsetWeeks
+                              ? 'border-violet-500 bg-violet-600 text-white'
+                              : 'border-violet-200 bg-white text-violet-700 hover:bg-violet-100'
+                          }`}
+                        >
+                          Через {offsetWeeks} {offsetWeeks === 5 ? 'недель' : 'недели'}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={generateAvailabilityShareImage}
+                        disabled={availabilityShareBusy}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-violet-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-violet-800 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <ImageDown size={12} />
+                        {availabilityShareBusy ? 'Формируем...' : 'Обновить PNG'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDownloadAvailabilityShareImage}
+                        disabled={!availabilityShareImage || availabilityShareBusy}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-sky-300 bg-sky-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <ImageDown size={12} /> Скачать PNG
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleNativeAvailabilityShare}
+                        disabled={!availabilityShareImage || availabilityShareBusy}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Share2 size={12} /> Отправить
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-violet-700">
+                    <span>{availabilityShareBusy ? 'Готовим изображение недели...' : (availabilityShareSuccess || 'Изображение сформируется автоматически.')}</span>
+                    {availabilityShareError && <span className="font-semibold text-rose-600">{availabilityShareError}</span>}
+                  </div>
+                  {availabilityShareImage?.url && (
+                    <div className="mt-3 overflow-hidden rounded-lg border border-violet-200 bg-white p-2">
+                      <img
+                        src={availabilityShareImage.url}
+                        alt={`Предпросмотр занятости на неделю ${availabilityShareWeekLabel}`}
+                        className="block max-h-64 w-full object-contain"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+              {!availabilityShareMode && calendarSettingsOpen && (
                 <div className="mt-3 rounded-lg border border-slate-200/80 bg-white/86 p-3 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -4751,7 +5094,7 @@ const TeacherCalendarSection = ({
               )}
             </div>
 
-            <div className="teacher-calendar-shell__lesson-strip border-b border-slate-200/80 bg-white/82 px-5 py-3 backdrop-blur-md">
+            <div className={`${availabilityShareMode ? 'hidden' : ''} teacher-calendar-shell__lesson-strip border-b border-slate-200/80 bg-white/82 px-5 py-3 backdrop-blur-md`}>
               <div
                 className={`teacher-calendar-shell__lesson-panel flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200/80 bg-white/86 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition ${
                   lessonPanelHasStudent || lessonPanelCanOpenGroup ? 'cursor-pointer hover:border-sky-300/80 hover:bg-sky-50/70 focus:outline-none focus:ring-2 focus:ring-sky-300/60' : ''
@@ -5036,11 +5379,13 @@ const TeacherCalendarSection = ({
                     </div>
                   ) : (
                     <>
-                      {visibleLessonsCount === 0 && (
+                      {(availabilityShareMode ? availabilityShareLessonsCount : visibleLessonsCount) === 0 && (
                         <div className="border-b border-slate-200 px-3 py-2 text-xs text-slate-500">
-                          {normalizedSearchQuery
-                            ? 'По текущему поиску и фильтрам ничего не найдено.'
-                            : 'Кликните по свободному месту в сетке, чтобы добавить разовое занятие.'}
+                          {availabilityShareMode
+                            ? 'На этой неделе нет занятых слотов.'
+                            : (normalizedSearchQuery
+                                ? 'По текущему поиску и фильтрам ничего не найдено.'
+                                : 'Кликните по свободному месту в сетке, чтобы добавить разовое занятие.')}
                         </div>
                       )}
                       <div
@@ -5065,7 +5410,9 @@ const TeacherCalendarSection = ({
                           if (!date) return null;
                           const dayKey = toDayKey(date);
                           const isToday = dayKey === todayKey;
-                          const events = displayEventsByDayIndex[dayIndex] || [];
+                          const events = availabilityShareMode
+                            ? (availabilityShareEventsByDayIndex[dayIndex] || [])
+                            : (displayEventsByDayIndex[dayIndex] || []);
                           return (
                             <div
                               key={`day-column-${dayKey}`}
@@ -5073,10 +5420,16 @@ const TeacherCalendarSection = ({
                                 isToday ? 'teacher-calendar-shell__day-col--today bg-sky-50/70' : 'bg-white/75 hover:bg-slate-50/70'
                               } ${dragPreview?.dayKey === dayKey ? 'teacher-calendar-shell__day-col--drag bg-sky-100/70' : ''}`}
                               style={{ height: `${calendarHeight}px` }}
-                              onClick={(event) => openQuickCreate(dayIndex, event)}
-                              onDragOver={(event) => handleCalendarColumnDragOver(event, dayIndex)}
-                              onDrop={(event) => handleCalendarColumnDrop(event, dayIndex)}
-                              aria-label="Добавить разовое занятие"
+                              onClick={(event) => {
+                                if (!availabilityShareMode) openQuickCreate(dayIndex, event);
+                              }}
+                              onDragOver={(event) => {
+                                if (!availabilityShareMode) handleCalendarColumnDragOver(event, dayIndex);
+                              }}
+                              onDrop={(event) => {
+                                if (!availabilityShareMode) handleCalendarColumnDrop(event, dayIndex);
+                              }}
+                              aria-label={availabilityShareMode ? 'Занятость преподавателя' : 'Добавить разовое занятие'}
                             >
                               {hourTicks.map((hour, index) => (
                                 <div
@@ -5133,6 +5486,8 @@ const TeacherCalendarSection = ({
                                     ? studentName
                                     : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT));
                                 const showSubjectInCard = Boolean(subjectLabel && subjectLabel !== primaryLabel);
+                                const cardPrimaryLabel = availabilityShareMode ? 'Занятие' : primaryLabel;
+                                const cardShowSubject = !availabilityShareMode && showSubjectInCard;
                                 const startLabel = formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat);
                                 const endLabel = formatMinutesAsDisplayTime(event.endMinutes, use24HourFormat);
                                 const externalEvent = isExternalCalendarEntry(event);
@@ -5168,6 +5523,7 @@ const TeacherCalendarSection = ({
                                     : (paidMarked
                                       ? CALENDAR_PAID_EVENT_COLOR
                                       : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor)));
+                                const cardColor = availabilityShareMode ? '#2563eb' : color;
                                 const paymentStateLabel = isGroupEvent
                                   ? ` • оплачено ${groupPaymentState?.paidCount || 0} из ${groupPaymentState?.totalCount || groupParticipants.length}`
                                   : (trialMarked
@@ -5178,43 +5534,60 @@ const TeacherCalendarSection = ({
                                 const paymentColorApplied = isGroupEvent
                                   ? Boolean(groupPaymentState?.settledCount || eventFinished)
                                   : (trialMarked || paidMarked || eventFinished);
+                                const homeworkProgress = !availabilityShareMode && !trialMarked && isCalendarLessonUpcoming(
+                                  dayKey,
+                                  event.startMinutes,
+                                  currentTimeLineNow
+                                )
+                                  ? resolveCalendarEventHomeworkProgress(event, dayKey, event.startMinutes)
+                                  : null;
+                                const homeworkProgressPercent = homeworkProgress
+                                  ? Math.max(0, Math.min(100, Math.round(Number(homeworkProgress.percent) || 0)))
+                                  : null;
+                                const homeworkProgressLabel = homeworkProgressPercent == null
+                                  ? ''
+                                  : ` • домашняя работа выполнена на ${homeworkProgressPercent}%`;
                                 const laneWidth = 100 / Math.max(1, event.laneCount || 1);
                                 const left = (event.lane || 0) * laneWidth;
                                 const hasConflict = Number(event.laneCount || 1) > 1;
                                 return (
                                   <div
                                     key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
-                                    aria-label={`${externalEvent ? 'Google Calendar • ' : ''}${primaryLabel}${showSubjectInCard ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}${paymentStateLabel}`}
-                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] ${externalEvent && !paymentColorApplied ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
-                                    draggable={!externalEvent && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
+                                    aria-label={`${availabilityShareMode ? '' : (externalEvent ? 'Google Calendar • ' : '')}${cardPrimaryLabel}${cardShowSubject ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}${availabilityShareMode ? '' : `${paymentStateLabel}${homeworkProgressLabel}`}`}
+                                    title={availabilityShareMode ? undefined : (homeworkProgressPercent == null ? undefined : `Домашняя работа: ${homeworkProgressPercent}%`)}
+                                    data-homework-progress={availabilityShareMode ? undefined : (homeworkProgressPercent == null ? undefined : homeworkProgressPercent)}
+                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] ${!availabilityShareMode && externalEvent && !paymentColorApplied ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
+                                    draggable={!availabilityShareMode && !externalEvent && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
                                     style={{
                                       top: `${top}px`,
                                       height: `${height}px`,
                                       left: `calc(${left}% + 3px)`,
                                       width: `calc(${laneWidth}% - 6px)`,
-                                      '--calendar-event-color': color,
-                                      background: buildEventCardBackground(color),
-                                      borderColor: mixHexColor(color, '#020617', 0.14),
-                                      boxShadow: `0 10px 22px ${hexToRgba(color, 0.22)}, inset 0 1px 0 rgba(255, 255, 255, 0.2)`,
-                                      cursor: dragDropBusy ? 'progress' : (externalEvent ? 'pointer' : 'grab'),
+                                      '--calendar-event-color': cardColor,
+                                      background: availabilityShareMode || homeworkProgressPercent == null
+                                        ? buildEventCardBackground(cardColor)
+                                        : buildEventCardHomeworkProgressBackground(cardColor, homeworkProgressPercent),
+                                      borderColor: mixHexColor(cardColor, '#020617', 0.14),
+                                      boxShadow: `0 10px 22px ${hexToRgba(cardColor, 0.22)}, inset 0 1px 0 rgba(255, 255, 255, 0.2)`,
+                                      cursor: availabilityShareMode ? 'default' : (dragDropBusy ? 'progress' : (externalEvent ? 'pointer' : 'grab')),
                                       opacity: draggingEvent?.eventId === String(event.id || '').trim() ? 0.65 : 1,
                                     }}
                                     onDragStart={(eventDrag) => handleEventDragStart(eventDrag, event, dayIndex, dayKey)}
                                     onDragEnd={handleEventDragEnd}
                                     onClick={(eventClick) => {
                                       eventClick.stopPropagation();
-                                      if (dragDropBusy || Date.now() < quickCreateClickSuppressedUntilRef.current) return;
+                                      if (availabilityShareMode || dragDropBusy || Date.now() < quickCreateClickSuppressedUntilRef.current) return;
                                       openEventDetailsModal(event, dayKey);
                                     }}
                                   >
-                                    <div className="truncate text-[11px] font-bold leading-tight">{primaryLabel}</div>
-                                    {isGroupEvent && (
+                                    <div className="truncate text-[11px] font-bold leading-tight">{cardPrimaryLabel}</div>
+                                    {isGroupEvent && !availabilityShareMode && (
                                       <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold leading-tight text-white/95">
                                         <Users size={10} />
                                         <span>{`${groupParticipants.length} уч. • оплачено ${groupPaymentState?.paidCount || 0}/${groupPaymentState?.totalCount || groupParticipants.length}`}</span>
                                       </div>
                                     )}
-                                    {showSubjectInCard && (
+                                    {cardShowSubject && (
                                       <div className="truncate text-[10px] font-semibold leading-tight text-white/95">
                                         {subjectLabel}
                                       </div>
@@ -5222,7 +5595,7 @@ const TeacherCalendarSection = ({
                                     <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-white/90">
                                       <Clock3 size={10} />
                                       {`${startLabel}-${endLabel}`}
-                                      {externalEvent && <span className="ml-1 rounded bg-white/20 px-1">Google</span>}
+                                      {externalEvent && !availabilityShareMode && <span className="ml-1 rounded bg-white/20 px-1">Google</span>}
                                     </div>
                                   </div>
                                 );
@@ -5239,7 +5612,7 @@ const TeacherCalendarSection = ({
           </div>
         </div>
       </div>
-      <div className="teacher-calendar-shell__payment-reminder pointer-events-none absolute right-5 top-[18rem] z-30 flex justify-end">
+      <div className={`${availabilityShareMode ? 'hidden' : ''} teacher-calendar-shell__payment-reminder pointer-events-none absolute right-5 top-[18rem] z-30 flex justify-end`}>
         {paymentReminderOpen ? (
           <div className="teacher-calendar-shell__payment-reminder-panel pointer-events-auto w-[min(360px,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-rose-200/80 bg-white/95 shadow-[0_22px_60px_rgba(15,23,42,0.22)] backdrop-blur-xl">
             <div className="flex items-start justify-between gap-3 border-b border-rose-100 px-4 py-3">
