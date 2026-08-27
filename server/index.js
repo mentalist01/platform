@@ -8585,6 +8585,13 @@ const GOOGLE_CALENDAR_SYNC_TIME_ZONE = String(
 ).trim() || 'Europe/Moscow';
 const teacherCalendarSyncCache = new Map();
 
+const getGoogleCalendarSyncMonthEndMs = (value) => {
+  const normalizedMonth = normalizeTeacherFinanceMonthKey(value);
+  if (!normalizedMonth) return NaN;
+  const [year, month] = normalizedMonth.split('-').map(Number);
+  return Date.UTC(year, month, 1) - 1;
+};
+
 const normalizeTeacherCalendarSyncUrl = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -9444,12 +9451,25 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
   if (!settings.enabled || !settings.icalUrl) return [];
   const force = Boolean(options.force);
   const now = Date.now();
+  const defaultToMs = now + (GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
+  const requestedMonthEndMs = getGoogleCalendarSyncMonthEndMs(options.throughMonth);
+  const toMs = Number.isFinite(requestedMonthEndMs)
+    ? Math.max(defaultToMs, requestedMonthEndMs)
+    : defaultToMs;
   const cache = teacherCalendarSyncCache.get(normalizedTeacherId);
   const students = readStudentsDb().filter((student) => String(student?.teacherId || '').trim() === normalizedTeacherId);
   const groups = LEARNING_GROUPS_ENABLED
     ? readLearningGroupsDb().filter((group) => normalizeTeacherId(group?.teacherId) === normalizedTeacherId)
     : [];
-  if (!force && cache && cache.url === settings.icalUrl && now - cache.loadedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS) {
+  const cacheCoversRequestedMonth = !Number.isFinite(requestedMonthEndMs)
+    || Number(cache?.toMs) >= requestedMonthEndMs;
+  if (
+    !force
+    && cache
+    && cache.url === settings.icalUrl
+    && cacheCoversRequestedMonth
+    && now - cache.loadedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS
+  ) {
     const entries = cache.entries.map((entry) => (
       enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
     ));
@@ -9457,7 +9477,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
     return entries;
   }
 
-  const to = new Date(now + (GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000));
+  const to = new Date(toMs);
   const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
   let timeoutId = null;
   if (abortController) {
@@ -9506,6 +9526,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
     teacherCalendarSyncCache.set(normalizedTeacherId, {
       url: settings.icalUrl,
       loadedAtMs: now,
+      toMs,
       entries: uniqueEntries,
     });
     updateTeacherCalendarSyncStatus(normalizedTeacherId, {
@@ -15356,7 +15377,9 @@ const getPaymentScheduleEntries = async (teacherId, options = {}) => {
   const localEntries = getTeacherScheduleEntries(teacherId, options);
   const googleEntries = expandGoogleCalendarLearningGroupPaymentEntries(
     teacherId,
-    await fetchTeacherGoogleCalendarEntries(teacherId)
+    await fetchTeacherGoogleCalendarEntries(teacherId, {
+      throughMonth: options.googleCalendarThroughMonth,
+    })
   );
   return [...localEntries, ...googleEntries];
 };
@@ -15560,6 +15583,9 @@ const buildTeacherFinanceProfitability = async (
   const marksDb = readTeacherCalendarMarksDb();
   const teacherMarks = normalizeTeacherCalendarMarks(marksDb[normalizedTeacherId]);
   const nowInfo = getStudentSchedulePaymentNowInfo();
+  const calendarPlanMonth = normalizeTeacherFinanceMonthKey(requestedCalendarPlanMonth)
+    || normalizeTeacherFinanceMonthKey(String(nowInfo.todayKey || '').slice(0, 7))
+    || getCurrentTeacherFinanceMonthKey();
   const fallbackStartNumber = Number.isFinite(nowInfo.trackingStartNumber)
     ? nowInfo.trackingStartNumber
     : nowInfo.todayNumber;
@@ -15584,7 +15610,10 @@ const buildTeacherFinanceProfitability = async (
   };
   let scheduleEntries = [];
   try {
-    scheduleEntries = await getPaymentScheduleEntries(normalizedTeacherId, { includeDeletedStudents: true });
+    scheduleEntries = await getPaymentScheduleEntries(normalizedTeacherId, {
+      includeDeletedStudents: true,
+      googleCalendarThroughMonth: calendarPlanMonth,
+    });
   } catch {
     scheduleEntries = getTeacherScheduleEntries(normalizedTeacherId, { includeDeletedStudents: true });
   }
@@ -15748,9 +15777,6 @@ const buildTeacherFinanceProfitability = async (
     });
   });
 
-  const calendarPlanMonth = normalizeTeacherFinanceMonthKey(requestedCalendarPlanMonth)
-    || normalizeTeacherFinanceMonthKey(String(nowInfo.todayKey || '').slice(0, 7))
-    || getCurrentTeacherFinanceMonthKey();
   const studentStartDayById = Object.fromEntries(
     Array.from(studentStartNumberById.entries()).map(([studentId, dayNumber]) => [
       studentId,
