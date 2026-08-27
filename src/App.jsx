@@ -13115,7 +13115,9 @@ const BoardSection = ({
       const preview = { id: item.id, ...geometry };
       imageResizePreviewRef.current = preview;
       imageResizeRef.current.preview = preview;
+      selectionRef.current = geometry;
       setImageResizePreview(preview);
+      setSelectionBox(geometry);
       renderBoard();
       renderOverlay();
     };
@@ -13136,10 +13138,11 @@ const BoardSection = ({
         };
         if (item.type === 'task') {
           updateBoardTaskItem(item.id, (current) => ({ ...current, ...geometry }));
-          setSelectionBox(geometry);
         } else {
           updateImageItem(item.id, (current) => ({ ...current, ...geometry }));
         }
+        selectionRef.current = geometry;
+        setSelectionBox(geometry);
       }
     };
     imageResizeRef.current = { active: true, id: item.id, handle, preview: null, cleanup: stop };
@@ -14228,14 +14231,26 @@ const BoardSection = ({
         drawShape(ctx, { ...rect, shape: shapeKind, color, strokeWidth: penWidth });
       }
     }
-    if (tool === 'select' && selectionBox) {
+    const liveSelectionBox = selectionRef.current || selectionBox;
+    const singleSelectedItem = selectedIdsRef.current.length === 1
+      ? boardItemsRef.current.find((item) => item?.id === selectedIdsRef.current[0])
+      : null;
+    const hasDedicatedSelectionFrame = Boolean(
+      singleSelectedItem
+      && (singleSelectedItem.type === 'image' || singleSelectedItem.type === 'task')
+    );
+    if (
+      tool === 'select'
+      && liveSelectionBox
+      && (selectingRef.current.active || !hasDedicatedSelectionFrame)
+    ) {
       ctx.save();
       ctx.strokeStyle = 'rgba(99, 102, 241, 0.9)';
       ctx.fillStyle = 'rgba(99, 102, 241, 0.08)';
       ctx.lineWidth = 1.5 / (zoomRef.current || 1);
       ctx.setLineDash([6 / (zoomRef.current || 1), 4 / (zoomRef.current || 1)]);
-      ctx.strokeRect(selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height);
-      ctx.fillRect(selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height);
+      ctx.strokeRect(liveSelectionBox.x, liveSelectionBox.y, liveSelectionBox.width, liveSelectionBox.height);
+      ctx.fillRect(liveSelectionBox.x, liveSelectionBox.y, liveSelectionBox.width, liveSelectionBox.height);
       ctx.restore();
     }
     const textBoxDraw = textBoxDrawRef.current;
@@ -14258,7 +14273,7 @@ const BoardSection = ({
         y: Number.isFinite(Number(drag.y)) ? Number(drag.y) : displaySelectedImage.y,
       }
       : displaySelectedImage;
-    if ((tool === 'move' || tool === 'select') && overlaySelectedImage) {
+    if ((tool === 'move' || tool === 'select') && overlaySelectedImage && drag.active) {
       ctx.save();
       ctx.strokeStyle = 'rgba(99, 102, 241, 0.9)';
       ctx.lineWidth = 1.5 / (zoomRef.current || 1);
@@ -14329,8 +14344,8 @@ const BoardSection = ({
     if (!container || typeof ResizeObserver === 'undefined') return undefined;
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
-      const width = Math.max(1, Math.round(rect.width));
-      const height = Math.max(1, Math.round(rect.height));
+      const width = Math.max(1, Math.round(container.clientWidth || rect.width));
+      const height = Math.max(1, Math.round(container.clientHeight || rect.height));
       setBoardSize({ width, height });
     };
     updateSize();
