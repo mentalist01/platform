@@ -327,6 +327,8 @@ const BOARD_TASK_MIN_WIDTH = 420;
 const BOARD_TASK_MAX_WIDTH = 920;
 const BOARD_TASK_DEFAULT_WIDTH = 720;
 const BOARD_TASK_MAX_HEIGHT = 2400;
+const BOARD_TASK_MIN_SCALE = 0.35;
+const BOARD_TASK_MAX_SCALE = 2.5;
 const BOARD_TASK_MAX_SCREENSHOTS = 8;
 const BOARD_TASK_MAX_ANSWERS = 50;
 const BOARD_TASK_CARD_PADDING = 22;
@@ -362,6 +364,36 @@ const getBoardTaskAnswerOrder = (answerCount) => {
     return Array.from({ length: 10 }, (_, rowIndex) => [rowIndex, rowIndex + 10]).flat();
   }
   return Array.from({ length: count }, (_, index) => index);
+};
+
+const getBoardTaskContentSize = (item) => ({
+  width: Math.max(
+    BOARD_TASK_MIN_WIDTH,
+    Math.min(BOARD_TASK_MAX_WIDTH, Number(item?.contentWidth) || Number(item?.width) || BOARD_TASK_DEFAULT_WIDTH)
+  ),
+  height: Math.max(
+    220,
+    Math.min(BOARD_TASK_MAX_HEIGHT, Number(item?.contentHeight) || Number(item?.height) || 640)
+  ),
+});
+
+const getBoardTaskScale = (item) => {
+  const contentSize = getBoardTaskContentSize(item);
+  const widthScale = (Number(item?.width) || contentSize.width) / contentSize.width;
+  const heightScale = (Number(item?.height) || contentSize.height) / contentSize.height;
+  return Math.max(
+    BOARD_TASK_MIN_SCALE,
+    Math.min(BOARD_TASK_MAX_SCALE, widthScale, heightScale)
+  );
+};
+
+const getBoardTaskContentItem = (item) => {
+  const contentSize = getBoardTaskContentSize(item);
+  return {
+    ...item,
+    width: contentSize.width,
+    height: contentSize.height,
+  };
 };
 
 const getBoardTaskAnswerLayout = (item) => {
@@ -478,7 +510,7 @@ const wrapBoardTaskText = (ctx, value, maxWidth, maxLines = 12) => {
   return lines;
 };
 
-const drawBoardTaskCard = (ctx, item, resolveImage = () => null, options = {}) => {
+const drawBoardTaskCardContent = (ctx, item, resolveImage = () => null, options = {}) => {
   if (!ctx || !item) return;
   const x = Number(item.x) || 0;
   const y = Number(item.y) || 0;
@@ -630,6 +662,26 @@ const drawBoardTaskCard = (ctx, item, resolveImage = () => null, options = {}) =
       );
     }
   }
+  ctx.restore();
+};
+
+const drawBoardTaskCard = (ctx, item, resolveImage = () => null, options = {}) => {
+  if (!ctx || !item) return;
+  const contentItem = getBoardTaskContentItem(item);
+  const displayWidth = Math.max(1, Number(item.width) || contentItem.width);
+  const displayHeight = Math.max(1, Number(item.height) || contentItem.height);
+  const x = Number(item.x) || 0;
+  const y = Number(item.y) || 0;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(displayWidth / contentItem.width, displayHeight / contentItem.height);
+  drawBoardTaskCardContent(
+    ctx,
+    { ...contentItem, x: 0, y: 0 },
+    resolveImage,
+    options
+  );
   ctx.restore();
 };
 
@@ -981,18 +1033,36 @@ const normalizeBoardStoredItem = (rawValue) => {
       && storedCodeLayoutVersion < 2;
     const needsCompactLayout = storedCodeLayoutVersion < BOARD_TASK_CODE_LAYOUT_VERSION;
     const rawHeight = Number(source.height) || 640;
+    const hasStoredContentSize = Number(source.contentWidth) > 0 && Number(source.contentHeight) > 0;
+    const contentWidth = Math.max(
+      BOARD_TASK_MIN_WIDTH,
+      Math.min(BOARD_TASK_MAX_WIDTH, Number(source.contentWidth) || Number(source.width) || BOARD_TASK_DEFAULT_WIDTH)
+    );
+    const contentHeight = Math.max(220, Math.min(
+      BOARD_TASK_MAX_HEIGHT,
+      (Number(source.contentHeight) || rawHeight)
+        - (!hasStoredContentSize && hasLegacyExpandedCode ? BOARD_TASK_LEGACY_CODE_EXPANSION : 0)
+        - (!hasStoredContentSize && needsCompactLayout ? BOARD_TASK_COMPACT_LAYOUT_REDUCTION : 0)
+    ));
+    const requestedScale = hasStoredContentSize
+      ? Math.min(
+        (Number(source.width) || contentWidth) / contentWidth,
+        (Number(source.height) || contentHeight) / contentHeight
+      )
+      : 1;
+    const taskScale = Math.max(
+      BOARD_TASK_MIN_SCALE,
+      Math.min(BOARD_TASK_MAX_SCALE, requestedScale)
+    );
     return {
       ...base,
       type: 'task',
       x: Number(source.x) || 0,
       y: Number(source.y) || 0,
-      width: Math.max(BOARD_TASK_MIN_WIDTH, Math.min(BOARD_TASK_MAX_WIDTH, Number(source.width) || BOARD_TASK_DEFAULT_WIDTH)),
-      height: Math.max(220, Math.min(
-        BOARD_TASK_MAX_HEIGHT,
-        rawHeight
-          - (hasLegacyExpandedCode ? BOARD_TASK_LEGACY_CODE_EXPANSION : 0)
-          - (needsCompactLayout ? BOARD_TASK_COMPACT_LAYOUT_REDUCTION : 0)
-      )),
+      width: contentWidth * taskScale,
+      height: contentHeight * taskScale,
+      contentWidth,
+      contentHeight,
       heading: typeof source.heading === 'string' ? source.heading.slice(0, 240) : '',
       taskNumber: Number.isFinite(Number(source.taskNumber)) ? Number(source.taskNumber) : null,
       taskDisplayNumber: typeof source.taskDisplayNumber === 'string' || typeof source.taskDisplayNumber === 'number'
@@ -12974,16 +13044,62 @@ const BoardSection = ({
     return { x, y: y + height - nextHeight, width, height: nextHeight };
   };
 
-  const startImageResize = (event, handle, item) => {
+  const calculateTaskResize = (start, handle, point) => {
+    const x = Number(start.x) || 0;
+    const y = Number(start.y) || 0;
+    const width = Math.max(1, Number(start.width) || 1);
+    const height = Math.max(1, Number(start.height) || 1);
+    const contentSize = getBoardTaskContentSize(start);
+    const currentScale = Math.min(width / contentSize.width, height / contentSize.height);
+    const px = Number(point.x) || 0;
+    const py = Number(point.y) || 0;
+    let factor = 1;
+    if (handle === 'nw') factor = Math.max((x + width - px) / width, (y + height - py) / height);
+    if (handle === 'ne') factor = Math.max((px - x) / width, (y + height - py) / height);
+    if (handle === 'se') factor = Math.max((px - x) / width, (py - y) / height);
+    if (handle === 'sw') factor = Math.max((x + width - px) / width, (py - y) / height);
+    if (handle === 'e') factor = (px - x) / width;
+    if (handle === 's') factor = (py - y) / height;
+    if (handle === 'w') factor = (x + width - px) / width;
+    if (handle === 'n') factor = (y + height - py) / height;
+    const maxScale = Math.min(
+      BOARD_TASK_MAX_SCALE,
+      BOARD_IMAGE_MAX_SIZE / contentSize.width,
+      BOARD_IMAGE_MAX_SIZE / contentSize.height
+    );
+    const nextScale = Math.max(
+      BOARD_TASK_MIN_SCALE,
+      Math.min(maxScale, currentScale * Math.max(0.01, factor))
+    );
+    const nextWidth = contentSize.width * nextScale;
+    const nextHeight = contentSize.height * nextScale;
+    const nextX = handle.includes('w')
+      ? x + width - nextWidth
+      : (handle === 'n' || handle === 's' ? x + (width - nextWidth) / 2 : x);
+    const nextY = handle.includes('n')
+      ? y + height - nextHeight
+      : (handle === 'e' || handle === 'w' ? y + (height - nextHeight) / 2 : y);
+    return {
+      x: nextX,
+      y: nextY,
+      width: nextWidth,
+      height: nextHeight,
+    };
+  };
+
+  const startBoardItemResize = (event, handle, item) => {
     if (sandboxReadOnlyRef.current || !item || item.locked || item.superLocked || typeof window === 'undefined') return;
     event.preventDefault();
     event.stopPropagation();
     const start = {
       id: item.id,
+      type: item.type,
       x: Number(item.x) || 0,
       y: Number(item.y) || 0,
       width: Math.max(1, Number(item.width) || 1),
       height: Math.max(1, Number(item.height) || 1),
+      contentWidth: Number(item.contentWidth) || undefined,
+      contentHeight: Number(item.contentHeight) || undefined,
     };
     const onMove = (moveEvent) => {
       const surfacePoint = getCanvasSurfacePoint(moveEvent.clientX, moveEvent.clientY);
@@ -12993,7 +13109,9 @@ const BoardSection = ({
         x: offsetRef.current.x + surfacePoint.x / currentZoom,
         y: offsetRef.current.y + surfacePoint.y / currentZoom,
       };
-      const geometry = calculateImageResize(start, handle, point);
+      const geometry = item.type === 'task'
+        ? calculateTaskResize(start, handle, point)
+        : calculateImageResize(start, handle, point);
       const preview = { id: item.id, ...geometry };
       imageResizePreviewRef.current = preview;
       imageResizeRef.current.preview = preview;
@@ -13010,7 +13128,18 @@ const BoardSection = ({
       imageResizePreviewRef.current = null;
       setImageResizePreview(null);
       if (preview?.id === item.id) {
-        updateImageItem(item.id, (current) => ({ ...current, ...preview }));
+        const geometry = {
+          x: preview.x,
+          y: preview.y,
+          width: preview.width,
+          height: preview.height,
+        };
+        if (item.type === 'task') {
+          updateBoardTaskItem(item.id, (current) => ({ ...current, ...geometry }));
+          setSelectionBox(geometry);
+        } else {
+          updateImageItem(item.id, (current) => ({ ...current, ...geometry }));
+        }
       }
     };
     imageResizeRef.current = { active: true, id: item.id, handle, preview: null, cleanup: stop };
@@ -13985,6 +14114,35 @@ const BoardSection = ({
     };
   }, [onMemorySnapshotRenderer, renderBoard]);
 
+  const selectedTask = useMemo(
+    () => {
+      const currentRevision = boardRevision;
+      if (currentRevision < 0 || selectedIds.length !== 1) return null;
+      return boardItemsRef.current.find((item) => item?.id === selectedIds[0] && item.type === 'task') || null;
+    },
+    [boardRevision, selectedIds]
+  );
+  useEffect(() => {
+    if (!selectedTask || tool !== 'select' || selectionDragRef.current.active || imageResizeRef.current.active) return;
+    setSelectionBox({
+      x: Number(selectedTask.x) || 0,
+      y: Number(selectedTask.y) || 0,
+      width: Math.max(1, Number(selectedTask.width) || 1),
+      height: Math.max(1, Number(selectedTask.height) || 1),
+    });
+  }, [selectedTask, tool]);
+  const displaySelectedTask = selectedTask && imageResizePreview?.id === selectedTask.id
+    ? { ...selectedTask, ...imageResizePreview }
+    : (selectedTask && tool === 'select' && selectionBox
+      ? {
+        ...selectedTask,
+        x: selectionBox.x,
+        y: selectionBox.y,
+        width: selectionBox.width,
+        height: selectionBox.height,
+      }
+      : selectedTask);
+
   const selectedImage = useMemo(
     () => {
       const currentRevision = boardRevision;
@@ -14661,6 +14819,8 @@ const BoardSection = ({
             y,
             width,
             height,
+            contentWidth: width,
+            contentHeight: height,
             heading: `Задание ${taskDisplayNumber || metadata.taskNumber || ''} · вопрос ${questionNumber}`,
             taskNumber: Number(metadata.taskNumber),
             taskDisplayNumber,
@@ -15696,6 +15856,15 @@ const BoardSection = ({
       height: Math.max(1, Number(displaySelectedImage.height) * (zoom || 1)),
     }
     : null;
+  const selectedTaskScreenBox = displaySelectedTask
+    ? {
+      left: (Number(displaySelectedTask.x) - offset.x) * (zoom || 1),
+      top: (Number(displaySelectedTask.y) - offset.y) * (zoom || 1),
+      width: Math.max(1, Number(displaySelectedTask.width) * (zoom || 1)),
+      height: Math.max(1, Number(displaySelectedTask.height) * (zoom || 1)),
+    }
+    : null;
+  const isSelectedTaskLocked = Boolean(displaySelectedTask?.locked || displaySelectedTask?.superLocked);
   const isSelectedImageLocked = Boolean(displaySelectedImage?.locked || displaySelectedImage?.superLocked);
   const showImageToolbarBelow = Boolean(selectedImageScreenBox && selectedImageScreenBox.top < 74);
   const imageMoreMenuOpensLeft = Boolean(
@@ -16254,7 +16423,9 @@ const BoardSection = ({
                   codeSavedByRole: '',
                 }
               : sharedDisplayItem;
-            const layout = getBoardTaskAnswerLayout(displayItem);
+            const contentItem = getBoardTaskContentItem(displayItem);
+            const contentScale = getBoardTaskScale(displayItem);
+            const layout = getBoardTaskAnswerLayout(contentItem);
             const taskZoom = Math.max(
               BOARD_MIN_ZOOM,
               Math.min(BOARD_MAX_ZOOM, Number(zoom) || 1)
@@ -16297,11 +16468,11 @@ const BoardSection = ({
                 key={taskItem.id}
                 className={`board-task-controls is-${status}`}
                 style={{
-                  left: `${(Number(displayItem.x) || 0) - offset.x}px`,
-                  top: `${(Number(displayItem.y) || 0) - offset.y}px`,
-                  width: `${Number(displayItem.width) || BOARD_TASK_DEFAULT_WIDTH}px`,
-                  height: `${Number(displayItem.height) || 640}px`,
-                  zoom: taskZoom,
+                  left: `${((Number(displayItem.x) || 0) - offset.x) / contentScale}px`,
+                  top: `${((Number(displayItem.y) || 0) - offset.y) / contentScale}px`,
+                  width: `${contentItem.width}px`,
+                  height: `${contentItem.height}px`,
+                  zoom: taskZoom * contentScale,
                 }}
                 aria-label={displayItem.heading || 'Задание на доске'}
               >
@@ -16334,8 +16505,8 @@ const BoardSection = ({
                     style={{
                       left: '12px',
                       top: `${BOARD_TASK_CARD_HEADER_HEIGHT + 12}px`,
-                      width: `${Math.max(280, Number(displayItem.width) - 24)}px`,
-                      height: `${Math.max(230, Number(displayItem.height) - BOARD_TASK_CARD_HEADER_HEIGHT - 24)}px`,
+                      width: `${Math.max(280, contentItem.width - 24)}px`,
+                      height: `${Math.max(230, contentItem.height - BOARD_TASK_CARD_HEADER_HEIGHT - 24)}px`,
                     }}
                     onPointerDown={stopTaskControlPointer}
                     onClick={(event) => event.stopPropagation()}
@@ -16494,6 +16665,30 @@ const BoardSection = ({
             placeholder="Введите текст…"
           />
         )}
+        {!boardReadOnly && tool === 'select' && displaySelectedTask && selectedTaskScreenBox && (
+          <div className="board-image-selection-layer" aria-label="Выбранное задание">
+            <div
+              className={`board-image-selection ${isSelectedTaskLocked ? 'is-locked' : ''}`}
+              style={{
+                left: `${selectedTaskScreenBox.left}px`,
+                top: `${selectedTaskScreenBox.top}px`,
+                width: `${selectedTaskScreenBox.width}px`,
+                height: `${selectedTaskScreenBox.height}px`,
+              }}
+            >
+              {!isSelectedTaskLocked && ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((handle) => (
+                <button
+                  key={handle}
+                  type="button"
+                  className={`board-image-selection__handle board-image-selection__handle--${handle}`}
+                  onPointerDown={(event) => startBoardItemResize(event, handle, displaySelectedTask)}
+                  aria-label={`Изменить размер задания: ${handle}`}
+                  tabIndex={-1}
+                />
+              ))}
+            </div>
+          </div>
+        )}
         {!boardReadOnly && (tool === 'move' || tool === 'select') && displaySelectedImage && selectedImageScreenBox && (
           <div className="board-image-selection-layer" aria-label="Выбранное изображение">
             <div
@@ -16510,7 +16705,7 @@ const BoardSection = ({
                   key={handle}
                   type="button"
                   className={`board-image-selection__handle board-image-selection__handle--${handle}`}
-                  onPointerDown={(event) => startImageResize(event, handle, displaySelectedImage)}
+                  onPointerDown={(event) => startBoardItemResize(event, handle, displaySelectedImage)}
                   aria-label={`Изменить размер: ${handle}`}
                   tabIndex={-1}
                 />
