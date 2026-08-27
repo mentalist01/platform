@@ -7,6 +7,9 @@ import {
   calculateTeacherCommissionPaybackSummary,
   calculateTeacherIncomeScenario,
   countCurrentTeacherStudents,
+  getTeacherFinanceCurrentMonthKey,
+  normalizeTeacherFinanceMonthKey,
+  shiftTeacherFinanceMonthKey,
 } from '../src/utils/teacherFinanceCalculations.js';
 
 test('current student count excludes inactive, graduate and deleted students', () => {
@@ -55,6 +58,16 @@ test('commission payback summary adds remaining amounts only for current student
     studentCount: 3,
     remainingStudentCount: 2,
   });
+});
+
+test('finance month navigation crosses year boundaries and rejects invalid values', () => {
+  assert.equal(normalizeTeacherFinanceMonthKey('2026-08'), '2026-08');
+  assert.equal(normalizeTeacherFinanceMonthKey('2026-13'), '');
+  assert.equal(shiftTeacherFinanceMonthKey('2026-01', -1), '2025-12');
+  assert.equal(shiftTeacherFinanceMonthKey('2026-12', 1), '2027-01');
+  assert.equal(shiftTeacherFinanceMonthKey('2026-08', 12), '2027-08');
+  assert.equal(shiftTeacherFinanceMonthKey('invalid', 1), '');
+  assert.equal(getTeacherFinanceCurrentMonthKey(new Date(2026, 7, 27, 12)), '2026-08');
 });
 
 test('current-month forecast extrapolates revenue and lessons using elapsed calendar days', () => {

@@ -1,11 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Calculator,
   CalendarClock,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   Clock3,
+  LoaderCircle,
   Save,
   TrendingUp,
   Users,
@@ -16,6 +19,8 @@ import {
   calculateTeacherCommissionPaybackSummary,
   calculateTeacherIncomeScenario,
   countCurrentTeacherStudents,
+  getTeacherFinanceCurrentMonthKey,
+  shiftTeacherFinanceMonthKey,
 } from '../utils/teacherFinanceCalculations';
 import { isCurrentStudent } from '../utils/studentStudyStatus';
 import { Button, Card } from './ui';
@@ -310,11 +315,13 @@ const SummaryMetric = ({ icon, label, value, tone = 'violet', hint }) => {
 
 const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) => {
   const [snapshot, setSnapshot] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(() => getTeacherFinanceCurrentMonthKey());
   const [commissionDrafts, setCommissionDrafts] = useState({});
   const [commissionBaselines, setCommissionBaselines] = useState({});
   const [lessonPriceDrafts, setLessonPriceDrafts] = useState({});
   const [lessonPriceErrors, setLessonPriceErrors] = useState({});
   const [loading, setLoading] = useState(true);
+  const [monthLoading, setMonthLoading] = useState(false);
   const [savingStudentId, setSavingStudentId] = useState('');
   const [savingLessonPriceStudentId, setSavingLessonPriceStudentId] = useState('');
   const [error, setError] = useState('');
@@ -322,6 +329,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
   const [calculatorLessonsPerWeek, setCalculatorLessonsPerWeek] = useState('1');
   const [calculatorHourlyRate, setCalculatorHourlyRate] = useState('2000');
   const [calculatorWorkingDays, setCalculatorWorkingDays] = useState('5');
+  const financeLoadedRef = useRef(false);
 
   const applySnapshot = (data) => {
     const nextSnapshot = data && typeof data === 'object' ? data : {};
@@ -345,23 +353,28 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      setLoading(true);
+      if (financeLoadedRef.current) setMonthLoading(true);
+      else setLoading(true);
       try {
-        const data = await api.getTeacherFinance(undefined, teacherId);
+        const data = await api.getTeacherFinance(selectedMonth, teacherId);
         if (cancelled) return;
         applySnapshot(data);
         setError('');
       } catch (err) {
         if (!cancelled) setError(err?.message || String(err));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          financeLoadedRef.current = true;
+          setLoading(false);
+          setMonthLoading(false);
+        }
       }
     };
     load();
     return () => {
       cancelled = true;
     };
-  }, [teacherId]);
+  }, [selectedMonth, teacherId]);
 
   const studentRows = useMemo(() => (
     (Array.isArray(snapshot?.students) ? snapshot.students : [])
@@ -483,10 +496,13 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
   const calendarPlanUnpricedStudentGroups = groupCalendarPlanUnpricedLessons(
     normalizeCalendarPlanUnpricedLessons(rawCalendarPlan.unpricedLessons)
   );
-  const calendarPlanMonthName = formatMonthLabel(calendarPlanMonthKey)
+  const calendarPlanMonthLabel = formatMonthLabel(calendarPlanMonthKey).toLowerCase();
+  const calendarPlanMonthName = calendarPlanMonthLabel
     .replace(/\s+\d{4}$/u, '')
-    .toLowerCase();
+    .trim();
   const calendarPlanTotalValue = `${calendarPlanUnpricedLessonCount > 0 ? 'от ' : ''}${formatMoney(calendarPlanTotal.revenue)}`;
+  const currentCalendarMonthKey = getTeacherFinanceCurrentMonthKey();
+  const isCurrentCalendarMonth = selectedMonth === currentCalendarMonthKey;
   const incomeScenario = calculateTeacherIncomeScenario({
     studentCount: calculatorStudents,
     lessonsPerWeek: calculatorLessonsPerWeek,
@@ -500,6 +516,11 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
     20,
     30,
   ])).filter((count) => count > 0);
+
+  const moveCalendarMonth = (offset) => {
+    const nextMonth = shiftTeacherFinanceMonthKey(selectedMonth, offset);
+    if (nextMonth) setSelectedMonth(nextMonth);
+  };
 
   const handleCommissionChange = (studentId, value) => {
     setCommissionDrafts((prev) => ({
@@ -643,17 +664,63 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
               <div className="min-w-0">
                 <div className="text-[10px] font-black uppercase tracking-[0.14em] text-sky-700">План по календарю</div>
                 <h3 className="mt-1 text-lg font-black text-slate-950">
-                  План начислений на {calendarPlanMonthName || 'текущий месяц'}
+                  План начислений на {calendarPlanMonthLabel || 'текущий месяц'}
                 </h3>
                 <p className="mt-1 max-w-3xl text-xs font-medium leading-relaxed text-slate-500">
                   Реальные занятия и ставки учеников — без экстраполяции по среднему темпу.
                 </p>
               </div>
             </div>
-            <span className="teacher-finance-simple__calendar-plan-badge inline-flex w-fit items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] text-sky-700">
-              <CalendarDays size={13} />
-              По текущему расписанию
-            </span>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="teacher-finance-simple__month-picker inline-flex items-center rounded-2xl border border-sky-200 bg-sky-50 p-1 text-sky-700 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => moveCalendarMonth(-1)}
+                  disabled={monthLoading}
+                  className="grid h-8 w-8 place-items-center rounded-xl transition hover:bg-white disabled:cursor-wait disabled:opacity-50"
+                  aria-label="Предыдущий месяц"
+                  title="Предыдущий месяц"
+                >
+                  <ChevronLeft size={17} />
+                </button>
+                <label className="relative inline-flex h-8 min-w-[156px] items-center justify-center gap-2 rounded-xl bg-white px-2 text-xs font-black text-sky-800">
+                  {monthLoading ? <LoaderCircle size={14} className="animate-spin" /> : <CalendarDays size={14} />}
+                  <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(event) => {
+                      if (/^\d{4}-\d{2}$/.test(event.target.value)) setSelectedMonth(event.target.value);
+                    }}
+                    disabled={monthLoading}
+                    className="min-w-0 border-0 bg-transparent text-xs font-black text-sky-800 outline-none disabled:cursor-wait"
+                    aria-label="Выбрать месяц финансового плана"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => moveCalendarMonth(1)}
+                  disabled={monthLoading}
+                  className="grid h-8 w-8 place-items-center rounded-xl transition hover:bg-white disabled:cursor-wait disabled:opacity-50"
+                  aria-label="Следующий месяц"
+                  title="Следующий месяц"
+                >
+                  <ChevronRight size={17} />
+                </button>
+              </div>
+              {!isCurrentCalendarMonth ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedMonth(currentCalendarMonthKey)}
+                  disabled={monthLoading}
+                  className="inline-flex h-10 items-center gap-2 rounded-2xl border border-violet-200 bg-violet-50 px-3 text-[10px] font-black uppercase tracking-[0.08em] text-violet-700 transition hover:bg-violet-100 disabled:cursor-wait disabled:opacity-50"
+                >
+                  Текущий месяц
+                </button>
+              ) : null}
+              <span className="teacher-finance-simple__calendar-plan-badge inline-flex h-10 w-fit items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-3 text-[10px] font-black uppercase tracking-[0.1em] text-sky-700">
+                По расписанию
+              </span>
+            </div>
           </div>
 
           {calendarPlanTotal.lessonCount > 0 ? (

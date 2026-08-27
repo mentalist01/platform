@@ -70,7 +70,7 @@ const toNonNegativeInteger = (value) => Math.floor(toNonNegativeNumber(value));
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-const normalizeMonthKey = (value) => {
+export const normalizeTeacherFinanceMonthKey = (value) => {
   const match = String(value ?? '').trim().match(/^(\d{4})-(\d{2})$/);
   if (!match) return '';
   const year = Number(match[1]);
@@ -78,6 +78,7 @@ const normalizeMonthKey = (value) => {
   if (!Number.isInteger(year) || year < 1 || month < 1 || month > 12) return '';
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
 };
+const normalizeMonthKey = normalizeTeacherFinanceMonthKey;
 
 const toValidDate = (value) => {
   const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
@@ -88,6 +89,19 @@ const getLocalMonthKey = (date) => [
   String(date.getFullYear()).padStart(4, '0'),
   String(date.getMonth() + 1).padStart(2, '0'),
 ].join('-');
+
+export const getTeacherFinanceCurrentMonthKey = (value = new Date()) => {
+  const date = toValidDate(value);
+  return date ? getLocalMonthKey(date) : '';
+};
+
+export const shiftTeacherFinanceMonthKey = (value, offset = 0) => {
+  const monthKey = normalizeTeacherFinanceMonthKey(value);
+  if (!monthKey) return '';
+  const [year, month] = monthKey.split('-').map(Number);
+  const delta = Number.isFinite(Number(offset)) ? Math.trunc(Number(offset)) : 0;
+  return getLocalMonthKey(new Date(year, month - 1 + delta, 1, 12));
+};
 
 const getDaysInMonth = (monthKey) => {
   const match = String(monthKey).match(/^(\d{4})-(\d{2})$/);

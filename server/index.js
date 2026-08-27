@@ -15442,7 +15442,12 @@ const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence)
   return { month, lessonPrice };
 };
 
-const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacherStudents = []) => {
+const buildTeacherFinanceProfitability = async (
+  teacherId,
+  teacherEntry,
+  teacherStudents = [],
+  requestedCalendarPlanMonth = ''
+) => {
   const normalizedTeacherId = normalizeTeacherId(teacherId);
   const students = Array.isArray(teacherStudents) ? teacherStudents : [];
   const studentsById = new Map(
@@ -15638,7 +15643,8 @@ const buildTeacherFinanceProfitability = async (teacherId, teacherEntry, teacher
     });
   });
 
-  const calendarPlanMonth = normalizeTeacherFinanceMonthKey(String(nowInfo.todayKey || '').slice(0, 7))
+  const calendarPlanMonth = normalizeTeacherFinanceMonthKey(requestedCalendarPlanMonth)
+    || normalizeTeacherFinanceMonthKey(String(nowInfo.todayKey || '').slice(0, 7))
     || getCurrentTeacherFinanceMonthKey();
   const studentStartDayById = Object.fromEntries(
     Array.from(studentStartNumberById.entries()).map(([studentId, dayNumber]) => [
@@ -15852,7 +15858,8 @@ const buildTeacherFinanceResponseWithProfitability = async (teacherId, monthKey)
   const profitabilityResult = await buildTeacherFinanceProfitability(
     teacherId,
     teacherEntry,
-    teacherStudents
+    teacherStudents,
+    monthKey
   );
   if (
     Object.keys(profitabilityResult.ledgerUpdates || {}).length > 0
