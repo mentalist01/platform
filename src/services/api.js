@@ -2062,6 +2062,20 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  setTeacherCalendarLessonCancelled: async (occurrence = {}, cancelled = true, teacherId) => {
+    const body = {
+      occurrence: occurrence && typeof occurrence === 'object' ? occurrence : {},
+      cancelled: Boolean(cancelled),
+    };
+    if (teacherId) body.teacherId = String(teacherId);
+    const res = await apiFetch('/api/teacher-calendar-cancellations', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   updateTeacherCalendarMarks: async (payload = {}, teacherId) => {
     const body = payload && typeof payload === 'object' ? { ...payload } : {};
     if (teacherId) body.teacherId = String(teacherId);

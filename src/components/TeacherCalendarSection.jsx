@@ -2,6 +2,7 @@
 import {
   Bell,
   BellOff,
+  Ban,
   BookOpen,
   Brush,
   CalendarDays,
@@ -31,6 +32,10 @@ import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { resolveApiUrl } from '../utils/runtimeUrls';
 import { normalizeTelemostUrl } from '../utils/telemost';
 import { resolveCalendarEventHomeworkProgress } from '../utils/calendarHomeworkProgress';
+import {
+  buildTeacherCalendarCancellationMarkKey,
+  isTeacherCalendarLessonCancelled,
+} from '../utils/teacherCalendarCancellation';
 import {
   formatAvailabilityShareWeekLabel,
   getAvailabilityShareWeekStart,
@@ -529,17 +534,31 @@ const isCalendarLessonUpcoming = (dayKey, startMinutes, now = new Date()) => {
 const getCalendarLessonPaymentState = (teacherId, lessonInfo, marks, now = new Date()) => {
   const paidMarkKey = buildLessonPanelMarkKey(teacherId, lessonInfo, 'paid');
   const trialMarkKey = buildLessonPanelMarkKey(teacherId, lessonInfo, 'trial');
+  const cancelledMarkKey = buildTeacherCalendarCancellationMarkKey(
+    teacherId,
+    lessonInfo?.event,
+    lessonInfo?.dayKey || lessonInfo?.event?.date
+  );
   const paidMarked = Boolean(paidMarkKey && marks?.[paidMarkKey]);
   const event = lessonInfo?.event || {};
   const trialMarked = isTrialEntry(event) || Boolean(trialMarkKey && marks?.[trialMarkKey]);
-  const finished = isCalendarLessonFinished(lessonInfo?.dayKey || event.date, event.endMinutes, now);
+  const cancelled = isTeacherCalendarLessonCancelled(
+    teacherId,
+    event,
+    lessonInfo?.dayKey || event.date,
+    marks
+  );
+  const finished = !cancelled
+    && isCalendarLessonFinished(lessonInfo?.dayKey || event.date, event.endMinutes, now);
   return {
     paidMarkKey,
     trialMarkKey,
+    cancelledMarkKey,
     paidMarked,
     trialMarked,
+    cancelled,
     finished,
-    shouldRemindPayment: finished && !paidMarked && !trialMarked,
+    shouldRemindPayment: !cancelled && finished && !paidMarked && !trialMarked,
   };
 };
 
@@ -560,21 +579,30 @@ const getLearningGroupPaymentState = (
       || buildLessonPanelMarkKey(teacherId, memberLessonInfo, 'trial');
     const paidMarked = Boolean(paidMarkKey && marks?.[paidMarkKey]);
     const trialMarked = Boolean(trialMarkKey && marks?.[trialMarkKey]);
-    const finished = isCalendarLessonFinished(
+    const cancelled = isTeacherCalendarLessonCancelled(
+      teacherId,
+      memberEvent,
+      lessonInfo?.dayKey || event.date,
+      marks
+    );
+    const finished = !cancelled && isCalendarLessonFinished(
       lessonInfo?.dayKey || event.date,
       event.endMinutes,
       now
     );
-    const status = trialMarked ? 'trial' : (paidMarked ? 'paid' : (finished ? 'unpaid' : 'pending'));
+    const status = cancelled
+      ? 'cancelled'
+      : (trialMarked ? 'trial' : (paidMarked ? 'paid' : (finished ? 'unpaid' : 'pending')));
     return {
       ...member,
       paidMarkKey,
       trialMarkKey,
       paidMarked,
       trialMarked,
+      cancelled,
       finished,
       status,
-      shouldRemindPayment: finished && !paidMarked && !trialMarked,
+      shouldRemindPayment: !cancelled && finished && !paidMarked && !trialMarked,
     };
   });
   const paidCount = members.filter((member) => member.status === 'paid').length;
@@ -920,6 +948,7 @@ const buildCalendarWeekEventsByDayIndex = ({
     const dayKey = toDayKey(weekDays[dayIndex]);
     const excludedDates = new Set(normalizeExcludedDayKeys(entry?.excludedDates));
     if (!explicitDateKey && excludedDates.has(dayKey)) return;
+    if (isTeacherCalendarLessonCancelled('', entry, dayKey, {})) return;
 
     const clampedStart = Math.max(dayStartMinutes, Math.min(dayEndMinutes - 15, startMinutesRaw));
     const durationMinutes = Number.isFinite(Number(entry?.durationMinutes))
@@ -1785,7 +1814,11 @@ const TeacherCalendarSection = ({
 
       const dueItems = (Array.isArray(entries) ? entries : [])
         .map((entry) => ({ entry, reminder: findDueBrowserAlarmOccurrence(entry, nowMs) }))
-        .filter((item) => item.reminder && item.reminder.slotId);
+        .filter((item) => {
+          if (!item.reminder?.slotId) return false;
+          const dayKey = toDayKey(new Date(item.reminder.startMs));
+          return !isTeacherCalendarLessonCancelled(teacherId, item.entry, dayKey, lessonPanelMarks);
+        });
       if (dueItems.length === 0) return;
 
       dueItems.sort((left, right) => left.reminder.startMs - right.reminder.startMs);
@@ -1839,9 +1872,11 @@ const TeacherCalendarSection = ({
     browserAlarmEnabled,
     browserAlarmRinging,
     entries,
+    lessonPanelMarks,
     playBrowserAlarmAudio,
     stopBrowserAlarm,
     studentNameById,
+    teacherId,
     use24HourFormat,
   ]);
 
@@ -2380,19 +2415,29 @@ const TeacherCalendarSection = ({
     [paymentReminderItems]
   );
 
+  const activeWeekEventsFlat = useMemo(
+    () => weekEventsFlat.filter((event) => !isTeacherCalendarLessonCancelled(
+      teacherId,
+      event,
+      event.dayKey,
+      lessonPanelMarks
+    )),
+    [lessonPanelMarks, teacherId, weekEventsFlat]
+  );
+
   const trialEventsThisWeek = useMemo(
-    () => weekEventsFlat.filter((event) => isTrialEntry(event)),
-    [weekEventsFlat]
+    () => activeWeekEventsFlat.filter((event) => isTrialEntry(event)),
+    [activeWeekEventsFlat]
   );
 
   const googleEventsThisWeek = useMemo(
-    () => weekEventsFlat.filter((event) => isExternalCalendarEntry(event)),
-    [weekEventsFlat]
+    () => activeWeekEventsFlat.filter((event) => isExternalCalendarEntry(event)),
+    [activeWeekEventsFlat]
   );
 
   const studentEventsThisWeek = useMemo(
-    () => weekEventsFlat.filter((event) => !isTrialEntry(event)),
-    [weekEventsFlat]
+    () => activeWeekEventsFlat.filter((event) => !isTrialEntry(event)),
+    [activeWeekEventsFlat]
   );
 
   const upcomingTrialEvents = useMemo(() => {
@@ -2434,6 +2479,7 @@ const TeacherCalendarSection = ({
       const dayKey = toDayKey(date);
       const list = eventsByDayIndex[dayIndex] || [];
       list.forEach((event) => {
+        if (isTeacherCalendarLessonCancelled(teacherId, event, dayKey, lessonPanelMarks)) return;
         const startLabel = formatMinutesAsTime(event.startMinutes);
         const startDate = new Date(`${dayKey}T${startLabel}:00`);
         if (Number.isNaN(startDate.getTime())) return;
@@ -2442,7 +2488,7 @@ const TeacherCalendarSection = ({
     });
     candidates.sort((left, right) => left.startDate.getTime() - right.startDate.getTime());
     return candidates.find((item) => item.startDate.getTime() >= nowTime) || candidates[0] || null;
-  }, [eventsByDayIndex, visibleDayIndexes, weekDays]);
+  }, [eventsByDayIndex, lessonPanelMarks, teacherId, visibleDayIndexes, weekDays]);
 
   const lessonPanelInfo = useMemo(() => {
     const now = currentTimeLineNow instanceof Date ? currentTimeLineNow : new Date();
@@ -2460,6 +2506,7 @@ const TeacherCalendarSection = ({
       const excludedDates = new Set(normalizeExcludedDayKeys(entry?.excludedDates));
       const pushCandidate = (dayKey) => {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey) || excludedDates.has(dayKey)) return;
+        if (isTeacherCalendarLessonCancelled(teacherId, entry, dayKey, lessonPanelMarks)) return;
         const candidateDate = parseDayKeyToDate(dayKey);
         if (!candidateDate) return;
         const candidateMs = candidateDate.getTime();
@@ -2509,7 +2556,7 @@ const TeacherCalendarSection = ({
     if (next) return { ...next, status: 'next' };
     const last = [...candidates].reverse().find((item) => item.endDate.getTime() <= nowMs);
     return last ? { ...last, status: 'past' } : null;
-  }, [currentTimeLineNow, entries, studentNameById]);
+  }, [currentTimeLineNow, entries, lessonPanelMarks, studentNameById, teacherId]);
 
   const lessonPanelStudentId = String(lessonPanelInfo?.event?.studentId || '').trim();
   const lessonPanelIsGroup = isLearningGroupCalendarEntry(lessonPanelInfo?.event);
@@ -2895,9 +2942,22 @@ const TeacherCalendarSection = ({
   const eventDetailsTrialMarkKey = eventDetailsLessonInfo
     ? buildLessonPanelMarkKey(teacherId, eventDetailsLessonInfo, 'trial')
     : '';
+  const eventDetailsCancellationMarkKey = eventDetailsLessonInfo
+    ? buildTeacherCalendarCancellationMarkKey(teacherId, {
+        ...eventDetails,
+        time: String(eventDetails?.time || '').trim()
+          || formatMinutesAsTime(eventDetails?.startMinutes),
+      }, eventDetailsDayKey)
+    : '';
   const eventDetailsCompletedMarked = Boolean(lessonPanelMarks[eventDetailsCompletedMarkKey]);
   const eventDetailsPaidMarked = Boolean(lessonPanelMarks[eventDetailsPaidMarkKey]);
   const eventDetailsTrialMarked = Boolean(lessonPanelMarks[eventDetailsTrialMarkKey]);
+  const eventDetailsCancelled = Boolean(eventDetails && isTeacherCalendarLessonCancelled(
+    teacherId,
+    eventDetails,
+    eventDetailsDayKey,
+    lessonPanelMarks
+  ));
   const eventDetailsGroupPayment = eventDetailsIsGroup && eventDetailsLessonInfo
     ? getLearningGroupPaymentState(
       teacherId,
@@ -2909,6 +2969,7 @@ const TeacherCalendarSection = ({
     : null;
   const eventDetailsStatusLabel = useMemo(() => {
     if (!eventDetails) return 'Урок';
+    if (eventDetailsCancelled) return 'Отменено';
     if (isTrialEntry(eventDetails) || eventDetailsTrialMarked) return 'Пробное';
     const start = Number(eventDetails.startMinutes);
     const end = Number(eventDetails.endMinutes);
@@ -2920,7 +2981,7 @@ const TeacherCalendarSection = ({
     if (startDate.getTime() <= nowMs && endDate.getTime() > nowMs) return 'Идёт сейчас';
     if (startDate.getTime() < nowMs) return 'Прошедший урок';
     return 'Урок';
-  }, [currentTimeLineNow, eventDetails, eventDetailsDayKey, eventDetailsTrialMarked]);
+  }, [currentTimeLineNow, eventDetails, eventDetailsCancelled, eventDetailsDayKey, eventDetailsTrialMarked]);
   const eventDetailsGroupDurationMinutes = Math.max(
     15,
     Number(eventDetails?.durationMinutes)
@@ -2950,6 +3011,8 @@ const TeacherCalendarSection = ({
     && eventDetailsGroupStartMs > currentTimeLineNow.getTime()
     && eventDetailsGroupStatus !== 'active';
   const eventDetailsGroupClosed = eventDetailsIsGroup && (
+    eventDetailsCancelled
+    ||
     eventDetailsStatusLabel === 'Прошедший урок'
     || ['completed', 'cancelled'].includes(eventDetailsGroupStatus)
     || String(eventDetails?.groupStatus || '').trim().toLowerCase() === 'completed'
@@ -2977,11 +3040,12 @@ const TeacherCalendarSection = ({
   const lessonInfoTargetTimeLabel = String(lessonInfoTarget?.timeLabel || lessonPanelTimeLabel || '').trim();
 
   const openEventDetailsWorkspace = useCallback((viewId) => {
+    if (eventDetailsCancelled) return;
     openStudentWorkspace(viewId, eventDetailsStudentId);
-  }, [eventDetailsStudentId, openStudentWorkspace]);
+  }, [eventDetailsCancelled, eventDetailsStudentId, openStudentWorkspace]);
 
   const openEventDetailsGroupWorkspace = useCallback((surface = 'call') => {
-    if (!eventDetailsIsGroup || typeof onOpenLearningGroupLesson !== 'function') return;
+    if (eventDetailsCancelled || !eventDetailsIsGroup || typeof onOpenLearningGroupLesson !== 'function') return;
     const startLabel = formatMinutesAsTime(eventDetails?.startMinutes);
     const fallbackStartsAt = eventDetailsDayKey && startLabel && startLabel !== '--:--'
       ? `${eventDetailsDayKey}T${startLabel}:00`
@@ -3012,15 +3076,16 @@ const TeacherCalendarSection = ({
     eventDetailsGroupClosed,
     eventDetailsGroupParticipants,
     eventDetailsGroupReadOnly,
+    eventDetailsCancelled,
     eventDetailsIsGroup,
     onOpenLearningGroupTelemost,
     onOpenLearningGroupLesson,
   ]);
 
   const openEventDetailsLink = useCallback(() => {
-    if (!eventDetailsLink || typeof window === 'undefined') return;
+    if (eventDetailsCancelled || !eventDetailsLink || typeof window === 'undefined') return;
     window.open(eventDetailsLink, '_blank', 'noopener,noreferrer');
-  }, [eventDetailsLink]);
+  }, [eventDetailsCancelled, eventDetailsLink]);
 
   const openEventDetailsInfoModal = useCallback(() => {
     if (!eventDetailsHasStudent) return;
@@ -3042,7 +3107,7 @@ const TeacherCalendarSection = ({
 
   const handleEventDetailsFinanceAction = useCallback(async (action) => {
     const normalizedAction = String(action || '').trim();
-    if (!teacherId || !eventDetailsLessonInfo || lessonPanelFinanceBusy) return;
+    if (eventDetailsCancelled || !teacherId || !eventDetailsLessonInfo || lessonPanelFinanceBusy) return;
     const markKey = normalizedAction === 'paid' ? eventDetailsPaidMarkKey : eventDetailsCompletedMarkKey;
     const undo = Boolean(markKey && lessonPanelMarks[markKey]);
 
@@ -3116,6 +3181,7 @@ const TeacherCalendarSection = ({
     }
   }, [
     eventDetailsCompletedMarkKey,
+    eventDetailsCancelled,
     eventDetailsDayKey,
     eventDetailsLessonInfo,
     eventDetailsPaidMarkKey,
@@ -3130,7 +3196,7 @@ const TeacherCalendarSection = ({
   const handleGroupMemberPaymentToggle = useCallback(async (member) => {
     const studentId = String(member?.studentId || '').trim();
     const markKey = String(member?.paidMarkKey || '').trim();
-    if (!eventDetailsIsGroup || !studentId || !markKey || !teacherId || lessonPanelFinanceBusy) return;
+    if (eventDetailsCancelled || !eventDetailsIsGroup || !studentId || !markKey || !teacherId || lessonPanelFinanceBusy) return;
     const undo = Boolean(lessonPanelMarks[markKey]);
     setLessonPanelFinanceBusy(`group-paid:${studentId}`);
     setLessonPanelError('');
@@ -3171,11 +3237,103 @@ const TeacherCalendarSection = ({
     }
   }, [
     eventDetailsIsGroup,
+    eventDetailsCancelled,
     eventDetailsDayKey,
     lessonPanelFinanceBusy,
     lessonPanelMarks,
     removeLessonPanelMark,
     saveLessonPanelMark,
+    teacherId,
+  ]);
+
+  const handleEventDetailsCancellationToggle = useCallback(async () => {
+    if (
+      !eventDetails
+      || !eventDetailsCancellationMarkKey
+      || !teacherId
+      || eventDeleteBusy
+      || eventEditSaving
+      || eventQuickActionBusy
+      || dragDropBusy
+    ) return;
+
+    const nextCancelled = !eventDetailsCancelled;
+    if (nextCancelled && typeof window !== 'undefined') {
+      const dateAndTime = [eventDetailsDateLabel, eventDetailsTimeRangeLabel].filter(Boolean).join(', ');
+      const confirmed = window.confirm(
+        `Отменить занятие${dateAndTime ? ` ${dateAndTime}` : ''}?\n\n`
+        + 'Оно перестанет учитываться в расписании ученика, домашке, напоминаниях и плане начислений. '
+        + 'Если занятие пришло из Google, само событие Google останется на месте.'
+      );
+      if (!confirmed) return;
+    }
+
+    const time = String(eventDetails.time || '').trim()
+      || formatMinutesAsTime(eventDetails.startMinutes);
+    setEventQuickActionBusy(true);
+    setEventQuickActionError('');
+    setLessonPanelError('');
+    setLessonPanelSuccess('');
+    try {
+      const response = await api.setTeacherCalendarLessonCancelled({
+        id: String(eventDetails.id || '').trim(),
+        externalEventId: String(eventDetails.externalEventId || '').trim(),
+        dayKey: eventDetailsDayKey,
+        time,
+        studentId: String(eventDetails.studentId || '').trim(),
+        groupId: String(eventDetails.groupId || '').trim(),
+        lessonId: String(eventDetails.lessonId || '').trim(),
+      }, nextCancelled, teacherId);
+      const nextMarks = normalizeLessonPanelMarks(response?.marks);
+      setLessonPanelMarks(nextMarks);
+      writeLessonPanelMarks(teacherId, nextMarks);
+      markLessonPanelMarksMigrated(teacherId);
+      setEventDetails((current) => {
+        if (!current) return current;
+        const cancelledDates = Array.from(new Set([
+          ...(Array.isArray(current.cancelledDates) ? current.cancelledDates : []),
+          ...(nextCancelled ? [eventDetailsDayKey] : []),
+        ].filter((dayKey) => dayKey && (nextCancelled || dayKey !== eventDetailsDayKey))));
+        const currentStatus = String(current.status || '').trim().toLowerCase();
+        const currentLessonStatus = String(current.lessonStatus || '').trim().toLowerCase();
+        return {
+          ...current,
+          cancelled: nextCancelled,
+          isCancelled: nextCancelled,
+          status: nextCancelled
+            ? 'cancelled'
+            : (['cancelled', 'canceled'].includes(currentStatus) ? 'scheduled' : current.status),
+          lessonStatus: nextCancelled
+            ? 'cancelled'
+            : (['cancelled', 'canceled'].includes(currentLessonStatus) ? 'scheduled' : current.lessonStatus),
+          cancelledDates,
+        };
+      });
+      await loadTeacherCalendar({ silent: true });
+      setLessonPanelSuccess(nextCancelled
+        ? 'Занятие отменено. Google Calendar не изменён.'
+        : 'Занятие возвращено в расписание.');
+    } catch (err) {
+      setEventQuickActionError(err?.message || (
+        nextCancelled
+          ? 'Не удалось отменить занятие.'
+          : 'Не удалось вернуть занятие в расписание.'
+      ));
+    } finally {
+      setEventQuickActionBusy(false);
+    }
+  }, [
+    dragDropBusy,
+    eventDeleteBusy,
+    eventDetails,
+    eventDetailsCancellationMarkKey,
+    eventDetailsCancelled,
+    eventDetailsDateLabel,
+    eventDetailsDayKey,
+    eventDetailsTimeRangeLabel,
+    eventEditSaving,
+    eventQuickActionBusy,
+    loadTeacherCalendar,
     teacherId,
   ]);
 
@@ -3483,6 +3641,7 @@ const TeacherCalendarSection = ({
         && entryWeekday === weekday;
       if (!isMatchingDate && !isRecurringMatch) return;
       if (isRecurringMatch && entry.excludedDates?.includes(dateKey)) return;
+      if (isTeacherCalendarLessonCancelled(teacherId, entry, dateKey, lessonPanelMarks)) return;
       blockedIntervals.push({
         start: entryTime,
         end: entryTime + Math.max(15, duration),
@@ -3508,7 +3667,7 @@ const TeacherCalendarSection = ({
       ));
     });
     return Number.isFinite(found) ? found : NaN;
-  }, [dayEndMinutes, dayStartMinutes, entries]);
+  }, [dayEndMinutes, dayStartMinutes, entries, lessonPanelMarks, teacherId]);
 
   const findNextFreeSlot = useCallback(({
     startDateKey,
@@ -5296,7 +5455,7 @@ const TeacherCalendarSection = ({
                     <CheckCircle size={12} />
                     {lessonPanelFinanceBusy === 'completed' || lessonPanelFinanceBusy === 'completed-undo'
                       ? '...'
-                      : (lessonPanelCompletedMarked ? 'Отменить урок' : '+ урок')}
+                      : (lessonPanelCompletedMarked ? 'Снять отметку урока' : '+ урок')}
                   </button>
                   <button
                     type="button"
@@ -5509,10 +5668,14 @@ const TeacherCalendarSection = ({
                                     studentNameById
                                   )
                                   : null;
+                                const cancelled = paymentState.cancelled;
+                                if (availabilityShareMode && cancelled) return null;
                                 const eventFinished = paymentState.finished;
                                 const paidMarked = paymentState.paidMarked;
                                 const trialMarked = paymentState.trialMarked;
-                                const color = isGroupEvent
+                                const color = cancelled
+                                  ? '#64748b'
+                                  : (isGroupEvent
                                   ? (groupPaymentState?.allSettled
                                     ? CALENDAR_PAID_EVENT_COLOR
                                     : (groupPaymentState?.partiallySettled
@@ -5522,19 +5685,21 @@ const TeacherCalendarSection = ({
                                     ? CALENDAR_TRIAL_EVENT_COLOR
                                     : (paidMarked
                                       ? CALENDAR_PAID_EVENT_COLOR
-                                      : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor)));
+                                      : (eventFinished ? CALENDAR_UNPAID_PAST_EVENT_COLOR : defaultColor))));
                                 const cardColor = availabilityShareMode ? '#2563eb' : color;
-                                const paymentStateLabel = isGroupEvent
+                                const paymentStateLabel = cancelled
+                                  ? ' • занятие отменено'
+                                  : (isGroupEvent
                                   ? ` • оплачено ${groupPaymentState?.paidCount || 0} из ${groupPaymentState?.totalCount || groupParticipants.length}`
                                   : (trialMarked
                                     ? ' • пробное занятие'
                                     : (paidMarked
                                       ? ' • оплата отмечена'
-                                      : (eventFinished ? ' • оплата не отмечена' : '')));
-                                const paymentColorApplied = isGroupEvent
+                                      : (eventFinished ? ' • оплата не отмечена' : ''))));
+                                const paymentColorApplied = cancelled || (isGroupEvent
                                   ? Boolean(groupPaymentState?.settledCount || eventFinished)
-                                  : (trialMarked || paidMarked || eventFinished);
-                                const homeworkProgress = !availabilityShareMode && !trialMarked && isCalendarLessonUpcoming(
+                                  : Boolean(trialMarked || paidMarked || eventFinished));
+                                const homeworkProgress = !availabilityShareMode && !cancelled && !trialMarked && isCalendarLessonUpcoming(
                                   dayKey,
                                   event.startMinutes,
                                   currentTimeLineNow
@@ -5549,15 +5714,15 @@ const TeacherCalendarSection = ({
                                   : ` • домашняя работа выполнена на ${homeworkProgressPercent}%`;
                                 const laneWidth = 100 / Math.max(1, event.laneCount || 1);
                                 const left = (event.lane || 0) * laneWidth;
-                                const hasConflict = Number(event.laneCount || 1) > 1;
+                                const hasConflict = !cancelled && Number(event.laneCount || 1) > 1;
                                 return (
                                   <div
                                     key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
                                     aria-label={`${availabilityShareMode ? '' : (externalEvent ? 'Google Calendar • ' : '')}${cardPrimaryLabel}${cardShowSubject ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}${availabilityShareMode ? '' : `${paymentStateLabel}${homeworkProgressLabel}`}`}
                                     title={availabilityShareMode ? undefined : (homeworkProgressPercent == null ? undefined : `Домашняя работа: ${homeworkProgressPercent}%`)}
                                     data-homework-progress={availabilityShareMode ? undefined : (homeworkProgressPercent == null ? undefined : homeworkProgressPercent)}
-                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] ${!availabilityShareMode && externalEvent && !paymentColorApplied ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
-                                    draggable={!availabilityShareMode && !externalEvent && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
+                                    className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] ${cancelled ? 'teacher-calendar-shell__event-card--cancelled' : ''} ${!availabilityShareMode && externalEvent && !paymentColorApplied ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
+                                    draggable={!cancelled && !availabilityShareMode && !externalEvent && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
                                     style={{
                                       top: `${top}px`,
                                       height: `${height}px`,
@@ -5569,8 +5734,8 @@ const TeacherCalendarSection = ({
                                         : buildEventCardHomeworkProgressBackground(cardColor, homeworkProgressPercent),
                                       borderColor: mixHexColor(cardColor, '#020617', 0.14),
                                       boxShadow: `0 10px 22px ${hexToRgba(cardColor, 0.22)}, inset 0 1px 0 rgba(255, 255, 255, 0.2)`,
-                                      cursor: availabilityShareMode ? 'default' : (dragDropBusy ? 'progress' : (externalEvent ? 'pointer' : 'grab')),
-                                      opacity: draggingEvent?.eventId === String(event.id || '').trim() ? 0.65 : 1,
+                                      cursor: availabilityShareMode ? 'default' : (cancelled ? 'pointer' : (dragDropBusy ? 'progress' : (externalEvent ? 'pointer' : 'grab'))),
+                                      opacity: draggingEvent?.eventId === String(event.id || '').trim() ? 0.65 : (cancelled ? 0.68 : 1),
                                     }}
                                     onDragStart={(eventDrag) => handleEventDragStart(eventDrag, event, dayIndex, dayKey)}
                                     onDragEnd={handleEventDragEnd}
@@ -5580,11 +5745,18 @@ const TeacherCalendarSection = ({
                                       openEventDetailsModal(event, dayKey);
                                     }}
                                   >
-                                    <div className="truncate text-[11px] font-bold leading-tight">{cardPrimaryLabel}</div>
+                                    <div className={`truncate text-[11px] font-bold leading-tight ${cancelled ? 'line-through' : ''}`}>{cardPrimaryLabel}</div>
+                                    {cancelled && !availabilityShareMode && (
+                                      <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-white/20 px-1 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">
+                                        <Ban size={9} /> Отменено
+                                      </div>
+                                    )}
                                     {isGroupEvent && !availabilityShareMode && (
                                       <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold leading-tight text-white/95">
                                         <Users size={10} />
-                                        <span>{`${groupParticipants.length} уч. • оплачено ${groupPaymentState?.paidCount || 0}/${groupPaymentState?.totalCount || groupParticipants.length}`}</span>
+                                        <span>{cancelled
+                                          ? `${groupParticipants.length} уч. • отменено`
+                                          : `${groupParticipants.length} уч. • оплачено ${groupPaymentState?.paidCount || 0}/${groupPaymentState?.totalCount || groupParticipants.length}`}</span>
                                       </div>
                                     )}
                                     {cardShowSubject && (
@@ -6282,7 +6454,9 @@ const TeacherCalendarSection = ({
               <div className="mt-4 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-white via-violet-50/80 to-sky-50/70 p-3 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
-                    eventDetailsStatusLabel === 'Идёт сейчас'
+                    eventDetailsCancelled
+                      ? 'border-slate-300 bg-slate-100 text-slate-700'
+                      : eventDetailsStatusLabel === 'Идёт сейчас'
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                       : 'border-purple-200 bg-purple-50 text-purple-700'
                   }`}>
@@ -6303,7 +6477,7 @@ const TeacherCalendarSection = ({
                   )}
                 </div>
                 <div className="mt-2 flex flex-wrap items-baseline gap-2">
-                  <div className="truncate text-lg font-black text-slate-900">
+                  <div className={`truncate text-lg font-black text-slate-900 ${eventDetailsCancelled ? 'line-through opacity-70' : ''}`}>
                     {eventDetailsStudentName || 'Занятие'}
                   </div>
                   {eventDetailsSubject && eventDetailsSubject !== eventDetailsStudentName && (
@@ -6317,7 +6491,9 @@ const TeacherCalendarSection = ({
                         <Users size={14} /> Участники и оплата
                       </span>
                       <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">
-                        {`${eventDetailsGroupPayment?.paidCount || 0}/${eventDetailsGroupPayment?.totalCount || eventDetailsGroupParticipants.length} оплачено`}
+                        {eventDetailsCancelled
+                          ? 'Занятие отменено'
+                          : `${eventDetailsGroupPayment?.paidCount || 0}/${eventDetailsGroupPayment?.totalCount || eventDetailsGroupParticipants.length} оплачено`}
                       </span>
                     </div>
                     <div className="mt-2 space-y-1.5">
@@ -6326,7 +6502,10 @@ const TeacherCalendarSection = ({
                         const status = String(member?.status || 'pending');
                         const paid = status === 'paid';
                         const trial = status === 'trial';
-                        const statusLabel = trial
+                        const cancelled = status === 'cancelled';
+                        const statusLabel = cancelled
+                          ? 'Отменено'
+                          : trial
                           ? 'Пробное'
                           : (paid ? 'Оплатил(а)' : (status === 'unpaid' ? 'Не оплатил(а)' : 'Ожидаем оплату'));
                         return (
@@ -6335,9 +6514,11 @@ const TeacherCalendarSection = ({
                             <button
                               type="button"
                               onClick={() => handleGroupMemberPaymentToggle(member)}
-                              disabled={trial || Boolean(lessonPanelFinanceBusy)}
+                              disabled={cancelled || trial || eventDetailsCancelled || Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
                               className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-60 ${
-                                paid
+                                cancelled
+                                  ? 'border-slate-300 bg-slate-100 text-slate-600'
+                                  : paid
                                   ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                   : (status === 'unpaid'
                                     ? 'border-rose-200 bg-rose-50 text-rose-700'
@@ -6383,7 +6564,7 @@ const TeacherCalendarSection = ({
                         <button
                           type="button"
                           onClick={() => openEventDetailsGroupWorkspace('call')}
-                          disabled={!eventDetailsGroupCanOpenTelemost || typeof onOpenLearningGroupTelemost !== 'function'}
+                          disabled={eventDetailsCancelled || !eventDetailsGroupCanOpenTelemost || typeof onOpenLearningGroupTelemost !== 'function'}
                           title={eventDetailsGroupNotStarted ? 'Телемост будет доступен в момент начала занятия' : 'Открыть Телемост'}
                           className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
                         >
@@ -6394,7 +6575,7 @@ const TeacherCalendarSection = ({
                       <button
                         type="button"
                         onClick={() => openEventDetailsGroupWorkspace('call')}
-                        disabled={!eventDetailsGroupCanOpenTelemost}
+                        disabled={eventDetailsCancelled || !eventDetailsGroupCanOpenTelemost}
                         title={eventDetailsGroupNotStarted ? 'Комната группы будет доступна в момент начала занятия' : 'Открыть комнату группы'}
                         className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -6404,7 +6585,7 @@ const TeacherCalendarSection = ({
                       <button
                         type="button"
                         onClick={() => openEventDetailsGroupWorkspace('board')}
-                        disabled={!eventDetails?.lessonId || eventDetailsGroupParticipants.length === 0}
+                        disabled={eventDetailsCancelled || !eventDetails?.lessonId || eventDetailsGroupParticipants.length === 0}
                         className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Brush size={12} />
@@ -6413,7 +6594,7 @@ const TeacherCalendarSection = ({
                       <button
                         type="button"
                         onClick={() => openEventDetailsGroupWorkspace('collab')}
-                        disabled={!eventDetails?.lessonId || eventDetailsGroupParticipants.length === 0}
+                        disabled={eventDetailsCancelled || !eventDetails?.lessonId || eventDetailsGroupParticipants.length === 0}
                         className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Code2 size={12} />
@@ -6436,7 +6617,8 @@ const TeacherCalendarSection = ({
                     <button
                       type="button"
                       onClick={openEventDetailsLink}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+                      disabled={eventDetailsCancelled || eventQuickActionBusy}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <ExternalLink size={12} />
                       Ссылка
@@ -6445,7 +6627,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => openEventDetailsWorkspace('call')}
-                    disabled={!eventDetailsHasStudent}
+                    disabled={eventDetailsCancelled || !eventDetailsHasStudent || eventQuickActionBusy}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Clock3 size={12} />
@@ -6454,7 +6636,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => openEventDetailsWorkspace('board')}
-                    disabled={!eventDetailsHasStudent}
+                    disabled={eventDetailsCancelled || !eventDetailsHasStudent || eventQuickActionBusy}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Brush size={12} />
@@ -6463,7 +6645,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => openEventDetailsWorkspace('collab-save')}
-                    disabled={!eventDetailsHasStudent}
+                    disabled={eventDetailsCancelled || !eventDetailsHasStudent || eventQuickActionBusy}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Code2 size={12} />
@@ -6472,7 +6654,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => openEventDetailsWorkspace('notes')}
-                    disabled={!eventDetailsHasStudent}
+                    disabled={eventDetailsCancelled || !eventDetailsHasStudent || eventQuickActionBusy}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <BookOpen size={12} />
@@ -6481,7 +6663,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => openEventDetailsWorkspace('schedule')}
-                    disabled={!eventDetailsHasStudent}
+                    disabled={eventDetailsCancelled || !eventDetailsHasStudent || eventQuickActionBusy}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <FileText size={12} />
@@ -6490,7 +6672,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => openEventDetailsWorkspace('progress')}
-                    disabled={!eventDetailsHasStudent}
+                    disabled={eventDetailsCancelled || !eventDetailsHasStudent || eventQuickActionBusy}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <CheckCircle size={12} />
@@ -6499,7 +6681,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => handleEventDetailsFinanceAction('completed')}
-                    disabled={!eventDetailsHasStudent || Boolean(lessonPanelFinanceBusy)}
+                    disabled={eventDetailsCancelled || !eventDetailsHasStudent || Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
                     className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                       eventDetailsCompletedMarked
                         ? 'border-teal-300 bg-teal-100 text-teal-800 hover:bg-teal-50'
@@ -6509,12 +6691,12 @@ const TeacherCalendarSection = ({
                     <CheckCircle size={12} />
                     {lessonPanelFinanceBusy === 'completed' || lessonPanelFinanceBusy === 'completed-undo'
                       ? '...'
-                      : (eventDetailsCompletedMarked ? 'Отменить урок' : '+ урок')}
+                      : (eventDetailsCompletedMarked ? 'Снять отметку урока' : '+ урок')}
                   </button>
                   <button
                     type="button"
                     onClick={() => toggleCalendarTrialMark(eventDetailsTrialMarkKey)}
-                    disabled={!eventDetails || Boolean(lessonPanelFinanceBusy)}
+                    disabled={eventDetailsCancelled || !eventDetails || Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
                     className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                       eventDetailsTrialMarked
                         ? 'border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-50'
@@ -6529,7 +6711,7 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => handleEventDetailsFinanceAction('paid')}
-                    disabled={!eventDetails || Boolean(lessonPanelFinanceBusy)}
+                    disabled={eventDetailsCancelled || !eventDetails || Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
                     className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                       eventDetailsPaidMarked
                         ? 'border-rose-300 bg-rose-100 text-rose-800 hover:bg-rose-50'
@@ -6592,13 +6774,28 @@ const TeacherCalendarSection = ({
                 <>
                   <button
                     type="button"
+                    onClick={handleEventDetailsCancellationToggle}
+                    disabled={!eventDetailsCancellationMarkKey || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+                      eventDetailsCancelled
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                    }`}
+                  >
+                    {eventDetailsCancelled ? <RefreshCcw size={14} /> : <Ban size={14} />}
+                    {eventQuickActionBusy
+                      ? 'Сохраняем...'
+                      : (eventDetailsCancelled ? 'Вернуть занятие' : 'Отменить занятие')}
+                  </button>
+                  <button
+                    type="button"
                     onClick={closeEventDetails}
                     disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
                     className="rounded-full border border-purple-200/80 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Закрыть
                   </button>
-                  {!eventDetailsIsExternal && (
+                  {!eventDetailsIsExternal && !eventDetailsCancelled && (
                     <>
                       <button
                         type="button"

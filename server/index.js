@@ -32,6 +32,12 @@ import {
 } from '../src/utils/homeworkStats.js';
 import { buildCalendarHomeworkProgressEntries } from '../src/utils/calendarHomeworkProgress.js';
 import {
+  annotateTeacherCalendarCancellation,
+  buildTeacherCalendarCancellationMarkKey,
+  filterTeacherCalendarCancelledSchedule,
+  isTeacherCalendarLessonCancelled,
+} from '../src/utils/teacherCalendarCancellation.js';
+import {
   buildMockExamProgressEntries,
   summarizeMockExamProgress,
 } from '../src/utils/mockExamProgress.js';
@@ -9149,6 +9155,13 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
   const teacherId = normalizeTeacherId(group?.teacherId);
   const externalEventId = String(entry?.externalEventId || '').trim();
   const externalOccurrenceId = String(entry?.id || '').trim();
+  const teacherMarks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacherId]);
+  const platformCancelled = isTeacherCalendarLessonCancelled(
+    teacherId,
+    entry,
+    entry?.date,
+    teacherMarks
+  );
   const startAt = String(entry?.startAt || entry?.createdAt || '').trim();
   const startMs = Date.parse(startAt);
   if (
@@ -9204,6 +9217,9 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
       actorId: teacherId,
       allowBeforeStart: true,
     });
+    if (platformCancelled) {
+      lesson = updateLearningLessonSession(lesson, { status: 'cancelled' }, { actorId: teacherId });
+    }
   } else {
     const patch = {};
     const normalizedStartAt = new Date(startMs).toISOString();
@@ -9214,7 +9230,9 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
     if (lesson.topic !== topic) patch.topic = topic;
     const calendarManaged = lesson.source === 'google-calendar' || lesson.id === stableLessonId;
     const eventEndMs = startMs + (durationMinutes * 60 * 1000);
-    if (calendarManaged && lesson.status === 'cancelled' && eventEndMs >= Date.now()) {
+    if (calendarManaged && platformCancelled && !['cancelled', 'completed'].includes(lesson.status)) {
+      patch.status = 'cancelled';
+    } else if (calendarManaged && !platformCancelled && lesson.status === 'cancelled' && eventEndMs >= Date.now()) {
       patch.status = 'scheduled';
     }
     if (eventTelemostUrl && lesson.telemostUrl !== eventTelemostUrl) patch.telemostUrl = eventTelemostUrl;
@@ -9242,8 +9260,15 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
     writeLearningLessonSessionsDb(existing
       ? replaceLearningStoreEntry(sessions, lesson)
       : [lesson, ...sessions]);
-    const roster = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
-    writeLearningAttendanceUpdates(roster);
+    if (lesson.status === 'cancelled') {
+      const attendance = readLearningAttendanceDb();
+      const retainedAttendance = attendance.filter((record) => record.sessionId !== lesson.id);
+      if (retainedAttendance.length !== attendance.length) writeLearningAttendanceDb(retainedAttendance);
+      closeLearningLessonCollabConnections(lesson);
+    } else {
+      const roster = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
+      writeLearningAttendanceUpdates(roster);
+    }
   }
   return lesson;
 };
@@ -14959,18 +14984,32 @@ const buildStudentSchedulePaymentState = ({
   };
   const paidMarkKey = buildTeacherCalendarPaymentMarkKey(normalizedTeacherId, paymentEvent, normalizedDayKey, 'paid');
   const trialMarkKey = buildTeacherCalendarPaymentMarkKey(normalizedTeacherId, paymentEvent, normalizedDayKey, 'trial');
+  const cancelledMarkKey = buildTeacherCalendarCancellationMarkKey(
+    normalizedTeacherId,
+    paymentEvent,
+    normalizedDayKey
+  );
   const paidMarked = Boolean(paidMarkKey && teacherMarks?.[paidMarkKey]);
   const trialMarked = Boolean(trialMarkKey && teacherMarks?.[trialMarkKey]);
+  const cancelled = isTeacherCalendarLessonCancelled(
+    normalizedTeacherId,
+    paymentEvent,
+    normalizedDayKey,
+    teacherMarks
+  );
   const dayNumber = dayKeyToNumber(normalizedDayKey);
-  const finished = Number.isFinite(dayNumber)
+  const chronologicallyFinished = Number.isFinite(dayNumber)
     && Number.isFinite(nowInfo?.todayNumber)
     && (
       dayNumber < nowInfo.todayNumber
       || (dayNumber === nowInfo.todayNumber && endMinutes <= nowInfo.currentMinutes)
     );
-  const status = trialMarked
+  const finished = !cancelled && chronologicallyFinished;
+  const status = cancelled
+    ? 'cancelled'
+    : (trialMarked
     ? 'trial'
-    : (paidMarked ? 'paid' : (finished ? 'unpaid' : 'pending'));
+    : (paidMarked ? 'paid' : (finished ? 'unpaid' : 'pending')));
   return {
     date: normalizedDayKey,
     status,
@@ -14978,8 +15017,10 @@ const buildStudentSchedulePaymentState = ({
     overdue: status === 'unpaid' && finished,
     paid: paidMarked,
     trial: trialMarked,
+    cancelled,
     paidMarkKey,
     trialMarkKey,
+    cancelledMarkKey,
     startMinutes,
     endMinutes,
   };
@@ -15071,11 +15112,16 @@ const buildStudentScheduleOverdueEntry = (entry, occurrence, paymentState) => {
 const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
   const studentId = String(student?.id || '').trim();
   const teacherId = normalizeTeacherId(student?.teacherId);
-  const baseSchedule = Array.isArray(schedule) ? schedule : [];
-  if (!studentId || !teacherId) return baseSchedule;
+  const rawBaseSchedule = Array.isArray(schedule) ? schedule : [];
+  if (!studentId || !teacherId) return rawBaseSchedule;
 
   const marksDb = readTeacherCalendarMarksDb();
   const teacherMarks = normalizeTeacherCalendarMarks(marksDb[teacherId]);
+  const baseSchedule = filterTeacherCalendarCancelledSchedule(
+    teacherId,
+    rawBaseSchedule,
+    teacherMarks
+  );
   const nowInfo = getStudentSchedulePaymentNowInfo();
   if (!Number.isFinite(nowInfo.todayNumber)) return baseSchedule;
 
@@ -15084,6 +15130,7 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
     googleEntries = (await fetchTeacherGoogleCalendarEntries(teacherId))
       .map((entry) => projectGoogleCalendarEntryForPaymentStudent(entry, student))
       .filter(Boolean);
+    googleEntries = filterTeacherCalendarCancelledSchedule(teacherId, googleEntries, teacherMarks);
   } catch {
     googleEntries = [];
   }
@@ -15314,6 +15361,59 @@ const getPaymentScheduleEntries = async (teacherId, options = {}) => {
   return [...localEntries, ...googleEntries];
 };
 
+const doesTeacherCalendarEntryOccurOnDay = (entry, dayKey) => {
+  const normalizedDayKey = normalizeDayKey(dayKey);
+  const time = normalizeScheduleTime(entry?.time);
+  if (!normalizedDayKey || !time) return false;
+  if (normalizeScheduleExcludedDates(entry?.excludedDates).includes(normalizedDayKey)) return false;
+  const explicitDate = normalizeDayKey(entry?.date);
+  if (explicitDate) return explicitDate === normalizedDayKey;
+  const weekdayMeta = resolveScheduleWeekdayMeta({
+    weekdayKey: entry?.weekdayKey,
+    day: entry?.day,
+    date: entry?.date,
+  });
+  if (!weekdayMeta?.order) return false;
+  const date = new Date(`${normalizedDayKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return false;
+  const weekdayOrder = date.getDay() === 0 ? 7 : date.getDay();
+  return weekdayOrder === weekdayMeta.order;
+};
+
+const findTeacherCalendarCancellationSource = (entries, payload = {}) => {
+  const requestedId = String(payload?.id || payload?.eventId || '').trim();
+  const requestedExternalId = String(payload?.externalEventId || '').trim();
+  const requestedStudentId = String(payload?.studentId || '').trim();
+  const requestedGroupId = String(payload?.groupId || '').trim();
+  const requestedTime = normalizeScheduleTime(payload?.time);
+  const requestedDayKey = normalizeDayKey(payload?.dayKey || payload?.date);
+  if ((!requestedId && !requestedExternalId) || !requestedTime || !requestedDayKey) return null;
+
+  return (Array.isArray(entries) ? entries : []).find((entry) => {
+    const entryId = String(entry?.id || '').trim();
+    const externalId = String(entry?.externalEventId || '').trim();
+    const identityMatches = requestedExternalId
+      ? externalId === requestedExternalId
+      : entryId === requestedId;
+    if (!identityMatches || normalizeScheduleTime(entry?.time) !== requestedTime) return false;
+    if (requestedGroupId && String(entry?.groupId || '').trim() !== requestedGroupId) return false;
+    if (
+      !requestedGroupId
+      && requestedStudentId
+      && String(entry?.studentId || '').trim() !== requestedStudentId
+    ) return false;
+    return doesTeacherCalendarEntryOccurOnDay(entry, requestedDayKey);
+  }) || null;
+};
+
+const getTeacherCalendarActiveSchedule = (teacherId, entries, marks = null) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const teacherMarks = marks || normalizeTeacherCalendarMarks(
+    readTeacherCalendarMarksDb()[normalizedTeacherId]
+  );
+  return filterTeacherCalendarCancelledSchedule(normalizedTeacherId, entries, teacherMarks);
+};
+
 const getPaymentCandidateLessonOccurrences = async (teacherId, student, receivedAt) => {
   const studentId = String(student?.id || '').trim();
   const receivedMs = Date.parse(receivedAt || '');
@@ -15357,6 +15457,7 @@ const getPaymentCandidateLessonOccurrences = async (teacherId, student, received
       const trialMarkKey = buildTeacherCalendarPaymentMarkKey(teacherId, event, normalizedDayKey, 'trial');
       if (!markKey || teacherMarks[markKey]) return;
       if (trialMarkKey && teacherMarks[trialMarkKey]) return;
+      if (isTeacherCalendarLessonCancelled(teacherId, event, normalizedDayKey, teacherMarks)) return;
       occurrences.push({
         event,
         dayKey: normalizedDayKey,
@@ -15554,6 +15655,12 @@ const buildTeacherFinanceProfitability = async (
     });
     getStudentScheduleOccurrenceDays(entryWithStudent, lifetimeNowInfo).forEach((occurrence) => {
       if (Number.isFinite(studentStartNumber) && occurrence.dayNumber < studentStartNumber) return;
+      const occurrenceKey = [
+        studentId,
+        occurrence.dayKey,
+        entryTime,
+        durationMinutes,
+      ].join(':');
       const paymentState = buildStudentSchedulePaymentState({
         teacherId: normalizedTeacherId,
         studentId,
@@ -15565,13 +15672,11 @@ const buildTeacherFinanceProfitability = async (
         teacherMarks,
         nowInfo: lifetimeNowInfo,
       });
+      if (paymentState?.cancelled) {
+        excludedOccurrenceKeys.add(occurrenceKey);
+        return;
+      }
       if (!paymentState?.finished) return;
-      const occurrenceKey = [
-        studentId,
-        occurrence.dayKey,
-        entryTime,
-        durationMinutes,
-      ].join(':');
       const current = occurrencesByKey.get(occurrenceKey) || {
         occurrenceKey,
         studentId,
@@ -15671,7 +15776,7 @@ const buildTeacherFinanceProfitability = async (
       teacherMarks,
       nowInfo,
     });
-    if (!paymentState || paymentState.finished) return;
+    if (!paymentState || paymentState.finished || paymentState.cancelled) return;
     const { lessonPrice } = getLessonPriceForPaymentOccurrence(
       currentEntry,
       studentId,
@@ -15727,7 +15832,7 @@ const buildTeacherFinanceProfitability = async (
           teacherMarks,
           nowInfo,
         });
-        if (!paymentState) return;
+        if (!paymentState || paymentState.cancelled) return;
         const existing = currentWeekScheduleEntriesByKey.get(occurrence.occurrenceKey);
         const trial = Boolean(
           existing?.trial
@@ -16861,7 +16966,10 @@ const runPushLessonReminderSweep = async () => {
       let subscriptions = Array.isArray(subscriptionsByStudent[studentId]) ? subscriptionsByStudent[studentId] : [];
       let rustoreTokens = Array.isArray(rustoreTokensByStudent[studentId]) ? rustoreTokensByStudent[studentId] : [];
       const studentData = getStudentData(student.id);
-      const schedule = Array.isArray(studentData?.schedule) ? studentData.schedule : [];
+      const schedule = getTeacherCalendarActiveSchedule(
+        normalizeTeacherId(student.teacherId),
+        Array.isArray(studentData?.schedule) ? studentData.schedule : []
+      );
       const knownSlotIds = new Set(schedule.map((entry) => getScheduleSlotId(entry)).filter(Boolean));
 
       const previousState = Array.isArray(lessonReminderStateByStudent[studentId])
@@ -17012,7 +17120,10 @@ const runPushTeacherCalendarReminderSweep = async () => {
       const enabled = Boolean(reminderSettingsByTeacher[normalizedTeacherId]?.enabled);
       let subscriptions = Array.isArray(subscriptionsByUser[userKey]) ? subscriptionsByUser[userKey] : [];
       let rustoreTokens = Array.isArray(rustoreTokensByUser[userKey]) ? rustoreTokensByUser[userKey] : [];
-      const scheduleEntries = getTeacherScheduleEntries(normalizedTeacherId)
+      const scheduleEntries = getTeacherCalendarActiveSchedule(
+        normalizedTeacherId,
+        getTeacherScheduleEntries(normalizedTeacherId)
+      )
         .map((entry) => {
           const slotId = getScheduleSlotId(entry);
           if (!slotId) return null;
@@ -29412,7 +29523,11 @@ const getLessonTopicsRange = (fromValue, toValue) => {
   return { fromDayKey, toDayKey };
 };
 
-const getScheduleForLessonTopics = async (student, auth) => {
+const getScheduleForLessonTopics = async (
+  student,
+  auth,
+  { includeCalendarCancellations = false } = {}
+) => {
   const data = getStudentData(student.id);
   let schedule = Array.isArray(data.schedule) ? data.schedule : [];
   try {
@@ -29426,7 +29541,36 @@ const getScheduleForLessonTopics = async (student, auth) => {
   } catch {
     // Local schedule and already persisted Google occurrences still provide a useful fallback.
   }
-  return schedule;
+  return includeCalendarCancellations
+    ? schedule
+    : getTeacherCalendarActiveSchedule(normalizeTeacherId(student.teacherId), schedule);
+};
+
+const getTeacherCalendarHistorySchedule = (teacherId, schedule = [], marks = null) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const teacherMarks = marks || normalizeTeacherCalendarMarks(
+    readTeacherCalendarMarksDb()[normalizedTeacherId]
+  );
+  return (Array.isArray(schedule) ? schedule : []).map((entry) => {
+    const annotated = annotateTeacherCalendarCancellation(
+      normalizedTeacherId,
+      entry,
+      teacherMarks
+    );
+    const explicitDayKey = normalizeDayKey(annotated?.date || annotated?.dayKey);
+    if (explicitDayKey) return annotated;
+    const cancelledDates = Array.isArray(annotated?.cancelledDates)
+      ? annotated.cancelledDates.map(normalizeDayKey).filter(Boolean)
+      : [];
+    if (cancelledDates.length === 0) return annotated;
+    return {
+      ...annotated,
+      excludedDates: Array.from(new Set([
+        ...normalizeScheduleExcludedDates(annotated?.excludedDates),
+        ...cancelledDates,
+      ])).sort((left, right) => left.localeCompare(right)),
+    };
+  });
 };
 
 const persistStudentLessonHistory = (studentId, items = [], tombstones = {}) => {
@@ -29489,10 +29633,10 @@ const updateLessonHistorySnapshotTopic = (occurrenceKey, topic) => {
 const buildResolvedStudentLessonHistory = async (student, auth, options = {}) => {
   const studentId = String(student?.id || '').trim();
   if (!studentId) return [];
-  let schedule = Array.isArray(options.scheduleOverride)
+  let rawSchedule = Array.isArray(options.scheduleOverride)
     ? options.scheduleOverride
-    : await getScheduleForLessonTopics(student, auth);
-  schedule = Array.isArray(schedule) ? schedule : [];
+    : await getScheduleForLessonTopics(student, auth, { includeCalendarCancellations: true });
+  rawSchedule = Array.isArray(rawSchedule) ? rawSchedule : [];
 
   const learningGroupsById = new Map(
     readLearningGroupsDb().map((group) => [String(group?.id || '').trim(), group])
@@ -29547,17 +29691,21 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
       };
     })
     .filter(Boolean);
-  schedule = [...schedule, ...groupLessonSchedule];
+  rawSchedule = [...rawSchedule, ...groupLessonSchedule];
 
   if (options.includeGoogle !== false && student.teacherId) {
     try {
       const googleEntries = (await fetchTeacherGoogleCalendarEntries(student.teacherId))
         .filter((entry) => doesPaymentScheduleEntryMatchStudent(entry, student));
-      schedule = [...schedule, ...googleEntries];
+      rawSchedule = [...rawSchedule, ...googleEntries];
     } catch {
       // Persisted schedule and previous history snapshots remain available offline.
     }
   }
+  const schedule = getTeacherCalendarHistorySchedule(
+    normalizeTeacherId(student.teacherId),
+    rawSchedule
+  );
 
   const topicStore = readLessonTopicsStore();
   const historyStore = readLessonHistoryStore();
@@ -29571,7 +29719,7 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
     .filter((entry) => String(entry?.studentId || '').trim() === studentId);
   const currentTombstones = collectLessonHistoryTombstones({
     studentId,
-    schedule,
+    schedule: rawSchedule,
     recordedAt: new Date().toISOString(),
     timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
   });
@@ -29659,7 +29807,10 @@ const getLessonReplaySchedule = async (student, auth) => {
   try {
     const googleEntries = (await fetchTeacherGoogleCalendarEntries(student.teacherId))
       .filter((entry) => doesPaymentScheduleEntryMatchStudent(entry, student));
-    return [...schedule, ...googleEntries];
+    return getTeacherCalendarActiveSchedule(
+      normalizeTeacherId(student.teacherId),
+      [...schedule, ...googleEntries]
+    );
   } catch {
     return schedule;
   }
@@ -32268,17 +32419,275 @@ app.get('/api/teacher-schedule', async (req, res) => {
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
+  const teacherMarks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacher.id]);
   const homeworkProgressByStudentId = buildTeacherCalendarHomeworkProgressByStudentId(teacher.id);
   const localEntries = getTeacherScheduleEntries(teacher.id)
+    .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
     .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(entry, homeworkProgressByStudentId));
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
   return res.json([
     ...localEntries,
-    ...googleEntries.map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(
-      annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry),
-      homeworkProgressByStudentId
-    )),
+    ...googleEntries
+      .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
+      .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(
+        annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry),
+        homeworkProgressByStudentId
+      )),
   ]);
+});
+
+const getTeacherCalendarCancellationStudentIds = (entry) => Array.from(new Set([
+  String(entry?.studentId || '').trim(),
+  ...(Array.isArray(entry?.participantIds) ? entry.participantIds : []),
+].map((value) => String(value || '').trim()).filter(Boolean)));
+
+const appendTeacherCalendarOccurrenceForStudent = (schedule, entry, student) => {
+  const list = Array.isArray(schedule) ? [...schedule] : [];
+  const projected = projectGoogleCalendarEntryForPaymentStudent(entry, student);
+  if (!projected) return list;
+  const sourceId = String(projected?.externalEventId || projected?.id || '').trim();
+  const dayKey = normalizeDayKey(projected?.date);
+  const time = normalizeScheduleTime(projected?.time);
+  const exists = list.some((candidate) => (
+    String(candidate?.externalEventId || candidate?.id || '').trim() === sourceId
+    && normalizeDayKey(candidate?.date) === dayKey
+    && normalizeScheduleTime(candidate?.time) === time
+  ));
+  return exists ? list : [...list, projected];
+};
+
+const synchronizeHomeworkAfterTeacherCalendarCancellation = ({
+  teacherId,
+  entry,
+  previousMarks,
+  nextMarks,
+  cancelled,
+}) => {
+  getTeacherCalendarCancellationStudentIds(entry).forEach((studentId) => {
+    const student = findStudentById(studentId);
+    if (!student || normalizeTeacherId(student.teacherId) !== teacherId) return;
+    const data = getStudentData(student.id);
+    const storedSchedule = Array.isArray(data?.schedule) ? data.schedule : [];
+    const scheduleWithOccurrence = appendTeacherCalendarOccurrenceForStudent(
+      storedSchedule,
+      entry,
+      student
+    );
+    const previousSchedule = getTeacherCalendarActiveSchedule(
+      teacherId,
+      scheduleWithOccurrence,
+      previousMarks
+    );
+    const nextSchedule = getTeacherCalendarActiveSchedule(
+      teacherId,
+      scheduleWithOccurrence,
+      nextMarks
+    );
+    const synchronized = synchronizeStudentHomeworkForSchedule(
+      data,
+      nextSchedule,
+      previousSchedule,
+      {
+        studentId: student.id,
+        now: new Date(),
+        treatMissingPlannedLessonAsDeleted: Boolean(cancelled),
+      }
+    );
+    if (!synchronized.deadlineChanged && !synchronized.homeworkChanged) return;
+    setStudentData(student.id, {
+      ...synchronized.studentData,
+      schedule: storedSchedule,
+    });
+  });
+};
+
+const adjustTeacherCalendarFinanceCancellation = (
+  teacherId,
+  entry,
+  dayKey,
+  marks,
+  { cancelled } = {}
+) => {
+  const affectedStudentIds = getTeacherCalendarCancellationStudentIds(entry);
+  const markedStudentIds = affectedStudentIds.filter((studentId) => {
+    const key = buildTeacherCalendarPaymentMarkKey(
+      teacherId,
+      { ...entry, studentId },
+      dayKey,
+      'completed'
+    );
+    return Boolean(key && marks[key]);
+  });
+  if (affectedStudentIds.length === 0) return;
+
+  const month = normalizeTeacherFinanceMonthKey(String(dayKey || '').slice(0, 7));
+  if (!month) return;
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacherId);
+  const currentMonth = teacherEntry.months[month] || {
+    settings: getDefaultTeacherFinanceMonthSettings(),
+    students: {},
+  };
+  const nextStudents = { ...(currentMonth.students || {}) };
+  const nowIso = new Date().toISOString();
+  affectedStudentIds.forEach((studentId) => {
+    const profile = normalizeTeacherFinanceProfile(teacherEntry.studentProfiles[studentId]);
+    const record = normalizeTeacherFinanceStudentRecord(nextStudents[studentId], profile);
+    const completedDelta = markedStudentIds.includes(studentId)
+      ? (cancelled ? -1 : 1)
+      : 0;
+    const cancelledDelta = cancelled ? 1 : -1;
+    nextStudents[studentId] = {
+      ...record,
+      completedLessons: Math.max(
+        0,
+        roundTeacherFinanceNumber(record.completedLessons) + completedDelta
+      ),
+      cancelledLessons: Math.max(
+        0,
+        roundTeacherFinanceNumber(record.cancelledLessons) + cancelledDelta
+      ),
+      updatedAt: nowIso,
+    };
+  });
+  teacherEntry.months[month] = {
+    settings: normalizeTeacherFinanceMonthSettings(currentMonth.settings),
+    students: nextStudents,
+  };
+  financeDb[teacherId] = teacherEntry;
+  writeTeacherFinanceDb(financeDb);
+};
+
+const synchronizeLearningGroupCalendarCancellation = (entry, cancelled, teacherId) => {
+  const lessonId = String(entry?.lessonId || '').trim();
+  if (!lessonId) return;
+  const sessions = readLearningLessonSessionsDb();
+  const lesson = sessions.find((candidate) => (
+    candidate.id === lessonId && normalizeTeacherId(candidate.teacherId) === teacherId
+  ));
+  if (!lesson) return;
+  if (cancelled && !['cancelled', 'completed'].includes(lesson.status)) {
+    const updated = updateLearningLessonSession(lesson, { status: 'cancelled' }, { actorId: teacherId });
+    writeLearningLessonSessionsDb(replaceLearningStoreEntry(sessions, updated));
+    const attendance = readLearningAttendanceDb();
+    const retained = attendance.filter((record) => record.sessionId !== updated.id);
+    if (retained.length !== attendance.length) writeLearningAttendanceDb(retained);
+    closeLearningLessonCollabConnections(updated);
+    return;
+  }
+  if (!cancelled && lesson.status === 'cancelled') {
+    const startMs = Date.parse(lesson.startAt);
+    if (Number.isFinite(startMs) && startMs >= Date.now()) {
+      const updated = updateLearningLessonSession(
+        lesson,
+        { status: 'scheduled' },
+        { actorId: teacherId, allowCalendarReopen: true }
+      );
+      writeLearningLessonSessionsDb(replaceLearningStoreEntry(sessions, updated));
+      writeLearningAttendanceUpdates(createLearningAttendanceRoster(updated, readLearningAttendanceDb()));
+    }
+  }
+};
+
+app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
+  try {
+    const { teacherId, occurrence, cancelled } = req.body || {};
+    if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+    if (typeof cancelled !== 'boolean') {
+      return res.status(400).json({ error: 'Укажите состояние отмены занятия' });
+    }
+    const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+    const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+    if (!teacher) return;
+    const payload = occurrence && typeof occurrence === 'object' && !Array.isArray(occurrence)
+      ? occurrence
+      : {};
+    const dayKey = normalizeDayKey(payload?.dayKey || payload?.date);
+    const time = normalizeScheduleTime(payload?.time);
+    if (!dayKey || !time) {
+      return res.status(400).json({ error: 'Некорректная дата или время занятия' });
+    }
+
+    let googleEntries = [];
+    try {
+      googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
+    } catch {
+      googleEntries = [];
+    }
+    const source = findTeacherCalendarCancellationSource([
+      ...getTeacherScheduleEntries(teacher.id, { includeDeletedStudents: true }),
+      ...googleEntries,
+    ], payload);
+    if (!source) {
+      return res.status(404).json({ error: 'Занятие не найдено в календаре преподавателя' });
+    }
+    const occurrenceEntry = {
+      ...source,
+      date: dayKey,
+      dayKey,
+      time,
+    };
+    const markKey = buildTeacherCalendarCancellationMarkKey(
+      teacher.id,
+      occurrenceEntry,
+      dayKey
+    );
+    if (!markKey) {
+      return res.status(400).json({ error: 'Не удалось определить занятие' });
+    }
+
+    const db = readTeacherCalendarMarksDb();
+    const previousMarks = normalizeTeacherCalendarMarks(db[teacher.id]);
+    const nextMarks = { ...previousMarks };
+    const wasCancelled = Boolean(previousMarks[markKey]);
+    if (cancelled) {
+      nextMarks[markKey] = normalizeTeacherCalendarMarkValue(new Date().toISOString());
+    } else {
+      delete nextMarks[markKey];
+    }
+    db[teacher.id] = normalizeTeacherCalendarMarks(nextMarks);
+    writeTeacherCalendarMarksDb(db);
+    if (wasCancelled !== cancelled) {
+      try {
+        adjustTeacherCalendarFinanceCancellation(
+          teacher.id,
+          occurrenceEntry,
+          dayKey,
+          previousMarks,
+          { cancelled }
+        );
+      } catch (error) {
+        db[teacher.id] = previousMarks;
+        writeTeacherCalendarMarksDb(db);
+        throw error;
+      }
+    }
+
+    synchronizeHomeworkAfterTeacherCalendarCancellation({
+      teacherId: teacher.id,
+      entry: occurrenceEntry,
+      previousMarks,
+      nextMarks: db[teacher.id],
+      cancelled,
+    });
+    synchronizeLearningGroupCalendarCancellation(occurrenceEntry, cancelled, teacher.id);
+    notifyScheduleSyncUpdate({
+      scope: 'teacher-calendar-marks',
+      action: cancelled ? 'calendar-lesson-cancelled' : 'calendar-lesson-restored',
+      teacherId: teacher.id,
+    });
+    return res.json({
+      cancelled,
+      cancellationMarkKey: markKey,
+      marks: db[teacher.id],
+    });
+  } catch (error) {
+    console.error('[teacher-calendar] failed to update lesson cancellation:', error);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Не удалось изменить состояние занятия' });
+    }
+    return undefined;
+  }
 });
 
 app.get('/api/teacher-calendar-marks', (req, res) => {
@@ -32302,21 +32711,31 @@ app.patch('/api/teacher-calendar-marks', (req, res) => {
   const currentMarks = normalizeTeacherCalendarMarks(db[teacher.id]);
   let nextMarks = currentMarks;
 
+  const isCancellationMarkKey = (value) => (
+    normalizeTeacherCalendarMarkKey(value).startsWith('calendar-cancelled|')
+  );
+
   if (marks && typeof marks === 'object' && !Array.isArray(marks)) {
     nextMarks = normalizeTeacherCalendarMarks(marks);
+    Object.keys(nextMarks).forEach((key) => {
+      if (isCancellationMarkKey(key)) delete nextMarks[key];
+    });
+    Object.entries(currentMarks).forEach(([key, value]) => {
+      if (isCancellationMarkKey(key)) nextMarks[key] = value;
+    });
   } else {
     nextMarks = { ...currentMarks };
     const setEntries = set && typeof set === 'object' && !Array.isArray(set) ? set : {};
     Object.entries(setEntries).forEach(([key, value]) => {
       const normalizedKey = normalizeTeacherCalendarMarkKey(key);
-      if (!normalizedKey) return;
+      if (!normalizedKey || isCancellationMarkKey(normalizedKey)) return;
       nextMarks[normalizedKey] = normalizeTeacherCalendarMarkValue(value);
     });
 
     const unsetList = Array.isArray(unset) ? unset : [];
     unsetList.forEach((key) => {
       const normalizedKey = normalizeTeacherCalendarMarkKey(key);
-      if (!normalizedKey) return;
+      if (!normalizedKey || isCancellationMarkKey(normalizedKey)) return;
       delete nextMarks[normalizedKey];
     });
   }
@@ -33152,8 +33571,17 @@ function synchronizeStudentHomeworkForSchedule(
 }
 
 function setStudentScheduleWithHomeworkSync(studentId, data, schedule) {
-  const synchronized = synchronizeStudentHomeworkForSchedule(data, schedule, data?.schedule);
-  return setStudentData(studentId, synchronized.studentData);
+  const student = findStudentById(studentId, { allowDeleted: true });
+  const teacherId = normalizeTeacherId(student?.teacherId);
+  const previousActiveSchedule = getTeacherCalendarActiveSchedule(teacherId, data?.schedule || []);
+  const nextActiveSchedule = getTeacherCalendarActiveSchedule(teacherId, schedule);
+  const synchronized = synchronizeStudentHomeworkForSchedule(
+    data,
+    nextActiveSchedule,
+    previousActiveSchedule,
+    { studentId }
+  );
+  return setStudentData(studentId, { ...synchronized.studentData, schedule });
 }
 
 const decorateHomeworkEntry = (entry) => {
@@ -33274,14 +33702,19 @@ app.get('/api/student-next-lesson', async (req, res) => {
     && latestDueDay
     && isDayKeyWithinRange(latestDueDay, calendarSync.weekStart, calendarSync.weekEnd)
   );
+  const storedSchedule = Array.isArray(storedData.schedule) ? storedData.schedule : [];
+  const activeSchedule = getTeacherCalendarActiveSchedule(
+    normalizeTeacherId(student.teacherId),
+    storedSchedule
+  );
   const synchronized = synchronizeStudentHomeworkForSchedule(
     storedData,
-    Array.isArray(storedData.schedule) ? storedData.schedule : [],
-    storedData.schedule,
-    { treatMissingPlannedLessonAsDeleted: googleRangeCoversHomeworkDeadline }
+    activeSchedule,
+    activeSchedule,
+    { treatMissingPlannedLessonAsDeleted: googleRangeCoversHomeworkDeadline, studentId: student.id }
   );
   let data = synchronized.deadlineChanged || synchronized.homeworkChanged
-    ? setStudentData(student.id, synchronized.studentData)
+    ? setStudentData(student.id, { ...synchronized.studentData, schedule: storedSchedule })
     : storedData;
   const rewardCheckData = getStudentData(student.id);
   const testsDb = getTestsDbWithStudentMockFollowups(rewardCheckData, readTestsDb());
@@ -33375,7 +33808,10 @@ app.patch('/api/student-next-lesson', (req, res) => {
   const normalizedDueAtMode = normalizeHomeworkDueAtMode(dueAtMode);
   const normalizedCalendarOffsetMinutes = normalizeHomeworkCalendarOffset(calendarOffsetMinutes, issuedAt);
   const scheduledDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
-    ? resolveScheduledHomeworkDueAt(data.schedule, {
+    ? resolveScheduledHomeworkDueAt(getTeacherCalendarActiveSchedule(
+        normalizeTeacherId(student.teacherId),
+        data.schedule
+      ), {
         now: new Date(issuedAt),
         calendarOffsetMinutes: normalizedCalendarOffsetMinutes,
       })
@@ -33610,7 +34046,10 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     existing.issuedAt
   );
   const scheduledDueAt = normalizedDueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
-    ? resolveScheduledHomeworkDueAt(data.schedule, {
+    ? resolveScheduledHomeworkDueAt(getTeacherCalendarActiveSchedule(
+        normalizeTeacherId(student.teacherId),
+        data.schedule
+      ), {
         now: new Date(),
         calendarOffsetMinutes: normalizedCalendarOffsetMinutes,
       })
@@ -33904,7 +34343,10 @@ app.patch('/api/student-next-lesson/:id/day-plan', (req, res) => {
     req.body?.calendarOffsetMinutes,
     existing.issuedAt
   );
-  const nextLessonDueAt = resolveScheduledHomeworkDueAt(data.schedule, {
+  const nextLessonDueAt = resolveScheduledHomeworkDueAt(getTeacherCalendarActiveSchedule(
+    normalizeTeacherId(student.teacherId),
+    data.schedule
+  ), {
     now: new Date(),
     calendarOffsetMinutes,
   });
