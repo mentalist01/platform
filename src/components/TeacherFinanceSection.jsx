@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import {
+  calculateTeacherCommissionPaybackSummary,
   calculateTeacherIncomeScenario,
   countCurrentTeacherStudents,
 } from '../utils/teacherFinanceCalculations';
@@ -391,6 +392,15 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
     commissionAmount: 0,
     netAfterCommission: 0,
   }), [studentRows]);
+  const commissionPaybackSummary = useMemo(
+    () => calculateTeacherCommissionPaybackSummary(studentRows),
+    [studentRows]
+  );
+  const commissionRemainingHint = commissionPaybackSummary.studentCount === 0
+    ? 'Комиссии пока не указаны'
+    : (commissionPaybackSummary.remainingStudentCount > 0
+      ? `${formatStudentCount(commissionPaybackSummary.remainingStudentCount)} с остатком`
+      : 'Все комиссии окупились');
 
   const incomeByMonth = useMemo(() => {
     const serverRows = Array.isArray(snapshot?.incomeByMonth) ? snapshot.incomeByMonth : [];
@@ -581,7 +591,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
         </div>
 
         {!loading ? (
-          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <SummaryMetric
               icon={TrendingUp}
               label="Начислено по занятиям"
@@ -602,6 +612,13 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
               value={formatMoney(totals.netAfterCommission)}
               hint={`Комиссии: ${formatMoney(totals.commissionAmount)}`}
               tone="emerald"
+            />
+            <SummaryMetric
+              icon={CircleDollarSign}
+              label="Осталось по комиссиям"
+              value={formatMoney(commissionPaybackSummary.remainingCommission)}
+              hint={commissionRemainingHint}
+              tone="amber"
             />
             <SummaryMetric
               icon={CalendarClock}

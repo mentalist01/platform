@@ -9,6 +9,42 @@ export const countCurrentTeacherStudents = (students) => (
   (Array.isArray(students) ? students : []).filter(isCurrentStudent).length
 );
 
+export const calculateTeacherCommissionPaybackSummary = (students) => (
+  (Array.isArray(students) ? students : [])
+    .filter(isCurrentStudent)
+    .reduce((summary, student) => {
+      const metrics = student?.metrics && typeof student.metrics === 'object'
+        ? student.metrics
+        : (student?.profitability && typeof student.profitability === 'object'
+          ? student.profitability
+          : student);
+      const commissionAmount = Math.max(0, Number(metrics?.commissionAmount) || 0);
+      if (commissionAmount <= 0) return summary;
+      const reportedRemaining = Number(metrics?.remainingToPayback);
+      const grossRevenue = Math.max(0, Number(metrics?.grossRevenue) || 0);
+      const remainingToPayback = Math.max(
+        0,
+        Number.isFinite(reportedRemaining)
+          ? reportedRemaining
+          : commissionAmount - grossRevenue
+      );
+      const recoveredCommission = Math.max(0, commissionAmount - remainingToPayback);
+      return {
+        commissionAmount: roundToTwoDecimals(summary.commissionAmount + commissionAmount),
+        recoveredCommission: roundToTwoDecimals(summary.recoveredCommission + recoveredCommission),
+        remainingCommission: roundToTwoDecimals(summary.remainingCommission + remainingToPayback),
+        studentCount: summary.studentCount + 1,
+        remainingStudentCount: summary.remainingStudentCount + (remainingToPayback > 0 ? 1 : 0),
+      };
+    }, {
+      commissionAmount: 0,
+      recoveredCommission: 0,
+      remainingCommission: 0,
+      studentCount: 0,
+      remainingStudentCount: 0,
+    })
+);
+
 const roundToTwoDecimals = (value) => {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;

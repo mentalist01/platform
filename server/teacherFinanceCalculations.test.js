@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   TEACHER_FINANCE_WEEKS_PER_MONTH,
   calculateCurrentMonthForecast,
+  calculateTeacherCommissionPaybackSummary,
   calculateTeacherIncomeScenario,
   countCurrentTeacherStudents,
 } from '../src/utils/teacherFinanceCalculations.js';
@@ -20,6 +21,40 @@ test('current student count excludes inactive, graduate and deleted students', (
     { id: 'deleted', grade: 11, deletedAt: '2026-07-01T00:00:00.000Z' },
   ]), 2);
   assert.equal(countCurrentTeacherStudents(null), 0);
+});
+
+test('commission payback summary adds remaining amounts only for current students', () => {
+  const summary = calculateTeacherCommissionPaybackSummary([
+    {
+      id: 'active-explicit',
+      grade: 11,
+      metrics: { commissionAmount: 10_000, remainingToPayback: 4_000, grossRevenue: 6_000 },
+    },
+    {
+      id: 'active-fallback',
+      grade: 10,
+      profitability: { commissionAmount: 5_000, grossRevenue: 2_000 },
+    },
+    {
+      id: 'active-paid-back',
+      grade: 11,
+      metrics: { commissionAmount: 3_000, remainingToPayback: 0, grossRevenue: 4_000 },
+    },
+    {
+      id: 'inactive',
+      grade: 11,
+      studyStatus: 'inactive',
+      metrics: { commissionAmount: 20_000, remainingToPayback: 20_000 },
+    },
+  ]);
+
+  assert.deepEqual(summary, {
+    commissionAmount: 18_000,
+    recoveredCommission: 11_000,
+    remainingCommission: 7_000,
+    studentCount: 3,
+    remainingStudentCount: 2,
+  });
 });
 
 test('current-month forecast extrapolates revenue and lessons using elapsed calendar days', () => {
