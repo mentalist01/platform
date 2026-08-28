@@ -203,9 +203,23 @@ test('calendar refresh coalesces concurrent requests and caches background refre
       body,
     });
 
-    const backgroundWave = await Promise.all(Array.from({ length: 12 }, () => refresh()));
+    const backgroundWave = await Promise.all([
+      ...Array.from({ length: 6 }, () => refresh()),
+      ...Array.from({ length: 6 }, () => (
+        jsonRequest(baseUrl, '/api/teacher-schedule', { token: login.token })
+      )),
+    ]);
     assert.equal(fakeCalendar.getRequestCount(), 1);
-    assert.deepEqual(backgroundWave.map((result) => result.importedCount), Array(12).fill(1));
+    assert.deepEqual(
+      backgroundWave.slice(0, 6).map((result) => result.importedCount),
+      Array(6).fill(1)
+    );
+    backgroundWave.slice(6).forEach((schedule) => {
+      assert.deepEqual(
+        schedule.filter((entry) => entry.source === 'google-ical').map((entry) => entry.externalEventId),
+        ['first@example.test']
+      );
+    });
 
     const cachedBackground = await refresh();
     assert.equal(cachedBackground.importedCount, 1);
@@ -234,4 +248,3 @@ test('calendar refresh coalesces concurrent requests and caches background refre
     }
   }
 });
-

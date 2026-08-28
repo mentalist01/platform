@@ -8,6 +8,7 @@ import { createServer } from 'http';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
+import { Worker } from 'worker_threads';
 import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
@@ -245,7 +246,6 @@ import { buildQuestionDifficultyIndex } from './questionDifficulty.js';
 const { setupWSConnection } = yWsUtils;
 const require = createRequire(import.meta.url);
 const Y = require('yjs');
-const nodeIcal = require('node-ical');
 let LeveldbPersistence = null;
 try {
   ({ LeveldbPersistence } = require('y-leveldb'));
@@ -8575,8 +8575,11 @@ const buildTeacherScheduleEntry = (payload = {}, options = {}) => {
   };
 };
 
-const GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS = 60 * 1000;
+const GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS = 5 * 60 * 1000;
 const GOOGLE_CALENDAR_SYNC_FETCH_TIMEOUT_MS = 12000;
+const GOOGLE_CALENDAR_SYNC_PARSE_TIMEOUT_MS = 20_000;
+const GOOGLE_CALENDAR_SYNC_MAX_BYTES = 12 * 1024 * 1024;
+const GOOGLE_CALENDAR_SYNC_MAX_EXPANDED_EVENTS = 50_000;
 const GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS = 120;
 const GOOGLE_CALENDAR_SYNC_RANGE_CURRENT_WEEK = 'current-week';
 const GOOGLE_CALENDAR_SYNC_RANGE_UPCOMING = 'upcoming';
@@ -8584,6 +8587,7 @@ const GOOGLE_CALENDAR_SYNC_TIME_ZONE = String(
   process.env.PLATFORM_CALENDAR_TIME_ZONE || process.env.TZ || 'Europe/Moscow'
 ).trim() || 'Europe/Moscow';
 const teacherCalendarSyncCache = new Map();
+const teacherCalendarFetchInFlight = new Map();
 const teacherCalendarRefreshInFlight = new Map();
 const teacherCalendarRefreshResultCache = new Map();
 
@@ -9442,10 +9446,46 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], group
   };
 };
 
-const extractGoogleCalendarName = (parsed) => {
-  const calendar = Object.values(parsed || {}).find((entry) => entry?.type === 'VCALENDAR');
-  return String(calendar?.['WR-CALNAME'] || calendar?.calendarName || '').trim();
-};
+const parseGoogleCalendarInWorker = (icalText, toMs) => new Promise((resolve, reject) => {
+  const worker = new Worker(new URL('./googleCalendarParseWorker.cjs', import.meta.url), {
+    workerData: {
+      icalText,
+      toMs,
+      maxEvents: GOOGLE_CALENDAR_SYNC_MAX_EXPANDED_EVENTS,
+    },
+  });
+  let settled = false;
+  const timeoutId = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    void worker.terminate();
+    reject(new Error('Разбор Google Calendar занял слишком много времени.'));
+  }, GOOGLE_CALENDAR_SYNC_PARSE_TIMEOUT_MS);
+  if (typeof timeoutId.unref === 'function') timeoutId.unref();
+
+  const finish = (handler, value) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
+    worker.removeAllListeners();
+    void worker.terminate();
+    handler(value);
+  };
+  worker.once('message', (result) => {
+    if (result?.error) {
+      finish(reject, new Error(result.error));
+      return;
+    }
+    finish(resolve, {
+      calendarName: String(result?.calendarName || '').trim(),
+      events: Array.isArray(result?.events) ? result.events : [],
+    });
+  });
+  worker.once('error', (error) => finish(reject, error));
+  worker.once('exit', (code) => {
+    if (code !== 0) finish(reject, new Error(`Calendar parser stopped with code ${code}.`));
+  });
+});
 
 const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
   const normalizedTeacherId = String(teacherId || '').trim();
@@ -9480,40 +9520,72 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
     return entries;
   }
 
-  const to = new Date(toMs);
-  const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  let timeoutId = null;
-  if (abortController) {
-    timeoutId = setTimeout(() => abortController.abort(), GOOGLE_CALENDAR_SYNC_FETCH_TIMEOUT_MS);
-    if (typeof timeoutId.unref === 'function') timeoutId.unref();
+  const inFlight = teacherCalendarFetchInFlight.get(normalizedTeacherId);
+  if (inFlight?.url === settings.icalUrl) {
+    try {
+      const entries = await inFlight.promise;
+      if (Number(inFlight.toMs) >= toMs) {
+        return entries.map((entry) => (
+          enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+        ));
+      }
+      return fetchTeacherGoogleCalendarEntries(normalizedTeacherId, {
+        ...options,
+        force: false,
+      });
+    } catch (error) {
+      const message = error?.name === 'AbortError'
+        ? 'Google Calendar не ответил вовремя.'
+        : (error?.message || 'Не удалось загрузить Google Calendar.');
+      if (options.throwOnError) throw new Error(message);
+      return (cache?.entries || []).map((entry) => (
+        enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+      ));
+    }
   }
 
-  try {
-    const parsed = await nodeIcal.async.fromURL(settings.icalUrl, {
-      headers: { 'User-Agent': 'Ivan-EGE-Calendar-Sync/1.0' },
-      ...(abortController ? { signal: abortController.signal } : {}),
-    });
-    const calendarName = extractGoogleCalendarName(parsed);
-    const entries = [];
-    Object.values(parsed || {}).forEach((event) => {
-      if (!event || event.type !== 'VEVENT') return;
-      const eventStartMs = event?.start instanceof Date ? event.start.getTime() : Date.parse(event?.start);
-      const recurrenceFrom = Number.isFinite(eventStartMs) ? new Date(eventStartMs) : new Date(0);
-      const instances = event.rrule
-        ? nodeIcal.expandRecurringEvent(event, { from: recurrenceFrom, to, expandOngoing: true })
-        : [event];
-      instances.forEach((instance) => {
-        const scheduleEntry = buildGoogleCalendarScheduleEntry(
-          { ...event, ...instance, calendarName },
-          normalizedTeacherId,
-          students,
-          groups
-        );
-        if (!scheduleEntry) return;
-        const startMs = Date.parse(`${scheduleEntry.date}T${scheduleEntry.time}:00`);
-        if (Number.isFinite(startMs) && startMs > to.getTime()) return;
-        entries.push(scheduleEntry);
+  const loadPromise = (async () => {
+    const to = new Date(toMs);
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(
+      () => abortController.abort(),
+      GOOGLE_CALENDAR_SYNC_FETCH_TIMEOUT_MS
+    );
+    if (typeof timeoutId.unref === 'function') timeoutId.unref();
+    let icalText = '';
+    try {
+      const response = await fetch(settings.icalUrl, {
+        headers: { 'User-Agent': 'Ivan-EGE-Calendar-Sync/1.0' },
+        signal: abortController.signal,
       });
+      if (!response.ok) {
+        throw new Error(`Google Calendar вернул HTTP ${response.status}.`);
+      }
+      const declaredBytes = Number(response.headers.get('content-length'));
+      if (Number.isFinite(declaredBytes) && declaredBytes > GOOGLE_CALENDAR_SYNC_MAX_BYTES) {
+        throw new Error('Файл Google Calendar слишком большой.');
+      }
+      icalText = await response.text();
+      if (Buffer.byteLength(icalText, 'utf8') > GOOGLE_CALENDAR_SYNC_MAX_BYTES) {
+        throw new Error('Файл Google Calendar слишком большой.');
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    const parsed = await parseGoogleCalendarInWorker(icalText, toMs);
+    const entries = [];
+    parsed.events.forEach((event) => {
+      const scheduleEntry = buildGoogleCalendarScheduleEntry(
+        event,
+        normalizedTeacherId,
+        students,
+        groups
+      );
+      if (!scheduleEntry) return;
+      const startMs = Date.parse(`${scheduleEntry.date}T${scheduleEntry.time}:00`);
+      if (Number.isFinite(startMs) && startMs > to.getTime()) return;
+      entries.push(scheduleEntry);
     });
     const uniqueEntries = Array.from(
       new Map(entries.map((entry) => [entry.id, entry])).values()
@@ -9522,36 +9594,53 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
       const rightTime = Date.parse(`${right.date}T${right.time}:00`);
       return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
     }).map((entry) => enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students));
-    reconcileGoogleCalendarLearningLessons(normalizedTeacherId, uniqueEntries, {
-      fromMs: now,
-      toMs: to.getTime(),
-    });
-    teacherCalendarSyncCache.set(normalizedTeacherId, {
-      url: settings.icalUrl,
-      loadedAtMs: now,
-      toMs,
-      entries: uniqueEntries,
-    });
-    updateTeacherCalendarSyncStatus(normalizedTeacherId, {
-      lastFetchedAt: new Date().toISOString(),
-      lastError: '',
-      calendarName,
-    });
+    const currentSettings = getTeacherCalendarSyncSettings(normalizedTeacherId);
+    if (currentSettings.enabled && currentSettings.icalUrl === settings.icalUrl) {
+      reconcileGoogleCalendarLearningLessons(normalizedTeacherId, uniqueEntries, {
+        fromMs: now,
+        toMs: to.getTime(),
+      });
+      teacherCalendarSyncCache.set(normalizedTeacherId, {
+        url: settings.icalUrl,
+        loadedAtMs: Date.now(),
+        toMs,
+        entries: uniqueEntries,
+      });
+      updateTeacherCalendarSyncStatus(normalizedTeacherId, {
+        lastFetchedAt: new Date().toISOString(),
+        lastError: '',
+        calendarName: parsed.calendarName,
+      });
+    }
     return uniqueEntries;
+  })();
+  teacherCalendarFetchInFlight.set(normalizedTeacherId, {
+    url: settings.icalUrl,
+    toMs,
+    promise: loadPromise,
+  });
+
+  try {
+    return await loadPromise;
   } catch (error) {
     const message = error?.name === 'AbortError'
       ? 'Google Calendar не ответил вовремя.'
       : (error?.message || 'Не удалось загрузить Google Calendar.');
-    updateTeacherCalendarSyncStatus(normalizedTeacherId, {
-      lastFetchedAt: new Date().toISOString(),
-      lastError: message,
-    });
+    const currentSettings = getTeacherCalendarSyncSettings(normalizedTeacherId);
+    if (currentSettings.enabled && currentSettings.icalUrl === settings.icalUrl) {
+      updateTeacherCalendarSyncStatus(normalizedTeacherId, {
+        lastFetchedAt: new Date().toISOString(),
+        lastError: message,
+      });
+    }
     if (options.throwOnError) throw new Error(message);
     return (cache?.entries || []).map((entry) => (
       enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
     ));
   } finally {
-    if (timeoutId) clearTimeout(timeoutId);
+    if (teacherCalendarFetchInFlight.get(normalizedTeacherId)?.promise === loadPromise) {
+      teacherCalendarFetchInFlight.delete(normalizedTeacherId);
+    }
   }
 };
 
@@ -35941,11 +36030,27 @@ app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => 
 });
 
 if (fs.existsSync(distDir)) {
-  app.use(express.static(distDir));
+  app.use(express.static(distDir, {
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+      const fileName = path.basename(filePath);
+      if (fileName === 'index.html' || fileName === 'sw-push.js') {
+        res.setHeader('Cache-Control', 'no-cache');
+        return;
+      }
+      if (/[-.][A-Za-z0-9_-]{8,}\.[^.]+$/.test(fileName)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return;
+      }
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    },
+  }));
   app.get('*', (req, res) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
       return res.status(404).end();
     }
+    res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(distDir, 'index.html'));
   });
 }

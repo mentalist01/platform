@@ -202,7 +202,7 @@ const apiFetch = async (input, init = {}) => {
   }
 };
 
-const TEACHER_CALENDAR_REFRESH_CLIENT_CACHE_MS = 30 * 1000;
+const TEACHER_CALENDAR_REFRESH_CLIENT_CACHE_MS = 5 * 60 * 1000;
 const teacherCalendarRefreshInFlight = new Map();
 const teacherCalendarRefreshResultCache = new Map();
 
