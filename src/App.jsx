@@ -725,6 +725,10 @@ const drawBoardImage = (ctx, image, item, overrides = {}) => {
 };
 const BOARD_PRESSURE_MIN_RATIO = 0.6;
 const BOARD_LOW_BANDWIDTH_CURSOR_MS = 130;
+const BOARD_REMOTE_CURSOR_IDLE_MS = 5000;
+const BOARD_REMOTE_CURSOR_MOVING_MS = 700;
+const BOARD_REMOTE_CURSOR_MAX_COORDINATE = 1_000_000;
+const BOARD_REMOTE_CURSOR_CLUSTER_RADIUS = 34;
 const BOARD_LOW_BANDWIDTH_PREVIEW_MS = 16;
 const BOARD_LIVE_STROKE_POINTS_PER_UPDATE = 28;
 const BOARD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -10715,6 +10719,10 @@ const BoardSection = ({
   const [boardSnapshot, setBoardSnapshot] = useState({ revision: 0, itemCount: 0, estimatedBytes: 0 });
   const [remotePreviews, setRemotePreviews] = useState([]);
   const [remoteCursors, setRemoteCursors] = useState([]);
+  const [remoteCursorClock, setRemoteCursorClock] = useState(() => Date.now());
+  const [followingRemoteCursorId, setFollowingRemoteCursorId] = useState('');
+  const [expandedRemoteCursorClusterId, setExpandedRemoteCursorClusterId] = useState('');
+  const [mobileRemoteCursorPeekId, setMobileRemoteCursorPeekId] = useState('');
   const [tool, setTool] = useState('select');
   const [color, setColor] = useState(BOARD_COLORS[0] || BOARD_DEFAULT_COLOR);
   const [penWidth, setPenWidth] = useState(BOARD_STROKE_WIDTH);
@@ -10787,6 +10795,9 @@ const BoardSection = ({
   const lastCursorSyncAtRef = useRef(0);
   const lastPreviewSyncAtRef = useRef(0);
   const remotePreviewStateRef = useRef(new Map());
+  const remoteCursorActivityRef = useRef(new Map());
+  const viewportAnimationRafRef = useRef(null);
+  const mobileRemoteCursorPeekTimerRef = useRef(null);
   const imageDragRafRef = useRef(null);
   const pendingImageMoveRef = useRef(null);
   const imageResizeRef = useRef({ active: false });
@@ -11214,6 +11225,14 @@ const BoardSection = ({
       window.cancelAnimationFrame(selectionMoveRafRef.current);
       selectionMoveRafRef.current = null;
     }
+    if (typeof window !== 'undefined' && viewportAnimationRafRef.current) {
+      window.cancelAnimationFrame(viewportAnimationRafRef.current);
+      viewportAnimationRafRef.current = null;
+    }
+    if (mobileRemoteCursorPeekTimerRef.current) {
+      clearTimeout(mobileRemoteCursorPeekTimerRef.current);
+      mobileRemoteCursorPeekTimerRef.current = null;
+    }
     if (summonTimeoutRef.current) {
       clearTimeout(summonTimeoutRef.current);
       summonTimeoutRef.current = null;
@@ -11227,8 +11246,12 @@ const BoardSection = ({
     awarenessRef.current?.setLocalStateField('cursor', null);
     awarenessRef.current?.setLocalStateField('summon', null);
     remotePreviewStateRef.current.clear();
+    remoteCursorActivityRef.current.clear();
     setRemotePreviews([]);
     setRemoteCursors([]);
+    setFollowingRemoteCursorId('');
+    setExpandedRemoteCursorClusterId('');
+    setMobileRemoteCursorPeekId('');
     setSelectedIds([]);
     setSelectionBox(null);
     setSelectedImageId(null);
@@ -11464,6 +11487,15 @@ const BoardSection = ({
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(cursorVisibilityStorageKey, shareMyCursor ? '1' : '0');
   }, [cursorVisibilityStorageKey, shareMyCursor]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || remoteCursors.length === 0) return undefined;
+    setRemoteCursorClock(Date.now());
+    const intervalId = window.setInterval(() => {
+      setRemoteCursorClock(Date.now());
+    }, 500);
+    return () => window.clearInterval(intervalId);
+  }, [remoteCursors.length]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -11873,6 +11905,95 @@ const BoardSection = ({
   }, []);
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+  const cancelViewportAnimation = useCallback(() => {
+    if (typeof window === 'undefined' || !viewportAnimationRafRef.current) return;
+    window.cancelAnimationFrame(viewportAnimationRafRef.current);
+    viewportAnimationRafRef.current = null;
+  }, []);
+
+  const animateViewportToOffset = useCallback((targetOffset, durationMs = 300) => {
+    const targetX = Number(targetOffset?.x);
+    const targetY = Number(targetOffset?.y);
+    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) return;
+    cancelViewportAnimation();
+    const startOffset = {
+      x: Number(offsetRef.current?.x) || 0,
+      y: Number(offsetRef.current?.y) || 0,
+    };
+    const duration = Math.max(0, Number(durationMs) || 0);
+    if (typeof window === 'undefined' || duration === 0) {
+      const nextOffset = { x: targetX, y: targetY };
+      offsetRef.current = nextOffset;
+      setOffset(nextOffset);
+      return;
+    }
+    const startedAt = window.performance?.now?.() || Date.now();
+    const renderFrame = (frameNow) => {
+      const elapsed = Math.max(0, frameNow - startedAt);
+      const progress = Math.min(1, elapsed / duration);
+      const eased = 1 - ((1 - progress) ** 3);
+      const nextOffset = {
+        x: startOffset.x + (targetX - startOffset.x) * eased,
+        y: startOffset.y + (targetY - startOffset.y) * eased,
+      };
+      offsetRef.current = nextOffset;
+      setOffset(nextOffset);
+      if (progress >= 1) {
+        viewportAnimationRafRef.current = null;
+        return;
+      }
+      viewportAnimationRafRef.current = window.requestAnimationFrame(renderFrame);
+    };
+    viewportAnimationRafRef.current = window.requestAnimationFrame(renderFrame);
+  }, [cancelViewportAnimation]);
+
+  const centerViewportOnRemoteCursor = useCallback((cursor, durationMs = 300) => {
+    const cursorX = Number(cursor?.x);
+    const cursorY = Number(cursor?.y);
+    if (
+      !Number.isFinite(cursorX)
+      || !Number.isFinite(cursorY)
+      || Math.abs(cursorX) > BOARD_REMOTE_CURSOR_MAX_COORDINATE
+      || Math.abs(cursorY) > BOARD_REMOTE_CURSOR_MAX_COORDINATE
+    ) return;
+    const currentZoom = Math.max(0.05, Number(zoomRef.current) || 1);
+    animateViewportToOffset({
+      x: cursorX - (Math.max(1, Number(boardSizeRef.current?.width) || 1) / currentZoom) / 2,
+      y: cursorY - (Math.max(1, Number(boardSizeRef.current?.height) || 1) / currentZoom) / 2,
+    }, durationMs);
+  }, [animateViewportToOffset]);
+
+  const followingRemoteCursor = useMemo(() => (
+    remoteCursors.find((cursor) => String(cursor?.id || '') === followingRemoteCursorId) || null
+  ), [followingRemoteCursorId, remoteCursors]);
+
+  const stopFollowingRemoteCursor = useCallback(() => {
+    cancelViewportAnimation();
+    setFollowingRemoteCursorId('');
+  }, [cancelViewportAnimation]);
+
+  const startFollowingRemoteCursor = useCallback((cursor) => {
+    const cursorId = String(cursor?.id || '').trim();
+    if (!cursorId) return;
+    setFollowingRemoteCursorId(cursorId);
+    setExpandedRemoteCursorClusterId('');
+    setMobileRemoteCursorPeekId('');
+    centerViewportOnRemoteCursor(cursor, 260);
+  }, [centerViewportOnRemoteCursor]);
+
+  useEffect(() => {
+    if (!followingRemoteCursorId) return;
+    if (!followingRemoteCursor) {
+      setFollowingRemoteCursorId('');
+      return;
+    }
+    centerViewportOnRemoteCursor(followingRemoteCursor, 150);
+  }, [
+    centerViewportOnRemoteCursor,
+    followingRemoteCursor,
+    followingRemoteCursorId,
+  ]);
 
   const getCanvasSurfacePoint = (clientX, clientY) => {
     const surface = overlayRef.current || canvasRef.current;
@@ -14376,13 +14497,16 @@ const BoardSection = ({
       awarenessRef.current = null;
       undoManagerRef.current = null;
       remotePreviewStateRef.current.clear();
+      remoteCursorActivityRef.current.clear();
       setRemotePreviews([]);
       setRemoteCursors([]);
+      setFollowingRemoteCursorId('');
       return;
     }
 
     setStatus(isSandbox ? 'local' : 'connecting');
     const doc = new Y.Doc();
+    const remoteCursorActivity = remoteCursorActivityRef.current;
     lastSummonIdRef.current = null;
     docRef.current = doc;
     const provider = isSandbox
@@ -14489,6 +14613,7 @@ const BoardSection = ({
       const previews = [];
       const cursors = [];
       const activePreviewClientIds = new Set();
+      const activeCursorClientIds = new Set();
       let incomingSummon = null;
       const taskCodePresenceById = {};
       states.forEach((state, clientId) => {
@@ -14550,17 +14675,32 @@ const BoardSection = ({
           remotePreviewStateRef.current.delete(clientKey);
         }
         const cursor = state?.cursor;
+        const cursorX = Number(cursor?.x);
+        const cursorY = Number(cursor?.y);
         if (
           cursor
-          && Number.isFinite(Number(cursor?.x))
-          && Number.isFinite(Number(cursor?.y))
+          && Number.isFinite(cursorX)
+          && Number.isFinite(cursorY)
+          && Math.abs(cursorX) <= BOARD_REMOTE_CURSOR_MAX_COORDINATE
+          && Math.abs(cursorY) <= BOARD_REMOTE_CURSOR_MAX_COORDINATE
         ) {
+          activeCursorClientIds.add(clientKey);
+          const previousActivity = remoteCursorActivity.get(clientKey);
+          const moved = !previousActivity
+            || Math.hypot(cursorX - previousActivity.x, cursorY - previousActivity.y) >= 0.25;
+          const updatedAt = moved ? Date.now() : previousActivity.updatedAt;
+          remoteCursorActivity.set(clientKey, {
+            x: cursorX,
+            y: cursorY,
+            updatedAt,
+          });
           cursors.push({
             id: clientKey,
-            x: Number(cursor.x),
-            y: Number(cursor.y),
+            x: cursorX,
+            y: cursorY,
             name: remoteName,
             color: remoteColor,
+            updatedAt,
           });
         }
         const summon = state?.summon;
@@ -14586,6 +14726,11 @@ const BoardSection = ({
       remotePreviewStateRef.current.forEach((_, clientKey) => {
         if (!activePreviewClientIds.has(clientKey)) {
           remotePreviewStateRef.current.delete(clientKey);
+        }
+      });
+      remoteCursorActivity.forEach((_, clientKey) => {
+        if (!activeCursorClientIds.has(clientKey)) {
+          remoteCursorActivity.delete(clientKey);
         }
       });
       setRemotePreviews(previews);
@@ -14655,7 +14800,9 @@ const BoardSection = ({
       }
       undoManagerRef.current = null;
       setUndoState({ canUndo: false, canRedo: false });
+      remoteCursorActivity.clear();
       setRemoteCursors([]);
+      setFollowingRemoteCursorId('');
       setRemoteTaskCodePresenceById({});
       resetBoardData();
       provider?.destroy();
@@ -15077,6 +15224,11 @@ const BoardSection = ({
   }, []);
 
   useEffect(() => () => {
+    if (viewportAnimationRafRef.current) cancelAnimationFrame(viewportAnimationRafRef.current);
+    if (mobileRemoteCursorPeekTimerRef.current) clearTimeout(mobileRemoteCursorPeekTimerRef.current);
+  }, []);
+
+  useEffect(() => () => {
     if (minimapRenderTimerRef.current) clearTimeout(minimapRenderTimerRef.current);
   }, []);
 
@@ -15256,6 +15408,8 @@ const BoardSection = ({
 
   const handlePointerDown = (event) => {
     if (!roomId) return;
+    setExpandedRemoteCursorClusterId('');
+    setMobileRemoteCursorPeekId('');
     boardPasteFocusedRef.current = true;
     setIsImageCropMenuOpen(false);
     setIsImageMoreOpen(false);
@@ -15273,10 +15427,12 @@ const BoardSection = ({
         });
         event.currentTarget.setPointerCapture?.(event.pointerId);
         if (sandboxNavigationPointersRef.current.size >= 2) {
+          stopFollowingRemoteCursor();
           startSandboxPinch();
           return;
         }
       }
+      stopFollowingRemoteCursor();
       panStateRef.current = {
         active: true,
         startX: event.clientX,
@@ -15288,6 +15444,7 @@ const BoardSection = ({
       return;
     }
     if (isSpaceDown || event.button === 1 || event.button === 2) {
+      stopFollowingRemoteCursor();
       panStateRef.current = {
         active: true,
         startX: event.clientX,
@@ -15366,6 +15523,7 @@ const BoardSection = ({
         return;
       }
       setSelectedImageId(null);
+      stopFollowingRemoteCursor();
       panStateRef.current = {
         active: true,
         startX: event.clientX,
@@ -15736,11 +15894,13 @@ const BoardSection = ({
   const handleWheel = (event) => {
     event.preventDefault();
     event.stopPropagation();
+    stopFollowingRemoteCursor();
     const factor = event.deltaY < 0 ? 1.12 : 0.9;
     zoomAt((zoomRef.current || 1) * factor, event.clientX, event.clientY);
   };
 
   const resetView = () => {
+    stopFollowingRemoteCursor();
     setZoom(1);
     setOffset({ x: 0, y: 0 });
   };
@@ -15846,13 +16006,24 @@ const BoardSection = ({
   const canUndo = undoState.canUndo;
   const canRedo = undoState.canRedo;
   const canClear = boardItemCount > 0;
+  const activeRemoteCursors = useMemo(() => remoteCursors.filter((cursor) => {
+    const updatedAt = Number(cursor?.updatedAt);
+    return Number.isFinite(updatedAt)
+      && remoteCursorClock - updatedAt <= BOARD_REMOTE_CURSOR_IDLE_MS;
+  }), [remoteCursorClock, remoteCursors]);
   const remoteCursorMarkers = useMemo(() => {
     const currentZoom = zoom || 1;
-    return remoteCursors
+    return activeRemoteCursors
       .map((cursor) => ({
         ...cursor,
         left: (cursor.x - offset.x) * currentZoom,
         top: (cursor.y - offset.y) * currentZoom,
+        isMoving: remoteCursorClock - cursor.updatedAt <= BOARD_REMOTE_CURSOR_MOVING_MS,
+        opacity: clamp(
+          (BOARD_REMOTE_CURSOR_IDLE_MS - (remoteCursorClock - cursor.updatedAt)) / 1000,
+          0,
+          1,
+        ),
       }))
       .filter((cursor) => (
         Number.isFinite(cursor.left)
@@ -15862,7 +16033,7 @@ const BoardSection = ({
          && cursor.top >= 0
          && cursor.top <= boardSize.height
       ));
-  }, [remoteCursors, zoom, offset, boardSize.width, boardSize.height]);
+  }, [activeRemoteCursors, remoteCursorClock, zoom, offset, boardSize.width, boardSize.height]);
   const remoteCursorOffscreenIndicators = useMemo(() => {
     const currentZoom = zoom || 1;
     // Keep the distance intentionally abstract and compact. One unit is a
@@ -15878,9 +16049,8 @@ const BoardSection = ({
     const maxEdgeY = Math.max(minEdge, viewportHeight - edgeInset);
     const viewportCenterX = viewportWidth / 2;
     const viewportCenterY = viewportHeight / 2;
-    const stackByDirection = new Map();
 
-    return remoteCursors
+    return activeRemoteCursors
       .map((cursor) => {
         const left = (Number(cursor?.x) - Number(offset?.x || 0)) * currentZoom;
         const top = (Number(cursor?.y) - Number(offset?.y || 0)) * currentZoom;
@@ -15894,8 +16064,6 @@ const BoardSection = ({
         const horizontalDirection = outsideLeft ? 'left' : (outsideRight ? 'right' : '');
         const verticalDirection = outsideTop ? 'up' : (outsideBottom ? 'down' : '');
         const direction = `${verticalDirection}${horizontalDirection}` || 'right';
-        const stackIndex = stackByDirection.get(direction) || 0;
-        stackByDirection.set(direction, stackIndex + 1);
         const directionX = left - viewportCenterX;
         const directionY = top - viewportCenterY;
         const edgeScales = [];
@@ -15903,24 +16071,26 @@ const BoardSection = ({
         if (directionX < 0) edgeScales.push((minEdge - viewportCenterX) / directionX);
         if (directionY > 0) edgeScales.push((maxEdgeY - viewportCenterY) / directionY);
         if (directionY < 0) edgeScales.push((minEdge - viewportCenterY) / directionY);
-        const edgeScale = Math.min(...edgeScales.filter((value) => Number.isFinite(value) && value >= 0));
+        const validEdgeScales = edgeScales.filter((value) => Number.isFinite(value) && value >= 0);
+        if (validEdgeScales.length === 0) return null;
+        const edgeScale = Math.min(...validEdgeScales);
         const edgeLeft = clamp(viewportCenterX + directionX * edgeScale, minEdge, maxEdgeX);
         const edgeTop = clamp(viewportCenterY + directionY * edgeScale, minEdge, maxEdgeY);
-        const isHorizontal = Boolean(horizontalDirection);
-        const stackOffset = stackIndex * 30;
         const nearestVisibleX = clamp(left, 0, viewportWidth);
         const nearestVisibleY = clamp(top, 0, viewportHeight);
         const screenDistance = Math.hypot(left - nearestVisibleX, top - nearestVisibleY);
         return {
           ...cursor,
-          left: isHorizontal
-            ? edgeLeft
-            : clamp(edgeLeft + stackOffset, minEdge, maxEdgeX),
-          top: isHorizontal
-            ? clamp(edgeTop + stackOffset, minEdge, maxEdgeY)
-            : edgeTop,
+          left: edgeLeft,
+          top: edgeTop,
           direction,
           angle: Math.atan2(directionY, directionX) * (180 / Math.PI),
+          isMoving: remoteCursorClock - cursor.updatedAt <= BOARD_REMOTE_CURSOR_MOVING_MS,
+          opacity: clamp(
+            (BOARD_REMOTE_CURSOR_IDLE_MS - (remoteCursorClock - cursor.updatedAt)) / 1000,
+            0,
+            1,
+          ),
           distance: Math.min(
             maxCursorDistance,
             Math.max(1, Math.round(screenDistance / currentZoom / cursorDistanceUnit)),
@@ -15928,7 +16098,106 @@ const BoardSection = ({
         };
       })
       .filter(Boolean);
-  }, [remoteCursors, zoom, offset, boardSize.width, boardSize.height]);
+  }, [activeRemoteCursors, remoteCursorClock, zoom, offset, boardSize.width, boardSize.height]);
+  const remoteCursorOffscreenClusters = useMemo(() => {
+    const clusters = [];
+    remoteCursorOffscreenIndicators.forEach((cursor) => {
+      let cluster = clusters.find((entry) => (
+        Math.hypot(cursor.left - entry.anchorLeft, cursor.top - entry.anchorTop)
+          <= BOARD_REMOTE_CURSOR_CLUSTER_RADIUS
+      ));
+      if (!cluster) {
+        cluster = {
+          items: [],
+          anchorLeft: cursor.left,
+          anchorTop: cursor.top,
+        };
+        clusters.push(cluster);
+      }
+      cluster.items.push(cursor);
+      const count = cluster.items.length;
+      cluster.anchorLeft = ((cluster.anchorLeft * (count - 1)) + cursor.left) / count;
+      cluster.anchorTop = ((cluster.anchorTop * (count - 1)) + cursor.top) / count;
+    });
+    return clusters.map((cluster) => {
+      const items = cluster.items;
+      const primary = items[0];
+      const directionVector = items.reduce((sum, cursor) => ({
+        x: sum.x + Math.cos(cursor.angle * (Math.PI / 180)),
+        y: sum.y + Math.sin(cursor.angle * (Math.PI / 180)),
+      }), { x: 0, y: 0 });
+      return {
+        ...primary,
+        clusterId: items.map((cursor) => cursor.id).sort().join('|'),
+        items,
+        count: items.length,
+        left: cluster.anchorLeft,
+        top: cluster.anchorTop,
+        angle: Math.atan2(directionVector.y, directionVector.x) * (180 / Math.PI),
+        distance: Math.min(...items.map((cursor) => cursor.distance)),
+        isMoving: items.some((cursor) => cursor.isMoving),
+        opacity: Math.max(...items.map((cursor) => cursor.opacity)),
+      };
+    });
+  }, [remoteCursorOffscreenIndicators]);
+  const revealRemoteCursorOnTouch = useCallback((clusterId) => {
+    const normalizedClusterId = String(clusterId || '').trim();
+    if (!normalizedClusterId) return;
+    setMobileRemoteCursorPeekId(normalizedClusterId);
+    if (mobileRemoteCursorPeekTimerRef.current) {
+      clearTimeout(mobileRemoteCursorPeekTimerRef.current);
+    }
+    mobileRemoteCursorPeekTimerRef.current = setTimeout(() => {
+      mobileRemoteCursorPeekTimerRef.current = null;
+      setMobileRemoteCursorPeekId((current) => (
+        current === normalizedClusterId ? '' : current
+      ));
+    }, 2800);
+  }, []);
+  const handleRemoteCursorClusterActivate = useCallback((cluster) => {
+    const clusterId = String(cluster?.clusterId || '').trim();
+    const items = Array.isArray(cluster?.items) ? cluster.items : [];
+    if (!clusterId || items.length === 0) return;
+    if (items.length > 1) {
+      setExpandedRemoteCursorClusterId((current) => (current === clusterId ? '' : clusterId));
+      revealRemoteCursorOnTouch(clusterId);
+      return;
+    }
+    const touchLike = typeof window !== 'undefined'
+      && window.matchMedia?.('(hover: none)').matches;
+    if (touchLike && mobileRemoteCursorPeekId !== clusterId) {
+      revealRemoteCursorOnTouch(clusterId);
+      return;
+    }
+    startFollowingRemoteCursor(items[0]);
+  }, [mobileRemoteCursorPeekId, revealRemoteCursorOnTouch, startFollowingRemoteCursor]);
+
+  useEffect(() => {
+    if (
+      expandedRemoteCursorClusterId
+      && !remoteCursorOffscreenClusters.some((cluster) => cluster.clusterId === expandedRemoteCursorClusterId)
+    ) {
+      setExpandedRemoteCursorClusterId('');
+    }
+    if (
+      mobileRemoteCursorPeekId
+      && !remoteCursorOffscreenClusters.some((cluster) => cluster.clusterId === mobileRemoteCursorPeekId)
+    ) {
+      setMobileRemoteCursorPeekId('');
+    }
+  }, [expandedRemoteCursorClusterId, mobileRemoteCursorPeekId, remoteCursorOffscreenClusters]);
+
+  useEffect(() => {
+    if (!expandedRemoteCursorClusterId && !mobileRemoteCursorPeekId) return undefined;
+    const handleOutsidePointerDown = (event) => {
+      if (event.target?.closest?.('.board-remote-cursor-indicator')) return;
+      setExpandedRemoteCursorClusterId('');
+      setMobileRemoteCursorPeekId('');
+    };
+    if (typeof document === 'undefined') return undefined;
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+  }, [expandedRemoteCursorClusterId, mobileRemoteCursorPeekId]);
   const selectedImageScreenBox = displaySelectedImage
     ? {
       left: (Number(displaySelectedImage.x) - offset.x) * (zoom || 1),
@@ -16967,13 +17236,33 @@ const BoardSection = ({
             </div>
           </div>
         )}
+        {followingRemoteCursor && (
+          <div
+            className="board-remote-cursor-following"
+            role="status"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <MousePointer2 size={14} aria-hidden="true" />
+            <span>Следим за {followingRemoteCursor.name || 'участником'}</span>
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={stopFollowingRemoteCursor}
+              aria-label="Перестать следить за курсором"
+              title="Перестать следить"
+            >
+              <X size={13} aria-hidden="true" />
+            </button>
+          </div>
+        )}
         {remoteCursorMarkers.map((cursor) => (
           <div
             key={cursor.id}
-            className="pointer-events-none absolute z-20 select-none"
+            className={`board-remote-cursor-marker pointer-events-none absolute z-20 select-none ${cursor.isMoving ? 'is-moving' : ''}`}
             style={{
               left: `${cursor.left}px`,
               top: `${cursor.top}px`,
+              opacity: cursor.opacity,
               transform: 'translate(-2px, -2px)',
             }}
           >
@@ -16989,27 +17278,66 @@ const BoardSection = ({
             </div>
           </div>
         ))}
-        {remoteCursorOffscreenIndicators.map((cursor) => (
+        {remoteCursorOffscreenClusters.map((cluster) => (
           <div
-            key={`${cursor.id}-${cursor.direction}`}
-            className={`board-remote-cursor-indicator board-remote-cursor-indicator--${cursor.direction}`}
+            key={cluster.clusterId}
+            className={`board-remote-cursor-indicator board-remote-cursor-indicator--${cluster.direction} ${cluster.isMoving ? 'is-moving' : ''} ${mobileRemoteCursorPeekId === cluster.clusterId ? 'is-peeked' : ''}`}
             style={{
-              left: `${cursor.left}px`,
-              top: `${cursor.top}px`,
-              '--board-remote-cursor-color': cursor.color,
-              '--board-remote-cursor-angle': `${cursor.angle}deg`,
+              left: `${cluster.left}px`,
+              top: `${cluster.top}px`,
+              opacity: cluster.opacity,
+              '--board-remote-cursor-color': cluster.color,
+              '--board-remote-cursor-angle': `${cluster.angle}deg`,
             }}
-            title={`${cursor.name || 'Участник'} · примерно ${cursor.distance} ед. до курсора`}
-            aria-label={`${cursor.name || 'Участник'} находится за пределами видимой области доски, примерно ${cursor.distance} условных единиц`}
-            role="img"
           >
-            <span className="board-remote-cursor-indicator__arrow" aria-hidden="true">
-              <ArrowRight size={18} strokeWidth={2.8} />
-            </span>
-            <span className="board-remote-cursor-indicator__meta">
-              <span className="board-remote-cursor-indicator__name">{cursor.name || 'Участник'}</span>
-              <span className="board-remote-cursor-indicator__distance">≈{cursor.distance}</span>
-            </span>
+            <button
+              type="button"
+              className="board-remote-cursor-indicator__target"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => handleRemoteCursorClusterActivate(cluster)}
+              title={cluster.count > 1
+                ? `Показать ${cluster.count} курсора в этом направлении`
+                : `Перейти и следить за курсором: ${cluster.name || 'Участник'}`}
+              aria-label={cluster.count > 1
+                ? `${cluster.count} курсора за пределами доски. Показать список`
+                : `${cluster.name || 'Участник'} за пределами доски, примерно ${cluster.distance} условных единиц. Перейти и следить`}
+            >
+              <span className="board-remote-cursor-indicator__arrow" aria-hidden="true">
+                <ArrowRight size={18} strokeWidth={2.8} />
+              </span>
+              <span className="board-remote-cursor-indicator__meta" aria-hidden="true">
+                <span className="board-remote-cursor-indicator__name">
+                  {cluster.count > 1 ? `${cluster.count} курсора` : (cluster.name || 'Участник')}
+                </span>
+                <span className="board-remote-cursor-indicator__distance">≈{cluster.distance}</span>
+              </span>
+              {cluster.count > 1 && (
+                <span className="board-remote-cursor-indicator__count" aria-hidden="true">
+                  +{cluster.count - 1}
+                </span>
+              )}
+            </button>
+            {expandedRemoteCursorClusterId === cluster.clusterId && cluster.count > 1 && (
+              <div
+                className="board-remote-cursor-indicator__menu"
+                role="menu"
+                aria-label="Курсоры в этом направлении"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                {cluster.items.map((cursor) => (
+                  <button
+                    type="button"
+                    key={cursor.id}
+                    role="menuitem"
+                    onClick={() => startFollowingRemoteCursor(cursor)}
+                  >
+                    <span style={{ backgroundColor: cursor.color }} aria-hidden="true" />
+                    <strong>{cursor.name || 'Участник'}</strong>
+                    <small>≈{cursor.distance}</small>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {isMinimapOpen && (
