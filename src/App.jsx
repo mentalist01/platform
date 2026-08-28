@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-python';
 import 'prismjs/themes/prism-tomorrow.css';
-import Editor from '@monaco-editor/react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
@@ -30,13 +29,8 @@ import leagueRuby from './assets/leagues/ruby.png';
 import leagueDiamond from './assets/leagues/diamond.png';
 import leagueAbsolute from './assets/leagues/absolute.png';
 import leagueCelestial from './assets/leagues/celestial.png';
-import CallSection from './components/CallSection';
-import ImageViewer from './components/ImageViewer';
 import LoginPage from './components/LoginPage';
-import ParentDashboard from './components/ParentDashboard';
 import { LogoMark, PythonLogoIcon } from './components/Identity';
-import MobileStrategyGame from './components/MobileStrategyGame';
-import StudentGlobalSearch from './components/StudentGlobalSearch';
 import StudentTodayOverview from './components/StudentTodayOverview';
 import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
 import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
@@ -46,11 +40,6 @@ import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
 import StudentWeeklyRecap from './components/StudentWeeklyRecap';
-import SignupGuestChat from './components/SignupGuestChat';
-import HomeworkStatsPage from './components/HomeworkStatsPage';
-import HomeworkQuickStart from './components/HomeworkQuickStart';
-import TeacherLessonEndPrompt from './components/TeacherLessonEndPrompt';
-import TeacherLessonStartPrompt from './components/TeacherLessonStartPrompt';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import CoinGuideIcon from './components/CoinGuideTooltip';
 import TurtleCanvas from './components/TurtleCanvas';
@@ -153,17 +142,27 @@ import {
 } from './services/api';
 
 const AdminPanel = React.lazy(() => import('./components/AdminPanel'));
+const CallSection = React.lazy(() => import('./components/CallSection'));
+const Editor = React.lazy(() => import('@monaco-editor/react'));
 const FinalReviewSection = React.lazy(() => import('./components/FinalReviewSection'));
+const HomeworkQuickStart = React.lazy(() => import('./components/HomeworkQuickStart'));
+const HomeworkStatsPage = React.lazy(() => import('./components/HomeworkStatsPage'));
+const MobileStrategyGame = React.lazy(() => import('./components/MobileStrategyGame'));
 const NotesSection = React.lazy(() => import('./components/NotesSection'));
+const ParentDashboard = React.lazy(() => import('./components/ParentDashboard'));
 const ProgressSection = React.lazy(() => import('./components/ProgressSection'));
 const PythonSection = React.lazy(() => import('./components/PythonSection'));
 const ScheduleSection = React.lazy(() => import('./components/ScheduleSection'));
 const StudentChatSection = React.lazy(() => import('./components/StudentChatSection'));
+const StudentGlobalSearch = React.lazy(() => import('./components/StudentGlobalSearch'));
 const StudentLeaderboardSection = React.lazy(() => import('./components/StudentLeaderboardSection'));
+const SignupGuestChat = React.lazy(() => import('./components/SignupGuestChat'));
 const LearningGroupsSection = React.lazy(() => import('./components/LearningGroupsSection'));
 const GroupTelemostSection = React.lazy(() => import('./components/GroupTelemostSection'));
 const TeacherCalendarSection = React.lazy(() => import('./components/TeacherCalendarSection'));
 const TeacherFinanceSection = React.lazy(() => import('./components/TeacherFinanceSection'));
+const TeacherLessonEndPrompt = React.lazy(() => import('./components/TeacherLessonEndPrompt'));
+const TeacherLessonStartPrompt = React.lazy(() => import('./components/TeacherLessonStartPrompt'));
 const TeacherPanel = React.lazy(() => import('./components/TeacherPanel'));
 const TeacherStudentChatsSection = React.lazy(() => import('./components/TeacherStudentChatsSection'));
 
@@ -26023,13 +26022,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </nav>
         {homeworkStatsStudentId && typeof document !== 'undefined'
           ? createPortal(
-              <HomeworkStatsPage
-                studentId={homeworkStatsStudentId}
-                student={user.role === 'student' ? user : homeworkStatsStudent}
-                role={user.role}
-                theme={theme}
-                onClose={handleCloseHomeworkStats}
-              />,
+              <React.Suspense fallback={null}>
+                <HomeworkStatsPage
+                  studentId={homeworkStatsStudentId}
+                  student={user.role === 'student' ? user : homeworkStatsStudent}
+                  role={user.role}
+                  theme={theme}
+                  onClose={handleCloseHomeworkStats}
+                />
+              </React.Suspense>,
               document.body
             )
           : null}
@@ -26467,16 +26468,22 @@ const MainApp = () => {
   }
 
   if (user.role === 'lead') {
-    return <SignupGuestChat user={user} onLogout={handleLogout} />;
+    return (
+      <React.Suspense fallback={<div className="app-loading-screen">Загружаем чат...</div>}>
+        <SignupGuestChat user={user} onLogout={handleLogout} />
+      </React.Suspense>
+    );
   }
 
   if (user.role === 'parent') {
     return (
       <>
-        <ParentDashboard
-          onLogout={handleLogout}
-          theme={theme}
-        />
+        <React.Suspense fallback={<div className="app-loading-screen">Загружаем кабинет...</div>}>
+          <ParentDashboard
+            onLogout={handleLogout}
+            theme={theme}
+          />
+        </React.Suspense>
         <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} className="theme-toggle--desktop" />
       </>
     );
@@ -26504,7 +26511,11 @@ const App = () => {
   }
 
   if (isStandaloneGameRoute()) {
-    return <MobileStrategyGame key="mobile-strategy-game-v4" />;
+    return (
+      <React.Suspense fallback={<div className="app-loading-screen">Загружаем игру...</div>}>
+        <MobileStrategyGame key="mobile-strategy-game-v4" />
+      </React.Suspense>
+    );
   }
 
   return <MainApp />;

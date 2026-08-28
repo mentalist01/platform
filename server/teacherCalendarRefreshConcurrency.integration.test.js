@@ -77,14 +77,26 @@ const buildIcal = (uid, dayKey) => {
 const startFakeIcalServer = async (initialBody) => {
   let body = initialBody;
   let requestCount = 0;
+  let version = 1;
+  let notModifiedCount = 0;
   const server = http.createServer((req, res) => {
     if (req.url !== '/calendar.ics') {
       res.writeHead(404).end();
       return;
     }
     requestCount += 1;
+    const etag = `"calendar-${version}"`;
     setTimeout(() => {
-      res.writeHead(200, { 'Content-Type': 'text/calendar; charset=utf-8' });
+      if (req.headers['if-none-match'] === etag) {
+        notModifiedCount += 1;
+        res.writeHead(304, { ETag: etag });
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'text/calendar; charset=utf-8',
+        ETag: etag,
+      });
       res.end(body);
     }, 250);
   });
@@ -97,7 +109,11 @@ const startFakeIcalServer = async (initialBody) => {
     server,
     url: `http://127.0.0.1:${address.port}/calendar.ics`,
     getRequestCount: () => requestCount,
-    setBody: (value) => { body = value; },
+    getNotModifiedCount: () => notModifiedCount,
+    setBody: (value) => {
+      body = value;
+      version += 1;
+    },
   };
 };
 
@@ -225,16 +241,21 @@ test('calendar refresh coalesces concurrent requests and caches background refre
     assert.equal(cachedBackground.importedCount, 1);
     assert.equal(fakeCalendar.getRequestCount(), 1);
 
+    const unchangedForced = await refresh({ force: true });
+    assert.equal(unchangedForced.importedCount, 1);
+    assert.equal(fakeCalendar.getRequestCount(), 2);
+    assert.equal(fakeCalendar.getNotModifiedCount(), 1);
+
     fakeCalendar.setBody(buildIcal('second@example.test', secondDay));
     const forcedWave = await Promise.all(Array.from(
       { length: 8 },
       () => refresh({ force: true })
     ));
-    assert.equal(fakeCalendar.getRequestCount(), 2);
+    assert.equal(fakeCalendar.getRequestCount(), 3);
     assert.deepEqual(forcedWave.map((result) => result.importedCount), Array(8).fill(1));
 
     await refresh();
-    assert.equal(fakeCalendar.getRequestCount(), 2);
+    assert.equal(fakeCalendar.getRequestCount(), 3);
     const schedule = await jsonRequest(baseUrl, '/api/teacher-schedule', { token: login.token });
     const googleEntries = schedule.filter((entry) => entry.source === 'google-ical');
     assert.deepEqual(googleEntries.map((entry) => entry.externalEventId), ['second@example.test']);

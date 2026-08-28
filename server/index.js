@@ -9,6 +9,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { Worker } from 'worker_threads';
+import { monitorEventLoopDelay } from 'perf_hooks';
 import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
 import yWsUtils from 'y-websocket/bin/utils';
@@ -256,6 +257,31 @@ try {
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5175;
+const eventLoopDelayMonitor = monitorEventLoopDelay({ resolution: 20 });
+eventLoopDelayMonitor.enable();
+const eventLoopDelayLogTimer = setInterval(() => {
+  const p99Ms = eventLoopDelayMonitor.percentile(99) / 1e6;
+  const maxMs = eventLoopDelayMonitor.max / 1e6;
+  if (p99Ms >= 250 || maxMs >= 1000) {
+    console.warn(`[perf] event loop delay p99=${p99Ms.toFixed(0)}ms max=${maxMs.toFixed(0)}ms`);
+  }
+  eventLoopDelayMonitor.reset();
+}, 60_000);
+if (typeof eventLoopDelayLogTimer.unref === 'function') eventLoopDelayLogTimer.unref();
+
+app.use((req, res, next) => {
+  if (!String(req.path || '').startsWith('/api/')) return next();
+  const startedAt = process.hrtime.bigint();
+  res.once('finish', () => {
+    const contentType = String(res.getHeader('Content-Type') || '').toLowerCase();
+    if (contentType.includes('text/event-stream')) return;
+    const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    if (elapsedMs >= 1500) {
+      console.warn(`[perf] slow request ${req.method} ${req.path} ${res.statusCode} ${elapsedMs.toFixed(0)}ms`);
+    }
+  });
+  return next();
+});
 const telemostJoinRequestStateByStudentId = new Map();
 const activeLessonReplaySessions = new Map();
 const activeLessonReplayOccurrenceByStudentId = new Map();
@@ -274,6 +300,9 @@ let lessonReplayStorageIndexPersistTimer = null;
 let lessonReplayStorageIndexDirty = false;
 let lessonReplayStorageReconcileTimer = null;
 let lessonReplayStorageReconcileRunning = false;
+let lessonReplayCompressionWorker = null;
+let lessonReplayCompressionRequestId = 0;
+const lessonReplayCompressionRequests = new Map();
 const workbookHelperLaunchTickets = new Map();
 const workbookHelperExchangeAttempts = new Map();
 const workbookHelperContentAttempts = new Map();
@@ -2597,44 +2626,73 @@ const getLessonReplayCompressedBytes = (occurrenceKey) => {
   return 0;
 };
 
-const compressLessonReplayInWorker = (normalized) => new Promise((resolve, reject) => {
-  const worker = new Worker(new URL('./lessonReplayCompressWorker.cjs', import.meta.url), {
-    workerData: {
-      replay: normalized,
-      maxRawBytes: LESSON_REPLAY_MAX_FILE_BYTES,
-      maxCompressedBytes: LESSON_REPLAY_MAX_COMPRESSED_BYTES,
-    },
-  });
-  let settled = false;
-  const timeoutId = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    void worker.terminate();
-    reject(new Error('Сжатие записи урока заняло слишком много времени.'));
-  }, LESSON_REPLAY_COMPRESSION_TIMEOUT_MS);
-  if (typeof timeoutId.unref === 'function') timeoutId.unref();
-  const finish = (handler, value) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timeoutId);
-    worker.removeAllListeners();
-    void worker.terminate();
-    handler(value);
-  };
-  worker.once('message', (result) => {
+const disposeLessonReplayCompressionWorker = (error, worker = lessonReplayCompressionWorker) => {
+  if (!worker || worker !== lessonReplayCompressionWorker) return;
+  lessonReplayCompressionWorker = null;
+  worker.removeAllListeners();
+  void worker.terminate();
+  const failure = error instanceof Error
+    ? error
+    : new Error(String(error || 'Lesson replay compressor stopped unexpectedly.'));
+  for (const request of lessonReplayCompressionRequests.values()) {
+    clearTimeout(request.timeoutId);
+    request.reject(failure);
+  }
+  lessonReplayCompressionRequests.clear();
+};
+
+const getLessonReplayCompressionWorker = () => {
+  if (lessonReplayCompressionWorker) return lessonReplayCompressionWorker;
+  const worker = new Worker(new URL('./lessonReplayCompressWorker.cjs', import.meta.url));
+  worker.on('message', (result) => {
+    const requestId = Number(result?.requestId);
+    const request = lessonReplayCompressionRequests.get(requestId);
+    if (!request) return;
+    lessonReplayCompressionRequests.delete(requestId);
+    clearTimeout(request.timeoutId);
     if (result?.error) {
-      finish(reject, new Error(result.error));
+      request.reject(new Error(result.error));
       return;
     }
-    finish(resolve, {
+    request.resolve({
       rawBytes: Math.max(0, Number(result?.rawBytes) || 0),
       compressed: Buffer.from(result?.compressed || []),
     });
   });
-  worker.once('error', (error) => finish(reject, error));
-  worker.once('exit', (code) => {
-    if (code !== 0) finish(reject, new Error(`Lesson replay compressor stopped with code ${code}.`));
+  worker.on('error', (error) => disposeLessonReplayCompressionWorker(error, worker));
+  worker.on('exit', (code) => {
+    disposeLessonReplayCompressionWorker(
+      new Error(`Lesson replay compressor stopped with code ${code}.`),
+      worker
+    );
   });
+  if (typeof worker.unref === 'function') worker.unref();
+  lessonReplayCompressionWorker = worker;
+  return worker;
+};
+
+const compressLessonReplayInWorker = (normalized) => new Promise((resolve, reject) => {
+  const worker = getLessonReplayCompressionWorker();
+  lessonReplayCompressionRequestId += 1;
+  const requestId = lessonReplayCompressionRequestId;
+  const timeoutId = setTimeout(() => {
+    disposeLessonReplayCompressionWorker(
+      new Error('Сжатие записи урока заняло слишком много времени.'),
+      worker
+    );
+  }, LESSON_REPLAY_COMPRESSION_TIMEOUT_MS);
+  if (typeof timeoutId.unref === 'function') timeoutId.unref();
+  lessonReplayCompressionRequests.set(requestId, { resolve, reject, timeoutId });
+  try {
+    worker.postMessage({
+      requestId,
+      replay: normalized,
+      maxRawBytes: LESSON_REPLAY_MAX_FILE_BYTES,
+      maxCompressedBytes: LESSON_REPLAY_MAX_COMPRESSED_BYTES,
+    });
+  } catch (error) {
+    disposeLessonReplayCompressionWorker(error, worker);
+  }
 });
 
 const persistLessonReplay = async (normalized) => {
@@ -4397,13 +4455,26 @@ const purgeExpiredDeletedStudents = (students = []) => {
   return students;
 };
 
+let testsDbCache = null;
+let testsDbCacheSignature = '';
+const getJsonFileSignature = (filePath) => {
+  const stat = fs.statSync(filePath);
+  return `${stat.size}:${stat.mtimeMs}`;
+};
+
 const readTestsDb = () => {
   try {
+    const signature = getJsonFileSignature(testsFile);
+    if (testsDbCache && testsDbCacheSignature === signature) return testsDbCache;
     const raw = fs.readFileSync(testsFile, 'utf8');
     const data = JSON.parse(raw);
-    return data && typeof data === 'object' ? data : {};
+    testsDbCache = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    testsDbCacheSignature = signature;
+    return testsDbCache;
   } catch {
-    return {};
+    testsDbCache = {};
+    testsDbCacheSignature = '';
+    return testsDbCache;
   }
 };
 
@@ -4420,21 +4491,35 @@ const getTestsDbWithStudentMockFollowups = (studentData, testsDb = readTestsDb()
 );
 
 const writeTestsDb = (data) => {
-  writeJsonFileAtomic(testsFile, data);
+  const normalized = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  writeJsonFileAtomic(testsFile, normalized);
+  testsDbCache = normalized;
+  testsDbCacheSignature = getJsonFileSignature(testsFile);
 };
 
+let mockExamsDbCache = null;
+let mockExamsDbCacheSignature = '';
 const readMockExamsDb = () => {
   try {
+    const signature = getJsonFileSignature(mockExamsFile);
+    if (mockExamsDbCache && mockExamsDbCacheSignature === signature) return mockExamsDbCache;
     const raw = fs.readFileSync(mockExamsFile, 'utf8');
     const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
+    mockExamsDbCache = Array.isArray(data) ? data : [];
+    mockExamsDbCacheSignature = signature;
+    return mockExamsDbCache;
   } catch {
-    return [];
+    mockExamsDbCache = [];
+    mockExamsDbCacheSignature = '';
+    return mockExamsDbCache;
   }
 };
 
 const writeMockExamsDb = (data) => {
-  writeJsonFileAtomic(mockExamsFile, data);
+  const normalized = Array.isArray(data) ? data : [];
+  writeJsonFileAtomic(mockExamsFile, normalized);
+  mockExamsDbCache = normalized;
+  mockExamsDbCacheSignature = getJsonFileSignature(mockExamsFile);
 };
 
 const normalizeSignupGuestName = (name) => {
@@ -9538,13 +9623,14 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
   const groups = LEARNING_GROUPS_ENABLED
     ? readLearningGroupsDb().filter((group) => normalizeTeacherId(group?.teacherId) === normalizedTeacherId)
     : [];
-  const cacheCoversRequestedMonth = !Number.isFinite(requestedMonthEndMs)
-    || Number(cache?.toMs) >= requestedMonthEndMs;
+  const cacheCoversRequestedRange = Number.isFinite(requestedMonthEndMs)
+    ? Number(cache?.toMs) >= requestedMonthEndMs
+    : Number(cache?.toMs) >= defaultToMs - (24 * 60 * 60 * 1000);
   if (
     !force
     && cache
     && cache.url === settings.icalUrl
-    && cacheCoversRequestedMonth
+    && cacheCoversRequestedRange
     && now - cache.loadedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS
   ) {
     const entries = cache.entries.map((entry) => (
@@ -9587,14 +9673,34 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
     );
     if (typeof timeoutId.unref === 'function') timeoutId.unref();
     let icalText = '';
+    let responseEtag = '';
+    let responseLastModified = '';
     try {
+      const requestHeaders = { 'User-Agent': 'Ivan-EGE-Calendar-Sync/1.0' };
+      if (cache?.url === settings.icalUrl && cacheCoversRequestedRange) {
+        if (cache.etag) requestHeaders['If-None-Match'] = cache.etag;
+        if (cache.lastModified) requestHeaders['If-Modified-Since'] = cache.lastModified;
+      }
       const response = await fetch(settings.icalUrl, {
-        headers: { 'User-Agent': 'Ivan-EGE-Calendar-Sync/1.0' },
+        headers: requestHeaders,
         signal: abortController.signal,
       });
+      if (response.status === 304 && cache?.url === settings.icalUrl && cacheCoversRequestedRange) {
+        cache.loadedAtMs = Date.now();
+        updateTeacherCalendarSyncStatus(normalizedTeacherId, {
+          lastFetchedAt: new Date().toISOString(),
+          lastError: '',
+          calendarName: cache.calendarName || '',
+        });
+        return cache.entries.map((entry) => (
+          enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+        ));
+      }
       if (!response.ok) {
         throw new Error(`Google Calendar вернул HTTP ${response.status}.`);
       }
+      responseEtag = String(response.headers.get('etag') || '').trim();
+      responseLastModified = String(response.headers.get('last-modified') || '').trim();
       const declaredBytes = Number(response.headers.get('content-length'));
       if (Number.isFinite(declaredBytes) && declaredBytes > GOOGLE_CALENDAR_SYNC_MAX_BYTES) {
         throw new Error('Файл Google Calendar слишком большой.');
@@ -9605,6 +9711,25 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
       }
     } finally {
       clearTimeout(timeoutId);
+    }
+
+    const contentHash = crypto.createHash('sha256').update(icalText).digest('hex');
+    if (
+      cache?.url === settings.icalUrl
+      && cache.contentHash === contentHash
+      && cacheCoversRequestedRange
+    ) {
+      cache.loadedAtMs = Date.now();
+      cache.etag = responseEtag || cache.etag || '';
+      cache.lastModified = responseLastModified || cache.lastModified || '';
+      updateTeacherCalendarSyncStatus(normalizedTeacherId, {
+        lastFetchedAt: new Date().toISOString(),
+        lastError: '',
+        calendarName: cache.calendarName || '',
+      });
+      return cache.entries.map((entry) => (
+        enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+      ));
     }
 
     const parsed = await parseGoogleCalendarInWorker(icalText, toMs);
@@ -9639,6 +9764,10 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
         loadedAtMs: Date.now(),
         toMs,
         entries: uniqueEntries,
+        contentHash,
+        etag: responseEtag,
+        lastModified: responseLastModified,
+        calendarName: parsed.calendarName,
       });
       updateTeacherCalendarSyncStatus(normalizedTeacherId, {
         lastFetchedAt: new Date().toISOString(),
@@ -36063,22 +36192,48 @@ app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => 
   res.json(updatedWithFolderPath || updated);
 });
 
+const setPlatformStaticCacheHeaders = (res, filePath) => {
+  const fileName = path.basename(filePath).replace(/\.gz$/i, '');
+  if (fileName === 'index.html' || fileName === 'sw-push.js') {
+    res.setHeader('Cache-Control', 'no-cache');
+    return;
+  }
+  if (/[-.][A-Za-z0-9_-]{8,}\.[^.]+$/.test(fileName)) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return;
+  }
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+};
+
+const precompressedStaticExtensions = new Set(['.css', '.html', '.js', '.json', '.svg', '.txt', '.xml']);
+
 if (fs.existsSync(distDir)) {
+  app.use((req, res, next) => {
+    if (!['GET', 'HEAD'].includes(req.method) || req.headers.range) return next();
+    const acceptedEncodings = String(req.headers['accept-encoding'] || '').toLowerCase();
+    if (!acceptedEncodings.includes('gzip')) return next();
+    const relativePath = String(req.path || '').replace(/^[/\\]+/, '');
+    const sourcePath = path.resolve(distDir, relativePath);
+    const distRoot = `${path.resolve(distDir)}${path.sep}`;
+    if (!sourcePath.startsWith(distRoot) || !precompressedStaticExtensions.has(path.extname(sourcePath).toLowerCase())) {
+      return next();
+    }
+    const gzipPath = `${sourcePath}.gz`;
+    try {
+      if (!fs.statSync(sourcePath).isFile() || !fs.statSync(gzipPath).isFile()) return next();
+    } catch {
+      return next();
+    }
+    res.setHeader('Content-Encoding', 'gzip');
+    appendVaryHeader(res, 'Accept-Encoding');
+    res.type(path.extname(sourcePath));
+    setPlatformStaticCacheHeaders(res, sourcePath);
+    return res.sendFile(gzipPath);
+  });
   app.use(express.static(distDir, {
     etag: true,
     lastModified: true,
-    setHeaders: (res, filePath) => {
-      const fileName = path.basename(filePath);
-      if (fileName === 'index.html' || fileName === 'sw-push.js') {
-        res.setHeader('Cache-Control', 'no-cache');
-        return;
-      }
-      if (/[-.][A-Za-z0-9_-]{8,}\.[^.]+$/.test(fileName)) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        return;
-      }
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-    },
+    setHeaders: setPlatformStaticCacheHeaders,
   }));
   app.get('*', (req, res) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
