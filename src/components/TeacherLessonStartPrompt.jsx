@@ -498,6 +498,7 @@ const TeacherLessonStartPrompt = ({
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState('');
   const calendarSyncConfiguredRef = useRef(null);
+  const scheduleRefreshInFlightRef = useRef(null);
 
   const storageKey = useMemo(() => getReminderStorageKey(teacherId), [teacherId]);
   const dismissedKeys = useMemo(() => (
@@ -525,34 +526,46 @@ const TeacherLessonStartPrompt = ({
     }
   }, [dismissedKeys, storageKey]);
 
-  const refreshSchedule = useCallback(async () => {
+  const refreshSchedule = useCallback(() => {
     if (!teacherId) {
       setScheduleEntries([]);
       setScheduleReady(false);
-      return;
+      return Promise.resolve();
     }
-    try {
-      if (calendarSyncConfiguredRef.current === null) {
-        const settings = await api.getTeacherCalendarSync(teacherId);
-        calendarSyncConfiguredRef.current = Boolean(settings?.configured);
-      }
-      if (calendarSyncConfiguredRef.current) {
-        const result = await api.refreshTeacherCalendarSync(teacherId);
-        if (result?.settings) {
-          calendarSyncConfiguredRef.current = Boolean(result.settings.configured);
+    const inFlight = scheduleRefreshInFlightRef.current;
+    if (inFlight?.teacherId === teacherId) return inFlight.promise;
+
+    const requestPromise = (async () => {
+      try {
+        if (calendarSyncConfiguredRef.current === null) {
+          const settings = await api.getTeacherCalendarSync(teacherId);
+          calendarSyncConfiguredRef.current = Boolean(settings?.configured);
         }
+        if (calendarSyncConfiguredRef.current) {
+          const result = await api.refreshTeacherCalendarSync(teacherId);
+          if (result?.settings) {
+            calendarSyncConfiguredRef.current = Boolean(result.settings.configured);
+          }
+        }
+      } catch {
+        // The prompt still works with the last imported schedule if Google sync is temporarily unavailable.
       }
-    } catch {
-      // The prompt still works with the last imported schedule if Google sync is temporarily unavailable.
-    }
-    try {
-      const data = await api.getTeacherSchedule(teacherId);
-      setScheduleEntries(Array.isArray(data) ? data : []);
-      setScheduleReady(true);
-    } catch {
-      setScheduleEntries([]);
-      setScheduleReady(false);
-    }
+      try {
+        const data = await api.getTeacherSchedule(teacherId);
+        setScheduleEntries(Array.isArray(data) ? data : []);
+        setScheduleReady(true);
+      } catch {
+        setScheduleEntries([]);
+        setScheduleReady(false);
+      }
+    })();
+    const trackedPromise = requestPromise.finally(() => {
+      if (scheduleRefreshInFlightRef.current?.promise === trackedPromise) {
+        scheduleRefreshInFlightRef.current = null;
+      }
+    });
+    scheduleRefreshInFlightRef.current = { teacherId, promise: trackedPromise };
+    return trackedPromise;
   }, [teacherId]);
 
   useEffect(() => {

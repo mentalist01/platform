@@ -1445,7 +1445,7 @@ const TeacherCalendarSection = ({
       setCalendarSyncSettings(settings || null);
       setCalendarSyncUrl('');
       try {
-        await api.refreshTeacherCalendarSync(teacherId);
+        await api.refreshTeacherCalendarSync(teacherId, { force: true });
         setCalendarSyncSuccess('Google Calendar подключен.');
       } catch (refreshError) {
         setCalendarSyncError(refreshError?.message || 'Ссылка сохранена, но календарь пока не загрузился.');
@@ -1465,7 +1465,7 @@ const TeacherCalendarSection = ({
     setCalendarSyncError('');
     setCalendarSyncSuccess('');
     try {
-      const result = await api.refreshTeacherCalendarSync(teacherId);
+      const result = await api.refreshTeacherCalendarSync(teacherId, { force: true });
       setCalendarSyncSettings(result?.settings || null);
       setCalendarSyncSuccess(`Импортировано: ${Number(result?.importedCount) || 0}`);
       await loadTeacherCalendar({ silent: true });

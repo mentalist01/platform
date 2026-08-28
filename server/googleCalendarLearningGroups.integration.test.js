@@ -461,7 +461,7 @@ test('Google group occurrences create one stable lesson and project independent 
     await jsonRequest(baseUrl, '/api/teacher-calendar-sync/refresh', {
       token: teacher.token,
       method: 'POST',
-      body: {},
+      body: { force: true },
     });
     const scheduleAfterMemberRemoval = await jsonRequest(baseUrl, '/api/teacher-schedule', {
       token: teacher.token,
@@ -490,7 +490,7 @@ test('Google group occurrences create one stable lesson and project independent 
     const refreshAfterDeletion = await jsonRequest(baseUrl, '/api/teacher-calendar-sync/refresh', {
       token: teacher.token,
       method: 'POST',
-      body: {},
+      body: { force: true },
     });
     assert.equal(refreshAfterDeletion.importedCount, 3);
     const cancelledLessonStore = JSON.parse(

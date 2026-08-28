@@ -1068,7 +1068,7 @@ const LearningGroupsSection = ({
     if (!selectedGroup || !isTeacher) return;
     await runAction(
       'refresh-calendar-schedule',
-      () => api.refreshTeacherCalendarSync(cleanString(teacherId || userId)),
+      () => api.refreshTeacherCalendarSync(cleanString(teacherId || userId), { force: true }),
       'Расписание обновлено из Google Календаря.'
     );
   };

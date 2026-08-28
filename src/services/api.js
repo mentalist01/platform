@@ -202,6 +202,56 @@ const apiFetch = async (input, init = {}) => {
   }
 };
 
+const TEACHER_CALENDAR_REFRESH_CLIENT_CACHE_MS = 30 * 1000;
+const teacherCalendarRefreshInFlight = new Map();
+const teacherCalendarRefreshResultCache = new Map();
+
+const requestTeacherCalendarRefresh = (teacherId, options = {}) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  const requestKey = normalizedTeacherId || 'current-teacher';
+  const force = options.force === true;
+  const inFlight = teacherCalendarRefreshInFlight.get(requestKey);
+  if (inFlight) {
+    if (!force || inFlight.force) return inFlight.promise;
+    return inFlight.promise.then(() => requestTeacherCalendarRefresh(normalizedTeacherId, { force: true }));
+  }
+
+  const cached = teacherCalendarRefreshResultCache.get(requestKey);
+  if (
+    !force
+    && cached
+    && Date.now() - cached.completedAtMs < TEACHER_CALENDAR_REFRESH_CLIENT_CACHE_MS
+  ) {
+    return Promise.resolve(cached.result);
+  }
+
+  const body = { force };
+  if (normalizedTeacherId) body.teacherId = normalizedTeacherId;
+  const requestPromise = (async () => {
+    const res = await apiFetch('/api/teacher-calendar-sync/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      requestTimeoutMs: 20_000,
+      timeoutErrorMessage: 'Google Calendar слишком долго отвечает. Попробуйте обновить позже.',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const result = await parseJsonResponse(res);
+    teacherCalendarRefreshResultCache.set(requestKey, {
+      completedAtMs: Date.now(),
+      result,
+    });
+    return result;
+  })();
+  const trackedPromise = requestPromise.finally(() => {
+    if (teacherCalendarRefreshInFlight.get(requestKey)?.promise === trackedPromise) {
+      teacherCalendarRefreshInFlight.delete(requestKey);
+    }
+  });
+  teacherCalendarRefreshInFlight.set(requestKey, { force, promise: trackedPromise });
+  return trackedPromise;
+};
+
 const normalizeStudentChatMessagePayload = (payloadOrText) => {
   if (payloadOrText && typeof payloadOrText === 'object' && !Array.isArray(payloadOrText)) {
     return {
@@ -2133,17 +2183,9 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  refreshTeacherCalendarSync: async (teacherId) => {
-    const body = {};
-    if (teacherId) body.teacherId = String(teacherId);
-    const res = await apiFetch('/api/teacher-calendar-sync/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
-  },
+  refreshTeacherCalendarSync: (teacherId, options = {}) => (
+    requestTeacherCalendarRefresh(teacherId, options)
+  ),
   syncStudentScheduleFromGoogle: async (studentId) => {
     const body = {};
     if (studentId) body.studentId = String(studentId);

@@ -8584,6 +8584,8 @@ const GOOGLE_CALENDAR_SYNC_TIME_ZONE = String(
   process.env.PLATFORM_CALENDAR_TIME_ZONE || process.env.TZ || 'Europe/Moscow'
 ).trim() || 'Europe/Moscow';
 const teacherCalendarSyncCache = new Map();
+const teacherCalendarRefreshInFlight = new Map();
+const teacherCalendarRefreshResultCache = new Map();
 
 const getGoogleCalendarSyncMonthEndMs = (value) => {
   const normalizedMonth = normalizeTeacherFinanceMonthKey(value);
@@ -8672,6 +8674,7 @@ const setTeacherCalendarSyncSettings = (teacherId, patch = {}) => {
   }
   writeTeacherCalendarSyncDb(db);
   teacherCalendarSyncCache.delete(normalizedTeacherId);
+  teacherCalendarRefreshResultCache.delete(normalizedTeacherId);
   return next;
 };
 
@@ -9550,6 +9553,72 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
+};
+
+const getTeacherCalendarRefreshSettingsKey = (settings) => [
+  settings?.enabled ? '1' : '0',
+  String(settings?.icalUrl || '').trim(),
+  String(settings?.updatedAt || '').trim(),
+].join('|');
+
+const runTeacherCalendarRefresh = (teacherId, auth, options = {}) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  const force = options.force === true;
+  const calendarSyncSettings = getTeacherCalendarSyncSettings(normalizedTeacherId);
+  const settingsKey = getTeacherCalendarRefreshSettingsKey(calendarSyncSettings);
+  const inFlight = teacherCalendarRefreshInFlight.get(normalizedTeacherId);
+  if (inFlight?.settingsKey === settingsKey) return inFlight.promise;
+
+  const cached = teacherCalendarRefreshResultCache.get(normalizedTeacherId);
+  if (
+    !force
+    && cached?.settingsKey === settingsKey
+    && Date.now() - cached.completedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS
+  ) {
+    return Promise.resolve(cached.result);
+  }
+
+  const refreshPromise = (async () => {
+    const events = await fetchTeacherGoogleCalendarEntries(normalizedTeacherId, {
+      force,
+      throwOnError: true,
+    });
+    const studentScheduleSync = calendarSyncSettings.enabled && calendarSyncSettings.icalUrl
+      ? await syncTeacherStudentSchedulesFromGoogleCalendar(normalizedTeacherId, events, auth)
+      : { studentCount: 0, updatedStudentCount: 0 };
+    notifyScheduleSyncUpdate({
+      scope: 'teacher-schedule',
+      action: 'calendar-sync-refreshed',
+      teacherId: normalizedTeacherId,
+    });
+    const result = {
+      ok: true,
+      importedCount: events.length,
+      updatedStudentCount: studentScheduleSync.updatedStudentCount,
+      settings: buildTeacherCalendarSyncSettingsResponse(
+        getTeacherCalendarSyncSettings(normalizedTeacherId)
+      ),
+    };
+    teacherCalendarRefreshResultCache.set(normalizedTeacherId, {
+      settingsKey,
+      completedAtMs: Date.now(),
+      result,
+    });
+    return result;
+  })();
+
+  teacherCalendarRefreshInFlight.set(normalizedTeacherId, {
+    settingsKey,
+    promise: refreshPromise,
+  });
+  refreshPromise.finally(() => {
+    if (teacherCalendarRefreshInFlight.get(normalizedTeacherId)?.promise === refreshPromise) {
+      teacherCalendarRefreshInFlight.delete(normalizedTeacherId);
+    }
+  }).catch(() => {
+    // The route awaiting refreshPromise reports the original error.
+  });
+  return refreshPromise;
 };
 
 const getTeacherOwnedScheduleEntries = (teacherId) => {
@@ -32810,28 +32879,16 @@ app.patch('/api/teacher-calendar-sync', (req, res) => {
 });
 
 app.post('/api/teacher-calendar-sync/refresh', async (req, res) => {
-  const { teacherId } = req.body || {};
+  const { teacherId, force } = req.body || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
   try {
-    const calendarSyncSettings = getTeacherCalendarSyncSettings(teacher.id);
-    const events = await fetchTeacherGoogleCalendarEntries(teacher.id, { force: true, throwOnError: true });
-    const studentScheduleSync = calendarSyncSettings.enabled && calendarSyncSettings.icalUrl
-      ? await syncTeacherStudentSchedulesFromGoogleCalendar(teacher.id, events, req.auth)
-      : { studentCount: 0, updatedStudentCount: 0 };
-    notifyScheduleSyncUpdate({
-      scope: 'teacher-schedule',
-      action: 'calendar-sync-refreshed',
-      teacherId: teacher.id,
+    const result = await runTeacherCalendarRefresh(teacher.id, req.auth, {
+      force: force === true,
     });
-    return res.json({
-      ok: true,
-      importedCount: events.length,
-      updatedStudentCount: studentScheduleSync.updatedStudentCount,
-      settings: buildTeacherCalendarSyncSettingsResponse(getTeacherCalendarSyncSettings(teacher.id)),
-    });
+    return res.json(result);
   } catch (error) {
     return res.status(502).json({
       error: error?.message || 'Не удалось загрузить Google Calendar.',
