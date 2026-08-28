@@ -284,6 +284,7 @@ const LESSON_REPLAY_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
 // growing lesson file twice as often on a single-core server.
 const LESSON_REPLAY_PERSIST_INTERVAL_MS = 60 * 1000;
 const LESSON_REPLAY_PERSIST_MAX_RETRY_MS = 5 * 60 * 1000;
+const LESSON_REPLAY_COMPRESSION_TIMEOUT_MS = 30_000;
 const LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS = 20 * 1000;
 const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;
 const TELEMOST_LESSON_DRAIN_MS = 30 * 1000;
@@ -2596,44 +2597,77 @@ const getLessonReplayCompressedBytes = (occurrenceKey) => {
   return 0;
 };
 
-const persistLessonReplay = (normalized) => {
+const compressLessonReplayInWorker = (normalized) => new Promise((resolve, reject) => {
+  const worker = new Worker(new URL('./lessonReplayCompressWorker.cjs', import.meta.url), {
+    workerData: {
+      replay: normalized,
+      maxRawBytes: LESSON_REPLAY_MAX_FILE_BYTES,
+      maxCompressedBytes: LESSON_REPLAY_MAX_COMPRESSED_BYTES,
+    },
+  });
+  let settled = false;
+  const timeoutId = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    void worker.terminate();
+    reject(new Error('Сжатие записи урока заняло слишком много времени.'));
+  }, LESSON_REPLAY_COMPRESSION_TIMEOUT_MS);
+  if (typeof timeoutId.unref === 'function') timeoutId.unref();
+  const finish = (handler, value) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
+    worker.removeAllListeners();
+    void worker.terminate();
+    handler(value);
+  };
+  worker.once('message', (result) => {
+    if (result?.error) {
+      finish(reject, new Error(result.error));
+      return;
+    }
+    finish(resolve, {
+      rawBytes: Math.max(0, Number(result?.rawBytes) || 0),
+      compressed: Buffer.from(result?.compressed || []),
+    });
+  });
+  worker.once('error', (error) => finish(reject, error));
+  worker.once('exit', (code) => {
+    if (code !== 0) finish(reject, new Error(`Lesson replay compressor stopped with code ${code}.`));
+  });
+});
+
+const persistLessonReplay = async (normalized) => {
   const startedAt = Date.now();
   const filePath = getLessonReplayFilePath(normalized.occurrence.key);
   const backupPath = getLessonReplayBackupFilePath(normalized.occurrence.key);
-  const raw = Buffer.from(JSON.stringify(normalized), 'utf8');
-  if (raw.length > LESSON_REPLAY_MAX_FILE_BYTES) throw new Error('Lesson replay exceeds the storage limit');
-  // Replays are rewritten throughout a live lesson. Fast compression keeps the
-  // single server CPU available for the call while retaining almost all gzip savings.
-  const compressed = zlib.gzipSync(raw, { level: 1 });
-  if (compressed.length > LESSON_REPLAY_MAX_COMPRESSED_BYTES) {
-    throw new Error('Compressed lesson replay exceeds the storage limit');
-  }
+  const { rawBytes, compressed } = await compressLessonReplayInWorker(normalized);
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  fs.writeFileSync(tempPath, compressed);
+  await fs.promises.writeFile(tempPath, compressed, { flag: 'wx' });
   let previousMoved = false;
   try {
     if (fs.existsSync(filePath)) {
-      if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
-      fs.renameSync(filePath, backupPath);
+      if (fs.existsSync(backupPath)) await fs.promises.unlink(backupPath);
+      await fs.promises.rename(filePath, backupPath);
       previousMoved = true;
     }
-    fs.renameSync(tempPath, filePath);
+    await fs.promises.rename(tempPath, filePath);
   } catch (error) {
     try {
       if (previousMoved && !fs.existsSync(filePath) && fs.existsSync(backupPath)) {
-        fs.renameSync(backupPath, filePath);
+        await fs.promises.rename(backupPath, filePath);
       }
     } catch (restoreError) {
       console.error('[lesson-replay] failed to restore the previous replay:', restoreError?.message || restoreError);
     }
-    try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {
+    try { if (fs.existsSync(tempPath)) await fs.promises.unlink(tempPath); } catch {
       // A failed temporary-file cleanup does not replace the original write error.
     }
     throw error;
   }
   if (previousMoved && fs.existsSync(backupPath)) {
     try {
-      fs.unlinkSync(backupPath);
+      await fs.promises.unlink(backupPath);
     } catch (error) {
       console.warn('[lesson-replay] failed to remove an old replay backup:', error?.message || error);
     }
@@ -2650,7 +2684,7 @@ const persistLessonReplay = (normalized) => {
   lessonReplayStorageReconciledHashes.add(occurrenceHash);
   const elapsedMs = Date.now() - startedAt;
   if (elapsedMs >= 200) {
-    console.warn(`[perf] lesson replay persist took ${elapsedMs}ms (${raw.length} raw, ${compressed.length} gzip)`);
+    console.warn(`[perf] lesson replay persist completed in ${elapsedMs}ms (${rawBytes} raw, ${compressed.length} gzip)`);
   }
   return {
     replay: normalized,
@@ -2693,7 +2727,7 @@ const scheduleLessonReplayPersistence = (occurrenceKey) => {
   lessonReplayPersistTimerByOccurrenceKey.set(occurrenceKey, timer);
 };
 
-const writeLessonReplay = (replay, options = {}) => {
+const writeLessonReplay = async (replay, options = {}) => {
   const normalized = options.normalized === true
     ? replay
     : appendLessonReplayEvents(replay, [], {
@@ -2721,7 +2755,7 @@ const writeLessonReplay = (replay, options = {}) => {
   const pendingTimer = lessonReplayPersistTimerByOccurrenceKey.get(occurrenceKey);
   if (pendingTimer) clearTimeout(pendingTimer);
   lessonReplayPersistTimerByOccurrenceKey.delete(occurrenceKey);
-  const stored = persistLessonReplay(normalized);
+  const stored = await persistLessonReplay(normalized);
   lessonReplayPersistFailureByOccurrenceKey.delete(occurrenceKey);
   return stored;
 };
@@ -31136,7 +31170,7 @@ const finishActiveLessonReplaySession = async (session, rawEvents = [], options 
   session.closing = true;
   const nowMs = Number(options.nowMs) || Date.now();
   try {
-    await withLessonReplayWriteLock(session.occurrenceKey, () => {
+    await withLessonReplayWriteLock(session.occurrenceKey, async () => {
       const replay = readLessonReplay(session.occurrenceKey);
       if (!replay) return;
       const context = {
@@ -31156,7 +31190,7 @@ const finishActiveLessonReplaySession = async (session, rawEvents = [], options 
           via: session.via === 'telemost' ? 'telemost' : 'platform',
         },
       }], context);
-      writeLessonReplay(appended.replay, { normalized: true });
+      await writeLessonReplay(appended.replay, { normalized: true });
     });
     activeLessonReplaySessions.delete(session.id);
     const hasOtherOccurrenceSession = Array.from(activeLessonReplaySessions.values())
@@ -31305,7 +31339,7 @@ app.post(
     const occurredAt = new Date(Number.isFinite(occurredAtMs) ? occurredAtMs : nowMs).toISOString();
 
     try {
-      const result = await withLessonReplayWriteLock(session.occurrenceKey, () => {
+      const result = await withLessonReplayWriteLock(session.occurrenceKey, async () => {
         if (session.closing || activeLessonReplaySessions.get(sessionId) !== session) {
           return { closed: true };
         }
@@ -31383,7 +31417,7 @@ app.post(
             normalizedReplay: true,
           });
           if (appended.added !== 1) throw new Error('Screen snapshot event was rejected');
-          const written = writeLessonReplay(appended.replay, { deferred: true, normalized: true });
+          const written = await writeLessonReplay(appended.replay, { deferred: true, normalized: true });
           lessonReplaySnapshotStoredBytes += buffer.length;
           updateLessonReplayStorageIndex(session.occurrenceKey, {
             snapshotBytes: usage.bytes + buffer.length,
@@ -31709,7 +31743,7 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
     if (storedBytes <= 0 || storedBytes > LESSON_REPLAY_AUDIO_MAX_SEGMENT_BYTES) {
       return res.status(400).json({ error: 'Загруженный аудиофрагмент повреждён' });
     }
-    const result = await withLessonReplayWriteLock(ticket.occurrenceKey, () => {
+    const result = await withLessonReplayWriteLock(ticket.occurrenceKey, async () => {
       const replay = readLessonReplay(ticket.occurrenceKey);
       if (!replayMatchesLessonReplayAccess(replay, access)) {
         const notFoundError = new Error('Запись занятия не найдена');
@@ -31734,7 +31768,7 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
         nowMs: Date.now(),
         normalizedReplay: true,
       });
-      const stored = writeLessonReplay(appended.replay, { deferred: true, normalized: true });
+      const stored = await writeLessonReplay(appended.replay, { deferred: true, normalized: true });
       return { added: appended.added, replay: stored.replay, compressedBytes: stored.compressedBytes };
     });
     if (result.added > 0) {
@@ -31817,7 +31851,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
     const actorName = String(
       req.auth.name || (actorRole === 'teacher' ? 'Учитель' : student?.name) || ''
     ).trim();
-    const result = await withLessonReplayWriteLock(occurrence.key, () => {
+    const result = await withLessonReplayWriteLock(occurrence.key, async () => {
       const reusable = Array.from(activeLessonReplaySessions.values()).find((session) => (
         session.occurrenceKey === occurrence.key
         && session.studentId === (student?.id || '')
@@ -31845,7 +31879,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
             nowMs,
             normalizedReplay: true,
           });
-          nextReplay = writeLessonReplay(switched.replay, { normalized: true }).replay;
+          nextReplay = (await writeLessonReplay(switched.replay, { normalized: true })).replay;
           reusable.via = requestedVia;
         }
         return {
@@ -31888,7 +31922,7 @@ app.post('/api/lesson-replay/session', async (req, res) => {
         nowMs,
         normalizedReplay: true,
       });
-      const stored = writeLessonReplay(appended.replay, { normalized: true });
+      const stored = await writeLessonReplay(appended.replay, { normalized: true });
       activeLessonReplaySessions.set(sessionId, session);
       return { session, replay: stored.replay, compressedBytes: stored.compressedBytes };
     });
@@ -31939,7 +31973,7 @@ app.post('/api/lesson-replay/switch', async (req, res) => {
   }
   if (session.via === via) return res.json({ ok: true, via, unchanged: true });
   try {
-    await withLessonReplayWriteLock(session.occurrenceKey, () => {
+    await withLessonReplayWriteLock(session.occurrenceKey, async () => {
       const replay = readLessonReplay(session.occurrenceKey);
       if (!replay) return;
       const appended = appendLessonReplayEvents(replay, [{
@@ -31954,7 +31988,7 @@ app.post('/api/lesson-replay/switch', async (req, res) => {
         nowMs,
         normalizedReplay: true,
       });
-      writeLessonReplay(appended.replay, { normalized: true });
+      await writeLessonReplay(appended.replay, { normalized: true });
     });
     session.via = via;
     if (via === 'platform') session.lastPlatformActiveAt = nowMs;
@@ -32006,7 +32040,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     return res.status(400).json({ error: `За один раз можно сохранить не более ${LESSON_REPLAY_MAX_BATCH_EVENTS} событий` });
   }
   try {
-    const result = await withLessonReplayWriteLock(session.occurrenceKey, () => {
+    const result = await withLessonReplayWriteLock(session.occurrenceKey, async () => {
       if (session.closing || activeLessonReplaySessions.get(sessionId) !== session) {
         return { closed: true };
       }
@@ -32038,7 +32072,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         })
         : appended;
       if (finalReplay.added > 0 || appended.added > 0) {
-        const stored = writeLessonReplay(finalReplay.replay, {
+        const stored = await writeLessonReplay(finalReplay.replay, {
           deferred: !canDrainTelemost,
           normalized: true,
         });
