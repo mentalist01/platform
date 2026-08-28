@@ -918,6 +918,172 @@ html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='amber'] {
   background: linear-gradient(145deg, rgba(180, 83, 9, 0.2), rgba(69, 26, 3, 0.36)) !important;
 }
 
+/* A remote cursor outside the viewport follows the restrained edge-hint
+   pattern used by modern collaborative canvases: a direction marker first,
+   with a small secondary label instead of a permanent floating card. */
+.board-remote-cursor-indicator {
+  position: absolute;
+  z-index: 26;
+  display: block;
+  width: 1.55rem;
+  height: 1.55rem;
+  color: #0f172a;
+  line-height: 1;
+  pointer-events: none;
+  transition: left 90ms linear, top 90ms linear;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.board-remote-cursor-indicator--left {
+  transform: translate(0, -50%);
+}
+
+.board-remote-cursor-indicator--right {
+  transform: translate(-100%, -50%);
+}
+
+.board-remote-cursor-indicator--up {
+  transform: translate(-50%, 0);
+}
+
+.board-remote-cursor-indicator--down {
+  transform: translate(-50%, -100%);
+}
+
+.board-remote-cursor-indicator--upleft {
+  transform: translate(0, 0);
+}
+
+.board-remote-cursor-indicator--upright {
+  transform: translate(-100%, 0);
+}
+
+.board-remote-cursor-indicator--downleft {
+  transform: translate(0, -100%);
+}
+
+.board-remote-cursor-indicator--downright {
+  transform: translate(-100%, -100%);
+}
+
+.board-remote-cursor-indicator__arrow {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--board-remote-cursor-color, #6366f1);
+  filter:
+    drop-shadow(0 0 1px rgba(255, 255, 255, 0.96))
+    drop-shadow(0 1px 2px rgba(15, 23, 42, 0.28));
+  transform: rotate(var(--board-remote-cursor-angle, 0deg));
+  transform-origin: center;
+}
+
+.board-remote-cursor-indicator__meta {
+  position: absolute;
+  left: calc(100% + 0.25rem);
+  top: 50%;
+  display: flex;
+  max-width: 7.5rem;
+  align-items: center;
+  gap: 0.2rem;
+  overflow: hidden;
+  padding: 0.12rem 0.18rem;
+  transform: translateY(-50%);
+}
+
+.board-remote-cursor-indicator--right .board-remote-cursor-indicator__meta,
+.board-remote-cursor-indicator--upright .board-remote-cursor-indicator__meta,
+.board-remote-cursor-indicator--downright .board-remote-cursor-indicator__meta {
+  right: calc(100% + 0.25rem);
+  left: auto;
+}
+
+.board-remote-cursor-indicator--up .board-remote-cursor-indicator__meta {
+  top: calc(100% + 0.25rem);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.board-remote-cursor-indicator--down .board-remote-cursor-indicator__meta {
+  top: auto;
+  bottom: calc(100% + 0.25rem);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.board-remote-cursor-indicator--downleft .board-remote-cursor-indicator__meta,
+.board-remote-cursor-indicator--downright .board-remote-cursor-indicator__meta {
+  top: auto;
+  bottom: 0;
+  transform: none;
+}
+
+.board-remote-cursor-indicator__name {
+  overflow: hidden;
+  max-width: 4.75rem;
+  color: var(--board-remote-cursor-color, #6366f1);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-shadow:
+    -1px -1px 0 rgba(255, 255, 255, 0.94),
+    1px -1px 0 rgba(255, 255, 255, 0.94),
+    -1px 1px 0 rgba(255, 255, 255, 0.94),
+    1px 1px 0 rgba(255, 255, 255, 0.94);
+  text-overflow: ellipsis;
+}
+
+.board-remote-cursor-indicator__distance {
+  flex: 0 0 auto;
+  color: #94a3b8;
+  font-size: 0.56rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-shadow:
+    -1px -1px 0 rgba(255, 255, 255, 0.94),
+    1px -1px 0 rgba(255, 255, 255, 0.94),
+    -1px 1px 0 rgba(255, 255, 255, 0.94),
+    1px 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+html[data-theme='dark'] .board-remote-cursor-indicator__name {
+  color: var(--board-remote-cursor-color, #818cf8);
+  text-shadow:
+    -1px -1px 0 rgba(15, 23, 42, 0.94),
+    1px -1px 0 rgba(15, 23, 42, 0.94),
+    -1px 1px 0 rgba(15, 23, 42, 0.94),
+    1px 1px 0 rgba(15, 23, 42, 0.94);
+}
+
+html[data-theme='dark'] .board-remote-cursor-indicator__distance {
+  color: #94a3b8;
+  text-shadow:
+    -1px -1px 0 rgba(15, 23, 42, 0.94),
+    1px -1px 0 rgba(15, 23, 42, 0.94),
+    -1px 1px 0 rgba(15, 23, 42, 0.94),
+    1px 1px 0 rgba(15, 23, 42, 0.94);
+}
+
+@media (max-width: 720px) {
+  .board-remote-cursor-indicator__meta {
+    max-width: 5.5rem;
+  }
+
+  .board-remote-cursor-indicator__name {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-remote-cursor-indicator {
+    transition: none;
+  }
+}
+
 html[data-theme='dark'] .teacher-finance-simple__metric[data-tone='slate'] {
   border-color: rgba(100, 116, 139, 0.55) !important;
   background: linear-gradient(145deg, rgba(51, 65, 85, 0.36), rgba(15, 23, 42, 0.56)) !important;

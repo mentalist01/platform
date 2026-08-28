@@ -10,7 +10,7 @@ import { MonacoBinding } from 'y-monaco';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
-  ArrowLeft, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
+  ArrowLeft, ArrowRight, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
   Camera, MousePointer2, Code2, ExternalLink, MoreHorizontal, MessageSquare, Mic, Users, Video, Wallet,
@@ -15857,11 +15857,77 @@ const BoardSection = ({
       .filter((cursor) => (
         Number.isFinite(cursor.left)
         && Number.isFinite(cursor.top)
-        && cursor.left >= -40
-        && cursor.left <= boardSize.width + 40
-        && cursor.top >= -40
-        && cursor.top <= boardSize.height + 40
+         && cursor.left >= 0
+         && cursor.left <= boardSize.width
+         && cursor.top >= 0
+         && cursor.top <= boardSize.height
       ));
+  }, [remoteCursors, zoom, offset, boardSize.width, boardSize.height]);
+  const remoteCursorOffscreenIndicators = useMemo(() => {
+    const currentZoom = zoom || 1;
+    // Keep the distance intentionally abstract and compact. One unit is a
+    // generous canvas step instead of a raw pixel, so the edge hint remains
+    // useful without turning into a large, noisy number.
+    const cursorDistanceUnit = 120;
+    const maxCursorDistance = 99;
+    const viewportWidth = Math.max(1, Number(boardSize.width) || 1);
+    const viewportHeight = Math.max(1, Number(boardSize.height) || 1);
+    const edgeInset = 12;
+    const minEdge = edgeInset;
+    const maxEdgeX = Math.max(minEdge, viewportWidth - edgeInset);
+    const maxEdgeY = Math.max(minEdge, viewportHeight - edgeInset);
+    const viewportCenterX = viewportWidth / 2;
+    const viewportCenterY = viewportHeight / 2;
+    const stackByDirection = new Map();
+
+    return remoteCursors
+      .map((cursor) => {
+        const left = (Number(cursor?.x) - Number(offset?.x || 0)) * currentZoom;
+        const top = (Number(cursor?.y) - Number(offset?.y || 0)) * currentZoom;
+        if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+        const outsideLeft = left < 0;
+        const outsideRight = left > viewportWidth;
+        const outsideTop = top < 0;
+        const outsideBottom = top > viewportHeight;
+        if (!outsideLeft && !outsideRight && !outsideTop && !outsideBottom) return null;
+
+        const horizontalDirection = outsideLeft ? 'left' : (outsideRight ? 'right' : '');
+        const verticalDirection = outsideTop ? 'up' : (outsideBottom ? 'down' : '');
+        const direction = `${verticalDirection}${horizontalDirection}` || 'right';
+        const stackIndex = stackByDirection.get(direction) || 0;
+        stackByDirection.set(direction, stackIndex + 1);
+        const directionX = left - viewportCenterX;
+        const directionY = top - viewportCenterY;
+        const edgeScales = [];
+        if (directionX > 0) edgeScales.push((maxEdgeX - viewportCenterX) / directionX);
+        if (directionX < 0) edgeScales.push((minEdge - viewportCenterX) / directionX);
+        if (directionY > 0) edgeScales.push((maxEdgeY - viewportCenterY) / directionY);
+        if (directionY < 0) edgeScales.push((minEdge - viewportCenterY) / directionY);
+        const edgeScale = Math.min(...edgeScales.filter((value) => Number.isFinite(value) && value >= 0));
+        const edgeLeft = clamp(viewportCenterX + directionX * edgeScale, minEdge, maxEdgeX);
+        const edgeTop = clamp(viewportCenterY + directionY * edgeScale, minEdge, maxEdgeY);
+        const isHorizontal = Boolean(horizontalDirection);
+        const stackOffset = stackIndex * 30;
+        const nearestVisibleX = clamp(left, 0, viewportWidth);
+        const nearestVisibleY = clamp(top, 0, viewportHeight);
+        const screenDistance = Math.hypot(left - nearestVisibleX, top - nearestVisibleY);
+        return {
+          ...cursor,
+          left: isHorizontal
+            ? edgeLeft
+            : clamp(edgeLeft + stackOffset, minEdge, maxEdgeX),
+          top: isHorizontal
+            ? clamp(edgeTop + stackOffset, minEdge, maxEdgeY)
+            : edgeTop,
+          direction,
+          angle: Math.atan2(directionY, directionX) * (180 / Math.PI),
+          distance: Math.min(
+            maxCursorDistance,
+            Math.max(1, Math.round(screenDistance / currentZoom / cursorDistanceUnit)),
+          ),
+        };
+      })
+      .filter(Boolean);
   }, [remoteCursors, zoom, offset, boardSize.width, boardSize.height]);
   const selectedImageScreenBox = displaySelectedImage
     ? {
@@ -16921,6 +16987,29 @@ const BoardSection = ({
             >
               {cursor.name}
             </div>
+          </div>
+        ))}
+        {remoteCursorOffscreenIndicators.map((cursor) => (
+          <div
+            key={`${cursor.id}-${cursor.direction}`}
+            className={`board-remote-cursor-indicator board-remote-cursor-indicator--${cursor.direction}`}
+            style={{
+              left: `${cursor.left}px`,
+              top: `${cursor.top}px`,
+              '--board-remote-cursor-color': cursor.color,
+              '--board-remote-cursor-angle': `${cursor.angle}deg`,
+            }}
+            title={`${cursor.name || 'Участник'} · примерно ${cursor.distance} ед. до курсора`}
+            aria-label={`${cursor.name || 'Участник'} находится за пределами видимой области доски, примерно ${cursor.distance} условных единиц`}
+            role="img"
+          >
+            <span className="board-remote-cursor-indicator__arrow" aria-hidden="true">
+              <ArrowRight size={18} strokeWidth={2.8} />
+            </span>
+            <span className="board-remote-cursor-indicator__meta">
+              <span className="board-remote-cursor-indicator__name">{cursor.name || 'Участник'}</span>
+              <span className="board-remote-cursor-indicator__distance">≈{cursor.distance}</span>
+            </span>
           </div>
         ))}
         {isMinimapOpen && (
