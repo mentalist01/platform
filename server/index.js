@@ -30,6 +30,7 @@ import {
 import { getLevelFromXp } from '../src/utils/leveling.js';
 import {
   buildHomeworkStatistics,
+  isHomeworkReadyForOverallStatistics,
   summarizeHomeworkStatistics,
 } from '../src/utils/homeworkStats.js';
 import { buildCalendarHomeworkProgressEntries } from '../src/utils/calendarHomeworkProgress.js';
@@ -32507,6 +32508,12 @@ app.get('/api/parent/overview', async (req, res) => {
       mockAttemptsByExam,
     });
     const reliableParentHomeworkEntries = homeworkEntries.filter(isReliableParentHomeworkEntry);
+    const measurableParentHomeworkEntries = reliableParentHomeworkEntries.filter(
+      (entry) => Number(entry.totalCount) > 0
+    );
+    const overallParentHomeworkEntries = measurableParentHomeworkEntries.filter(
+      (entry) => isHomeworkReadyForOverallStatistics(entry)
+    );
     const mockEntries = buildMockExamProgressEntries({
       studentData,
       mockExams,
@@ -32531,7 +32538,11 @@ app.get('/api/parent/overview', async (req, res) => {
         entries: mockEntries.slice(-40),
       },
       homework: {
-        summary: summarizeHomeworkStatistics(reliableParentHomeworkEntries),
+        summary: {
+          ...summarizeHomeworkStatistics(overallParentHomeworkEntries),
+          totalAssignedCount: reliableParentHomeworkEntries.length,
+          pendingCount: measurableParentHomeworkEntries.length - overallParentHomeworkEntries.length,
+        },
         entries: reliableParentHomeworkEntries.map(compactParentHomeworkEntry),
       },
       finance: buildParentFinanceSummary(student),

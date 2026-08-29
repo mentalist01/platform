@@ -619,6 +619,8 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     : orderedHomeworkEntries.slice(0, 3);
   const homeworkAveragePercent = Number(homeworkSummary.averagePercent) || 0;
   const fullyCompletedHomeworkCount = Number(homeworkSummary.fullyCompletedCount) || 0;
+  const homeworkOverallCount = Math.max(0, Number(homeworkSummary.homeworkCount) || 0);
+  const pendingHomeworkCount = Math.max(0, Number(homeworkSummary.pendingCount) || 0);
   const hasEnoughHomeworkHistory = homeworkEntries.length >= 3;
   const homeworkHabit = !hasEnoughHomeworkHistory
     ? 'Пока мало данных'
@@ -636,17 +638,22 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
     : homeworkAveragePercent <= 0
       ? 'Задания пока обычно остаются невыполненными.'
       : `Обычно делает примерно ${completedTasksOutOfTen} из 10 заданий — ${homeworkAveragePercent}% в среднем.`;
-  const homeworkCompletionExplanation = homeworkEntries.length === 0
-    ? ''
-    : homeworkEntries.length === 1
+  const homeworkCompletionExplanation = homeworkOverallCount === 0
+    ? 'Работ с наступившим сроком пока нет.'
+    : homeworkOverallCount === 1
       ? fullyCompletedHomeworkCount === 1
-        ? 'Работа закончена полностью.'
-        : 'Работа пока не закончена полностью.'
+        ? 'Учтённая работа закончена полностью.'
+        : 'Учтённая работа не закончена полностью.'
     : fullyCompletedHomeworkCount === 0
-      ? `Ни одна из ${homeworkEntries.length} работ не закончена полностью.`
+      ? `Ни одна из ${homeworkOverallCount} учтённых работ не закончена полностью.`
       : fullyCompletedHomeworkCount === 1
-        ? `Полностью закончена 1 из ${homeworkEntries.length} работ.`
-        : `Полностью закончены ${fullyCompletedHomeworkCount} из ${homeworkEntries.length} работ.`;
+        ? `Полностью закончена 1 из ${homeworkOverallCount} учтённых работ.`
+        : `Полностью закончены ${fullyCompletedHomeworkCount} из ${homeworkOverallCount} учтённых работ.`;
+  const pendingHomeworkExplanation = pendingHomeworkCount === 0
+    ? ''
+    : pendingHomeworkCount === 1
+      ? 'Текущая работа до срока в общий процент пока не входит.'
+      : `Работ до срока, которые пока не входят в общий процент: ${pendingHomeworkCount}.`;
   const currentHomeworkPercent = Number(currentHomeworkEntry?.percent) || 0;
   const currentHomeworkHasErrors = Number(currentHomeworkEntry?.wrongCount) > 0
     || currentHomeworkEntry?.status === 'attention';
@@ -773,11 +780,11 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
       value: homeworkHabit,
       detail: hasEnoughHomeworkHistory
         ? homeworkAverageExplanation
-        : `Вывод появится после трёх работ. Сейчас есть: ${homeworkEntries.length}.`,
+        : `Вывод появится после трёх выданных работ. Сейчас выдано: ${homeworkEntries.length}.`,
       mobileDetail: hasEnoughHomeworkHistory
-        ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation}`
-        : `${homeworkEntries.length} из 3 работ для вывода`,
-      meta: homeworkCompletionExplanation,
+        ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation} ${pendingHomeworkExplanation}`.trim()
+        : `${homeworkEntries.length} из 3 выданных работ для вывода${pendingHomeworkExplanation ? ` · ${pendingHomeworkExplanation}` : ''}`,
+      meta: `${homeworkCompletionExplanation} ${pendingHomeworkExplanation}`.trim(),
       progress: hasEnoughHomeworkHistory ? homeworkAveragePercent : null,
       progressClass: homeworkAveragePercent >= 90
         ? 'bg-emerald-500'
@@ -1667,11 +1674,11 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                 <strong className="mt-1.5 block text-base">{homeworkHabit}</strong>
                 <p className={`mt-1.5 text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
                   {hasEnoughHomeworkHistory
-                    ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation}`
-                    : `Вывод появится после трёх работ. Сейчас есть: ${homeworkEntries.length}.`}
+                    ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation} ${pendingHomeworkExplanation}`.trim()
+                    : `Вывод появится после трёх выданных работ. Сейчас выдано: ${homeworkEntries.length}. ${pendingHomeworkExplanation}`.trim()}
                 </p>
                 <span className={`mt-2 block text-[11px] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
-                  Учитываются работы, выданные с 29 июня 2026 года.
+                  В общий процент входят выполненные работы и работы после срока, выданные с 29 июня 2026 года.
                 </span>
               </div>
 
@@ -1768,7 +1775,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             icon={CheckCircle2}
             eyebrow="И последнее"
             title="Домашняя работа"
-            description="Общий итог учитывает работы с 29 июня 2026 года. Ниже каждую работу можно раскрыть."
+            description="Общий итог не снижает текущая работа до срока. Учитываются выполненные работы и работы после срока, выданные с 29 июня 2026 года."
             dark={dark}
             tone="emerald"
           />

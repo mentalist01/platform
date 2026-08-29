@@ -5,6 +5,7 @@ import {
   HOMEWORK_STAT_STATE,
   buildHomeworkStatistics,
   getAcademicYearMeta,
+  isHomeworkReadyForOverallStatistics,
   snapshotHomeworkGoalTargets,
   summarizeHomeworkStatistics,
 } from './homeworkStats.js';
@@ -274,6 +275,48 @@ test('academic year starts in September and summaries include the recent trend',
   assert.equal(summary.withErrorsCount, 2);
   assert.equal(summary.incompleteCount, 5);
   assert.equal(summary.trend, 33);
+});
+
+test('overall homework statistics do not penalize an unfinished assignment before its due date', () => {
+  const nowMs = Date.parse('2026-09-10T12:00:00.000Z');
+  const entries = [
+    {
+      id: 'completed-1',
+      totalCount: 3,
+      percent: 100,
+      dueAt: '2026-09-01T12:00:00.000Z',
+      completedOnTime: true,
+      withErrorsCount: 0,
+      wrongCount: 0,
+    },
+    {
+      id: 'completed-2',
+      totalCount: 3,
+      percent: 100,
+      dueAt: '2026-09-08T12:00:00.000Z',
+      completedOnTime: true,
+      withErrorsCount: 0,
+      wrongCount: 0,
+    },
+    {
+      id: 'current',
+      totalCount: 3,
+      percent: 0,
+      dueAt: '2026-09-15T12:00:00.000Z',
+      completedOnTime: false,
+      withErrorsCount: 0,
+      wrongCount: 0,
+    },
+  ];
+
+  const included = entries.filter((entry) => isHomeworkReadyForOverallStatistics(entry, nowMs));
+  const summary = summarizeHomeworkStatistics(included);
+
+  assert.deepEqual(included.map((entry) => entry.id), ['completed-1', 'completed-2']);
+  assert.equal(summary.averagePercent, 100);
+  assert.equal(summary.fullyCompletedCount, 2);
+  assert.equal(summary.incompleteCount, 0);
+  assert.equal(isHomeworkReadyForOverallStatistics({ ...entries[2], dueAt: '2026-09-09T12:00:00.000Z' }, nowMs), true);
 });
 
 test('snapshotHomeworkGoalTargets freezes task ids and mock task keys at assignment time', () => {

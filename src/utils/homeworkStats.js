@@ -623,3 +623,14 @@ export const summarizeHomeworkStatistics = (entries = []) => {
     trend: Math.round(recentAverage - previousAverage),
   };
 };
+
+export const isHomeworkReadyForOverallStatistics = (entry, nowMs = Date.now()) => {
+  if (!entry || Number(entry.totalCount) <= 0) return false;
+  if (Number(entry.percent) >= 100) return true;
+  if (entry.isOverdue === true) return true;
+  const safeNowMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  const dueAtMs = asTimestamp(entry.dueAt);
+  if (dueAtMs != null) return dueAtMs <= safeNowMs;
+  const windowEndAtMs = asTimestamp(entry.windowEndAt);
+  return windowEndAtMs != null && windowEndAtMs < safeNowMs;
+};
