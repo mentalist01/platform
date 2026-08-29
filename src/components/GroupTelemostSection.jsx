@@ -87,13 +87,15 @@ const GroupTelemostSection = ({
               </span>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-3.5 py-2.5 text-sm font-bold text-white transition hover:bg-white/20"
-          >
-            <ArrowLeft size={16} /> К мини-группе
-          </button>
+          {isTeacher && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-3.5 py-2.5 text-sm font-bold text-white transition hover:bg-white/20"
+            >
+              <ArrowLeft size={16} /> К мини-группе
+            </button>
+          )}
         </div>
       </section>
 
@@ -152,19 +154,21 @@ const GroupTelemostSection = ({
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 shadow-sm sm:p-5">
-            <div className="flex items-start gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-emerald-600 text-white">
-                <ShieldCheck size={19} />
-              </span>
-              <div>
-                <h3 className="font-black">Без нагрузки видеопотоками</h3>
-                <p className="mt-1 text-sm leading-relaxed text-emerald-800">
-                  Видеосвязь не проходит через сервер платформы. Посещаемость преподаватель отмечает в карточке занятия.
-                </p>
+          {isTeacher && (
+            <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 shadow-sm sm:p-5">
+              <div className="flex items-start gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-emerald-600 text-white">
+                  <ShieldCheck size={19} />
+                </span>
+                <div>
+                  <h3 className="font-black">Без нагрузки видеопотоками</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-emerald-800">
+                    Видеосвязь не проходит через сервер платформы. Посещаемость преподаватель отмечает в карточке занятия.
+                  </p>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          )}
 
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <h3 className="font-black text-slate-900">Рабочее пространство урока</h3>

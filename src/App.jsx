@@ -24830,7 +24830,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               )}
             </div>
           )}
-          {activeLearningLesson && lessonQuickNavIds.includes(view) && (
+          {user.role === 'teacher' && activeLearningLesson && lessonQuickNavIds.includes(view) && (
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-emerald-900 shadow-sm">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
                 <Users size={18} />
