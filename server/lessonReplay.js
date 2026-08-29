@@ -282,6 +282,7 @@ const normalizePayload = (type, value) => {
   if (type === 'code') {
     return {
       language: clampText(source.language || 'python', 40).trim() || 'python',
+      action: ['edit', 'run', 'snapshot'].includes(source.action) ? source.action : 'edit',
       code: clampText(source.code, MAX_CODE_CHARS),
       input: clampText(source.input, MAX_INPUT_CHARS),
       testFile: clampText(source.testFile, MAX_INPUT_CHARS),
@@ -381,6 +382,46 @@ const stableSignature = (event) => JSON.stringify([event.type, event.payload]);
 
 const isSharedSurfaceEvent = (event) => ['code', 'board', 'run'].includes(event?.type);
 
+// Event offsets are the primary timeline coordinate, but several legitimate
+// recording paths can produce the same offset (for example, events captured
+// before an occurrence start is known are all normalized to 0).  Sorting ties
+// by the random event id makes the resulting scene nondeterministic and can
+// apply a board delta before its snapshot.  Keep the original array order as
+// the final tie breaker and use the event timestamp before it.
+const getReplayEventOccurredAtMs = (event) => {
+  const parsed = Date.parse(String(event?.occurredAt || '').trim());
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+export const compareLessonReplayEvents = (left, right) => {
+  const leftOffset = Number(left?.offsetMs);
+  const rightOffset = Number(right?.offsetMs);
+  const normalizedLeftOffset = Number.isFinite(leftOffset) ? leftOffset : 0;
+  const normalizedRightOffset = Number.isFinite(rightOffset) ? rightOffset : 0;
+  if (normalizedLeftOffset !== normalizedRightOffset) {
+    return normalizedLeftOffset - normalizedRightOffset;
+  }
+
+  const leftOccurredAt = getReplayEventOccurredAtMs(left);
+  const rightOccurredAt = getReplayEventOccurredAtMs(right);
+  if (leftOccurredAt !== null && rightOccurredAt !== null && leftOccurredAt !== rightOccurredAt) {
+    return leftOccurredAt - rightOccurredAt;
+  }
+  if (leftOccurredAt === null && rightOccurredAt !== null) return 1;
+  if (leftOccurredAt !== null && rightOccurredAt === null) return -1;
+  return 0;
+};
+
+const sortLessonReplayEvents = (events) => (
+  (Array.isArray(events) ? events : [])
+    .map((event, sourceIndex) => ({ event, sourceIndex }))
+    .sort((left, right) => (
+      compareLessonReplayEvents(left.event, right.event)
+      || left.sourceIndex - right.sourceIndex
+    ))
+    .map(({ event }) => event)
+);
+
 const actorEventTypeKey = (event) => JSON.stringify([
   event.type,
   isSharedSurfaceEvent(event) ? 'shared' : (event.actor?.role || 'student'),
@@ -446,6 +487,17 @@ const getCompactionPriorityEvents = (events) => {
   };
 
   add(source.find((event) => event.type === 'session' && event.payload?.action === 'start') || source[0]);
+
+  // A board delta is only meaningful relative to the latest preceding
+  // snapshot.  Reserve the first and last keyframes before filling the
+  // priority list with per-state/progressive events, otherwise byte/count
+  // compaction can retain a delta chain with no baseline and render an empty
+  // board until the next keyframe.
+  const boardSnapshots = source.filter(
+    (event) => event.type === 'board' && event.payload?.mode === 'snapshot'
+  );
+  add(boardSnapshots[0]);
+  add(boardSnapshots.at(-1));
   source.filter((event) => event.type === 'audio').slice(-360).forEach(add);
 
   const latestByState = new Map();
@@ -476,8 +528,11 @@ export const normalizeLessonReplayEvent = (value, context = {}) => {
   const rawAt = Date.parse(String(value.occurredAt || '').trim());
   const fallbackAt = Number(context.nowMs) || Date.now();
   const occurredAtMs = Number.isFinite(rawAt) ? rawAt : fallbackAt;
-  const minimumAt = Number.isFinite(Number(context.startMs))
-    ? Number(context.startMs) - (30 * 60 * 1000)
+  const validationStartMs = Number.isFinite(Number(context.validationStartMs))
+    ? Number(context.validationStartMs)
+    : Number(context.startMs);
+  const minimumAt = Number.isFinite(validationStartMs)
+    ? validationStartMs - (30 * 60 * 1000)
     : occurredAtMs;
   const maximumAt = Number.isFinite(Number(context.endMs))
     ? Number(context.endMs) + (2 * 60 * 60 * 1000)
@@ -487,12 +542,15 @@ export const normalizeLessonReplayEvent = (value, context = {}) => {
   const payload = normalizePayload(type, value.payload);
   if (type === 'screen' && payload.active !== false && !payload.snapshotId) return null;
   if (type === 'audio' && !payload.audioId) return null;
+  const timelineStartMs = Number.isFinite(Number(context.timelineStartMs))
+    ? Number(context.timelineStartMs)
+    : Number(context.startMs);
   const normalized = {
     id: id || `${occurredAtMs}-${Math.random().toString(36).slice(2, 12)}`,
     type,
     occurredAt: new Date(occurredAtMs).toISOString(),
-    offsetMs: Number.isFinite(Number(context.startMs))
-      ? Math.max(0, Math.round(occurredAtMs - Number(context.startMs)))
+    offsetMs: Number.isFinite(timelineStartMs)
+      ? Math.max(0, Math.round(occurredAtMs - timelineStartMs))
       : 0,
     actor: {
       role: ['teacher', 'student'].includes(context.actorRole) ? context.actorRole : 'student',
@@ -525,6 +583,19 @@ export const normalizeLessonReplay = (value) => {
       .map((entry) => clampText(entry, 160).trim())
       .filter(Boolean)
   )).slice(0, 5);
+  const normalizedOccurrenceStartMs = Number.isFinite(startMs) ? startMs : 0;
+  const minimumTimelineStartMs = normalizedOccurrenceStartMs > 0
+    ? normalizedOccurrenceStartMs - (30 * 60 * 1000)
+    : 0;
+  const storedTimelineStartMs = Number(source.timelineStartMs);
+  const timelineStartMs = Number.isFinite(storedTimelineStartMs) && storedTimelineStartMs > 0
+    ? Math.max(
+      minimumTimelineStartMs,
+      normalizedOccurrenceStartMs > 0
+        ? Math.min(normalizedOccurrenceStartMs, storedTimelineStartMs)
+        : storedTimelineStartMs
+    )
+    : normalizedOccurrenceStartMs;
   const normalized = {
     version: REPLAY_VERSION,
     occurrence: {
@@ -537,9 +608,10 @@ export const normalizeLessonReplay = (value) => {
       dayKey: clampText(occurrence.dayKey, 20).trim(),
       time: clampText(occurrence.time, 12).trim(),
       durationMinutes: clampNumber(occurrence.durationMinutes, 15, 360, 60),
-      startMs: Number.isFinite(startMs) ? startMs : 0,
+      startMs: normalizedOccurrenceStartMs,
       endMs: Number.isFinite(endMs) ? endMs : 0,
     },
+    timelineStartMs,
     createdAt: clampText(source.createdAt, 40).trim(),
     updatedAt: clampText(source.updatedAt, 40).trim(),
     events: [],
@@ -548,6 +620,8 @@ export const normalizeLessonReplay = (value) => {
   (Array.isArray(source.events) ? source.events : []).forEach((entry) => {
     const event = normalizeLessonReplayEvent(entry, {
       startMs: normalized.occurrence.startMs,
+      validationStartMs: normalized.occurrence.startMs,
+      timelineStartMs: normalized.timelineStartMs,
       endMs: normalized.occurrence.endMs,
       actorRole: entry?.actor?.role,
       actorId: entry?.actor?.id,
@@ -557,9 +631,20 @@ export const normalizeLessonReplay = (value) => {
     seenIds.add(event.id);
     normalized.events.push(event);
   });
-  normalized.events.sort((left, right) => (
-    left.offsetMs - right.offsetMs || left.id.localeCompare(right.id)
-  ));
+  const earliestEventAtMs = normalized.events.reduce((earliest, event) => {
+    const occurredAtMs = Date.parse(event.occurredAt);
+    return Number.isFinite(occurredAtMs) ? Math.min(earliest, occurredAtMs) : earliest;
+  }, Number.POSITIVE_INFINITY);
+  if (Number.isFinite(earliestEventAtMs) && earliestEventAtMs < normalized.timelineStartMs) {
+    normalized.timelineStartMs = Math.max(minimumTimelineStartMs, earliestEventAtMs);
+  }
+  normalized.events.forEach((event) => {
+    const occurredAtMs = Date.parse(event.occurredAt);
+    event.offsetMs = Number.isFinite(occurredAtMs) && normalized.timelineStartMs > 0
+      ? Math.max(0, Math.round(occurredAtMs - normalized.timelineStartMs))
+      : Math.max(0, Math.round(Number(event.offsetMs) || 0));
+  });
+  normalized.events = sortLessonReplayEvents(normalized.events);
   normalized.events = trimEventsToCountLimit(normalized.events);
   return normalized;
 };
@@ -600,9 +685,22 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
     ? {
       ...rawReplay,
       occurrence: { ...(rawReplay.occurrence || {}) },
-      events: Array.isArray(rawReplay.events) ? [...rawReplay.events] : [],
+      events: Array.isArray(rawReplay.events) ? rawReplay.events.map((event) => ({ ...event })) : [],
     }
     : normalizeLessonReplay(rawReplay);
+  const occurrenceStartMs = Number(replay.occurrence.startMs);
+  const minimumTimelineStartMs = Number.isFinite(occurrenceStartMs) && occurrenceStartMs > 0
+    ? occurrenceStartMs - (30 * 60 * 1000)
+    : 0;
+  const storedTimelineStartMs = Number(replay.timelineStartMs);
+  replay.timelineStartMs = Number.isFinite(storedTimelineStartMs) && storedTimelineStartMs > 0
+    ? Math.max(
+      minimumTimelineStartMs,
+      Number.isFinite(occurrenceStartMs) && occurrenceStartMs > 0
+        ? Math.min(occurrenceStartMs, storedTimelineStartMs)
+        : storedTimelineStartMs
+    )
+    : (Number.isFinite(occurrenceStartMs) ? occurrenceStartMs : 0);
   const knownIds = new Set(replay.events.map((event) => event.id));
   const latestSignatureByActorAndType = new Map();
   replay.events.forEach((event) => latestSignatureByActorAndType.set(actorEventTypeKey(event), {
@@ -611,12 +709,31 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
   }));
   let added = 0;
 
-  (Array.isArray(rawEvents) ? rawEvents : []).slice(0, LESSON_REPLAY_MAX_BATCH_EVENTS).forEach((entry) => {
-    const event = normalizeLessonReplayEvent(entry, {
+  const incomingEvents = (Array.isArray(rawEvents) ? rawEvents : [])
+    .slice(0, LESSON_REPLAY_MAX_BATCH_EVENTS)
+    .map((entry) => normalizeLessonReplayEvent(entry, {
       ...context,
       startMs: replay.occurrence.startMs,
+      validationStartMs: replay.occurrence.startMs,
+      timelineStartMs: replay.timelineStartMs,
       endMs: replay.occurrence.endMs,
+    }))
+    .filter(Boolean);
+  const earliestIncomingAtMs = incomingEvents.reduce((earliest, event) => {
+    const occurredAtMs = Date.parse(event.occurredAt);
+    return Number.isFinite(occurredAtMs) ? Math.min(earliest, occurredAtMs) : earliest;
+  }, Number.POSITIVE_INFINITY);
+  if (Number.isFinite(earliestIncomingAtMs) && earliestIncomingAtMs < replay.timelineStartMs) {
+    replay.timelineStartMs = Math.max(minimumTimelineStartMs, earliestIncomingAtMs);
+    [...replay.events, ...incomingEvents].forEach((event) => {
+      const occurredAtMs = Date.parse(event.occurredAt);
+      if (Number.isFinite(occurredAtMs)) {
+        event.offsetMs = Math.max(0, Math.round(occurredAtMs - replay.timelineStartMs));
+      }
     });
+  }
+
+  incomingEvents.forEach((event) => {
     if (!event || knownIds.has(event.id)) return;
     const signature = stableSignature(event);
     const actorTypeKey = actorEventTypeKey(event);
@@ -637,9 +754,7 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
     added += 1;
   });
 
-  replay.events.sort((left, right) => (
-    left.offsetMs - right.offsetMs || left.id.localeCompare(right.id)
-  ));
+  replay.events = sortLessonReplayEvents(replay.events);
   replay.events = trimEventsToCountLimit(replay.events);
   const now = new Date(Number(context.nowMs) || Date.now()).toISOString();
   replay.createdAt = replay.createdAt || now;

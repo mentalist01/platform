@@ -3955,6 +3955,7 @@ const CollabSection = ({
   const outputPanelHeightRef = useRef(outputPanelHeight);
   const boardCodeSplitLoadedValueRef = useRef(null);
   const collabDocRef = useRef(null);
+  const collabProviderRef = useRef(null);
   const collabTestFileRef = useRef(null);
   const runMapRef = useRef(null);
   const updateRunStateFromMapRef = useRef(null);
@@ -4036,6 +4037,7 @@ const CollabSection = ({
   const lessonReplayPendingCodeViewportRef = useRef(null);
   const lessonReplayLastCodeViewportSignatureRef = useRef('');
   const lessonReplayLastCodeViewportAtRef = useRef(0);
+  const lessonReplayPreviousCodeActiveRef = useRef(Boolean(!isSandbox && lessonReplayActive));
   useEffect(() => {
     sandboxRef.current = sandbox;
   }, [sandbox]);
@@ -4107,6 +4109,7 @@ const CollabSection = ({
     if (!ytext || typeof window === 'undefined') return;
     lessonReplayPendingCodeRef.current = {
       language: 'python',
+      action: ['edit', 'run', 'snapshot'].includes(overrides.action) ? overrides.action : 'snapshot',
       code: ytext.toString(),
       input: Object.prototype.hasOwnProperty.call(overrides, 'input') ? overrides.input : (runInputRef.current || ''),
       testFile: Object.prototype.hasOwnProperty.call(overrides, 'testFile') ? overrides.testFile : (testFileTextRef.current || ''),
@@ -4127,9 +4130,10 @@ const CollabSection = ({
     if (!payload || typeof lessonReplayEventRef.current !== 'function') return;
     const signature = JSON.stringify(payload);
     if (signature === lessonReplayLastCodeViewportSignatureRef.current) return;
+    const accepted = lessonReplayEventRef.current('viewport', payload, { dedupeMs: 5000 });
+    if (accepted === false) return;
     lessonReplayLastCodeViewportSignatureRef.current = signature;
     lessonReplayLastCodeViewportAtRef.current = Date.now();
-    lessonReplayEventRef.current('viewport', payload, { dedupeMs: 5000 });
   }, []);
   const scheduleLessonReplayCodeViewport = useCallback((editor, delayMs = 1600) => {
     if (!editor || typeof window === 'undefined') return;
@@ -4159,6 +4163,43 @@ const CollabSection = ({
     );
   }, [flushLessonReplayCodeViewport]);
   useEffect(() => () => flushLessonReplayCodeViewport(), [flushLessonReplayCodeViewport]);
+  useEffect(() => {
+    const replayActive = Boolean(!isSandbox && lessonReplayActive);
+    const wasActive = lessonReplayPreviousCodeActiveRef.current;
+    lessonReplayPreviousCodeActiveRef.current = replayActive;
+    if (wasActive && !replayActive) {
+      flushLessonReplayCodeSnapshot();
+      flushLessonReplayCodeViewport();
+    }
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(lessonReplayCodeTimerRef.current);
+      window.clearTimeout(lessonReplayCodeViewportTimerRef.current);
+    }
+    lessonReplayPendingCodeRef.current = null;
+    lessonReplayPendingCodeViewportRef.current = null;
+    lessonReplayLastCodeSignatureRef.current = '';
+    lessonReplayLastCodeViewportSignatureRef.current = '';
+    lessonReplayLastCodeViewportAtRef.current = 0;
+    if (!replayActive || typeof window === 'undefined') return undefined;
+    const timerId = window.setTimeout(() => {
+      // Monaco/Yjs starts with an empty local document. Capturing before the
+      // provider's first sync can create a valid-looking empty checkpoint that
+      // later clears code which was already present in the lesson.
+      if (collabProviderRef.current?.synced !== true) return;
+      const codeText = collabDocRef.current?.getText?.('monaco');
+      if (codeText) scheduleLessonReplayCodeSnapshot(codeText, 0);
+      if (editorRef.current) scheduleLessonReplayCodeViewport(editorRef.current, 0);
+    }, 0);
+    return () => window.clearTimeout(timerId);
+  }, [
+    flushLessonReplayCodeSnapshot,
+    flushLessonReplayCodeViewport,
+    isSandbox,
+    lessonReplayActive,
+    roomId,
+    scheduleLessonReplayCodeSnapshot,
+    scheduleLessonReplayCodeViewport,
+  ]);
   const setCollabBoardMemorySnapshotRenderer = useCallback((renderer) => {
     collabBoardSnapshotRendererRef.current = typeof renderer === 'function' ? renderer : null;
   }, []);
@@ -7528,6 +7569,7 @@ const CollabSection = ({
       collabCursorPendingRef.current = null;
       remoteEditorCursorSeenRef.current.clear();
       collabDocRef.current = null;
+      collabProviderRef.current = null;
       collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
       runMapRef.current = null;
@@ -7574,6 +7616,7 @@ const CollabSection = ({
 
       const doc = new Y.Doc();
       collabDocRef.current = doc;
+      collabProviderRef.current = null;
       collabAwarenessRef.current = null;
       const ytext = doc.getText('monaco');
       const testFileYText = doc.getText(COLLAB_TEST_FILE_DOC_KEY);
@@ -7681,12 +7724,14 @@ const CollabSection = ({
     const doc = new Y.Doc();
     collabDocRef.current = doc;
     const provider = new WebsocketProvider(wsUrl, roomId, doc, { params: wsParams });
+    collabProviderRef.current = provider;
     collabAwarenessRef.current = provider.awareness;
     const model = editorRef.current?.getModel?.();
     if (!model) {
       provider.destroy();
       doc.destroy();
       collabDocRef.current = null;
+      if (collabProviderRef.current === provider) collabProviderRef.current = null;
       collabAwarenessRef.current = null;
       collabCursorWindowStopRef.current?.();
       collabCursorWindowStopRef.current = null;
@@ -7704,8 +7749,8 @@ const CollabSection = ({
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
     const handleReplayCodeChange = (_event, transaction) => {
-      if (transaction?.local === false && role !== 'teacher') return;
-      scheduleLessonReplayCodeSnapshot(ytext);
+      if (transaction?.local === false || provider.synced !== true) return;
+      scheduleLessonReplayCodeSnapshot(ytext, 1400, { action: 'edit' });
     };
     ytext.observe(handleReplayCodeChange);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
@@ -7726,8 +7771,11 @@ const CollabSection = ({
         output: typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? ''),
         error: typeof runMap.get('error') === 'string' ? runMap.get('error') : String(runMap.get('error') ?? ''),
       };
-      const shouldRecordReplay = transaction?.local !== false || role === 'teacher';
-      if (shouldRecordReplay) scheduleLessonReplayCodeSnapshot(ytext, 250, replayRunPayload);
+      const shouldRecordReplay = transaction?.local !== false && provider.synced === true;
+      if (shouldRecordReplay) scheduleLessonReplayCodeSnapshot(ytext, 250, {
+        ...replayRunPayload,
+        action: 'run',
+      });
       if (
         shouldRecordReplay
         &&
@@ -7746,15 +7794,20 @@ const CollabSection = ({
     const syncTestFileFromDoc = (_event, transaction) => {
       const next = normalizeCollabTextFileContent(testFileYText.toString());
       setTestFileText((prev) => (prev === next ? prev : next));
-      if (transaction?.local !== false || role === 'teacher') {
-        scheduleLessonReplayCodeSnapshot(ytext, 1400, { testFile: next });
+      if (transaction?.local !== false && provider.synced === true) {
+        scheduleLessonReplayCodeSnapshot(ytext, 1400, { testFile: next, action: 'edit' });
       }
     };
     testFileYText.observe(syncTestFileFromDoc);
     syncTestFileFromDoc();
-    scheduleLessonReplayCodeSnapshot(ytext, 350);
+    const handleReplaySync = (isSynced) => {
+      if (!isSynced || !lessonReplayPreviousCodeActiveRef.current) return;
+      scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot' });
+      if (editorRef.current) scheduleLessonReplayCodeViewport(editorRef.current, 0);
+    };
     const lessonReplayCodeHeartbeatId = window.setInterval(() => {
-      scheduleLessonReplayCodeSnapshot(ytext, 0);
+      if (!lessonReplayPreviousCodeActiveRef.current || provider.synced !== true) return;
+      scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot' });
     }, 30_000);
 
     const handleStatus = (event) => {
@@ -7880,12 +7933,15 @@ const CollabSection = ({
     };
 
     provider.on('status', handleStatus);
+    provider.on('sync', handleReplaySync);
     provider.awareness.on('change', handleAwareness);
     handleAwareness();
+    if (provider.synced) handleReplaySync(true);
 
     return () => {
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
+      provider.off('sync', handleReplaySync);
       if (COLLAB_EDITOR_CURSOR_ENABLED) {
         provider.awareness.setLocalStateField('editorCursor', null);
       }
@@ -7903,8 +7959,14 @@ const CollabSection = ({
       testFileYText.unobserve(syncTestFileFromDoc);
       ytext.unobserve(handleReplayCodeChange);
       window.clearInterval(lessonReplayCodeHeartbeatId);
-      scheduleLessonReplayCodeSnapshot(ytext, 0);
+      if (provider.synced === true) {
+        scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot' });
+      }
       flushLessonReplayCodeSnapshot();
+      flushLessonReplayCodeViewport();
+      lessonReplayLastCodeSignatureRef.current = '';
+      lessonReplayLastCodeViewportSignatureRef.current = '';
+      lessonReplayLastCodeViewportAtRef.current = 0;
       runMap.unobserve(handleRunMapChange);
       binding.destroy();
       provider.destroy();
@@ -7912,6 +7974,7 @@ const CollabSection = ({
       taskFilesSyncReadyRef.current = false;
       runMapRef.current = null;
       collabDocRef.current = null;
+      if (collabProviderRef.current === provider) collabProviderRef.current = null;
       collabTestFileRef.current = null;
       collabAwarenessRef.current = null;
       remoteEditorCursorSeenRef.current.clear();
@@ -7959,7 +8022,9 @@ const CollabSection = ({
     stopCollabOutputSelectionTracking,
     stopCollabTestFileSelectionTracking,
     scheduleLessonReplayCodeSnapshot,
+    scheduleLessonReplayCodeViewport,
     flushLessonReplayCodeSnapshot,
+    flushLessonReplayCodeViewport,
     emitSandboxState,
     role,
   ]);
@@ -10948,6 +11013,8 @@ const BoardSection = ({
   const lessonReplayPendingBoardViewportRef = useRef(null);
   const lessonReplayLastBoardViewportSignatureRef = useRef('');
   const lessonReplayLastBoardViewportAtRef = useRef(0);
+  const lessonReplayPreviousBoardViewportActiveRef = useRef(Boolean(!isSandbox && lessonReplayActive));
+  const lessonReplayBoardViewportRoomRef = useRef(roomId);
   const sandboxConfigRef = useRef(sandbox);
   const sandboxReadOnlyRef = useRef(boardReadOnly);
   const onSandboxItemsChangeRef = useRef(onSandboxItemsChange);
@@ -11135,8 +11202,10 @@ const BoardSection = ({
     const wasActive = lessonReplayPreviousActiveRef.current;
     lessonReplayPreviousActiveRef.current = replayActive;
     if (wasActive && !replayActive) {
-      const finalItems = yItemsRef.current?.toArray?.() || boardItemsRef.current || [];
-      lessonReplayPendingBoardRef.current = finalItems;
+      if (providerRef.current?.synced === true) {
+        const finalItems = yItemsRef.current?.toArray?.() || boardItemsRef.current || [];
+        lessonReplayPendingBoardRef.current = finalItems;
+      }
       flushLessonReplayBoardSnapshot();
     }
     lessonReplayLastBoardStateRef.current = null;
@@ -11147,6 +11216,8 @@ const BoardSection = ({
     lessonReplayBoardTimerRef.current = null;
     if (!replayActive) return undefined;
     const timerId = window.setTimeout(() => {
+      const provider = providerRef.current;
+      if (provider?.synced !== true) return;
       const currentItems = yItemsRef.current?.toArray?.() || boardItemsRef.current || [];
       scheduleLessonReplayBoardSnapshot(currentItems, 0);
     }, 0);
@@ -11160,9 +11231,10 @@ const BoardSection = ({
     if (!payload || typeof lessonReplayEventRef.current !== 'function') return;
     const signature = JSON.stringify(payload);
     if (signature === lessonReplayLastBoardViewportSignatureRef.current) return;
+    const accepted = lessonReplayEventRef.current('viewport', payload, { dedupeMs: 5000 });
+    if (accepted === false) return;
     lessonReplayLastBoardViewportSignatureRef.current = signature;
     lessonReplayLastBoardViewportAtRef.current = Date.now();
-    lessonReplayEventRef.current('viewport', payload, { dedupeMs: 5000 });
   }, []);
 
   const scheduleLessonReplayBoardViewport = useCallback((payload, delayMs = 1600) => {
@@ -11178,6 +11250,42 @@ const BoardSection = ({
   }, [flushLessonReplayBoardViewport]);
 
   useEffect(() => () => flushLessonReplayBoardViewport(), [flushLessonReplayBoardViewport]);
+
+  useEffect(() => {
+    const replayActive = Boolean(!isSandbox && lessonReplayActive);
+    const wasActive = lessonReplayPreviousBoardViewportActiveRef.current;
+    const roomChanged = lessonReplayBoardViewportRoomRef.current !== roomId;
+    lessonReplayPreviousBoardViewportActiveRef.current = replayActive;
+    lessonReplayBoardViewportRoomRef.current = roomId;
+    if ((wasActive && !replayActive) || roomChanged) flushLessonReplayBoardViewport();
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(lessonReplayBoardViewportTimerRef.current);
+    }
+    lessonReplayPendingBoardViewportRef.current = null;
+    lessonReplayLastBoardViewportSignatureRef.current = '';
+    lessonReplayLastBoardViewportAtRef.current = 0;
+    if (!replayActive || typeof window === 'undefined') return undefined;
+    const timerId = window.setTimeout(() => {
+      const currentSize = boardSizeRef.current || { width: 900, height: 520 };
+      scheduleLessonReplayBoardViewport({
+        surface: 'board',
+        zoom: Math.max(0.05, Number(zoomRef.current) || 1),
+        offset: {
+          x: Number(offsetRef.current?.x) || 0,
+          y: Number(offsetRef.current?.y) || 0,
+        },
+        width: Math.max(1, Math.round(Number(currentSize.width) || 900)),
+        height: Math.max(1, Math.round(Number(currentSize.height) || 520)),
+      }, 0);
+    }, 0);
+    return () => window.clearTimeout(timerId);
+  }, [
+    flushLessonReplayBoardViewport,
+    isSandbox,
+    lessonReplayActive,
+    roomId,
+    scheduleLessonReplayBoardViewport,
+  ]);
 
   useEffect(() => {
     setIsMinimapOpen(false);
@@ -14646,7 +14754,10 @@ const BoardSection = ({
           renderPlan: { mode: 'full' },
         };
       const previousItems = boardItemsRef.current;
-      const shouldRecordReplay = transaction?.local !== false || isTeacher;
+      // Each participant records their own local mutations. Recording remote
+      // updates again on the teacher client made student actions appear under
+      // the teacher's name and introduced nondeterministic duplicate authors.
+      const shouldRecordReplay = transaction?.local !== false && provider?.synced === true;
       if (
         lessonReplayActiveRef.current
         && shouldRecordReplay
@@ -14679,6 +14790,10 @@ const BoardSection = ({
 
     const handleStatus = (event) => {
       if (event?.status) setStatus(event.status);
+    };
+    const handleSync = (isSynced) => {
+      if (!isSynced || !lessonReplayActiveRef.current) return;
+      scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
     };
     const handleConnectionClose = (event) => {
       const closeCode = Number(event?.code);
@@ -14849,6 +14964,7 @@ const BoardSection = ({
       provider.awareness.setLocalStateField('taskCodePresence', null);
       provider.on('connection-close', handleConnectionClose);
       provider.on('status', handleStatus);
+      provider.on('sync', handleSync);
       provider.awareness.on('change', handleAwareness);
     }
     yItems.observe(updateItems);
@@ -14858,18 +14974,20 @@ const BoardSection = ({
     undoManager.on('stack-item-removed', updateUndoState);
     updateItems();
     if (provider) handleAwareness();
+    if (provider?.synced) handleSync(true);
     updateUndoState();
     const lessonReplayBoardHeartbeatId = isSandbox
       ? null
       : window.setInterval(() => {
         if (!lessonReplayActiveRef.current) return;
+        if (provider && provider.synced !== true) return;
         scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
       }, LESSON_REPLAY_BOARD_CHECKPOINT_MS);
 
     return () => {
       yItems.unobserve(updateItems);
       if (lessonReplayBoardHeartbeatId) window.clearInterval(lessonReplayBoardHeartbeatId);
-      if (!isSandbox) {
+      if (!isSandbox && provider?.synced === true) {
         scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
         flushLessonReplayBoardSnapshot();
       }
@@ -14881,6 +14999,7 @@ const BoardSection = ({
         provider.awareness.off('change', handleAwareness);
         provider.off('connection-close', handleConnectionClose);
         provider.off('status', handleStatus);
+        provider.off('sync', handleSync);
         provider.awareness.setLocalStateField('drawing', null);
         provider.awareness.setLocalStateField('cursor', null);
         provider.awareness.setLocalStateField('summon', null);
@@ -18456,7 +18575,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         await stopTelemostAudioCapture();
         setTelemostLessonReplay(null);
         if (callSessionStatus !== 'connected') await finishLessonReplayNow();
-      })();
+      })().catch((error) => {
+        console.error('[lesson-replay] failed to auto-finish replay:', error);
+      });
     };
     const delayMs = autoFinishAtMs - Date.now();
     if (delayMs <= 0) {
@@ -18919,7 +19040,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           ? { ...current, status: 'completed', replayActive: false, readOnly: true }
           : current
       ));
-      void finishLessonReplayNow();
+      void finishLessonReplayNow().catch((error) => {
+        console.error('[lesson-replay] failed to auto-finish group replay:', error);
+      });
     };
     const autoFinishAtMs = endAtMs + LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS;
     const delayMs = autoFinishAtMs - Date.now();

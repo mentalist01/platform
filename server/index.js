@@ -30550,6 +30550,7 @@ const serializeLessonReplayForClient = (replay) => {
   return {
     ...summary,
     occurrence: replay.occurrence,
+    timelineStartMs: Number(replay.timelineStartMs) || Number(replay.occurrence?.startMs) || 0,
     events: replay.events.map((event) => ({
       id: event.id,
       type: event.type,

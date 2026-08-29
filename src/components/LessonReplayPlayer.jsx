@@ -32,8 +32,16 @@ import {
   findReplayAudioEventIndex,
   findUpcomingReplayAudioEventIndex,
   getReplayAudioDurationMs,
+  getReplayEventNarration,
   getReplayTimelineDurationMs,
 } from '../utils/lessonReplayTimeline';
+import { sortLessonReplayEvents } from '../utils/lessonReplayEventOrder';
+import { removeLessonReplaySyncArtifacts } from '../utils/lessonReplaySyncArtifacts';
+import {
+  buildLessonReplayPlaybackState,
+  getLessonReplayActorRole,
+  getLessonReplayFollowSurface,
+} from '../utils/lessonReplayPlaybackState';
 import {
   createLessonReplayBranch,
   updateLessonReplayBranchBoard,
@@ -72,6 +80,7 @@ const EVENT_LABELS = {
 };
 
 const SURFACE_TABS = {
+  split: { label: 'Доска + код', icon: Eye },
   board: { label: 'Доска', icon: PenTool },
   code: { label: 'Код', icon: Code2 },
   screen: { label: 'Экран', icon: MonitorUp },
@@ -108,9 +117,25 @@ const getEventLabel = (event) => {
         : '');
     return `${task}${question}`;
   }
-  if (event.type === 'code') return 'Изменение совместного кода';
+  if (event.type === 'code') {
+    const code = String(event.payload?.code || '');
+    const lineCount = code ? code.split('\n').length : 0;
+    return event.payload?.action === 'snapshot'
+      ? `Состояние совместного кода · ${lineCount} стр.`
+      : `Изменение совместного кода · ${lineCount} стр.`;
+  }
   if (event.type === 'code-view') return 'Перемещение по коду';
-  if (event.type === 'board') return 'Изменение на доске';
+  if (event.type === 'board') {
+    if (event.payload?.mode === 'delta') {
+      const changed = Array.isArray(event.payload?.upserts) ? event.payload.upserts.length : 0;
+      const removed = Array.isArray(event.payload?.removedIds) ? event.payload.removedIds.length : 0;
+      if (changed > 0 && removed > 0) return `Изменено ${changed}, удалено ${removed} на доске`;
+      if (changed > 0) return `Добавлено или изменено на доске: ${changed}`;
+      if (removed > 0) return `Удалено с доски: ${removed}`;
+    }
+    const itemCount = Array.isArray(event.payload?.items) ? event.payload.items.length : 0;
+    return `Состояние доски · объектов: ${itemCount}`;
+  }
   if (event.type === 'board-view') return 'Перемещение по доске';
   if (event.type === 'run') return 'Запуск программы';
   if (event.type === 'screen') {
@@ -127,23 +152,79 @@ const getEventLabel = (event) => {
   return EVENT_LABELS[event.type] || 'Действие';
 };
 
-const createRoleState = () => ({
-  current: null,
-  navigation: null,
-  task: null,
-  code: null,
-  codeView: null,
-  board: null,
-  boardView: null,
-  run: null,
-  screen: null,
-});
+const getEventSubtitle = (event) => {
+  if (!event) return '';
+  const actor = event.type === 'screen'
+    ? (event.payload?.sharedByName || event.actor?.name || '')
+    : (event.actor?.name || event.payload?.sharedByName || '');
+  const role = event.type === 'screen'
+    ? (event.payload?.sharedByRole || event.actor?.role || '')
+    : (event.actor?.role || event.payload?.sharedByRole || '');
+  const pieces = [];
+  if (actor) pieces.push(actor);
+  if (role === 'teacher') pieces.push('учитель');
+  else if (role === 'student') pieces.push('ученик');
+  if (event.type === 'viewport' && event.payload?.surface) {
+    pieces.push(event.payload.surface === 'code' ? 'код' : 'доска');
+  }
+  return pieces.filter(Boolean).join(' · ');
+};
 
-const getActorRole = (event) => {
-  const role = event?.type === 'screen'
-    ? (event?.payload?.sharedByRole || event?.actor?.role)
-    : (event?.actor?.role || event?.payload?.sharedByRole);
-  return role === 'teacher' || role === 'student' ? role : '';
+const getEventSurface = (event) => {
+  if (!event) return '';
+  if (event.type === 'screen') return event.payload?.active === false ? '' : 'screen';
+  if (event.type === 'board' || event.type === 'board-view') return 'board';
+  if (event.type === 'code' || event.type === 'code-view' || event.type === 'run') return 'code';
+  if (event.type === 'viewport') return event.payload?.surface === 'code' ? 'code' : 'board';
+  if (event.type === 'navigation') {
+    if (event.payload?.view === 'board') return 'board';
+    if (['collab', 'python'].includes(event.payload?.view)) return 'code';
+  }
+  return '';
+};
+
+const getEventLocationLabel = (event) => {
+  const surface = getEventSurface(event);
+  if (surface === 'board') return 'Доска';
+  if (surface === 'code') return 'Код';
+  if (surface === 'screen') return 'Экран';
+  if (event?.type === 'task') return 'Задание';
+  if (event?.type === 'navigation') return event.payload?.label || 'Платформа';
+  if (event?.type === 'session') return 'Занятие';
+  if (event?.type === 'audio') return 'Звук';
+  return 'Урок';
+};
+
+const getActivityFeedEvents = (events, limit = 240) => {
+  const source = Array.isArray(events) ? events : [];
+  if (source.length <= limit) return source;
+  const importantTypes = new Set(['session', 'navigation', 'task', 'run', 'screen']);
+  const selectedIndexes = new Set([0, source.length - 1]);
+  const importantIndexes = source
+    .map((event, index) => (importantTypes.has(event?.type) ? index : -1))
+    .filter((index) => index >= 0);
+  const importantBudget = Math.min(importantIndexes.length, Math.max(2, Math.floor(limit / 2)));
+  const importantStep = importantBudget > 0 ? importantIndexes.length / importantBudget : 0;
+  for (let index = 0; index < importantBudget; index += 1) {
+    selectedIndexes.add(importantIndexes[Math.min(
+      importantIndexes.length - 1,
+      Math.floor(index * importantStep)
+    )]);
+  }
+  const remainingSlots = Math.max(0, limit - selectedIndexes.size);
+  const candidates = source
+    .map((_, index) => index)
+    .filter((index) => !selectedIndexes.has(index));
+  if (remainingSlots > 0 && candidates.length > 0) {
+    const step = candidates.length / remainingSlots;
+    for (let index = 0; index < remainingSlots; index += 1) {
+      selectedIndexes.add(candidates[Math.min(candidates.length - 1, Math.floor(index * step))]);
+    }
+  }
+  return Array.from(selectedIndexes)
+    .sort((left, right) => left - right)
+    .slice(0, limit)
+    .map((index) => source[index]);
 };
 
 const materializeBoardReplayEvents = (events) => {
@@ -178,55 +259,6 @@ const materializeBoardReplayEvents = (events) => {
       },
     };
   });
-};
-
-const applyEventToState = (state, event) => {
-  state.current = event;
-  if (event.type === 'task') state.task = event.payload?.active === false ? null : event;
-  else if (event.type === 'screen') state.screen = event.payload?.active === false ? null : event;
-  else if (event.type === 'board-view') state.boardView = event;
-  else if (event.type === 'code-view') state.codeView = event;
-  else if (event.type === 'viewport' && event.payload?.surface === 'board') state.boardView = event;
-  else if (event.type === 'viewport' && event.payload?.surface === 'code') state.codeView = event;
-  else if (Object.prototype.hasOwnProperty.call(state, event.type)) state[event.type] = event;
-};
-
-const buildStateAt = (events, positionMs) => {
-  const state = {
-    ...createRoleState(),
-    audio: null,
-    actors: {
-      teacher: createRoleState(),
-      student: createRoleState(),
-    },
-  };
-  for (const event of events) {
-    if (event.offsetMs > positionMs) break;
-    applyEventToState(state, event);
-    if (event.type === 'audio' && (event.payload?.url || event.payload?.playbackUrl)) state.audio = event;
-    const role = getActorRole(event);
-    if (role) applyEventToState(state.actors[role], event);
-  }
-  return state;
-};
-
-const getFollowSurface = (events, positionMs, role) => {
-  let screenEnded = false;
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event.offsetMs > positionMs || getActorRole(event) !== role) continue;
-    if (event.type === 'screen') {
-      if (event.payload?.active === false) {
-        screenEnded = true;
-        continue;
-      }
-      if (!screenEnded) return 'screen';
-      continue;
-    }
-    if (event.type === 'board' || event.type === 'board-view' || (event.type === 'viewport' && event.payload?.surface === 'board') || (event.type === 'navigation' && event.payload?.view === 'board')) return 'board';
-    if (event.type === 'code' || event.type === 'code-view' || (event.type === 'viewport' && event.payload?.surface === 'code') || event.type === 'run' || (event.type === 'navigation' && ['collab', 'python'].includes(event.payload?.view))) return 'code';
-  }
-  return 'board';
 };
 
 const getItemBounds = (item) => {
@@ -522,6 +554,7 @@ const ReplayCode = ({ event, runEvent, recordedView, freeNavigation }) => {
   const runPayload = runEvent && Number(runEvent.offsetMs) >= Number(event?.offsetMs || 0) ? (runEvent.payload || {}) : {};
   const error = runPayload.error || payload.error;
   const output = error || runPayload.output || payload.output;
+  const codeLines = String(payload.code || '# Код пока не появился').split('\n');
   const codeRef = useRef(null);
   const view = recordedView || payload.editor || payload.view || {};
 
@@ -548,10 +581,13 @@ const ReplayCode = ({ event, runEvent, recordedView, freeNavigation }) => {
   return (
     <div className="lesson-replay-player__code-layout">
       {cursorLine > 0 && !freeNavigation && <span className="lesson-replay-player__code-position">Строка {cursorLine}</span>}
-      <pre ref={codeRef} className="lesson-replay-player__code"><code>{payload.code || '# Код пока не появился'}</code></pre>
+      <pre ref={codeRef} className="lesson-replay-player__code"><code>{codeLines.map((line, index) => (
+        <span key={`replay-code-line-${index}`} data-line-number={index + 1}>{line || ' '}</span>
+      ))}</code></pre>
       {(payload.input || payload.testFile || output) && (
         <div className="lesson-replay-player__console-grid">
-          {(payload.input || payload.testFile) && <section><span>Ввод</span><pre>{payload.input || payload.testFile}</pre></section>}
+          {payload.input && <section><span>Ввод</span><pre>{payload.input}</pre></section>}
+          {payload.testFile && <section><span>Файл test.txt</span><pre>{payload.testFile}</pre></section>}
           {output && <section className={error ? 'is-error' : ''}><span>{error ? 'Ошибка' : 'Результат'}</span><pre>{output}</pre></section>}
         </div>
       )}
@@ -1032,7 +1068,7 @@ const TimeMachineWorkspace = ({
 const ReplayScreen = ({ event, occurrence }) => {
   const snapshotId = String(event?.payload?.snapshotId || '').trim();
   const [failedSnapshotId, setFailedSnapshotId] = useState('');
-  const source = snapshotId && occurrence?.studentId && occurrence?.key
+  const source = snapshotId && occurrence?.key
     ? api.getLessonReplaySnapshotUrl(occurrence.studentId, occurrence.key, snapshotId)
     : '';
   const failed = failedSnapshotId === snapshotId;
@@ -1063,9 +1099,12 @@ const getReplayAudioSource = (event, replay) => {
 const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonReplaySandbox = null }) => {
   const events = useMemo(() => (
     materializeBoardReplayEvents(
-      (Array.isArray(replay?.events) ? replay.events : [])
-      .map((event) => ({ ...event, offsetMs: Math.max(0, Number(event?.offsetMs) || 0) }))
-      .sort((left, right) => left.offsetMs - right.offsetMs || String(left.id).localeCompare(String(right.id)))
+      removeLessonReplaySyncArtifacts(
+        sortLessonReplayEvents(
+          (Array.isArray(replay?.events) ? replay.events : [])
+            .map((event) => ({ ...event, offsetMs: Math.max(0, Number(event?.offsetMs) || 0) }))
+        )
+      )
     )
   ), [replay]);
   const durationMs = useMemo(
@@ -1076,7 +1115,8 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [mode, setMode] = useState('free');
-  const [activeTab, setActiveTab] = useState('board');
+  const [activeTab, setActiveTab] = useState('split');
+  const [activityOpen, setActivityOpen] = useState(false);
   const [audioMuted, setAudioMuted] = useState(false);
   const [audioBuffering, setAudioBuffering] = useState(false);
   const [seekSequence, setSeekSequence] = useState(0);
@@ -1098,6 +1138,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const playingRef = useRef(false);
   const seekSequenceRef = useRef(0);
   const fullscreenRequestPendingRef = useRef(false);
+  const currentActivityRef = useRef(null);
   const isFullscreen = isNativeFullscreen || isFallbackFullscreen;
 
   const closeLessonCopyState = useCallback(() => {
@@ -1262,7 +1303,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     }
   }, [closeLessonCopyState, isFallbackFullscreen, openLessonCopyState]);
 
-  const state = useMemo(() => buildStateAt(events, positionMs), [events, positionMs]);
+  const state = useMemo(() => buildLessonReplayPlaybackState(events, positionMs), [events, positionMs]);
   const followedRole = mode === 'student' ? 'student' : 'teacher';
   const followedState = state.actors[followedRole];
   const surfaceState = mode === 'free' ? state : followedState;
@@ -1270,14 +1311,14 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const codeEvent = state.code;
   const runEvent = state.run;
   const freeScreenEvent = useMemo(
-    () => getActiveReplayScreenEvent(events, positionMs, 'student'),
+    () => getActiveReplayScreenEvent(events, positionMs, ''),
     [events, positionMs]
   );
   const screenEvent = mode === 'free' ? freeScreenEvent : surfaceState.screen;
   const boardView = surfaceState.boardView?.payload || boardEvent?.payload?.viewport || boardEvent?.payload?.view;
   const codeView = surfaceState.codeView?.payload || codeEvent?.payload?.editor || codeEvent?.payload?.view;
-  const availableTabs = screenEvent ? ['board', 'code', 'screen'] : ['board', 'code'];
-  const followedTab = getFollowSurface(events, positionMs, followedRole);
+  const availableTabs = screenEvent ? ['split', 'board', 'code', 'screen'] : ['split', 'board', 'code'];
+  const followedTab = getLessonReplayFollowSurface(events, positionMs, followedRole);
   const resolvedActiveTab = mode === 'free'
     ? (availableTabs.includes(activeTab) ? activeTab : 'board')
     : (followedTab === 'screen' && !screenEvent ? 'board' : followedTab);
@@ -1571,11 +1612,32 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   }, [durationMs, playing, speed]);
 
   const markers = events.length <= 120 ? events : events.filter((_, index) => index % Math.ceil(events.length / 120) === 0);
+  const activityEvents = getActivityFeedEvents(events);
+  const markerDurationMs = Math.max(1, durationMs);
   const currentEvent = mode === 'free' ? state.current : (followedState.current || state.current);
   const currentLabel = getEventLabel(currentEvent);
-  const actorName = currentEvent?.type === 'screen'
-    ? (currentEvent?.payload?.sharedByName || currentEvent?.actor?.name || '')
-    : (currentEvent?.actor?.name || '');
+  const actionNarration = getReplayEventNarration(currentEvent);
+  const actorName = getEventSubtitle(currentEvent);
+  const currentSurface = getEventSurface(currentEvent);
+  const currentContextDetail = (() => {
+    if (currentSurface === 'code') {
+      const position = currentEvent?.type === 'viewport' ? currentEvent.payload : codeView;
+      const line = Math.max(0, Number(position?.cursorLine) || Number(position?.firstVisibleLine) || 0);
+      return `${actionNarration}${line > 0 ? ` · код, строка ${line}` : ' · совместный код'}`;
+    }
+    if (currentSurface === 'board') {
+      const itemCount = Array.isArray(boardEvent?.payload?.items) ? boardEvent.payload.items.length : 0;
+      const zoom = Number((currentEvent?.type === 'viewport' ? currentEvent.payload : boardView)?.zoom);
+      return `${actionNarration} · доска${itemCount > 0 ? `, объектов: ${itemCount}` : ''}${Number.isFinite(zoom) ? `, масштаб ${Math.round(zoom * 100)}%` : ''}`;
+    }
+    if (currentSurface === 'screen') return `${actionNarration} · демонстрация экрана`;
+    return actionNarration;
+  })();
+
+  useEffect(() => {
+    if (!activityOpen) return;
+    currentActivityRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [activityOpen, currentEvent?.id]);
 
   if (events.length === 0) return null;
 
@@ -1594,6 +1656,14 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     if (timeMachineBranch) setTimeMachineShowOriginal(true);
     seekReplayTo(0);
     setPlaying(false);
+  };
+
+  const jumpToActivity = (event) => {
+    const surface = getEventSurface(event);
+    setPlaying(false);
+    setMode('free');
+    if (surface && availableTabs.includes(surface)) setActiveTab(surface);
+    seekReplayFromControls(event?.offsetMs || 0);
   };
 
   const toggleTimeMachineCompare = () => {
@@ -1753,41 +1823,114 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           <button type="button" aria-pressed={mode === 'student'} className={mode === 'student' ? 'is-active' : ''} onClick={() => setMode('student')}><UserRound size={14} /> За учеником</button>
         </div>
         <span className="lesson-replay-player__mode-hint">
-          {mode === 'free' ? 'Выбирайте доску, код или экран ученика' : `Показываем перемещения ${followedRole === 'teacher' ? 'учителя' : 'ученика'}`}
+          {mode === 'free' ? 'Смотрите доску и код вместе или перемещайтесь по ним отдельно' : `Показываем перемещения ${followedRole === 'teacher' ? 'учителя' : 'ученика'}`}
         </span>
       </div>
 
       <div className="lesson-replay-player__chapter">
         <div className="lesson-replay-player__chapter-icon"><ListChecks size={17} /></div>
-        <div><span>{formatClock(currentEvent?.offsetMs || 0)}{actorName ? ` · ${actorName}` : ''}</span><strong>{currentLabel}</strong></div>
+        <div>
+          <span>{formatClock(currentEvent?.offsetMs || 0)}{actorName ? ` · ${actorName}` : ''}</span>
+          <strong>{currentLabel}</strong>
+          <small>{actionNarration}</small>
+        </div>
       </div>
+
+      {currentEvent && (
+        <div className="lesson-replay-player__context" aria-live="polite">
+          <div>
+            <span>{currentEvent.type === 'viewport' ? 'Камера просмотра' : (currentEvent.type === 'screen' ? 'Экран' : 'Активная поверхность')}</span>
+            <strong>
+              {currentContextDetail}
+            </strong>
+          </div>
+        </div>
+      )}
 
       <nav className="lesson-replay-player__tabs" aria-label="Материалы записи">
         {availableTabs.map((tab) => {
           const Icon = SURFACE_TABS[tab].icon;
           const label = tab === 'screen'
-            ? `Экран ${mode === 'teacher' ? 'учителя' : 'ученика'}`
+            ? `Экран ${(screenEvent?.payload?.sharedByRole || getLessonReplayActorRole(screenEvent)) === 'teacher' ? 'учителя' : 'ученика'}`
             : SURFACE_TABS[tab].label;
           return <button key={tab} type="button" aria-pressed={resolvedActiveTab === tab} className={resolvedActiveTab === tab ? 'is-active' : ''} onClick={() => { setActiveTab(tab); setMode('free'); }}><Icon size={15} />{label}</button>;
         })}
       </nav>
 
-      <div className="lesson-replay-player__stage" data-surface={resolvedActiveTab}>
-        {resolvedActiveTab === 'screen' ? (
-          <ReplayScreen event={screenEvent} occurrence={replay?.occurrence} />
-        ) : resolvedActiveTab === 'board' ? (
-          <ReplayBoard key={mode} items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation={mode === 'free'} />
-        ) : (
-          <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation={mode === 'free'} />
+      {resolvedActiveTab === 'split' ? (
+        <div className="lesson-replay-player__split-stage" role="group" aria-label="Доска и код занятия">
+          <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--board">
+            <header><PenTool size={14} /> Доска · свободный просмотр</header>
+            <div className="lesson-replay-player__split-content">
+              <ReplayBoard items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation />
+            </div>
+          </section>
+          <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--code">
+            <header><Code2 size={14} /> Код · свободная прокрутка</header>
+            <div className="lesson-replay-player__split-content">
+              <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation />
+            </div>
+          </section>
+        </div>
+      ) : (
+        <div className="lesson-replay-player__stage" data-surface={resolvedActiveTab}>
+          {resolvedActiveTab === 'screen' ? (
+            <ReplayScreen event={screenEvent} occurrence={replay?.occurrence} />
+          ) : resolvedActiveTab === 'board' ? (
+            <ReplayBoard key={mode} items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation={mode === 'free'} />
+          ) : (
+            <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation={mode === 'free'} />
+          )}
+        </div>
+      )}
+
+      <section className={`lesson-replay-player__activity${activityOpen ? ' is-open' : ''}`} aria-label="Лента действий урока">
+        <button
+          type="button"
+          className="lesson-replay-player__activity-toggle"
+          onClick={() => setActivityOpen((current) => !current)}
+          aria-expanded={activityOpen}
+        >
+          <ListChecks size={15} />
+          <span>Лента действий</span>
+          <small>{events.length}</small>
+          <em>{activityOpen ? 'Скрыть' : 'Открыть'}</em>
+        </button>
+        {activityOpen && (
+          <div className="lesson-replay-player__activity-list" role="list">
+            {activityEvents.map((event, index) => {
+              const isCurrent = currentEvent?.id === event.id;
+              return (
+                <button
+                  key={`${event.id || 'event'}-${index}`}
+                  type="button"
+                  role="listitem"
+                  ref={isCurrent ? currentActivityRef : null}
+                  className={isCurrent ? 'is-current' : ''}
+                  aria-current={isCurrent ? 'true' : undefined}
+                  onClick={() => jumpToActivity(event)}
+                >
+                  <time>{formatClock(event.offsetMs)}</time>
+                  <span>
+                    <strong>{getReplayEventNarration(event)}</strong>
+                    <small>{getEventLocationLabel(event)} · {getEventLabel(event)}</small>
+                  </span>
+                </button>
+              );
+            })}
+            {activityEvents.length < events.length && (
+              <p>Показаны ключевые события: {activityEvents.length} из {events.length}. На шкале времени сохранены все.</p>
+            )}
+          </div>
         )}
-      </div>
+      </section>
         </>
       )}
 
       <div className="lesson-replay-player__timeline">
         <div className="lesson-replay-player__markers" aria-hidden="true">
-          {markers.map((event) => <i key={event.id} data-type={event.type} style={{ left: `${Math.min(100, Math.max(0, (event.offsetMs / durationMs) * 100))}%` }} />)}
-          {timeMachineBranch && <i className="is-time-machine-anchor" data-type="branch" style={{ left: `${Math.min(100, Math.max(0, (timeMachineBranch.metadata.positionMs / durationMs) * 100))}%` }} />}
+          {markers.map((event) => <i key={event.id} data-type={event.type} style={{ left: `${Math.min(100, Math.max(0, (event.offsetMs / markerDurationMs) * 100))}%` }} />)}
+          {timeMachineBranch && <i className="is-time-machine-anchor" data-type="branch" style={{ left: `${Math.min(100, Math.max(0, (timeMachineBranch.metadata.positionMs / markerDurationMs) * 100))}%` }} />}
         </div>
         <input
           type="range"

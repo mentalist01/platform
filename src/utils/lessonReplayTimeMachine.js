@@ -1,3 +1,6 @@
+import { sortLessonReplayEvents } from './lessonReplayEventOrder.js';
+import { removeLessonReplaySyncArtifacts } from './lessonReplaySyncArtifacts.js';
+
 export const LESSON_REPLAY_BRANCH_SCHEMA_VERSION = 1;
 
 const LESSON_REPLAY_BRANCH_KIND = 'lesson-replay-time-machine-branch';
@@ -31,15 +34,12 @@ const normalizePositionMs = (value) => Math.max(0, Math.round(Number(value) || 0
 const normalizeEventOffsetMs = (event) => normalizePositionMs(event?.offsetMs);
 
 const getOrderedReplayEvents = (replay) => (
-  (Array.isArray(replay?.events) ? replay.events : [])
-    .filter((event) => event && typeof event === 'object')
-    .map((event, sourceIndex) => ({ event, sourceIndex }))
-    .sort((left, right) => (
-      normalizeEventOffsetMs(left.event) - normalizeEventOffsetMs(right.event)
-      || String(left.event?.id || '').localeCompare(String(right.event?.id || ''))
-      || left.sourceIndex - right.sourceIndex
-    ))
-    .map((entry) => entry.event)
+  removeLessonReplaySyncArtifacts(
+    sortLessonReplayEvents(
+      (Array.isArray(replay?.events) ? replay.events : [])
+        .filter((event) => event && typeof event === 'object')
+    )
+  )
 );
 
 const normalizeCodeState = (value = {}) => {

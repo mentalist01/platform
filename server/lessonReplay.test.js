@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   appendLessonReplayEvents,
+  compareLessonReplayEvents,
   createLessonReplay,
   normalizeLessonReplay,
   normalizeLessonReplayEvent,
@@ -425,6 +426,125 @@ test('sorts events by lesson offset and measures UTF-8 bytes', () => {
   assert.deepEqual(replay.events.map((event) => event.id), ['earlier', 'later']);
   assert.equal(summary.durationMs, 9000);
   assert.ok(summary.bytes > JSON.stringify(replay).length, 'Russian UTF-8 text must take more than one byte per letter');
+});
+
+test('rebases pre-start events and preserves source order for exact ties', () => {
+  // Early joins belong to the recording timeline instead of being collapsed
+  // into one unseekable point at 0:00.
+  const replay = normalizeLessonReplay({
+    occurrence,
+    events: [
+      {
+        id: 'z-delta',
+        type: 'board',
+        occurredAt: new Date(START_MS - 500).toISOString(),
+        payload: {
+          mode: 'delta',
+          upserts: [{ index: 0, item: { id: 'stroke-2', type: 'stroke', points: [{ x: 2, y: 2 }] } }],
+        },
+      },
+      {
+        id: 'a-snapshot',
+        type: 'board',
+        occurredAt: new Date(START_MS - 1000).toISOString(),
+        payload: { mode: 'snapshot', items: [] },
+      },
+      {
+        id: 'same-time-first',
+        type: 'navigation',
+        occurredAt: new Date(START_MS).toISOString(),
+        payload: { label: 'first' },
+      },
+      {
+        id: 'same-time-second',
+        type: 'navigation',
+        occurredAt: new Date(START_MS).toISOString(),
+        payload: { label: 'second' },
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    replay.events.map((event) => event.id),
+    ['a-snapshot', 'z-delta', 'same-time-first', 'same-time-second']
+  );
+  assert.equal(replay.timelineStartMs, START_MS - 1000);
+  assert.equal(replay.events[0].offsetMs, 0);
+  assert.equal(replay.events[1].offsetMs, 500);
+  assert.equal(replay.events[2].offsetMs, 1000);
+  assert.equal(replay.events[3].offsetMs, 1000);
+  assert.ok(compareLessonReplayEvents(replay.events[0], replay.events[1]) < 0);
+  assert.equal(compareLessonReplayEvents(replay.events[2], replay.events[3]), 0);
+  assert.ok(compareLessonReplayEvents(
+    { offsetMs: 0, occurredAt: new Date(START_MS - 1000).toISOString() },
+    { offsetMs: 0, occurredAt: new Date(START_MS - 500).toISOString() }
+  ) < 0);
+});
+
+test('keeps the code action used by replay narration', () => {
+  const event = normalizeLessonReplayEvent({
+    id: 'code-edit',
+    type: 'code',
+    occurredAt: new Date(START_MS + 1000).toISOString(),
+    payload: { action: 'snapshot', code: 'print(1)' },
+  }, eventContext);
+
+  assert.equal(event.payload.action, 'snapshot');
+  assert.equal(event.payload.code, 'print(1)');
+});
+
+test('moves an existing live timeline when an earlier participant event arrives', () => {
+  const initial = appendLessonReplayEvents(createLessonReplay(occurrence, START_MS), [{
+    id: 'at-start',
+    type: 'navigation',
+    occurredAt: new Date(START_MS).toISOString(),
+    payload: { view: 'board' },
+  }], eventContext);
+  const withEarlyJoin = appendLessonReplayEvents(initial.replay, [{
+    id: 'early-join',
+    type: 'navigation',
+    occurredAt: new Date(START_MS - 20_000).toISOString(),
+    payload: { view: 'collab' },
+  }], eventContext);
+
+  assert.equal(withEarlyJoin.replay.timelineStartMs, START_MS - 20_000);
+  assert.deepEqual(
+    withEarlyJoin.replay.events.map((event) => [event.id, event.offsetMs]),
+    [['early-join', 0], ['at-start', 20_000]]
+  );
+});
+
+test('count compaction always retains a board keyframe before retained deltas', () => {
+  const events = [{
+    id: 'board-keyframe',
+    type: 'board',
+    occurredAt: new Date(START_MS).toISOString(),
+    payload: { mode: 'snapshot', items: [] },
+  }];
+  for (let index = 0; index < 2500; index += 1) {
+    events.push({
+      id: `navigation-${index}`,
+      type: 'navigation',
+      occurredAt: new Date(START_MS + (index + 1) * 1000).toISOString(),
+      payload: { view: `view-${index}`, label: `Экран ${index}` },
+    });
+  }
+  events.push({
+    id: 'board-delta-last',
+    type: 'board',
+    occurredAt: new Date(START_MS + 2_501_000).toISOString(),
+    payload: {
+      mode: 'delta',
+      upserts: [{ index: 0, item: { id: 'stroke-last', type: 'stroke', points: [{ x: 1, y: 1 }] } }],
+      removedIds: [],
+    },
+  });
+
+  const replay = normalizeLessonReplay({ occurrence, events });
+  const boardEvents = replay.events.filter((event) => event.type === 'board');
+  assert.ok(boardEvents.length >= 2);
+  assert.equal(boardEvents[0].payload.mode, 'snapshot');
+  assert.equal(boardEvents.at(-1).id, 'board-delta-last');
 });
 
 test('adds replay data, screen snapshots and audio to the full storage size', () => {

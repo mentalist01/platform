@@ -6,23 +6,30 @@ const getScreenOwnerRole = (event) => {
 };
 
 export const getActiveReplayScreenEvent = (events, rawPositionMs, role = 'student') => {
-  const targetRole = role === 'teacher' ? 'teacher' : 'student';
+  const targetRole = role === 'teacher' || role === 'student' ? role : '';
   const positionMs = normalizePositionMs(rawPositionMs);
-  let activeEvent = null;
+  const activeByRole = new Map();
 
   (Array.isArray(events) ? events : []).forEach((event) => {
+    const ownerRole = getScreenOwnerRole(event);
     if (
       event?.type !== 'screen'
       || normalizePositionMs(event.offsetMs) > positionMs
-      || getScreenOwnerRole(event) !== targetRole
+      || !ownerRole
+      || (targetRole && ownerRole !== targetRole)
     ) return;
 
     if (event.payload?.active === false) {
-      activeEvent = null;
+      activeByRole.delete(ownerRole);
       return;
     }
-    if (String(event.payload?.snapshotId || '').trim()) activeEvent = event;
+    if (String(event.payload?.snapshotId || '').trim()) activeByRole.set(ownerRole, event);
   });
 
-  return activeEvent;
+  if (targetRole) return activeByRole.get(targetRole) || null;
+  return Array.from(activeByRole.values()).reduce((latest, event) => (
+    !latest || normalizePositionMs(event.offsetMs) >= normalizePositionMs(latest.offsetMs)
+      ? event
+      : latest
+  ), null);
 };

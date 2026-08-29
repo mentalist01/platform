@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   findReplayAudioEventIndex,
   findUpcomingReplayAudioEventIndex,
+  getReplayEventNarration,
   getReplayTimelineDurationMs,
 } from './lessonReplayTimeline.js';
 
@@ -31,4 +32,45 @@ test('falls back to an older segment that still covers an overlap', () => {
     { id: 'short', type: 'audio', offsetMs: 10_000, payload: { durationMs: 1000 } },
   ];
   assert.equal(findReplayAudioEventIndex(overlapping, 12_000), 0);
+});
+
+test('builds readable narrations for code, board and viewport actions', () => {
+  assert.equal(
+    getReplayEventNarration({
+      type: 'code',
+      actor: { role: 'student', name: 'Аня' },
+    }),
+    'Аня печатает в коде'
+  );
+  assert.equal(
+    getReplayEventNarration({
+      type: 'board',
+      payload: { sharedByRole: 'teacher', sharedByName: 'Иван' },
+    }),
+    'Иван рисует на доске'
+  );
+  assert.equal(
+    getReplayEventNarration({
+      type: 'viewport',
+      payload: { surface: 'code' },
+      actor: { role: 'student' },
+    }),
+    'Ученик перемещается по коду'
+  );
+  assert.equal(
+    getReplayEventNarration({
+      type: 'code',
+      payload: { action: 'snapshot' },
+      actor: { role: 'teacher', name: 'Иван' },
+    }),
+    'Иван сохраняет состояние кода'
+  );
+  assert.equal(
+    getReplayEventNarration({
+      type: 'board',
+      payload: { mode: 'delta', upserts: [], removedIds: ['shape-1'] },
+      actor: { role: 'student', name: 'Аня' },
+    }),
+    'Аня стирает с доски'
+  );
 });

@@ -5,9 +5,13 @@ import { api } from '../services/api';
 // A replay is background telemetry, not call signalling. Larger batches avoid
 // repeatedly processing a growing lesson file on a small single-core server.
 const FLUSH_INTERVAL_MS = 8000;
-const MAX_QUEUED_EVENTS = 120;
+// Keep enough non-audio telemetry for a long temporary outage.  When the
+// safety limit is reached, viewport samples are discarded before any board,
+// code or explicit action event, so the lesson contents remain reconstructable.
+const MAX_QUEUED_EVENTS = 2400;
 const STOP_GRACE_MS = 20_000;
 const MODE_SWITCH_RETRY_MS = 1500;
+const EVENT_WRITE_RETRY_DELAYS_MS = [0, 800, 2400];
 const AUDIO_UPLOAD_RETRY_DELAYS_MS = [0, 750, 1800];
 const AUDIO_UPLOAD_REQUEST_TIMEOUT_MS = 12_000;
 const AUDIO_UPLOAD_DRAIN_TIMEOUT_MS = 20_000;
@@ -51,6 +55,40 @@ const isRetryableAudioUploadError = (error) => {
 const waitForAudioUploadRetry = (delayMs) => new Promise((resolve) => {
   window.setTimeout(resolve, Math.max(0, Number(delayMs) || 0));
 });
+
+const waitForEventWriteRetry = (delayMs) => new Promise((resolve) => {
+  window.setTimeout(resolve, Math.max(0, Number(delayMs) || 0));
+});
+
+const isRetryableEventWriteError = (error) => {
+  const status = Number(error?.status) || 0;
+  return status === 0 || status === 408 || status === 425 || status === 429 || status >= 500;
+};
+
+const trimLessonReplayQueue = (events, maxEvents = MAX_QUEUED_EVENTS) => {
+  const result = Array.isArray(events) ? [...events] : [];
+  if (result.length <= maxEvents) return result;
+  for (let index = 0; index < result.length && result.length > maxEvents;) {
+    if (result[index]?.type === 'viewport') result.splice(index, 1);
+    else index += 1;
+  }
+  if (result.length > maxEvents) result.splice(0, result.length - maxEvents);
+  return result;
+};
+
+const runEventWriteWithRetry = async (request) => {
+  let lastError = null;
+  for (let attempt = 0; attempt < EVENT_WRITE_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (attempt > 0) await waitForEventWriteRetry(EVENT_WRITE_RETRY_DELAYS_MS[attempt]);
+    try {
+      return await request();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableEventWriteError(error)) break;
+    }
+  }
+  throw lastError || new Error('Lesson replay write failed');
+};
 
 const runAudioUploadRequest = (request) => new Promise((resolve, reject) => {
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -115,6 +153,7 @@ const useLessonReplayRecorder = ({
   const queueRef = useRef([]);
   const flushingRef = useRef(false);
   const flushPromiseRef = useRef(null);
+  const finishSessionRef = useRef(null);
   const flushTimerRef = useRef(null);
   const stopTimerRef = useRef(null);
   const startRetryTimerRef = useRef(null);
@@ -155,18 +194,29 @@ const useLessonReplayRecorder = ({
           queueRef.current = [];
         }
       } catch (error) {
-        queueRef.current = [...queuedEvents, ...queueRef.current].slice(0, MAX_QUEUED_EVENTS);
+        const stillCurrentSession = sessionRef.current?.sessionId === session.sessionId;
+        if (stillCurrentSession) {
+          queueRef.current = trimLessonReplayQueue([...queuedEvents, ...queueRef.current]);
+        }
         const message = String(error?.message || '');
-        if (
+        const sessionUnavailable = (
           error?.status === 404
           || error?.status === 410
           || /заверш|истек|не найден/iu.test(message)
-        ) {
-          sessionRef.current = null;
-          queueRef.current = [];
+        );
+        if (sessionUnavailable) {
+          if (stillCurrentSession) {
+            sessionRef.current = null;
+            queueRef.current = [];
+          }
           const lessonEnded = /урок[^.]*заверш|запись[^.]*урок[^.]*заверш/iu.test(message);
-          if (lessonEnded) enabledRef.current = false;
-          else if (enabledRef.current) startSessionRef.current?.();
+          if (lessonEnded && stillCurrentSession) enabledRef.current = false;
+          else if (stillCurrentSession && enabledRef.current) startSessionRef.current?.();
+        } else if (!stillCurrentSession) {
+          // The target changed while this request was in flight.  Retry the
+          // detached batch against its original session instead of mixing it
+          // into the next lesson's queue.
+          void finishSessionRef.current?.(session, queuedEvents);
         }
       } finally {
         flushingRef.current = false;
@@ -240,34 +290,38 @@ const useLessonReplayRecorder = ({
   }, []);
 
   const finishSession = useCallback(async (session, pendingEvents = null, options = {}) => {
-    if (!session?.sessionId) return;
+    if (!session?.sessionId) return { ok: true, alreadyFinished: true };
     await drainAudioUploads(session.sessionId);
     const pending = Array.isArray(pendingEvents) ? pendingEvents : queueRef.current.splice(0);
     const finalBatchStart = Math.max(0, pending.length - 48);
     for (let index = 0; index < finalBatchStart; index += 48) {
       try {
-        await api.appendLessonReplayEvents(
-          session.sessionId,
-          applySessionClockToEvents(
-            pending.slice(index, Math.min(index + 48, finalBatchStart)),
-            session
-          ),
-          options
+        const batch = applySessionClockToEvents(
+          pending.slice(index, Math.min(index + 48, finalBatchStart)),
+          session
         );
-      } catch {
+        await runEventWriteWithRetry(() => (
+          api.appendLessonReplayEvents(session.sessionId, batch, options)
+        ));
+      } catch (error) {
         // Never move events from a finished lesson into the next student's queue.
-        return;
+        return { ok: false, error, unsavedEvents: pending.length - index };
       }
     }
     try {
-      await api.finishLessonReplaySession(session.sessionId, {
-        ...options,
-        events: applySessionClockToEvents(pending.slice(finalBatchStart), session),
-      });
-    } catch {
-      // Session expiry will clean up an interrupted finish on the server.
+      await runEventWriteWithRetry(() => (
+        api.finishLessonReplaySession(session.sessionId, {
+          ...options,
+          events: applySessionClockToEvents(pending.slice(finalBatchStart), session),
+        })
+      ));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error, unsavedEvents: pending.length - finalBatchStart };
     }
   }, [drainAudioUploads]);
+
+  finishSessionRef.current = finishSession;
 
   const recordEvent = useCallback((type, payload = {}, options = {}) => {
     if (!enabledRef.current) return false;
@@ -287,7 +341,7 @@ const useLessonReplayRecorder = ({
       payload,
     });
     if (queueRef.current.length > MAX_QUEUED_EVENTS) {
-      queueRef.current.splice(0, queueRef.current.length - MAX_QUEUED_EVENTS);
+      queueRef.current = trimLessonReplayQueue(queueRef.current);
     }
     scheduleFlush(options.immediate ? 0 : FLUSH_INTERVAL_MS);
     return true;
@@ -300,6 +354,7 @@ const useLessonReplayRecorder = ({
     window.clearTimeout(stopTimerRef.current);
     window.clearTimeout(startRetryTimerRef.current);
     if (!active || !hasRecorderTarget) {
+      lastEventRef.current = { signature: '', at: 0 };
       const previous = sessionRef.current;
       window.clearTimeout(flushTimerRef.current);
       if (previous?.sessionId) {
@@ -318,7 +373,14 @@ const useLessonReplayRecorder = ({
     }
 
     const previous = sessionRef.current;
-    const hasReusableSession = previous?.sessionId && previous.targetKey === recorderTargetKey;
+    const hasReusableSession = Boolean(
+      previous?.sessionId
+      && previous.targetKey === recorderTargetKey
+      && (
+        !normalizedOccurrenceKey
+        || previous.occurrenceKey === normalizedOccurrenceKey
+      )
+    );
     if (hasReusableSession) {
       scheduleFlush(0);
     }
@@ -327,6 +389,7 @@ const useLessonReplayRecorder = ({
       const pending = queueRef.current.splice(0);
       finishSession(previous, pending);
     }
+    if (!hasReusableSession) lastEventRef.current = { signature: '', at: 0 };
 
     let cancelled = false;
     let retryDelayMs = 1500;
@@ -380,6 +443,7 @@ const useLessonReplayRecorder = ({
               || ''
             ).trim(),
           };
+          lastEventRef.current = { signature: '', at: 0 };
           screenSnapshotDisabledSessionRef.current = '';
           audioUploadDisabledSessionRef.current = '';
           retryDelayMs = 1500;
@@ -410,6 +474,7 @@ const useLessonReplayRecorder = ({
     finishSession,
     hasRecorderTarget,
     normalizedLearningLessonId,
+    normalizedOccurrenceKey,
     recorderTargetKey,
     scheduleFlush,
     studentId,
@@ -461,8 +526,15 @@ const useLessonReplayRecorder = ({
     screenSnapshotDisabledSessionRef.current = '';
     audioUploadDisabledSessionRef.current = '';
     if (!session?.sessionId) return { ok: true, alreadyFinished: true };
-    await finishSession(session, pending, options);
-    return { ok: true };
+    const result = await finishSession(session, pending, options);
+    if (result?.ok === false) {
+      const error = result.error instanceof Error
+        ? result.error
+        : new Error('Не удалось сохранить последние действия урока');
+      error.unsavedEvents = result.unsavedEvents;
+      throw error;
+    }
+    return result || { ok: true };
   }, [finishSession]);
 
   useEffect(() => () => {

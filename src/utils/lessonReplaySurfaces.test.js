@@ -23,3 +23,12 @@ test('hides the screen after sharing has stopped', () => {
   assert.equal(getActiveReplayScreenEvent(events, 3000), null);
   assert.equal(getActiveReplayScreenEvent(events, 500), null);
 });
+
+test('free viewing exposes the newest still-active screen from either participant', () => {
+  assert.equal(getActiveReplayScreenEvent(events, 2500, '')?.id, 'student-second');
+  assert.equal(
+    getActiveReplayScreenEvent(events, 3000, '')?.id,
+    'teacher-first',
+    'stopping the student screen must not hide an active teacher screen'
+  );
+});
