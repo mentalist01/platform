@@ -577,6 +577,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
   }
 
   const student = overview?.student || {};
+  const studentFirstName = String(student.name || 'Ученик').trim().split(/\s+/)[0] || 'Ученик';
   const initials = String(student.name || 'У')
     .split(/\s+/)
     .filter(Boolean)
@@ -620,17 +621,18 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
   const homeworkAveragePercent = Number(homeworkSummary.averagePercent) || 0;
   const fullyCompletedHomeworkCount = Number(homeworkSummary.fullyCompletedCount) || 0;
   const homeworkOverallCount = Math.max(0, Number(homeworkSummary.homeworkCount) || 0);
-  const pendingHomeworkCount = Math.max(0, Number(homeworkSummary.pendingCount) || 0);
   const hasEnoughHomeworkHistory = homeworkEntries.length >= 3;
   const homeworkHabit = !hasEnoughHomeworkHistory
     ? 'Пока мало данных'
-    : homeworkAveragePercent >= 90
-      ? 'Почти всё выполняет'
+    : homeworkAveragePercent >= 100
+      ? `${studentFirstName} всё выполняет`
+      : homeworkAveragePercent >= 90
+        ? `${studentFirstName} почти всё выполняет`
       : homeworkAveragePercent >= 75
-        ? 'Обычно выполняет большую часть'
+        ? `${studentFirstName} обычно выполняет большую часть`
         : homeworkAveragePercent >= 50
-          ? 'Часто оставляет часть заданий'
-          : 'Часто не доделывает';
+          ? `${studentFirstName} часто оставляет часть заданий`
+          : `${studentFirstName} часто не доделывает`;
   const homeworkHabitIsGood = hasEnoughHomeworkHistory && homeworkAveragePercent >= 75;
   const completedTasksOutOfTen = Math.max(1, Math.min(9, Math.round(homeworkAveragePercent / 10)));
   const homeworkAverageExplanation = homeworkAveragePercent >= 100
@@ -649,11 +651,6 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
       : fullyCompletedHomeworkCount === 1
         ? `Полностью закончена 1 из ${homeworkOverallCount} учтённых работ.`
         : `Полностью закончены ${fullyCompletedHomeworkCount} из ${homeworkOverallCount} учтённых работ.`;
-  const pendingHomeworkExplanation = pendingHomeworkCount === 0
-    ? ''
-    : pendingHomeworkCount === 1
-      ? 'Текущая работа до срока в общий процент пока не входит.'
-      : `Работ до срока, которые пока не входят в общий процент: ${pendingHomeworkCount}.`;
   const currentHomeworkPercent = Number(currentHomeworkEntry?.percent) || 0;
   const currentHomeworkHasErrors = Number(currentHomeworkEntry?.wrongCount) > 0
     || currentHomeworkEntry?.status === 'attention';
@@ -782,10 +779,11 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
         ? homeworkAverageExplanation
         : `Вывод появится после трёх выданных работ. Сейчас выдано: ${homeworkEntries.length}.`,
       mobileDetail: hasEnoughHomeworkHistory
-        ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation} ${pendingHomeworkExplanation}`.trim()
-        : `${homeworkEntries.length} из 3 выданных работ для вывода${pendingHomeworkExplanation ? ` · ${pendingHomeworkExplanation}` : ''}`,
-      meta: `${homeworkCompletionExplanation} ${pendingHomeworkExplanation}`.trim(),
+        ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation}`.trim()
+        : `${homeworkEntries.length} из 3 выданных работ для вывода`,
+      meta: homeworkCompletionExplanation,
       progress: hasEnoughHomeworkHistory ? homeworkAveragePercent : null,
+      progressLabel: hasEnoughHomeworkHistory ? `${homeworkAveragePercent}%` : '',
       progressClass: homeworkAveragePercent >= 90
         ? 'bg-emerald-500'
         : homeworkAveragePercent >= 75
@@ -1024,11 +1022,16 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                       {card.mobileDetail || card.detail}
                     </span>
                     {Number.isFinite(card.progress) && (
-                      <span className={`mt-2.5 block h-1.5 overflow-hidden rounded-full ${dark ? 'bg-slate-800' : 'bg-white'}`}>
-                        <span
-                          className={`block h-full rounded-full ${card.progressClass || 'bg-emerald-500'}`}
-                          style={{ width: `${Math.max(0, Math.min(100, card.progress))}%` }}
-                        />
+                      <span className="mt-2.5 block">
+                        {card.progressLabel && (
+                          <span className="mb-1 block text-right text-xs font-black">{card.progressLabel}</span>
+                        )}
+                        <span className={`block h-1.5 overflow-hidden rounded-full ${dark ? 'bg-slate-800' : 'bg-white'}`}>
+                          <span
+                            className={`block h-full rounded-full ${card.progressClass || 'bg-emerald-500'}`}
+                            style={{ width: `${Math.max(0, Math.min(100, card.progress))}%` }}
+                          />
+                        </span>
                       </span>
                     )}
                   </CardTag>
@@ -1070,11 +1073,16 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                       {card.detail}
                     </span>
                     {Number.isFinite(card.progress) && (
-                      <span className={`mt-3 hidden h-2.5 overflow-hidden rounded-full md:block ${dark ? 'bg-slate-800' : 'bg-white'}`}>
-                        <span
-                          className={`block h-full rounded-full ${card.progressClass || 'bg-emerald-500'}`}
-                          style={{ width: `${Math.max(0, Math.min(100, card.progress))}%` }}
-                        />
+                      <span className="mt-3 hidden md:block">
+                        {card.progressLabel && (
+                          <span className="mb-1.5 block text-right text-sm font-black">{card.progressLabel}</span>
+                        )}
+                        <span className={`block h-2.5 overflow-hidden rounded-full ${dark ? 'bg-slate-800' : 'bg-white'}`}>
+                          <span
+                            className={`block h-full rounded-full ${card.progressClass || 'bg-emerald-500'}`}
+                            style={{ width: `${Math.max(0, Math.min(100, card.progress))}%` }}
+                          />
+                        </span>
                       </span>
                     )}
                     {card.meta && (
@@ -1674,8 +1682,8 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                 <strong className="mt-1.5 block text-base">{homeworkHabit}</strong>
                 <p className={`mt-1.5 text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
                   {hasEnoughHomeworkHistory
-                    ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation} ${pendingHomeworkExplanation}`.trim()
-                    : `Вывод появится после трёх выданных работ. Сейчас выдано: ${homeworkEntries.length}. ${pendingHomeworkExplanation}`.trim()}
+                    ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation}`.trim()
+                    : `Вывод появится после трёх выданных работ. Сейчас выдано: ${homeworkEntries.length}.`}
                 </p>
                 <span className={`mt-2 block text-[11px] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                   В общий процент входят выполненные работы и работы после срока, выданные с 29 июня 2026 года.
@@ -1775,7 +1783,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             icon={CheckCircle2}
             eyebrow="И последнее"
             title="Домашняя работа"
-            description="Общий итог не снижает текущая работа до срока. Учитываются выполненные работы и работы после срока, выданные с 29 июня 2026 года."
+            description="Учитываются выполненные работы и работы после срока, выданные с 29 июня 2026 года."
             dark={dark}
             tone="emerald"
           />
