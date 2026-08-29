@@ -750,6 +750,7 @@ const ProgressSection = ({
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
   const mockAttemptStudentId = role === 'student' ? null : effectiveStudentId;
+  const shouldLoadMockData = section === 'mocks' || Boolean(openMockExamId);
   const prevEffectiveStudentIdRef = useRef(effectiveStudentId);
 
   useEffect(() => () => {
@@ -1477,6 +1478,10 @@ const ProgressSection = ({
   }, [effectiveStudentId, role]);
 
   useEffect(() => {
+    if (!shouldLoadMockData) {
+      setMockExamsLoading(false);
+      return undefined;
+    }
     let cancelled = false;
     setMockExamsLoading(true);
     api.getMockExams(role === 'student' ? effectiveStudentId : null)
@@ -1492,9 +1497,9 @@ const ProgressSection = ({
       })
       .finally(() => {
         if (!cancelled) setMockExamsLoading(false);
-      });
+    });
     return () => { cancelled = true; };
-  }, []);
+  }, [effectiveStudentId, role, shouldLoadMockData]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1502,17 +1507,22 @@ const ProgressSection = ({
       setMockTaskAnalyticsByExam({});
       return () => { cancelled = true; };
     }
+    if (!shouldLoadMockData) return () => { cancelled = true; };
     api.getMockExamTaskAnalytics()
       .then((data) => {
         if (!cancelled) setMockTaskAnalyticsByExam(data && typeof data === 'object' ? data : {});
       })
       .catch(() => {
         if (!cancelled) setMockTaskAnalyticsByExam({});
-      });
+    });
     return () => { cancelled = true; };
-  }, [role, solvedRefreshKey]);
+  }, [role, shouldLoadMockData, solvedRefreshKey]);
 
   useEffect(() => {
+    if (!shouldLoadMockData) {
+      setMockAttemptsLoading(false);
+      return undefined;
+    }
     const attemptOwnerKey = String(effectiveStudentId || '').trim();
     if (!effectiveStudentId) {
       mockAttemptsOwnerRef.current = '';
@@ -1551,9 +1561,9 @@ const ProgressSection = ({
       })
       .finally(() => {
         if (!cancelled) setMockAttemptsLoading(false);
-      });
+    });
     return () => { cancelled = true; };
-  }, [mockAttemptStudentId, effectiveStudentId, studentVisibleMockExams]);
+  }, [mockAttemptStudentId, effectiveStudentId, shouldLoadMockData, studentVisibleMockExams]);
 
   useEffect(() => {
     const studentChanged = prevEffectiveStudentIdRef.current !== effectiveStudentId;

@@ -32,6 +32,7 @@ import { isNativeAndroidPushEnvironment } from '../utils/push';
 import { resolveApiUrl } from '../utils/runtimeUrls';
 import { normalizeTelemostUrl } from '../utils/telemost';
 import { resolveCalendarEventHomeworkProgress } from '../utils/calendarHomeworkProgress';
+import './TeacherCalendarSection.css';
 import {
   buildTeacherCalendarCancellationMarkKey,
   isTeacherCalendarLessonCancelled,

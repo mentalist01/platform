@@ -17925,6 +17925,29 @@ const sanitizeTestsDbForStudent = (testsDb) => {
   return sanitizedDb;
 };
 
+const buildTestsDbIndex = (testsDb) => {
+  if (!testsDb || typeof testsDb !== 'object' || Array.isArray(testsDb)) return {};
+
+  return Object.entries(testsDb).reduce((index, [taskKey, taskValue]) => {
+    if (!/^\d+$/.test(taskKey) || !taskValue || typeof taskValue !== 'object' || Array.isArray(taskValue)) {
+      return index;
+    }
+
+    const taskIndex = {};
+    if (typeof taskValue.title === 'string') taskIndex.title = taskValue.title;
+    Object.entries(taskValue).forEach(([levelId, questions]) => {
+      if (!Array.isArray(questions)) return;
+      taskIndex[levelId] = questions.map((question) => ({
+        id: question && typeof question === 'object' && !Array.isArray(question)
+          ? String(question.id ?? '').trim()
+          : '',
+      }));
+    });
+    index[taskKey] = taskIndex;
+    return index;
+  }, {});
+};
+
 const sanitizeMockExamForStudent = (exam) => {
   if (!exam || typeof exam !== 'object') return exam;
   const safe = { ...exam };
@@ -27421,20 +27444,24 @@ app.get('/api/tests', (req, res) => {
   const requestedStudentId = typeof req.query?.studentId === 'string'
     ? req.query.studentId.trim()
     : '';
+  const indexOnly = req.query?.shape === 'index';
+  let responseData;
   if (isStudentRole(req.auth)) {
     if (requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
     const studentData = getStudentData(req.auth.id);
-    return res.json(sanitizeTestsDbForStudent(
-      getTestsDbWithStudentMockFollowups(studentData, data)
-    ));
-  }
-  if (requestedStudentId) {
+    const personalizedTestsDb = getTestsDbWithStudentMockFollowups(studentData, data);
+    responseData = indexOnly
+      ? personalizedTestsDb
+      : sanitizeTestsDbForStudent(personalizedTestsDb);
+  } else if (requestedStudentId) {
     const student = ensureStudentAccess(req, res, requestedStudentId);
     if (!student) return;
     const studentData = getStudentData(student.id);
-    return res.json(getTestsDbWithStudentMockFollowups(studentData, data));
+    responseData = getTestsDbWithStudentMockFollowups(studentData, data);
+  } else {
+    responseData = data || {};
   }
-  return res.json(data || {});
+  return res.json(indexOnly ? buildTestsDbIndex(responseData) : responseData);
 });
 
 app.get('/api/question-difficulty', (req, res) => {

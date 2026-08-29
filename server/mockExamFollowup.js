@@ -190,8 +190,13 @@ export const mergeMockExamFollowupQueueIntoTestsDb = ({
   testsDb,
   queue,
 } = {}) => {
-  const mergedDb = cloneValue(isRecord(testsDb) ? testsDb : {});
+  const sourceDb = isRecord(testsDb) ? testsDb : {};
+  if (!Array.isArray(queue) || queue.length === 0) return sourceDb;
+
   const normalizedQueue = normalizeMockExamFollowupQueue(queue);
+  if (normalizedQueue.length === 0) return sourceDb;
+
+  const mergedDb = { ...sourceDb };
   const groupedQueue = new Map();
 
   normalizedQueue.forEach((entry) => {
@@ -205,7 +210,7 @@ export const mergeMockExamFollowupQueueIntoTestsDb = ({
     const taskKey = String(firstEntry.destinationTaskNumber);
     const levelId = firstEntry.levelId;
     const taskLevels = isRecord(mergedDb[taskKey]) ? mergedDb[taskKey] : {};
-    const questions = Array.isArray(taskLevels[levelId]) ? taskLevels[levelId] : [];
+    const questions = Array.isArray(taskLevels[levelId]) ? [...taskLevels[levelId]] : [];
     const insertionTailByAnchor = new Map();
 
     entries.forEach((entry) => {

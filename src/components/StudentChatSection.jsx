@@ -33,6 +33,7 @@ import { api } from '../services/api';
 import { Button, Card } from './ui';
 import ChatInfoDrawer from './ChatInfoDrawer';
 import ChatCodeBlock from './ChatCodeBlock';
+import './ChatSections.css';
 import LinkifiedText from './LinkifiedText';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 import OnlinePresenceDot from './OnlinePresenceDot';

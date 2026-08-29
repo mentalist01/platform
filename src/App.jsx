@@ -1,11 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-python';
-import 'prismjs/themes/prism-tomorrow.css';
-import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
-import { MonacoBinding } from 'y-monaco';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload, 
@@ -126,6 +120,7 @@ import {
 } from './utils/push';
 import { getCollabWsUrl, getNotificationsWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
 import { createSegmentedAudioRecorder } from './utils/segmentedAudioRecorder';
+import { loadCollaborativeEditorRuntime, loadYjsRuntime } from './utils/collaborationRuntime';
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
 import useWorkbookHelper from './hooks/useWorkbookHelper';
@@ -141,30 +136,96 @@ import {
   withStoredAuthToken,
 } from './services/api';
 
-const AdminPanel = React.lazy(() => import('./components/AdminPanel'));
-const CallSection = React.lazy(() => import('./components/CallSection'));
-const Editor = React.lazy(() => import('@monaco-editor/react'));
-const FinalReviewSection = React.lazy(() => import('./components/FinalReviewSection'));
-const HomeworkQuickStart = React.lazy(() => import('./components/HomeworkQuickStart'));
-const HomeworkStatsPage = React.lazy(() => import('./components/HomeworkStatsPage'));
-const MobileStrategyGame = React.lazy(() => import('./components/MobileStrategyGame'));
-const NotesSection = React.lazy(() => import('./components/NotesSection'));
-const ParentDashboard = React.lazy(() => import('./components/ParentDashboard'));
-const ProgressSection = React.lazy(() => import('./components/ProgressSection'));
-const PythonSection = React.lazy(() => import('./components/PythonSection'));
-const ScheduleSection = React.lazy(() => import('./components/ScheduleSection'));
-const StudentChatSection = React.lazy(() => import('./components/StudentChatSection'));
-const StudentGlobalSearch = React.lazy(() => import('./components/StudentGlobalSearch'));
-const StudentLeaderboardSection = React.lazy(() => import('./components/StudentLeaderboardSection'));
-const SignupGuestChat = React.lazy(() => import('./components/SignupGuestChat'));
-const LearningGroupsSection = React.lazy(() => import('./components/LearningGroupsSection'));
-const GroupTelemostSection = React.lazy(() => import('./components/GroupTelemostSection'));
-const TeacherCalendarSection = React.lazy(() => import('./components/TeacherCalendarSection'));
-const TeacherFinanceSection = React.lazy(() => import('./components/TeacherFinanceSection'));
-const TeacherLessonEndPrompt = React.lazy(() => import('./components/TeacherLessonEndPrompt'));
-const TeacherLessonStartPrompt = React.lazy(() => import('./components/TeacherLessonStartPrompt'));
-const TeacherPanel = React.lazy(() => import('./components/TeacherPanel'));
-const TeacherStudentChatsSection = React.lazy(() => import('./components/TeacherStudentChatsSection'));
+const loadAdminPanel = () => import('./components/AdminPanel');
+const loadCallSection = () => import('./components/CallSection');
+const loadEditor = () => import('@monaco-editor/react');
+const loadFinalReviewSection = () => import('./components/FinalReviewSection');
+const loadHomeworkQuickStart = () => import('./components/HomeworkQuickStart');
+const loadHomeworkStatsPage = () => import('./components/HomeworkStatsPage');
+const loadMobileStrategyGame = () => import('./components/MobileStrategyGame');
+const loadNotesSection = () => import('./components/NotesSection');
+const loadParentDashboard = () => import('./components/ParentDashboard');
+const loadProgressSection = () => import('./components/ProgressSection');
+const loadPythonSection = () => import('./components/PythonSection');
+const loadScheduleSection = () => import('./components/ScheduleSection');
+const loadStudentChatSection = () => import('./components/StudentChatSection');
+const loadStudentGlobalSearch = () => import('./components/StudentGlobalSearch');
+const loadStudentLeaderboardSection = () => import('./components/StudentLeaderboardSection');
+const loadSignupGuestChat = () => import('./components/SignupGuestChat');
+const loadLearningGroupsSection = () => import('./components/LearningGroupsSection');
+const loadGroupTelemostSection = () => import('./components/GroupTelemostSection');
+const loadTeacherCalendarSection = () => import('./components/TeacherCalendarSection');
+const loadTeacherFinanceSection = () => import('./components/TeacherFinanceSection');
+const loadTeacherLessonEndPrompt = () => import('./components/TeacherLessonEndPrompt');
+const loadTeacherLessonStartPrompt = () => import('./components/TeacherLessonStartPrompt');
+const loadTeacherPanel = () => import('./components/TeacherPanel');
+const loadTeacherStudentChatsSection = () => import('./components/TeacherStudentChatsSection');
+
+const AdminPanel = React.lazy(loadAdminPanel);
+const CallSection = React.lazy(loadCallSection);
+const Editor = React.lazy(loadEditor);
+const FinalReviewSection = React.lazy(loadFinalReviewSection);
+const HomeworkQuickStart = React.lazy(loadHomeworkQuickStart);
+const HomeworkStatsPage = React.lazy(loadHomeworkStatsPage);
+const MobileStrategyGame = React.lazy(loadMobileStrategyGame);
+const NotesSection = React.lazy(loadNotesSection);
+const ParentDashboard = React.lazy(loadParentDashboard);
+const ProgressSection = React.lazy(loadProgressSection);
+const PythonSection = React.lazy(loadPythonSection);
+const ScheduleSection = React.lazy(loadScheduleSection);
+const StudentChatSection = React.lazy(loadStudentChatSection);
+const StudentGlobalSearch = React.lazy(loadStudentGlobalSearch);
+const StudentLeaderboardSection = React.lazy(loadStudentLeaderboardSection);
+const SignupGuestChat = React.lazy(loadSignupGuestChat);
+const LearningGroupsSection = React.lazy(loadLearningGroupsSection);
+const GroupTelemostSection = React.lazy(loadGroupTelemostSection);
+const TeacherCalendarSection = React.lazy(loadTeacherCalendarSection);
+const TeacherFinanceSection = React.lazy(loadTeacherFinanceSection);
+const TeacherLessonEndPrompt = React.lazy(loadTeacherLessonEndPrompt);
+const TeacherLessonStartPrompt = React.lazy(loadTeacherLessonStartPrompt);
+const TeacherPanel = React.lazy(loadTeacherPanel);
+const TeacherStudentChatsSection = React.lazy(loadTeacherStudentChatsSection);
+
+const loadCallWorkspace = () => Promise.all([loadCallSection(), loadGroupTelemostSection()]);
+const loadCollabWorkspace = () => Promise.all([loadEditor(), loadCollaborativeEditorRuntime()]);
+const loadBoardWorkspace = () => loadYjsRuntime();
+const loadTeacherComms = () => Promise.all([loadTeacherPanel(), loadTeacherStudentChatsSection()]);
+
+const VIEW_SECTION_LOADERS = Object.freeze({
+  admin: loadAdminPanel,
+  board: loadBoardWorkspace,
+  call: loadCallWorkspace,
+  chat: loadStudentChatSection,
+  collab: loadCollabWorkspace,
+  finance: loadTeacherFinanceSection,
+  groups: loadLearningGroupsSection,
+  notes: loadNotesSection,
+  progress: loadProgressSection,
+  python: loadPythonSection,
+  rating: loadStudentLeaderboardSection,
+  review: loadFinalReviewSection,
+  schedule: loadScheduleSection,
+  teacher: loadTeacherPanel,
+  'teacher-calendar': loadTeacherCalendarSection,
+  'teacher-comms': loadTeacherComms,
+});
+const viewSectionPrefetches = new Map();
+
+const prefetchViewSection = (viewId) => {
+  const normalizedViewId = String(viewId || '').trim();
+  const loader = VIEW_SECTION_LOADERS[normalizedViewId];
+  if (!loader) return null;
+  const pendingPrefetch = viewSectionPrefetches.get(normalizedViewId);
+  if (pendingPrefetch) return pendingPrefetch;
+  const nextPrefetch = Promise.resolve()
+    .then(loader)
+    .catch(() => {
+      viewSectionPrefetches.delete(normalizedViewId);
+      return null;
+    });
+  viewSectionPrefetches.set(normalizedViewId, nextPrefetch);
+  return nextPrefetch;
+};
 
 const optionalLeagueIcons = import.meta.glob('./assets/leagues/blank.png', { eager: true, import: 'default' });
 const leagueBlank = optionalLeagueIcons['./assets/leagues/blank.png'] || null;
@@ -3490,8 +3551,6 @@ const extractResponseErrorMessage = async (response, fallback = 'Не удало
   if (response.status === 429) return 'Превышен лимит трафика для ученика';
   return fallback;
 };
-
-const highlightPython = (code) => Prism.highlight(code, Prism.languages.python, 'python');
 
 const MASCOT_IMAGES = {
   greetings: mascotGreetings,
@@ -7481,6 +7540,12 @@ const CollabSection = ({
       return;
     }
 
+    let disposed = false;
+    let runtimeCleanup = null;
+    const initializeRuntime = async () => {
+      const { Y, WebsocketProvider, MonacoBinding } = await loadCollaborativeEditorRuntime();
+      if (disposed) return undefined;
+
     if (isSandbox) {
       const seed = sandboxRef.current && typeof sandboxRef.current === 'object'
         ? sandboxRef.current
@@ -7860,6 +7925,24 @@ const CollabSection = ({
       setLocalTestFileSelection(null);
       clearDebugSession(false);
       updateRunStateFromMapRef.current?.(null);
+    };
+    };
+
+    void initializeRuntime().then((cleanup) => {
+      if (disposed) {
+        cleanup?.();
+        return;
+      }
+      runtimeCleanup = cleanup || null;
+    }).catch((error) => {
+      if (disposed) return;
+      console.error('[collab] failed to load collaborative editor runtime:', error);
+      setStatus('disconnected');
+    });
+
+    return () => {
+      disposed = true;
+      runtimeCleanup?.();
     };
   }, [
     roomId,
@@ -14503,6 +14586,12 @@ const BoardSection = ({
       return;
     }
 
+    let disposed = false;
+    let runtimeCleanup = null;
+    const initializeRuntime = async () => {
+      const { Y, WebsocketProvider } = await loadYjsRuntime();
+      if (disposed) return undefined;
+
     setStatus(isSandbox ? 'local' : 'connecting');
     const doc = new Y.Doc();
     const remoteCursorActivity = remoteCursorActivityRef.current;
@@ -14810,6 +14899,24 @@ const BoardSection = ({
       awarenessRef.current = null;
       docRef.current = null;
       yItemsRef.current = null;
+    };
+    };
+
+    void initializeRuntime().then((cleanup) => {
+      if (disposed) {
+        cleanup?.();
+        return;
+      }
+      runtimeCleanup = cleanup || null;
+    }).catch((error) => {
+      if (disposed) return;
+      console.error('[board] failed to load collaboration runtime:', error);
+      setStatus('disconnected');
+    });
+
+    return () => {
+      disposed = true;
+      runtimeCleanup?.();
     };
   }, [roomId, wsUrl, wsParams, liveRoomId, localName, localColor, isTeacher, isSandbox, boardReadOnly, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
 
@@ -20572,6 +20679,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     captureGoalFlySource(resolvedView);
     setView(resolvedView);
   }, [allowedViewsKey, captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
+  const prefetchNavigationView = useCallback((nextView) => {
+    const normalizedView = String(nextView || '').trim();
+    const resolvedView = ((user.role === 'student' || user.role === 'teacher') && normalizedView === 'lesson')
+      ? studentDefaultLessonView
+      : normalizedView;
+    void prefetchViewSection(resolvedView);
+  }, [studentDefaultLessonView, user.role]);
 
   const handleOpenLearningGroupLesson = useCallback((lesson = {}) => {
     const lessonId = String(lesson?.lessonId || '').trim();
@@ -21519,7 +21633,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
     let cancelled = false;
     setGoalTestsLoaded(false);
-    api.getTests()
+    api.getTestsIndex()
       .then((data) => {
         if (cancelled) return;
         setGoalTestsDb(data && typeof data === 'object' ? data : {});
@@ -22825,7 +22939,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     requestRefresh();
     const timerId = window.setInterval(() => {
       if (document.visibilityState === 'visible') requestRefresh();
-    }, 15_000);
+    }, 60_000);
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
@@ -24241,6 +24355,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   return (
                     <button
                       key={n.id}
+                      onPointerEnter={() => prefetchNavigationView(n.id)}
+                      onFocus={() => prefetchNavigationView(n.id)}
                       onClick={() => {
                         navigateToView(n.id);
                         setMenuOpen(false);
@@ -24311,6 +24427,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                         <button
                           key={`desktop-tool-${n.id}`}
                           type="button"
+                          onPointerEnter={() => prefetchNavigationView(n.id)}
+                          onFocus={() => prefetchNavigationView(n.id)}
                           onClick={() => {
                             navigateToView(n.id);
                             setMenuOpen(false);
@@ -24389,6 +24507,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <button
                 key={`desktop-nav-fab-${n.id}`}
                 type="button"
+                onPointerEnter={() => prefetchNavigationView(n.id)}
+                onFocus={() => prefetchNavigationView(n.id)}
                 onClick={() => {
                   navigateToView(n.id);
                   setMenuOpen(false);
@@ -24643,6 +24763,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     <button
                       key={`lesson-quick-${item.id}`}
                       type="button"
+                      onPointerEnter={() => prefetchNavigationView(item.id)}
+                      onFocus={() => prefetchNavigationView(item.id)}
                       onClick={() => navigateToView(item.id)}
                       className={`lesson-quick-nav__item flex h-10 min-w-0 items-center justify-center gap-2 rounded-lg px-2.5 text-sm font-semibold transition-colors ${
                         isActive
@@ -25517,7 +25639,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               formatBytes={formatBytes}
               PY_IDLE_STDIN_HEADER={PY_IDLE_STDIN_HEADER}
               parseIdleConsoleInput={parseIdleConsoleInput}
-              highlightPython={highlightPython}
               workbookAutoSyncState={workbookAutoSyncState}
               onStartWorkbookAutoSync={startWorkbookAutoSync}
               workbookHelperState={workbookHelperState}
@@ -25945,6 +26066,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           type="button"
                           data-tour={item.id === 'rating' ? 'rating-nav' : undefined}
                           aria-current={isActive ? 'page' : undefined}
+                          onPointerEnter={() => prefetchNavigationView(item.id)}
+                          onFocus={() => prefetchNavigationView(item.id)}
                           onClick={() => {
                             navigateToView(item.id);
                             setMenuOpen(false);
@@ -25991,6 +26114,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     data-tour={n.id === 'rating' ? 'rating-nav' : undefined}
                     data-nav-tone={getNavTone(n.id)}
                     aria-current={isActive ? 'page' : undefined}
+                    onPointerEnter={() => prefetchNavigationView(n.id)}
+                    onFocus={() => prefetchNavigationView(n.id)}
                     onClick={() => {
                       if (isMoreButton) {
                         setMenuOpen(true);

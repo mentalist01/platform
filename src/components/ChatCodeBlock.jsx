@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-python';
+import { highlightCode } from '../utils/pythonHighlight';
 
 const writeCodeToClipboard = async (code) => {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
@@ -28,10 +27,7 @@ const ChatCodeBlock = ({ code, language = 'python' }) => {
   const resetTimerRef = useRef(null);
   const highlightedCode = useMemo(() => {
     if (!normalizedCode) return '';
-    const grammar = normalizedLanguage === 'python'
-      ? Prism.languages.python
-      : (Prism.languages.plain || Prism.languages.plaintext || Prism.languages.python);
-    return Prism.highlight(normalizedCode, grammar, normalizedLanguage);
+    return highlightCode(normalizedCode, normalizedLanguage);
   }, [normalizedCode, normalizedLanguage]);
 
   useEffect(() => () => {

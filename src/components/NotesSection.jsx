@@ -31,6 +31,8 @@ import StudentSearchSelect from './StudentSearchSelect';
 import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
+import { highlightPython } from '../utils/pythonHighlight';
+import './NotesSection.css';
 import {
   WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD,
   WORKBOOK_HELPER_INSTALL_URL,
@@ -274,7 +276,6 @@ const NotesSection = ({
   formatBytes,
   PY_IDLE_STDIN_HEADER,
   parseIdleConsoleInput,
-  highlightPython,
   workbookAutoSyncState = null,
   onStartWorkbookAutoSync = null,
   workbookHelperState = null,

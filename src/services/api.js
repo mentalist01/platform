@@ -1,7 +1,7 @@
-﻿import { clearStoredSession } from '../utils/theme';
+import { clearStoredSession } from '../utils/theme.js';
 
-import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl, resolveUploadsUrl } from '../utils/runtimeUrls';
-import { USER_SESSION_KEY } from '../utils/theme';
+import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl, resolveUploadsUrl } from '../utils/runtimeUrls.js';
+import { USER_SESSION_KEY } from '../utils/theme.js';
 
 export const getStoredAuthToken = () => {
   if (typeof localStorage === 'undefined') return '';
@@ -141,6 +141,33 @@ export const authenticatedUploadsFetch = (input, init = {}) => {
   return fetch(requestUrl, requestInit);
 };
 
+const TESTS_FULL_CACHE_TTL_MS = 60 * 1000;
+const TESTS_INDEX_CACHE_TTL_MS = 5 * 60 * 1000;
+const STUDENT_NEXT_LESSON_CACHE_TTL_MS = 5 * 1000;
+const testsResponseTextCache = new Map();
+const testsResponseInFlight = new Map();
+const studentNextLessonResponseTextCache = new Map();
+const studentNextLessonResponseInFlight = new Map();
+let testsCacheEpoch = 0;
+let studentNextLessonCacheEpoch = 0;
+
+export const invalidateTestsCache = () => {
+  testsCacheEpoch += 1;
+  testsResponseTextCache.clear();
+  testsResponseInFlight.clear();
+};
+
+export const invalidateStudentNextLessonCache = () => {
+  studentNextLessonCacheEpoch += 1;
+  studentNextLessonResponseTextCache.clear();
+  studentNextLessonResponseInFlight.clear();
+};
+
+const invalidateAuthSensitiveCaches = () => {
+  invalidateTestsCache();
+  invalidateStudentNextLessonCache();
+};
+
 const apiFetch = async (input, init = {}) => {
   const method = String(init?.method || 'GET').toUpperCase();
   const requestInit = { ...init };
@@ -179,6 +206,7 @@ const apiFetch = async (input, init = {}) => {
   try {
     const res = await fetch(requestUrl, authenticatedRequestInit);
     if (res.status === 401) {
+      invalidateAuthSensitiveCaches();
       clearStoredSession();
       try {
         unauthorizedHandler?.();
@@ -200,6 +228,164 @@ const apiFetch = async (input, init = {}) => {
       init.signal.removeEventListener('abort', abortListener);
     }
   }
+};
+
+const normalizeTestsStudentId = (studentId) => String(studentId || '').trim();
+
+const getTestsRequestKey = (studentId, shape) => JSON.stringify([
+  getStoredAuthToken(),
+  normalizeTestsStudentId(studentId),
+  shape,
+]);
+
+const readTestsResponseText = async (res) => {
+  const contentType = res.headers.get('content-type') || '';
+  const responseText = await res.text();
+  if (!contentType.includes('application/json')) {
+    if (responseText?.trim().startsWith('<!doctype')) {
+      if (isNativeAppRuntime() && !hasConfiguredApiBaseUrl()) {
+        throw new Error('Для APK не задан адрес сервера. Укажи адрес сайта на Timeweb в блоке "Адрес сервера для APK".');
+      }
+      throw new Error('Сервер не отвечает (HTML вместо JSON). Проверьте адрес сервера для APK или перезапустите backend.');
+    }
+    throw new Error('Некорректный ответ сервера');
+  }
+  return responseText;
+};
+
+const requestTestsResponseText = (studentId = '', shape = 'full', options = {}) => {
+  const normalizedStudentId = normalizeTestsStudentId(studentId);
+  const normalizedShape = shape === 'index' ? 'index' : 'full';
+  const requestKey = getTestsRequestKey(normalizedStudentId, normalizedShape);
+  const force = options?.force === true;
+  const inFlight = testsResponseInFlight.get(requestKey);
+  if (inFlight) {
+    if (!force || inFlight.force) return inFlight.promise;
+    return inFlight.promise.then(() => requestTestsResponseText(
+      normalizedStudentId,
+      normalizedShape,
+      { ...options, force: true },
+    ));
+  }
+
+  const cached = testsResponseTextCache.get(requestKey);
+  const cacheTtlMs = normalizedShape === 'index'
+    ? TESTS_INDEX_CACHE_TTL_MS
+    : TESTS_FULL_CACHE_TTL_MS;
+  if (!force && cached && Date.now() - cached.completedAtMs < cacheTtlMs) {
+    return Promise.resolve(cached.responseText);
+  }
+
+  const params = new URLSearchParams();
+  if (normalizedStudentId) params.set('studentId', normalizedStudentId);
+  if (normalizedShape === 'index') params.set('shape', 'index');
+  const query = params.toString();
+  const cacheEpochAtStart = testsCacheEpoch;
+  const requestPromise = (async () => {
+    const res = await apiFetch(query ? `/api/tests?${query}` : '/api/tests');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const responseText = await readTestsResponseText(res);
+    if (cacheEpochAtStart === testsCacheEpoch) {
+      testsResponseTextCache.set(requestKey, {
+        completedAtMs: Date.now(),
+        responseText,
+      });
+    }
+    return responseText;
+  })();
+  const trackedPromise = requestPromise.finally(() => {
+    if (testsResponseInFlight.get(requestKey)?.promise === trackedPromise) {
+      testsResponseInFlight.delete(requestKey);
+    }
+  });
+  testsResponseInFlight.set(requestKey, { force, promise: trackedPromise });
+  return trackedPromise;
+};
+
+const getTestsPayload = async (studentId = '', shape = 'full', options = {}) => {
+  const responseText = await requestTestsResponseText(studentId, shape, options);
+  let data;
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    invalidateTestsCache();
+    throw new Error('Некорректный ответ сервера');
+  }
+  notifyHomeworkChestGranted(data);
+  return data && typeof data === 'object' ? data : {};
+};
+
+const getStudentNextLessonRequestKey = (studentId) => JSON.stringify([
+  getStoredAuthToken(),
+  String(studentId || '').trim(),
+]);
+
+const requestStudentNextLessonResponseText = (studentId = '', options = {}) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  const requestKey = getStudentNextLessonRequestKey(normalizedStudentId);
+  const force = options?.force === true;
+  const inFlight = studentNextLessonResponseInFlight.get(requestKey);
+  if (inFlight) {
+    if (!force || inFlight.force) return inFlight.promise;
+    return inFlight.promise.then(() => requestStudentNextLessonResponseText(
+      normalizedStudentId,
+      { ...options, force: true },
+    ));
+  }
+
+  const cached = studentNextLessonResponseTextCache.get(requestKey);
+  if (!force && cached && Date.now() - cached.completedAtMs < STUDENT_NEXT_LESSON_CACHE_TTL_MS) {
+    return Promise.resolve(cached.responseText);
+  }
+
+  const params = new URLSearchParams();
+  if (normalizedStudentId) params.set('studentId', normalizedStudentId);
+  const query = params.toString();
+  const cacheEpochAtStart = studentNextLessonCacheEpoch;
+  const requestPromise = (async () => {
+    const res = await apiFetch(query ? `/api/student-next-lesson?${query}` : '/api/student-next-lesson');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const responseText = await readTestsResponseText(res);
+    if (cacheEpochAtStart === studentNextLessonCacheEpoch) {
+      studentNextLessonResponseTextCache.set(requestKey, {
+        completedAtMs: Date.now(),
+        responseText,
+      });
+    }
+    return responseText;
+  })();
+  const trackedPromise = requestPromise.finally(() => {
+    if (studentNextLessonResponseInFlight.get(requestKey)?.promise === trackedPromise) {
+      studentNextLessonResponseInFlight.delete(requestKey);
+    }
+  });
+  studentNextLessonResponseInFlight.set(requestKey, { force, promise: trackedPromise });
+  return trackedPromise;
+};
+
+const getStudentNextLessonPayload = async (studentId = '', options = {}) => {
+  const responseText = await requestStudentNextLessonResponseText(studentId, options);
+  let data;
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    invalidateStudentNextLessonCache();
+    throw new Error('Некорректный ответ сервера');
+  }
+  notifyHomeworkChestGranted(data);
+  return data;
+};
+
+const parseJsonResponseAndInvalidateTestsCache = async (res) => {
+  const data = await parseJsonResponse(res);
+  invalidateTestsCache();
+  return data;
+};
+
+const parseJsonResponseAndInvalidateStudentNextLessonCache = async (res) => {
+  const data = await parseJsonResponse(res);
+  invalidateStudentNextLessonCache();
+  return data;
 };
 
 const TEACHER_CALENDAR_REFRESH_CLIENT_CACHE_MS = 5 * 60 * 1000;
@@ -366,7 +552,9 @@ export const api = {
       body: JSON.stringify({ code }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return res.json();
+    const data = await res.json();
+    invalidateAuthSensitiveCaches();
+    return data;
   },
   signupLogin: async (name, teacherId = '', guestKey = '') => {
     const payload = { name };
@@ -380,9 +568,12 @@ export const api = {
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    const data = await parseJsonResponse(res);
+    invalidateAuthSensitiveCaches();
+    return data;
   },
   logout: async () => {
+    invalidateAuthSensitiveCaches();
     const res = await apiFetch('/api/logout', { method: 'POST' });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
@@ -1335,15 +1526,8 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  getTests: async (studentId) => {
-    const params = new URLSearchParams();
-    if (studentId) params.append('studentId', String(studentId));
-    const qs = params.toString();
-    const res = await apiFetch(qs ? `/api/tests?${qs}` : '/api/tests');
-    if (!res.ok) throw new Error(await parseApiError(res));
-    const data = await parseJsonResponse(res);
-    return data && typeof data === 'object' ? data : {};
-  },
+  getTests: async (studentId = '', options = {}) => getTestsPayload(studentId, 'full', options),
+  getTestsIndex: async (studentId = '', options = {}) => getTestsPayload(studentId, 'index', options),
   getQuestionDifficulties: async (taskNumber, levelId) => {
     const params = new URLSearchParams();
     if (taskNumber !== null && typeof taskNumber !== 'undefined' && String(taskNumber).trim()) {
@@ -1365,7 +1549,7 @@ export const api = {
       body: JSON.stringify(newDb),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return parseJsonResponseAndInvalidateTestsCache(res);
   },
   getMockExams: async (studentId) => {
     const params = new URLSearchParams();
@@ -1440,7 +1624,7 @@ export const api = {
       body: JSON.stringify({ studentId, examId, ...(payload || {}) }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return parseJsonResponseAndInvalidateTestsCache(res);
   },
   startMockAttempt: async (studentId, examId, payload) => {
     const res = await apiFetch('/api/mock-exams/attempt', {
@@ -1449,7 +1633,7 @@ export const api = {
       body: JSON.stringify({ studentId, examId, startOnly: true, ...(payload || {}) }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return parseJsonResponseAndInvalidateTestsCache(res);
   },
   saveMockTimerProgress: async (studentId, examId, payload) => {
     const res = await apiFetch('/api/mock-exams/attempt', {
@@ -1458,7 +1642,7 @@ export const api = {
       body: JSON.stringify({ studentId, examId, saveTimerProgress: true, ...(payload || {}) }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return parseJsonResponseAndInvalidateTestsCache(res);
   },
   resumeMockAttempt: async (studentId, examId, payload) => {
     const res = await apiFetch('/api/mock-exams/attempt', {
@@ -1467,7 +1651,7 @@ export const api = {
       body: JSON.stringify({ studentId, examId, startOnly: true, resumeTimerExam: true, ...(payload || {}) }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return parseJsonResponseAndInvalidateTestsCache(res);
   },
   restoreMockTimerRewards: async (studentId, examId) => {
     const res = await apiFetch('/api/mock-exams/attempt/timer-rewards', {
@@ -1476,7 +1660,7 @@ export const api = {
       body: JSON.stringify({ studentId, examId }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return parseJsonResponseAndInvalidateTestsCache(res);
   },
   getMockAttemptHistory: async (studentId, examId) => {
     const params = new URLSearchParams();
@@ -1494,7 +1678,7 @@ export const api = {
       body: JSON.stringify({ studentId, examId }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return parseJsonResponseAndInvalidateTestsCache(res);
   },
   rollbackFirstMockAttempt: async (studentId, examId) => {
     const res = await apiFetch('/api/mock-exams/attempt/rollback-first', {
@@ -1503,7 +1687,7 @@ export const api = {
       body: JSON.stringify({ studentId, examId }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return parseJsonResponseAndInvalidateTestsCache(res);
   },
   getTaskTitles: async () => {
     const res = await apiFetch('/api/task-titles');
@@ -2323,15 +2507,9 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  getStudentNextLesson: async (studentId) => {
-    const params = new URLSearchParams();
-    if (studentId) params.append('studentId', studentId);
-    params.append('_ts', String(Date.now()));
-    const qs = params.toString();
-    const res = await apiFetch(qs ? `/api/student-next-lesson?${qs}` : '/api/student-next-lesson');
-    if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
-  },
+  getStudentNextLesson: async (studentId = '', options = {}) => (
+    getStudentNextLessonPayload(studentId, options)
+  ),
   updateStudentNextLesson: async (studentId, payload) => {
     const res = await apiFetch('/api/student-next-lesson', {
       method: 'PATCH',
@@ -2339,7 +2517,7 @@ export const api = {
       body: JSON.stringify({ studentId, ...payload }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return parseJsonResponseAndInvalidateStudentNextLessonCache(res);
   },
   getFiles: async (studentId) => {
     const params = new URLSearchParams();

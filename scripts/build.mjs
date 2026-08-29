@@ -60,6 +60,48 @@ const precompressDirectory = async (directoryPath) => {
 };
 
 const outDir = resolveOutDir();
+
+const verifyInitialBundle = async () => {
+  const indexPath = path.join(outDir, 'index.html');
+  const html = await fs.readFile(indexPath, 'utf8');
+  const initialAssetUrls = Array.from(
+    html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)="([^"]+)"/gi),
+    (match) => match[1]
+  );
+  const forbiddenInitialChunks = ['editor-vendor', 'collaboration-vendor', 'syntax-vendor'];
+  const eagerHeavyChunk = initialAssetUrls.find((assetUrl) => (
+    forbiddenInitialChunks.some((chunkName) => assetUrl.includes(chunkName))
+  ));
+  if (eagerHeavyChunk) {
+    throw new Error(`[build] heavy lazy chunk leaked into initial HTML: ${eagerHeavyChunk}`);
+  }
+
+  const entryScriptUrl = initialAssetUrls.find((assetUrl) => /\/assets\/index-[^/]+\.js$/i.test(assetUrl));
+  const entryStyleUrl = initialAssetUrls.find((assetUrl) => /\/assets\/index-[^/]+\.css$/i.test(assetUrl));
+  if (!entryScriptUrl || !entryStyleUrl) {
+    throw new Error('[build] could not resolve initial script/style assets from index.html');
+  }
+  const toOutputPath = (assetUrl) => path.join(outDir, assetUrl.replace(/^\/+/, '').replaceAll('/', path.sep));
+  const [entryScriptStat, entryStyleStat] = await Promise.all([
+    fs.stat(toOutputPath(entryScriptUrl)),
+    fs.stat(toOutputPath(entryStyleUrl)),
+  ]);
+  const budgets = {
+    script: 1_050_000,
+    style: 2_500_000,
+  };
+  if (entryScriptStat.size > budgets.script) {
+    throw new Error(`[build] initial JS budget exceeded: ${entryScriptStat.size} > ${budgets.script} bytes`);
+  }
+  if (entryStyleStat.size > budgets.style) {
+    throw new Error(`[build] initial CSS budget exceeded: ${entryStyleStat.size} > ${budgets.style} bytes`);
+  }
+  console.log(
+    `[build] initial bundle verified: ${Math.round(entryScriptStat.size / 1024)} KiB JS, ${Math.round(entryStyleStat.size / 1024)} KiB CSS`
+  );
+};
+
+await verifyInitialBundle();
 await precompressDirectory(outDir);
 console.log(
   `[build] precompressed ${compressedFileCount} files: ${Math.round(rawByteCount / 1024)} KiB -> ${Math.round(compressedByteCount / 1024)} KiB`

@@ -42,6 +42,58 @@ const finalize = (overrides = {}) => finalizeMockExamFollowup({
   ...overrides,
 });
 
+test('returns the original tests database when the follow-up queue is empty or invalid', () => {
+  const testsDb = {
+    5: { basic: [makeQuestion('base-1')] },
+  };
+
+  assert.strictEqual(
+    mergeMockExamFollowupQueueIntoTestsDb({ testsDb, queue: [] }),
+    testsDb
+  );
+  assert.strictEqual(
+    mergeMockExamFollowupQueueIntoTestsDb({ testsDb, queue: [{ invalid: true }] }),
+    testsDb
+  );
+});
+
+test('copies only the task and level changed by a follow-up merge', () => {
+  const baseQuestion = makeQuestion('base-1');
+  const untouchedLevel = [makeQuestion('advanced-1')];
+  const untouchedTask = { basic: [makeQuestion('task-6')] };
+  const testsDb = {
+    5: {
+      title: 'Task 5',
+      basic: [baseQuestion],
+      advanced: untouchedLevel,
+    },
+    6: untouchedTask,
+  };
+  const followup = finalize({
+    testsDb,
+    solvedByTask: {
+      5: { basic: { solved: ['base-1'] } },
+    },
+  });
+
+  const merged = mergeMockExamFollowupQueueIntoTestsDb({
+    testsDb,
+    queue: followup.queue,
+  });
+
+  assert.notStrictEqual(merged, testsDb);
+  assert.notStrictEqual(merged['5'], testsDb['5']);
+  assert.notStrictEqual(merged['5'].basic, testsDb['5'].basic);
+  assert.strictEqual(merged['5'].basic[0], baseQuestion);
+  assert.strictEqual(merged['5'].advanced, untouchedLevel);
+  assert.strictEqual(merged['6'], untouchedTask);
+  assert.deepEqual(testsDb['5'].basic.map((question) => question.id), ['base-1']);
+  assert.deepEqual(
+    merged['5'].basic.map((question) => question.id),
+    ['base-1', followup.queue[0].question.id]
+  );
+});
+
 test('places a follow-up immediately after the rightmost solved question in the merged view', () => {
   const testsDb = {
     5: {

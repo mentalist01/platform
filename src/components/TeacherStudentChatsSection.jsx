@@ -7,6 +7,7 @@ import ChatInfoDrawer from './ChatInfoDrawer';
 import ChatCodeBlock from './ChatCodeBlock';
 import LinkifiedText from './LinkifiedText';
 import OnlinePresenceDot from './OnlinePresenceDot';
+import './ChatSections.css';
 
 const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;

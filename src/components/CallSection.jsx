@@ -8,6 +8,7 @@ import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
 import { normalizeRtcParticipantIds, resolveCallRtcRoom } from '../utils/rtcRooms';
 import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
+import './CallSection.css';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
