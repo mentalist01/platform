@@ -23667,7 +23667,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <p className="truncate text-xs font-black text-slate-800">
               {isGroupLessonReplayActive ? 'Группа занимается в Телемосте' : 'Урок идёт в Телемосте'}
             </p>
-            <p className="truncate text-[10px] font-semibold text-slate-500">
+            <p className={`truncate text-[10px] font-semibold ${telemostLessonFinishError || telemostAudioCapture.status === 'error'
+              ? 'text-rose-600'
+              : 'text-slate-500'}`}>
               {telemostLessonFinishError || (groupLessonIsOvertime
                 ? `Время по календарю вышло · автостоп в ${telemostLessonAutoFinishLabel}`
                 : telemostAudioCapture.message) || (telemostLessonAutoFinishLabel
@@ -23684,6 +23686,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             className={`shrink-0 rounded-xl border px-3 py-2 text-[11px] font-extrabold transition disabled:cursor-wait disabled:opacity-60 ${
               telemostAudioCapture.status === 'recording'
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+              : telemostAudioCapture.status === 'error'
+                ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
                 : 'border-violet-200 bg-white text-violet-700 hover:bg-violet-50'
             }`}
             title="Для Телемоста браузер один раз попросит выбрать вкладку с включённым звуком"
