@@ -90,6 +90,13 @@ const getSurfaceActionLabel = (event) => {
 
 export const getReplayEventNarration = (event) => {
   const actor = getActorLabel(event);
+  if (!actor && event?.type === 'board') {
+    const hasUpserts = Array.isArray(event.payload?.upserts) && event.payload.upserts.length > 0;
+    const hasRemovals = Array.isArray(event.payload?.removedIds) && event.payload.removedIds.length > 0;
+    if (hasRemovals && !hasUpserts) return 'Удаление с доски';
+    if (event.payload?.mode === 'snapshot') return 'Состояние доски';
+    return 'Изменение на доске';
+  }
   const action = getSurfaceActionLabel(event);
   return actor ? `${actor} ${action}` : action;
 };

@@ -108,10 +108,14 @@ test('keeps task cards on the replay board without leaking solution fields', () 
       items: [{
         id: 'task-card-1',
         type: 'task',
+        authorId: 'teacher-1',
         x: 25,
         y: 50,
         width: 760,
         height: 820,
+        contentWidth: 720,
+        contentHeight: 780,
+        codePanelLayoutVersion: 3,
         heading: 'Задание 17',
         taskNumber: 17,
         questionNumber: 3,
@@ -135,6 +139,10 @@ test('keeps task cards on the replay board without leaking solution fields', () 
   assert.equal(event.payload.items.length, 1);
   const task = event.payload.items[0];
   assert.equal(task.type, 'task');
+  assert.equal(task.authorId, 'teacher-1');
+  assert.equal(task.contentWidth, 720);
+  assert.equal(task.contentHeight, 780);
+  assert.equal(task.codePanelLayoutVersion, 3);
   assert.equal(task.questionText, 'Найдите ответ.');
   assert.deepEqual(task.userAnswers, ['12', '34']);
   assert.deepEqual(task.studentAnswers, ['12', '']);

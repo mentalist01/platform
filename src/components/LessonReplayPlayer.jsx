@@ -10,7 +10,6 @@ import {
   Maximize2,
   Minimize2,
   MonitorUp,
-  MousePointer2,
   Pause,
   PenTool,
   Play,
@@ -19,7 +18,6 @@ import {
   Sparkles,
   Trash2,
   Undo2,
-  UserRound,
   Volume2,
   VolumeX,
   X,
@@ -40,8 +38,8 @@ import { removeLessonReplaySyncArtifacts } from '../utils/lessonReplaySyncArtifa
 import {
   buildLessonReplayPlaybackState,
   getLessonReplayActorRole,
-  getLessonReplayFollowSurface,
 } from '../utils/lessonReplayPlaybackState';
+import { repairLessonReplayBoardActors } from '../utils/lessonReplayBoardActors';
 import {
   createLessonReplayBranch,
   updateLessonReplayBranchBoard,
@@ -150,24 +148,6 @@ const getEventLabel = (event) => {
     return event.payload?.action === 'end' ? 'Занятие завершено' : 'Занятие началось';
   }
   return EVENT_LABELS[event.type] || 'Действие';
-};
-
-const getEventSubtitle = (event) => {
-  if (!event) return '';
-  const actor = event.type === 'screen'
-    ? (event.payload?.sharedByName || event.actor?.name || '')
-    : (event.actor?.name || event.payload?.sharedByName || '');
-  const role = event.type === 'screen'
-    ? (event.payload?.sharedByRole || event.actor?.role || '')
-    : (event.actor?.role || event.payload?.sharedByRole || '');
-  const pieces = [];
-  if (actor) pieces.push(actor);
-  if (role === 'teacher') pieces.push('учитель');
-  else if (role === 'student') pieces.push('ученик');
-  if (event.type === 'viewport' && event.payload?.surface) {
-    pieces.push(event.payload.surface === 'code' ? 'код' : 'доска');
-  }
-  return pieces.filter(Boolean).join(' · ');
 };
 
 const getEventSurface = (event) => {
@@ -958,7 +938,6 @@ const TimeMachineWorkspace = ({
   onSurfaceChange,
   onToggleCompare,
   followSandboxElement,
-  followedRole,
   playing,
   positionMs,
   renderLessonReplaySandbox,
@@ -972,9 +951,7 @@ const TimeMachineWorkspace = ({
         <span>{branch ? <GitBranch size={14} /> : <PlayCircle size={14} />} {branch ? 'Машина времени' : 'Повтор урока'}</span>
         <strong>{branch
           ? `Состояние на ${formatClock(branch.metadata.positionMs)}`
-          : (followedRole === 'free'
-            ? 'Копия повторяет запись'
-            : `Копия следует за ${followedRole === 'student' ? 'учеником' : 'учителем'}`)}</strong>
+          : 'Копия повторяет запись'}</strong>
       </div>
       {branch && (
         <>
@@ -1099,12 +1076,12 @@ const getReplayAudioSource = (event, replay) => {
 const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonReplaySandbox = null }) => {
   const events = useMemo(() => (
     materializeBoardReplayEvents(
-      removeLessonReplaySyncArtifacts(
+      repairLessonReplayBoardActors(removeLessonReplaySyncArtifacts(
         sortLessonReplayEvents(
           (Array.isArray(replay?.events) ? replay.events : [])
             .map((event) => ({ ...event, offsetMs: Math.max(0, Number(event?.offsetMs) || 0) }))
         )
-      )
+      ))
     )
   ), [replay]);
   const durationMs = useMemo(
@@ -1114,7 +1091,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [positionMs, setPositionMs] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [mode, setMode] = useState('free');
   const [activeTab, setActiveTab] = useState('split');
   const [activityOpen, setActivityOpen] = useState(false);
   const [audioMuted, setAudioMuted] = useState(false);
@@ -1304,9 +1280,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   }, [closeLessonCopyState, isFallbackFullscreen, openLessonCopyState]);
 
   const state = useMemo(() => buildLessonReplayPlaybackState(events, positionMs), [events, positionMs]);
-  const followedRole = mode === 'student' ? 'student' : 'teacher';
-  const followedState = state.actors[followedRole];
-  const surfaceState = mode === 'free' ? state : followedState;
   const boardEvent = state.board;
   const codeEvent = state.code;
   const runEvent = state.run;
@@ -1314,30 +1287,25 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     () => getActiveReplayScreenEvent(events, positionMs, ''),
     [events, positionMs]
   );
-  const screenEvent = mode === 'free' ? freeScreenEvent : surfaceState.screen;
-  const boardView = surfaceState.boardView?.payload || boardEvent?.payload?.viewport || boardEvent?.payload?.view;
-  const codeView = surfaceState.codeView?.payload || codeEvent?.payload?.editor || codeEvent?.payload?.view;
+  const screenEvent = freeScreenEvent;
+  const boardView = state.boardView?.payload || boardEvent?.payload?.viewport || boardEvent?.payload?.view;
+  const codeView = state.codeView?.payload || codeEvent?.payload?.editor || codeEvent?.payload?.view;
   const availableTabs = screenEvent ? ['split', 'board', 'code', 'screen'] : ['split', 'board', 'code'];
-  const followedTab = getLessonReplayFollowSurface(events, positionMs, followedRole);
-  const resolvedActiveTab = mode === 'free'
-    ? (availableTabs.includes(activeTab) ? activeTab : 'board')
-    : (followedTab === 'screen' && !screenEvent ? 'board' : followedTab);
+  const resolvedActiveTab = availableTabs.includes(activeTab) ? activeTab : 'board';
   const followSnapshotPositionMs = Math.max(
     0,
     Number(boardEvent?.offsetMs) || 0,
     Number(codeEvent?.offsetMs) || 0,
     Number(runEvent?.offsetMs) || 0,
-    Number(surfaceState.boardView?.offsetMs) || 0,
-    Number(surfaceState.codeView?.offsetMs) || 0
+    Number(state.boardView?.offsetMs) || 0,
+    Number(state.codeView?.offsetMs) || 0
   );
   const followBranch = useMemo(() => {
-    const snapshot = createLessonReplayBranch(replay, followSnapshotPositionMs, {
-      actorRole: mode === 'free' ? '' : followedRole,
-    });
+    const snapshot = createLessonReplayBranch(replay, followSnapshotPositionMs);
     if (boardView && typeof boardView === 'object') snapshot.board.viewport = boardView;
     if (codeView && typeof codeView === 'object') snapshot.code.viewport = codeView;
     return snapshot;
-  }, [boardView, codeView, followSnapshotPositionMs, followedRole, mode, replay]);
+  }, [boardView, codeView, followSnapshotPositionMs, replay]);
   const followSandboxSessionId = useMemo(() => {
     const occurrence = replay?.occurrence || {};
     const occurrenceIdentity = String(
@@ -1347,20 +1315,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         .join('-')
       || 'lesson'
     ).replace(/[^a-zA-Z0-9._:-]+/g, '-').slice(0, 180);
-    return `lesson-replay-follow-${occurrenceIdentity}-${mode === 'free' ? 'free' : followedRole}`;
-  }, [followedRole, mode, replay?.occurrence]);
-  const pauseReplayForManualNavigation = useCallback(() => {
-    setPlaying(false);
-  }, []);
+    return `lesson-replay-follow-${occurrenceIdentity}-free`;
+  }, [replay?.occurrence]);
   const followSandboxElement = useMemo(() => (
     typeof renderLessonReplaySandbox === 'function' && followBranch
       ? (
-        <div
-          className="lesson-replay-player__time-machine-sandbox is-following"
-          onKeyDownCapture={pauseReplayForManualNavigation}
-          onPointerDownCapture={pauseReplayForManualNavigation}
-          onWheelCapture={pauseReplayForManualNavigation}
-        >
+        <div className="lesson-replay-player__time-machine-sandbox is-following">
           {renderLessonReplaySandbox({
             branch: followBranch,
             branchEpoch: 0,
@@ -1373,7 +1333,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         </div>
       )
       : null
-  ), [followBranch, followSandboxSessionId, pauseReplayForManualNavigation, renderLessonReplaySandbox]);
+  ), [followBranch, followSandboxSessionId, renderLessonReplaySandbox]);
 
   const seekReplayTo = useCallback((rawPositionMs) => {
     const nextPosition = Math.min(durationMs, Math.max(0, Number(rawPositionMs) || 0));
@@ -1614,10 +1574,8 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const markers = events.length <= 120 ? events : events.filter((_, index) => index % Math.ceil(events.length / 120) === 0);
   const activityEvents = getActivityFeedEvents(events);
   const markerDurationMs = Math.max(1, durationMs);
-  const currentEvent = mode === 'free' ? state.current : (followedState.current || state.current);
-  const currentLabel = getEventLabel(currentEvent);
+  const currentEvent = state.current;
   const actionNarration = getReplayEventNarration(currentEvent);
-  const actorName = getEventSubtitle(currentEvent);
   const currentSurface = getEventSurface(currentEvent);
   const currentContextDetail = (() => {
     if (currentSurface === 'code') {
@@ -1661,7 +1619,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const jumpToActivity = (event) => {
     const surface = getEventSurface(event);
     setPlaying(false);
-    setMode('free');
     if (surface && availableTabs.includes(surface)) setActiveTab(surface);
     seekReplayFromControls(event?.offsetMs || 0);
   };
@@ -1679,9 +1636,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     setTimeMachineBranchEpoch((current) => current + 1);
     setTimeMachineShowOriginal(false);
     setTimeMachineSurface('code');
-    setTimeMachineBranch(createLessonReplayBranch(replay, anchorPositionMs, {
-      actorRole: mode === 'free' ? '' : followedRole,
-    }));
+    setTimeMachineBranch(createLessonReplayBranch(replay, anchorPositionMs));
   };
 
   const returnToReplay = () => {
@@ -1715,9 +1670,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     setTimeMachineBranchEpoch((current) => current + 1);
     setTimeMachineBranch((current) => (
       current
-        ? createLessonReplayBranch(replay, current.metadata.positionMs, {
-          actorRole: mode === 'free' ? '' : followedRole,
-        })
+        ? createLessonReplayBranch(replay, current.metadata.positionMs)
         : current
     ));
   };
@@ -1806,7 +1759,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           onSurfaceChange={setTimeMachineSurface}
           onToggleCompare={toggleTimeMachineCompare}
           followSandboxElement={followSandboxElement}
-          followedRole={mode === 'free' ? 'free' : followedRole}
           playing={playing}
           positionMs={positionMs}
           renderLessonReplaySandbox={renderLessonReplaySandbox}
@@ -1816,36 +1768,13 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         />
       ) : (
         <>
-      <div className="lesson-replay-player__viewbar">
-        <div className="lesson-replay-player__modes" role="group" aria-label="Режим просмотра">
-          <button type="button" aria-pressed={mode === 'free'} className={mode === 'free' ? 'is-active' : ''} onClick={() => setMode('free')}><MousePointer2 size={14} /> Самостоятельно</button>
-          <button type="button" aria-pressed={mode === 'teacher'} className={mode === 'teacher' ? 'is-active' : ''} onClick={() => setMode('teacher')}><UserRound size={14} /> За учителем</button>
-          <button type="button" aria-pressed={mode === 'student'} className={mode === 'student' ? 'is-active' : ''} onClick={() => setMode('student')}><UserRound size={14} /> За учеником</button>
-        </div>
-        <span className="lesson-replay-player__mode-hint">
-          {mode === 'free' ? 'Смотрите доску и код вместе или перемещайтесь по ним отдельно' : `Показываем перемещения ${followedRole === 'teacher' ? 'учителя' : 'ученика'}`}
-        </span>
-      </div>
-
       <div className="lesson-replay-player__chapter">
         <div className="lesson-replay-player__chapter-icon"><ListChecks size={17} /></div>
         <div>
-          <span>{formatClock(currentEvent?.offsetMs || 0)}{actorName ? ` · ${actorName}` : ''}</span>
-          <strong>{currentLabel}</strong>
-          <small>{actionNarration}</small>
+          <span>{formatClock(currentEvent?.offsetMs || 0)} · {getEventLocationLabel(currentEvent)}</span>
+          <strong aria-live="polite">{currentContextDetail || 'Запись урока'}</strong>
         </div>
       </div>
-
-      {currentEvent && (
-        <div className="lesson-replay-player__context" aria-live="polite">
-          <div>
-            <span>{currentEvent.type === 'viewport' ? 'Камера просмотра' : (currentEvent.type === 'screen' ? 'Экран' : 'Активная поверхность')}</span>
-            <strong>
-              {currentContextDetail}
-            </strong>
-          </div>
-        </div>
-      )}
 
       <nav className="lesson-replay-player__tabs" aria-label="Материалы записи">
         {availableTabs.map((tab) => {
@@ -1853,7 +1782,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           const label = tab === 'screen'
             ? `Экран ${(screenEvent?.payload?.sharedByRole || getLessonReplayActorRole(screenEvent)) === 'teacher' ? 'учителя' : 'ученика'}`
             : SURFACE_TABS[tab].label;
-          return <button key={tab} type="button" aria-pressed={resolvedActiveTab === tab} className={resolvedActiveTab === tab ? 'is-active' : ''} onClick={() => { setActiveTab(tab); setMode('free'); }}><Icon size={15} />{label}</button>;
+          return <button key={tab} type="button" aria-pressed={resolvedActiveTab === tab} className={resolvedActiveTab === tab ? 'is-active' : ''} onClick={() => setActiveTab(tab)}><Icon size={15} />{label}</button>;
         })}
       </nav>
 
@@ -1877,9 +1806,9 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           {resolvedActiveTab === 'screen' ? (
             <ReplayScreen event={screenEvent} occurrence={replay?.occurrence} />
           ) : resolvedActiveTab === 'board' ? (
-            <ReplayBoard key={mode} items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation={mode === 'free'} />
+            <ReplayBoard items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation />
           ) : (
-            <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation={mode === 'free'} />
+            <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation />
           )}
         </div>
       )}

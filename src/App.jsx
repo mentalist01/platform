@@ -102,6 +102,7 @@ import {
 } from './utils/lessonTargets';
 import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
 import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
+import { prepareLessonReplayBoardSandboxItems } from './utils/lessonReplayBoardSandbox';
 import { createDebouncedSerialQueue } from './utils/debouncedSerialQueue';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
@@ -11009,6 +11010,7 @@ const BoardSection = ({
   const lessonReplayPendingBoardRef = useRef(null);
   const lessonReplayLastBoardStateRef = useRef(null);
   const lessonReplayLastBoardKeyframeAtRef = useRef(0);
+  const lessonReplayBoardDirtyRef = useRef(false);
   const lessonReplayBoardViewportTimerRef = useRef(null);
   const lessonReplayPendingBoardViewportRef = useRef(null);
   const lessonReplayLastBoardViewportSignatureRef = useRef('');
@@ -11176,8 +11178,15 @@ const BoardSection = ({
       lessonReplayLastBoardStateRef.current,
       forceSnapshot
     );
-    if (!checkpoint.payload) return false;
-    const accepted = lessonReplayEventRef.current('board', checkpoint.payload, { dedupeMs: 1000 });
+    if (!checkpoint.payload) {
+      lessonReplayBoardDirtyRef.current = false;
+      return false;
+    }
+    const actorVerified = lessonReplayBoardDirtyRef.current;
+    const accepted = lessonReplayEventRef.current('board', actorVerified
+      ? { ...checkpoint.payload, actorVerified: true }
+      : checkpoint.payload, { dedupeMs: 1000 });
+    lessonReplayBoardDirtyRef.current = false;
     if (accepted === false) return false;
     lessonReplayLastBoardStateRef.current = checkpoint.state;
     if (checkpoint.payload.mode === 'snapshot') lessonReplayLastBoardKeyframeAtRef.current = now;
@@ -11210,6 +11219,7 @@ const BoardSection = ({
     }
     lessonReplayLastBoardStateRef.current = null;
     lessonReplayLastBoardKeyframeAtRef.current = 0;
+    lessonReplayBoardDirtyRef.current = false;
     lessonReplayPendingBoardRef.current = null;
     if (typeof window === 'undefined') return undefined;
     window.clearTimeout(lessonReplayBoardTimerRef.current);
@@ -14775,6 +14785,7 @@ const BoardSection = ({
         onSandboxItemsChangeRef.current(nextSnapshot.nextItems);
       }
       if (shouldRecordReplay && lessonReplayActiveRef.current) {
+        lessonReplayBoardDirtyRef.current = true;
         scheduleLessonReplayBoardSnapshot(nextSnapshot.nextItems);
       }
       scheduleBoardRender();
@@ -14793,6 +14804,7 @@ const BoardSection = ({
     };
     const handleSync = (isSynced) => {
       if (!isSynced || !lessonReplayActiveRef.current) return;
+      if (lessonReplayLastBoardStateRef.current && !lessonReplayBoardDirtyRef.current) return;
       scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
     };
     const handleConnectionClose = (event) => {
@@ -14981,13 +14993,14 @@ const BoardSection = ({
       : window.setInterval(() => {
         if (!lessonReplayActiveRef.current) return;
         if (provider && provider.synced !== true) return;
+        if (!lessonReplayBoardDirtyRef.current) return;
         scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
       }, LESSON_REPLAY_BOARD_CHECKPOINT_MS);
 
     return () => {
       yItems.unobserve(updateItems);
       if (lessonReplayBoardHeartbeatId) window.clearInterval(lessonReplayBoardHeartbeatId);
-      if (!isSandbox && provider?.synced === true) {
+      if (!isSandbox && provider?.synced === true && lessonReplayBoardDirtyRef.current) {
         scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
         flushLessonReplayBoardSnapshot();
       }
@@ -17767,6 +17780,16 @@ const LessonReplaySandboxSurface = ({
   students,
   withStudentId,
 }) => {
+  const branchBoard = branch?.board;
+  const sandboxBoard = useMemo(() => ({
+    ...(branchBoard && typeof branchBoard === 'object' ? branchBoard : {}),
+    items: prepareLessonReplayBoardSandboxItems(branchBoard?.items, {
+      layoutVersion: BOARD_TASK_CODE_LAYOUT_VERSION,
+      defaultWidth: BOARD_TASK_DEFAULT_WIDTH,
+      defaultHeight: 640,
+    }),
+  }), [branchBoard]);
+
   if (!branch) return null;
 
   const sandboxId = String(sandboxSessionId || '').trim()
@@ -17808,8 +17831,8 @@ const LessonReplaySandboxSurface = ({
         lessonReplayActive={false}
         sandbox={{
           id: `${sandboxId}:board`,
-          items: branch?.board?.items,
-          viewport: branch?.board?.viewport,
+          items: sandboxBoard.items,
+          viewport: sandboxBoard.viewport,
           readOnly,
         }}
         onSandboxItemsChange={readOnly ? null : onBoardChange}
@@ -17836,7 +17859,7 @@ const LessonReplaySandboxSurface = ({
       sandbox={{
         id: `${sandboxId}:lesson`,
         code: branch.code,
-        board: branch.board,
+        board: sandboxBoard,
         readOnly,
       }}
       onSandboxStateChange={readOnly ? null : handleSandboxStateChange}

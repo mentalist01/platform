@@ -73,4 +73,12 @@ test('builds readable narrations for code, board and viewport actions', () => {
     }),
     'Аня стирает с доски'
   );
+  assert.equal(
+    getReplayEventNarration({
+      type: 'board',
+      payload: { mode: 'delta', upserts: [{ item: { id: 'stroke-1' } }], removedIds: [] },
+      actor: null,
+    }),
+    'Изменение на доске'
+  );
 });

@@ -80,6 +80,7 @@ const normalizeBoardItem = (value) => {
     id,
     type,
     color: clampText(value.color, 32).trim() || '#6d28d9',
+    authorId: clampText(value.authorId, 160).trim(),
   };
 
   if (type === 'stroke') {
@@ -147,6 +148,9 @@ const normalizeBoardItem = (value) => {
       y: clampNumber(value.y, -1_000_000, 1_000_000),
       width: clampNumber(value.width, 420, 1_600, 720),
       height: clampNumber(value.height, 220, 4_000, 640),
+      contentWidth: clampNumber(value.contentWidth || value.width, 420, 1_600, 720),
+      contentHeight: clampNumber(value.contentHeight || value.height, 220, 4_000, 640),
+      codePanelLayoutVersion: Math.round(clampNumber(value.codePanelLayoutVersion, 0, 100, 0)),
       heading: clampText(value.heading, 240),
       taskNumber: Number.isFinite(taskNumber) ? Math.max(0, Math.round(taskNumber)) : null,
       taskDisplayNumber: clampText(value.taskDisplayNumber, 40),
@@ -294,11 +298,13 @@ const normalizePayload = (type, value) => {
     if (source.mode === 'delta') {
       return {
         mode: 'delta',
+        actorVerified: source.actorVerified === true,
         ...fitBoardDeltaToByteLimit(source.upserts, source.removedIds),
       };
     }
     return {
       mode: 'snapshot',
+      actorVerified: source.actorVerified === true,
       items: fitBoardItemsToByteLimit(
         (Array.isArray(source.items) ? source.items : []).slice(0, MAX_BOARD_ITEMS)
       ),
