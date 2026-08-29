@@ -48,7 +48,9 @@ const STUDENT_HELP_CLOSE_ANIMATION_MS = 260;
 const STUDENT_HELP_SOLUTION_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const STUDENT_HELP_SOLUTION_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp']);
 const STUDENT_CODE_FOCUS_FULLSCREEN_DELAY_MS = 120;
-const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus.mp3';
+// A ten-minute 96 kbps loop keeps the focus soundtrack lightweight while
+// preserving continuous playback in the code workspace.
+const STUDENT_CODE_FOCUS_MUSIC_SRC = '/sounds/code-focus-compact.mp3';
 const STUDENT_CODE_FOCUS_MUSIC_VOLUME_DEFAULT = 0.42;
 const STUDENT_CODE_COPY_FEEDBACK_MS = 1800;
 const STUDENT_TEACHER_SHARE_FEEDBACK_MS = 2600;
@@ -1935,7 +1937,7 @@ const StudentTestModal = ({
       .then(() => setQuestionCodeMusicError(''))
       .catch(() => {
         audio.pause();
-        setQuestionCodeMusicError('Не удалось включить музыку. Добавьте public/sounds/code-focus.mp3.');
+        setQuestionCodeMusicError('Не удалось включить музыку. Проверьте файл public/sounds/code-focus-compact.mp3.');
       });
   };
 
@@ -2718,7 +2720,7 @@ const StudentTestModal = ({
       .then(() => setQuestionCodeMusicError(''))
       .catch(() => {
         audio.pause();
-        setQuestionCodeMusicError('Не удалось включить музыку. Добавьте public/sounds/code-focus.mp3.');
+        setQuestionCodeMusicError('Не удалось включить музыку. Проверьте файл public/sounds/code-focus-compact.mp3.');
       });
   }, [questionCodeFocusFullscreen, questionCodeFocusMusicEnabled, questionCodeFocusMusicVolume, questionCodeOpen]);
 
@@ -4136,7 +4138,7 @@ const StudentTestModal = ({
             preload="none"
             onError={() => {
               if (questionCodeFocusMusicEnabled) {
-                setQuestionCodeMusicError('Добавьте файл public/sounds/code-focus.mp3.');
+                setQuestionCodeMusicError('Проверьте файл public/sounds/code-focus-compact.mp3.');
               }
             }}
           />

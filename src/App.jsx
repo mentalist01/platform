@@ -18551,6 +18551,73 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     telemostLessonReplay,
   ]);
 
+  const handleOpenIndividualTelemost = useCallback(({
+    studentId,
+    lessonId = '',
+    telemostUrl = '',
+  } = {}) => {
+    if (user.role !== 'teacher') return false;
+    const normalizedStudentId = String(studentId || '').trim();
+    const normalizedLessonId = String(lessonId || '').trim();
+    const normalizedUrl = normalizeTelemostUrl(telemostUrl);
+    if (!normalizedStudentId || !normalizedUrl) return false;
+
+    const currentReplayStudentId = String(telemostLessonReplay?.studentId || '').trim();
+    const anotherReplayIsActive = (
+      isGroupLessonReplayActive
+      || (isTelemostLessonReplayActive && currentReplayStudentId !== normalizedStudentId)
+      || Boolean(telemostAudioCaptureRef.current)
+      || Boolean(telemostAudioCaptureStartingRef.current)
+    );
+    if (anotherReplayIsActive) {
+      setTelemostLessonFinishError('Сначала завершите текущее занятие или запись, затем откройте Телемост.');
+      return false;
+    }
+
+    // This callback is called directly from the teacher's click handler. Keep
+    // both window.open and getDisplayMedia before the first await so browsers
+    // preserve the user-gesture permission for tab/audio capture.
+    window.open(normalizedUrl, '_blank', 'noopener,noreferrer');
+    setTelemostLessonFinishError('');
+    applyTelemostLessonReplay({
+      active: true,
+      mode: 'telemost',
+      studentId: normalizedStudentId,
+      occurrenceKey: '',
+    });
+    const capturePromise = startTelemostAudioCapture({
+      force: true,
+      lessonId: normalizedLessonId || normalizedStudentId,
+    });
+    void (async () => {
+      try {
+        await capturePromise;
+        if (!telemostAudioCaptureRef.current) {
+          throw new Error('Запись звука не запустилась. Разрешите захват вкладки Телемоста и аудио.');
+        }
+        const result = await api.activateTelemostLesson(normalizedStudentId);
+        if (result?.activity) applyTelemostLessonReplay(result.activity);
+      } catch (error) {
+        console.error('[lesson-replay] failed to start individual Telemost lesson:', error);
+        await stopTelemostAudioCapture();
+        setTelemostLessonReplay(null);
+        setTelemostAudioCapture({
+          status: 'error',
+          message: error?.message || 'Телемост открыт, но запись занятия не запустилась.',
+        });
+      }
+    })();
+    return true;
+  }, [
+    applyTelemostLessonReplay,
+    isGroupLessonReplayActive,
+    isTelemostLessonReplayActive,
+    startTelemostAudioCapture,
+    stopTelemostAudioCapture,
+    telemostLessonReplay?.studentId,
+    user.role,
+  ]);
+
   const handleOpenLearningGroupTelemost = useCallback((meetingUrlOrLesson) => {
     const suppliedLesson = meetingUrlOrLesson && typeof meetingUrlOrLesson === 'object'
       ? meetingUrlOrLesson
@@ -18708,17 +18775,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   ]);
 
   // The browser ends display capture when the selected Telemost tab is
-  // closed. Finish the group occurrence as well, otherwise the old local
-  // floating pill would keep claiming that a lesson is running and the
-  // server would remain in `active` state indefinitely.
+  // closed. Keep the teacher warned for an individual lesson and finish a
+  // group occurrence automatically, otherwise a stale active state could
+  // survive after the selected tab disappears.
   useEffect(() => {
     const lessonId = String(activeLearningLesson?.lessonId || '').trim();
     const groupId = String(activeLearningLesson?.groupId || '').trim();
+    const studentId = String(telemostLessonReplay?.studentId || '').trim();
     const isTeacherGroupReplay = user.role === 'teacher'
       && isGroupLessonReplayActive
       && lessonId
       && groupId;
-    if (!isTeacherGroupReplay) {
+    const isTeacherIndividualReplay = user.role === 'teacher'
+      && isTelemostLessonReplayActive
+      && studentId;
+    if (!isTeacherGroupReplay && !isTeacherIndividualReplay) {
       telemostCaptureLossLessonKeyRef.current = '';
       if (telemostCaptureLossTimerRef.current) {
         window.clearTimeout(telemostCaptureLossTimerRef.current);
@@ -18738,9 +18809,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       return undefined;
     }
     if (telemostLessonFinishBusy || telemostLessonFinishError) return undefined;
-    const lessonKey = `${groupId}:${lessonId}`;
+    const lessonKey = isTeacherGroupReplay
+      ? `${groupId}:${lessonId}`
+      : `student:${studentId}`;
     if (telemostCaptureLossLessonKeyRef.current === lessonKey) return undefined;
     telemostCaptureLossLessonKeyRef.current = lessonKey;
+    if (isTeacherIndividualReplay) {
+      setTelemostAudioCapture({
+        status: 'error',
+        message: 'Захват звука Телемоста остановлен. Проверьте вкладку и нажмите «Запустить запись» ещё раз.',
+      });
+      return undefined;
+    }
     telemostCaptureLossTimerRef.current = window.setTimeout(() => {
       telemostCaptureLossTimerRef.current = null;
       if (telemostLessonFinishBusy || telemostLessonFinishError) return;
@@ -18757,7 +18837,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     activeLearningLesson?.lessonId,
     handleFinishTelemostLesson,
     isGroupLessonReplayActive,
+    isTelemostLessonReplayActive,
     telemostAudioCapture.status,
+    telemostLessonReplay?.studentId,
     telemostLessonFinishBusy,
     telemostLessonFinishError,
     user.role,
@@ -23610,7 +23692,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <Mic size={14} />
               {telemostAudioCapture.status === 'recording'
                 ? 'Звук пишется'
-                : (telemostAudioCapture.status === 'requesting' ? 'Выбери вкладку…' : 'Записать звук')}
+                : (telemostAudioCapture.status === 'requesting'
+                  ? 'Выбери вкладку…'
+                  : 'Запустить запись')}
             </span>
           </button>}
           <button
@@ -25552,6 +25636,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               autoStartToken={callAutoStartToken}
               onStatusChange={setCallSessionStatus}
               onTelemostLessonStart={applyTelemostLessonReplay}
+              onTeacherTelemostOpen={handleOpenIndividualTelemost}
               onLessonReplayEvent={recordLessonReplayEvent}
               onLessonReplayScreenSnapshot={uploadLessonReplayScreenSnapshot}
               onLessonReplayAudioSegment={uploadLessonReplayAudioSegment}

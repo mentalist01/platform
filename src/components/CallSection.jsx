@@ -1307,6 +1307,7 @@ const CallSection = ({
   onRequestOpenCall,
   onStatusChange,
   onTelemostLessonStart,
+  onTeacherTelemostOpen,
   onLessonReplayEvent,
   onLessonReplayScreenSnapshot,
   onLessonReplayAudioSegment,
@@ -4244,8 +4245,22 @@ const CallSection = ({
       });
   }, [isGroupLesson, isTeacher, signalTelemostLessonStart, stopCall, telemostUrl]);
 
-  const handleTeacherTelemostOpen = useCallback(() => {
+  const handleTeacherTelemostOpen = useCallback((event) => {
     if (isGroupLesson || !isTeacher || !effectiveStudentId || !telemostUrl) return;
+    if (typeof onTeacherTelemostOpen === 'function') {
+      // Keep the browser gesture intact: the parent opens the external tab and
+      // starts getDisplayMedia synchronously before any network request.
+      event?.preventDefault?.();
+      stopCall();
+      setTelemostError('');
+      setTelemostNotice('Открываем Телемост и запускаем запись...');
+      void onTeacherTelemostOpen({
+        studentId: effectiveStudentId,
+        lessonId,
+        telemostUrl,
+      });
+      return;
+    }
     signalTelemostLessonStart();
     stopCall();
     setTelemostError('');
@@ -4259,7 +4274,16 @@ const CallSection = ({
         setTelemostNotice('');
         setTelemostError(activateError?.message || 'Телемост открыт, но продолжить запись урока не удалось.');
       });
-  }, [effectiveStudentId, isGroupLesson, isTeacher, signalTelemostLessonStart, stopCall, telemostUrl]);
+  }, [
+    effectiveStudentId,
+    isGroupLesson,
+    isTeacher,
+    lessonId,
+    onTeacherTelemostOpen,
+    signalTelemostLessonStart,
+    stopCall,
+    telemostUrl,
+  ]);
 
   const startCall = useCallback(async (options = {}) => {
     const isReconnect = Boolean(options?.isReconnect);
