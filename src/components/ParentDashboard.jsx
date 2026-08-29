@@ -871,10 +871,10 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
       mobileFlagClass: 'bg-rose-600 text-white',
       lightClass: paymentRequired
         ? 'border-rose-300 bg-rose-50'
-        : 'border-slate-200 bg-white',
+        : 'border-emerald-300 bg-emerald-50',
       darkClass: paymentRequired
         ? 'border-rose-800 bg-rose-950/40'
-        : 'border-slate-700 bg-slate-900/70',
+        : 'border-emerald-800 bg-emerald-950/40',
       iconClass: paymentRequired
         ? (dark ? 'bg-rose-900 text-rose-200' : 'bg-rose-600 text-white')
         : (dark ? 'bg-emerald-900 text-emerald-200' : 'bg-emerald-600 text-white'),
