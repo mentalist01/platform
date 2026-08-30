@@ -54,9 +54,7 @@ export const buildLessonReplayBoardRecovery = (replay, rawFinalItems, options = 
     });
   });
 
-  const missing = finalItems
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => !knownIds.has(getItemId(item)));
+  const finalEntries = finalItems.map((item, index) => ({ item, index }));
   const actorsById = getReplayActorsById(sourceEvents);
   const fallbackActor = getFallbackActor(replay, actorsById);
   const timelineStartMs = Number(replay?.timelineStartMs) || Number(replay?.occurrence?.startMs) || 0;
@@ -65,7 +63,9 @@ export const buildLessonReplayBoardRecovery = (replay, rawFinalItems, options = 
     .filter(({ event }) => event?.type === 'board')
     .sort((left, right) => getOffsetMs(left.event) - getOffsetMs(right.event) || left.sourceIndex - right.sourceIndex);
   const recoveryEvents = [];
-  let missingCursor = 0;
+  const materializedIds = new Set();
+  const recoveredIds = new Set();
+  let frontierCursor = 0;
   let frontier = -1;
   let recoverySequence = 0;
 
@@ -74,6 +74,11 @@ export const buildLessonReplayBoardRecovery = (replay, rawFinalItems, options = 
     const offsetMs = Math.max(0, Math.round(Number(rawOffsetMs) || 0));
     const byActorId = new Map();
     entries.forEach((entry) => {
+      const itemId = getItemId(entry.item);
+      if (itemId) {
+        materializedIds.add(itemId);
+        recoveredIds.add(itemId);
+      }
       const actorId = String(entry.item?.authorId || fallbackActor.id || '').trim();
       if (!byActorId.has(actorId)) byActorId.set(actorId, []);
       byActorId.get(actorId).push(entry);
@@ -113,14 +118,18 @@ export const buildLessonReplayBoardRecovery = (replay, rawFinalItems, options = 
 
   boardEvents.forEach(({ event }) => {
     getBoardPayloadItems(event.payload).forEach((item) => {
-      const finalIndex = finalIndexById.get(getItemId(item));
+      const itemId = getItemId(item);
+      if (itemId) materializedIds.add(itemId);
+      const finalIndex = finalIndexById.get(itemId);
       if (Number.isFinite(finalIndex)) frontier = Math.max(frontier, finalIndex);
     });
     if (frontier < 0) return;
     const recoveredAtEvent = [];
-    while (missingCursor < missing.length && missing[missingCursor].index <= frontier) {
-      recoveredAtEvent.push(missing[missingCursor]);
-      missingCursor += 1;
+    while (frontierCursor < finalEntries.length && finalEntries[frontierCursor].index <= frontier) {
+      const entry = finalEntries[frontierCursor];
+      const itemId = getItemId(entry.item);
+      if (itemId && !materializedIds.has(itemId)) recoveredAtEvent.push(entry);
+      frontierCursor += 1;
     }
     appendRecoveryItems(recoveredAtEvent, getOffsetMs(event) + 1);
   });
@@ -128,16 +137,19 @@ export const buildLessonReplayBoardRecovery = (replay, rawFinalItems, options = 
   const lastOffsetMs = sourceEvents.reduce((maximum, event) => (
     Math.max(maximum, getOffsetMs(event))
   ), 0);
-  const recoveredAtEnd = missing.slice(missingCursor);
+  const recoveredAtEnd = finalEntries.filter(({ item }) => {
+    const itemId = getItemId(item);
+    return itemId && !materializedIds.has(itemId);
+  });
   appendRecoveryItems(recoveredAtEnd, lastOffsetMs + 1);
 
   return {
     events: recoveryEvents,
     stats: {
       finalItemCount: finalItems.length,
-      knownFinalItemCount: finalItems.length - missing.length,
-      recoveredItemCount: missing.length,
-      inferredItemCount: missing.length - recoveredAtEnd.length,
+      knownFinalItemCount: finalItems.filter((item) => knownIds.has(getItemId(item))).length,
+      recoveredItemCount: recoveredIds.size,
+      inferredItemCount: recoveredIds.size - recoveredAtEnd.length,
       recoveredAtEndCount: recoveredAtEnd.length,
       finalFrontier: frontier,
     },

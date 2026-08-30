@@ -50,3 +50,25 @@ test('recovers omitted middle objects when a truncated snapshot exposes the late
   assert.deepEqual(stateAfterFrontier.map((entry) => entry.id), finalItems.slice(0, 10).map((entry) => entry.id));
   assert.deepEqual(stateAtEnd.map((entry) => entry.id), finalItems.map((entry) => entry.id));
 });
+
+test('moves an object to the inferred frontier when the legacy replay records it too late', () => {
+  const finalItems = Array.from({ length: 11 }, (_, index) => item(index));
+  const replay = {
+    timelineStartMs: 1_000_000,
+    occurrence: { startMs: 1_000_000, studentId: 'student-1' },
+    events: [
+      boardEvent('initial', 0, [item(0), item(1)]),
+      boardEvent('truncated', 100, [item(0), item(1), item(8), item(9)], true),
+      boardEvent('late-complete', 200, finalItems),
+    ],
+  };
+
+  const recovery = buildLessonReplayBoardRecovery(replay, finalItems);
+  const repaired = { ...replay, events: [...replay.events, ...recovery.events] };
+  const stateAfterFrontier = getLessonReplayStateAt(repaired, 102).board.items;
+
+  assert.equal(recovery.stats.knownFinalItemCount, 11);
+  assert.equal(recovery.stats.inferredItemCount, 6);
+  assert.equal(recovery.stats.recoveredAtEndCount, 0);
+  assert.deepEqual(stateAfterFrontier.map((entry) => entry.id), finalItems.slice(0, 10).map((entry) => entry.id));
+});
