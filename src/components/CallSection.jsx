@@ -7,6 +7,7 @@ import StudentSearchSelect from './StudentSearchSelect';
 import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
 import { normalizeRtcParticipantIds, resolveCallRtcRoom } from '../utils/rtcRooms';
 import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
+import { shouldSaveLessonReplayScreenFrame } from '../utils/lessonReplayScreenCapture';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 import './CallSection.css';
 
@@ -105,8 +106,11 @@ const INLINE_PANEL_BOTTOM_GAP_PX = 2;
 const LESSON_CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const LESSON_CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const PREJOIN_SIGNAL_PROBE_TIMEOUT_MS = 3500;
-const LESSON_REPLAY_SCREEN_CAPTURE_INTERVAL_MS = 30_000;
-const LESSON_REPLAY_SCREEN_HEARTBEAT_MS = 90_000;
+// Poll the shared track often enough to catch short-lived windows/slides.
+// Uploads are still gated by the fingerprint check below, so an unchanged
+// screen does not create a new replay event on every poll.
+const LESSON_REPLAY_SCREEN_CAPTURE_INTERVAL_MS = 5_000;
+const LESSON_REPLAY_SCREEN_HEARTBEAT_MS = 60_000;
 const LESSON_REPLAY_SCREEN_CAPTURE_MAX_BYTES = 238 * 1024;
 const LESSON_REPLAY_SCREEN_CAPTURE_MAX_WIDTH = 1280;
 const LESSON_REPLAY_SCREEN_CAPTURE_MAX_HEIGHT = 720;
@@ -202,17 +206,11 @@ const getScreenFrameFingerprint = (canvas) => {
   const data = context.getImageData(0, 0, sample.width, sample.height).data;
   const result = [];
   for (let index = 0; index < data.length; index += 4) {
-    result.push(Math.round((data[index] * 0.299) + (data[index + 1] * 0.587) + (data[index + 2] * 0.114)));
+    // Keep RGB channels. A grayscale-only fingerprint can treat a color-only
+    // slide/status change as unchanged when both colors have similar luminance.
+    result.push(data[index], data[index + 1], data[index + 2]);
   }
   return result;
-};
-
-const getFingerprintDifference = (previous, next) => {
-  if (!Array.isArray(previous) || !Array.isArray(next) || previous.length !== next.length || next.length === 0) {
-    return Number.POSITIVE_INFINITY;
-  }
-  const total = next.reduce((sum, value, index) => sum + Math.abs(value - previous[index]), 0);
-  return total / next.length;
 };
 
 const encodeScreenFrame = async (sourceCanvas) => {
@@ -2255,10 +2253,13 @@ const CallSection = ({
         const frame = await captureScreenTrackFrame(source.track);
         if (cancelled || !frame) return;
         const now = Date.now();
-        const difference = getFingerprintDifference(lastSavedFingerprint, frame.fingerprint);
-        const shouldSave = lastSavedAt === 0
-          || now - lastSavedAt >= LESSON_REPLAY_SCREEN_HEARTBEAT_MS
-          || difference >= 1.5;
+        const shouldSave = shouldSaveLessonReplayScreenFrame({
+          previousFingerprint: lastSavedFingerprint,
+          nextFingerprint: frame.fingerprint,
+          lastSavedAt,
+          nowMs: now,
+          heartbeatMs: LESSON_REPLAY_SCREEN_HEARTBEAT_MS,
+        });
         if (!shouldSave) return;
         const result = await onLessonReplayScreenSnapshot(frame.blob, {
           width: frame.width,
@@ -2284,7 +2285,7 @@ const CallSection = ({
       }
     };
 
-    scheduleNext(2500);
+    scheduleNext(1000);
     return () => {
       cancelled = true;
       window.clearTimeout(timerId);

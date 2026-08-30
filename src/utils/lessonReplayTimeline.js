@@ -38,6 +38,11 @@ export const getReplayTimelineDurationMs = (events, reportedDurationMs = 0) => {
 };
 
 const getActorLabel = (event) => {
+  if (
+    event?.type === 'code'
+    && event.payload?.action === 'snapshot'
+    && event.payload?.actorVerified !== true
+  ) return '';
   const role = event?.actor?.role || event?.payload?.sharedByRole || '';
   const name = String(event?.actor?.name || event?.payload?.sharedByName || '').trim();
   if (name) return name;
@@ -90,6 +95,9 @@ const getSurfaceActionLabel = (event) => {
 
 export const getReplayEventNarration = (event) => {
   const actor = getActorLabel(event);
+  if (!actor && event?.type === 'code' && event.payload?.action === 'snapshot') {
+    return 'Состояние кода';
+  }
   if (!actor && event?.type === 'board') {
     const hasUpserts = Array.isArray(event.payload?.upserts) && event.payload.upserts.length > 0;
     const hasRemovals = Array.isArray(event.payload?.removedIds) && event.payload.removedIds.length > 0;

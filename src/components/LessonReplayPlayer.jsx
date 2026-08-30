@@ -138,8 +138,10 @@ const getEventLabel = (event) => {
   if (event.type === 'run') return 'Запуск программы';
   if (event.type === 'screen') {
     if (event.payload?.active === false) return 'Демонстрация экрана завершена';
-    const owner = event.payload?.sharedByRole === 'teacher' ? 'учителя' : 'ученика';
-    return `Экран ${owner}`;
+    const ownerRole = getLessonReplayActorRole(event);
+    if (ownerRole === 'teacher') return 'Экран учителя';
+    if (ownerRole === 'student') return 'Экран ученика';
+    return 'Демонстрация экрана';
   }
   if (event.type === 'session') {
     if (event.payload?.action === 'switch') {
@@ -1049,6 +1051,10 @@ const ReplayScreen = ({ event, occurrence }) => {
     ? api.getLessonReplaySnapshotUrl(occurrence.studentId, occurrence.key, snapshotId)
     : '';
   const failed = failedSnapshotId === snapshotId;
+  const ownerRole = getLessonReplayActorRole(event);
+  const ownerLabel = ownerRole === 'teacher'
+    ? 'Экран учителя'
+    : (ownerRole === 'student' ? 'Экран ученика' : 'Демонстрация экрана');
 
   if (!source || failed) {
     return <div className="lesson-replay-player__empty-surface"><MonitorUp size={25} /><span>{failed ? 'Этот снимок экрана уже недоступен' : 'На этом моменте нет снимка экрана'}</span></div>;
@@ -1056,7 +1062,7 @@ const ReplayScreen = ({ event, occurrence }) => {
   return (
     <div className="lesson-replay-player__screen">
       <img src={source} alt="Снимок демонстрации экрана" onError={() => setFailedSnapshotId(snapshotId)} />
-      <span><MonitorUp size={13} />{event.payload?.sharedByRole === 'teacher' ? 'Экран учителя' : 'Экран ученика'}</span>
+      <span><MonitorUp size={13} />{ownerLabel}</span>
     </div>
   );
 };
@@ -1779,8 +1785,11 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       <nav className="lesson-replay-player__tabs" aria-label="Материалы записи">
         {availableTabs.map((tab) => {
           const Icon = SURFACE_TABS[tab].icon;
+          const screenOwnerRole = getLessonReplayActorRole(screenEvent);
           const label = tab === 'screen'
-            ? `Экран ${(screenEvent?.payload?.sharedByRole || getLessonReplayActorRole(screenEvent)) === 'teacher' ? 'учителя' : 'ученика'}`
+            ? (screenOwnerRole === 'teacher'
+              ? 'Экран учителя'
+              : (screenOwnerRole === 'student' ? 'Экран ученика' : 'Экран'))
             : SURFACE_TABS[tab].label;
           return <button key={tab} type="button" aria-pressed={resolvedActiveTab === tab} className={resolvedActiveTab === tab ? 'is-active' : ''} onClick={() => setActiveTab(tab)}><Icon size={15} />{label}</button>;
         })}

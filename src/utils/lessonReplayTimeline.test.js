@@ -60,10 +60,18 @@ test('builds readable narrations for code, board and viewport actions', () => {
   assert.equal(
     getReplayEventNarration({
       type: 'code',
-      payload: { action: 'snapshot' },
+      payload: { action: 'snapshot', actorVerified: false },
       actor: { role: 'teacher', name: 'Иван' },
     }),
-    'Иван сохраняет состояние кода'
+    'Состояние кода'
+  );
+  assert.equal(
+    getReplayEventNarration({
+      type: 'code',
+      payload: { action: 'edit', actorVerified: true },
+      actor: { role: 'teacher', name: 'Иван' },
+    }),
+    'Иван печатает в коде'
   );
   assert.equal(
     getReplayEventNarration({

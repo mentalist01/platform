@@ -287,6 +287,11 @@ const normalizePayload = (type, value) => {
     return {
       language: clampText(source.language || 'python', 40).trim() || 'python',
       action: ['edit', 'run', 'snapshot'].includes(source.action) ? source.action : 'edit',
+      // A snapshot can be emitted while a participant is joining and only
+      // reflects the already-shared document. Keep that distinction in the
+      // replay so the player does not attribute a passive checkpoint to the
+      // participant whose client happened to flush it.
+      actorVerified: source.actorVerified === true,
       code: clampText(source.code, MAX_CODE_CHARS),
       input: clampText(source.input, MAX_INPUT_CHARS),
       testFile: clampText(source.testFile, MAX_INPUT_CHARS),
@@ -336,7 +341,7 @@ const normalizePayload = (type, value) => {
         : '',
       sharedByRole: ['teacher', 'student'].includes(source.sharedByRole)
         ? source.sharedByRole
-        : 'student',
+        : '',
       sharedByName: clampText(source.sharedByName, 160).trim(),
     };
   }
@@ -430,14 +435,14 @@ const sortLessonReplayEvents = (events) => (
 
 const actorEventTypeKey = (event) => JSON.stringify([
   event.type,
-  isSharedSurfaceEvent(event) ? 'shared' : (event.actor?.role || 'student'),
+  isSharedSurfaceEvent(event) ? 'shared' : (event.actor?.role || ''),
   isSharedSurfaceEvent(event) ? '' : (event.actor?.id || ''),
   event.type === 'viewport' ? (event.payload?.surface || '') : '',
 ]);
 
 const eventStateKey = (event) => JSON.stringify([
   event.type,
-  isSharedSurfaceEvent(event) ? 'shared' : (event.actor?.role || 'student'),
+  isSharedSurfaceEvent(event) ? 'shared' : (event.actor?.role || ''),
   isSharedSurfaceEvent(event) ? '' : (event.actor?.id || ''),
   event.type === 'viewport' ? (event.payload?.surface || '') : '',
 ]);
@@ -559,7 +564,7 @@ export const normalizeLessonReplayEvent = (value, context = {}) => {
       ? Math.max(0, Math.round(occurredAtMs - timelineStartMs))
       : 0,
     actor: {
-      role: ['teacher', 'student'].includes(context.actorRole) ? context.actorRole : 'student',
+      role: ['teacher', 'student'].includes(context.actorRole) ? context.actorRole : '',
       id: clampText(context.actorId, 160).trim(),
       name: clampText(context.actorName, 160).trim(),
     },

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildLessonReplayPlaybackState,
+  getLessonReplayActorRole,
   getLessonReplayFollowSurface,
 } from './lessonReplayPlaybackState.js';
 
@@ -69,4 +70,19 @@ test('follows each participant navigation without switching on the other actor e
   assert.equal(getLessonReplayFollowSurface(events, 250, 'student'), 'code');
   assert.equal(getLessonReplayFollowSurface(events, 350, 'teacher'), 'board');
   assert.equal(getLessonReplayFollowSurface(events, 350, 'student'), 'code');
+});
+
+test('keeps passive code checkpoints neutral while retaining verified edits', () => {
+  const passiveSnapshot = {
+    type: 'code',
+    actor: { id: 'student-1', role: 'student', name: 'Олег' },
+    payload: { action: 'snapshot', actorVerified: false, code: 'print(1)' },
+  };
+  const verifiedEdit = {
+    ...passiveSnapshot,
+    payload: { ...passiveSnapshot.payload, action: 'edit', actorVerified: true },
+  };
+
+  assert.equal(getLessonReplayActorRole(passiveSnapshot), '');
+  assert.equal(getLessonReplayActorRole(verifiedEdit), 'student');
 });

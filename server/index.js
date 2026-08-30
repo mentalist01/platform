@@ -324,8 +324,22 @@ const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;
 const TELEMOST_LESSON_DRAIN_MS = 30 * 1000;
 const LESSON_REPLAY_MAX_COMPRESSED_BYTES = LESSON_REPLAY_MAX_FILE_BYTES + 1024 * 1024;
 const LESSON_REPLAY_SNAPSHOT_MAX_FILE_BYTES = 256 * 1024;
-const LESSON_REPLAY_SNAPSHOT_MAX_FILES = 200;
-const LESSON_REPLAY_SNAPSHOT_MAX_LESSON_BYTES = 8 * 1024 * 1024;
+// Screen-share capture polls every few seconds and therefore needs enough
+// headroom for a normal hour-long lesson. Keep both limits configurable so a
+// deployment can tune retention to its disk budget instead of silently losing
+// the remainder of a recording at the old 200-frame/8-MB ceiling.
+const LESSON_REPLAY_SNAPSHOT_MAX_FILES = (() => {
+  const configured = Number(process.env.LESSON_REPLAY_SNAPSHOT_MAX_FILES);
+  if (Number.isFinite(configured) && configured >= 1) return Math.floor(configured);
+  return 720;
+})();
+const LESSON_REPLAY_SNAPSHOT_MAX_LESSON_BYTES = (() => {
+  const configured = Number(process.env.LESSON_REPLAY_SNAPSHOT_MAX_LESSON_BYTES);
+  if (Number.isFinite(configured) && configured >= LESSON_REPLAY_SNAPSHOT_MAX_FILE_BYTES) {
+    return Math.floor(configured);
+  }
+  return 32 * 1024 * 1024;
+})();
 const LESSON_REPLAY_SNAPSHOT_MAX_TOTAL_BYTES = (() => {
   const configured = Number(process.env.LESSON_REPLAY_SNAPSHOT_MAX_TOTAL_BYTES);
   if (Number.isFinite(configured) && configured >= LESSON_REPLAY_SNAPSHOT_MAX_LESSON_BYTES) {
@@ -30498,7 +30512,12 @@ const serializeLessonReplayForClient = (replay) => {
       occurredAt: event.occurredAt,
       offsetMs: event.offsetMs,
       actor: {
-        role: event.actor?.role || 'student',
+        // Preserve the identity used to author a board/code mutation. The
+        // player uses it to reconcile item.authorId with the event actor in a
+        // shared replay; dropping it makes a valid teacher action look like a
+        // student action (or makes the fallback role win).
+        id: String(event.actor?.id || '').trim(),
+        role: ['teacher', 'student'].includes(event.actor?.role) ? event.actor.role : '',
         name: event.actor?.name || '',
       },
       payload: event.payload,
@@ -31428,9 +31447,10 @@ app.post(
     }
     const width = Math.max(1, Math.min(3840, Math.round(Number(req.body?.width) || 1280)));
     const height = Math.max(1, Math.min(2160, Math.round(Number(req.body?.height) || 720)));
-    const sharedByRole = session.actorRole === 'student'
-      ? 'student'
-      : (req.body?.sharedByRole === 'teacher' ? 'teacher' : 'student');
+    const requestedSharedByRole = ['teacher', 'student'].includes(req.body?.sharedByRole)
+      ? req.body.sharedByRole
+      : '';
+    const sharedByRole = session.actorRole === 'student' ? 'student' : requestedSharedByRole;
     const sharedByName = String(req.body?.sharedByName || '').replace(/\0/g, '').trim().slice(0, 160);
     const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
     const occurredAtMs = Date.parse(String(req.body?.occurredAt || '').trim());

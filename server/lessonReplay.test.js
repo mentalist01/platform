@@ -407,7 +407,7 @@ test('screen snapshots keep only a safe compact reference', () => {
     sizeBytes: 84_000,
     mimeType: 'image/webp',
     checksum: '',
-    sharedByRole: 'student',
+    sharedByRole: '',
     sharedByName: '',
   });
   assert.equal(normalizeLessonReplayEvent({
@@ -494,11 +494,28 @@ test('keeps the code action used by replay narration', () => {
     id: 'code-edit',
     type: 'code',
     occurredAt: new Date(START_MS + 1000).toISOString(),
-    payload: { action: 'snapshot', code: 'print(1)' },
+    payload: { action: 'snapshot', actorVerified: false, code: 'print(1)' },
   }, eventContext);
 
   assert.equal(event.payload.action, 'snapshot');
+  assert.equal(event.payload.actorVerified, false);
   assert.equal(event.payload.code, 'print(1)');
+});
+
+test('does not invent a student actor for an unauthored replay checkpoint', () => {
+  const event = normalizeLessonReplayEvent({
+    id: 'neutral-code-checkpoint',
+    type: 'code',
+    occurredAt: new Date(START_MS + 1000).toISOString(),
+    payload: { action: 'snapshot', code: 'print(1)' },
+  }, {
+    startMs: START_MS,
+    timelineStartMs: START_MS,
+    endMs: occurrence.endMs,
+  });
+
+  assert.equal(event.actor.role, '');
+  assert.equal(event.payload.actorVerified, false);
 });
 
 test('moves an existing live timeline when an earlier participant event arrives', () => {

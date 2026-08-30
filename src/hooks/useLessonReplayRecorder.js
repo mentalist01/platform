@@ -16,6 +16,7 @@ const AUDIO_UPLOAD_RETRY_DELAYS_MS = [0, 750, 1800];
 const AUDIO_UPLOAD_REQUEST_TIMEOUT_MS = 12_000;
 const AUDIO_UPLOAD_DRAIN_TIMEOUT_MS = 20_000;
 const MAX_PENDING_AUDIO_SEGMENTS = 8;
+const SCREEN_UPLOAD_RETRY_DELAYS_MS = [0, 1000, 3000];
 
 const normalizeRecorderMode = (value) => (value === 'telemost' ? 'telemost' : 'platform');
 
@@ -48,6 +49,11 @@ const applySessionClockToEvents = (events, session) => (
 );
 
 const isRetryableAudioUploadError = (error) => {
+  const status = Number(error?.status) || 0;
+  return status === 0 || status === 408 || status === 425 || status === 429 || status >= 500;
+};
+
+const isRetryableScreenUploadError = (error) => {
   const status = Number(error?.status) || 0;
   return status === 0 || status === 408 || status === 425 || status === 429 || status >= 500;
 };
@@ -562,26 +568,42 @@ const useLessonReplayRecorder = ({
       || blob.size <= 0
       || screenSnapshotDisabledSessionRef.current === session.sessionId
     ) return { saved: false };
-    try {
-      const result = await api.uploadLessonReplaySnapshot(session.sessionId, blob, {
-        ...metadata,
-        occurredAt: getAdjustedOccurredAt(metadata?.occurredAt, session.clockOffsetMs),
-      });
-      return { saved: true, ...result };
-    } catch (error) {
-      const disabled = error?.status === 413 || error?.status === 507;
-      if (disabled) {
-        screenSnapshotDisabledSessionRef.current = session.sessionId;
+    const requestMetadata = {
+      ...metadata,
+      occurredAt: getAdjustedOccurredAt(metadata?.occurredAt, session.clockOffsetMs),
+    };
+    let lastError = null;
+    for (let attempt = 0; attempt < SCREEN_UPLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => window.setTimeout(
+          resolve,
+          SCREEN_UPLOAD_RETRY_DELAYS_MS[attempt]
+        ));
       }
-      if (
-        (error?.status === 404 || error?.status === 410)
-        && sessionRef.current?.sessionId === session.sessionId
-      ) {
-        sessionRef.current = null;
-        if (enabledRef.current) startSessionRef.current?.();
+      if (sessionRef.current?.sessionId !== session.sessionId) {
+        return { saved: false };
       }
-      return { saved: false, disabled, error };
+      try {
+        const result = await api.uploadLessonReplaySnapshot(session.sessionId, blob, requestMetadata);
+        return { saved: true, ...result };
+      } catch (error) {
+        lastError = error;
+        const status = Number(error?.status) || 0;
+        if (status === 413 || status === 507 || !isRetryableScreenUploadError(error)) break;
+      }
     }
+
+    const error = lastError;
+    const disabled = error?.status === 413 || error?.status === 507;
+    if (disabled) screenSnapshotDisabledSessionRef.current = session.sessionId;
+    if (
+      (error?.status === 404 || error?.status === 410)
+      && sessionRef.current?.sessionId === session.sessionId
+    ) {
+      sessionRef.current = null;
+      if (enabledRef.current) startSessionRef.current?.();
+    }
+    return { saved: false, disabled, error };
   }, []);
 
   const uploadLessonReplayAudioSegment = useCallback((blob, metadata = {}) => {

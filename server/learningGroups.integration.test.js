@@ -595,7 +595,18 @@ test('learning groups keep shared work isolated while legacy student schedules r
     );
     assert.equal(studentAReplayDetail.replay.occurrence.key, teacherReplaySession.occurrenceKey);
     assert.equal(studentBReplayDetail.replay.occurrence.key, teacherReplaySession.occurrenceKey);
-    assert.ok(studentBReplayDetail.replay.events.some((event) => event.id === 'shared-code-event'));
+    const sharedCodeEvent = studentBReplayDetail.replay.events.find((event) => (
+      event.id === 'shared-code-event'
+    ));
+    const sharedBoardEvent = studentBReplayDetail.replay.events.find((event) => (
+      event.id === 'shared-board-event'
+    ));
+    assert.ok(sharedCodeEvent);
+    assert.ok(sharedBoardEvent);
+    assert.equal(sharedCodeEvent.actor.id, teacher.id);
+    assert.equal(sharedCodeEvent.actor.role, 'teacher');
+    assert.equal(sharedBoardEvent.actor.id, studentA.id);
+    assert.equal(sharedBoardEvent.actor.role, 'student');
     const replayAudioEvent = studentBReplayDetail.replay.events.find((event) => event.type === 'audio');
     assert.ok(replayAudioEvent);
     const replayAudioResponse = await fetch(

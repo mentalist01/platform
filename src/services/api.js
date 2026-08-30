@@ -2185,7 +2185,10 @@ export const api = {
     formData.append('occurredAt', String(metadata?.occurredAt || new Date().toISOString()));
     formData.append('width', String(Math.max(1, Math.round(Number(metadata?.width) || 1280))));
     formData.append('height', String(Math.max(1, Math.round(Number(metadata?.height) || 720))));
-    formData.append('sharedByRole', metadata?.sharedByRole === 'teacher' ? 'teacher' : 'student');
+    formData.append(
+      'sharedByRole',
+      ['teacher', 'student'].includes(metadata?.sharedByRole) ? metadata.sharedByRole : ''
+    );
     formData.append('sharedByName', String(metadata?.sharedByName || '').trim());
     formData.append('file', blob, `screen-${Date.now()}.${extension}`);
     const res = await apiFetch('/api/lesson-replay/snapshot', {

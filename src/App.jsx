@@ -4108,9 +4108,16 @@ const CollabSection = ({
   }, []);
   const scheduleLessonReplayCodeSnapshot = useCallback((ytext, delayMs = 1400, overrides = {}) => {
     if (!ytext || typeof window === 'undefined') return;
+    const action = ['edit', 'run', 'snapshot'].includes(overrides.action)
+      ? overrides.action
+      : 'snapshot';
     lessonReplayPendingCodeRef.current = {
       language: 'python',
-      action: ['edit', 'run', 'snapshot'].includes(overrides.action) ? overrides.action : 'snapshot',
+      action,
+      // Only edits/runs are authored actions. Snapshot checkpoints are used
+      // to restore the shared document and must remain neutral in the replay.
+      actorVerified: overrides.actorVerified === true
+        || (overrides.actorVerified !== false && action !== 'snapshot'),
       code: ytext.toString(),
       input: Object.prototype.hasOwnProperty.call(overrides, 'input') ? overrides.input : (runInputRef.current || ''),
       testFile: Object.prototype.hasOwnProperty.call(overrides, 'testFile') ? overrides.testFile : (testFileTextRef.current || ''),
@@ -7750,7 +7757,9 @@ const CollabSection = ({
     const ytext = doc.getText('monaco');
     const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
     const handleReplayCodeChange = (_event, transaction) => {
-      if (transaction?.local === false || provider.synced !== true) return;
+      // Yjs invokes observers for remote updates and our own initial/manual
+      // sync calls. Only a genuinely local transaction is an authored edit.
+      if (transaction?.local !== true || provider.synced !== true) return;
       scheduleLessonReplayCodeSnapshot(ytext, 1400, { action: 'edit' });
     };
     ytext.observe(handleReplayCodeChange);
@@ -7772,7 +7781,7 @@ const CollabSection = ({
         output: typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? ''),
         error: typeof runMap.get('error') === 'string' ? runMap.get('error') : String(runMap.get('error') ?? ''),
       };
-      const shouldRecordReplay = transaction?.local !== false && provider.synced === true;
+      const shouldRecordReplay = transaction?.local === true && provider.synced === true;
       if (shouldRecordReplay) scheduleLessonReplayCodeSnapshot(ytext, 250, {
         ...replayRunPayload,
         action: 'run',
@@ -7795,7 +7804,7 @@ const CollabSection = ({
     const syncTestFileFromDoc = (_event, transaction) => {
       const next = normalizeCollabTextFileContent(testFileYText.toString());
       setTestFileText((prev) => (prev === next ? prev : next));
-      if (transaction?.local !== false && provider.synced === true) {
+      if (transaction?.local === true && provider.synced === true) {
         scheduleLessonReplayCodeSnapshot(ytext, 1400, { testFile: next, action: 'edit' });
       }
     };
@@ -14767,7 +14776,10 @@ const BoardSection = ({
       // Each participant records their own local mutations. Recording remote
       // updates again on the teacher client made student actions appear under
       // the teacher's name and introduced nondeterministic duplicate authors.
-      const shouldRecordReplay = transaction?.local !== false && provider?.synced === true;
+      // `updateItems()` is also called manually during mount. An undefined
+      // transaction is a restored/shared snapshot, not a mutation authored by
+      // the participant who mounted the board.
+      const shouldRecordReplay = transaction?.local === true && provider?.synced === true;
       if (
         lessonReplayActiveRef.current
         && shouldRecordReplay

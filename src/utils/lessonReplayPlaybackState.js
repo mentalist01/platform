@@ -11,6 +11,11 @@ const createRoleState = () => ({
 });
 
 export const getLessonReplayActorRole = (event) => {
+  if (
+    event?.type === 'code'
+    && event.payload?.action === 'snapshot'
+    && event.payload?.actorVerified !== true
+  ) return '';
   const role = event?.type === 'screen'
     ? (event?.payload?.sharedByRole || event?.actor?.role)
     : (event?.actor?.role || event?.payload?.sharedByRole);
