@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  compactLessonReplayBoardItems,
   createLessonReplayBoardRecordingState,
   evaluateLessonReplayBoardPayload,
+  LESSON_REPLAY_BOARD_CHECKPOINT_MS,
   splitLessonReplayBoardPayload,
 } from './lessonReplayBoardRecording.js';
 
@@ -16,6 +18,20 @@ const applyBoardPayload = (items, payload) => {
   upserts.forEach((entry) => next.splice(Math.min(next.length, entry.index), 0, entry.item));
   return next;
 };
+
+test('keeps every object from a full 2500-item board', () => {
+  const items = Array.from({ length: 2500 }, (_, index) => ({
+    id: `stroke-${index}`,
+    type: 'stroke',
+    points: [{ x: index, y: index }],
+  }));
+
+  const compacted = compactLessonReplayBoardItems(items);
+
+  assert.equal(compacted.length, 2500);
+  assert.equal(compacted.at(-1).id, 'stroke-2499');
+  assert.ok(LESSON_REPLAY_BOARD_CHECKPOINT_MS < 1000);
+});
 
 test('splits an oversized board keyframe without losing or reordering objects', () => {
   const items = Array.from({ length: 180 }, (_, index) => ({

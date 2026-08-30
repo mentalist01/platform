@@ -199,7 +199,31 @@ test('keeps compact board deltas needed for chronological playback', () => {
   assert.equal(event.payload.upserts.length, 1);
   assert.equal(event.payload.upserts[0].index, 2);
   assert.equal(event.payload.upserts[0].item.id, 'stroke-new');
+  assert.equal(event.payload.truncated, false);
   assert.equal(Object.hasOwn(event.payload, 'items'), false);
+});
+
+test('keeps delta indexes for the full 2500-item board capacity', () => {
+  const event = normalizeLessonReplayEvent({
+    id: 'board-delta-last-index',
+    type: 'board',
+    occurredAt: new Date(START_MS + 15_000).toISOString(),
+    payload: {
+      mode: 'delta',
+      upserts: [{
+        index: 2499,
+        item: {
+          id: 'stroke-2499',
+          type: 'stroke',
+          points: [{ x: 10, y: 20 }, { x: 30, y: 40 }],
+        },
+      }],
+      removedIds: [],
+    },
+  }, eventContext);
+
+  assert.equal(event.payload.upserts[0].index, 2499);
+  assert.equal(event.payload.truncated, false);
 });
 
 test('retains a full hour of 5-second board checkpoints without hitting the replay limit', () => {

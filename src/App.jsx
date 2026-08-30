@@ -103,7 +103,11 @@ import {
 import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
 import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
 import { prepareLessonReplayBoardSandboxItems } from './utils/lessonReplayBoardSandbox';
-import { splitLessonReplayBoardPayload } from './utils/lessonReplayBoardRecording';
+import {
+  compactLessonReplayBoardItems,
+  LESSON_REPLAY_BOARD_CHECKPOINT_MS,
+  splitLessonReplayBoardPayload,
+} from './utils/lessonReplayBoardRecording';
 import {
   getLessonReplayBoardContentBounds,
   resolveLessonReplayBoardViewport,
@@ -10747,28 +10751,7 @@ const CollabSection = ({
   );
 };
 
-const LESSON_REPLAY_BOARD_CHECKPOINT_MS = 5_000;
 const LESSON_REPLAY_BOARD_KEYFRAME_MS = 5 * 60_000;
-
-const compactLessonReplayBoardItems = (items) => (
-  (Array.isArray(items) ? items : []).slice(0, 1200).map((item) => {
-    if (!item || typeof item !== 'object') return null;
-    if (item.type === 'image') {
-      const safeImage = { ...item };
-      delete safeImage.dataUrl;
-      return safeImage.assetUrl ? safeImage : null;
-    }
-    if (item.type === 'stroke' && Array.isArray(item.points) && item.points.length > 600) {
-      const points = [];
-      const step = (item.points.length - 1) / 599;
-      for (let index = 0; index < 600; index += 1) {
-        points.push(item.points[Math.min(item.points.length - 1, Math.round(index * step))]);
-      }
-      return { ...item, points };
-    }
-    return item;
-  }).filter(Boolean)
-);
 
 const createLessonReplayBoardState = (items) => {
   const signaturesById = new Map();
@@ -10783,7 +10766,9 @@ const createLessonReplayBoardState = (items) => {
 };
 
 const createLessonReplayBoardPayload = (items, previousState, forceSnapshot = false) => {
-  const nextState = createLessonReplayBoardState(compactLessonReplayBoardItems(items));
+  const nextState = createLessonReplayBoardState(compactLessonReplayBoardItems(items, {
+    maxItems: BOARD_MAX_ITEM_COUNT,
+  }));
   if (!previousState || forceSnapshot) {
     return {
       payload: { mode: 'snapshot', items: nextState.items },

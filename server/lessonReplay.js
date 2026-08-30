@@ -7,7 +7,7 @@ export const LESSON_REPLAY_MAX_BATCH_EVENTS = 48;
 const MAX_CODE_CHARS = 80_000;
 const MAX_INPUT_CHARS = 20_000;
 const MAX_OUTPUT_CHARS = 24_000;
-const MAX_BOARD_ITEMS = 1200;
+const MAX_BOARD_ITEMS = 2500;
 const MAX_BOARD_STROKE_POINTS = 900;
 const MAX_EVENT_ID_CHARS = 160;
 const MAX_BOARD_EVENT_BYTES = 384 * 1024;
@@ -250,11 +250,14 @@ const fitBoardDeltaToByteLimit = (rawUpserts, rawRemovedIds, maxBytes = MAX_BOAR
     removedIds.push(id);
   });
 
+  const sourceUpserts = Array.isArray(rawUpserts) ? rawUpserts : [];
   const upserts = [];
+  let normalizedUpsertCount = 0;
   let usedBytes = Buffer.byteLength(JSON.stringify({ mode: 'delta', upserts: [], removedIds }), 'utf8');
-  (Array.isArray(rawUpserts) ? rawUpserts : []).slice(0, MAX_BOARD_ITEMS).forEach((entry) => {
+  sourceUpserts.slice(0, MAX_BOARD_ITEMS).forEach((entry) => {
     const item = normalizeBoardItem(entry?.item || entry);
     if (!item) return;
+    normalizedUpsertCount += 1;
     const normalized = {
       index: Math.round(clampNumber(entry?.index, 0, MAX_BOARD_ITEMS - 1, upserts.length)),
       item,
@@ -264,7 +267,15 @@ const fitBoardDeltaToByteLimit = (rawUpserts, rawRemovedIds, maxBytes = MAX_BOAR
     upserts.push(normalized);
     usedBytes += entryBytes;
   });
-  return { upserts, removedIds };
+  return {
+    upserts,
+    removedIds,
+    truncated: (
+      upserts.length < normalizedUpsertCount
+      || sourceUpserts.length > MAX_BOARD_ITEMS
+      || (Array.isArray(rawRemovedIds) && rawRemovedIds.length > MAX_BOARD_ITEMS)
+    ),
+  };
 };
 
 const normalizePayload = (type, value) => {
@@ -312,10 +323,11 @@ const normalizePayload = (type, value) => {
   }
   if (type === 'board') {
     if (source.mode === 'delta') {
+      const fitted = fitBoardDeltaToByteLimit(source.upserts, source.removedIds);
       return {
         mode: 'delta',
         actorVerified: source.actorVerified === true,
-        ...fitBoardDeltaToByteLimit(source.upserts, source.removedIds),
+        ...fitted,
       };
     }
     const sourceItems = (Array.isArray(source.items) ? source.items : []).slice(0, MAX_BOARD_ITEMS);

@@ -1,5 +1,29 @@
 const DEFAULT_BOARD_PAYLOAD_MAX_BYTES = 256 * 1024;
 
+export const LESSON_REPLAY_BOARD_CHECKPOINT_MS = 750;
+
+export const compactLessonReplayBoardItems = (items, options = {}) => {
+  const maxItems = Math.max(1, Math.round(Number(options.maxItems) || 2500));
+  const maxStrokePoints = Math.max(2, Math.round(Number(options.maxStrokePoints) || 600));
+  return (Array.isArray(items) ? items : []).slice(0, maxItems).map((item) => {
+    if (!item || typeof item !== 'object') return null;
+    if (item.type === 'image') {
+      const safeImage = { ...item };
+      delete safeImage.dataUrl;
+      return safeImage.assetUrl ? safeImage : null;
+    }
+    if (item.type === 'stroke' && Array.isArray(item.points) && item.points.length > maxStrokePoints) {
+      const points = [];
+      const step = (item.points.length - 1) / (maxStrokePoints - 1);
+      for (let index = 0; index < maxStrokePoints; index += 1) {
+        points.push(item.points[Math.min(item.points.length - 1, Math.round(index * step))]);
+      }
+      return { ...item, points };
+    }
+    return item;
+  }).filter(Boolean);
+};
+
 const getUtf8ByteLength = (value) => {
   const serialized = JSON.stringify(value);
   if (typeof TextEncoder === 'function') return new TextEncoder().encode(serialized).byteLength;
