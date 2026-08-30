@@ -104,6 +104,10 @@ import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
 import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
 import { prepareLessonReplayBoardSandboxItems } from './utils/lessonReplayBoardSandbox';
 import { splitLessonReplayBoardPayload } from './utils/lessonReplayBoardRecording';
+import {
+  getLessonReplayBoardContentBounds,
+  resolveLessonReplayBoardViewport,
+} from './utils/lessonReplayBoardViewport';
 import { createDebouncedSerialQueue } from './utils/debouncedSerialQueue';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
@@ -11013,6 +11017,7 @@ const BoardSection = ({
   const minimapRenderTimerRef = useRef(null);
   const viewportHydratedRef = useRef(false);
   const viewportPersistTimerRef = useRef(null);
+  const sandboxViewportAdaptationRef = useRef({ key: '', hasContent: false });
   const lessonReplayEventRef = useRef(isSandbox ? null : onLessonReplayEvent);
   const lessonReplayActiveRef = useRef(Boolean(!isSandbox && lessonReplayActive));
   const lessonReplayPreviousActiveRef = useRef(Boolean(!isSandbox && lessonReplayActive));
@@ -11777,6 +11782,53 @@ const BoardSection = ({
   }, [
     boardViewportStorageKey,
     isSandbox,
+    sandboxReadOnlyViewportSignature,
+    sandboxSessionId,
+  ]);
+
+  useEffect(() => {
+    if (!isSandbox || !sandboxReadOnly) {
+      sandboxViewportAdaptationRef.current = { key: '', hasContent: false };
+      return;
+    }
+    const width = Math.max(1, Math.round(Number(boardSize.width) || 900));
+    const height = Math.max(1, Math.round(Number(boardSize.height) || 520));
+    const adaptationKey = [
+      sandboxSessionId,
+      sandboxReadOnlyViewportSignature || 'fit',
+      width,
+      height,
+    ].join(':');
+    const contentBounds = getLessonReplayBoardContentBounds(boardItemsRef.current);
+    const hasContent = Boolean(contentBounds);
+    const previousAdaptation = sandboxViewportAdaptationRef.current;
+    if (
+      previousAdaptation.key === adaptationKey
+      && (previousAdaptation.hasContent || !hasContent)
+    ) return;
+
+    const resolved = resolveLessonReplayBoardViewport(
+      sandboxConfigRef.current?.viewport,
+      { width, height },
+      contentBounds,
+      { minZoom: BOARD_MIN_ZOOM, maxZoom: BOARD_MAX_ZOOM }
+    );
+    sandboxViewportAdaptationRef.current = { key: adaptationKey, hasContent };
+    zoomRef.current = resolved.zoom;
+    offsetRef.current = resolved.offset;
+    setZoom((current) => (Math.abs(current - resolved.zoom) < 0.0001 ? current : resolved.zoom));
+    setOffset((current) => (
+      Math.abs(current.x - resolved.offset.x) < 0.01
+      && Math.abs(current.y - resolved.offset.y) < 0.01
+        ? current
+        : resolved.offset
+    ));
+  }, [
+    boardRevision,
+    boardSize.height,
+    boardSize.width,
+    isSandbox,
+    sandboxReadOnly,
     sandboxReadOnlyViewportSignature,
     sandboxSessionId,
   ]);

@@ -19,11 +19,11 @@ test('removes a transient empty board checkpoint when navigation remounts the sa
   ]);
 });
 
-test('keeps an empty board checkpoint when the previous board is not restored', () => {
+test('keeps an explicitly verified board clear when the previous board is not restored', () => {
   const events = [
     { id: 'board-full', type: 'board', offsetMs: 0, actor: actor('teacher'), payload: { mode: 'snapshot', items: [item('a')] } },
     { id: 'open-code', type: 'navigation', offsetMs: 1000, actor: actor('teacher'), payload: { view: 'collab' } },
-    { id: 'real-clear', type: 'board', offsetMs: 1001, actor: actor('teacher'), payload: { mode: 'snapshot', items: [] } },
+    { id: 'real-clear', type: 'board', offsetMs: 1001, actor: actor('teacher'), payload: { mode: 'snapshot', items: [], actorVerified: true } },
     { id: 'different-board', type: 'board', offsetMs: 3000, actor: actor('teacher'), payload: { mode: 'snapshot', items: [item('b')] } },
   ];
 
@@ -108,6 +108,19 @@ test('repairs a legacy empty frame followed by passive board synchronization', (
   assert.deepEqual(removeLessonReplaySyncArtifacts(events).map((event) => event.id), [
     'board-full',
     'passive-sync',
+  ]);
+});
+
+test('never lets an unauthored legacy snapshot erase an existing board', () => {
+  const events = [
+    { id: 'board-full', type: 'board', offsetMs: 1_262_539, actor: actor('teacher'), payload: { mode: 'snapshot', items: [item('a'), item('b')] } },
+    { id: 'legacy-empty-21-33', type: 'board', offsetMs: 1_293_684, actor: actor('student'), payload: { mode: 'snapshot', items: [], actorVerified: false } },
+    { id: 'audio-only', type: 'audio', offsetMs: 1_298_512, actor: actor('teacher'), payload: { audioId: 'segment' } },
+  ];
+
+  assert.deepEqual(removeLessonReplaySyncArtifacts(events).map((event) => event.id), [
+    'board-full',
+    'audio-only',
   ]);
 });
 

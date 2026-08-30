@@ -1,8 +1,5 @@
-const BOARD_RESTORE_WINDOW_MS = 10 * 60_000;
 const CODE_RESTORE_WINDOW_MS = 45_000;
 const NAVIGATION_CAPTURE_WINDOW_MS = 2_500;
-const LEGACY_SURFACE_SWITCH_WINDOW_MS = 2_500;
-const LEGACY_BOARD_REMOUNT_WINDOW_MS = 15_000;
 const LEGACY_BOARD_EVENT_LIMIT_BYTES = 384 * 1024;
 const LEGACY_TRUNCATION_SIZE_THRESHOLD = Math.floor(LEGACY_BOARD_EVENT_LIMIT_BYTES * 0.9);
 
@@ -115,51 +112,6 @@ const convertTruncatedBoardSnapshotToDelta = (event) => ({
   },
 });
 
-const isBoardRestoredAfterEmptySnapshot = (events, startIndex, previousItems) => {
-  const startMs = normalizeOffsetMs(events[startIndex]);
-  let candidateItems = [];
-  for (let index = startIndex + 1; index < events.length; index += 1) {
-    const candidate = events[index];
-    if (normalizeOffsetMs(candidate) - startMs > BOARD_RESTORE_WINDOW_MS) break;
-    if (candidate?.type !== 'board') continue;
-    // New recordings mark real local clears. Never reinterpret one of those
-    // as a mount/unmount artifact, even if an undo later restores the board.
-    if (isEmptyBoardSnapshot(candidate) && candidate.payload?.actorVerified === true) return false;
-    candidateItems = applyBoardPayload(candidateItems, candidate.payload);
-    if (hasSubstantialBoardRestore(previousItems, candidateItems)) return true;
-  }
-  return false;
-};
-
-const isPassiveCodeSwitchAfterEmptyBoard = (events, startIndex) => {
-  const startMs = normalizeOffsetMs(events[startIndex]);
-  for (let index = startIndex + 1; index < events.length; index += 1) {
-    const candidate = events[index];
-    const elapsedMs = normalizeOffsetMs(candidate) - startMs;
-    if (elapsedMs > LEGACY_SURFACE_SWITCH_WINDOW_MS) break;
-    if (candidate?.type === 'board' && candidate.payload?.actorVerified === true) return false;
-    if (candidate?.type === 'code') return candidate.payload?.actorVerified !== true;
-  }
-  return false;
-};
-
-const isPassiveBoardRemountAfterEmptySnapshot = (events, startIndex) => {
-  const startMs = normalizeOffsetMs(events[startIndex]);
-  for (let index = startIndex + 1; index < events.length; index += 1) {
-    const candidate = events[index];
-    if (normalizeOffsetMs(candidate) - startMs > LEGACY_BOARD_REMOUNT_WINDOW_MS) break;
-    if (candidate?.type !== 'board') continue;
-    return (
-      candidate.payload?.mode === 'delta'
-      && candidate.payload?.actorVerified !== true
-      && Array.isArray(candidate.payload?.upserts)
-      && candidate.payload.upserts.length > 0
-      && (!Array.isArray(candidate.payload?.removedIds) || candidate.payload.removedIds.length === 0)
-    );
-  }
-  return false;
-};
-
 const CODE_STATE_FIELDS = ['code', 'input', 'testFile', 'output', 'error'];
 const CODE_SOURCE_FIELDS = ['code', 'input', 'testFile'];
 
@@ -209,10 +161,10 @@ const findNextActorEvent = (events, startIndex, sourceEvent, type, windowMs) => 
 };
 
 // Older clients could emit an empty checkpoint while a collaborative Yjs
-// document was mounting or unmounting. In real legacy lessons the restored
-// keyframe can arrive minutes later, so navigation proximity alone is not a
-// reliable signal. Remove an unverified empty frame only when most of the same
-// object ids are subsequently restored; explicit modern clears remain intact.
+// document was mounting or unmounting. Legacy recordings did not mark an
+// event's author, while real modern clears are explicitly actor-verified.
+// Therefore an unverified empty snapshot must never erase an already visible
+// board. Intentional deletions in legacy recordings were stored as deltas.
 export const removeLessonReplaySyncArtifacts = (events) => {
   const source = Array.isArray(events) ? events.filter(Boolean) : [];
   const navigationByActor = new Map();
@@ -229,11 +181,6 @@ export const removeLessonReplaySyncArtifacts = (events) => {
       isEmptyBoardSnapshot(event)
       && boardItems.length > 0
       && event.payload?.actorVerified !== true
-      && (
-        isBoardRestoredAfterEmptySnapshot(source, index, boardItems)
-        || isPassiveCodeSwitchAfterEmptyBoard(source, index)
-        || isPassiveBoardRemountAfterEmptySnapshot(source, index)
-      )
     ) {
       return;
     }
