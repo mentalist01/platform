@@ -1,7 +1,7 @@
 const REPLAY_VERSION = 1;
 
-export const LESSON_REPLAY_MAX_EVENTS = 2400;
-export const LESSON_REPLAY_MAX_FILE_BYTES = 8 * 1024 * 1024;
+export const LESSON_REPLAY_MAX_EVENTS = 6000;
+export const LESSON_REPLAY_MAX_FILE_BYTES = 32 * 1024 * 1024;
 export const LESSON_REPLAY_MAX_BATCH_EVENTS = 48;
 
 const MAX_CODE_CHARS = 80_000;
@@ -197,7 +197,12 @@ const normalizeBoardItem = (value) => {
 
 const fitBoardItemsToByteLimit = (items, maxBytes = MAX_BOARD_EVENT_BYTES) => {
   const source = Array.isArray(items) ? items : [];
-  if (source.length === 0) return [];
+  if (source.length === 0) return { items: [], truncated: false };
+  const normalizedByIndex = new Map();
+  source.forEach((value, index) => {
+    const item = normalizeBoardItem(value);
+    if (item) normalizedByIndex.set(index, item);
+  });
   const priorityIndexes = [];
   const seenIndexes = new Set();
   const addPriorityIndex = (index) => {
@@ -214,7 +219,7 @@ const fitBoardItemsToByteLimit = (items, maxBytes = MAX_BOARD_EVENT_BYTES) => {
   let usedBytes = Buffer.byteLength('{"items":[]}', 'utf8');
   let consecutiveMisses = 0;
   for (const index of priorityIndexes) {
-    const item = normalizeBoardItem(source[index]);
+    const item = normalizedByIndex.get(index);
     if (!item) continue;
     const itemBytes = Buffer.byteLength(JSON.stringify(item), 'utf8') + (selected.length > 0 ? 1 : 0);
     if (usedBytes + itemBytes > maxBytes) {
@@ -226,7 +231,13 @@ const fitBoardItemsToByteLimit = (items, maxBytes = MAX_BOARD_EVENT_BYTES) => {
     usedBytes += itemBytes;
     consecutiveMisses = 0;
   }
-  return selected.sort((left, right) => left.index - right.index).map((entry) => entry.item);
+  const fittedItems = selected
+    .sort((left, right) => left.index - right.index)
+    .map((entry) => entry.item);
+  return {
+    items: fittedItems,
+    truncated: fittedItems.length < normalizedByIndex.size,
+  };
 };
 
 const fitBoardDeltaToByteLimit = (rawUpserts, rawRemovedIds, maxBytes = MAX_BOARD_EVENT_BYTES) => {
@@ -307,12 +318,13 @@ const normalizePayload = (type, value) => {
         ...fitBoardDeltaToByteLimit(source.upserts, source.removedIds),
       };
     }
+    const sourceItems = (Array.isArray(source.items) ? source.items : []).slice(0, MAX_BOARD_ITEMS);
+    const fitted = fitBoardItemsToByteLimit(sourceItems);
     return {
       mode: 'snapshot',
       actorVerified: source.actorVerified === true,
-      items: fitBoardItemsToByteLimit(
-        (Array.isArray(source.items) ? source.items : []).slice(0, MAX_BOARD_ITEMS)
-      ),
+      items: fitted.items,
+      truncated: fitted.truncated || (Array.isArray(source.items) && source.items.length > MAX_BOARD_ITEMS),
     };
   }
   if (type === 'run') {

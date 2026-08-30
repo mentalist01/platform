@@ -102,6 +102,40 @@ test('materializes code, run result and board deltas at the selected replay mome
   assert.equal(source.events[1].payload.upserts[0].item.text, 'new');
 });
 
+test('preserves omitted objects from a server-truncated legacy board keyframe', () => {
+  const state = getLessonReplayStateAt({
+    events: [
+      {
+        id: 'complete',
+        type: 'board',
+        offsetMs: 0,
+        payload: {
+          mode: 'snapshot',
+          items: [
+            { id: 'a', type: 'text', text: 'old' },
+            { id: 'b', type: 'text', text: 'must stay' },
+          ],
+        },
+      },
+      {
+        id: 'truncated',
+        type: 'board',
+        offsetMs: 1000,
+        payload: {
+          mode: 'snapshot',
+          items: [{ id: 'a', type: 'text', text: 'updated' }],
+          truncated: true,
+        },
+      },
+    ],
+  }, 1000);
+
+  assert.deepEqual(state.board.items.map((item) => [item.id, item.text]), [
+    ['a', 'updated'],
+    ['b', 'must stay'],
+  ]);
+});
+
 test('creates deterministic metadata anchored to the student and replay position', () => {
   const first = createLessonReplayBranchMetadata(replay, 20_000.4);
   const second = createLessonReplayBranchMetadata(structuredClone(replay), 20_000);

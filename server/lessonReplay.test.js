@@ -693,6 +693,7 @@ test('caps a full board snapshot before it can dominate the replay file', () => 
 
   assert.ok(event.payload.items.length > 0);
   assert.ok(event.payload.items.length < items.length);
+  assert.equal(event.payload.truncated, true);
   assert.ok(Buffer.byteLength(JSON.stringify(event), 'utf8') <= 512 * 1024);
 });
 
@@ -703,7 +704,7 @@ test('event-count compaction preserves the start and latest surface states', () 
     occurredAt: new Date(START_MS).toISOString(),
     payload: { action: 'start' },
   }];
-  for (let index = 0; index < 2405; index += 1) {
+  for (let index = 0; index < 6005; index += 1) {
     events.push({
       id: `navigation-${index}`,
       type: 'navigation',
@@ -713,9 +714,9 @@ test('event-count compaction preserves the start and latest surface states', () 
   }
   const replay = normalizeLessonReplay({ occurrence, events });
 
-  assert.equal(replay.events.length, 2400);
+  assert.equal(replay.events.length, 6000);
   assert.ok(replay.events.some((event) => event.id === 'lesson-start'));
-  assert.ok(replay.events.some((event) => event.id === 'navigation-2404'));
+  assert.ok(replay.events.some((event) => event.id === 'navigation-6004'));
 });
 
 test('task events keep an explicit close state and stable question number', () => {

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import { api } from '../services/api';
+import {
+  createLessonReplayBoardRecordingState,
+  evaluateLessonReplayBoardPayload,
+} from '../utils/lessonReplayBoardRecording';
 
 // A replay is background telemetry, not call signalling. Larger batches avoid
 // repeatedly processing a growing lesson file on a small single-core server.
@@ -8,7 +12,7 @@ const FLUSH_INTERVAL_MS = 8000;
 // Keep enough non-audio telemetry for a long temporary outage.  When the
 // safety limit is reached, viewport samples are discarded before any board,
 // code or explicit action event, so the lesson contents remain reconstructable.
-const MAX_QUEUED_EVENTS = 2400;
+const MAX_QUEUED_EVENTS = 6000;
 const STOP_GRACE_MS = 20_000;
 const MODE_SWITCH_RETRY_MS = 1500;
 const EVENT_WRITE_RETRY_DELAYS_MS = [0, 800, 2400];
@@ -169,6 +173,7 @@ const useLessonReplayRecorder = ({
   const startSessionRef = useRef(null);
   const startInFlightRef = useRef(0);
   const lastEventRef = useRef({ signature: '', at: 0 });
+  const boardRecordingStateRef = useRef(createLessonReplayBoardRecordingState());
   const screenSnapshotDisabledSessionRef = useRef('');
   const audioUploadDisabledSessionRef = useRef('');
   const audioUploadQueuesRef = useRef(new Map());
@@ -198,6 +203,7 @@ const useLessonReplayRecorder = ({
           sessionRef.current = null;
           enabledRef.current = false;
           queueRef.current = [];
+          boardRecordingStateRef.current = createLessonReplayBoardRecordingState();
         }
       } catch (error) {
         const stillCurrentSession = sessionRef.current?.sessionId === session.sessionId;
@@ -214,6 +220,7 @@ const useLessonReplayRecorder = ({
           if (stillCurrentSession) {
             sessionRef.current = null;
             queueRef.current = [];
+            boardRecordingStateRef.current = createLessonReplayBoardRecordingState();
           }
           const lessonEnded = /урок[^.]*заверш|запись[^.]*урок[^.]*заверш/iu.test(message);
           if (lessonEnded && stillCurrentSession) enabledRef.current = false;
@@ -331,6 +338,10 @@ const useLessonReplayRecorder = ({
 
   const recordEvent = useCallback((type, payload = {}, options = {}) => {
     if (!enabledRef.current) return false;
+    const boardEvaluation = type === 'board'
+      ? evaluateLessonReplayBoardPayload(boardRecordingStateRef.current, payload)
+      : null;
+    if (boardEvaluation && !boardEvaluation.accepted) return false;
     const signature = getPayloadSignature(type, payload);
     const now = Date.now();
     if (
@@ -340,6 +351,7 @@ const useLessonReplayRecorder = ({
       return false;
     }
     lastEventRef.current = { signature, at: now };
+    if (boardEvaluation) boardRecordingStateRef.current = boardEvaluation.state;
     queueRef.current.push({
       id: createEventId(),
       type,
@@ -369,11 +381,13 @@ const useLessonReplayRecorder = ({
           sessionRef.current = null;
           enabledRef.current = false;
           const pending = queueRef.current.splice(0);
+          boardRecordingStateRef.current = createLessonReplayBoardRecordingState();
           finishSession(previous, pending);
         }, STOP_GRACE_MS);
       } else {
         queueRef.current = [];
         enabledRef.current = false;
+        boardRecordingStateRef.current = createLessonReplayBoardRecordingState();
       }
       return undefined;
     }
@@ -395,7 +409,10 @@ const useLessonReplayRecorder = ({
       const pending = queueRef.current.splice(0);
       finishSession(previous, pending);
     }
-    if (!hasReusableSession) lastEventRef.current = { signature: '', at: 0 };
+    if (!hasReusableSession) {
+      lastEventRef.current = { signature: '', at: 0 };
+      boardRecordingStateRef.current = createLessonReplayBoardRecordingState();
+    }
 
     let cancelled = false;
     let retryDelayMs = 1500;
@@ -506,6 +523,7 @@ const useLessonReplayRecorder = ({
       const pending = queueRef.current.splice(0);
       sessionRef.current = null;
       enabledRef.current = false;
+      boardRecordingStateRef.current = createLessonReplayBoardRecordingState();
       finishSession(session, pending, { keepalive: true });
     };
     window.addEventListener('pagehide', handlePageHide);
@@ -529,6 +547,7 @@ const useLessonReplayRecorder = ({
     sessionRef.current = null;
     const pending = queueRef.current.splice(0);
     lastEventRef.current = { signature: '', at: 0 };
+    boardRecordingStateRef.current = createLessonReplayBoardRecordingState();
     screenSnapshotDisabledSessionRef.current = '';
     audioUploadDisabledSessionRef.current = '';
     if (!session?.sessionId) return { ok: true, alreadyFinished: true };

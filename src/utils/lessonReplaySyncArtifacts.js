@@ -1,6 +1,10 @@
-const BOARD_RESTORE_WINDOW_MS = 10_000;
+const BOARD_RESTORE_WINDOW_MS = 10 * 60_000;
 const CODE_RESTORE_WINDOW_MS = 45_000;
 const NAVIGATION_CAPTURE_WINDOW_MS = 2_500;
+const LEGACY_SURFACE_SWITCH_WINDOW_MS = 2_500;
+const LEGACY_BOARD_REMOUNT_WINDOW_MS = 15_000;
+const LEGACY_BOARD_EVENT_LIMIT_BYTES = 384 * 1024;
+const LEGACY_TRUNCATION_SIZE_THRESHOLD = Math.floor(LEGACY_BOARD_EVENT_LIMIT_BYTES * 0.9);
 
 const normalizeOffsetMs = (event) => Math.max(0, Number(event?.offsetMs) || 0);
 
@@ -12,6 +16,16 @@ const getActorKey = (event) => {
 };
 
 const getItemId = (item) => String(item?.id || '').trim();
+
+const getSerializedByteLength = (value) => {
+  try {
+    const serialized = JSON.stringify(value);
+    if (typeof TextEncoder === 'function') return new TextEncoder().encode(serialized).byteLength;
+    return serialized.length;
+  } catch {
+    return 0;
+  }
+};
 
 const applyBoardPayload = (currentItems, payload = {}) => {
   if (payload.mode !== 'delta') {
@@ -41,15 +55,6 @@ const applyBoardPayload = (currentItems, payload = {}) => {
   return nextItems;
 };
 
-const hasSameBoardIds = (left, right) => {
-  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length || left.length === 0) {
-    return false;
-  }
-  const leftIds = left.map(getItemId);
-  const rightIds = new Set(right.map(getItemId));
-  return leftIds.every((id) => Boolean(id) && rightIds.has(id));
-};
-
 const hasSameBoardState = (left, right) => {
   if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
   try {
@@ -65,6 +70,95 @@ const isEmptyBoardSnapshot = (event) => (
   && Array.isArray(event.payload?.items)
   && event.payload.items.length === 0
 );
+
+const hasSubstantialBoardRestore = (previousItems, candidateItems) => {
+  if (!Array.isArray(previousItems) || previousItems.length === 0 || !Array.isArray(candidateItems)) {
+    return false;
+  }
+  const previousIds = new Set(previousItems.map(getItemId).filter(Boolean));
+  if (previousIds.size === 0) return false;
+  const restoredIds = new Set(candidateItems.map(getItemId).filter(Boolean));
+  let overlap = 0;
+  previousIds.forEach((id) => {
+    if (restoredIds.has(id)) overlap += 1;
+  });
+  const requiredOverlap = previousIds.size <= 3
+    ? previousIds.size
+    : Math.ceil(previousIds.size * 0.6);
+  return overlap >= requiredOverlap;
+};
+
+const isTruncatedBoardSnapshot = (event, previousItems) => {
+  const payload = event?.payload;
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (event?.type !== 'board' || payload?.mode === 'delta' || items.length === 0) return false;
+  if (payload.truncated === true) return true;
+  return (
+    Array.isArray(previousItems)
+    && previousItems.length > items.length
+    && hasSubstantialBoardRestore(previousItems, items)
+    && getSerializedByteLength(payload) >= LEGACY_TRUNCATION_SIZE_THRESHOLD
+  );
+};
+
+const convertTruncatedBoardSnapshotToDelta = (event) => ({
+  ...event,
+  payload: {
+    ...event.payload,
+    mode: 'delta',
+    upserts: (Array.isArray(event.payload?.items) ? event.payload.items : []).map((item, index) => ({
+      index,
+      item,
+    })),
+    removedIds: [],
+    recoveredFromTruncatedSnapshot: true,
+  },
+});
+
+const isBoardRestoredAfterEmptySnapshot = (events, startIndex, previousItems) => {
+  const startMs = normalizeOffsetMs(events[startIndex]);
+  let candidateItems = [];
+  for (let index = startIndex + 1; index < events.length; index += 1) {
+    const candidate = events[index];
+    if (normalizeOffsetMs(candidate) - startMs > BOARD_RESTORE_WINDOW_MS) break;
+    if (candidate?.type !== 'board') continue;
+    // New recordings mark real local clears. Never reinterpret one of those
+    // as a mount/unmount artifact, even if an undo later restores the board.
+    if (isEmptyBoardSnapshot(candidate) && candidate.payload?.actorVerified === true) return false;
+    candidateItems = applyBoardPayload(candidateItems, candidate.payload);
+    if (hasSubstantialBoardRestore(previousItems, candidateItems)) return true;
+  }
+  return false;
+};
+
+const isPassiveCodeSwitchAfterEmptyBoard = (events, startIndex) => {
+  const startMs = normalizeOffsetMs(events[startIndex]);
+  for (let index = startIndex + 1; index < events.length; index += 1) {
+    const candidate = events[index];
+    const elapsedMs = normalizeOffsetMs(candidate) - startMs;
+    if (elapsedMs > LEGACY_SURFACE_SWITCH_WINDOW_MS) break;
+    if (candidate?.type === 'board' && candidate.payload?.actorVerified === true) return false;
+    if (candidate?.type === 'code') return candidate.payload?.actorVerified !== true;
+  }
+  return false;
+};
+
+const isPassiveBoardRemountAfterEmptySnapshot = (events, startIndex) => {
+  const startMs = normalizeOffsetMs(events[startIndex]);
+  for (let index = startIndex + 1; index < events.length; index += 1) {
+    const candidate = events[index];
+    if (normalizeOffsetMs(candidate) - startMs > LEGACY_BOARD_REMOUNT_WINDOW_MS) break;
+    if (candidate?.type !== 'board') continue;
+    return (
+      candidate.payload?.mode === 'delta'
+      && candidate.payload?.actorVerified !== true
+      && Array.isArray(candidate.payload?.upserts)
+      && candidate.payload.upserts.length > 0
+      && (!Array.isArray(candidate.payload?.removedIds) || candidate.payload.removedIds.length === 0)
+    );
+  }
+  return false;
+};
 
 const CODE_STATE_FIELDS = ['code', 'input', 'testFile', 'output', 'error'];
 const CODE_SOURCE_FIELDS = ['code', 'input', 'testFile'];
@@ -115,9 +209,10 @@ const findNextActorEvent = (events, startIndex, sourceEvent, type, windowMs) => 
 };
 
 // Older clients could emit an empty checkpoint while a collaborative Yjs
-// document was mounting or unmounting. Those checkpoints sit next to a
-// navigation event and are followed by the same shared state being restored.
-// Remove only that narrow pattern so genuine clears remain visible.
+// document was mounting or unmounting. In real legacy lessons the restored
+// keyframe can arrive minutes later, so navigation proximity alone is not a
+// reliable signal. Remove an unverified empty frame only when most of the same
+// object ids are subsequently restored; explicit modern clears remain intact.
 export const removeLessonReplaySyncArtifacts = (events) => {
   const source = Array.isArray(events) ? events.filter(Boolean) : [];
   const navigationByActor = new Map();
@@ -125,18 +220,22 @@ export const removeLessonReplaySyncArtifacts = (events) => {
   let boardItems = [];
   let codePayload = null;
 
-  source.forEach((event, index) => {
+  source.forEach((sourceEvent, index) => {
+    let event = sourceEvent;
     const actorKey = getActorKey(event);
     if (event?.type === 'navigation' && actorKey) navigationByActor.set(actorKey, event);
 
     if (
       isEmptyBoardSnapshot(event)
       && boardItems.length > 0
-      && isNavigationWarmup(event, navigationByActor, 'board')
+      && event.payload?.actorVerified !== true
+      && (
+        isBoardRestoredAfterEmptySnapshot(source, index, boardItems)
+        || isPassiveCodeSwitchAfterEmptyBoard(source, index)
+        || isPassiveBoardRemountAfterEmptySnapshot(source, index)
+      )
     ) {
-      const nextBoardEvent = findNextActorEvent(source, index, event, 'board', BOARD_RESTORE_WINDOW_MS);
-      const restoredItems = nextBoardEvent ? applyBoardPayload([], nextBoardEvent.payload) : [];
-      if (hasSameBoardIds(boardItems, restoredItems)) return;
+      return;
     }
 
     if (
@@ -149,6 +248,10 @@ export const removeLessonReplaySyncArtifacts = (events) => {
         hasCodeContent(nextPayload)
         && (!hasCodeContent(codePayload) || hasSameCodeSource(codePayload, nextPayload))
       ) return;
+    }
+
+    if (isTruncatedBoardSnapshot(event, boardItems)) {
+      event = convertTruncatedBoardSnapshotToDelta(event);
     }
 
     if (event?.type === 'board') {

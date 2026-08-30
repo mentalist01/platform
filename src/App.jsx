@@ -103,6 +103,7 @@ import {
 import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
 import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
 import { prepareLessonReplayBoardSandboxItems } from './utils/lessonReplayBoardSandbox';
+import { splitLessonReplayBoardPayload } from './utils/lessonReplayBoardRecording';
 import { createDebouncedSerialQueue } from './utils/debouncedSerialQueue';
 import HEADLESS_TURTLE_SOURCE from './python/headless_turtle.py?raw';
 import {
@@ -11192,11 +11193,16 @@ const BoardSection = ({
       return false;
     }
     const actorVerified = lessonReplayBoardDirtyRef.current;
-    const accepted = lessonReplayEventRef.current('board', actorVerified
-      ? { ...checkpoint.payload, actorVerified: true }
-      : checkpoint.payload, { dedupeMs: 1000 });
+    const payloads = splitLessonReplayBoardPayload(checkpoint.payload);
+    let accepted = true;
+    payloads.forEach((payload) => {
+      const result = lessonReplayEventRef.current('board', actorVerified
+        ? { ...payload, actorVerified: true }
+        : payload, { dedupeMs: 1000 });
+      if (result === false) accepted = false;
+    });
     lessonReplayBoardDirtyRef.current = false;
-    if (accepted === false) return false;
+    if (!accepted) return false;
     lessonReplayLastBoardStateRef.current = checkpoint.state;
     if (checkpoint.payload.mode === 'snapshot') lessonReplayLastBoardKeyframeAtRef.current = now;
     return true;

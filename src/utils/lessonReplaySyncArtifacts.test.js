@@ -30,6 +30,87 @@ test('keeps an empty board checkpoint when the previous board is not restored', 
   assert.equal(removeLessonReplaySyncArtifacts(events).some((event) => event.id === 'real-clear'), true);
 });
 
+test('repairs a legacy empty board checkpoint even when restoration arrives minutes later', () => {
+  const events = [
+    {
+      id: 'board-full',
+      type: 'board',
+      offsetMs: 0,
+      actor: actor('teacher'),
+      payload: { mode: 'snapshot', items: [item('a'), item('b'), item('c'), item('d'), item('e')] },
+    },
+    {
+      id: 'legacy-empty',
+      type: 'board',
+      offsetMs: 60_000,
+      actor: actor('student'),
+      payload: { mode: 'snapshot', items: [] },
+    },
+    { id: 'code-edit', type: 'code', offsetMs: 61_000, actor: actor('student'), payload: { code: 'print(1)' } },
+    {
+      id: 'late-restore',
+      type: 'board',
+      offsetMs: 6 * 60_000,
+      actor: actor('teacher'),
+      payload: { mode: 'snapshot', items: [item('a'), item('b'), item('c'), item('d'), item('e')] },
+    },
+  ];
+
+  assert.deepEqual(removeLessonReplaySyncArtifacts(events).map((event) => event.id), [
+    'board-full',
+    'code-edit',
+  ]);
+});
+
+test('turns a server-marked truncated snapshot into a non-destructive delta', () => {
+  const events = [
+    { id: 'board-full', type: 'board', offsetMs: 0, actor: actor('teacher'), payload: { mode: 'snapshot', items: [item('a'), item('b'), item('c')] } },
+    { id: 'truncated', type: 'board', offsetMs: 1000, actor: actor('teacher'), payload: { mode: 'snapshot', items: [{ ...item('a'), text: 'updated' }, item('c')], truncated: true } },
+  ];
+
+  const repaired = removeLessonReplaySyncArtifacts(events);
+  assert.equal(repaired[1].payload.mode, 'delta');
+  assert.equal(repaired[1].payload.recoveredFromTruncatedSnapshot, true);
+  assert.deepEqual(repaired[1].payload.upserts.map((entry) => entry.item.id), ['a', 'c']);
+  assert.deepEqual(repaired[1].payload.removedIds, []);
+});
+
+test('keeps an explicitly verified clear even when undo later restores the board', () => {
+  const events = [
+    { id: 'board-full', type: 'board', offsetMs: 0, actor: actor('teacher'), payload: { mode: 'snapshot', items: [item('a'), item('b')] } },
+    { id: 'verified-clear', type: 'board', offsetMs: 1000, actor: actor('teacher'), payload: { mode: 'snapshot', items: [], actorVerified: true } },
+    { id: 'undo', type: 'board', offsetMs: 5000, actor: actor('teacher'), payload: { mode: 'snapshot', items: [item('a'), item('b')] } },
+  ];
+
+  assert.equal(removeLessonReplaySyncArtifacts(events).some((event) => event.id === 'verified-clear'), true);
+});
+
+test('repairs a legacy empty board frame emitted while switching to shared code', () => {
+  const events = [
+    { id: 'board-full', type: 'board', offsetMs: 0, actor: actor('teacher'), payload: { mode: 'snapshot', items: [item('a'), item('b')] } },
+    { id: 'empty-on-switch', type: 'board', offsetMs: 10_000, actor: actor('student'), payload: { mode: 'snapshot', items: [], actorVerified: false } },
+    { id: 'code-mounted', type: 'code', offsetMs: 10_400, actor: actor('student'), payload: { action: 'edit', code: 'print(1)', actorVerified: false } },
+  ];
+
+  assert.deepEqual(removeLessonReplaySyncArtifacts(events).map((event) => event.id), [
+    'board-full',
+    'code-mounted',
+  ]);
+});
+
+test('repairs a legacy empty frame followed by passive board synchronization', () => {
+  const events = [
+    { id: 'board-full', type: 'board', offsetMs: 0, actor: actor('teacher'), payload: { mode: 'snapshot', items: [item('a'), item('b')] } },
+    { id: 'empty-before-sync', type: 'board', offsetMs: 10_000, actor: actor('student'), payload: { mode: 'snapshot', items: [], actorVerified: false } },
+    { id: 'passive-sync', type: 'board', offsetMs: 19_000, actor: actor('student'), payload: { mode: 'delta', upserts: [{ index: 2, item: item('c') }], removedIds: [], actorVerified: false } },
+  ];
+
+  assert.deepEqual(removeLessonReplaySyncArtifacts(events).map((event) => event.id), [
+    'board-full',
+    'passive-sync',
+  ]);
+});
+
 test('removes an empty code warmup that is followed by the unchanged shared code', () => {
   const events = [
     { id: 'shared-code', type: 'code', offsetMs: 0, actor: actor('teacher'), payload: { code: 'print(1)' } },
