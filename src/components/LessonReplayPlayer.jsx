@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Editor from '@monaco-editor/react';
 import {
   Brush,
@@ -1103,6 +1103,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [audioBuffering, setAudioBuffering] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekSequence, setSeekSequence] = useState(0);
+  const [, startSeekTransition] = useTransition();
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
   const [timeMachineOpen, setTimeMachineOpen] = useState(false);
@@ -1120,6 +1121,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const endedAudioEventIdRef = useRef('');
   const playingRef = useRef(false);
   const seekSequenceRef = useRef(0);
+  const seekPendingRef = useRef(false);
+  const seekPaintFrameRef = useRef(null);
+  const seekApplyFrameRef = useRef(null);
+  const timelineInputRef = useRef(null);
+  const timelinePositionRef = useRef(null);
+  const loadingOverlayRef = useRef(null);
   const fullscreenRequestPendingRef = useRef(false);
   const currentActivityRef = useRef(null);
   const isFullscreen = isNativeFullscreen || isFallbackFullscreen;
@@ -1188,6 +1195,16 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       upcomingAudioStart: Number.isFinite(upcomingAudioStart) ? upcomingAudioStart : null,
     };
   }, [activeAudioSlot, audioEvent, nextAudioStart, playing, upcomingAudioStart]);
+
+  useEffect(() => {
+    loadingOverlayRef.current?.classList.toggle('is-visible', isSeeking || audioBuffering);
+  }, [audioBuffering, isSeeking]);
+
+  useEffect(() => () => {
+    if (typeof window === 'undefined') return;
+    if (seekPaintFrameRef.current !== null) window.cancelAnimationFrame(seekPaintFrameRef.current);
+    if (seekApplyFrameRef.current !== null) window.cancelAnimationFrame(seekApplyFrameRef.current);
+  }, []);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -1347,16 +1364,52 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     positionRef.current = nextPosition;
     endedAudioEventIdRef.current = '';
     seekSequenceRef.current += 1;
-    setSeekSequence(seekSequenceRef.current);
-    setIsSeeking(true);
-    setAudioBuffering(false);
-    setPositionMs(nextPosition);
-  }, [durationMs]);
+    seekPendingRef.current = true;
+    const sequence = seekSequenceRef.current;
+
+    // Keep the seek controls responsive even when restoring a large board is
+    // expensive. The browser paints the thumb and loading layer first; the
+    // replay surfaces are materialized on the following frame.
+    if (timelineInputRef.current) {
+      timelineInputRef.current.value = String(Math.round(nextPosition));
+      timelineInputRef.current.setAttribute(
+        'aria-valuetext',
+        `${formatClock(nextPosition)} из ${formatClock(durationMs)}`
+      );
+    }
+    if (timelinePositionRef.current) timelinePositionRef.current.textContent = formatClock(nextPosition);
+    loadingOverlayRef.current?.classList.add('is-visible');
+    audioRefs.current.forEach((audio) => audio?.pause());
+
+    const applySeek = () => {
+      startSeekTransition(() => {
+        setSeekSequence(sequence);
+        setIsSeeking(true);
+        setAudioBuffering(false);
+        setPositionMs(nextPosition);
+      });
+    };
+
+    if (typeof window === 'undefined') {
+      applySeek();
+      return;
+    }
+    if (seekPaintFrameRef.current !== null) window.cancelAnimationFrame(seekPaintFrameRef.current);
+    if (seekApplyFrameRef.current !== null) window.cancelAnimationFrame(seekApplyFrameRef.current);
+    seekPaintFrameRef.current = window.requestAnimationFrame(() => {
+      seekPaintFrameRef.current = null;
+      seekApplyFrameRef.current = window.requestAnimationFrame(() => {
+        seekApplyFrameRef.current = null;
+        applySeek();
+      });
+    });
+  }, [durationMs, startSeekTransition]);
 
   const handleAudioEnded = useCallback((slot, entry, audio) => {
     const clock = audioClockRef.current;
     if (!entry || clock.slot !== slot || clock.event?.id !== entry.event?.id) return;
     endedAudioEventIdRef.current = entry.event.id;
+    seekPendingRef.current = false;
     setIsSeeking(false);
     setAudioBuffering(false);
     const recordedDuration = getReplayAudioDurationMs(entry.event);
@@ -1374,6 +1427,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     const clock = audioClockRef.current;
     if (!entry || clock.slot !== slot || clock.event?.id !== entry.event?.id) return;
     endedAudioEventIdRef.current = entry.event.id;
+    seekPendingRef.current = false;
     setIsSeeking(false);
     audioRefs.current[slot]?.pause();
     setAudioBuffering(false);
@@ -1527,8 +1581,10 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
 
   useEffect(() => {
     if (!isSeeking || typeof window === 'undefined') return undefined;
+    if (seekSequence !== seekSequenceRef.current) return undefined;
+    if (Math.abs(positionMs - positionRef.current) > 50) return undefined;
 
-    const sequence = seekSequenceRef.current;
+    const sequence = seekSequence;
     const entry = activeAudioSlot >= 0 ? audioSlots[activeAudioSlot] : null;
     const audio = activeAudioSlot >= 0 ? audioRefs.current[activeAudioSlot] : null;
     let finished = false;
@@ -1536,7 +1592,10 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     const finish = () => {
       if (finished) return;
       finished = true;
-      if (sequence === seekSequenceRef.current) setIsSeeking(false);
+      if (sequence === seekSequenceRef.current) {
+        seekPendingRef.current = false;
+        setIsSeeking(false);
+      }
     };
     const timeoutId = window.setTimeout(finish, AUDIO_LOAD_TIMEOUT_MS);
     const cleanup = () => {
@@ -1560,7 +1619,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     audio.addEventListener('error', finish);
     if (audio.readyState >= 2 && !audio.seeking) frameId = window.requestAnimationFrame(finish);
     return cleanup;
-  }, [activeAudioSlot, audioEvent, audioSlots, audioSource, isSeeking, seekSequence]);
+  }, [activeAudioSlot, audioEvent, audioSlots, audioSource, isSeeking, positionMs, seekSequence]);
 
   useEffect(() => {
     if (!playing || typeof window === 'undefined') return undefined;
@@ -1568,6 +1627,10 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     const tick = (now) => {
       const delta = Math.max(0, now - lastFrameAtRef.current) * speed;
       lastFrameAtRef.current = now;
+      if (seekPendingRef.current) {
+        frameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
       const clock = audioClockRef.current;
       const audio = clock.slot >= 0 ? audioRefs.current[clock.slot] : null;
       const audioEnded = Boolean(
@@ -1798,6 +1861,17 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         </button>
       </header>
 
+      <div
+        ref={loadingOverlayRef}
+        className="lesson-replay-player__loading-overlay"
+        role="status"
+        aria-live="polite"
+      >
+        <i aria-hidden="true" />
+        <strong>Загрузка записи…</strong>
+        <span>Доска, код и звук синхронизируются</span>
+      </div>
+
       {isFullscreen && !timeMachineBranch && (
         <div className="lesson-replay-player__fullscreen-action" role="status" aria-live="polite">
           <span>{formatClock(positionMs)} · {getEventLocationLabel(currentEvent)}</span>
@@ -1927,12 +2001,13 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           {timeMachineBranch && <i className="is-time-machine-anchor" data-type="branch" style={{ left: `${Math.min(100, Math.max(0, (timeMachineBranch.metadata.positionMs / markerDurationMs) * 100))}%` }} />}
         </div>
         <input
+          ref={timelineInputRef}
           type="range"
           min="0"
           max={Math.max(1, Math.round(durationMs))}
           step="100"
           value={Math.min(durationMs, Math.round(positionMs))}
-          onChange={(event) => seekReplayFromControls(event.target.value)}
+          onInput={(event) => seekReplayFromControls(event.currentTarget.value)}
           aria-label="Позиция воспроизведения"
           aria-valuetext={`${formatClock(positionMs)} из ${formatClock(durationMs)}`}
         />
@@ -1963,12 +2038,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
             <PlayCircle size={16} /><span>Вернуться к записи</span>
           </button>
         )}
-        <span className="lesson-replay-player__time">{formatClock(positionMs)} <em>/</em> {formatClock(durationMs)}</span>
-        {(isSeeking || audioBuffering) && (
-          <span className="lesson-replay-player__loading" role="status" aria-live="polite">
-            <i aria-hidden="true" /> Загрузка…
-          </span>
-        )}
+        <span className="lesson-replay-player__time"><span ref={timelinePositionRef}>{formatClock(positionMs)}</span> <em>/</em> {formatClock(durationMs)}</span>
         <div className="lesson-replay-player__speeds" role="group" aria-label="Скорость воспроизведения">
           {[1, 2, 4].map((value) => <button key={value} type="button" className={speed === value ? 'is-active' : ''} aria-pressed={speed === value} onClick={() => setSpeed(value)}>{value}×</button>)}
         </div>
