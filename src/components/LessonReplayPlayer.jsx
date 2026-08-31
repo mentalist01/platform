@@ -1196,6 +1196,18 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     };
   }, [activeAudioSlot, audioEvent, nextAudioStart, playing, upcomingAudioStart]);
 
+  useLayoutEffect(() => {
+    if (seekPendingRef.current) return;
+    if (timelineInputRef.current) {
+      timelineInputRef.current.value = String(Math.round(positionMs));
+      timelineInputRef.current.setAttribute(
+        'aria-valuetext',
+        `${formatClock(positionMs)} из ${formatClock(durationMs)}`
+      );
+    }
+    if (timelinePositionRef.current) timelinePositionRef.current.textContent = formatClock(positionMs);
+  }, [durationMs, positionMs]);
+
   useEffect(() => {
     loadingOverlayRef.current?.classList.toggle('is-visible', isSeeking || audioBuffering);
   }, [audioBuffering, isSeeking]);
@@ -1863,7 +1875,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
 
       <div
         ref={loadingOverlayRef}
-        className="lesson-replay-player__loading-overlay"
+        className={`lesson-replay-player__loading-overlay${isSeeking || audioBuffering ? ' is-visible' : ''}`}
         role="status"
         aria-live="polite"
       >
@@ -2006,7 +2018,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           min="0"
           max={Math.max(1, Math.round(durationMs))}
           step="100"
-          value={Math.min(durationMs, Math.round(positionMs))}
+          defaultValue="0"
           onInput={(event) => seekReplayFromControls(event.currentTarget.value)}
           aria-label="Позиция воспроизведения"
           aria-valuetext={`${formatClock(positionMs)} из ${formatClock(durationMs)}`}
