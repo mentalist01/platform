@@ -1480,9 +1480,9 @@
   position: absolute;
   z-index: 8;
   top: calc(64px + env(safe-area-inset-top, 0px));
-  left: 14px;
+  right: 58px;
   display: grid;
-  max-width: min(520px, calc(100% - 28px));
+  max-width: min(520px, calc(100% - 72px));
   gap: 2px;
   padding: 8px 12px;
   border: 1px solid rgba(124, 58, 237, 0.18);

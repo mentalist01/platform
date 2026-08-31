@@ -1913,7 +1913,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
               );
             })}
             {activityEvents.length < activitySourceEvents.length && (
-              <p>Показаны ключевые действия; звук синхронизирован отдельно.</p>
+              <p>Показаны ключевые действия.</p>
             )}
           </div>
         )}
