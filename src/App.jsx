@@ -10314,7 +10314,7 @@ const CollabSection = ({
         </>
       )}
       {!mergeHeaderIntoToolbar && (
-        <div className={`flex flex-col md:flex-row md:items-center md:justify-between ${
+        <div className={`collab-workspace-heading flex flex-col md:flex-row md:items-center md:justify-between ${
           isCollabFullscreen
             ? (isFullscreenDark
               ? 'sticky top-2 z-20 mb-2.5 gap-3 rounded-2xl border border-slate-700/75 bg-slate-950/72 px-2.5 py-2 sm:px-3 sm:py-2.5 shadow-[0_10px_26px_rgba(2,6,23,0.35)] backdrop-blur-xl'

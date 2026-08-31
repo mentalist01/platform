@@ -1702,6 +1702,51 @@
   min-height: 0;
 }
 
+@media (max-width: 767px) {
+  /* A phone stacks board and code. Scroll this workspace, not the playback
+     controls, and do not squeeze the editor into a percentage-height parent. */
+  .lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-sandbox {
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .lesson-replay-player.is-fullscreen .lesson-replay-player__time-machine-sandbox > .collab-workspace-shell {
+    height: auto !important;
+    min-height: 100%;
+  }
+
+  .lesson-replay-player.is-fullscreen .collab-workspace-heading {
+    display: none;
+  }
+
+  .lesson-replay-player.is-fullscreen .collab-workspace-card {
+    padding: 0;
+  }
+
+  .lesson-replay-player.is-fullscreen .collab-workspace-card--glass-board .collab-top-pane-wrap {
+    height: var(--collab-board-pane-height);
+    bottom: auto;
+  }
+
+  .lesson-replay-player.is-fullscreen .collab-workspace-card--glass-board .collab-code-glass-layer {
+    padding-top: var(--collab-board-pane-height) !important;
+  }
+
+  .lesson-replay-player.is-fullscreen .collab-top-pane-resize-handle {
+    top: var(--collab-board-pane-height) !important;
+  }
+
+  .lesson-replay-player.is-fullscreen .collab-editor-surface {
+    min-height: 240px;
+    flex: 0 0 auto;
+  }
+
+  .lesson-replay-player.is-fullscreen .collab-editor-body {
+    height: max(240px, 45dvh) !important;
+    flex: 0 0 auto;
+  }
+}
+
 @media (max-width: 800px) {
   .lesson-replay-player.is-fullscreen .lesson-replay-player__split-stage {
     grid-template-rows: repeat(2, minmax(0, 1fr));

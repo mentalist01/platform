@@ -50,6 +50,7 @@ import {
 } from '../utils/lessonReplayTimeMachine';
 import { getActiveReplayScreenEvent } from '../utils/lessonReplaySurfaces';
 import { resolveLessonReplayBoardViewport } from '../utils/lessonReplayBoardViewport';
+import { createLessonReplayFullscreenController } from '../utils/lessonReplayFullscreen';
 import './LessonReplayPlayer.css';
 
 const VIEW_LABELS = {
@@ -1218,9 +1219,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [loadingProgress, setLoadingProgress] = useState(100);
   const [loadingPhase, setLoadingPhase] = useState('Запись готова');
   const [, startSeekTransition] = useTransition();
-  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
-  const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
-  const [timeMachineOpen, setTimeMachineOpen] = useState(false);
+  const [fullscreenMode, setFullscreenMode] = useState('inline');
   const [timeMachineSurface, setTimeMachineSurface] = useState('code');
   const [timeMachineBranch, setTimeMachineBranch] = useState(null);
   const [timeMachineBranchEpoch, setTimeMachineBranchEpoch] = useState(0);
@@ -1247,9 +1246,14 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const loadingProgressTextRef = useRef(null);
   const loadingProgressRef = useRef(100);
   const loadingPhaseRef = useRef('Запись готова');
-  const fullscreenRequestPendingRef = useRef(false);
+  const fullscreenControllerRef = useRef(null);
   const currentActivityRef = useRef(null);
+  const isNativeFullscreen = fullscreenMode === 'native';
+  const isFallbackFullscreen = fullscreenMode === 'fallback';
   const isFullscreen = isNativeFullscreen || isFallbackFullscreen;
+  const timeMachineOpen = isFullscreen;
+  const fullscreenPending = fullscreenMode === 'pending';
+  const hasReplayEvents = events.length > 0;
 
   const setReplayLoadingProgress = useCallback((rawProgress, phase) => {
     const nextProgress = Math.min(100, Math.max(0, Math.round(Number(rawProgress) || 0)));
@@ -1276,20 +1280,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       fraction >= 1 ? 'Синхронизируем запись…' : 'Загружаем звук…'
     );
   }, [isSeeking, setReplayLoadingProgress]);
-
-  const closeLessonCopyState = useCallback(() => {
-    setTimeMachineOpen(false);
-    setTimeMachineBranch(null);
-    setTimeMachineShowOriginal(false);
-    setTimeMachineSurface('code');
-  }, []);
-
-  const openLessonCopyState = useCallback(() => {
-    setTimeMachineOpen(true);
-    setTimeMachineBranch(null);
-    setTimeMachineShowOriginal(false);
-    setTimeMachineSurface('code');
-  }, []);
 
   const audioEvents = useMemo(() => events.filter((event) => (
     event.type === 'audio'
@@ -1373,36 +1363,25 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   }, []);
 
   useEffect(() => {
-    if (typeof document === 'undefined') return undefined;
-    const handleFullscreenChange = () => {
-      const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || null;
-      const playerIsFullscreen = fullscreenElement === playerRef.current;
-      setIsNativeFullscreen(playerIsFullscreen);
-      if (playerIsFullscreen) {
-        fullscreenRequestPendingRef.current = false;
-        setIsFallbackFullscreen(false);
-      } else if (!fullscreenRequestPendingRef.current) {
-        closeLessonCopyState();
-      }
-    };
-    const handleFullscreenError = () => {
-      if (!fullscreenRequestPendingRef.current) return;
-      fullscreenRequestPendingRef.current = false;
-      openLessonCopyState();
-      setIsFallbackFullscreen(true);
-    };
-    handleFullscreenChange();
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('fullscreenerror', handleFullscreenError);
-    document.addEventListener('webkitfullscreenerror', handleFullscreenError);
+    if (typeof document === 'undefined' || !playerRef.current) return undefined;
+    const controller = createLessonReplayFullscreenController({
+      element: playerRef.current,
+      document,
+      onModeChange: (mode) => {
+        setFullscreenMode(mode);
+        if (mode === 'inline') {
+          setTimeMachineBranch(null);
+          setTimeMachineShowOriginal(false);
+          setTimeMachineSurface('code');
+        }
+      },
+    });
+    fullscreenControllerRef.current = controller;
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('fullscreenerror', handleFullscreenError);
-      document.removeEventListener('webkitfullscreenerror', handleFullscreenError);
+      fullscreenControllerRef.current = null;
+      controller.dispose();
     };
-  }, [closeLessonCopyState, openLessonCopyState]);
+  }, [hasReplayEvents]);
 
   useLayoutEffect(() => {
     if (typeof document === 'undefined' || !isFallbackFullscreen) return undefined;
@@ -1411,63 +1390,23 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   }, [isFallbackFullscreen]);
 
   useLayoutEffect(() => {
-    if (typeof document === 'undefined' || !isFullscreen) return undefined;
+    if (typeof document === 'undefined' || (!isFullscreen && !fullscreenPending)) return undefined;
     const handleFullscreenEscape = (event) => {
       if (event.key !== 'Escape') return;
       event.stopPropagation();
       event.stopImmediatePropagation?.();
-      if (isFallbackFullscreen) {
+      if (isFallbackFullscreen || fullscreenPending) {
         event.preventDefault();
-        setIsFallbackFullscreen(false);
-        closeLessonCopyState();
       }
-      // Native fullscreen keeps the browser's default Escape action. Stopping
-      // propagation only prevents the surrounding lesson modal from closing.
+      // Reconcile explicitly when the browser forwards Escape to the page;
+      // native browser exits are also handled by fullscreen/resize events.
+      fullscreenControllerRef.current?.close();
     };
     document.addEventListener('keydown', handleFullscreenEscape, true);
     return () => document.removeEventListener('keydown', handleFullscreenEscape, true);
-  }, [closeLessonCopyState, isFallbackFullscreen, isFullscreen]);
+  }, [fullscreenPending, isFallbackFullscreen, isFullscreen]);
 
-  const toggleFullscreen = useCallback(async () => {
-    if (typeof document === 'undefined') return;
-    const player = playerRef.current;
-    if (!player) return;
-    if (isFallbackFullscreen) {
-      fullscreenRequestPendingRef.current = false;
-      setIsFallbackFullscreen(false);
-      closeLessonCopyState();
-      return;
-    }
-    const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || null;
-    try {
-      if (fullscreenElement === player) {
-        fullscreenRequestPendingRef.current = false;
-        closeLessonCopyState();
-        if (document.exitFullscreen) await document.exitFullscreen();
-        else document.webkitExitFullscreen?.();
-        return;
-      }
-      if (fullscreenElement) {
-        if (document.exitFullscreen) await document.exitFullscreen();
-        else document.webkitExitFullscreen?.();
-      }
-      openLessonCopyState();
-      fullscreenRequestPendingRef.current = true;
-      if (player.requestFullscreen) {
-        await player.requestFullscreen({ navigationUI: 'hide' });
-      } else if (player.webkitRequestFullscreen) {
-        const request = player.webkitRequestFullscreen();
-        if (request && typeof request.then === 'function') await request;
-      } else {
-        fullscreenRequestPendingRef.current = false;
-        setIsFallbackFullscreen(true);
-      }
-    } catch {
-      fullscreenRequestPendingRef.current = false;
-      openLessonCopyState();
-      setIsFallbackFullscreen(true);
-    }
-  }, [closeLessonCopyState, isFallbackFullscreen, openLessonCopyState]);
+  const toggleFullscreen = useCallback(() => fullscreenControllerRef.current?.toggle(), []);
 
   const playbackIndex = useMemo(() => createLessonReplayPlaybackIndex(events), [events]);
   const state = useMemo(
@@ -2040,7 +1979,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     <section
       ref={playerRef}
       className={`lesson-replay-player${playing ? ' is-playing' : ''}${isFullscreen ? ' is-fullscreen' : ''}${isFallbackFullscreen ? ' is-fullscreen-fallback' : ''}${timeMachineOpen ? ' is-time-machine' : ''}`}
-      data-fullscreen-mode={isNativeFullscreen ? 'native' : (isFallbackFullscreen ? 'fallback' : 'inline')}
+      data-fullscreen-mode={fullscreenMode}
       aria-label="Воспроизведение хода занятия"
     >
       <header className="lesson-replay-player__header">
@@ -2105,12 +2044,13 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           type="button"
           className="lesson-replay-player__fullscreen"
           onClick={toggleFullscreen}
-          aria-label={isFullscreen ? 'Выйти из копии урока' : 'Открыть копию урока на весь экран'}
+          aria-label={isFullscreen ? 'Выйти из копии урока' : (fullscreenPending ? 'Отменить открытие на весь экран' : 'Открыть копию урока на весь экран')}
           aria-pressed={isFullscreen}
-          title={isFullscreen ? 'Выйти из копии урока' : 'На весь экран'}
+          aria-busy={fullscreenPending}
+          title={isFullscreen ? 'Выйти из копии урока' : (fullscreenPending ? 'Нажмите, чтобы отменить' : 'На весь экран')}
         >
           {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          <span>{isFullscreen ? 'Свернуть' : 'На весь экран'}</span>
+          <span>{isFullscreen ? 'Свернуть' : (fullscreenPending ? 'Открываем…' : 'На весь экран')}</span>
         </button>
       </header>
 
