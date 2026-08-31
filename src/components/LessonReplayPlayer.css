@@ -1199,6 +1199,16 @@
   transform: translateX(-50%);
 }
 
+/* Keep the event dot compact, but make its hover/focus target comfortable. */
+.lesson-replay-player__markers i::before {
+  position: absolute;
+  z-index: 0;
+  inset: -9px -7px;
+  border-radius: 999px;
+  content: "";
+  pointer-events: auto;
+}
+
 .lesson-replay-player__markers i::after {
   position: absolute;
   z-index: 20;
