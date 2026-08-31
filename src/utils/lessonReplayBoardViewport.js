@@ -148,3 +148,27 @@ export const resolveLessonReplayBoardViewport = (
   if (bounds) return fitViewportToBounds(bounds, width, height, minZoom, maxZoom);
   return { zoom, offset: { x: offsetX || 0, y: offsetY || 0 } };
 };
+
+// Both the inline player and a restored lesson copy must start at the same
+// part of a recovered board, not fit its entire (potentially very tall) history.
+export const getLessonReplayInitialBoardViewport = (events) => {
+  const initialFocusBounds = (Array.isArray(events) ? events : []).find((event) => (
+    event?.type === 'board'
+    && event.payload?.initialState === true
+    && event.payload?.initialFocusBounds
+  ))?.payload?.initialFocusBounds;
+  if (!normalizeBounds(initialFocusBounds)) return null;
+  const width = 900;
+  const height = 520;
+  return {
+    surface: 'board',
+    ...resolveLessonReplayBoardViewport(
+      null,
+      { width, height },
+      initialFocusBounds,
+      { minZoom: 0.15, maxZoom: 12 }
+    ),
+    width,
+    height,
+  };
+};

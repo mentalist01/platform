@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { buildLessonReplayPlaybackState } from './lessonReplayPlaybackState.js';
+import {
+  getLessonReplayBoardContentBounds,
+  resolveLessonReplayBoardViewport,
+} from './lessonReplayBoardViewport.js';
 import {
   createLessonReplayBranch,
   createLessonReplayBranchMetadata,
@@ -166,16 +171,71 @@ test('fullscreen copies include the same recovered initial board at 0:00, 1:23 a
   ] });
 
   const expected = [...initialItems, ...delayedItems];
+  const expectedViewport = {
+    surface: 'board', width: 900, height: 520,
+    ...resolveLessonReplayBoardViewport(
+      null,
+      { width: 900, height: 520 },
+      getLessonReplayBoardContentBounds(initialItems),
+      { minZoom: 0.15, maxZoom: 12 }
+    ),
+  };
   for (const positionMs of [0, 83_000, 91_000, 83_000]) {
     const copy = createLessonReplayBranch(source, positionMs);
     assert.equal(copy.board.items.length, expected.length, `object count at ${positionMs} ms`);
     assert.deepEqual(copy.board.items, expected, `board at ${positionMs} ms`);
     assert.notStrictEqual(copy.board.items[0], initialItems[0]);
+    assert.deepEqual(copy.board.viewport, expectedViewport, `initial camera at ${positionMs} ms`);
   }
   const edited = createLessonReplayBranch(source, 125_000);
   assert.equal(edited.board.items[0].id, 'new');
   assert.equal(edited.board.items.some((item) => item.id === 'initial-0'), false);
   assert.equal(edited.board.items.length, expected.length);
+});
+
+test('copies and resets preserve legacy board and code navigation like the inline player', () => {
+  const boardViewport = { zoom: 0.8, offset: { x: 120, y: 6900 }, width: 900, height: 520 };
+  const codeViewport = { scrollTopRatio: 0.6, cursorLine: 14, cursorColumn: 5 };
+  const source = deepFreeze({ events: [
+    { id: 'board', type: 'board', offsetMs: 0, payload: { items: [{ id: 'task', x: 120, y: 6900 }] } },
+    { id: 'code', type: 'code', offsetMs: 0, payload: { code: 'print(1)' } },
+    { id: 'board-view', type: 'board-view', offsetMs: 1000, actor: { role: 'teacher' }, payload: boardViewport },
+    { id: 'code-view', type: 'code-view', offsetMs: 2000, actor: { role: 'teacher' }, payload: codeViewport },
+    { id: 'later-board-view', type: 'viewport', offsetMs: 3000, actor: { role: 'student' }, payload: {
+      surface: 'board', zoom: 1.2, offset: { x: 500, y: 8000 }, width: 1200, height: 700,
+    } },
+  ] });
+
+  for (const positionMs of [2000, 3000, 2000]) {
+    const inline = buildLessonReplayPlaybackState(source.events, positionMs);
+    const branch = createLessonReplayBranch(source, positionMs);
+    assert.deepEqual(branch.board.viewport, inline.boardView.payload);
+    assert.deepEqual(branch.code.viewport, inline.codeView.payload);
+    branch.board.viewport.offset.y = -10_000;
+    const reset = createLessonReplayBranch(source, branch.metadata.positionMs);
+    assert.deepEqual(reset.board.viewport, inline.boardView.payload);
+  }
+  const teacherBranch = createLessonReplayBranch(source, 3000, { actorRole: 'teacher' });
+  assert.deepEqual(teacherBranch.board.viewport, boardViewport);
+  assert.deepEqual(teacherBranch.code.viewport, codeViewport);
+});
+
+test('falls back to embedded camera and editor positions when separate navigation events are absent', () => {
+  const boardViewport = { zoom: 0.8, offset: { x: 120, y: 6900 }, width: 900, height: 520 };
+  const codeViewport = { scrollTopRatio: 0.6, cursorLine: 14, cursorColumn: 5 };
+  for (const [boardKey, codeKey] of [['viewport', 'editor'], ['view', 'view']]) {
+    const source = deepFreeze({ events: [
+      { id: 'board', type: 'board', offsetMs: 0, payload: {
+        items: [{ id: 'task', x: 120, y: 6900 }], [boardKey]: boardViewport,
+      } },
+      { id: 'code', type: 'code', offsetMs: 0, payload: { code: 'print(1)', [codeKey]: codeViewport } },
+    ] });
+    const branch = createLessonReplayBranch(source, 0);
+    assert.deepEqual(branch.board.viewport, boardViewport);
+    assert.deepEqual(branch.code.viewport, codeViewport);
+    assert.notStrictEqual(branch.board.viewport.offset, boardViewport.offset);
+    assert.notStrictEqual(branch.code.viewport, codeViewport);
+  }
 });
 
 test('creates deterministic metadata anchored to the student and replay position', () => {

@@ -1,4 +1,5 @@
 import { sortLessonReplayEvents } from './lessonReplayEventOrder.js';
+import { getLessonReplayInitialBoardViewport } from './lessonReplayBoardViewport.js';
 import {
   removeLessonReplaySyncArtifacts,
   repairLessonReplayInitialBoardState,
@@ -139,6 +140,7 @@ export const getLessonReplayStateAt = (replay, rawPositionMs, options = {}) => {
     : '';
   const events = getOrderedReplayEvents(replay);
   let boardItems = [];
+  let boardEvent = null;
   let codeEvent = null;
   let runEvent = null;
   let boardViewport = null;
@@ -148,20 +150,26 @@ export const getLessonReplayStateAt = (replay, rawPositionMs, options = {}) => {
 
   for (const event of events) {
     if (normalizeEventOffsetMs(event) > positionMs) break;
-    if (event.type === 'board') boardItems = applyBoardReplayEvent(boardItems, event);
-    else if (event.type === 'code') codeEvent = event;
+    if (event.type === 'board') {
+      boardItems = applyBoardReplayEvent(boardItems, event);
+      boardEvent = event;
+    } else if (event.type === 'code') codeEvent = event;
     else if (event.type === 'run') runEvent = event;
-    else if (event.type === 'viewport' && event?.payload?.surface === 'board') {
+    else if (event.type === 'board-view' || (event.type === 'viewport' && event?.payload?.surface === 'board')) {
       boardViewport = cloneValue(event.payload);
       if (actorRole && event?.actor?.role === actorRole) actorBoardViewport = cloneValue(event.payload);
-    } else if (event.type === 'viewport' && event?.payload?.surface === 'code') {
+    } else if (event.type === 'code-view' || (event.type === 'viewport' && event?.payload?.surface === 'code')) {
       codeViewport = cloneValue(event.payload);
       if (actorRole && event?.actor?.role === actorRole) actorCodeViewport = cloneValue(event.payload);
     }
   }
 
   const code = normalizeCodeState(codeEvent?.payload);
-  const resolvedCodeViewport = actorCodeViewport || codeViewport;
+  const resolvedBoardViewport = actorBoardViewport || boardViewport
+    || boardEvent?.payload?.viewport || boardEvent?.payload?.view
+    || getLessonReplayInitialBoardViewport(events);
+  const resolvedCodeViewport = actorCodeViewport || codeViewport
+    || codeEvent?.payload?.editor || codeEvent?.payload?.view;
   if (resolvedCodeViewport) code.viewport = cloneValue(resolvedCodeViewport);
   if (
     runEvent
@@ -179,8 +187,8 @@ export const getLessonReplayStateAt = (replay, rawPositionMs, options = {}) => {
     code,
     board: normalizeBoardState({
       items: boardItems,
-      ...(actorBoardViewport || boardViewport
-        ? { viewport: cloneValue(actorBoardViewport || boardViewport) }
+      ...(resolvedBoardViewport
+        ? { viewport: cloneValue(resolvedBoardViewport) }
         : {}),
     }),
   };

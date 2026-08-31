@@ -49,7 +49,7 @@ import {
   updateLessonReplayBranchCode,
 } from '../utils/lessonReplayTimeMachine';
 import { getActiveReplayScreenEvent } from '../utils/lessonReplaySurfaces';
-import { resolveLessonReplayBoardViewport } from '../utils/lessonReplayBoardViewport';
+import { getLessonReplayInitialBoardViewport } from '../utils/lessonReplayBoardViewport';
 import { createLessonReplayFullscreenController } from '../utils/lessonReplayFullscreen';
 import './LessonReplayPlayer.css';
 
@@ -1177,31 +1177,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       ))
     )
   ), [replay]);
-  const initialBoardFocusBounds = useMemo(() => (
-    events.find((event) => (
-      event?.type === 'board'
-      && event.payload?.initialState === true
-      && event.payload?.initialFocusBounds
-    ))?.payload?.initialFocusBounds || null
-  ), [events]);
-  const initialBoardViewport = useMemo(() => {
-    if (!initialBoardFocusBounds) return null;
-    const width = 900;
-    const height = 520;
-    const resolved = resolveLessonReplayBoardViewport(
-      null,
-      { width, height },
-      initialBoardFocusBounds,
-      { minZoom: 0.15, maxZoom: 12 }
-    );
-    return {
-      surface: 'board',
-      zoom: resolved.zoom,
-      offset: resolved.offset,
-      width,
-      height,
-    };
-  }, [initialBoardFocusBounds]);
+  const initialBoardViewport = useMemo(() => getLessonReplayInitialBoardViewport(events), [events]);
   const durationMs = useMemo(
     () => getReplayTimelineDurationMs(events, replay?.durationMs),
     [events, replay?.durationMs]
