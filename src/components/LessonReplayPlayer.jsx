@@ -1079,6 +1079,36 @@ const getReplayAudioSource = (event, replay) => {
   return resolveAuthenticatedUploadsUrl(event.payload?.playbackUrl || event.payload?.url);
 };
 
+const getReplayAudioBufferedFraction = (audio, event, positionMs) => {
+  if (!audio || !event) return 1;
+  const targetSeconds = Math.max(
+    0,
+    (Number(positionMs) - (Number(event.offsetMs) || 0)) / 1000
+  );
+  const durationSeconds = Number.isFinite(audio.duration) && audio.duration > 0
+    ? audio.duration
+    : getReplayAudioDurationMs(event) / 1000;
+  let bufferedEnd = 0;
+  let targetIsBuffered = false;
+  try {
+    for (let index = 0; index < audio.buffered.length; index += 1) {
+      const start = audio.buffered.start(index);
+      const end = audio.buffered.end(index);
+      bufferedEnd = Math.max(bufferedEnd, end);
+      if (targetSeconds >= start - 0.05 && targetSeconds <= end + 0.05) targetIsBuffered = true;
+    }
+  } catch {
+    // MediaSource implementations can change buffered ranges while reading.
+  }
+  if (targetIsBuffered || (audio.readyState >= 3 && !audio.seeking)) return 1;
+  if (durationSeconds > 0 && bufferedEnd > 0) {
+    return Math.min(0.98, Math.max(0, bufferedEnd / durationSeconds));
+  }
+  if (audio.readyState >= 2) return 0.72;
+  if (audio.readyState >= 1) return 0.38;
+  return 0.08;
+};
+
 const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonReplaySandbox = null }) => {
   const events = useMemo(() => (
     materializeBoardReplayEvents(
@@ -1103,6 +1133,8 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [audioBuffering, setAudioBuffering] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekSequence, setSeekSequence] = useState(0);
+  const [loadingProgress, setLoadingProgress] = useState(100);
+  const [loadingPhase, setLoadingPhase] = useState('Запись готова');
   const [, startSeekTransition] = useTransition();
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
@@ -1127,9 +1159,39 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const timelineInputRef = useRef(null);
   const timelinePositionRef = useRef(null);
   const loadingOverlayRef = useRef(null);
+  const loadingProgressBarRef = useRef(null);
+  const loadingProgressTextRef = useRef(null);
+  const loadingProgressRef = useRef(100);
+  const loadingPhaseRef = useRef('Запись готова');
   const fullscreenRequestPendingRef = useRef(false);
   const currentActivityRef = useRef(null);
   const isFullscreen = isNativeFullscreen || isFallbackFullscreen;
+
+  const setReplayLoadingProgress = useCallback((rawProgress, phase) => {
+    const nextProgress = Math.min(100, Math.max(0, Math.round(Number(rawProgress) || 0)));
+    const nextPhase = phase || loadingPhaseRef.current;
+    const progressChanged = nextProgress !== loadingProgressRef.current;
+    const phaseChanged = nextPhase !== loadingPhaseRef.current;
+    if (!progressChanged && !phaseChanged) return;
+    loadingProgressRef.current = nextProgress;
+    loadingPhaseRef.current = nextPhase;
+    if (loadingProgressBarRef.current) loadingProgressBarRef.current.value = nextProgress;
+    if (loadingProgressTextRef.current) loadingProgressTextRef.current.textContent = `${nextProgress}%`;
+    if (progressChanged) setLoadingProgress(nextProgress);
+    if (phaseChanged) setLoadingPhase(nextPhase);
+  }, []);
+
+  const updateReplayAudioLoadingProgress = useCallback((audio, event) => {
+    if (!audio || !event) return;
+    const fraction = getReplayAudioBufferedFraction(audio, event, positionRef.current);
+    const boardReady = seekPendingRef.current || isSeeking;
+    const baseProgress = boardReady ? 58 : 0;
+    const progress = baseProgress + fraction * (100 - baseProgress);
+    setReplayLoadingProgress(
+      progress,
+      fraction >= 1 ? 'Синхронизируем запись…' : 'Загружаем звук…'
+    );
+  }, [isSeeking, setReplayLoadingProgress]);
 
   const closeLessonCopyState = useCallback(() => {
     setTimeMachineOpen(false);
@@ -1207,6 +1269,14 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     }
     if (timelinePositionRef.current) timelinePositionRef.current.textContent = formatClock(positionMs);
   }, [durationMs, positionMs]);
+
+  useLayoutEffect(() => {
+    if (!seekPendingRef.current || seekSequence <= 0) return;
+    setReplayLoadingProgress(
+      audioEvent ? 58 : 100,
+      audioEvent ? 'Восстанавливаем доску и код…' : 'Синхронизируем запись…'
+    );
+  }, [audioEvent, positionMs, seekSequence, setReplayLoadingProgress]);
 
   useEffect(() => {
     loadingOverlayRef.current?.classList.toggle('is-visible', isSeeking || audioBuffering);
@@ -1391,12 +1461,13 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     }
     if (timelinePositionRef.current) timelinePositionRef.current.textContent = formatClock(nextPosition);
     loadingOverlayRef.current?.classList.add('is-visible');
+    setReplayLoadingProgress(6, 'Подготавливаем запись…');
+    setIsSeeking(true);
     audioRefs.current.forEach((audio) => audio?.pause());
 
     const applySeek = () => {
       startSeekTransition(() => {
         setSeekSequence(sequence);
-        setIsSeeking(true);
         setAudioBuffering(false);
         setPositionMs(nextPosition);
       });
@@ -1415,13 +1486,14 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         applySeek();
       });
     });
-  }, [durationMs, startSeekTransition]);
+  }, [durationMs, setReplayLoadingProgress, startSeekTransition]);
 
   const handleAudioEnded = useCallback((slot, entry, audio) => {
     const clock = audioClockRef.current;
     if (!entry || clock.slot !== slot || clock.event?.id !== entry.event?.id) return;
     endedAudioEventIdRef.current = entry.event.id;
     seekPendingRef.current = false;
+    setReplayLoadingProgress(100, 'Запись готова');
     setIsSeeking(false);
     setAudioBuffering(false);
     const recordedDuration = getReplayAudioDurationMs(entry.event);
@@ -1433,13 +1505,14 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     positionRef.current = nextPosition;
     setPositionMs(nextPosition);
     if (nextPosition >= durationMs) setPlaying(false);
-  }, [durationMs]);
+  }, [durationMs, setReplayLoadingProgress]);
 
   const handleAudioUnavailable = useCallback((slot, entry) => {
     const clock = audioClockRef.current;
     if (!entry || clock.slot !== slot || clock.event?.id !== entry.event?.id) return;
     endedAudioEventIdRef.current = entry.event.id;
     seekPendingRef.current = false;
+    setReplayLoadingProgress(100, 'Звук недоступен — продолжаем без него');
     setIsSeeking(false);
     audioRefs.current[slot]?.pause();
     setAudioBuffering(false);
@@ -1450,7 +1523,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     positionRef.current = nextPosition;
     setPositionMs(nextPosition);
     if (nextPosition >= durationMs) setPlaying(false);
-  }, [durationMs]);
+  }, [durationMs, setReplayLoadingProgress]);
 
   /* eslint-disable react-hooks/immutability -- HTMLMediaElement playback is an imperative browser API synchronized by these effects. */
   useEffect(() => {
@@ -1562,6 +1635,23 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   }, [activeAudioSlot, audioEvent, audioSlots, audioSource, handleAudioUnavailable, playing]);
 
   useEffect(() => {
+    const audio = activeAudioSlot >= 0 ? audioRefs.current[activeAudioSlot] : null;
+    if (!audio || !audioEvent || !audioSource) return undefined;
+    const updateProgress = () => updateReplayAudioLoadingProgress(audio, audioEvent);
+    const progressEvents = ['progress', 'loadedmetadata', 'loadeddata', 'canplay', 'canplaythrough'];
+    progressEvents.forEach((type) => audio.addEventListener(type, updateProgress));
+    updateProgress();
+    return () => progressEvents.forEach((type) => audio.removeEventListener(type, updateProgress));
+  }, [
+    activeAudioSlot,
+    audioEvent,
+    audioSource,
+    playing,
+    seekSequence,
+    updateReplayAudioLoadingProgress,
+  ]);
+
+  useEffect(() => {
     if (!playing || activeAudioSlot < 0 || !audioEvent || !audioSource) return undefined;
     const entry = audioSlots[activeAudioSlot];
     const audio = audioRefs.current[activeAudioSlot];
@@ -1606,6 +1696,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       finished = true;
       if (sequence === seekSequenceRef.current) {
         seekPendingRef.current = false;
+        setReplayLoadingProgress(100, 'Запись готова');
         setIsSeeking(false);
       }
     };
@@ -1631,7 +1722,16 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     audio.addEventListener('error', finish);
     if (audio.readyState >= 2 && !audio.seeking) frameId = window.requestAnimationFrame(finish);
     return cleanup;
-  }, [activeAudioSlot, audioEvent, audioSlots, audioSource, isSeeking, positionMs, seekSequence]);
+  }, [
+    activeAudioSlot,
+    audioEvent,
+    audioSlots,
+    audioSource,
+    isSeeking,
+    positionMs,
+    seekSequence,
+    setReplayLoadingProgress,
+  ]);
 
   useEffect(() => {
     if (!playing || typeof window === 'undefined') return undefined;
@@ -1837,20 +1937,41 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
               src={entry?.source || undefined}
               preload="auto"
               muted={audioMuted}
+              onProgress={(event) => {
+                if (audioClockRef.current.slot === slot) updateReplayAudioLoadingProgress(event.currentTarget, entry?.event);
+              }}
+              onLoadedMetadata={(event) => {
+                if (audioClockRef.current.slot === slot) updateReplayAudioLoadingProgress(event.currentTarget, entry?.event);
+              }}
               onWaiting={() => {
-                if (audioClockRef.current.slot === slot && playing) setAudioBuffering(true);
+                if (audioClockRef.current.slot === slot && (playing || seekPendingRef.current)) {
+                  setAudioBuffering(true);
+                  updateReplayAudioLoadingProgress(audioRefs.current[slot], entry?.event);
+                }
               }}
               onStalled={() => {
-                if (audioClockRef.current.slot === slot && playing) setAudioBuffering(true);
+                if (audioClockRef.current.slot === slot && (playing || seekPendingRef.current)) {
+                  setAudioBuffering(true);
+                  updateReplayAudioLoadingProgress(audioRefs.current[slot], entry?.event);
+                }
               }}
               onSeeking={() => {
-                if (audioClockRef.current.slot === slot && playing) setAudioBuffering(true);
+                if (audioClockRef.current.slot === slot && (playing || seekPendingRef.current)) {
+                  setAudioBuffering(true);
+                  updateReplayAudioLoadingProgress(audioRefs.current[slot], entry?.event);
+                }
               }}
-              onCanPlay={() => {
-                if (audioClockRef.current.slot === slot) setAudioBuffering(false);
+              onCanPlay={(event) => {
+                if (audioClockRef.current.slot === slot) {
+                  updateReplayAudioLoadingProgress(event.currentTarget, entry?.event);
+                  setAudioBuffering(false);
+                }
               }}
-              onPlaying={() => {
-                if (audioClockRef.current.slot === slot) setAudioBuffering(false);
+              onPlaying={(event) => {
+                if (audioClockRef.current.slot === slot) {
+                  updateReplayAudioLoadingProgress(event.currentTarget, entry?.event);
+                  setAudioBuffering(false);
+                }
               }}
               onEnded={(event) => handleAudioEnded(slot, entry, event.currentTarget)}
               onError={() => {
@@ -1880,8 +2001,15 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         aria-live="polite"
       >
         <i aria-hidden="true" />
-        <strong>Загрузка записи…</strong>
-        <span>Доска, код и звук синхронизируются</span>
+        <strong>{loadingPhase}</strong>
+        <progress
+          ref={loadingProgressBarRef}
+          className="lesson-replay-player__loading-progress"
+          max="100"
+          value={loadingProgress}
+          aria-label="Прогресс загрузки записи"
+        />
+        <span ref={loadingProgressTextRef}>{loadingProgress}%</span>
       </div>
 
       {isFullscreen && !timeMachineBranch && (
