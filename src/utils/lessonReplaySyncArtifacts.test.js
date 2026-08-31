@@ -192,9 +192,13 @@ test('moves an explicitly marked initial board state to the start of playback', 
 });
 
 test('collapses a staggered legacy board sync into one initial snapshot', () => {
-  const makeItems = (prefix, count) => Array.from(
+  const makeItems = (prefix, count, yOffset) => Array.from(
     { length: count },
-    (_, index) => item(`${prefix}-${index}`)
+    (_, index) => ({
+      ...item(`${prefix}-${index}`),
+      x: 100 + index,
+      y: yOffset + index,
+    })
   );
   const makeDelta = (id, offsetMs, items, startIndex = 0) => ({
     id,
@@ -208,8 +212,8 @@ test('collapses a staggered legacy board sync into one initial snapshot', () => 
       removedIds: [],
     },
   });
-  const firstBatch = makeItems('first', 177);
-  const lateBatch = makeItems('late', 513);
+  const firstBatch = makeItems('first', 177, 200);
+  const lateBatch = makeItems('late', 513, 5000);
   const rawEvents = [
     { id: 'empty-a', type: 'board', offsetMs: 22_199, actor: actor('student'), payload: { mode: 'snapshot', actorVerified: false, items: [] } },
     { id: 'empty-b', type: 'board', offsetMs: 22_503, actor: actor('teacher'), payload: { mode: 'snapshot', actorVerified: false, items: [] } },
@@ -230,6 +234,8 @@ test('collapses a staggered legacy board sync into one initial snapshot', () => 
   assert.equal(repaired[0].offsetMs, 0);
   assert.equal(repaired[0].payload.recoveredInitialState, true);
   assert.equal(repaired[0].payload.items.length, 690);
+  assert.equal(repaired[0].payload.initialFocusBounds.minY, 200);
+  assert.ok(repaired[0].payload.initialFocusBounds.maxY < 1000);
   assert.deepEqual(
     repaired[0].payload.items.map((entry) => entry.id),
     [...firstBatch, ...lateBatch].map((entry) => entry.id)

@@ -1,3 +1,5 @@
+import { getLessonReplayBoardContentBounds } from './lessonReplayBoardViewport.js';
+
 const CODE_RESTORE_WINDOW_MS = 45_000;
 const NAVIGATION_CAPTURE_WINDOW_MS = 2_500;
 const LEGACY_BOARD_EVENT_LIMIT_BYTES = 384 * 1024;
@@ -139,6 +141,8 @@ export const repairLessonReplayInitialBoardState = (events) => {
   if (selectedIndexes.size === 0) return source;
 
   let initialItems = [];
+  let initialFocusItems = [];
+  let initialFocusOffsetMs = null;
   let firstInitialEvent = null;
   const remainingEvents = [];
   source.forEach((event, index) => {
@@ -148,7 +152,14 @@ export const repairLessonReplayInitialBoardState = (events) => {
     }
     if (!firstInitialEvent) firstInitialEvent = event;
     initialItems = applyBoardPayload(initialItems, event.payload);
+    const offsetMs = normalizeOffsetMs(event);
+    if (initialFocusOffsetMs === null) initialFocusOffsetMs = offsetMs;
+    if (offsetMs - initialFocusOffsetMs <= LEGACY_INITIAL_BOARD_SYNC_CLUSTER_GAP_MS) {
+      initialFocusItems = applyBoardPayload(initialFocusItems, event.payload);
+    }
   });
+
+  const initialFocusBounds = getLessonReplayBoardContentBounds(initialFocusItems);
 
   const initialEvent = {
     ...firstInitialEvent,
@@ -161,6 +172,7 @@ export const repairLessonReplayInitialBoardState = (events) => {
       initialState: true,
       recoveredInitialState: firstInitialEvent?.payload?.initialState !== true,
       items: initialItems,
+      ...(initialFocusBounds ? { initialFocusBounds } : {}),
       truncated: false,
     },
   };

@@ -49,6 +49,7 @@ import {
   updateLessonReplayBranchCode,
 } from '../utils/lessonReplayTimeMachine';
 import { getActiveReplayScreenEvent } from '../utils/lessonReplaySurfaces';
+import { resolveLessonReplayBoardViewport } from '../utils/lessonReplayBoardViewport';
 import './LessonReplayPlayer.css';
 
 const VIEW_LABELS = {
@@ -298,13 +299,20 @@ const getItemBounds = (item) => {
   };
 };
 
-const getFitView = (items) => {
-  const bounds = items.map(getItemBounds).filter(Boolean);
-  if (bounds.length === 0) return { x: -20, y: -20, width: 900, height: 520 };
-  const minX = Math.min(...bounds.map((entry) => entry.minX));
-  const minY = Math.min(...bounds.map((entry) => entry.minY));
-  const maxX = Math.max(...bounds.map((entry) => entry.maxX));
-  const maxY = Math.max(...bounds.map((entry) => entry.maxY));
+const getPaddedView = (bounds) => {
+  if (!bounds) return null;
+  const minX = Number(bounds.minX);
+  const minY = Number(bounds.minY);
+  const maxX = Number(bounds.maxX);
+  const maxY = Number(bounds.maxY);
+  if (
+    !Number.isFinite(minX)
+    || !Number.isFinite(minY)
+    || !Number.isFinite(maxX)
+    || !Number.isFinite(maxY)
+    || maxX < minX
+    || maxY < minY
+  ) return null;
   const padding = Math.max(28, Math.min(100, Math.max(maxX - minX, maxY - minY) * 0.08));
   return {
     x: minX - padding,
@@ -312,6 +320,17 @@ const getFitView = (items) => {
     width: Math.max(240, maxX - minX + padding * 2),
     height: Math.max(140, maxY - minY + padding * 2),
   };
+};
+
+const getFitView = (items) => {
+  const bounds = items.map(getItemBounds).filter(Boolean);
+  if (bounds.length === 0) return { x: -20, y: -20, width: 900, height: 520 };
+  return getPaddedView({
+    minX: Math.min(...bounds.map((entry) => entry.minX)),
+    minY: Math.min(...bounds.map((entry) => entry.minY)),
+    maxX: Math.max(...bounds.map((entry) => entry.maxX)),
+    maxY: Math.max(...bounds.map((entry) => entry.maxY)),
+  });
 };
 
 const viewFromRecordedPosition = (fitView, recordedView) => {
@@ -475,9 +494,12 @@ const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
   const [freeView, setFreeView] = useState(null);
   const pointerRef = useRef(null);
   const arrowMarkerId = `lesson-replay-arrow-${useId().replace(/:/g, '')}`;
+  const automaticView = recordedView
+    ? viewFromRecordedPosition(fitView, recordedView)
+    : fitView;
   const view = freeNavigation
-    ? (freeView || fitView)
-    : viewFromRecordedPosition(fitView, recordedView);
+    ? (freeView || automaticView)
+    : automaticView;
 
   const zoomAtCenter = (factor) => {
     if (!freeNavigation) return;
@@ -502,7 +524,7 @@ const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
         <div className="lesson-replay-player__board-tools">
           <button type="button" onClick={() => zoomAtCenter(0.8)} aria-label="Приблизить"><ZoomIn size={16} /></button>
           <button type="button" onClick={() => zoomAtCenter(1.25)} aria-label="Отдалить"><ZoomOut size={16} /></button>
-          <button type="button" onClick={() => setFreeView(null)}>Вписать</button>
+          <button type="button" onClick={() => setFreeView(fitView)}>Вписать</button>
         </div>
       )}
       <svg
@@ -1154,6 +1176,31 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       ))
     )
   ), [replay]);
+  const initialBoardFocusBounds = useMemo(() => (
+    events.find((event) => (
+      event?.type === 'board'
+      && event.payload?.initialState === true
+      && event.payload?.initialFocusBounds
+    ))?.payload?.initialFocusBounds || null
+  ), [events]);
+  const initialBoardViewport = useMemo(() => {
+    if (!initialBoardFocusBounds) return null;
+    const width = 900;
+    const height = 520;
+    const resolved = resolveLessonReplayBoardViewport(
+      null,
+      { width, height },
+      initialBoardFocusBounds,
+      { minZoom: 0.15, maxZoom: 12 }
+    );
+    return {
+      surface: 'board',
+      zoom: resolved.zoom,
+      offset: resolved.offset,
+      width,
+      height,
+    };
+  }, [initialBoardFocusBounds]);
   const durationMs = useMemo(
     () => getReplayTimelineDurationMs(events, replay?.durationMs),
     [events, replay?.durationMs]
@@ -1435,7 +1482,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     [events, positionMs]
   );
   const screenEvent = freeScreenEvent;
-  const boardView = state.boardView?.payload || boardEvent?.payload?.viewport || boardEvent?.payload?.view;
+  const boardView = (
+    state.boardView?.payload
+    || boardEvent?.payload?.viewport
+    || boardEvent?.payload?.view
+    || initialBoardViewport
+  );
   const codeView = state.codeView?.payload || codeEvent?.payload?.editor || codeEvent?.payload?.view;
   const availableTabs = screenEvent ? ['split', 'board', 'code', 'screen'] : ['split', 'board', 'code'];
   const resolvedActiveTab = availableTabs.includes(activeTab) ? activeTab : 'board';
