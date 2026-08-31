@@ -2157,7 +2157,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
                 role="img"
                 tabIndex="0"
                 aria-label={markerTooltip}
-                title={markerTooltip}
                 style={{ left: `${Math.min(100, Math.max(0, (event.offsetMs / markerDurationMs) * 100))}%` }}
               />
             );
@@ -2170,7 +2169,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
               role="img"
               tabIndex="0"
               aria-label={`Машина времени · ${formatClock(timeMachineBranch.metadata.positionMs)}`}
-              title={`Машина времени · ${formatClock(timeMachineBranch.metadata.positionMs)}`}
               style={{ left: `${Math.min(100, Math.max(0, (timeMachineBranch.metadata.positionMs / markerDurationMs) * 100))}%` }}
             />
           )}
@@ -2214,7 +2212,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
             max="100"
             step="5"
             value={volumePercent}
-            onChange={handleAudioVolumeChange}
+            onInput={handleAudioVolumeChange}
             disabled={audioEvents.length === 0}
             aria-label="Громкость записи"
           />
