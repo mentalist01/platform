@@ -228,6 +228,17 @@ import {
   normalizeHomeworkComposerDraft,
 } from '../src/utils/homeworkComposerDraft.js';
 import { buildHomeworkDayPlan } from '../src/utils/homeworkDayPlan.js';
+import { getMockTaskRuleNumber } from '../src/utils/mockTaskIdentity.js';
+import {
+  buildDefaultClassicTaskCatalog,
+} from '../src/data/classicTaskCatalog.js';
+import {
+  ClassicTaskCatalogMutationError,
+  buildClassicTaskCatalogMutation,
+  initializeAddedClassicTaskBanks,
+  normalizeStoredClassicTaskCatalog,
+  serializeClassicTaskCatalogForClient,
+} from './classicTaskCatalogMutation.js';
 import {
   isOptionalHomeworkGoal,
   normalizeHomeworkAssignmentTier,
@@ -534,6 +545,7 @@ const homeworkDraftsFile = path.join(dataDir, 'homework-drafts.json');
 const testsFile = path.join(dataDir, 'tests.json');
 const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
+const taskCatalogFile = path.join(dataDir, 'task-catalog.json');
 const signupChatsFile = path.join(dataDir, 'signup-chats.json');
 const studentChatsFile = path.join(dataDir, 'student-chats.json');
 const studentChatsDir = path.join(dataDir, 'student-chats');
@@ -1984,6 +1996,49 @@ const readTaskTitlesDb = () => {
   }
 };
 
+let classicTaskCatalogCache = null;
+const readClassicTaskCatalogDb = () => {
+  if (classicTaskCatalogCache) return classicTaskCatalogCache;
+  let stored = null;
+  try {
+    stored = JSON.parse(fs.readFileSync(taskCatalogFile, 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    stored = { tasks: buildDefaultClassicTaskCatalog() };
+  }
+  classicTaskCatalogCache = normalizeStoredClassicTaskCatalog(stored, readTaskTitlesDb());
+  return classicTaskCatalogCache;
+};
+
+const classicTaskCatalogIndexes = new WeakMap();
+const getClassicTaskCatalogEntry = (taskNumber) => {
+  const catalog = readClassicTaskCatalogDb();
+  let index = classicTaskCatalogIndexes.get(catalog);
+  if (!index) {
+    index = new Map([...catalog.activeTasks, ...catalog.archivedTasks]
+      .map((task) => [task.taskNumber, task]));
+    classicTaskCatalogIndexes.set(catalog, index);
+  }
+  return index.get(Number(taskNumber));
+};
+
+const getMockTaskTitleSnapshot = () => Object.fromEntries(
+  readClassicTaskCatalogDb().activeTasks.flatMap((task) => (
+    (task.slotNumber === 19 ? [19, 20, 21] : [task.slotNumber])
+      .map((slot) => [String(slot), task.title])
+  )),
+);
+
+const getClassicTaskCatalogRevision = (catalog = readClassicTaskCatalogDb()) => crypto
+  .createHash('sha256')
+  .update(JSON.stringify({
+    nextTaskNumber: catalog.nextTaskNumber,
+    activeTasks: catalog.activeTasks,
+    archivedTasks: catalog.archivedTasks,
+  }))
+  .digest('hex')
+  .slice(0, 24);
+
 let progressDbCache = null;
 const readProgressDb = () => {
   if (progressDbCache && typeof progressDbCache === 'object' && !Array.isArray(progressDbCache)) {
@@ -2939,6 +2994,35 @@ const writeTeachersDb = (data) => {
 
 const writeTaskTitlesDb = (data) => {
   writeJsonFileAtomic(taskTitlesFile, data);
+};
+
+const writeClassicTaskCatalogDb = (catalog) => {
+  const normalized = normalizeStoredClassicTaskCatalog({
+    version: 1,
+    nextTaskNumber: catalog?.nextTaskNumber,
+    tasks: Array.isArray(catalog?.activeTasks)
+      ? catalog.activeTasks.map((task) => ({
+          taskNumber: task.taskNumber,
+          number: task.slotNumber,
+          title: task.title,
+          xpReward: task.xpReward,
+        }))
+      : [],
+    archivedTasks: Array.isArray(catalog?.archivedTasks) ? catalog.archivedTasks : [],
+  }, readTaskTitlesDb());
+  writeJsonFileAtomic(taskCatalogFile, {
+    version: 1,
+    nextTaskNumber: normalized.nextTaskNumber,
+    tasks: normalized.activeTasks.map((task) => ({
+      taskNumber: task.taskNumber,
+      number: task.slotNumber,
+      title: task.title,
+      xpReward: task.xpReward,
+    })),
+    archivedTasks: normalized.archivedTasks,
+  });
+  classicTaskCatalogCache = normalized;
+  return normalized;
 };
 
 const writeProgressDb = (data) => {
@@ -10469,17 +10553,17 @@ const computeTaskProgress = (taskEntry = {}, taskLevels = null) => {
 
 const normalizeClassicTaskForXp = (value) => {
   const num = Number(value);
-  if (!Number.isFinite(num)) return null;
-  const taskNum = Math.trunc(num);
-  if (taskNum < 1 || taskNum > 27) return null;
+  if (!Number.isInteger(num)) return null;
+  const taskNum = num;
   if (taskNum === 20 || taskNum === 21) return GAME_THEORY_TASK;
-  return taskNum;
+  return getClassicTaskCatalogEntry(taskNum) ? taskNum : null;
 };
 
 const getTaskXpReward = (taskNumber) => {
   const normalizedTask = normalizeClassicTaskForXp(taskNumber);
   if (!Number.isFinite(normalizedTask)) return 0;
-  const reward = Number(TASK_XP_REWARDS[normalizedTask]);
+  const catalogTask = getClassicTaskCatalogEntry(normalizedTask);
+  const reward = Number(catalogTask?.xpReward ?? TASK_XP_REWARDS[normalizedTask]);
   if (!Number.isFinite(reward) || reward <= 0) return 0;
   return Math.floor(reward);
 };
@@ -11290,7 +11374,7 @@ const getSolvedEventXpReward = (event, artifactLevels = null) => {
   const taskNum = Number(event?.taskNumber);
   const levelId = String(event?.levelId || '').trim();
   const storedReward = normalizeXpTotal(event?.xpGained);
-  if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27 || levelId === PYTHON_LEVEL_ID) {
+  if (!isClassicTaskNumber(taskNum) || levelId === PYTHON_LEVEL_ID) {
     return storedReward;
   }
   const recalculatedReward = getArtifactAdjustedTaskLevelXpReward(taskNum, levelId, artifactLevels);
@@ -11350,7 +11434,7 @@ const deriveXpFromSolvedEvents = (events, artifactLevels = null) => {
     }
     if (!event || typeof event !== 'object') return;
     const taskNum = Number(event.taskNumber);
-    if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return;
+    if (!isClassicTaskNumber(taskNum)) return;
     const levelId = String(event.levelId || '').trim();
     if (levelId === PYTHON_LEVEL_ID) return;
     const reward = artifactLevels && typeof artifactLevels === 'object'
@@ -11441,7 +11525,7 @@ const getSolvedEventDayKey = (event) => {
 const isTestingSolvedEvent = (event) => {
   if (!event || typeof event !== 'object') return false;
   const taskNum = Number(event.taskNumber);
-  if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return false;
+  if (!isClassicTaskNumber(taskNum)) return false;
   const levelId = String(event.levelId || '').trim();
   return levelId !== PYTHON_LEVEL_ID;
 };
@@ -11822,7 +11906,7 @@ const getLeaderboardProgressKindForTask = (taskNumber) => {
   const taskNum = Number(taskNumber);
   if (!Number.isFinite(taskNum)) return '';
   if (isPythonTaskNumber(taskNum)) return 'python';
-  if (taskNum >= 1 && taskNum <= 27) return 'course';
+  if (isClassicTaskNumber(taskNum)) return 'course';
   return '';
 };
 
@@ -12189,14 +12273,14 @@ const {
   parseSubmittedAnswers,
 } = createQuestionAnswerRules({ getAnswerCountForTask });
 
-const getMockAnswerCountForTask = (taskNumber) => {
-  const num = Number(taskNumber);
+const getMockAnswerCountForTask = (taskNumber, question) => {
+  const num = getMockTaskRuleNumber(taskNumber, question);
   if (num === 20) return 2;
   if (num === GAME_THEORY_TASK) return 1;
   return getAnswerCountForTask(num);
 };
 
-const allowsPartialMockAnswers = (taskNumber) => Number(taskNumber) === 25;
+const allowsPartialMockAnswers = (taskNumber, question) => getMockTaskRuleNumber(taskNumber, question) === 25;
 
 const MOCK_TASK_NUMBERS = Array.from({ length: 27 }, (_, index) => index + 1);
 const PERSONAL_RANDOM_MOCK_COOLDOWN_MS = 1500;
@@ -12764,7 +12848,7 @@ const normalizeMockAttemptAnswers = (exam, rawAnswers) => {
   const source = rawAnswers && typeof rawAnswers === 'object' ? rawAnswers : {};
   const normalized = {};
   Object.keys(tasks).forEach((taskKey) => {
-    const answerCount = getMockAnswerCountForTask(taskKey);
+    const answerCount = getMockAnswerCountForTask(taskKey, tasks[taskKey]);
     const provided = parseMockAttemptAnswers(source[taskKey], answerCount);
     normalized[taskKey] = answerCount <= 1 ? provided[0] : provided;
   });
@@ -12781,7 +12865,7 @@ const mergeMockAttemptAnswers = (exam, previousAnswers, nextAnswers, options = {
   const preservePreviousNonEmpty = options?.preservePreviousNonEmpty === true;
   const merged = {};
   Object.keys(tasks).forEach((taskKey) => {
-    const answerCount = getMockAnswerCountForTask(taskKey);
+    const answerCount = getMockAnswerCountForTask(taskKey, tasks[taskKey]);
     const hasNextAnswer = hasMockAttemptAnswerValue(next[taskKey], answerCount);
     const hasPreviousAnswer = hasMockAttemptAnswerValue(previous[taskKey], answerCount);
     if (
@@ -12803,7 +12887,7 @@ const mergeMockAttemptAnswers = (exam, previousAnswers, nextAnswers, options = {
 const hasMockAttemptStarted = (exam, answers = {}) => {
   const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
   return Object.keys(tasks).some((taskKey) => {
-    const answerCount = getMockAnswerCountForTask(taskKey);
+    const answerCount = getMockAnswerCountForTask(taskKey, tasks[taskKey]);
     return hasMockAttemptAnswerValue(answers?.[taskKey], answerCount);
   });
 };
@@ -12812,7 +12896,7 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
   const tasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
   const solved = {};
   Object.entries(tasks).forEach(([taskKey, question]) => {
-    const answerCount = getMockAnswerCountForTask(taskKey);
+    const answerCount = getMockAnswerCountForTask(taskKey, question);
     const expectedAnswers = getExpectedAnswersForQuestion(question, answerCount);
     const provided = parseMockAttemptAnswers(answersMap?.[taskKey], answerCount);
     if (answerCount <= 1) {
@@ -12824,7 +12908,7 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
       solved[taskKey] = normalizeAnswerValue(value) === normalizeAnswerValue(expectedAnswers[0]);
       return;
     }
-    const allowPartial = allowsPartialMockAnswers(taskKey);
+    const allowPartial = allowsPartialMockAnswers(taskKey, question);
     if (!allowPartial && provided.some((value) => !String(value ?? '').trim())) {
       solved[taskKey] = false;
       return;
@@ -14035,7 +14119,8 @@ const isPythonInfiniteTrainingTaskNumber = (taskNum) => (
   Number.isFinite(Number(taskNum))
   && Math.trunc(Number(taskNum)) === PYTHON_INFINITE_TRAINING_TASK_NUMBER
 );
-const isClassicTaskNumber = (taskNum) => Number.isFinite(taskNum) && taskNum >= 1 && taskNum <= 27;
+const isClassicTaskNumber = (taskNum) => Number.isFinite(Number(taskNum))
+  && Number.isFinite(normalizeClassicTaskForXp(taskNum));
 const isKnownTaskNumber = (taskNum) => isClassicTaskNumber(taskNum) || isPythonTaskNumber(taskNum);
 const GOAL_TYPE_TASK = 'task';
 const GOAL_TYPE_MOCK = 'mock';
@@ -14078,7 +14163,7 @@ const normalizeGoals = (goals, testsDb = null) => {
     }
     const taskNum = Number(goal.taskNumber);
     const isPython = isPythonTaskNumber(taskNum);
-    if (!Number.isFinite(taskNum) || (!isPython && (taskNum < 1 || taskNum > 27))) return;
+    if (!isKnownTaskNumber(taskNum)) return;
     let levelId = String(goal.levelId || '').trim();
     if (isPython) levelId = 'python';
     if (!isPython && !['basic', 'advanced', 'expert'].includes(levelId)) return;
@@ -14113,7 +14198,7 @@ const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
   const taskNum = Number(entry.taskNumber);
   let levelId = String(entry.levelId || '').trim();
   const isPython = isPythonTaskNumber(taskNum);
-  if (!Number.isFinite(taskNum) || (!isPython && (taskNum < 1 || taskNum > 27))) return [];
+  if (!isKnownTaskNumber(taskNum)) return [];
   if (isPython) levelId = 'python';
   if (!isPython && !['basic', 'advanced', 'expert'].includes(levelId)) return [];
   const includeAll = Boolean(entry.includeAll);
@@ -26910,16 +26995,96 @@ app.post('/api/students/:id/restore', (req, res) => {
   });
 });
 
+app.get('/api/task-catalog', (_req, res) => {
+  const catalog = readClassicTaskCatalogDb();
+  return res.json({
+    ...serializeClassicTaskCatalogForClient(catalog),
+    revision: getClassicTaskCatalogRevision(catalog),
+  });
+});
+
+app.put('/api/task-catalog', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const currentCatalog = readClassicTaskCatalogDb();
+  const currentRevision = getClassicTaskCatalogRevision(currentCatalog);
+  const requestedRevision = String(req.body?.revision || '').trim();
+  if (!requestedRevision || requestedRevision !== currentRevision) {
+    return res.status(409).json({
+      error: 'Карточки уже изменились в другом окне. Обновите страницу и повторите.',
+    });
+  }
+
+  let mutation;
+  try {
+    mutation = buildClassicTaskCatalogMutation(currentCatalog, req.body);
+  } catch (error) {
+    if (error instanceof ClassicTaskCatalogMutationError) {
+      return res.status(error.statusCode || 400).json({ error: error.message });
+    }
+    throw error;
+  }
+
+  let previousTestsDb;
+  let previousTitles;
+  try {
+    previousTestsDb = readJsonObjectFileStrict(testsFile);
+    previousTitles = readTaskTitlesDb();
+  } catch (error) {
+    console.error('[task-catalog] failed to read data before update:', error);
+    return res.status(500).json({ error: 'Не удалось безопасно прочитать базу заданий.' });
+  }
+
+  const nextTestsDb = initializeAddedClassicTaskBanks(
+    previousTestsDb,
+    mutation.addedTaskNumbers,
+  );
+  if (mutation.addedTaskNumbers.some((number) => Object.hasOwn(previousTestsDb, String(number)))) {
+    return res.status(409).json({ error: 'Внутренний номер уже занят банком заданий. Изменения не сохранены.' });
+  }
+  const nextTitles = { ...previousTitles };
+  mutation.catalog.activeTasks.forEach((task) => {
+    nextTitles[String(task.taskNumber)] = task.title;
+  });
+
+  try {
+    if (mutation.addedTaskNumbers.length > 0) writeTestsDb(nextTestsDb);
+    writeTaskTitlesDb(nextTitles);
+    classicTaskCatalogCache = null;
+    const storedCatalog = writeClassicTaskCatalogDb(mutation.catalog);
+    return res.json({
+      ok: true,
+      ...serializeClassicTaskCatalogForClient(storedCatalog),
+      revision: getClassicTaskCatalogRevision(storedCatalog),
+      addedTaskNumbers: mutation.addedTaskNumbers,
+      archivedTaskNumbers: mutation.archivedTaskNumbers,
+    });
+  } catch (error) {
+    console.error('[task-catalog] failed to update catalog:', error);
+    try {
+      if (mutation.addedTaskNumbers.length > 0) writeTestsDb(previousTestsDb);
+      writeTaskTitlesDb(previousTitles);
+      classicTaskCatalogCache = null;
+      writeClassicTaskCatalogDb(currentCatalog);
+    } catch (rollbackError) {
+      console.error('[task-catalog] rollback failed:', rollbackError);
+    }
+    return res.status(500).json({ error: 'Не удалось сохранить карточки. Изменения отменены.' });
+  }
+});
+
 app.get('/api/task-titles', (_req, res) => {
   const data = readTaskTitlesDb();
   res.json(data || {});
 });
 
 app.patch('/api/task-titles', (req, res) => {
-  if (isStudentRole(req.auth)) return forbid(res);
+  if (!ensureStaffWriteAccess(req, res)) return;
   const { number, title } = req.body || {};
   const taskNumber = Number(number);
-  if (!Number.isFinite(taskNumber) || taskNumber < 1 || taskNumber > 27) {
+  const catalog = readClassicTaskCatalogDb();
+  const knownTask = [...catalog.activeTasks, ...catalog.archivedTasks]
+    .some((task) => task.taskNumber === taskNumber);
+  if (!Number.isInteger(taskNumber) || !knownTask) {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
   const trimmed = typeof title === 'string' ? title.trim() : '';
@@ -26928,6 +27093,7 @@ app.patch('/api/task-titles', (req, res) => {
   if (!trimmed) {
     if (db[key]) delete db[key];
     writeTaskTitlesDb(db);
+    classicTaskCatalogCache = null;
     return res.json({ ok: true, number: taskNumber, title: '' });
   }
   if (trimmed.length > 120) {
@@ -26935,6 +27101,7 @@ app.patch('/api/task-titles', (req, res) => {
   }
   db[key] = trimmed;
   writeTaskTitlesDb(db);
+  classicTaskCatalogCache = null;
   res.json({ ok: true, number: taskNumber, title: trimmed });
 });
 
@@ -27460,6 +27627,15 @@ app.put('/api/tests', (req, res) => {
       error: 'Не удалось безопасно прочитать текущую базу. Обновите страницу и попробуйте ещё раз.',
     });
   }
+  // Older tabs may not know about a newly added or archived card. A full-bank
+  // save must never erase those banks merely because they are absent there.
+  const catalog = readClassicTaskCatalogDb();
+  [...catalog.activeTasks, ...catalog.archivedTasks].forEach((task) => {
+    const key = String(task.taskNumber);
+    if (!Object.hasOwn(payload, key) && Object.hasOwn(previousTestsDb, key)) {
+      payload[key] = previousTestsDb[key];
+    }
+  });
   let progressMigration;
   try {
     progressMigration = remapProgressQuestionTargets(
@@ -27659,6 +27835,7 @@ app.post('/api/mock-exams/random', (req, res) => {
   });
   const generated = buildPersonalRandomMockTasks({
     testsDb,
+    taskCatalog: readClassicTaskCatalogDb().activeTasks,
     solvedByTask: studentData.solvedByTask,
     randomMockSolvedByTask,
     levelId,
@@ -27691,6 +27868,7 @@ app.post('/api/mock-exams/random', (req, res) => {
     generationRequestId: requestId || crypto.randomUUID(),
     generationNumber,
     tasks: generated.tasks,
+    taskTitleSnapshot: getMockTaskTitleSnapshot(),
     randomSummary: generated.summary,
     rewardsDisabled: true,
     badges: [
@@ -27736,6 +27914,7 @@ app.post('/api/mock-exams', (req, res) => {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     tasks: {},
+    taskTitleSnapshot: getMockTaskTitleSnapshot(),
     badges: [],
     access: { all: false, students: [], mode: MOCK_ATTEMPT_MODE_TIMER },
   };
@@ -34206,7 +34385,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
   let normalizedGoals = normalizeGoals(goals, testsDb);
   if (hasTaskNumber) {
     const taskNum = Number(taskNumber);
-    if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) {
+    if (!isClassicTaskNumber(taskNum)) {
       return res.status(400).json({ error: 'Некорректный номер задания' });
     }
     const normalizedLevel = String(levelId || '').trim();
@@ -34438,7 +34617,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
       normalizedTargets = [];
     } else {
       const taskNum = Number(taskNumber);
-      if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) {
+      if (!isClassicTaskNumber(taskNum)) {
         return res.status(400).json({ error: 'Некорректный номер задания' });
       }
       const normalizedLevel = String(levelId || '').trim();

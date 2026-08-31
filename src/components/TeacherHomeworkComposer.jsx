@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { formatClassicTaskNumber, getClassicTask } from '../data/classicTaskRuntime';
 import {
   ArrowLeft,
   ArrowRight,
@@ -68,11 +69,11 @@ const addCalendarDaysToKey = (value, amount) => {
 const describePlanItem = (item) => {
   if (item?.type === 'text') return item.text || 'Дополнительный пункт';
   if (item?.type === 'task-target') {
-    return `Задание ${item.taskNumber} · №${item.questionNumber || '—'}`;
+    return `Задание ${formatClassicTaskNumber(item.taskNumber)} · №${item.questionNumber || '—'}`;
   }
   if (item?.type === 'mock-target') return `Пробник · №${item.taskKey}`;
   if (item?.type === 'mock-goal') return 'Пробник целиком';
-  if (item?.type === 'task-goal') return `Задание ${item?.goal?.taskNumber || ''} целиком`.trim();
+  if (item?.type === 'task-goal') return `Задание ${formatClassicTaskNumber(item?.goal?.taskNumber)} целиком`.trim();
   return 'Часть домашней работы';
 };
 
@@ -878,6 +879,11 @@ const TeacherHomeworkComposer = ({
             className="min-h-10 rounded-xl border border-slate-200 bg-[rgb(var(--surface))] px-3 text-sm font-semibold text-[rgb(var(--ink))] outline-none focus:border-purple-400"
           >
             <option value="">Выберите раздел</option>
+            {getClassicTask(goal?.taskNumber)?.archived && (
+              <option value={goal.taskNumber}>
+                {`${formatClassicTaskNumber(goal.taskNumber)}. ${getClassicTask(goal.taskNumber).title} (архив)`}
+              </option>
+            )}
             <optgroup label="ЕГЭ">
               {taskOptions.map((task) => (
                 <option key={task.id ?? task.number} value={task.number}>

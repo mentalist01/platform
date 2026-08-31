@@ -65,6 +65,14 @@ import {
 } from './utils/teacherStudentSelection';
 import { isCurrentStudent, normalizeStudentStudyStatus } from './utils/studentStudyStatus';
 import { resolveHomeworkTaskTargetDescriptors } from './utils/homeworkComposer';
+import { buildDefaultClassicTaskCatalog } from './data/classicTaskCatalog';
+import { getMockTaskRuleNumber } from './utils/mockTaskIdentity';
+import {
+  formatClassicTaskNumber,
+  getClassicTask,
+  isKnownClassicTask,
+  setClassicTaskRuntimeCatalog,
+} from './data/classicTaskRuntime';
 import {
   buildHomeworkQuickTaskQueue,
   completeHomeworkQuickTaskSession,
@@ -1291,7 +1299,7 @@ const isLeagueAboveAbsolute = (leagueId) => {
 };
 const isAbsoluteOrAboveLeague = (leagueId) => leagueId === ABSOLUTE_LEAGUE_ID || isLeagueAboveAbsolute(leagueId);
 const LEVEL_UP_PARTICLE_COUNT = 24;
-const TASK_XP_REWARDS = {
+let TASK_XP_REWARDS = {
   1: 20,
   2: 50,
   3: 40,
@@ -1368,6 +1376,21 @@ const normalizeMockExamAccess = (access, fallback = LEGACY_MOCK_EXAM_ACCESS) => 
     mode: normalizeAssignedMockExamMode(access.mode),
   };
 };
+const syncTaskCatalogLookups = (catalog) => {
+  setClassicTaskRuntimeCatalog(catalog);
+  const catalogTasks = [
+    ...(Array.isArray(catalog?.tasks) ? catalog.tasks : []),
+    ...(Array.isArray(catalog?.archivedTasks) ? catalog.archivedTasks : []),
+  ];
+  if (!catalogTasks.length) return;
+  TASK_XP_REWARDS = {
+    ...TASK_XP_REWARDS,
+    ...Object.fromEntries(catalogTasks.map((task) => [
+      Number(task.taskNumber ?? task.number),
+      Number(task.xpReward) || 0,
+    ])),
+  };
+};
 
 const isMockExamAccessible = (exam, studentId) => {
   if (!exam) return false;
@@ -1399,7 +1422,7 @@ const normalizeTaskNumber = (value) => {
 
 const getTaskXpReward = (taskNumber) => {
   const normalizedTask = normalizeTaskNumber(taskNumber);
-  if (!Number.isFinite(normalizedTask) || normalizedTask < 1 || normalizedTask > 27) return 0;
+  if (!Number.isFinite(normalizedTask) || normalizedTask < 1) return 0;
   const reward = Number(TASK_XP_REWARDS[normalizedTask]);
   if (!Number.isFinite(reward) || reward <= 0) return 0;
   return Math.floor(reward);
@@ -1582,12 +1605,16 @@ const ABSOLUTE_AURA_CROWN_STYLE = {
 
 const formatTaskNumber = (value) => {
   const num = normalizeTaskNumber(value);
-  if (num === GAME_THEORY_TASK) return '19-21';
   if (!Number.isFinite(num)) return '';
+  const catalogDisplay = formatClassicTaskNumber(num);
+  if (catalogDisplay) return catalogDisplay;
+  if (num === GAME_THEORY_TASK) return '19-21';
   return String(num);
 };
 
-const getTaskDisplayNumber = (task) => task?.displayNumber ?? formatTaskNumber(task?.number ?? task?.id);
+const getTaskDisplayNumber = (task) => task?.displayNumber ?? formatTaskNumber(
+  typeof task === 'object' ? (task?.number ?? task?.id) : task,
+);
 const normalizeMockExamId = (value) => String(value || '').trim();
 
 const normalizeGoalType = (goal) => {
@@ -1812,7 +1839,7 @@ const deriveCoinsFromSolvedByTask = (solvedByTask) => {
 const isTestingSolvedEvent = (event) => {
   if (!event || typeof event !== 'object') return false;
   const taskNum = Number(event.taskNumber);
-  if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) return false;
+  if (!isKnownClassicTask(taskNum)) return false;
   if (isMockExamTeacherSolvedNotif(event)) return false;
   const levelId = String(event.levelId || '').trim();
   return levelId !== PYTHON_LEVEL_ID;
@@ -1944,14 +1971,14 @@ const getAnswerCountForTask = (taskNumber) => {
   return 1;
 };
 
-const getMockAnswerCountForTask = (taskNumber) => {
-  const num = Number(taskNumber);
+const getMockAnswerCountForTask = (taskNumber, question) => {
+  const num = getMockTaskRuleNumber(taskNumber, question);
   if (num === 20) return 2;
   if (num === GAME_THEORY_TASK) return 1;
   return getAnswerCountForTask(num);
 };
 
-const allowsPartialAnswers = (taskNumber) => Number(taskNumber) === 25;
+const allowsPartialAnswers = (taskNumber, question) => getMockTaskRuleNumber(taskNumber, question) === 25;
 
 const getExpectedAnswers = (question, count) => {
   if (!question) return Array.from({ length: count }, () => '');
@@ -2408,20 +2435,7 @@ const normalizeStoredOpenTask = (entry) => {
 };
 
 // Заглушка списка заданий
-const RAW_TASKS = Array.from({ length: 27 }, (_, i) => ({
-  id: i + 1,
-  number: i + 1,
-  title: [
-    "Анализ информационных моделей", "Таблицы истинности", "Поиск в БД", "Кодирование (Фано)", 
-    "Анализ алгоритмов", "Черепаха", "Изображения/Звук", "Комбинаторика", "Excel", "Word",
-    "Вычисление информации", "Исполнители", "Графы", "Системы счисления", "Алгебра логики", 
-    "Рекурсия", "Последовательности", "Робот (ДП)", "Теория игр (1)", "Теория игр (2)", 
-    "Теория игр (3)", "Многопроцессорные", "Динамика (Исполнитель)", "Строки", "Маски чисел", 
-    "Жадные алгоритмы", "Анализ данных (Сложная)"
-  ][i] || `Задание ${i + 1}`,
-  topic: "Тема задания",
-  mastery: 0
-}));
+const RAW_TASKS = buildDefaultClassicTaskCatalog();
 
 const MOCK_TASKS = RAW_TASKS
   .filter((task) => ![20, 21].includes(task.number))
@@ -18215,6 +18229,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [teacherSignupNotifyReady, setTeacherSignupNotifyReady] = useState(false);
   const [teacherSignupNotifyError, setTeacherSignupNotifyError] = useState('');
   const [taskTitles, setTaskTitles] = useState({});
+  const [taskCatalog, setTaskCatalog] = useState(() => ({
+    tasks: MOCK_TASKS,
+    archivedTasks: [],
+    revision: '',
+  }));
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
   const [studentsError, setStudentsError] = useState('');
@@ -19235,8 +19254,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return () => clearTimeout(timeoutId);
   }, [homeworkLessonBasketNotice]);
   const tasksWithTitles = useMemo(
-    () => applyTaskTitles(MOCK_TASKS, taskTitles),
-    [taskTitles]
+    () => applyTaskTitles(
+      Array.isArray(taskCatalog?.tasks) && taskCatalog.tasks.length ? taskCatalog.tasks : MOCK_TASKS,
+      taskTitles,
+    ),
+    [taskCatalog, taskTitles]
   );
   const weeklyRecapTasks = useMemo(
     () => [...tasksWithTitles, ...PYTHON_TASKS],
@@ -21712,7 +21734,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     let solved = 0;
     for (const [taskKey, taskLevels] of Object.entries(testsDb)) {
       const taskNum = Number(taskKey);
-      if (!Number.isFinite(taskNum) || taskNum < 1 || taskNum > 27) continue;
+      if (!tasksWithTitles.some((task) => Number(task.number) === taskNum)) continue;
       if (!taskLevels || typeof taskLevels !== 'object') continue;
       const taskSolvedEntry = solvedByTask?.[String(taskNum)] && typeof solvedByTask[String(taskNum)] === 'object'
         ? solvedByTask[String(taskNum)]
@@ -21738,7 +21760,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       daysToFinish = Math.ceil(remaining / averagePerDay);
     }
     return { total, solved, remaining, daysToFinish, averagePerDay };
-  }, [goalTestsDb, solvedByTask, solvedPerDayStats.average]);
+  }, [goalTestsDb, solvedByTask, solvedPerDayStats.average, tasksWithTitles]);
 
   const loadStudents = useCallback((teacherId, options = {}) => {
     const normalizedTeacherId = String(teacherId || '').trim();
@@ -21897,16 +21919,29 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   useEffect(() => {
     let cancelled = false;
-    api.getTaskTitles()
-      .then((data) => {
+    let lastRequestedAt = 0;
+    const refreshCatalog = () => {
+      if (Date.now() - lastRequestedAt < 10000) return;
+      lastRequestedAt = Date.now();
+      api.getTaskCatalog()
+      .then((catalog) => {
         if (cancelled) return;
-        setTaskTitles(data && typeof data === 'object' ? data : {});
+        if (catalog && typeof catalog === 'object' && Array.isArray(catalog.tasks)) {
+          syncTaskCatalogLookups(catalog);
+          setTaskCatalog((current) => current.revision === catalog.revision ? current : catalog);
+        }
       })
       .catch(() => {
-        if (!cancelled) setTaskTitles({});
+        // Keep the last known catalog during a temporary network failure.
       });
-    return () => { cancelled = true; };
-  }, []);
+    };
+    refreshCatalog();
+    window.addEventListener('focus', refreshCatalog);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', refreshCatalog);
+    };
+  }, [user.id, homeworkSyncTick]);
 
   useEffect(() => {
     if (user.role !== 'student') {
@@ -22531,6 +22566,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       else delete next[key];
       return next;
     });
+    setTaskCatalog((prev) => ({
+      ...prev,
+      tasks: (prev?.tasks || []).map((task) => (
+        Number(task.number) === Number(number) ? { ...task, title: title?.trim() || task.title } : task
+      )),
+    }));
   };
 
   const handleProgressSectionChange = (nextSection) => {
@@ -23158,7 +23199,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         const completed = targetStatus.length > 0 && targetStatus.every((item) => item.solved);
         const pythonTask = isPythonGoal ? getPythonTaskInfo(taskNumber) : null;
         const taskInfo = !isPythonGoal
-          ? tasksWithTitles.find((task) => Number(task.number) === Number(taskNumber))
+          ? (tasksWithTitles.find((task) => Number(task.number) === Number(taskNumber)) || getClassicTask(taskNumber))
           : null;
         const taskTitle = pythonTask?.title || taskInfo?.title || `Задание ${formatTaskNumber(taskNumber) || taskNumber}`;
         const levelLabel = isPythonGoal
@@ -23235,7 +23276,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   useEffect(() => {
     if (user.role !== 'student') return;
     refreshGoalState();
-  }, [user.role, user.id, goalRefreshTick, homeworkSyncTick, goalTestsDb, goalTestsLoaded, taskTitles]);
+  }, [user.role, user.id, goalRefreshTick, homeworkSyncTick, goalTestsDb, goalTestsLoaded, taskTitles, taskCatalog]);
 
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
   const requiredGoalGoals = goalGoals.filter((goal) => !isOptionalHomeworkGoal(goal));
@@ -23469,6 +23510,28 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         currentTask: nextTask,
       };
     });
+  };
+
+  const handleTaskCatalogSave = async (draftTasks, revision) => {
+    const updated = await api.updateTaskCatalog(revision, draftTasks);
+    syncTaskCatalogLookups(updated);
+    setTaskCatalog(updated);
+    setTaskTitles((prev) => ({
+      ...(prev || {}),
+      ...Object.fromEntries([
+        ...(updated?.tasks || []),
+        ...(updated?.archivedTasks || []),
+      ].map((task) => [String(task.taskNumber ?? task.number), task.title])),
+    }));
+    return updated;
+  };
+
+  const handleTaskCatalogReload = async () => {
+    const updated = await api.getTaskCatalog();
+    syncTaskCatalogLookups(updated);
+    setTaskCatalog(updated);
+    setTaskTitles({});
+    return updated;
   };
 
   const handleQuickHomeworkTaskSolved = (payload = {}) => {
@@ -25588,6 +25651,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               solvedRefreshKey={goalRefreshTick}
               onOpenLesson={(lesson) => handleGlobalOpenLesson(lesson?.key)}
               onTaskTitleUpdate={handleTaskTitleUpdate}
+              taskCatalog={taskCatalog}
+              onTaskCatalogSave={handleTaskCatalogSave}
+              onTaskCatalogReload={handleTaskCatalogReload}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               onOpenHomeworkStats={() => handleOpenHomeworkStats(
@@ -25641,7 +25707,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 }
               }}
               onAssignMockReview={handleAssignMockReview}
-              MOCK_TASKS={MOCK_TASKS}
+              MOCK_TASKS={tasksWithTitles}
               isMockExamAccessible={isMockExamAccessible}
               mergeRuntimeErrorText={mergeRuntimeErrorText}
               createPyodideWorker={createPyodideWorker}

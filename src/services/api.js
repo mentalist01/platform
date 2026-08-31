@@ -1694,6 +1694,20 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getTaskCatalog: async () => {
+    const res = await apiFetch('/api/task-catalog');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateTaskCatalog: async (revision, tasks) => {
+    const res = await apiFetch('/api/task-catalog', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision, tasks }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponseAndInvalidateTestsCache(res);
+  },
   updateTaskTitle: async (number, title) => {
     const res = await apiFetch('/api/task-titles', {
       method: 'PATCH',

@@ -33,7 +33,7 @@ const hasTaskContent = (entry, taskNumber, getMockAnswerCountForTask, getExpecte
   const questionText = String(entry?.question || '').trim();
   const screenshotsCount = Array.isArray(entry?.screenshots) ? entry.screenshots.length : 0;
   const filesCount = Array.isArray(entry?.files) ? entry.files.length : 0;
-  const answerCount = getMockAnswerCountForTask(taskNumber);
+  const answerCount = getMockAnswerCountForTask(taskNumber, entry);
   const answers = normalizeAnswerValues(getExpectedAnswers(entry, answerCount), answerCount);
   return Boolean(questionText || screenshotsCount > 0 || filesCount > 0 || answers.some(Boolean));
 };
@@ -92,7 +92,7 @@ const MockExamEditorModal = ({
   const loadTask = (taskNumber, sourceExam = exam) => {
     const key = String(taskNumber);
     const entry = sourceExam?.tasks?.[key] || null;
-    const requiredCount = getMockAnswerCountForTask(taskNumber);
+    const requiredCount = getMockAnswerCountForTask(taskNumber, entry);
     setQuestion(entry?.question || '');
     setAnswerInputs(getExpectedAnswers(entry, requiredCount));
     setExistingScreenshots(Array.isArray(entry?.screenshots) ? entry.screenshots : []);
@@ -111,7 +111,7 @@ const MockExamEditorModal = ({
 
   const currentTaskEntry = exam?.tasks?.[String(selectedTask)] || null;
   const currentTaskAnalytics = taskAnalytics?.[String(selectedTask)] || null;
-  const requiredAnswerCount = getMockAnswerCountForTask(selectedTask);
+  const requiredAnswerCount = getMockAnswerCountForTask(selectedTask, currentTaskEntry);
   const initialAnswers = normalizeAnswerValues(
     getExpectedAnswers(currentTaskEntry, requiredAnswerCount),
     requiredAnswerCount
@@ -282,12 +282,12 @@ const MockExamEditorModal = ({
 
   const handleSaveTask = async () => {
     if (!exam) return null;
-    const requiredCount = getMockAnswerCountForTask(selectedTask);
+    const requiredCount = getMockAnswerCountForTask(selectedTask, currentTaskEntry);
     const trimmedAnswers = answerInputs.map((val) => String(val ?? '').trim());
     const answersSlice = trimmedAnswers.slice(0, requiredCount);
     const hasEmpty = answersSlice.some((val) => !val);
     const hasAny = answersSlice.some((val) => val);
-    if (requiredCount > 1 && allowsPartialAnswers(selectedTask)) {
+    if (requiredCount > 1 && allowsPartialAnswers(selectedTask, currentTaskEntry)) {
       if (!hasAny) {
         setError('Введите хотя бы один правильный ответ');
         return null;
@@ -859,7 +859,7 @@ const MockExamEditorModal = ({
                 <label className="text-xs font-semibold text-gray-500">Правильные ответы</label>
                 <div className="mt-1 text-[11px] text-gray-500">
                   {requiredAnswerCount > 1
-                    ? (allowsPartialAnswers(selectedTask)
+                    ? (allowsPartialAnswers(selectedTask, currentTaskEntry)
                       ? 'Можно оставить часть ответов пустыми, но минимум один ответ обязателен.'
                       : `Нужно заполнить ${requiredAnswerCount} ответов.`)
                     : 'Нужно заполнить один ответ.'}

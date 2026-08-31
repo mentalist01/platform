@@ -12,6 +12,17 @@ const getPrimaryScoreFromSolved = (solved) => Object.entries(solved).reduce((sum
 ), 0);
 const getSecondaryScoreFromPrimary = (primary) => primary * 3;
 
+test('analysis keeps historical topic identities and prefers a new exam title snapshot', () => {
+  const taskCatalog = [{ number: 13, slotNumber: 10, title: 'Графы' }, { number: 28, slotNumber: 23, title: 'Новое задание' }];
+  const options = { taskCatalog, getAnswerCountForTask, getExpectedAnswers, getPrimaryScoreFromSolved, getSecondaryScoreFromPrimary };
+  const legacy = buildMockExamAnalysis({ ...options, exam: { tasks: { 13: { answer: '1' } } } });
+  assert.equal(legacy.tasks[0].title, 'Графы');
+  const generated = buildMockExamAnalysis({ ...options, exam: { tasks: { 23: { sourceTaskNumber: 28, answer: '2' } } } });
+  assert.equal(generated.tasks[0].title, 'Новое задание');
+  const snapshot = buildMockExamAnalysis({ ...options, exam: { taskTitleSnapshot: { 13: 'Исполнитель' }, tasks: { 13: { answer: '3' } } } });
+  assert.equal(snapshot.tasks[0].title, 'Исполнитель');
+});
+
 test('buildMockExamAnalysis separates correct, wrong and unanswered tasks', () => {
   const analysis = buildMockExamAnalysis({
     exam: {

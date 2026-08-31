@@ -56,7 +56,7 @@ export const normalizeRandomMockSolvedByTask = (value) => {
   const normalized = {};
   Object.entries(source).forEach(([taskNumber, storedValue]) => {
     const numericTaskNumber = Number(taskNumber);
-    if (!Number.isInteger(numericTaskNumber) || numericTaskNumber < 1 || numericTaskNumber > 27) return;
+    if (!Number.isInteger(numericTaskNumber) || numericTaskNumber < 1 || numericTaskNumber > 99) return;
     const sourceByLevel = Array.isArray(storedValue)
       ? { [PERSONAL_RANDOM_MOCK_LEVEL_ID]: storedValue }
       : (isRecord(storedValue) ? storedValue : {});
@@ -116,7 +116,7 @@ export const collectSolvedPersonalRandomMockQuestions = ({
       const numericSourceTaskNumber = Number(question?.sourceTaskNumber);
       const sourceTaskNumber = Number.isInteger(numericSourceTaskNumber)
         && numericSourceTaskNumber >= 1
-        && numericSourceTaskNumber <= 27
+        && numericSourceTaskNumber <= 99
         ? String(numericSourceTaskNumber)
         : '';
       const sourceQuestionId = String(question?.sourceQuestionId ?? '').trim();
@@ -223,6 +223,7 @@ export const isPersonalRandomMockExam = (exam) => (
 
 export const buildPersonalRandomMockTasks = ({
   testsDb,
+  taskCatalog,
   solvedByTask,
   randomMockSolvedByTask,
   levelId = PERSONAL_RANDOM_MOCK_LEVEL_ID,
@@ -239,8 +240,12 @@ export const buildPersonalRandomMockTasks = ({
   let fallbackTaskCount = 0;
   let sourceQuestionCount = 0;
 
-  SOURCE_TASK_NUMBERS.forEach((taskNumber) => {
-    const expandedTaskNumbers = taskNumber === 19 ? [19, 20, 21] : [taskNumber];
+  const sourceBySlot = new Map((Array.isArray(taskCatalog) ? taskCatalog : SOURCE_TASK_NUMBERS.map((number) => ({
+    taskNumber: number, slotNumber: number,
+  }))).map((task) => [Number(task.slotNumber ?? task.number), Number(task.taskNumber ?? task.number)]));
+  SOURCE_TASK_NUMBERS.forEach((slotNumber) => {
+    const taskNumber = sourceBySlot.get(slotNumber);
+    const expandedTaskNumbers = slotNumber === 19 ? [19, 20, 21] : [slotNumber];
     const candidateLevelIds = normalizedLevelId === 'advanced'
       ? ['advanced', PERSONAL_RANDOM_MOCK_LEVEL_ID]
       : [normalizedLevelId];
@@ -267,12 +272,12 @@ export const buildPersonalRandomMockTasks = ({
     const selectedTasks = taskNumber === 19
       ? expandGameTheoryQuestion(selected.question, sourceLevelId, selected)
       : {
-          [taskNumber]: withSelectionMetadata(
+          [slotNumber]: withSelectionMetadata(
             selected.question,
             taskNumber,
             sourceLevelId,
             selected,
-            taskNumber
+            slotNumber
           ),
         };
     Object.assign(tasks, selectedTasks);

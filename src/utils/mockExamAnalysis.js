@@ -151,7 +151,7 @@ export const buildMockExamAnalysis = ({
 
   const tasks = taskKeys.map((taskKey) => {
     const question = examTasks[taskKey] || {};
-    const answerCount = Math.max(1, Math.trunc(Number(getAnswerCountForTask(taskKey)) || 1));
+    const answerCount = Math.max(1, Math.trunc(Number(getAnswerCountForTask(taskKey, question)) || 1));
     const providedAnswers = toAnswerValues(answers[taskKey], answerCount);
     const expectedAnswers = toAnswerValues(getExpectedAnswers(question, answerCount), answerCount);
     const answered = hasAnswerValues(providedAnswers);
@@ -177,7 +177,9 @@ export const buildMockExamAnalysis = ({
     return {
       taskKey,
       taskNumber: Number.isFinite(Number(taskKey)) ? Number(taskKey) : taskKey,
-      title: titleByTaskKey[taskKey] || normalizeQuestionLabel(question?.label) || `Задание ${taskKey}`,
+      title: normalizeText(exam?.taskTitleSnapshot?.[taskKey])
+        || titleByTaskKey[String(question?.sourceTaskNumber ?? taskKey)]
+        || normalizeQuestionLabel(question?.label) || `Задание ${taskKey}`,
       question,
       answerCount,
       providedAnswers,

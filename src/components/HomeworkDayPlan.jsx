@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { adaptHomeworkDayPlanForToday } from '../utils/homeworkDayPlan';
+import { formatClassicTaskNumber } from '../data/classicTaskRuntime';
 import {
   HOMEWORK_ASSIGNMENT_TIER_OPTIONAL,
   normalizeHomeworkAssignmentTier,
@@ -105,10 +106,10 @@ const resolveItemState = (item, goalViews, checklistItems) => {
 const getItemLabel = (item, mockExamById = {}) => {
   if (item?.type === 'text') return item.text || 'Дополнительный пункт';
   if (item?.type === 'task-target') {
-    if (item.unavailable) return `Задание ${item.taskNumber} · удалённый номер`;
-    return `Задание ${item.taskNumber} · номер ${item.currentQuestionNumber || item.questionNumber || '—'}`;
+    if (item.unavailable) return `Задание ${formatClassicTaskNumber(item.taskNumber)} · удалённый номер`;
+    return `Задание ${formatClassicTaskNumber(item.taskNumber)} · номер ${item.currentQuestionNumber || item.questionNumber || '—'}`;
   }
-  if (item?.type === 'task-goal') return `Задание ${item?.goal?.taskNumber || ''} целиком`.trim();
+  if (item?.type === 'task-goal') return `Задание ${formatClassicTaskNumber(item?.goal?.taskNumber)} целиком`.trim();
   if (item?.type === 'mock-target') {
     const title = mockExamById?.[String(item.mockExamId || '')]?.title || 'Пробник';
     return `${title} · задание ${item.taskKey}`;
@@ -179,7 +180,7 @@ const buildItemGroups = (items, mockExamById) => {
       ? group.items.length > 0
       : completedCount >= availableItems.length;
     let title = getItemLabel(firstItem, mockExamById);
-    if (group.type === 'task-target') title = `Задание ${firstItem.taskNumber || ''}`.trim();
+    if (group.type === 'task-target') title = `Задание ${formatClassicTaskNumber(firstItem.taskNumber)}`.trim();
     if (group.type === 'mock-target') {
       title = mockExamById?.[String(firstItem.mockExamId || '')]?.title || 'Пробник';
     }

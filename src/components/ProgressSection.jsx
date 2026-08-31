@@ -30,6 +30,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { getClassicTask } from '../data/classicTaskRuntime';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import MockExamAnalysisModal from './MockExamAnalysisModal';
 import MockChestOpeningOverlay from './MockChestOpeningOverlay';
@@ -599,6 +600,11 @@ const formatMockTimerDuration = (value) => {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 };
 
+const CLASSIC_TASK_SLOTS = [
+  ...Array.from({ length: 19 }, (_, index) => index + 1),
+  ...Array.from({ length: 6 }, (_, index) => index + 22),
+];
+
 const ProgressSection = ({
   progress,
   onUpdateProgress,
@@ -612,6 +618,9 @@ const ProgressSection = ({
   solvedRefreshKey = 0,
   onOpenLesson,
   onTaskTitleUpdate,
+  taskCatalog,
+  onTaskCatalogSave,
+  onTaskCatalogReload,
   activeStudentId,
   onSelectStudent,
   onOpenHomeworkStats,
@@ -726,6 +735,12 @@ const ProgressSection = ({
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState('');
   const [savingTaskTitleId, setSavingTaskTitleId] = useState(null);
+  const [taskCatalogEditorOpen, setTaskCatalogEditorOpen] = useState(false);
+  const [taskCatalogDraft, setTaskCatalogDraft] = useState([]);
+  const [taskCatalogDraftRevision, setTaskCatalogDraftRevision] = useState('');
+  const [taskCatalogSaving, setTaskCatalogSaving] = useState(false);
+  const [taskCatalogError, setTaskCatalogError] = useState('');
+  const [newTaskTitle, setNewTaskTitle] = useState('');
   const [openTaskCodeNumber, setOpenTaskCodeNumber] = useState(null);
   const [taskCodeCache, setTaskCodeCache] = useState({});
   const [taskCodeLoadingNumber, setTaskCodeLoadingNumber] = useState(null);
@@ -1433,6 +1448,111 @@ const ProgressSection = ({
     }
   };
 
+  const openTaskCatalogEditor = async () => {
+    setTaskCatalogError('');
+    let latest;
+    try {
+      latest = await onTaskCatalogReload?.();
+    } catch (error) {
+      alert(error?.message || 'Не удалось загрузить каталог. Повторите позже.');
+      return;
+    }
+    setTaskCatalogDraft((latest?.tasks || taskList).map((task) => ({
+      taskNumber: Number(task.taskNumber ?? task.number),
+      slotNumber: Number(task.slotNumber ?? task.number),
+      title: String(task.title || '').trim(),
+      xpReward: Number(task.xpReward) || 0,
+      locked: Boolean(task.locked) || Number(task.taskNumber ?? task.number) === Number(GAME_THEORY_TASK),
+    })).sort((a, b) => a.slotNumber - b.slotNumber));
+    setTaskCatalogDraftRevision(latest?.revision || taskCatalog?.revision || '');
+    setNewTaskTitle('');
+    setTaskCatalogError('');
+    setTaskCatalogEditorOpen(true);
+  };
+
+  const moveTaskCatalogCard = (taskKey, nextSlot) => {
+    const slotNumber = Number(nextSlot);
+    setTaskCatalogDraft((prev) => {
+      const moving = prev.find((task) => (task.taskNumber ?? task.clientKey) === taskKey);
+      if (!moving || moving.locked || !CLASSIC_TASK_SLOTS.includes(slotNumber)) return prev;
+      const occupied = prev.find((task) => task.slotNumber === slotNumber);
+      if (occupied?.locked) return prev;
+      return prev.map((task) => {
+        if ((task.taskNumber ?? task.clientKey) === taskKey) return { ...task, slotNumber };
+        if (occupied && (task.taskNumber ?? task.clientKey) === (occupied.taskNumber ?? occupied.clientKey)) {
+          return { ...task, slotNumber: moving.slotNumber };
+        }
+        return task;
+      }).sort((a, b) => a.slotNumber - b.slotNumber);
+    });
+  };
+
+  const addTaskCatalogCard = () => {
+    const title = newTaskTitle.trim();
+    const used = new Set(taskCatalogDraft.map((task) => task.slotNumber));
+    const slotNumber = CLASSIC_TASK_SLOTS.find((slot) => !used.has(slot));
+    if (!title || !slotNumber) {
+      setTaskCatalogError(!title ? 'Введите название новой карточки.' : 'Сначала удалите или переместите карточку, чтобы освободить номер.');
+      return;
+    }
+    setTaskCatalogDraft((prev) => [...prev, {
+      taskNumber: null,
+      clientKey: `new-${Date.now()}`,
+      slotNumber,
+      title,
+      xpReward: 100,
+      locked: false,
+    }].sort((a, b) => a.slotNumber - b.slotNumber));
+    setNewTaskTitle('');
+    setTaskCatalogError('');
+  };
+
+  const saveTaskCatalog = async () => {
+    if (typeof onTaskCatalogSave !== 'function') return;
+    const originalNumbers = new Set((taskCatalog?.tasks || taskList).map((task) => Number(task.taskNumber ?? task.number)));
+    const currentNumbers = new Set(taskCatalogDraft.map((task) => Number(task.taskNumber)).filter(Number.isFinite));
+    const archivedCount = [...originalNumbers].filter((number) => !currentNumbers.has(number)).length;
+    if (archivedCount > 0 && !window.confirm(
+      `Будет архивировано карточек: ${archivedCount}. Их банк заданий, выданные домашки, ответы и история сохранятся. Продолжить?`,
+    )) return;
+    setTaskCatalogSaving(true);
+    setTaskCatalogError('');
+    try {
+      await onTaskCatalogSave(taskCatalogDraft.map((task) => ({
+        taskNumber: task.taskNumber !== null && Number.isFinite(Number(task.taskNumber)) ? Number(task.taskNumber) : null,
+        slotNumber: task.slotNumber,
+        title: task.title,
+        xpReward: Number(task.xpReward) || 0,
+      })), taskCatalogDraftRevision);
+      setTaskCatalogEditorOpen(false);
+      api.getTests(role === 'student' ? null : effectiveStudentId)
+        .then((data) => setTestsDb(data || {}))
+        .catch((error) => setTestsDbError(error?.message || String(error)));
+    } catch (error) {
+      setTaskCatalogError(error?.message || String(error));
+    } finally {
+      setTaskCatalogSaving(false);
+    }
+  };
+
+  const restoreTaskCatalogCard = (archived) => {
+    const used = new Set(taskCatalogDraft.map((task) => task.slotNumber));
+    const slotNumber = !used.has(archived.lastSlotNumber)
+      ? archived.lastSlotNumber
+      : CLASSIC_TASK_SLOTS.find((slot) => !used.has(slot));
+    if (!slotNumber) {
+      setTaskCatalogError('Для восстановления освободите один из номеров.');
+      return;
+    }
+    setTaskCatalogDraft((prev) => [...prev, {
+      taskNumber: archived.taskNumber,
+      slotNumber,
+      title: archived.title,
+      xpReward: archived.xpReward,
+    }].sort((a, b) => a.slotNumber - b.slotNumber));
+    setTaskCatalogError('');
+  };
+
   useEffect(() => {
     if (!effectiveStudentId) {
       setStudentData(normalizeProgressSectionStudentData(null));
@@ -1632,7 +1752,9 @@ const ProgressSection = ({
       onOpenTaskHandled?.();
       return;
     }
-    const target = taskList.find((task) => Number(task.number) === Number(openTask.taskNumber));
+    if (!taskCatalog?.revision) return;
+    const target = taskList.find((task) => Number(task.number) === Number(openTask.taskNumber))
+      || getClassicTask(openTask.taskNumber);
     if (!target) {
       onOpenTaskHandled?.();
       return;
@@ -1656,7 +1778,7 @@ const ProgressSection = ({
       setActiveQuestionIndex(null);
     }
     onOpenTaskHandled?.();
-  }, [openTask, role, taskList, onOpenTaskHandled]);
+  }, [openTask, role, taskList, taskCatalog?.revision, onOpenTaskHandled]);
 
   useEffect(() => {
     if (role !== 'student' || !openMockExamId) return;
@@ -4165,6 +4287,13 @@ const ProgressSection = ({
 
       {section === 'progress' && (
         <>
+          {role === 'teacher' && (
+            <div className="flex justify-end">
+              <Button type="button" variant="secondary" onClick={openTaskCatalogEditor}>
+                <ArrowUpDown size={16} /> Управление карточками
+              </Button>
+            </div>
+          )}
           {role === 'student' && (
             <div className="md:hidden">
               <div className="mobile-topic-path-card rounded-3xl border border-purple-200/80 bg-white/85 p-3 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
@@ -5495,7 +5624,7 @@ const ProgressSection = ({
                 : (typeof getStudentLabel === 'function'
                     ? getStudentLabel(studentsList.find((student) => String(student?.id || '') === String(effectiveStudentId || '')))
                     : '')}
-              taskCatalog={taskList}
+              taskCatalog={[...taskList, ...(taskCatalog?.archivedTasks || []).map((task) => ({ ...task, number: task.taskNumber }))]}
               getAnswerCountForTask={getMockAnswerCountForTask}
               getExpectedAnswers={getExpectedAnswers}
               getPrimaryScoreFromSolved={getPrimaryScoreFromSolved}
@@ -5671,6 +5800,98 @@ const ProgressSection = ({
         onConfirm={confirmTimerAction}
         onCancel={cancelTimerAction}
       />
+      {taskCatalogEditorOpen && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-slate-950/55 p-3" onMouseDown={() => !taskCatalogSaving && setTaskCatalogEditorOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="classic-catalog-title" className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 id="classic-catalog-title" className="text-xl font-black text-slate-900">Карточки ЕГЭ</h2>
+                <p className="mt-1 text-sm text-slate-500">Общий каталог для всех учеников. Перенос меняет только видимый номер. Удаление архивирует карточку: домашки, ответы и история сохраняются.</p>
+              </div>
+              <button type="button" disabled={taskCatalogSaving} aria-label="Закрыть" className="rounded-xl px-3 py-2 text-slate-500 hover:bg-slate-100" onClick={() => setTaskCatalogEditorOpen(false)}>✕</button>
+            </div>
+            <div className="max-h-[64vh] space-y-2 overflow-y-auto px-5 py-4">
+              {taskCatalogDraft.map((task) => (
+                <div key={task.taskNumber ?? task.clientKey} className="grid grid-cols-[70px_minmax(0,1fr)_36px] items-center gap-2 rounded-2xl border border-slate-200 p-2.5 sm:grid-cols-[90px_minmax(0,1fr)_110px_42px]">
+                  <select
+                    value={task.slotNumber}
+                    disabled={task.locked || taskCatalogSaving}
+                    onChange={(event) => moveTaskCatalogCard(task.taskNumber ?? task.clientKey, event.target.value)}
+                    className="rounded-xl border border-purple-200 bg-purple-50 px-2 py-2 text-sm font-bold text-purple-700 disabled:opacity-60"
+                    aria-label={`Номер карточки ${task.title}`}
+                  >
+                    {CLASSIC_TASK_SLOTS.map((slot) => <option key={slot} value={slot} disabled={slot === 19 && !task.locked}>№{slot === 19 ? '19-21' : slot}</option>)}
+                  </select>
+                  <input
+                    value={task.title}
+                    maxLength={120}
+                    disabled={taskCatalogSaving}
+                    aria-label="Название карточки"
+                    onChange={(event) => setTaskCatalogDraft((prev) => prev.map((item) => (
+                      item === task ? { ...item, title: event.target.value } : item
+                    )))}
+                    className="min-w-0 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
+                  />
+                  <label className={`${task.taskNumber !== null ? 'hidden sm:flex' : 'col-span-2 row-start-2 flex sm:col-span-1 sm:row-auto'} items-center gap-1 text-xs font-semibold text-slate-500`}>
+                    XP
+                    <input
+                      type="number"
+                      min="1"
+                      max="10000"
+                      disabled={task.taskNumber !== null || taskCatalogSaving}
+                      aria-label="XP за новое задание"
+                      value={task.xpReward}
+                      onChange={(event) => setTaskCatalogDraft((prev) => prev.map((item) => (
+                        item === task ? { ...item, xpReward: event.target.value } : item
+                      )))}
+                      className="w-20 rounded-xl border border-slate-200 px-2 py-2 text-sm text-slate-800"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={task.locked || taskCatalogSaving}
+                    onClick={() => setTaskCatalogDraft((prev) => prev.filter((item) => item !== task))}
+                    className="col-start-3 row-start-1 flex h-9 w-9 items-center justify-center rounded-xl text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-300 sm:col-start-4"
+                    title={task.locked ? 'Объединённую карточку 19–21 удалить нельзя' : 'Архивировать карточку'}
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                </div>
+              ))}
+              <div className="mt-4 flex flex-col gap-2 rounded-2xl border border-dashed border-purple-300 bg-purple-50/60 p-3 sm:flex-row">
+                <input
+                  value={newTaskTitle}
+                  maxLength={120}
+                  disabled={taskCatalogSaving}
+                  onChange={(event) => setNewTaskTitle(event.target.value)}
+                  placeholder="Название новой карточки"
+                  className="min-w-0 flex-1 rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm"
+                />
+                <Button type="button" disabled={taskCatalogSaving} onClick={addTaskCatalogCard}><Plus size={16} /> Добавить в свободный номер</Button>
+              </div>
+              {taskCatalogError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{taskCatalogError}</div>}
+              {(taskCatalog?.archivedTasks || []).length > 0 && (
+                <details className="rounded-2xl border border-slate-200 p-3 text-sm text-slate-600">
+                  <summary className="cursor-pointer font-semibold">Архив карточек</summary>
+                  {(taskCatalog.archivedTasks || []).filter((archived) => !taskCatalogDraft.some((task) => task.taskNumber === archived.taskNumber)).map((archived) => (
+                    <div key={archived.taskNumber} className="mt-2 flex items-center justify-between gap-2">
+                      <span>{archived.title} (бывший №{archived.displayNumber})</span>
+                      <button type="button" disabled={taskCatalogSaving} className="font-semibold text-purple-700" onClick={() => restoreTaskCatalogCard(archived)}>Восстановить</button>
+                    </div>
+                  ))}
+                </details>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+              <Button type="button" variant="secondary" disabled={taskCatalogSaving} onClick={() => setTaskCatalogEditorOpen(false)}>Отмена</Button>
+              <Button type="button" disabled={taskCatalogSaving || taskCatalogDraft.some((task) => !task.title.trim())} onClick={saveTaskCatalog}>
+                <Save size={16} /> {taskCatalogSaving ? 'Сохраняю…' : 'Сохранить карточки'}
+              </Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {timerChestFlights.length > 0 && typeof document !== 'undefined' && createPortal(
         <div className="mock-timer-chest-flight-layer" aria-hidden="true">
           {timerChestFlights.map((flight) => (

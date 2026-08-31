@@ -713,7 +713,7 @@ const MockExamModal = ({
 
   const taskKey = String(selectedTask);
   const currentQuestion = exam?.tasks?.[taskKey];
-  const answerCount = getMockAnswerCountForTask(selectedTask);
+  const answerCount = getMockAnswerCountForTask(selectedTask, currentQuestion);
   const rawAnswer = answers[taskKey];
   const currentAnswers = Array.isArray(rawAnswer)
     ? rawAnswer
@@ -730,7 +730,7 @@ const MockExamModal = ({
     .map((file) => ({ ...file, url: withStudentId(file?.url, studentId) }));
   const getFilledAnswerCountForTask = (taskNumber, answersMap = answers) => {
     const key = String(taskNumber);
-    const count = getMockAnswerCountForTask(taskNumber);
+    const count = getMockAnswerCountForTask(taskNumber, exam?.tasks?.[key]);
     const value = answersMap?.[key];
     const values = Array.isArray(value)
       ? value
@@ -743,10 +743,10 @@ const MockExamModal = ({
       .filter((entry) => String(entry ?? '').trim()).length;
   };
   const hasAnswerForTask = (taskNumber, answersMap = answers) => {
-    const count = getMockAnswerCountForTask(taskNumber);
+    const count = getMockAnswerCountForTask(taskNumber, exam?.tasks?.[String(taskNumber)]);
     const filledCount = getFilledAnswerCountForTask(taskNumber, answersMap);
     if (count <= 1) return filledCount > 0;
-    return allowsPartialAnswers(taskNumber)
+    return allowsPartialAnswers(taskNumber, exam?.tasks?.[String(taskNumber)])
       ? filledCount > 0
       : filledCount >= count;
   };
@@ -793,7 +793,7 @@ const MockExamModal = ({
   const isCurrentTaskAnswered = hasAnswerForTask(selectedTask);
   const currentFilledAnswerCount = getFilledAnswerCountForTask(selectedTask);
   const isCurrentTaskSolved = Boolean(visibleSolved[taskKey]);
-  const allowPartialForTask = answerCount > 1 ? allowsPartialAnswers(selectedTask) : false;
+  const allowPartialForTask = answerCount > 1 ? allowsPartialAnswers(selectedTask, currentQuestion) : false;
   const hasLargeAnswerGrid = answerCount > 6;
   const answerFieldLabels = Array.from(
     { length: answerCount },
@@ -1481,7 +1481,7 @@ const MockExamModal = ({
   };
 
   const getTaskNavigationStatusLabel = (taskNumber) => {
-    const taskAnswerCount = getMockAnswerCountForTask(taskNumber);
+    const taskAnswerCount = getMockAnswerCountForTask(taskNumber, exam?.tasks?.[String(taskNumber)]);
     const filledAnswerCount = getFilledAnswerCountForTask(taskNumber);
     const completionLabel = filledAnswerCount > 0
       ? (

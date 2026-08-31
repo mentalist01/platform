@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildPersonalRandomMockTasks } from './randomMockExam.js';
+import { buildPersonalRandomMockTasks, collectSolvedPersonalRandomMockQuestions } from './randomMockExam.js';
 
 const SOURCE_TASK_NUMBERS = [
   ...Array.from({ length: 19 }, (_, index) => index + 1),
@@ -33,6 +33,31 @@ const buildAdvanced = (testsDb, overrides = {}) => buildPersonalRandomMockTasks(
   levelId: 'advanced',
   pickIndex: () => 0,
   ...overrides,
+});
+
+test('current exam slots use stable card banks while old random mock history remains valid', () => {
+  const testsDb = makeCompleteTestsDb();
+  testsDb['28'] = { basic: [makeQuestion(28, 'basic')] };
+  const taskCatalog = SOURCE_TASK_NUMBERS.map((slotNumber) => ({
+    slotNumber, taskNumber: slotNumber === 10 ? 13 : slotNumber === 13 ? 23 : slotNumber === 23 ? 28 : slotNumber,
+  }));
+  const result = buildPersonalRandomMockTasks({ testsDb, taskCatalog, pickIndex: () => 0 });
+  assert.equal(result.summary.taskCount, 27);
+  assert.equal(result.tasks['10'].sourceTaskNumber, 13);
+  assert.equal(result.tasks['13'].sourceTaskNumber, 23);
+  assert.equal(result.tasks['23'].sourceTaskNumber, 28);
+  assert.equal(result.tasks['23'].sourceQuestionId, 'basic-28-1');
+  assert.equal(result.tasks['19'].sourceTaskNumber, 19);
+  const history = collectSolvedPersonalRandomMockQuestions({
+    exams: [{ id: 'new-exam', source: 'personal-random', tasks: result.tasks }],
+    mockAttempts: { 'new-exam': { solvedEver: { 23: true } } },
+    previousSolvedByTask: { 10: { basic: ['old-word-answer'] } },
+  });
+  assert.deepEqual(history['28'].basic, ['basic-28-1']);
+  assert.deepEqual(history['10'].basic, ['old-word-answer']);
+  const incomplete = buildPersonalRandomMockTasks({ testsDb, taskCatalog: taskCatalog.filter((task) => task.slotNumber !== 10) });
+  assert.deepEqual(incomplete.summary.missingTaskNumbers, [10]);
+  assert.equal(incomplete.tasks['10'], undefined, 'must not silently fall back to the archived bank');
 });
 
 test('advanced generation falls back to basic for an ordinary missing task number', () => {

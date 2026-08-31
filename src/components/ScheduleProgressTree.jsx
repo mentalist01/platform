@@ -394,18 +394,30 @@ const ScheduleProgressTree = ({
     return next;
   }, [pythonTasks]);
 
+  const roadmapNodes = useMemo(() => {
+    const bySlot = new Map((tasks || []).map((task) => [
+      Number(task.slotNumber ?? task.number), Number(task.number),
+    ]));
+    return ROADMAP_NODES.map((node) => ({
+      ...node,
+      taskNumbers: (node.taskNumbers || []).map((number) => (
+        number >= 100 ? number : bySlot.get(number)
+      )).filter(Number.isFinite),
+    }));
+  }, [tasks]);
+
   const uniqueTaskNumbers = useMemo(
-    () => Array.from(new Set(ROADMAP_NODES.flatMap((node) => node.taskNumbers || []))),
-    []
+    () => Array.from(new Set(roadmapNodes.flatMap((node) => node.taskNumbers || []))),
+    [roadmapNodes]
   );
 
   const nodeProgressById = useMemo(() => {
     const next = {};
-    ROADMAP_NODES.forEach((node) => {
+    roadmapNodes.forEach((node) => {
       next[node.id] = getNodeProgress(node, progressMap);
     });
     return next;
-  }, [progressMap]);
+  }, [progressMap, roadmapNodes]);
 
   const autoUnlockedNodeIds = useMemo(() => {
     const unlocked = new Set(ROADMAP_ROOT_NODE_IDS);
@@ -422,10 +434,10 @@ const ScheduleProgressTree = ({
       });
     }
 
-    return ROADMAP_NODES
+    return roadmapNodes
       .filter((node) => unlocked.has(node.id))
       .map((node) => node.id);
-  }, [nodeProgressById]);
+  }, [nodeProgressById, roadmapNodes]);
 
   const autoUnlockedNodeIdSet = useMemo(
     () => new Set(autoUnlockedNodeIds),
@@ -434,10 +446,10 @@ const ScheduleProgressTree = ({
 
   const revealedNodeIds = useMemo(() => {
     const debugUnlockedIdSet = new Set(debugUnlockedIds);
-    return ROADMAP_NODES
+    return roadmapNodes
       .filter((node) => autoUnlockedNodeIdSet.has(node.id) || debugUnlockedIdSet.has(node.id))
       .map((node) => node.id);
-  }, [autoUnlockedNodeIdSet, debugUnlockedIds]);
+  }, [autoUnlockedNodeIdSet, debugUnlockedIds, roadmapNodes]);
 
   const revealedNodeIdSet = useMemo(
     () => new Set(revealedNodeIds),
@@ -446,13 +458,13 @@ const ScheduleProgressTree = ({
 
   const nextDebugUnlockId = useMemo(
     () => (
-      ROADMAP_NODES.find((node) => {
+      roadmapNodes.find((node) => {
         if (revealedNodeIdSet.has(node.id)) return false;
         const parents = ROADMAP_INCOMING_BY_NODE_ID[node.id] || [];
         return parents.some((parentId) => revealedNodeIdSet.has(parentId));
       })?.id || null
     ),
-    [revealedNodeIdSet]
+    [revealedNodeIdSet, roadmapNodes]
   );
 
   const summary = useMemo(() => {
@@ -505,7 +517,7 @@ const ScheduleProgressTree = ({
   }, [playUnlockSound, revealedNodeIds]);
 
   const nodes = useMemo(() => (
-    ROADMAP_NODES.map((node) => {
+    roadmapNodes.map((node) => {
       const progress = Number(nodeProgressById[node.id]) || 0;
       const autoUnlocked = autoUnlockedNodeIdSet.has(node.id);
       const unlocked = revealedNodeIdSet.has(node.id);
@@ -546,6 +558,7 @@ const ScheduleProgressTree = ({
     })
   ), [
     classicTaskMap,
+    roadmapNodes,
     focusTaskNumbers,
     nodeProgressById,
     progressMap,
