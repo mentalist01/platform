@@ -328,6 +328,7 @@ const normalizePayload = (type, value) => {
         mode: 'delta',
         actorVerified: source.actorVerified === true,
         ...fitted,
+        truncated: source.truncated === true || fitted.truncated,
       };
     }
     const sourceItems = (Array.isArray(source.items) ? source.items : []).slice(0, MAX_BOARD_ITEMS);
@@ -336,7 +337,7 @@ const normalizePayload = (type, value) => {
       mode: 'snapshot',
       actorVerified: source.actorVerified === true,
       items: fitted.items,
-      truncated: fitted.truncated || (Array.isArray(source.items) && source.items.length > MAX_BOARD_ITEMS),
+      truncated: source.truncated === true || fitted.truncated || (Array.isArray(source.items) && source.items.length > MAX_BOARD_ITEMS),
     };
   }
   if (type === 'run') {

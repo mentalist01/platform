@@ -226,6 +226,24 @@ test('keeps delta indexes for the full 2500-item board capacity', () => {
   assert.equal(event.payload.truncated, false);
 });
 
+test('preserves truncation evidence when persisted board events are normalized again', () => {
+  for (const mode of ['snapshot', 'delta']) {
+    const item = { id: 'surviving-stroke', type: 'stroke', points: [{ x: 10, y: 20 }] };
+    const event = normalizeLessonReplayEvent({
+      id: `already-truncated-${mode}`,
+      type: 'board',
+      occurredAt: new Date(START_MS + 15_000).toISOString(),
+      payload: {
+        mode,
+        truncated: true,
+        ...(mode === 'snapshot' ? { items: [item] } : { upserts: [{ index: 2, item }], removedIds: [] }),
+      },
+    }, eventContext);
+    assert.equal(event.payload.truncated, true);
+    assert.equal(normalizeLessonReplayEvent(event, eventContext).payload.truncated, true);
+  }
+});
+
 test('retains a full hour of 5-second board checkpoints without hitting the replay limit', () => {
   const events = [{
     id: 'board-initial',

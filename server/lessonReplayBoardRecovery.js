@@ -137,10 +137,13 @@ export const buildLessonReplayBoardRecovery = (replay, rawFinalItems, options = 
   const lastOffsetMs = sourceEvents.reduce((maximum, event) => (
     Math.max(maximum, getOffsetMs(event))
   ), 0);
-  const recoveredAtEnd = finalEntries.filter(({ item }) => {
+  const unanchoredItems = finalEntries.filter(({ item }) => {
     const itemId = getItemId(item);
     return itemId && !materializedIds.has(itemId);
   });
+  // A later live board can contain work from another lesson. Only append an
+  // unanchored tail when the operator has explicitly verified its provenance.
+  const recoveredAtEnd = options.includeUnanchoredTail === true ? unanchoredItems : [];
   appendRecoveryItems(recoveredAtEnd, lastOffsetMs + 1);
 
   return {
@@ -151,6 +154,7 @@ export const buildLessonReplayBoardRecovery = (replay, rawFinalItems, options = 
       recoveredItemCount: recoveredIds.size,
       inferredItemCount: recoveredIds.size - recoveredAtEnd.length,
       recoveredAtEndCount: recoveredAtEnd.length,
+      skippedUnanchoredItemCount: unanchoredItems.length - recoveredAtEnd.length,
       finalFrontier: frontier,
     },
   };
