@@ -232,10 +232,13 @@ const apiFetch = async (input, init = {}) => {
 
 const normalizeTestsStudentId = (studentId) => String(studentId || '').trim();
 
-const getTestsRequestKey = (studentId, shape) => JSON.stringify([
+const normalizeTaskContentScope = (scope) => (scope === 'global' ? 'global' : 'teacher');
+
+const getTestsRequestKey = (studentId, shape, scope = 'teacher') => JSON.stringify([
   getStoredAuthToken(),
   normalizeTestsStudentId(studentId),
   shape,
+  normalizeTaskContentScope(scope),
 ]);
 
 const readTestsResponseText = async (res) => {
@@ -256,7 +259,8 @@ const readTestsResponseText = async (res) => {
 const requestTestsResponseText = (studentId = '', shape = 'full', options = {}) => {
   const normalizedStudentId = normalizeTestsStudentId(studentId);
   const normalizedShape = shape === 'index' ? 'index' : 'full';
-  const requestKey = getTestsRequestKey(normalizedStudentId, normalizedShape);
+  const normalizedScope = normalizeTaskContentScope(options?.scope);
+  const requestKey = getTestsRequestKey(normalizedStudentId, normalizedShape, normalizedScope);
   const force = options?.force === true;
   const inFlight = testsResponseInFlight.get(requestKey);
   if (inFlight) {
@@ -279,6 +283,7 @@ const requestTestsResponseText = (studentId = '', shape = 'full', options = {}) 
   const params = new URLSearchParams();
   if (normalizedStudentId) params.set('studentId', normalizedStudentId);
   if (normalizedShape === 'index') params.set('shape', 'index');
+  if (normalizedScope === 'global') params.set('scope', 'global');
   const query = params.toString();
   const cacheEpochAtStart = testsCacheEpoch;
   const requestPromise = (async () => {
@@ -1542,8 +1547,11 @@ export const api = {
     const data = await parseJsonResponse(res);
     return data && typeof data === 'object' ? data : {};
   },
-  saveTests: async (newDb) => {
-    const res = await apiFetch('/api/tests', {
+  saveTests: async (newDb, options = {}) => {
+    const params = new URLSearchParams();
+    if (normalizeTaskContentScope(options?.scope) === 'global') params.set('scope', 'global');
+    const query = params.toString();
+    const res = await apiFetch(query ? `/api/tests?${query}` : '/api/tests', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newDb),
@@ -1689,18 +1697,21 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponseAndInvalidateTestsCache(res);
   },
-  getTaskTitles: async () => {
-    const res = await apiFetch('/api/task-titles');
+  getTaskTitles: async (options = {}) => {
+    const query = normalizeTaskContentScope(options?.scope) === 'global' ? '?scope=global' : '';
+    const res = await apiFetch(`/api/task-titles${query}`);
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getTaskCatalog: async () => {
-    const res = await apiFetch('/api/task-catalog');
+  getTaskCatalog: async (options = {}) => {
+    const query = normalizeTaskContentScope(options?.scope) === 'global' ? '?scope=global' : '';
+    const res = await apiFetch(`/api/task-catalog${query}`);
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  updateTaskCatalog: async (revision, tasks) => {
-    const res = await apiFetch('/api/task-catalog', {
+  updateTaskCatalog: async (revision, tasks, options = {}) => {
+    const query = normalizeTaskContentScope(options?.scope) === 'global' ? '?scope=global' : '';
+    const res = await apiFetch(`/api/task-catalog${query}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ revision, tasks }),
@@ -1708,8 +1719,9 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponseAndInvalidateTestsCache(res);
   },
-  updateTaskTitle: async (number, title) => {
-    const res = await apiFetch('/api/task-titles', {
+  updateTaskTitle: async (number, title, options = {}) => {
+    const query = normalizeTaskContentScope(options?.scope) === 'global' ? '?scope=global' : '';
+    const res = await apiFetch(`/api/task-titles${query}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ number, title }),

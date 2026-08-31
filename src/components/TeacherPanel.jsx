@@ -210,6 +210,9 @@ const TeacherPanel = ({
   onToggleTeacherSignupNotify = null,
   mode = 'tests',
   initialSignupChatId = '',
+  initialTaskNumber = null,
+  initialTaskEditorToken = null,
+  canManageGlobalTaskContent = false,
 }) => {
   const isSignupChatsMode = mode === 'signup-chats';
   const isTestsMode = !isSignupChatsMode;
@@ -218,8 +221,11 @@ const TeacherPanel = ({
   const [testDb, setTestDb] = useState(null);
   const [testsLoading, setTestsLoading] = useState(false);
   const [testsError, setTestsError] = useState('');
+  const [taskContentScope, setTaskContentScope] = useState(() => (role === 'admin' ? 'global' : 'teacher'));
+  const [scopeTaskCatalog, setScopeTaskCatalog] = useState(null);
   const [questionDifficultyById, setQuestionDifficultyById] = useState({});
   const [selectedTask, setSelectedTask] = useState(1);
+  const initialTaskEditorHandledTokenRef = useRef(null);
   const [selectedLevel, setSelectedLevel] = useState('basic');
   const [questionInsertMode, setQuestionInsertMode] = useState(QUESTION_INSERT_MODE_END);
   const [questionInsertPosition, setQuestionInsertPosition] = useState('');
@@ -370,10 +376,15 @@ const TeacherPanel = ({
     if (!isTestsMode) return undefined;
     let cancelled = false;
     setTestsLoading(true);
-    api.getTests()
-      .then((data) => {
+    const scopeOptions = taskContentScope === 'global' ? { scope: 'global' } : {};
+    Promise.all([
+      api.getTests('', { ...scopeOptions, force: true }),
+      api.getTaskCatalog(scopeOptions),
+    ])
+      .then(([data, catalog]) => {
         if (cancelled) return;
         setTestDb(data && typeof data === 'object' ? data : {});
+        setScopeTaskCatalog(catalog && typeof catalog === 'object' ? catalog : null);
         setTestsError('');
       })
       .catch((err) => {
@@ -385,7 +396,7 @@ const TeacherPanel = ({
         if (!cancelled) setTestsLoading(false);
     });
     return () => { cancelled = true; };
-  }, [isTestsMode]);
+  }, [isTestsMode, taskContentScope]);
 
   useEffect(() => {
     if (!isTestsMode || !selectedTask || !selectedLevel) {
@@ -750,7 +761,7 @@ const TeacherPanel = ({
     }
 
     try {
-      await api.saveTests(updatedDb);
+      await api.saveTests(updatedDb, { scope: taskContentScope });
       setTestDb(updatedDb);
     } catch (err) {
       setQuestionUploadError(err?.message || err);
@@ -789,7 +800,7 @@ const TeacherPanel = ({
       resetQuestionForm();
     }
     try {
-      await api.saveTests(updatedDb);
+      await api.saveTests(updatedDb, { scope: taskContentScope });
     } catch (err) {
       alert(err?.message || err);
     }
@@ -859,7 +870,7 @@ const TeacherPanel = ({
     setQuestionReorderMessage('Сохраняю новый порядок…');
     setTestDb(updatedDb);
     try {
-      await api.saveTests(updatedDb);
+      await api.saveTests(updatedDb, { scope: taskContentScope });
       setQuestionReorderMessage(successMessage);
       return true;
     } catch (err) {
@@ -1093,7 +1104,7 @@ const TeacherPanel = ({
           files: Array.isArray(item?.files) ? item.files.map(renameStoredFile) : [],
         }));
         updatedDb[selectedTask] = taskDb;
-        await api.saveTests(updatedDb);
+        await api.saveTests(updatedDb, { scope: taskContentScope });
         setTestDb(updatedDb);
       }
 
@@ -1117,7 +1128,9 @@ const TeacherPanel = ({
     ? inactiveStudentsList
     : currentStudentsList;
   const deletedStudentsList = deletedStudents || [];
-  const tasksList = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
+  const tasksList = Array.isArray(scopeTaskCatalog?.tasks) && scopeTaskCatalog.tasks.length
+    ? scopeTaskCatalog.tasks
+    : (Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS);
   const selectedTaskInfo = tasksList.find((taskItem) => Number(taskItem?.number) === Number(selectedTask)) || null;
   const selectedLevelInfo = Object.values(LEVELS).find((levelItem) => levelItem.id === selectedLevel) || null;
   const activeStudent = currentStudentsList.find((student) => String(student?.id || '') === String(activeStudentId || '')) || null;
@@ -1127,6 +1140,31 @@ const TeacherPanel = ({
   const activeStudentLabel = activeStudent?.name || 'Не выбран';
   const selectedTaskAccentStyle = getTeacherTaskAccentStyle(selectedTask);
   const selectedTaskContextLabel = `Задание ${selectedTaskDisplay}`;
+
+  useEffect(() => {
+    if (tasksList.length === 0 || selectedTaskInfo) return;
+    const fallbackTaskNumber = Number(tasksList[0]?.number);
+    if (Number.isInteger(fallbackTaskNumber) && fallbackTaskNumber > 0) {
+      setSelectedTask(fallbackTaskNumber);
+    }
+  }, [selectedTaskInfo, tasksList]);
+
+  useEffect(() => {
+    if (!isTestsMode || !initialTaskEditorToken) return;
+    if (initialTaskEditorHandledTokenRef.current === initialTaskEditorToken) return;
+    const requestedTaskNumber = Number(initialTaskNumber);
+    if (!Number.isInteger(requestedTaskNumber) || requestedTaskNumber <= 0) return;
+    if (!tasksList.some((taskItem) => Number(taskItem?.number) === requestedTaskNumber)) return;
+    initialTaskEditorHandledTokenRef.current = initialTaskEditorToken;
+    setTaskContentScope('teacher');
+    setSelectedTask(requestedTaskNumber);
+    setSelectedLevel('basic');
+    if (typeof window === 'undefined') return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      document.getElementById('teacher-question-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [initialTaskEditorToken, initialTaskNumber, isTestsMode, tasksList]);
   const normalizedQuestionLabelPreview = normalizeQuestionLabelText(questionLabelText);
   const questionAttachmentCount = questionScreenshots.length
     + questionFiles.length
@@ -3503,7 +3541,34 @@ const TeacherPanel = ({
         {teacherCodeSuccess && <p className="text-xs text-green-600 mt-2">{teacherCodeSuccess}</p>}
       </Card>
 
-      <div className="teacher-test-builder-layout" style={selectedTaskAccentStyle}>
+      {canManageGlobalTaskContent && (
+        <label className={`mb-4 flex cursor-pointer items-start gap-3 rounded-2xl border p-4 ${taskContentScope === 'global' ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+          <input
+            type="checkbox"
+            checked={taskContentScope === 'global'}
+            disabled={testsLoading}
+            onChange={(event) => {
+              const useGlobalScope = event.target.checked;
+              if (useGlobalScope && !window.confirm(
+                'В этом режиме изменения вопросов выбранных тем применяются ко всем преподавателям. Продолжить?',
+              )) return;
+              resetQuestionForm();
+              setTaskContentScope(useGlobalScope ? 'global' : 'teacher');
+            }}
+            className="mt-0.5 h-4 w-4 accent-amber-600"
+          />
+          <span>
+            <span className="block text-sm font-black text-slate-800">Изменять задания для всех преподавателей</span>
+            <span className="mt-0.5 block text-xs text-slate-600">
+              {taskContentScope === 'global'
+                ? 'Сейчас открыт общий банк. Сохранение выбранной темы заменит её вариант у всех преподавателей.'
+                : 'Сейчас открыт ваш личный банк. Изменения увидят только ваши ученики.'}
+            </span>
+          </span>
+        </label>
+      )}
+
+      <div id="teacher-question-editor" className="teacher-test-builder-layout" style={selectedTaskAccentStyle}>
         {/* LEFT COLUMN: Controls */}
         <div className="teacher-test-builder-controls">
           <Card className="teacher-test-builder-control-card teacher-test-builder-control-card--task teacher-task-selector-card">

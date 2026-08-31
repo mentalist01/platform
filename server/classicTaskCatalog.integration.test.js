@@ -121,7 +121,17 @@ test('catalog changes preserve homework history and support assignment, solving,
     teacher = await login('catalog-teacher-test');
     student = await login('catalog-student-test');
     const restarted = await request('/api/task-catalog', teacher);
-    assert.deepEqual(restarted, { version: changed.version, tasks: changed.tasks, archivedTasks: changed.archivedTasks, revision: changed.revision });
+    assert.deepEqual(
+      {
+        version: restarted.version,
+        tasks: restarted.tasks,
+        archivedTasks: restarted.archivedTasks,
+        revision: restarted.revision,
+      },
+      { version: changed.version, tasks: changed.tasks, archivedTasks: changed.archivedTasks, revision: changed.revision },
+    );
+    assert.equal(restarted.scope, 'teacher');
+    assert.equal(restarted.teacherId, 'teacher-catalog');
 
     const homework = await request('/api/student-next-lesson?studentId=student-catalog', teacher);
     const old = homework.homeworks.find((item) => item.id === 'old-homework');
@@ -145,7 +155,7 @@ test('catalog changes preserve homework history and support assignment, solving,
     await request('/api/tests', teacher, 'PUT', bank);
     // A stale tab that never saw bank 28 must not erase it on full-bank save.
     await request('/api/tests', teacher, 'PUT', originalTests);
-    assert.equal(read('tests.json')['28'].basic[0].id, 'new-23');
+    assert.equal(read('teacher-task-content.json').teachers['teacher-catalog'].tests['28'].basic[0].id, 'new-23');
     await request('/api/student-next-lesson', teacher, 'PATCH', {
       studentId: 'student-catalog', homeWork: '', daysToComplete: 7,
       goals: [{ type: 'task', taskNumber: 28, levelId: 'basic', targetQuestions: [1] }],

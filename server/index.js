@@ -240,6 +240,15 @@ import {
   serializeClassicTaskCatalogForClient,
 } from './classicTaskCatalogMutation.js';
 import {
+  applyGlobalCatalogToTeacherStores,
+  applyGlobalTestsUpdate,
+  applyTeacherTestsUpdate,
+  getSharedNextTaskNumber,
+  mergeTeacherTestsDb,
+  normalizeTeacherTaskContentStore,
+  serializeTaskCatalogForStore,
+} from './teacherTaskContent.js';
+import {
   isOptionalHomeworkGoal,
   normalizeHomeworkAssignmentTier,
 } from '../src/utils/homeworkAssignmentTier.js';
@@ -546,6 +555,7 @@ const testsFile = path.join(dataDir, 'tests.json');
 const mockExamsFile = path.join(dataDir, 'mock-exams.json');
 const taskTitlesFile = path.join(dataDir, 'task-titles.json');
 const taskCatalogFile = path.join(dataDir, 'task-catalog.json');
+const teacherTaskContentFile = path.join(dataDir, 'teacher-task-content.json');
 const signupChatsFile = path.join(dataDir, 'signup-chats.json');
 const studentChatsFile = path.join(dataDir, 'student-chats.json');
 const studentChatsDir = path.join(dataDir, 'student-chats');
@@ -624,6 +634,7 @@ const AUTH_SESSION_PERSIST_MIN_EXTENSION_MS = (() => {
 })();
 const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
 const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
+const PLATFORM_OWNER_TEACHER_ID = String(process.env.PLATFORM_OWNER_TEACHER_ID || '').trim();
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
 const TEACHER_NAME = process.env.TEACHER_NAME || '\u0423\u0447\u0438\u0442\u0435\u043b\u044c';
 const ACCESS_CODE_LOOKUP_SECRET = String(process.env.ACCESS_CODE_LOOKUP_SECRET || ADMIN_CODE).trim();
@@ -2010,9 +2021,44 @@ const readClassicTaskCatalogDb = () => {
   return classicTaskCatalogCache;
 };
 
+let teacherTaskContentStoreCache = null;
+const readTeacherTaskContentStore = () => {
+  if (teacherTaskContentStoreCache) return teacherTaskContentStoreCache;
+  let stored = {};
+  try {
+    stored = JSON.parse(fs.readFileSync(teacherTaskContentFile, 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  teacherTaskContentStoreCache = normalizeTeacherTaskContentStore(stored);
+  return teacherTaskContentStoreCache;
+};
+
+const writeTeacherTaskContentStore = (value) => {
+  const normalized = normalizeTeacherTaskContentStore(value);
+  writeJsonFileAtomic(teacherTaskContentFile, normalized);
+  teacherTaskContentStoreCache = normalized;
+  return normalized;
+};
+
+const readClassicTaskCatalogForTeacher = (teacherId) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return readClassicTaskCatalogDb();
+  const stored = readTeacherTaskContentStore().teachers?.[normalizedTeacherId]?.catalog;
+  if (!stored) return readClassicTaskCatalogDb();
+  return normalizeStoredClassicTaskCatalog(stored);
+};
+
+const getAllClassicTaskCatalogs = () => {
+  const result = [readClassicTaskCatalogDb()];
+  Object.values(readTeacherTaskContentStore().teachers || {}).forEach((entry) => {
+    if (entry?.catalog) result.push(normalizeStoredClassicTaskCatalog(entry.catalog));
+  });
+  return result;
+};
+
 const classicTaskCatalogIndexes = new WeakMap();
-const getClassicTaskCatalogEntry = (taskNumber) => {
-  const catalog = readClassicTaskCatalogDb();
+const findClassicTaskCatalogEntry = (catalog, taskNumber) => {
   let index = classicTaskCatalogIndexes.get(catalog);
   if (!index) {
     index = new Map([...catalog.activeTasks, ...catalog.archivedTasks]
@@ -2022,8 +2068,20 @@ const getClassicTaskCatalogEntry = (taskNumber) => {
   return index.get(Number(taskNumber));
 };
 
-const getMockTaskTitleSnapshot = () => Object.fromEntries(
-  readClassicTaskCatalogDb().activeTasks.flatMap((task) => (
+const getClassicTaskCatalogEntry = (taskNumber, teacherId = '') => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (normalizedTeacherId) {
+    return findClassicTaskCatalogEntry(readClassicTaskCatalogForTeacher(normalizedTeacherId), taskNumber);
+  }
+  for (const catalog of getAllClassicTaskCatalogs()) {
+    const entry = findClassicTaskCatalogEntry(catalog, taskNumber);
+    if (entry) return entry;
+  }
+  return undefined;
+};
+
+const getMockTaskTitleSnapshot = (teacherId = '') => Object.fromEntries(
+  readClassicTaskCatalogForTeacher(teacherId).activeTasks.flatMap((task) => (
     (task.slotNumber === 19 ? [19, 20, 21] : [task.slotNumber])
       .map((slot) => [String(slot), task.title])
   )),
@@ -4579,6 +4637,22 @@ const readTestsDb = () => {
     testsDbCacheSignature = '';
     return testsDbCache;
   }
+};
+
+const readTestsDbForTeacher = (teacherId) => {
+  const normalizedTeacherId = String(teacherId || '').trim();
+  if (!normalizedTeacherId) return readTestsDb();
+  return mergeTeacherTestsDb(
+    readTestsDb(),
+    readTeacherTaskContentStore().teachers?.[normalizedTeacherId],
+  );
+};
+
+const readTestsDbForStudent = (studentOrId) => {
+  const student = studentOrId && typeof studentOrId === 'object'
+    ? studentOrId
+    : findStudentById(studentOrId, { allowDeleted: true });
+  return readTestsDbForTeacher(student?.teacherId);
 };
 
 const getTestsDbWithPythonInfiniteTraining = (testsDb = readTestsDb()) => ({
@@ -8184,6 +8258,41 @@ const normalizeTeacherId = (value) => {
   return String(value || '').trim();
 };
 
+const getPlatformOwnerTeacherId = () => {
+  if (PLATFORM_OWNER_TEACHER_ID) return PLATFORM_OWNER_TEACHER_ID;
+  const teachers = readTeachersDb();
+  return normalizeTeacherId(teachers[0]?.id);
+};
+
+const canManageGlobalTaskContent = (auth) => (
+  isAdminRole(auth)
+  || (isTeacherRole(auth) && normalizeTeacherId(auth.id) === getPlatformOwnerTeacherId())
+);
+
+const getTaskContentTeacherIdForAuth = (auth, requestedStudentId = '') => {
+  if (isTeacherRole(auth)) return normalizeTeacherId(auth.id);
+  if (isStudentRole(auth)) {
+    return normalizeTeacherId(auth.teacherId || findStudentById(auth.id, { allowDeleted: true })?.teacherId);
+  }
+  if (isParentRole(auth)) {
+    return normalizeTeacherId(auth.teacherId || findStudentById(auth.studentId, { allowDeleted: true })?.teacherId);
+  }
+  const studentId = String(requestedStudentId || '').trim();
+  return studentId ? normalizeTeacherId(findStudentById(studentId, { allowDeleted: true })?.teacherId) : '';
+};
+
+const isGlobalTaskContentRequest = (req) => (
+  String(req.query?.scope || req.body?.scope || '').trim().toLowerCase() === 'global'
+);
+
+const ensureGlobalTaskContentAccess = (req, res) => {
+  if (!canManageGlobalTaskContent(req.auth)) {
+    forbid(res);
+    return false;
+  }
+  return true;
+};
+
 const normalizeBroadcastNotificationText = (value) => {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, BROADCAST_NOTIFICATION_TEXT_MAX_LENGTH);
@@ -9984,7 +10093,7 @@ const buildTeacherCalendarHomeworkProgressByStudentId = (teacherId, nowMs = Date
   const normalizedTeacherId = String(teacherId || '').trim();
   const progressByStudentId = new Map();
   if (!normalizedTeacherId) return progressByStudentId;
-  const testsDb = getTestsDbWithPythonInfiniteTraining(readTestsDb());
+  const testsDb = getTestsDbWithPythonInfiniteTraining(readTestsDbForTeacher(normalizedTeacherId));
   const mockExams = readMockExamsDb();
   const students = readStudentsDb().filter((student) => (
     isCurrentStudent(student)
@@ -17166,7 +17275,7 @@ const notifyStudentAboutNewHomework = async (student, entry) => {
     const targets = getStudentPushTargets(pushDb, student.id);
     if (!hasPushTargets(targets)) return;
 
-    const testsDb = readTestsDb();
+    const testsDb = readTestsDbForStudent(student);
     const mockExamById = readMockExamsDb().reduce((acc, exam) => {
       const examId = String(exam?.id || '').trim();
       if (examId) acc[examId] = exam;
@@ -17224,7 +17333,6 @@ const runPushReminderSweep = async () => {
       return;
     }
 
-    const testsDb = readTestsDb();
     const mockExamById = readMockExamsDb().reduce((acc, exam) => {
       const examId = String(exam?.id || '').trim();
       if (examId) acc[examId] = exam;
@@ -17242,7 +17350,11 @@ const runPushReminderSweep = async () => {
         continue;
       }
 
-      const summary = evaluateLatestHomeworkProgressForStudent(student, testsDb, mockExamById);
+      const summary = evaluateLatestHomeworkProgressForStudent(
+        student,
+        readTestsDbForStudent(student),
+        mockExamById,
+      );
       if (!summary || summary.pendingCount <= 0) {
         if (remindersByStudent[studentId]) {
           delete remindersByStudent[studentId];
@@ -18398,24 +18510,32 @@ const stripUploadIdPrefix = (name) => (
   )
 );
 
-const findTestAttachmentName = (storageName) => {
+const findTestAttachment = (storageName) => {
   const target = String(storageName || '').trim();
-  if (!target) return '';
-  const stack = [readTestsDb()];
+  if (!target) return null;
+  const stack = [
+    readTestsDb(),
+    ...Object.values(readTeacherTaskContentStore().teachers || {}).map((entry) => entry?.tests),
+  ];
   const visited = new Set();
   while (stack.length > 0) {
     const current = stack.pop();
     if (!current || typeof current !== 'object' || visited.has(current)) continue;
     visited.add(current);
-    if (current.storageName === target && current.name) {
-      return normalizeFileName(current.name);
-    }
+    if (current.storageName === target) return current;
     Object.values(current).forEach((value) => {
       if (value && typeof value === 'object') stack.push(value);
     });
   }
-  return '';
+  return null;
 };
+
+const findTestAttachmentName = (storageName) => {
+  const attachment = findTestAttachment(storageName);
+  return normalizeFileName(attachment?.name || '');
+};
+
+const isTestAttachmentReferenced = (storageName) => Boolean(findTestAttachment(storageName));
 
 const getUploadDownloadName = (ownedFile, storageName) => {
   const preferredName = normalizeFileName(ownedFile?.name || '') || findTestAttachmentName(storageName);
@@ -18880,7 +19000,7 @@ const getWorkbookQuestionTarget = ({ student, taskNumber, levelId, questionId, a
     throw createWorkbookHttpError(400, 'Некорректные параметры задания');
   }
   const studentData = getStudentData(student.id);
-  const testsDb = getTestsDbWithStudentMockFollowups(studentData);
+  const testsDb = getTestsDbWithStudentMockFollowups(studentData, readTestsDbForStudent(student));
   const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(
     testsDb,
     taskNum,
@@ -20679,7 +20799,7 @@ app.get('/api/workbook-helper/question-solutions', (req, res) => {
     return res.status(400).json({ error: 'Некорректные параметры задания' });
   }
   const studentData = getStudentData(student.id);
-  const testsDb = getTestsDbWithStudentMockFollowups(studentData);
+  const testsDb = getTestsDbWithStudentMockFollowups(studentData, readTestsDbForStudent(student));
   const { question } = getQuestionEntryFromTestsDb(testsDb, taskNumber, levelId, questionId);
   if (!question) return res.status(404).json({ error: 'Вопрос не найден' });
   const context = { taskNumber, levelId, questionId };
@@ -21917,7 +22037,7 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
     );
     const homeWork = String(homeworkTemplate.homeWork || '').trim()
       || buildLearningGroupHomeworkText(assignment);
-    const testsDb = readTestsDb();
+    const testsDb = readTestsDbForTeacher(group.teacherId || assignment.teacherId);
     const goals = snapshotHomeworkGoalTargets({
       goals: normalizeGoals(homeworkTemplate.goals, testsDb),
       testsDb,
@@ -24007,7 +24127,7 @@ app.post('/api/student-help-requests', async (req, res) => {
     return res.status(400).json({ error: 'Не удалось определить текущее задание' });
   }
   const data = getStudentData(student.id);
-  const testsDb = getTestsDbWithStudentMockFollowups(data);
+  const testsDb = getTestsDbWithStudentMockFollowups(data, readTestsDbForStudent(student));
   const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNumber, levelId, questionId);
   if (!taskLevels || !questions || !question) {
     return res.status(400).json({ error: 'Вопрос задания не найден' });
@@ -26246,9 +26366,8 @@ app.get('/api/students/leaderboard', (req, res) => {
     ? requestedStudentId
     : currentStudentId;
   const anonNameById = buildLeaderboardAnonNameMap(students);
-  const testsDb = readTestsDb();
-
   const items = students.map((student) => {
+    const testsDb = readTestsDbForStudent(student);
     const data = getStudentData(student.id);
     const xpTotal = normalizeXpTotal(data?.xpTotal);
     const weeklyXp = getRecentXpFromSolvedEvents(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS, data?.artifactLevels);
@@ -26592,7 +26711,7 @@ app.get('/api/students/leaderboard-profile', (req, res) => {
     && String(student.teacherId || '').trim() === String(targetStudent.teacherId || '').trim()
   ));
   const anonNameById = buildLeaderboardAnonNameMap(groupStudents);
-  const testsDb = readTestsDb();
+  const testsDb = readTestsDbForStudent(targetStudent);
   const mockExamById = readMockExamsDb().reduce((acc, exam) => {
     const examId = String(exam?.id || '').trim();
     if (examId) acc[examId] = exam;
@@ -26995,17 +27114,32 @@ app.post('/api/students/:id/restore', (req, res) => {
   });
 });
 
-app.get('/api/task-catalog', (_req, res) => {
-  const catalog = readClassicTaskCatalogDb();
+app.get('/api/task-catalog', (req, res) => {
+  const globalScope = isGlobalTaskContentRequest(req);
+  if (globalScope && !ensureGlobalTaskContentAccess(req, res)) return;
+  const teacherId = globalScope ? '' : getTaskContentTeacherIdForAuth(req.auth, req.query?.studentId);
+  const catalog = globalScope
+    ? readClassicTaskCatalogDb()
+    : readClassicTaskCatalogForTeacher(teacherId);
   return res.json({
     ...serializeClassicTaskCatalogForClient(catalog),
     revision: getClassicTaskCatalogRevision(catalog),
+    scope: globalScope ? 'global' : (teacherId ? 'teacher' : 'global'),
+    teacherId: teacherId || null,
+    canManageGlobal: canManageGlobalTaskContent(req.auth),
+    hasPersonalCatalog: Boolean(teacherId && readTeacherTaskContentStore().teachers?.[teacherId]?.catalog),
   });
 });
 
 app.put('/api/task-catalog', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
-  const currentCatalog = readClassicTaskCatalogDb();
+  const globalScope = isGlobalTaskContentRequest(req);
+  if (globalScope && !ensureGlobalTaskContentAccess(req, res)) return;
+  const teacherId = globalScope ? '' : getTaskContentTeacherIdForAuth(req.auth);
+  if (!globalScope && !teacherId) return res.status(400).json({ error: 'Не удалось определить преподавателя.' });
+  const currentCatalog = globalScope
+    ? readClassicTaskCatalogDb()
+    : readClassicTaskCatalogForTeacher(teacherId);
   const currentRevision = getClassicTaskCatalogRevision(currentCatalog);
   const requestedRevision = String(req.body?.revision || '').trim();
   if (!requestedRevision || requestedRevision !== currentRevision) {
@@ -27016,7 +27150,14 @@ app.put('/api/task-catalog', (req, res) => {
 
   let mutation;
   try {
-    mutation = buildClassicTaskCatalogMutation(currentCatalog, req.body);
+    const sharedNextTaskNumber = getSharedNextTaskNumber(
+      readTeacherTaskContentStore(),
+      readClassicTaskCatalogDb(),
+    );
+    mutation = buildClassicTaskCatalogMutation({
+      ...currentCatalog,
+      nextTaskNumber: Math.max(currentCatalog.nextTaskNumber, sharedNextTaskNumber),
+    }, req.body);
   } catch (error) {
     if (error instanceof ClassicTaskCatalogMutationError) {
       return res.status(error.statusCode || 400).json({ error: error.message });
@@ -27024,47 +27165,93 @@ app.put('/api/task-catalog', (req, res) => {
     throw error;
   }
 
-  let previousTestsDb;
+  let previousGlobalTestsDb;
   let previousTitles;
+  let previousTeacherTaskContent;
   try {
-    previousTestsDb = readJsonObjectFileStrict(testsFile);
+    previousGlobalTestsDb = readJsonObjectFileStrict(testsFile);
     previousTitles = readTaskTitlesDb();
+    previousTeacherTaskContent = structuredClone(readTeacherTaskContentStore());
   } catch (error) {
     console.error('[task-catalog] failed to read data before update:', error);
     return res.status(500).json({ error: 'Не удалось безопасно прочитать базу заданий.' });
   }
 
-  const nextTestsDb = initializeAddedClassicTaskBanks(
-    previousTestsDb,
-    mutation.addedTaskNumbers,
-  );
-  if (mutation.addedTaskNumbers.some((number) => Object.hasOwn(previousTestsDb, String(number)))) {
+  const allTestsStores = [
+    previousGlobalTestsDb,
+    ...Object.values(previousTeacherTaskContent.teachers || {}).map((entry) => entry?.tests || {}),
+  ];
+  if (mutation.addedTaskNumbers.some((number) => (
+    allTestsStores.some((tests) => Object.hasOwn(tests, String(number)))
+  ))) {
     return res.status(409).json({ error: 'Внутренний номер уже занят банком заданий. Изменения не сохранены.' });
   }
-  const nextTitles = { ...previousTitles };
-  mutation.catalog.activeTasks.forEach((task) => {
-    nextTitles[String(task.taskNumber)] = task.title;
-  });
+
+  let nextGlobalTestsDb = previousGlobalTestsDb;
+  let nextTeacherTaskContent = previousTeacherTaskContent;
+  let nextTitles = previousTitles;
+  if (globalScope) {
+    nextGlobalTestsDb = initializeAddedClassicTaskBanks(previousGlobalTestsDb, mutation.addedTaskNumbers);
+    nextTitles = { ...previousTitles };
+    mutation.catalog.activeTasks.forEach((task) => {
+      nextTitles[String(task.taskNumber)] = task.title;
+    });
+    nextTeacherTaskContent = applyGlobalCatalogToTeacherStores(
+      previousTeacherTaskContent,
+      mutation.catalog,
+      readTeachersDb().map((teacher) => teacher.id),
+    );
+  } else {
+    const currentTeacherTestsDb = readTestsDbForTeacher(teacherId);
+    const nextTeacherTestsDb = initializeAddedClassicTaskBanks(
+      currentTeacherTestsDb,
+      mutation.addedTaskNumbers,
+    );
+    const testsUpdate = applyTeacherTestsUpdate(
+      previousTeacherTaskContent,
+      teacherId,
+      previousGlobalTestsDb,
+      nextTeacherTestsDb,
+    );
+    nextTeacherTaskContent = testsUpdate.store;
+    nextTeacherTaskContent.teachers[teacherId] = {
+      ...nextTeacherTaskContent.teachers[teacherId],
+      catalog: serializeTaskCatalogForStore(mutation.catalog),
+    };
+  }
+  nextTeacherTaskContent.nextTaskNumber = Math.max(
+    nextTeacherTaskContent.nextTaskNumber,
+    mutation.catalog.nextTaskNumber,
+  );
 
   try {
-    if (mutation.addedTaskNumbers.length > 0) writeTestsDb(nextTestsDb);
-    writeTaskTitlesDb(nextTitles);
-    classicTaskCatalogCache = null;
-    const storedCatalog = writeClassicTaskCatalogDb(mutation.catalog);
+    if (globalScope && mutation.addedTaskNumbers.length > 0) writeTestsDb(nextGlobalTestsDb);
+    if (globalScope) writeTaskTitlesDb(nextTitles);
+    const storedCatalog = globalScope
+      ? writeClassicTaskCatalogDb(mutation.catalog)
+      : normalizeStoredClassicTaskCatalog(nextTeacherTaskContent.teachers[teacherId].catalog);
+    writeTeacherTaskContentStore(nextTeacherTaskContent);
     return res.json({
       ok: true,
       ...serializeClassicTaskCatalogForClient(storedCatalog),
       revision: getClassicTaskCatalogRevision(storedCatalog),
+      scope: globalScope ? 'global' : 'teacher',
+      teacherId: teacherId || null,
+      canManageGlobal: canManageGlobalTaskContent(req.auth),
+      hasPersonalCatalog: !globalScope,
       addedTaskNumbers: mutation.addedTaskNumbers,
       archivedTaskNumbers: mutation.archivedTaskNumbers,
     });
   } catch (error) {
     console.error('[task-catalog] failed to update catalog:', error);
     try {
-      if (mutation.addedTaskNumbers.length > 0) writeTestsDb(previousTestsDb);
-      writeTaskTitlesDb(previousTitles);
-      classicTaskCatalogCache = null;
-      writeClassicTaskCatalogDb(currentCatalog);
+      if (globalScope && mutation.addedTaskNumbers.length > 0) writeTestsDb(previousGlobalTestsDb);
+      if (globalScope) {
+        writeTaskTitlesDb(previousTitles);
+        classicTaskCatalogCache = null;
+        writeClassicTaskCatalogDb(currentCatalog);
+      }
+      writeTeacherTaskContentStore(previousTeacherTaskContent);
     } catch (rollbackError) {
       console.error('[task-catalog] rollback failed:', rollbackError);
     }
@@ -27072,37 +27259,71 @@ app.put('/api/task-catalog', (req, res) => {
   }
 });
 
-app.get('/api/task-titles', (_req, res) => {
-  const data = readTaskTitlesDb();
-  res.json(data || {});
+app.get('/api/task-titles', (req, res) => {
+  const globalScope = isGlobalTaskContentRequest(req);
+  if (globalScope && !ensureGlobalTaskContentAccess(req, res)) return;
+  const teacherId = globalScope ? '' : getTaskContentTeacherIdForAuth(req.auth, req.query?.studentId);
+  const catalog = globalScope
+    ? readClassicTaskCatalogDb()
+    : readClassicTaskCatalogForTeacher(teacherId);
+  res.json(Object.fromEntries(
+    [...catalog.activeTasks, ...catalog.archivedTasks]
+      .map((task) => [String(task.taskNumber), task.title]),
+  ));
 });
 
 app.patch('/api/task-titles', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
+  const globalScope = isGlobalTaskContentRequest(req);
+  if (globalScope && !ensureGlobalTaskContentAccess(req, res)) return;
+  const teacherId = globalScope ? '' : getTaskContentTeacherIdForAuth(req.auth);
+  if (!globalScope && !teacherId) return res.status(400).json({ error: 'Не удалось определить преподавателя.' });
   const { number, title } = req.body || {};
   const taskNumber = Number(number);
-  const catalog = readClassicTaskCatalogDb();
+  const catalog = globalScope
+    ? readClassicTaskCatalogDb()
+    : readClassicTaskCatalogForTeacher(teacherId);
   const knownTask = [...catalog.activeTasks, ...catalog.archivedTasks]
     .some((task) => task.taskNumber === taskNumber);
   if (!Number.isInteger(taskNumber) || !knownTask) {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
   const trimmed = typeof title === 'string' ? title.trim() : '';
-  const db = readTaskTitlesDb();
-  const key = String(taskNumber);
-  if (!trimmed) {
-    if (db[key]) delete db[key];
-    writeTaskTitlesDb(db);
-    classicTaskCatalogCache = null;
-    return res.json({ ok: true, number: taskNumber, title: '' });
-  }
   if (trimmed.length > 120) {
     return res.status(400).json({ error: 'Название слишком длинное' });
   }
-  db[key] = trimmed;
-  writeTaskTitlesDb(db);
-  classicTaskCatalogCache = null;
-  res.json({ ok: true, number: taskNumber, title: trimmed });
+  const sourceTask = [...catalog.activeTasks, ...catalog.archivedTasks]
+    .find((task) => task.taskNumber === taskNumber);
+  const nextTitle = trimmed || sourceTask.title;
+  const updateTitle = (sourceCatalog) => ({
+    ...sourceCatalog,
+    activeTasks: sourceCatalog.activeTasks.map((task) => (
+      task.taskNumber === taskNumber ? { ...task, title: nextTitle } : task
+    )),
+    archivedTasks: sourceCatalog.archivedTasks.map((task) => (
+      task.taskNumber === taskNumber ? { ...task, title: nextTitle } : task
+    )),
+  });
+  if (globalScope) {
+    const db = { ...readTaskTitlesDb(), [String(taskNumber)]: nextTitle };
+    writeTaskTitlesDb(db);
+    const storedGlobal = writeClassicTaskCatalogDb(updateTitle(catalog));
+    const store = readTeacherTaskContentStore();
+    Object.values(store.teachers || {}).forEach((entry) => {
+      if (!entry?.catalog) return;
+      const personalCatalog = normalizeStoredClassicTaskCatalog(entry.catalog);
+      entry.catalog = serializeTaskCatalogForStore(updateTitle(personalCatalog));
+    });
+    writeTeacherTaskContentStore(store);
+    classicTaskCatalogCache = storedGlobal;
+  } else {
+    const store = readTeacherTaskContentStore();
+    const entry = store.teachers[teacherId] || { tests: {} };
+    entry.catalog = serializeTaskCatalogForStore(updateTitle(catalog));
+    store.teachers[teacherId] = entry;
+    writeTeacherTaskContentStore(store);
+  }
+  res.json({ ok: true, number: taskNumber, title: nextTitle, scope: globalScope ? 'global' : 'teacher' });
 });
 
 app.get('/api/teachers', (_req, res) => {
@@ -27562,14 +27783,19 @@ app.post('/api/students/:id/reset-code', (req, res) => {
 });
 
 app.get('/api/tests', (req, res) => {
-  const data = readTestsDb();
   const requestedStudentId = typeof req.query?.studentId === 'string'
     ? req.query.studentId.trim()
     : '';
+  const globalScope = isGlobalTaskContentRequest(req);
+  if (globalScope && !ensureGlobalTaskContentAccess(req, res)) return;
   const indexOnly = req.query?.shape === 'index';
   let responseData;
-  if (isStudentRole(req.auth)) {
+  if (globalScope) {
+    responseData = readTestsDb();
+  } else if (isStudentRole(req.auth)) {
     if (requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
+    const student = findStudentById(req.auth.id);
+    const data = readTestsDbForStudent(student);
     const studentData = getStudentData(req.auth.id);
     const personalizedTestsDb = getTestsDbWithStudentMockFollowups(studentData, data);
     responseData = indexOnly
@@ -27578,10 +27804,12 @@ app.get('/api/tests', (req, res) => {
   } else if (requestedStudentId) {
     const student = ensureStudentAccess(req, res, requestedStudentId);
     if (!student) return;
+    const data = readTestsDbForStudent(student);
     const studentData = getStudentData(student.id);
     responseData = getTestsDbWithStudentMockFollowups(studentData, data);
   } else {
-    responseData = data || {};
+    const teacherId = getTaskContentTeacherIdForAuth(req.auth);
+    responseData = teacherId ? readTestsDbForTeacher(teacherId) : readTestsDb();
   }
   return res.json(indexOnly ? buildTestsDbIndex(responseData) : responseData);
 });
@@ -27612,14 +27840,24 @@ app.get('/api/question-difficulty', (req, res) => {
 
 app.put('/api/tests', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
-  const payload = req.body;
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const globalScope = isGlobalTaskContentRequest(req);
+  if (globalScope && !ensureGlobalTaskContentAccess(req, res)) return;
+  const teacherId = globalScope ? '' : getTaskContentTeacherIdForAuth(req.auth);
+  if (!globalScope && !teacherId) return res.status(400).json({ error: 'Не удалось определить преподавателя.' });
+  const payload = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? structuredClone(req.body)
+    : req.body;
+  if (payload && typeof payload === 'object') delete payload.scope;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return res.status(400).json({ error: 'Некорректные данные' });
   }
-  let previousTestsDb;
+  let previousGlobalTestsDb;
+  let previousTeacherTaskContent;
   let progressDb;
   try {
-    previousTestsDb = readJsonObjectFileStrict(testsFile);
+    previousGlobalTestsDb = readJsonObjectFileStrict(testsFile);
+    previousTeacherTaskContent = structuredClone(readTeacherTaskContentStore());
     progressDb = readJsonObjectFileStrict(progressFile);
   } catch (error) {
     console.error('[tests] failed to read databases before safe save:', error);
@@ -27629,20 +27867,64 @@ app.put('/api/tests', (req, res) => {
   }
   // Older tabs may not know about a newly added or archived card. A full-bank
   // save must never erase those banks merely because they are absent there.
-  const catalog = readClassicTaskCatalogDb();
+  const catalog = globalScope
+    ? readClassicTaskCatalogDb()
+    : readClassicTaskCatalogForTeacher(teacherId);
+  const previousTestsDb = globalScope
+    ? previousGlobalTestsDb
+    : mergeTeacherTestsDb(previousGlobalTestsDb, previousTeacherTaskContent.teachers?.[teacherId]);
   [...catalog.activeTasks, ...catalog.archivedTasks].forEach((task) => {
     const key = String(task.taskNumber);
     if (!Object.hasOwn(payload, key) && Object.hasOwn(previousTestsDb, key)) {
       payload[key] = previousTestsDb[key];
     }
   });
-  let progressMigration;
-  try {
-    progressMigration = remapProgressQuestionTargets(
-      progressDb,
-      previousTestsDb,
-      payload
+  let nextGlobalTestsDb = previousGlobalTestsDb;
+  let nextTeacherTaskContent = previousTeacherTaskContent;
+  let changedTaskKeys = [];
+  if (globalScope) {
+    const update = applyGlobalTestsUpdate(previousTeacherTaskContent, previousGlobalTestsDb, payload);
+    nextGlobalTestsDb = update.nextGlobal;
+    nextTeacherTaskContent = update.store;
+    changedTaskKeys = update.changedTaskKeys;
+  } else {
+    const update = applyTeacherTestsUpdate(
+      previousTeacherTaskContent,
+      teacherId,
+      previousGlobalTestsDb,
+      payload,
     );
+    nextTeacherTaskContent = update.store;
+    changedTaskKeys = update.changedTaskKeys;
+  }
+
+  let nextProgressDb = progressDb;
+  let changedReferences = 0;
+  try {
+    const targetStudents = readStudentsDb().filter((student) => (
+      globalScope || normalizeTeacherId(student.teacherId) === teacherId
+    ));
+    targetStudents.forEach((student) => {
+      const studentId = String(student?.id || '').trim();
+      if (!studentId || !Object.hasOwn(nextProgressDb, studentId)) return;
+      const previousStudentTests = mergeTeacherTestsDb(
+        previousGlobalTestsDb,
+        previousTeacherTaskContent.teachers?.[normalizeTeacherId(student.teacherId)],
+      );
+      const nextStudentTests = mergeTeacherTestsDb(
+        nextGlobalTestsDb,
+        nextTeacherTaskContent.teachers?.[normalizeTeacherId(student.teacherId)],
+      );
+      const migration = remapProgressQuestionTargets(
+        { [studentId]: nextProgressDb[studentId] },
+        previousStudentTests,
+        nextStudentTests,
+      );
+      if (migration.changed) {
+        nextProgressDb = { ...nextProgressDb, [studentId]: migration.db[studentId] };
+        changedReferences += migration.changedReferences;
+      }
+    });
   } catch (error) {
     if (error instanceof QuestionTargetRemapConflictError) {
       return res.status(409).json({ error: error.message });
@@ -27650,22 +27932,26 @@ app.put('/api/tests', (req, res) => {
     throw error;
   }
 
-  writeTestsDb(payload);
-  if (progressMigration.changed) {
+  try {
+    if (globalScope) writeTestsDb(nextGlobalTestsDb);
+    writeTeacherTaskContentStore(nextTeacherTaskContent);
+    if (changedReferences > 0) writeProgressDb(nextProgressDb);
+  } catch (error) {
+    console.error('[tests] failed to persist scoped bank:', error);
     try {
-      writeProgressDb(progressMigration.db);
-    } catch (error) {
-      try {
-        writeTestsDb(previousTestsDb);
-      } catch (rollbackError) {
-        console.error('[tests] failed to roll back tests after homework remap error:', rollbackError);
-      }
-      throw error;
+      if (globalScope) writeTestsDb(previousGlobalTestsDb);
+      writeTeacherTaskContentStore(previousTeacherTaskContent);
+      if (changedReferences > 0) writeProgressDb(progressDb);
+    } catch (rollbackError) {
+      console.error('[tests] failed to roll back scoped bank:', rollbackError);
     }
+    return res.status(500).json({ error: 'Не удалось сохранить банк заданий. Изменения отменены.' });
   }
   res.json({
     ok: true,
-    remappedHomeworkReferences: progressMigration.changedReferences,
+    scope: globalScope ? 'global' : 'teacher',
+    changedTaskNumbers: changedTaskKeys,
+    remappedHomeworkReferences: changedReferences,
   });
 });
 
@@ -27792,7 +28078,10 @@ app.post('/api/mock-exams/random', (req, res) => {
   try {
     mockExams = readJsonArrayFileStrict(mockExamsFile);
     progressDb = readJsonObjectFileStrict(progressFile);
-    testsDb = readJsonObjectFileStrict(testsFile);
+    testsDb = mergeTeacherTestsDb(
+      readJsonObjectFileStrict(testsFile),
+      readTeacherTaskContentStore().teachers?.[normalizeTeacherId(student.teacherId)],
+    );
   } catch (error) {
     console.error('[mock-exams] failed to read databases before personal generation:', error);
     return res.status(500).json({
@@ -27835,7 +28124,7 @@ app.post('/api/mock-exams/random', (req, res) => {
   });
   const generated = buildPersonalRandomMockTasks({
     testsDb,
-    taskCatalog: readClassicTaskCatalogDb().activeTasks,
+    taskCatalog: readClassicTaskCatalogForTeacher(student.teacherId).activeTasks,
     solvedByTask: studentData.solvedByTask,
     randomMockSolvedByTask,
     levelId,
@@ -27868,7 +28157,7 @@ app.post('/api/mock-exams/random', (req, res) => {
     generationRequestId: requestId || crypto.randomUUID(),
     generationNumber,
     tasks: generated.tasks,
-    taskTitleSnapshot: getMockTaskTitleSnapshot(),
+    taskTitleSnapshot: getMockTaskTitleSnapshot(student.teacherId),
     randomSummary: generated.summary,
     rewardsDisabled: true,
     badges: [
@@ -27914,7 +28203,7 @@ app.post('/api/mock-exams', (req, res) => {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     tasks: {},
-    taskTitleSnapshot: getMockTaskTitleSnapshot(),
+    taskTitleSnapshot: getMockTaskTitleSnapshot(getTaskContentTeacherIdForAuth(req.auth)),
     badges: [],
     access: { all: false, students: [], mode: MOCK_ATTEMPT_MODE_TIMER },
   };
@@ -28564,7 +28853,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       attemptId,
       finishedAt: savedAt,
       targetTaskKeys: normalizedAttempt.targetTaskKeys,
-      testsDb: readTestsDb(),
+      testsDb: readTestsDbForStudent(student),
       solvedByTask: data.solvedByTask,
     });
     const primaryScore = getMockPrimaryScoreFromSolved(normalizedAttempt.solved);
@@ -28728,7 +29017,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     studentId: student.id,
     beforeData: data,
     afterData: nextStudentPayload,
-    testsDb: getTestsDbWithStudentMockFollowups(nextStudentPayload),
+    testsDb: getTestsDbWithStudentMockFollowups(nextStudentPayload, readTestsDbForStudent(student)),
     mockExams: list,
     grantedAt: savedAt,
     homeworkIds: homeworkAssignment ? [homeworkAssignment.id] : [],
@@ -28958,7 +29247,7 @@ app.post('/api/questions/check', (req, res) => {
   }
 
   const studentData = getStudentData(student.id);
-  const testsDb = getTestsDbWithStudentMockFollowups(studentData);
+  const testsDb = getTestsDbWithStudentMockFollowups(studentData, readTestsDbForStudent(student));
   const taskLevels = testsDb?.[String(taskNum)];
   if (!taskLevels || typeof taskLevels !== 'object') {
     return res.status(400).json({ error: 'Задание не найдено' });
@@ -29007,7 +29296,7 @@ app.post('/api/progress/solve', async (req, res) => {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
   const data = getStudentData(student.id);
-  const testsDb = getTestsDbWithStudentMockFollowups(data);
+  const testsDb = getTestsDbWithStudentMockFollowups(data, readTestsDbForStudent(student));
   const taskKey = String(taskNum);
   const levelKey = String(levelId).trim();
   const qKey = String(questionId).trim();
@@ -29679,7 +29968,7 @@ app.get('/api/progress/solved-answers', (req, res) => {
     return res.status(400).json({ error: 'Некорректный номер задания' });
   }
   const data = getStudentData(student.id);
-  const testsDb = getTestsDbWithStudentMockFollowups(data);
+  const testsDb = getTestsDbWithStudentMockFollowups(data, readTestsDbForStudent(student));
   const taskKey = String(taskNum);
   const levelKey = String(levelId);
   const taskLevels = testsDb?.[taskKey];
@@ -29825,7 +30114,7 @@ app.get('/api/progress/question-code', (req, res) => {
   const levelKey = String(levelId);
   const questionKey = String(questionId).trim();
   const data = getStudentData(student.id);
-  const testsDb = getTestsDbWithStudentMockFollowups(data);
+  const testsDb = getTestsDbWithStudentMockFollowups(data, readTestsDbForStudent(student));
   const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNum, levelKey, questionKey);
   if (!taskLevels) return res.status(400).json({ error: 'Задание не найдено' });
   if (!questions) return res.status(400).json({ error: 'Уровень не найден' });
@@ -29869,7 +30158,7 @@ app.patch('/api/progress/question-code', (req, res) => {
   const levelKey = String(levelId);
   const questionKey = String(questionId).trim();
   const data = getStudentData(student.id);
-  const testsDb = getTestsDbWithStudentMockFollowups(data);
+  const testsDb = getTestsDbWithStudentMockFollowups(data, readTestsDbForStudent(student));
   const { taskLevels, questions, question } = getQuestionEntryFromTestsDb(testsDb, taskNum, levelKey, questionKey);
   if (!taskLevels) return res.status(400).json({ error: 'Задание не найдено' });
   if (!questions) return res.status(400).json({ error: 'Уровень не найден' });
@@ -31350,9 +31639,13 @@ app.get('/api/student-search', async (req, res) => {
     results.push(match);
   };
 
-  const rawTestsDb = getTestsDbWithPythonInfiniteTraining(readTestsDb());
+  const rawTestsDb = getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
   const testsDb = sanitizeTestsDbForStudent(rawTestsDb);
-  const taskTitles = readTaskTitlesDb();
+  const studentCatalog = readClassicTaskCatalogForTeacher(student.teacherId);
+  const taskTitles = Object.fromEntries(
+    [...studentCatalog.activeTasks, ...studentCatalog.archivedTasks]
+      .map((task) => [String(task.taskNumber), task.title]),
+  );
   const studentData = getStudentData(student.id);
   const teacherId = normalizeTeacherId(student.teacherId);
   const visibleFiles = enrichFilesWithFolderPath(
@@ -32632,7 +32925,7 @@ app.get('/api/parent/overview', async (req, res) => {
 
   try {
     const studentData = getStudentData(student.id);
-    const testsDb = getTestsDbWithPythonInfiniteTraining(readTestsDb());
+    const testsDb = getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
     const mockExams = readMockExamsDb().filter((exam) => (
       isMockExamVisibleToStudent(exam, student.id)
     ));
@@ -34077,7 +34370,7 @@ function synchronizeStudentHomeworkForSchedule(
     ),
     treatMissingPlannedLessonAsDeleted: Boolean(options.treatMissingPlannedLessonAsDeleted),
     buildDayPlan: (config, homework) => {
-      if (!testsDb) testsDb = readTestsDb();
+      if (!testsDb) testsDb = readTestsDbForStudent(options.studentId);
       return buildStoredHomeworkDayPlan(config, homework, testsDb);
     },
   });
@@ -34230,7 +34523,7 @@ app.get('/api/student-next-lesson', async (req, res) => {
     ? setStudentData(student.id, { ...synchronized.studentData, schedule: storedSchedule })
     : storedData;
   const rewardCheckData = getStudentData(student.id);
-  const testsDb = getTestsDbWithStudentMockFollowups(rewardCheckData, readTestsDb());
+  const testsDb = getTestsDbWithStudentMockFollowups(rewardCheckData, readTestsDbForStudent(student));
   const rewardHomeworkId = String(rewardCheckData?.homeworks?.[0]?.id || '').trim();
   const homeworkChestAward = grantCompletedHomeworkChests({
     studentId: student.id,
@@ -34337,7 +34630,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
   }
   const normalizedDays = calculateHomeworkDaysToComplete(issuedAt, normalizedDueAt, fallbackDays);
 
-  const testsDb = readTestsDb();
+  const testsDb = readTestsDbForStudent(student);
   const existingHomeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
   const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
     ? data.nextLesson
@@ -34485,7 +34778,7 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
-  const testsDb = readTestsDb();
+  const testsDb = readTestsDbForStudent(student);
   let homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
   if (id === 'legacy' && homeworks.length === 0) {
     const legacyNextLesson = data.nextLesson && typeof data.nextLesson === 'object'
@@ -34871,7 +35164,7 @@ app.patch('/api/student-next-lesson/:id/day-plan', (req, res) => {
   }, {
     ...existing,
     dueAt: nextLessonDueAt || resolveHomeworkDueAt(existing),
-  }, readTestsDb());
+  }, readTestsDbForStudent(student));
   if (dayPlan?.reason === 'range-too-large') {
     return res.status(400).json({ error: 'Не удалось распланировать домашку на такой большой срок' });
   }
@@ -35082,6 +35375,9 @@ app.delete('/api/test-files/:storageName', (req, res) => {
   const rawName = req.params.storageName || '';
   const safeName = path.basename(rawName);
   if (!safeName) return res.status(400).json({ error: 'Некорректное имя файла' });
+  if (isTestAttachmentReferenced(safeName)) {
+    return res.json({ ok: true, retained: true });
+  }
   const filePath = path.join(uploadsDir, safeName);
   fs.unlink(filePath, (err) => {
     if (err) return res.status(404).json({ error: 'Файл не найден' });

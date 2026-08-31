@@ -21,6 +21,7 @@ import {
   Plus,
   Save,
   Search,
+  Settings,
   ShieldCheck,
   Sparkles,
   Target,
@@ -621,6 +622,7 @@ const ProgressSection = ({
   taskCatalog,
   onTaskCatalogSave,
   onTaskCatalogReload,
+  onManageTaskQuestions,
   activeStudentId,
   onSelectStudent,
   onOpenHomeworkStats,
@@ -739,7 +741,10 @@ const ProgressSection = ({
   const [taskCatalogDraft, setTaskCatalogDraft] = useState([]);
   const [taskCatalogDraftRevision, setTaskCatalogDraftRevision] = useState('');
   const [taskCatalogSaving, setTaskCatalogSaving] = useState(false);
+  const [taskCatalogLoading, setTaskCatalogLoading] = useState(false);
   const [taskCatalogError, setTaskCatalogError] = useState('');
+  const [taskCatalogScope, setTaskCatalogScope] = useState('teacher');
+  const [taskCatalogEditorCatalog, setTaskCatalogEditorCatalog] = useState(taskCatalog);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [openTaskCodeNumber, setOpenTaskCodeNumber] = useState(null);
   const [taskCodeCache, setTaskCodeCache] = useState({});
@@ -1448,15 +1453,8 @@ const ProgressSection = ({
     }
   };
 
-  const openTaskCatalogEditor = async () => {
-    setTaskCatalogError('');
-    let latest;
-    try {
-      latest = await onTaskCatalogReload?.();
-    } catch (error) {
-      alert(error?.message || 'Не удалось загрузить каталог. Повторите позже.');
-      return;
-    }
+  const applyTaskCatalogEditorCatalog = (latest) => {
+    setTaskCatalogEditorCatalog(latest);
     setTaskCatalogDraft((latest?.tasks || taskList).map((task) => ({
       taskNumber: Number(task.taskNumber ?? task.number),
       slotNumber: Number(task.slotNumber ?? task.number),
@@ -1465,9 +1463,39 @@ const ProgressSection = ({
       locked: Boolean(task.locked) || Number(task.taskNumber ?? task.number) === Number(GAME_THEORY_TASK),
     })).sort((a, b) => a.slotNumber - b.slotNumber));
     setTaskCatalogDraftRevision(latest?.revision || taskCatalog?.revision || '');
+  };
+
+  const openTaskCatalogEditor = async () => {
+    setTaskCatalogError('');
+    let latest;
+    try {
+      latest = await onTaskCatalogReload?.({ scope: 'teacher' });
+    } catch (error) {
+      alert(error?.message || 'Не удалось загрузить каталог. Повторите позже.');
+      return;
+    }
+    setTaskCatalogScope('teacher');
+    applyTaskCatalogEditorCatalog(latest);
     setNewTaskTitle('');
     setTaskCatalogError('');
     setTaskCatalogEditorOpen(true);
+  };
+
+  const changeTaskCatalogScope = async (useGlobalScope) => {
+    const nextScope = useGlobalScope ? 'global' : 'teacher';
+    if (nextScope === taskCatalogScope || typeof onTaskCatalogReload !== 'function') return;
+    setTaskCatalogLoading(true);
+    setTaskCatalogError('');
+    try {
+      const latest = await onTaskCatalogReload({ scope: nextScope });
+      setTaskCatalogScope(nextScope);
+      applyTaskCatalogEditorCatalog(latest);
+      setNewTaskTitle('');
+    } catch (error) {
+      setTaskCatalogError(error?.message || String(error));
+    } finally {
+      setTaskCatalogLoading(false);
+    }
   };
 
   const moveTaskCatalogCard = (taskKey, nextSlot) => {
@@ -1509,11 +1537,14 @@ const ProgressSection = ({
 
   const saveTaskCatalog = async () => {
     if (typeof onTaskCatalogSave !== 'function') return;
-    const originalNumbers = new Set((taskCatalog?.tasks || taskList).map((task) => Number(task.taskNumber ?? task.number)));
+    const originalNumbers = new Set((taskCatalogEditorCatalog?.tasks || taskList).map((task) => Number(task.taskNumber ?? task.number)));
     const currentNumbers = new Set(taskCatalogDraft.map((task) => Number(task.taskNumber)).filter(Number.isFinite));
     const archivedCount = [...originalNumbers].filter((number) => !currentNumbers.has(number)).length;
     if (archivedCount > 0 && !window.confirm(
       `Будет архивировано карточек: ${archivedCount}. Их банк заданий, выданные домашки, ответы и история сохранятся. Продолжить?`,
+    )) return;
+    if (taskCatalogScope === 'global' && !window.confirm(
+      'Эти расположение, названия и состав карточек будут применены ко всем преподавателям. Их личные расположения карточек будут заменены, а удалённые карточки останутся в архиве. Продолжить?',
     )) return;
     setTaskCatalogSaving(true);
     setTaskCatalogError('');
@@ -1523,7 +1554,7 @@ const ProgressSection = ({
         slotNumber: task.slotNumber,
         title: task.title,
         xpReward: Number(task.xpReward) || 0,
-      })), taskCatalogDraftRevision);
+      })), taskCatalogDraftRevision, { scope: taskCatalogScope });
       setTaskCatalogEditorOpen(false);
       api.getTests(role === 'student' ? null : effectiveStudentId)
         .then((data) => setTestsDb(data || {}))
@@ -4622,14 +4653,26 @@ const ProgressSection = ({
                         <h3 className="progress-topic-title text-[16px] font-extrabold leading-[1.25] md:text-[17px]">{task.title}</h3>
                       )}
                       {role === 'teacher' && editingTaskId !== task.number && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); startEditTaskTitle(task); }}
-                          className="progress-topic-edit shrink-0 rounded-lg border p-1.5 transition-colors"
-                          title="Переименовать тему"
-                        >
-                          <Pencil size={14} />
-                        </button>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); startEditTaskTitle(task); }}
+                            className="progress-topic-edit rounded-lg border p-1.5 transition-colors"
+                            title="Переименовать тему"
+                            aria-label={`Переименовать тему «${task.title}»`}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onManageTaskQuestions?.(task); }}
+                            className="progress-topic-edit rounded-lg border p-1.5 transition-colors"
+                            title="Добавить или изменить задания темы"
+                            aria-label={`Открыть задания темы «${task.title}»`}
+                          >
+                            <Settings size={14} />
+                          </button>
+                        </div>
                       )}
                       {role === 'teacher' && editingTaskId === task.number && (
                         <button
@@ -5801,21 +5844,43 @@ const ProgressSection = ({
         onCancel={cancelTimerAction}
       />
       {taskCatalogEditorOpen && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-slate-950/55 p-3" onMouseDown={() => !taskCatalogSaving && setTaskCatalogEditorOpen(false)}>
+        <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-slate-950/55 p-3" onMouseDown={() => !taskCatalogSaving && !taskCatalogLoading && setTaskCatalogEditorOpen(false)}>
           <div role="dialog" aria-modal="true" aria-labelledby="classic-catalog-title" className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
               <div>
                 <h2 id="classic-catalog-title" className="text-xl font-black text-slate-900">Карточки ЕГЭ</h2>
-                <p className="mt-1 text-sm text-slate-500">Общий каталог для всех учеников. Перенос меняет только видимый номер. Удаление архивирует карточку: домашки, ответы и история сохраняются.</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {taskCatalogScope === 'global'
+                    ? 'Общий каталог для всех преподавателей. Перенос меняет только видимый номер, а удаление сохраняет карточку в архиве.'
+                    : 'Ваш личный каталог и каталог ваших учеников. Изменения других преподавателей его не затрагивают.'}
+                </p>
               </div>
-              <button type="button" disabled={taskCatalogSaving} aria-label="Закрыть" className="rounded-xl px-3 py-2 text-slate-500 hover:bg-slate-100" onClick={() => setTaskCatalogEditorOpen(false)}>✕</button>
+              <button type="button" disabled={taskCatalogSaving || taskCatalogLoading} aria-label="Закрыть" className="rounded-xl px-3 py-2 text-slate-500 hover:bg-slate-100" onClick={() => setTaskCatalogEditorOpen(false)}>✕</button>
             </div>
             <div className="max-h-[64vh] space-y-2 overflow-y-auto px-5 py-4">
+              {taskCatalog?.canManageGlobal === true && (
+                <label className={`mb-4 flex cursor-pointer items-start gap-3 rounded-2xl border p-3 ${taskCatalogScope === 'global' ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
+                  <input
+                    type="checkbox"
+                    checked={taskCatalogScope === 'global'}
+                    disabled={taskCatalogSaving || taskCatalogLoading}
+                    onChange={(event) => changeTaskCatalogScope(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-amber-600"
+                  />
+                  <span>
+                    <span className="block text-sm font-black text-slate-800">Применить изменения карточек для всех преподавателей</span>
+                    <span className="mt-0.5 block text-xs text-slate-600">Доступно только владельцу платформы. Без галочки изменения остаются только у вас.</span>
+                  </span>
+                </label>
+              )}
+              {taskCatalogLoading && (
+                <div className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700">Загружаю выбранный каталог…</div>
+              )}
               {taskCatalogDraft.map((task) => (
                 <div key={task.taskNumber ?? task.clientKey} className="grid grid-cols-[70px_minmax(0,1fr)_36px] items-center gap-2 rounded-2xl border border-slate-200 p-2.5 sm:grid-cols-[90px_minmax(0,1fr)_110px_42px]">
                   <select
                     value={task.slotNumber}
-                    disabled={task.locked || taskCatalogSaving}
+                    disabled={task.locked || taskCatalogSaving || taskCatalogLoading}
                     onChange={(event) => moveTaskCatalogCard(task.taskNumber ?? task.clientKey, event.target.value)}
                     className="rounded-xl border border-purple-200 bg-purple-50 px-2 py-2 text-sm font-bold text-purple-700 disabled:opacity-60"
                     aria-label={`Номер карточки ${task.title}`}
@@ -5825,7 +5890,7 @@ const ProgressSection = ({
                   <input
                     value={task.title}
                     maxLength={120}
-                    disabled={taskCatalogSaving}
+                    disabled={taskCatalogSaving || taskCatalogLoading}
                     aria-label="Название карточки"
                     onChange={(event) => setTaskCatalogDraft((prev) => prev.map((item) => (
                       item === task ? { ...item, title: event.target.value } : item
@@ -5838,7 +5903,7 @@ const ProgressSection = ({
                       type="number"
                       min="1"
                       max="10000"
-                      disabled={task.taskNumber !== null || taskCatalogSaving}
+                      disabled={task.taskNumber !== null || taskCatalogSaving || taskCatalogLoading}
                       aria-label="XP за новое задание"
                       value={task.xpReward}
                       onChange={(event) => setTaskCatalogDraft((prev) => prev.map((item) => (
@@ -5849,7 +5914,7 @@ const ProgressSection = ({
                   </label>
                   <button
                     type="button"
-                    disabled={task.locked || taskCatalogSaving}
+                    disabled={task.locked || taskCatalogSaving || taskCatalogLoading}
                     onClick={() => setTaskCatalogDraft((prev) => prev.filter((item) => item !== task))}
                     className="col-start-3 row-start-1 flex h-9 w-9 items-center justify-center rounded-xl text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-300 sm:col-start-4"
                     title={task.locked ? 'Объединённую карточку 19–21 удалить нельзя' : 'Архивировать карточку'}
@@ -5862,29 +5927,29 @@ const ProgressSection = ({
                 <input
                   value={newTaskTitle}
                   maxLength={120}
-                  disabled={taskCatalogSaving}
+                  disabled={taskCatalogSaving || taskCatalogLoading}
                   onChange={(event) => setNewTaskTitle(event.target.value)}
                   placeholder="Название новой карточки"
                   className="min-w-0 flex-1 rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm"
                 />
-                <Button type="button" disabled={taskCatalogSaving} onClick={addTaskCatalogCard}><Plus size={16} /> Добавить в свободный номер</Button>
+                <Button type="button" disabled={taskCatalogSaving || taskCatalogLoading} onClick={addTaskCatalogCard}><Plus size={16} /> Добавить в свободный номер</Button>
               </div>
               {taskCatalogError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{taskCatalogError}</div>}
-              {(taskCatalog?.archivedTasks || []).length > 0 && (
+              {(taskCatalogEditorCatalog?.archivedTasks || []).length > 0 && (
                 <details className="rounded-2xl border border-slate-200 p-3 text-sm text-slate-600">
                   <summary className="cursor-pointer font-semibold">Архив карточек</summary>
-                  {(taskCatalog.archivedTasks || []).filter((archived) => !taskCatalogDraft.some((task) => task.taskNumber === archived.taskNumber)).map((archived) => (
+                  {(taskCatalogEditorCatalog.archivedTasks || []).filter((archived) => !taskCatalogDraft.some((task) => task.taskNumber === archived.taskNumber)).map((archived) => (
                     <div key={archived.taskNumber} className="mt-2 flex items-center justify-between gap-2">
                       <span>{archived.title} (бывший №{archived.displayNumber})</span>
-                      <button type="button" disabled={taskCatalogSaving} className="font-semibold text-purple-700" onClick={() => restoreTaskCatalogCard(archived)}>Восстановить</button>
+                      <button type="button" disabled={taskCatalogSaving || taskCatalogLoading} className="font-semibold text-purple-700" onClick={() => restoreTaskCatalogCard(archived)}>Восстановить</button>
                     </div>
                   ))}
                 </details>
               )}
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
-              <Button type="button" variant="secondary" disabled={taskCatalogSaving} onClick={() => setTaskCatalogEditorOpen(false)}>Отмена</Button>
-              <Button type="button" disabled={taskCatalogSaving || taskCatalogDraft.some((task) => !task.title.trim())} onClick={saveTaskCatalog}>
+              <Button type="button" variant="secondary" disabled={taskCatalogSaving || taskCatalogLoading} onClick={() => setTaskCatalogEditorOpen(false)}>Отмена</Button>
+              <Button type="button" disabled={taskCatalogSaving || taskCatalogLoading || taskCatalogDraft.some((task) => !task.title.trim())} onClick={saveTaskCatalog}>
                 <Save size={16} /> {taskCatalogSaving ? 'Сохраняю…' : 'Сохранить карточки'}
               </Button>
             </div>

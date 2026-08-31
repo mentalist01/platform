@@ -18109,6 +18109,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [activeProgressSection, setActiveProgressSection] = useState(initialProgressSection);
   const [collabSaveToNotesToken, setCollabSaveToNotesToken] = useState(0);
   const [pendingOpenTask, setPendingOpenTask] = useState(() => (user.role === 'student' ? restoredOpenTask : null));
+  const [teacherTaskEditorRequest, setTeacherTaskEditorRequest] = useState(null);
   const [pendingOpenMockExamId, setPendingOpenMockExamId] = useState(
     () => (user.role === 'student' ? initialMockExamId : null)
   );
@@ -23512,27 +23513,40 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     });
   };
 
-  const handleTaskCatalogSave = async (draftTasks, revision) => {
-    const updated = await api.updateTaskCatalog(revision, draftTasks);
-    syncTaskCatalogLookups(updated);
-    setTaskCatalog(updated);
+  const handleTaskCatalogSave = async (draftTasks, revision, options = {}) => {
+    const updated = await api.updateTaskCatalog(revision, draftTasks, options);
+    const personalCatalog = options?.scope === 'global'
+      ? await api.getTaskCatalog()
+      : updated;
+    syncTaskCatalogLookups(personalCatalog);
+    setTaskCatalog(personalCatalog);
     setTaskTitles((prev) => ({
       ...(prev || {}),
       ...Object.fromEntries([
-        ...(updated?.tasks || []),
-        ...(updated?.archivedTasks || []),
+        ...(personalCatalog?.tasks || []),
+        ...(personalCatalog?.archivedTasks || []),
       ].map((task) => [String(task.taskNumber ?? task.number), task.title])),
     }));
     return updated;
   };
 
-  const handleTaskCatalogReload = async () => {
-    const updated = await api.getTaskCatalog();
-    syncTaskCatalogLookups(updated);
-    setTaskCatalog(updated);
-    setTaskTitles({});
+  const handleTaskCatalogReload = async (options = {}) => {
+    const updated = await api.getTaskCatalog(options);
+    if (options?.scope !== 'global') {
+      syncTaskCatalogLookups(updated);
+      setTaskCatalog(updated);
+      setTaskTitles({});
+    }
     return updated;
   };
+
+  const handleManageTaskQuestions = useCallback((task) => {
+    const taskNumber = Number(task?.taskNumber ?? task?.number);
+    if (!Number.isInteger(taskNumber) || taskNumber <= 0) return;
+    setTeacherTaskEditorRequest({ taskNumber, token: Date.now() });
+    setMenuOpen(false);
+    navigateToView('teacher');
+  }, [navigateToView]);
 
   const handleQuickHomeworkTaskSolved = (payload = {}) => {
     if (quickHomeworkSession.status !== 'solving' || !quickHomeworkSession.currentTask) return false;
@@ -25654,6 +25668,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               taskCatalog={taskCatalog}
               onTaskCatalogSave={handleTaskCatalogSave}
               onTaskCatalogReload={handleTaskCatalogReload}
+              onManageTaskQuestions={handleManageTaskQuestions}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
               onOpenHomeworkStats={() => handleOpenHomeworkStats(
@@ -26065,6 +26080,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teacherSignupNotifyStatusText={teacherSignupNotifyStatusText}
               teacherSignupNotifyError={teacherSignupNotifyError}
               onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
+              initialTaskNumber={teacherTaskEditorRequest?.taskNumber}
+              initialTaskEditorToken={teacherTaskEditorRequest?.token}
+              canManageGlobalTaskContent={taskCatalog?.canManageGlobal === true}
             />
           )}
           {isTeacherCommsView && (

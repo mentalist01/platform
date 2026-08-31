@@ -88,6 +88,25 @@ test('full and index shapes use separate TTLs and force bypasses resolved cache'
   }
 });
 
+test('personal and global question banks use different cache keys and URLs', async () => {
+  installStorage('cache-token-scope');
+  invalidateTestsCache();
+  const requests = [];
+  globalThis.fetch = async (input) => {
+    requests.push(String(input));
+    return jsonResponse({ url: String(input) });
+  };
+
+  assert.equal((await api.getTests()).url, '/api/tests');
+  assert.equal((await api.getTests('', { scope: 'global' })).url, '/api/tests?scope=global');
+  await api.getTests();
+  await api.getTests('', { scope: 'global' });
+  assert.deepEqual(requests, ['/api/tests', '/api/tests?scope=global']);
+
+  await api.saveTests({}, { scope: 'global' });
+  assert.equal(requests.at(-1), '/api/tests?scope=global');
+});
+
 test('a forced tests request waits for a normal in-flight request and then refreshes', async () => {
   installStorage('cache-token-force');
   invalidateTestsCache();
