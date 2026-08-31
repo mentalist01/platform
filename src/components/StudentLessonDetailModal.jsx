@@ -1,11 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, CalendarDays, Clock3, Code2, Download, FileText, Image as ImageIcon, Loader2, RefreshCcw, X } from 'lucide-react';
+import { BookOpen, CalendarDays, Clock3, Code2, ExternalLink, FileText, Image as ImageIcon, Loader2, RefreshCcw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { authenticatedUploadsFetch, resolveAuthenticatedUploadsUrl } from '../services/api';
 import LessonReplayPlayer from './LessonReplayPlayer';
 
 const isPythonFile = (file) => /\.py$/i.test(String(file?.name || '').trim());
 const isImageFile = (file) => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(file?.name || '').trim());
+
+const formatMaterialCount = (value, one, few, many) => {
+  const count = Math.abs(Number(value) || 0);
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  if (mod100 >= 11 && mod100 <= 14) return `${count} ${many}`;
+  if (mod10 === 1) return `${count} ${one}`;
+  if (mod10 >= 2 && mod10 <= 4) return `${count} ${few}`;
+  return `${count} ${many}`;
+};
 
 const getMaterialSourceLabel = (file) => {
   const source = String(file?.source || file?.memory?.source || '').trim();
@@ -28,12 +38,17 @@ const formatLessonDate = (dayKey) => {
   }).replace(' г.', '');
 };
 
+const getLessonDurationMinutes = (lesson) => {
+  const rawDuration = Number(lesson?.durationMinutes);
+  return Number.isFinite(rawDuration) && rawDuration > 0 ? Math.round(rawDuration) : 60;
+};
+
 const formatLessonTime = (lesson) => {
   const time = String(lesson?.time || '').trim();
   if (!/^\d{2}:\d{2}$/.test(time)) return time || 'Время не указано';
   const [hours, minutes] = time.split(':').map(Number);
-  const rawDuration = Number(lesson?.durationMinutes);
-  const duration = Number.isFinite(rawDuration) && rawDuration > 0 ? Math.round(rawDuration) : 60;
+  if (hours > 23 || minutes > 59) return 'Время не указано';
+  const duration = getLessonDurationMinutes(lesson);
   const endTotal = (hours * 60) + minutes + duration;
   return `${time}–${String(Math.floor((endTotal / 60) % 24)).padStart(2, '0')}:${String(endTotal % 60).padStart(2, '0')}`;
 };
@@ -69,13 +84,16 @@ const StudentLessonDetailModal = ({
   onRetry,
 }) => {
   const dialogRef = useRef(null);
-  const closeButtonRef = useRef(null);
+  const requestedCodeIdsRef = useRef(new Set());
   const [codeByFileId, setCodeByFileId] = useState({});
 
-  const normalizedMaterials = useMemo(
-    () => (Array.isArray(materials) ? materials.filter((entry) => entry?.id) : []),
-    [materials]
-  );
+  const normalizedMaterials = useMemo(() => {
+    const unique = new Map();
+    (Array.isArray(materials) ? materials : []).forEach((entry) => {
+      if (entry?.id && !unique.has(entry.id)) unique.set(entry.id, entry);
+    });
+    return [...unique.values()];
+  }, [materials]);
   const hasMeaningfulReplay = useMemo(() => (
     Boolean(replay?.available)
     && Array.isArray(replay?.events)
@@ -94,7 +112,18 @@ const StudentLessonDetailModal = ({
       group.items.push(file);
       groups.set(key, group);
     });
-    return Array.from(groups.values());
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        items: [...group.items].sort((left, right) => (
+          String(left?.savedAt || '').localeCompare(String(right?.savedAt || ''))
+        )),
+      }))
+      .sort((left, right) => {
+        if (left.taskNumber === null) return 1;
+        if (right.taskNumber === null) return -1;
+        return left.taskNumber - right.taskNumber;
+      });
   }, [normalizedMaterials]);
 
   const resolveFileUrl = useCallback(
@@ -107,6 +136,7 @@ const StudentLessonDetailModal = ({
 
   const loadCodeFile = useCallback(async (file, isCurrent = () => true) => {
     if (!file?.id || !isPythonFile(file)) return;
+    requestedCodeIdsRef.current.add(file.id);
     setCodeByFileId((current) => ({
       ...current,
       [file.id]: { loading: true, content: '', error: '' },
@@ -136,14 +166,45 @@ const StudentLessonDetailModal = ({
   useEffect(() => {
     if (!open) {
       setCodeByFileId({});
+      requestedCodeIdsRef.current.clear();
       return undefined;
     }
     let current = true;
     setCodeByFileId({});
-    normalizedMaterials
-      .filter(isPythonFile)
-      .forEach((file) => loadCodeFile(file, () => current));
-    return () => { current = false; };
+    requestedCodeIdsRef.current.clear();
+    const codeFiles = normalizedMaterials.filter(isPythonFile);
+    if (codeFiles.length === 0) return () => { current = false; };
+
+    const loadVisibleFile = (file) => {
+      if (!current || requestedCodeIdsRef.current.has(file.id)) return;
+      loadCodeFile(file, () => current);
+    };
+    const body = dialogRef.current?.querySelector('.student-lesson-capsule__body');
+    const nodesById = new Map(
+      Array.from(body?.querySelectorAll('[data-code-file-id]') || [])
+        .map((node) => [node.dataset.codeFileId, node])
+    );
+    if (typeof IntersectionObserver === 'undefined' || !body) {
+      codeFiles.forEach(loadVisibleFile);
+      return () => { current = false; };
+    }
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const file = codeFiles.find((candidate) => String(candidate.id) === entry.target.dataset.codeFileId);
+        if (file) loadVisibleFile(file);
+        observer.unobserve(entry.target);
+      });
+    }, { root: body, rootMargin: '240px 0px' });
+    codeFiles.forEach((file) => {
+      const node = nodesById.get(String(file.id));
+      if (node) observer.observe(node);
+      else loadVisibleFile(file);
+    });
+    return () => {
+      current = false;
+      observer.disconnect();
+    };
   }, [loadCodeFile, normalizedMaterials, open]);
 
   useEffect(() => {
@@ -151,7 +212,7 @@ const StudentLessonDetailModal = ({
     const previouslyFocused = document.activeElement;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+    const focusTimer = window.setTimeout(() => dialogRef.current?.focus({ preventScroll: true }), 0);
     const handleKeyDown = (event) => {
       const fullscreenPlayer = document.querySelector('.lesson-replay-player.is-fullscreen');
       const nativeFullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || null;
@@ -169,10 +230,14 @@ const StudentLessonDetailModal = ({
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      const activeElement = document.activeElement;
+      if (activeElement === focusScope || !focusScope.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && activeElement === last) {
         event.preventDefault();
         first.focus();
       }
@@ -189,17 +254,19 @@ const StudentLessonDetailModal = ({
   if (!open || typeof document === 'undefined') return null;
 
   const codeCount = normalizedMaterials.filter(isPythonFile).length;
-  const boardCount = normalizedMaterials.reduce((count, file) => (
-    count
-    + (String(file?.source || '') === 'board-save' || isImageFile(file) ? 1 : 0)
-    + (file?.memory?.boardSnapshot?.url ? 1 : 0)
-  ), 0);
+  const boardCount = normalizedMaterials.filter((file) => (
+    String(file?.source || '') === 'board-save'
+    || isImageFile(file)
+    || Boolean(file?.memory?.boardSnapshot?.url)
+  )).length;
+  const hasReplay = hasMeaningfulReplay;
+  const hasTopic = Boolean(String(topicText || '').trim());
 
   const content = (
     <div
       className="student-lesson-capsule"
       role="presentation"
-      onMouseDown={(event) => {
+      onClick={(event) => {
         if (event.target === event.currentTarget) onClose?.();
       }}
     >
@@ -210,6 +277,7 @@ const StudentLessonDetailModal = ({
         aria-modal="true"
         aria-labelledby="student-lesson-capsule-title"
         aria-describedby="student-lesson-capsule-topic"
+        tabIndex={-1}
       >
         <header className="student-lesson-capsule__header">
           <div className="student-lesson-capsule__heading">
@@ -222,23 +290,29 @@ const StudentLessonDetailModal = ({
               <div className="student-lesson-capsule__time">
                 <Clock3 size={14} />
                 <strong>{formatLessonTime(lesson)}</strong>
-                <span>{`${Number(lesson?.durationMinutes) || 60} мин`}</span>
+                <span>{`${getLessonDurationMinutes(lesson)} мин`}</span>
+                <span
+                  className={`student-lesson-capsule__status${hasReplay ? ' student-lesson-capsule__status--ready' : ' student-lesson-capsule__status--materials'}`}
+                >
+                  <i aria-hidden="true" />
+                  {hasReplay ? 'Запись доступна' : 'Материалы занятия'}
+                </span>
               </div>
             </div>
           </div>
           <button
-            ref={closeButtonRef}
             type="button"
             className="student-lesson-capsule__close"
             onClick={onClose}
             aria-label="Закрыть материалы занятия"
+            title="Закрыть"
           >
             <X size={19} />
           </button>
         </header>
 
         <div className="student-lesson-capsule__body">
-          <section className="student-lesson-capsule__topic" id="student-lesson-capsule-topic">
+          <section className={`student-lesson-capsule__topic${hasTopic ? '' : ' student-lesson-capsule__topic--empty'}`} id="student-lesson-capsule-topic">
             <span><BookOpen size={15} /> Тема занятия</span>
             <strong>{topicText || 'Тема не сохранилась'}</strong>
           </section>
@@ -254,9 +328,9 @@ const StudentLessonDetailModal = ({
 
           {!loading && !error && normalizedMaterials.length > 0 && (
             <div className="student-lesson-capsule__summary" aria-label="Сводка материалов">
-              <span><FileText size={14} /> {`${normalizedMaterials.length} материалов`}</span>
-              {codeCount > 0 && <span><Code2 size={14} /> {`${codeCount} с кодом`}</span>}
-              {boardCount > 0 && <span><ImageIcon size={14} /> {`${boardCount} с доски`}</span>}
+              <span><FileText size={14} /> {formatMaterialCount(normalizedMaterials.length, 'материал', 'материала', 'материалов')}</span>
+              {codeCount > 0 && <span><Code2 size={14} /> {formatMaterialCount(codeCount, 'файл с кодом', 'файла с кодом', 'файлов с кодом')}</span>}
+              {boardCount > 0 && <span><ImageIcon size={14} /> {formatMaterialCount(boardCount, 'сохранение с доски', 'сохранения с доски', 'сохранений с доски')}</span>}
             </div>
           )}
 
@@ -275,7 +349,7 @@ const StudentLessonDetailModal = ({
                 <strong>Не удалось открыть занятие</strong>
                 <span>{error}</span>
               </div>
-              <button type="button" onClick={onRetry}>Повторить</button>
+              {typeof onRetry === 'function' && <button type="button" onClick={onRetry}>Повторить</button>}
             </div>
           ) : groupedMaterials.length === 0 ? (
             <div className="student-lesson-capsule__state">
@@ -304,7 +378,7 @@ const StudentLessonDetailModal = ({
                       const codeState = codeByFileId[file.id];
                       const showImage = isImageFile(file);
                       return (
-                        <article className="student-lesson-capsule__material" key={file.id}>
+                        <article className="student-lesson-capsule__material" key={file.id} data-code-file-id={isPythonFile(file) ? file.id : undefined}>
                           <div className="student-lesson-capsule__material-head">
                             <span className="student-lesson-capsule__material-icon" aria-hidden="true">
                               {isPythonFile(file) ? <Code2 size={17} /> : (showImage ? <ImageIcon size={17} /> : <FileText size={17} />)}
@@ -318,7 +392,7 @@ const StudentLessonDetailModal = ({
                             </div>
                             {fileUrl && (
                               <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="student-lesson-capsule__open-file">
-                                <Download size={14} />
+                                <ExternalLink size={14} />
                                 <span>Открыть</span>
                               </a>
                             )}
@@ -326,7 +400,7 @@ const StudentLessonDetailModal = ({
 
                           {isPythonFile(file) && (
                             <div className="student-lesson-capsule__code">
-                              {codeState?.loading ? (
+                              {!codeState || codeState.loading ? (
                                 <div className="student-lesson-capsule__inline-state"><Loader2 size={15} className="animate-spin" /> Загружаем код…</div>
                               ) : codeState?.error ? (
                                 <div className="student-lesson-capsule__inline-state student-lesson-capsule__inline-state--error">

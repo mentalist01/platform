@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react';
-import Editor from '@monaco-editor/react';
+import React, { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
   Brush,
   Code2,
@@ -40,6 +39,7 @@ import {
 } from '../utils/lessonReplaySyncArtifacts';
 import {
   buildLessonReplayPlaybackState,
+  createLessonReplayPlaybackIndex,
   getLessonReplayActorRole,
 } from '../utils/lessonReplayPlaybackState';
 import { repairLessonReplayBoardActors } from '../utils/lessonReplayBoardActors';
@@ -91,6 +91,7 @@ const AUDIO_LOAD_TIMEOUT_MS = 12_000;
 const TIME_MACHINE_RUN_TIMEOUT_MS = 40_000;
 const TIME_MACHINE_OUTPUT_LIMIT = 20_000;
 const NOOP = () => {};
+const LazyEditor = lazy(() => import('@monaco-editor/react'));
 
 const formatClock = (value) => {
   const totalSeconds = Math.max(0, Math.floor((Number(value) || 0) / 1000));
@@ -508,7 +509,9 @@ const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
         className={`lesson-replay-player__board${freeNavigation ? ' is-interactive' : ''}`}
         viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
         preserveAspectRatio="xMidYMid meet"
-        aria-label="Состояние доски"
+        role="img"
+        tabIndex={freeNavigation ? 0 : undefined}
+        aria-label={freeNavigation ? 'Состояние доски. Стрелки перемещают доску, плюс и минус меняют масштаб.' : 'Состояние доски'}
         onPointerDown={(event) => {
           if (!freeNavigation) return;
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -531,6 +534,20 @@ const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
           if (!freeNavigation) return;
           event.preventDefault();
           zoomAtCenter(event.deltaY > 0 ? 1.12 : 0.89);
+        }}
+        onKeyDown={(event) => {
+          if (!freeNavigation) return;
+          const panX = view.width * 0.08;
+          const panY = view.height * 0.08;
+          if (event.key === '+' || event.key === '=') zoomAtCenter(0.8);
+          else if (event.key === '-') zoomAtCenter(1.25);
+          else if (event.key === '0') setFreeView(null);
+          else if (event.key === 'ArrowLeft') setFreeView({ ...view, x: view.x - panX });
+          else if (event.key === 'ArrowRight') setFreeView({ ...view, x: view.x + panX });
+          else if (event.key === 'ArrowUp') setFreeView({ ...view, y: view.y - panY });
+          else if (event.key === 'ArrowDown') setFreeView({ ...view, y: view.y + panY });
+          else return;
+          event.preventDefault();
         }}
       >
         <defs>
@@ -724,33 +741,35 @@ const TimeMachineCodeEditor = ({ branch, onCodePatch, createPythonWorker }) => {
   return (
     <div className="lesson-replay-player__time-machine-code">
       <div className="lesson-replay-player__time-machine-editor">
-        <Editor
-          height="100%"
-          language={String(code.language || 'python')}
-          path={`inmemory://lesson-replay/${branch.branchId}.py`}
-          theme="vs-dark"
-          value={String(code.code || '')}
-          saveViewState={false}
-          onChange={(value) => onCodePatch({
-            code: value || '',
-            output: '',
-            error: '',
-            status: 'edited',
-          })}
-          options={{
-            ariaLabel: 'Код самостоятельной ветки',
-            automaticLayout: true,
-            readOnly: running,
-            fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, monospace',
-            fontSize: 13,
-            lineHeight: 21,
-            minimap: { enabled: false },
-            padding: { top: 14, bottom: 14 },
-            renderLineHighlight: 'line',
-            scrollBeyondLastLine: false,
-            tabSize: 4,
-          }}
-        />
+        <Suspense fallback={<div className="lesson-replay-player__editor-loading" role="status"><i aria-hidden="true" /><span>Открываем редактор кода…</span></div>}>
+          <LazyEditor
+            height="100%"
+            language={String(code.language || 'python')}
+            path={`inmemory://lesson-replay/${branch.branchId}.py`}
+            theme="vs-dark"
+            value={String(code.code || '')}
+            saveViewState={false}
+            onChange={(value) => onCodePatch({
+              code: value || '',
+              output: '',
+              error: '',
+              status: 'edited',
+            })}
+            options={{
+              ariaLabel: 'Код самостоятельной ветки',
+              automaticLayout: true,
+              readOnly: running,
+              fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, monospace',
+              fontSize: 13,
+              lineHeight: 21,
+              minimap: { enabled: false },
+              padding: { top: 14, bottom: 14 },
+              renderLineHighlight: 'line',
+              scrollBeyondLastLine: false,
+              tabSize: 4,
+            }}
+          />
+        </Suspense>
       </div>
       <div className="lesson-replay-player__time-machine-console">
         <label>
@@ -1146,6 +1165,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [activityOpen, setActivityOpen] = useState(false);
   const [audioVolume, setAudioVolume] = useState(1);
   const [audioBuffering, setAudioBuffering] = useState(false);
+  const [audioWarning, setAudioWarning] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekSequence, setSeekSequence] = useState(0);
   const [loadingProgress, setLoadingProgress] = useState(100);
@@ -1158,6 +1178,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [timeMachineBranch, setTimeMachineBranch] = useState(null);
   const [timeMachineBranchEpoch, setTimeMachineBranchEpoch] = useState(0);
   const [timeMachineShowOriginal, setTimeMachineShowOriginal] = useState(false);
+  const activityListId = `lesson-replay-activity-${useId().replace(/:/g, '')}`;
   const playerRef = useRef(null);
   const positionRef = useRef(0);
   const frameRef = useRef(null);
@@ -1401,7 +1422,11 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     }
   }, [closeLessonCopyState, isFallbackFullscreen, openLessonCopyState]);
 
-  const state = useMemo(() => buildLessonReplayPlaybackState(events, positionMs), [events, positionMs]);
+  const playbackIndex = useMemo(() => createLessonReplayPlaybackIndex(events), [events]);
+  const state = useMemo(
+    () => buildLessonReplayPlaybackState(events, positionMs, playbackIndex),
+    [events, playbackIndex, positionMs]
+  );
   const boardEvent = state.board;
   const codeEvent = state.code;
   const runEvent = state.run;
@@ -1414,6 +1439,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const codeView = state.codeView?.payload || codeEvent?.payload?.editor || codeEvent?.payload?.view;
   const availableTabs = screenEvent ? ['split', 'board', 'code', 'screen'] : ['split', 'board', 'code'];
   const resolvedActiveTab = availableTabs.includes(activeTab) ? activeTab : 'board';
+  const hasVisualReplay = Boolean(boardEvent || codeEvent || screenEvent);
   const followSnapshotPositionMs = Math.max(
     0,
     Number(boardEvent?.offsetMs) || 0,
@@ -1532,6 +1558,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     setIsSeeking(false);
     audioRefs.current[slot]?.pause();
     setAudioBuffering(false);
+    setAudioWarning(true);
     const nextPosition = Math.min(
       durationMs,
       Math.max(positionRef.current, Number(entry.event.offsetMs) || 0)
@@ -1810,10 +1837,30 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     return () => window.cancelAnimationFrame(frameRef.current);
   }, [durationMs, playing, speed]);
 
-  const markers = events.length <= 120 ? events : events.filter((_, index) => index % Math.ceil(events.length / 120) === 0);
-  const activitySourceEvents = events.filter((event) => event?.type !== 'audio');
-  const activityEvents = getActivityFeedEvents(activitySourceEvents);
+  const markers = useMemo(
+    () => (events.length <= 120 ? events : events.filter((_, index) => index % Math.ceil(events.length / 120) === 0)),
+    [events]
+  );
+  const markerLegend = useMemo(() => {
+    const types = new Set(events.map((event) => event?.type));
+    return [
+      { type: 'board', label: 'Доска', visible: types.has('board') || types.has('board-view') },
+      { type: 'code', label: 'Код', visible: types.has('code') || types.has('code-view') || types.has('run') },
+      { type: 'task', label: 'Задание', visible: types.has('task') },
+      { type: 'screen', label: 'Экран', visible: types.has('screen') },
+      { type: 'audio', label: 'Звук', visible: types.has('audio') },
+    ].filter((entry) => entry.visible);
+  }, [events]);
+  const activitySourceEvents = useMemo(
+    () => events.filter((event) => event?.type !== 'audio'),
+    [events]
+  );
+  const activityEvents = useMemo(
+    () => getActivityFeedEvents(activitySourceEvents),
+    [activitySourceEvents]
+  );
   const markerDurationMs = Math.max(1, durationMs);
+  const timelineProgress = Math.min(100, Math.max(0, (positionMs / markerDurationMs) * 100));
   const currentEvent = useMemo(() => {
     if (state.current?.type !== 'audio') return state.current;
     for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -1870,6 +1917,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const seekReplayFromControls = (rawPositionMs) => {
     if (timeMachineBranch) setTimeMachineShowOriginal(true);
     seekReplayTo(rawPositionMs);
+  };
+
+  const restartReplay = () => {
+    if (timeMachineBranch) setTimeMachineShowOriginal(true);
+    seekReplayTo(0);
+    setPlaying(false);
   };
 
   const jumpToActivity = (event) => {
@@ -1934,7 +1987,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   return (
     <section
       ref={playerRef}
-      className={`lesson-replay-player${isFullscreen ? ' is-fullscreen' : ''}${isFallbackFullscreen ? ' is-fullscreen-fallback' : ''}${timeMachineOpen ? ' is-time-machine' : ''}`}
+      className={`lesson-replay-player${playing ? ' is-playing' : ''}${isFullscreen ? ' is-fullscreen' : ''}${isFallbackFullscreen ? ' is-fullscreen-fallback' : ''}${timeMachineOpen ? ' is-time-machine' : ''}`}
       data-fullscreen-mode={isNativeFullscreen ? 'native' : (isFallbackFullscreen ? 'fallback' : 'inline')}
       aria-label="Воспроизведение хода занятия"
     >
@@ -2067,7 +2120,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         </div>
       </div>
 
-      <nav className="lesson-replay-player__tabs" aria-label="Материалы записи">
+      <nav className="lesson-replay-player__tabs" aria-label="Материалы записи" role="tablist">
         {availableTabs.map((tab) => {
           const Icon = SURFACE_TABS[tab].icon;
           const screenOwnerRole = getLessonReplayActorRole(screenEvent);
@@ -2076,27 +2129,66 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
               ? 'Экран учителя'
               : (screenOwnerRole === 'student' ? 'Экран ученика' : 'Экран'))
             : SURFACE_TABS[tab].label;
-          return <button key={tab} type="button" aria-pressed={resolvedActiveTab === tab} className={resolvedActiveTab === tab ? 'is-active' : ''} onClick={() => setActiveTab(tab)}><Icon size={15} />{label}</button>;
+          return (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              data-replay-tab={tab}
+              aria-selected={resolvedActiveTab === tab}
+              aria-controls={`lesson-replay-surface-${tab}`}
+              tabIndex={resolvedActiveTab === tab ? 0 : -1}
+              className={resolvedActiveTab === tab ? 'is-active' : ''}
+              onClick={() => setActiveTab(tab)}
+              onKeyDown={(event) => {
+                const currentIndex = availableTabs.indexOf(tab);
+                let nextIndex = currentIndex;
+                if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % availableTabs.length;
+                else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + availableTabs.length) % availableTabs.length;
+                else if (event.key === 'Home') nextIndex = 0;
+                else if (event.key === 'End') nextIndex = availableTabs.length - 1;
+                else return;
+                event.preventDefault();
+                const nextTab = availableTabs[nextIndex];
+                setActiveTab(nextTab);
+                event.currentTarget.parentElement?.querySelector(`[data-replay-tab="${nextTab}"]`)?.focus();
+              }}
+            >
+              <Icon size={15} />{label}
+            </button>
+          );
         })}
       </nav>
 
       {resolvedActiveTab === 'split' ? (
-        <div className="lesson-replay-player__split-stage" role="group" aria-label="Доска и код занятия">
-          <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--board">
-            <header><PenTool size={14} /> Доска · свободный просмотр</header>
-            <div className="lesson-replay-player__split-content">
-              <ReplayBoard items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation />
+        <div id="lesson-replay-surface-split" className="lesson-replay-player__split-stage" role="tabpanel" aria-label="Доска и код занятия">
+          {!hasVisualReplay ? (
+            <div className="lesson-replay-player__audio-only" role="status">
+              <span className="lesson-replay-player__audio-only-icon" aria-hidden="true"><Volume2 size={22} /></span>
+              <div>
+                <strong>Запись голоса доступна</strong>
+                <span>В этой части занятия доска и код не сохранялись. Нажмите «Смотреть», чтобы прослушать запись.</span>
+              </div>
             </div>
-          </section>
-          <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--code">
-            <header><Code2 size={14} /> Код · свободная прокрутка</header>
-            <div className="lesson-replay-player__split-content">
-              <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation />
-            </div>
-          </section>
+          ) : (
+            <>
+              <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--board">
+                <header><PenTool size={14} /> Доска · свободный просмотр</header>
+                <div className="lesson-replay-player__split-content">
+                  <ReplayBoard items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation />
+                </div>
+              </section>
+              <section className="lesson-replay-player__split-pane lesson-replay-player__split-pane--code">
+                <header><Code2 size={14} /> Код · свободная прокрутка</header>
+                <div className="lesson-replay-player__split-content">
+                  <ReplayCode event={codeEvent} runEvent={runEvent} recordedView={codeView} freeNavigation />
+                </div>
+              </section>
+            </>
+          )}
         </div>
       ) : (
-        <div className="lesson-replay-player__stage" data-surface={resolvedActiveTab}>
+        <div id={`lesson-replay-surface-${resolvedActiveTab}`} className="lesson-replay-player__stage" data-surface={resolvedActiveTab} role="tabpanel" aria-label={`Материал: ${SURFACE_TABS[resolvedActiveTab]?.label || resolvedActiveTab}`}>
           {resolvedActiveTab === 'screen' ? (
             <ReplayScreen event={screenEvent} occurrence={replay?.occurrence} />
           ) : resolvedActiveTab === 'board' ? (
@@ -2113,6 +2205,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           className="lesson-replay-player__activity-toggle"
           onClick={() => setActivityOpen((current) => !current)}
           aria-expanded={activityOpen}
+          aria-controls={activityListId}
         >
           <ListChecks size={15} />
           <span>Лента действий</span>
@@ -2120,7 +2213,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           <em>{activityOpen ? 'Скрыть' : 'Открыть'}</em>
         </button>
         {activityOpen && (
-          <div className="lesson-replay-player__activity-list" role="list">
+          <div id={activityListId} className="lesson-replay-player__activity-list" role="list">
             {activityEvents.map((event, index) => {
               const isCurrent = currentEvent?.id === event.id;
               return (
@@ -2151,6 +2244,15 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       )}
 
       <div className="lesson-replay-player__timeline">
+        <div className="lesson-replay-player__timeline-meta" aria-hidden="true">
+          <span>Временная шкала</span>
+          <span className="lesson-replay-player__timeline-legend">
+            {markerLegend.map((entry) => (
+              <React.Fragment key={entry.type}><i data-type={entry.type} />{entry.label}</React.Fragment>
+            ))}
+          </span>
+          <strong>{formatClock(positionMs)} <em>/</em> {formatClock(durationMs)}</strong>
+        </div>
         <div className="lesson-replay-player__markers" role="list" aria-label="События записи">
           {markers.map((event) => {
             const markerTooltip = getReplayMarkerTooltip(event);
@@ -2185,8 +2287,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           max={Math.max(1, Math.round(durationMs))}
           step="100"
           defaultValue="0"
+          style={{ '--replay-progress': `${timelineProgress}%` }}
           onInput={(event) => seekReplayFromControls(event.currentTarget.value)}
           aria-label="Позиция воспроизведения"
+          aria-valuemin="0"
+          aria-valuemax={Math.max(1, Math.round(durationMs))}
+          aria-valuenow={Math.round(positionMs)}
           aria-valuetext={`${formatClock(positionMs)} из ${formatClock(durationMs)}`}
         />
       </div>
@@ -2195,18 +2301,24 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         <button type="button" className="lesson-replay-player__play" onClick={togglePlaying} aria-label={playing ? 'Пауза' : 'Воспроизвести'}>
           {playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}<span>{playing ? 'Пауза' : 'Смотреть'}</span>
         </button>
+        <button type="button" className="lesson-replay-player__restart" onClick={restartReplay} aria-label="В начало" title="В начало"><RotateCcw size={16} /></button>
         <div
-          className={`lesson-replay-player__volume${audioEvents.length === 0 ? ' is-disabled' : ''}`}
+          className={`lesson-replay-player__volume${audioEvents.length === 0 ? ' is-disabled' : ''}${audioWarning ? ' is-warning' : ''}`}
           role="group"
-          aria-label="Громкость записи"
+          aria-label={audioWarning ? 'Громкость записи. Один из фрагментов звука недоступен' : 'Громкость записи'}
+          title={audioWarning ? 'Один из фрагментов звука не удалось загрузить' : undefined}
         >
           <button
             type="button"
             className="lesson-replay-player__volume-toggle"
             onClick={toggleAudioMute}
             disabled={audioEvents.length === 0}
-            aria-label={volumePercent > 0 ? 'Выключить звук' : 'Включить звук'}
-            title={volumePercent > 0 ? 'Выключить звук' : 'Включить звук'}
+            aria-label={audioWarning
+              ? `Проблема со звуком. ${volumePercent > 0 ? 'Выключить звук' : 'Включить звук'}`
+              : (volumePercent > 0 ? 'Выключить звук' : 'Включить звук')}
+            title={audioWarning
+              ? 'Один из фрагментов звука не удалось загрузить'
+              : (volumePercent > 0 ? 'Выключить звук' : 'Включить звук')}
           >
             {volumePercent > 0 ? <Volume2 size={15} /> : <VolumeX size={15} />}
           </button>

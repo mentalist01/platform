@@ -10,6 +10,23 @@ const createRoleState = () => ({
   screen: null,
 });
 
+const createPlaybackState = () => ({
+  ...createRoleState(),
+  audio: null,
+  actors: {
+    teacher: createRoleState(),
+    student: createRoleState(),
+  },
+});
+
+const clonePlaybackState = (state) => ({
+  ...state,
+  actors: {
+    teacher: { ...state.actors.teacher },
+    student: { ...state.actors.student },
+  },
+});
+
 export const getLessonReplayActorRole = (event) => {
   if (
     event?.type === 'code'
@@ -37,25 +54,65 @@ const applyEventToState = (state, event, options = {}) => {
   else if (Object.prototype.hasOwnProperty.call(state, event.type)) state[event.type] = event;
 };
 
-export const buildLessonReplayPlaybackState = (events, rawPositionMs) => {
+const applyPlaybackEvent = (state, event) => {
+  applyEventToState(state, event);
+  if (event.type === 'audio' && (event.payload?.url || event.payload?.playbackUrl)) state.audio = event;
+  const role = getLessonReplayActorRole(event);
+  if (isSharedLessonReplaySurfaceEvent(event)) {
+    applyEventToState(state.actors.teacher, event, { updateCurrent: role === 'teacher' || !role });
+    applyEventToState(state.actors.student, event, { updateCurrent: role === 'student' || !role });
+  } else if (role) applyEventToState(state.actors[role], event);
+};
+
+const findLastEventIndexAtOrBefore = (events, positionMs) => {
+  let low = 0;
+  let high = events.length - 1;
+  let match = -1;
+  while (low <= high) {
+    const middle = low + Math.floor((high - low) / 2);
+    const offsetMs = Math.max(0, Number(events[middle]?.offsetMs) || 0);
+    if (offsetMs <= positionMs) {
+      match = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return match;
+};
+
+export const createLessonReplayPlaybackIndex = (events, rawCheckpointInterval = 128) => {
+  const source = Array.isArray(events) ? events : [];
+  const checkpointInterval = Math.max(16, Math.floor(Number(rawCheckpointInterval) || 128));
+  const checkpoints = [];
+  const state = createPlaybackState();
+  source.forEach((event, index) => {
+    applyPlaybackEvent(state, event);
+    if ((index + 1) % checkpointInterval === 0) {
+      checkpoints.push({ index, state: clonePlaybackState(state) });
+    }
+  });
+  return { source, checkpointInterval, checkpoints };
+};
+
+export const buildLessonReplayPlaybackState = (events, rawPositionMs, playbackIndex = null) => {
   const positionMs = Math.max(0, Number(rawPositionMs) || 0);
-  const state = {
-    ...createRoleState(),
-    audio: null,
-    actors: {
-      teacher: createRoleState(),
-      student: createRoleState(),
-    },
-  };
-  for (const event of Array.isArray(events) ? events : []) {
-    if (Math.max(0, Number(event?.offsetMs) || 0) > positionMs) break;
-    applyEventToState(state, event);
-    if (event.type === 'audio' && (event.payload?.url || event.payload?.playbackUrl)) state.audio = event;
-    const role = getLessonReplayActorRole(event);
-    if (isSharedLessonReplaySurfaceEvent(event)) {
-      applyEventToState(state.actors.teacher, event, { updateCurrent: role === 'teacher' || !role });
-      applyEventToState(state.actors.student, event, { updateCurrent: role === 'student' || !role });
-    } else if (role) applyEventToState(state.actors[role], event);
+  const source = Array.isArray(events) ? events : [];
+  const targetIndex = findLastEventIndexAtOrBefore(source, positionMs);
+  if (targetIndex < 0) return createPlaybackState();
+
+  let state = createPlaybackState();
+  let startIndex = 0;
+  if (playbackIndex?.source === source && Array.isArray(playbackIndex.checkpoints)) {
+    const checkpointNumber = Math.floor((targetIndex + 1) / playbackIndex.checkpointInterval) - 1;
+    const checkpoint = checkpointNumber >= 0 ? playbackIndex.checkpoints[checkpointNumber] : null;
+    if (checkpoint && checkpoint.index <= targetIndex) {
+      state = clonePlaybackState(checkpoint.state);
+      startIndex = checkpoint.index + 1;
+    }
+  }
+  for (let index = startIndex; index <= targetIndex; index += 1) {
+    applyPlaybackEvent(state, source[index]);
   }
   return state;
 };

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildLessonReplayPlaybackState,
+  createLessonReplayPlaybackIndex,
   getLessonReplayActorRole,
   getLessonReplayFollowSurface,
 } from './lessonReplayPlaybackState.js';
@@ -63,6 +64,25 @@ test('keeps shared board and code state visible to both followed actors', () => 
   assert.equal(state.actors.teacher.codeView, null);
   assert.equal(state.actors.student.codeView?.id, 'student-code-view');
   assert.equal(state.actors.student.boardView, null);
+});
+
+test('indexed playback produces the same state when seeking across a long lesson', () => {
+  const longEvents = Array.from({ length: 520 }, (_, index) => ({
+    id: `event-${index}`,
+    type: index % 3 === 0 ? 'board' : (index % 3 === 1 ? 'code' : 'navigation'),
+    offsetMs: index * 125,
+    actor: { role: index % 2 === 0 ? 'teacher' : 'student' },
+    payload: index % 3 === 0
+      ? { mode: 'snapshot', items: [{ id: `item-${index}` }] }
+      : (index % 3 === 1 ? { code: `print(${index})` } : { view: 'progress' }),
+  }));
+  const playbackIndex = createLessonReplayPlaybackIndex(longEvents, 32);
+  [0, 124, 125, 8_000, 32_625, 64_875, 99_999].forEach((positionMs) => {
+    assert.deepEqual(
+      buildLessonReplayPlaybackState(longEvents, positionMs, playbackIndex),
+      buildLessonReplayPlaybackState(longEvents, positionMs)
+    );
+  });
 });
 
 test('follows each participant navigation without switching on the other actor edit', () => {

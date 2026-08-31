@@ -5,10 +5,17 @@ export const getReplayAudioDurationMs = (event) => (
 export const findReplayAudioEventIndex = (audioEvents, positionMs) => {
   const events = Array.isArray(audioEvents) ? audioEvents : [];
   const position = Math.max(0, Number(positionMs) || 0);
+  let low = 0;
+  let high = events.length - 1;
   let candidateIndex = -1;
-  for (let index = 0; index < events.length; index += 1) {
-    if (Number(events[index]?.offsetMs) > position) break;
-    candidateIndex = index;
+  while (low <= high) {
+    const middle = low + Math.floor((high - low) / 2);
+    if (Number(events[middle]?.offsetMs) <= position) {
+      candidateIndex = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
   }
   if (candidateIndex < 0) return -1;
   for (let index = candidateIndex; index >= 0; index -= 1) {
@@ -22,7 +29,19 @@ export const findReplayAudioEventIndex = (audioEvents, positionMs) => {
 export const findUpcomingReplayAudioEventIndex = (audioEvents, positionMs) => {
   const events = Array.isArray(audioEvents) ? audioEvents : [];
   const position = Math.max(0, Number(positionMs) || 0);
-  return events.findIndex((event) => Number(event?.offsetMs) > position);
+  let low = 0;
+  let high = events.length - 1;
+  let match = -1;
+  while (low <= high) {
+    const middle = low + Math.floor((high - low) / 2);
+    if (Number(events[middle]?.offsetMs) > position) {
+      match = middle;
+      high = middle - 1;
+    } else {
+      low = middle + 1;
+    }
+  }
+  return match;
 };
 
 export const getReplayTimelineDurationMs = (events, reportedDurationMs = 0) => {
