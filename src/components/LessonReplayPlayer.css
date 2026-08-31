@@ -1328,6 +1328,29 @@
   font-style: normal;
 }
 
+.lesson-replay-player__loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #7c3aed;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.lesson-replay-player__loading i {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(124, 58, 237, 0.2);
+  border-top-color: #7c3aed;
+  border-radius: 50%;
+  animation: lesson-replay-player-spin 750ms linear infinite;
+}
+
+@keyframes lesson-replay-player-spin {
+  to { transform: rotate(360deg); }
+}
+
 .lesson-replay-player__speeds {
   display: flex;
   gap: 3px;
@@ -1434,6 +1457,7 @@
 }
 
 .lesson-replay-player.is-fullscreen {
+  position: relative;
   display: flex;
   width: 100vw;
   height: 100vh;
@@ -1446,6 +1470,44 @@
   border-radius: 0;
   background: #fff;
   box-shadow: none;
+}
+
+.lesson-replay-player__fullscreen-action {
+  display: none;
+}
+
+.lesson-replay-player.is-fullscreen .lesson-replay-player__fullscreen-action {
+  position: absolute;
+  z-index: 8;
+  top: calc(64px + env(safe-area-inset-top, 0px));
+  left: 14px;
+  display: grid;
+  max-width: min(520px, calc(100% - 28px));
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid rgba(124, 58, 237, 0.18);
+  border-radius: 11px;
+  color: #4b3760;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 22px rgba(76, 29, 149, 0.14);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+.lesson-replay-player__fullscreen-action span {
+  color: #8a789f;
+  font-size: 10px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.lesson-replay-player__fullscreen-action strong {
+  overflow: hidden;
+  color: #342345;
+  font-size: 12px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lesson-replay-player.is-fullscreen > :not(.lesson-replay-player__stage):not(.lesson-replay-player__split-stage):not(.lesson-replay-player__time-machine) {

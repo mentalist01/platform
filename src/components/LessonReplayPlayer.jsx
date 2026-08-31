@@ -1101,6 +1101,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [activityOpen, setActivityOpen] = useState(false);
   const [audioMuted, setAudioMuted] = useState(false);
   const [audioBuffering, setAudioBuffering] = useState(false);
+  const [isSeeking, setIsSeeking] = useState(false);
   const [seekSequence, setSeekSequence] = useState(0);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
@@ -1347,6 +1348,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     endedAudioEventIdRef.current = '';
     seekSequenceRef.current += 1;
     setSeekSequence(seekSequenceRef.current);
+    setIsSeeking(true);
     setAudioBuffering(false);
     setPositionMs(nextPosition);
   }, [durationMs]);
@@ -1355,6 +1357,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     const clock = audioClockRef.current;
     if (!entry || clock.slot !== slot || clock.event?.id !== entry.event?.id) return;
     endedAudioEventIdRef.current = entry.event.id;
+    setIsSeeking(false);
     setAudioBuffering(false);
     const recordedDuration = getReplayAudioDurationMs(entry.event);
     const actualDuration = Number.isFinite(audio?.duration) && audio.duration > 0
@@ -1371,6 +1374,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     const clock = audioClockRef.current;
     if (!entry || clock.slot !== slot || clock.event?.id !== entry.event?.id) return;
     endedAudioEventIdRef.current = entry.event.id;
+    setIsSeeking(false);
     audioRefs.current[slot]?.pause();
     setAudioBuffering(false);
     const nextPosition = Math.min(
@@ -1522,6 +1526,43 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   /* eslint-enable react-hooks/immutability */
 
   useEffect(() => {
+    if (!isSeeking || typeof window === 'undefined') return undefined;
+
+    const sequence = seekSequenceRef.current;
+    const entry = activeAudioSlot >= 0 ? audioSlots[activeAudioSlot] : null;
+    const audio = activeAudioSlot >= 0 ? audioRefs.current[activeAudioSlot] : null;
+    let finished = false;
+    let frameId = null;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (sequence === seekSequenceRef.current) setIsSeeking(false);
+    };
+    const timeoutId = window.setTimeout(finish, AUDIO_LOAD_TIMEOUT_MS);
+    const cleanup = () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+      if (!audio) return;
+      audio.removeEventListener('loadedmetadata', finish);
+      audio.removeEventListener('seeked', finish);
+      audio.removeEventListener('canplay', finish);
+      audio.removeEventListener('error', finish);
+    };
+
+    if (!audio || !audioSource || !audioEvent || entry?.event?.id !== audioEvent.id) {
+      frameId = window.requestAnimationFrame(finish);
+      return cleanup;
+    }
+
+    audio.addEventListener('loadedmetadata', finish);
+    audio.addEventListener('seeked', finish);
+    audio.addEventListener('canplay', finish);
+    audio.addEventListener('error', finish);
+    if (audio.readyState >= 2 && !audio.seeking) frameId = window.requestAnimationFrame(finish);
+    return cleanup;
+  }, [activeAudioSlot, audioEvent, audioSlots, audioSource, isSeeking, seekSequence]);
+
+  useEffect(() => {
     if (!playing || typeof window === 'undefined') return undefined;
     lastFrameAtRef.current = performance.now();
     const tick = (now) => {
@@ -1578,9 +1619,17 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   }, [durationMs, playing, speed]);
 
   const markers = events.length <= 120 ? events : events.filter((_, index) => index % Math.ceil(events.length / 120) === 0);
-  const activityEvents = getActivityFeedEvents(events);
+  const activitySourceEvents = events.filter((event) => event?.type !== 'audio');
+  const activityEvents = getActivityFeedEvents(activitySourceEvents);
   const markerDurationMs = Math.max(1, durationMs);
-  const currentEvent = state.current;
+  const currentEvent = useMemo(() => {
+    if (state.current?.type !== 'audio') return state.current;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if ((Number(event?.offsetMs) || 0) <= positionMs && event?.type !== 'audio') return event;
+    }
+    return null;
+  }, [events, positionMs, state]);
   const actionNarration = getReplayEventNarration(currentEvent);
   const currentSurface = getEventSurface(currentEvent);
   const currentContextDetail = (() => {
@@ -1749,6 +1798,13 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         </button>
       </header>
 
+      {isFullscreen && !timeMachineBranch && (
+        <div className="lesson-replay-player__fullscreen-action" role="status" aria-live="polite">
+          <span>{formatClock(positionMs)} · {getEventLocationLabel(currentEvent)}</span>
+          <strong>{actionNarration || 'Запись урока'}</strong>
+        </div>
+      )}
+
       {timeMachineOpen ? (
         <TimeMachineWorkspace
           branch={timeMachineBranch}
@@ -1831,7 +1887,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         >
           <ListChecks size={15} />
           <span>Лента действий</span>
-          <small>{events.length}</small>
+          <small>{activityEvents.length}</small>
           <em>{activityOpen ? 'Скрыть' : 'Открыть'}</em>
         </button>
         {activityOpen && (
@@ -1856,8 +1912,8 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
                 </button>
               );
             })}
-            {activityEvents.length < events.length && (
-              <p>Показаны ключевые события: {activityEvents.length} из {events.length}. На шкале времени сохранены все.</p>
+            {activityEvents.length < activitySourceEvents.length && (
+              <p>Показаны ключевые действия; звук синхронизирован отдельно.</p>
             )}
           </div>
         )}
@@ -1908,6 +1964,11 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           </button>
         )}
         <span className="lesson-replay-player__time">{formatClock(positionMs)} <em>/</em> {formatClock(durationMs)}</span>
+        {(isSeeking || audioBuffering) && (
+          <span className="lesson-replay-player__loading" role="status" aria-live="polite">
+            <i aria-hidden="true" /> Загрузка…
+          </span>
+        )}
         <div className="lesson-replay-player__speeds" role="group" aria-label="Скорость воспроизведения">
           {[1, 2, 4].map((value) => <button key={value} type="button" className={speed === value ? 'is-active' : ''} aria-pressed={speed === value} onClick={() => setSpeed(value)}>{value}×</button>)}
         </div>
