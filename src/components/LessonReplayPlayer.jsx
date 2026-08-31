@@ -177,6 +177,16 @@ const getEventLocationLabel = (event) => {
   return 'Урок';
 };
 
+const getReplayMarkerTooltip = (event) => {
+  if (!event) return 'Начало занятия';
+  return [
+    formatClock(event.offsetMs),
+    getEventLocationLabel(event),
+    getReplayEventNarration(event),
+    getEventLabel(event),
+  ].filter(Boolean).join(' · ');
+};
+
 const getActivityFeedEvents = (events, limit = 240) => {
   const source = Array.isArray(events) ? events : [];
   if (source.length <= limit) return source;
@@ -2136,9 +2146,34 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       )}
 
       <div className="lesson-replay-player__timeline">
-        <div className="lesson-replay-player__markers" aria-hidden="true">
-          {markers.map((event) => <i key={event.id} data-type={event.type} style={{ left: `${Math.min(100, Math.max(0, (event.offsetMs / markerDurationMs) * 100))}%` }} />)}
-          {timeMachineBranch && <i className="is-time-machine-anchor" data-type="branch" style={{ left: `${Math.min(100, Math.max(0, (timeMachineBranch.metadata.positionMs / markerDurationMs) * 100))}%` }} />}
+        <div className="lesson-replay-player__markers" role="list" aria-label="События записи">
+          {markers.map((event) => {
+            const markerTooltip = getReplayMarkerTooltip(event);
+            return (
+              <i
+                key={event.id}
+                data-type={event.type}
+                data-tooltip={markerTooltip}
+                role="img"
+                tabIndex="0"
+                aria-label={markerTooltip}
+                title={markerTooltip}
+                style={{ left: `${Math.min(100, Math.max(0, (event.offsetMs / markerDurationMs) * 100))}%` }}
+              />
+            );
+          })}
+          {timeMachineBranch && (
+            <i
+              className="is-time-machine-anchor"
+              data-type="branch"
+              data-tooltip={`Машина времени · ${formatClock(timeMachineBranch.metadata.positionMs)}`}
+              role="img"
+              tabIndex="0"
+              aria-label={`Машина времени · ${formatClock(timeMachineBranch.metadata.positionMs)}`}
+              title={`Машина времени · ${formatClock(timeMachineBranch.metadata.positionMs)}`}
+              style={{ left: `${Math.min(100, Math.max(0, (timeMachineBranch.metadata.positionMs / markerDurationMs) * 100))}%` }}
+            />
+          )}
         </div>
         <input
           ref={timelineInputRef}
