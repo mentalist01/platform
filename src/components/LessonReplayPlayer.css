@@ -50,36 +50,6 @@
   font-weight: 800;
 }
 
-.lesson-replay-player__audio {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  padding: 6px 9px;
-  border: 1px solid rgba(124, 58, 237, 0.13);
-  border-radius: 999px;
-  color: #6d5a82;
-  background: rgba(255, 255, 255, 0.78);
-  font-size: 11px;
-  font-weight: 700;
-  font-family: inherit;
-  cursor: default;
-}
-
-.lesson-replay-player__audio.is-available {
-  color: #6d28d9;
-  border-color: rgba(124, 58, 237, 0.2);
-  cursor: pointer;
-}
-
-.lesson-replay-player__audio:disabled {
-  opacity: 0.78;
-}
-
-.lesson-replay-player__header audio {
-  display: none;
-}
-
 .lesson-replay-player__audio-elements {
   display: none !important;
 }
@@ -88,6 +58,7 @@
   display: inline-flex;
   min-height: 30px;
   flex: 0 0 auto;
+  margin-left: auto;
   align-items: center;
   gap: 6px;
   padding: 0 10px;
@@ -1343,15 +1314,56 @@
   font-weight: 800 !important;
 }
 
-.lesson-replay-player__restart {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  border: 1px solid rgba(124, 58, 237, 0.16) !important;
+.lesson-replay-player__volume {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px 0 5px;
+  border: 1px solid rgba(124, 58, 237, 0.16);
   border-radius: 11px;
-  color: #745d8c;
+  color: #6d28d9;
   background: white;
+}
+
+.lesson-replay-player__volume.is-disabled {
+  opacity: 0.58;
+}
+
+.lesson-replay-player__volume-toggle {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border-radius: 8px !important;
+  color: #6d28d9;
+  background: #f5f3ff !important;
+}
+
+.lesson-replay-player__volume-toggle:not(:disabled):hover,
+.lesson-replay-player__volume-toggle:not(:disabled):focus-visible {
+  background: #ede9fe !important;
+}
+
+.lesson-replay-player__volume-toggle:disabled {
+  cursor: not-allowed !important;
+}
+
+.lesson-replay-player__volume-range {
+  width: 78px;
+  height: 4px;
+  margin: 0;
+  accent-color: #7c3aed;
+  cursor: pointer;
+}
+
+.lesson-replay-player__volume output {
+  min-width: 31px;
+  color: #745d8c;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  text-align: right;
 }
 
 .lesson-replay-player__time-machine-toggle {
@@ -1486,7 +1498,6 @@
 }
 
 @media (max-width: 640px) {
-  .lesson-replay-player__audio { padding: 6px; font-size: 0; }
   .lesson-replay-player__stage,
   .lesson-replay-player__empty-surface { min-height: 220px; }
   .lesson-replay-player__activity-list { max-height: 180px; }

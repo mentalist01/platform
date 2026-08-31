@@ -1139,7 +1139,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const [speed, setSpeed] = useState(1);
   const [activeTab, setActiveTab] = useState('split');
   const [activityOpen, setActivityOpen] = useState(false);
-  const [audioMuted, setAudioMuted] = useState(false);
+  const [audioVolume, setAudioVolume] = useState(1);
   const [audioBuffering, setAudioBuffering] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekSequence, setSeekSequence] = useState(0);
@@ -1161,6 +1161,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const audioRefs = useRef([null, null]);
   const audioClockRef = useRef({ event: null, slot: -1, nextAudioStart: null, upcomingAudioStart: null });
   const endedAudioEventIdRef = useRef('');
+  const previousAudioVolumeRef = useRef(1);
   const playingRef = useRef(false);
   const seekSequenceRef = useRef(0);
   const seekPendingRef = useRef(false);
@@ -1540,9 +1541,10 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     audioRefs.current.forEach((audio) => {
       if (!audio) return;
       audio.playbackRate = speed;
-      audio.muted = audioMuted;
+      audio.volume = audioVolume;
+      audio.muted = audioVolume <= 0;
     });
-  }, [audioMuted, speed]);
+  }, [audioVolume, speed]);
 
   useEffect(() => {
     const entry = activeAudioSlot >= 0 ? audioSlots[activeAudioSlot] : null;
@@ -1839,6 +1841,21 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
 
   if (events.length === 0) return null;
 
+  const volumePercent = Math.round(audioVolume * 100);
+  const toggleAudioMute = () => {
+    setAudioVolume((current) => {
+      if (current <= 0) return previousAudioVolumeRef.current || 1;
+      previousAudioVolumeRef.current = current;
+      return 0;
+    });
+  };
+
+  const handleAudioVolumeChange = (event) => {
+    const nextVolume = Math.min(1, Math.max(0, Number(event.currentTarget.value) / 100));
+    if (nextVolume > 0) previousAudioVolumeRef.current = nextVolume;
+    setAudioVolume(nextVolume);
+  };
+
   const togglePlaying = () => {
     if (positionRef.current >= durationMs) seekReplayTo(0);
     if (timeMachineBranch) setTimeMachineShowOriginal(true);
@@ -1848,12 +1865,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const seekReplayFromControls = (rawPositionMs) => {
     if (timeMachineBranch) setTimeMachineShowOriginal(true);
     seekReplayTo(rawPositionMs);
-  };
-
-  const restartReplay = () => {
-    if (timeMachineBranch) setTimeMachineShowOriginal(true);
-    seekReplayTo(0);
-    setPlaying(false);
   };
 
   const jumpToActivity = (event) => {
@@ -1928,17 +1939,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           <span>{timeMachineOpen ? (timeMachineBranch ? 'Машина времени' : 'Копия урока') : 'Ход занятия'}</span>
           <strong>{timeMachineOpen ? (timeMachineBranch ? 'Попробуй продолжить сам' : 'Повтор внутри урока') : 'Воспроизведение урока'}</strong>
         </div>
-        <button
-          type="button"
-          className={`lesson-replay-player__audio${audioEvents.length > 0 ? ' is-available' : ''}`}
-          onClick={() => audioEvents.length > 0 && setAudioMuted((current) => !current)}
-          disabled={audioEvents.length === 0}
-        >
-          {audioEvents.length > 0 && !audioMuted ? <Volume2 size={14} /> : <VolumeX size={14} />}
-          {audioEvents.length > 0
-            ? (audioEvent && audioBuffering && playing ? 'Загрузка звука…' : (audioMuted ? 'Звук выключен' : 'Со звуком'))
-            : 'Без звука'}
-        </button>
         <div className="lesson-replay-player__audio-elements" aria-hidden="true">
           {audioSlots.map((entry, slot) => (
             <audio
@@ -1946,7 +1946,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
               ref={(node) => { audioRefs.current[slot] = node; }}
               src={entry?.source || undefined}
               preload="auto"
-              muted={audioMuted}
+              muted={audioVolume <= 0}
               onProgress={(event) => {
                 if (audioClockRef.current.slot === slot) updateReplayAudioLoadingProgress(event.currentTarget, entry?.event);
               }}
@@ -2192,7 +2192,34 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         <button type="button" className="lesson-replay-player__play" onClick={togglePlaying} aria-label={playing ? 'Пауза' : 'Воспроизвести'}>
           {playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}<span>{playing ? 'Пауза' : 'Смотреть'}</span>
         </button>
-        <button type="button" className="lesson-replay-player__restart" onClick={restartReplay} aria-label="В начало"><RotateCcw size={16} /></button>
+        <div
+          className={`lesson-replay-player__volume${audioEvents.length === 0 ? ' is-disabled' : ''}`}
+          role="group"
+          aria-label="Громкость записи"
+        >
+          <button
+            type="button"
+            className="lesson-replay-player__volume-toggle"
+            onClick={toggleAudioMute}
+            disabled={audioEvents.length === 0}
+            aria-label={volumePercent > 0 ? 'Выключить звук' : 'Включить звук'}
+            title={volumePercent > 0 ? 'Выключить звук' : 'Включить звук'}
+          >
+            {volumePercent > 0 ? <Volume2 size={15} /> : <VolumeX size={15} />}
+          </button>
+          <input
+            type="range"
+            className="lesson-replay-player__volume-range"
+            min="0"
+            max="100"
+            step="5"
+            value={volumePercent}
+            onChange={handleAudioVolumeChange}
+            disabled={audioEvents.length === 0}
+            aria-label="Громкость записи"
+          />
+          <output aria-live="polite">{volumePercent}%</output>
+        </div>
         {timeMachineOpen && !timeMachineBranch && !playing && (
           <button
             type="button"
