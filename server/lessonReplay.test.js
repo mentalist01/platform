@@ -203,6 +203,28 @@ test('keeps compact board deltas needed for chronological playback', () => {
   assert.equal(Object.hasOwn(event.payload, 'items'), false);
 });
 
+test('preserves the explicit initial board state marker', () => {
+  for (const mode of ['snapshot', 'delta']) {
+    const boardItem = { id: `initial-${mode}`, type: 'text', text: mode };
+    const event = normalizeLessonReplayEvent({
+      id: `initial-board-${mode}`,
+      type: 'board',
+      occurredAt: new Date(START_MS + 87_000).toISOString(),
+      payload: {
+        mode,
+        initialState: true,
+        actorVerified: false,
+        ...(mode === 'snapshot'
+          ? { items: [boardItem] }
+          : { upserts: [{ index: 0, item: boardItem }], removedIds: [] }),
+      },
+    }, eventContext);
+
+    assert.equal(event.payload.initialState, true);
+    assert.equal(normalizeLessonReplayEvent(event, eventContext).payload.initialState, true);
+  }
+});
+
 test('keeps delta indexes for the full 2500-item board capacity', () => {
   const event = normalizeLessonReplayEvent({
     id: 'board-delta-last-index',

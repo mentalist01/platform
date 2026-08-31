@@ -2,6 +2,9 @@ const CODE_RESTORE_WINDOW_MS = 45_000;
 const NAVIGATION_CAPTURE_WINDOW_MS = 2_500;
 const LEGACY_BOARD_EVENT_LIMIT_BYTES = 384 * 1024;
 const LEGACY_TRUNCATION_SIZE_THRESHOLD = Math.floor(LEGACY_BOARD_EVENT_LIMIT_BYTES * 0.9);
+const LEGACY_INITIAL_BOARD_SYNC_MAX_OFFSET_MS = 2 * 60_000;
+const LEGACY_INITIAL_BOARD_SYNC_MIN_NEW_ITEMS = 64;
+const LEGACY_INITIAL_BOARD_SYNC_CLUSTER_GAP_MS = 25;
 
 const normalizeOffsetMs = (event) => Math.max(0, Number(event?.offsetMs) || 0);
 
@@ -50,6 +53,118 @@ const applyBoardPayload = (currentItems, payload = {}) => {
     nextItems.splice(Math.min(nextItems.length, index), 0, entry.item);
   });
   return nextItems;
+};
+
+const getBoardPayloadItems = (payload = {}) => (
+  payload.mode === 'delta'
+    ? (Array.isArray(payload.upserts) ? payload.upserts.map((entry) => entry?.item) : [])
+    : (Array.isArray(payload.items) ? payload.items : [])
+);
+
+const isPassiveAddOnlyBoardState = (event) => {
+  if (event?.type !== 'board' || event.payload?.actorVerified === true) return false;
+  if (event.payload?.mode !== 'delta') return Array.isArray(event.payload?.items);
+  return (
+    Array.isArray(event.payload?.upserts)
+    && event.payload.upserts.length > 0
+    && (!Array.isArray(event.payload?.removedIds) || event.payload.removedIds.length === 0)
+  );
+};
+
+// A legacy collaborative board could finish its initial Yjs synchronization
+// long after the lesson timeline had started. The recorder then stored the
+// already-existing board as several large, passive deltas at the sync time, so
+// hundreds of objects appeared at once during playback. Collapse only large
+// all-new passive bursts from the first two minutes (and before any verified
+// board edit) into one neutral initial snapshot. Modern recordings mark their
+// initial checkpoint explicitly and do not need the size heuristic.
+export const repairLessonReplayInitialBoardState = (events) => {
+  const source = Array.isArray(events) ? events.filter(Boolean) : [];
+  if (source.length === 0) return source;
+
+  const firstVerifiedBoardOffset = source.reduce((minimum, event) => (
+    event?.type === 'board' && event.payload?.actorVerified === true
+      ? Math.min(minimum, normalizeOffsetMs(event))
+      : minimum
+  ), Infinity);
+  const selectedIndexes = new Set();
+  const seenItemIds = new Set();
+  const legacyCandidates = [];
+
+  source.forEach((event, index) => {
+    if (event?.type !== 'board') return;
+    const items = getBoardPayloadItems(event.payload);
+    let newItemCount = 0;
+    items.forEach((item) => {
+      const id = getItemId(item);
+      if (!id || seenItemIds.has(id)) return;
+      seenItemIds.add(id);
+      newItemCount += 1;
+    });
+
+    if (event.payload?.initialState === true && event.payload?.actorVerified !== true) {
+      selectedIndexes.add(index);
+      return;
+    }
+
+    const offsetMs = normalizeOffsetMs(event);
+    if (
+      offsetMs > LEGACY_INITIAL_BOARD_SYNC_MAX_OFFSET_MS
+      || offsetMs >= firstVerifiedBoardOffset
+      || !isPassiveAddOnlyBoardState(event)
+    ) return;
+    legacyCandidates.push({ index, offsetMs, newItemCount });
+  });
+
+  let cluster = [];
+  const flushCluster = () => {
+    if (
+      cluster.reduce((sum, entry) => sum + entry.newItemCount, 0)
+      >= LEGACY_INITIAL_BOARD_SYNC_MIN_NEW_ITEMS
+    ) {
+      cluster.forEach((entry) => selectedIndexes.add(entry.index));
+    }
+    cluster = [];
+  };
+  legacyCandidates.forEach((candidate) => {
+    const previous = cluster.at(-1);
+    if (
+      previous
+      && candidate.offsetMs - previous.offsetMs > LEGACY_INITIAL_BOARD_SYNC_CLUSTER_GAP_MS
+    ) flushCluster();
+    cluster.push(candidate);
+  });
+  flushCluster();
+
+  if (selectedIndexes.size === 0) return source;
+
+  let initialItems = [];
+  let firstInitialEvent = null;
+  const remainingEvents = [];
+  source.forEach((event, index) => {
+    if (!selectedIndexes.has(index)) {
+      remainingEvents.push(event);
+      return;
+    }
+    if (!firstInitialEvent) firstInitialEvent = event;
+    initialItems = applyBoardPayload(initialItems, event.payload);
+  });
+
+  const initialEvent = {
+    ...firstInitialEvent,
+    id: `board-initial-${String(firstInitialEvent?.id || 'state')}`,
+    offsetMs: 0,
+    actor: null,
+    payload: {
+      mode: 'snapshot',
+      actorVerified: false,
+      initialState: true,
+      recoveredInitialState: firstInitialEvent?.payload?.initialState !== true,
+      items: initialItems,
+      truncated: false,
+    },
+  };
+  return [initialEvent, ...remainingEvents];
 };
 
 const hasSameBoardState = (left, right) => {

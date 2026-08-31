@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { removeLessonReplaySyncArtifacts } from './lessonReplaySyncArtifacts.js';
+import {
+  removeLessonReplaySyncArtifacts,
+  repairLessonReplayInitialBoardState,
+} from './lessonReplaySyncArtifacts.js';
 
 const actor = (role) => ({ role, id: role });
 const item = (id) => ({ id, type: 'text', text: id });
@@ -160,5 +163,122 @@ test('drops shared board and code checkpoints that do not change visible state',
   assert.deepEqual(removeLessonReplaySyncArtifacts(events).map((event) => event.id), [
     'board-change',
     'code-change',
+  ]);
+});
+
+test('moves an explicitly marked initial board state to the start of playback', () => {
+  const repaired = repairLessonReplayInitialBoardState([
+    { id: 'lesson-start', type: 'session', offsetMs: 8000, actor: actor('student'), payload: { action: 'start' } },
+    {
+      id: 'late-initial',
+      type: 'board',
+      offsetMs: 87_000,
+      actor: actor('teacher'),
+      payload: {
+        mode: 'snapshot',
+        actorVerified: false,
+        initialState: true,
+        items: [item('a'), item('b')],
+      },
+    },
+  ]);
+
+  assert.equal(repaired[0].offsetMs, 0);
+  assert.equal(repaired[0].actor, null);
+  assert.equal(repaired[0].payload.initialState, true);
+  assert.equal(repaired[0].payload.recoveredInitialState, false);
+  assert.deepEqual(repaired[0].payload.items.map((entry) => entry.id), ['a', 'b']);
+  assert.equal(repaired[1].id, 'lesson-start');
+});
+
+test('collapses a staggered legacy board sync into one initial snapshot', () => {
+  const makeItems = (prefix, count) => Array.from(
+    { length: count },
+    (_, index) => item(`${prefix}-${index}`)
+  );
+  const makeDelta = (id, offsetMs, items, startIndex = 0) => ({
+    id,
+    type: 'board',
+    offsetMs,
+    actor: actor('student'),
+    payload: {
+      mode: 'delta',
+      actorVerified: false,
+      upserts: items.map((entry, index) => ({ index: startIndex + index, item: entry })),
+      removedIds: [],
+    },
+  });
+  const firstBatch = makeItems('first', 177);
+  const lateBatch = makeItems('late', 513);
+  const rawEvents = [
+    { id: 'empty-a', type: 'board', offsetMs: 22_199, actor: actor('student'), payload: { mode: 'snapshot', actorVerified: false, items: [] } },
+    { id: 'empty-b', type: 'board', offsetMs: 22_503, actor: actor('teacher'), payload: { mode: 'snapshot', actorVerified: false, items: [] } },
+    makeDelta('first-sync', 27_173, firstBatch),
+    makeDelta('duplicate-sync', 32_482, firstBatch),
+    makeDelta('late-1', 87_175, lateBatch.slice(0, 1), firstBatch.length),
+    makeDelta('late-155', 87_176, lateBatch.slice(1, 156), firstBatch.length + 1),
+    makeDelta('late-106', 87_176, lateBatch.slice(156, 262), firstBatch.length + 156),
+    makeDelta('late-107', 87_176, lateBatch.slice(262, 369), firstBatch.length + 262),
+    makeDelta('late-12', 87_176, lateBatch.slice(369, 381), firstBatch.length + 369),
+    makeDelta('late-132', 87_176, lateBatch.slice(381), firstBatch.length + 381),
+  ];
+
+  const repaired = removeLessonReplaySyncArtifacts(
+    repairLessonReplayInitialBoardState(rawEvents)
+  );
+  assert.equal(repaired.length, 1);
+  assert.equal(repaired[0].offsetMs, 0);
+  assert.equal(repaired[0].payload.recoveredInitialState, true);
+  assert.equal(repaired[0].payload.items.length, 690);
+  assert.deepEqual(
+    repaired[0].payload.items.map((entry) => entry.id),
+    [...firstBatch, ...lateBatch].map((entry) => entry.id)
+  );
+});
+
+test('does not move real edits or ordinary passive changes to the start', () => {
+  const smallPassive = {
+    id: 'small-passive',
+    type: 'board',
+    offsetMs: 87_000,
+    payload: {
+      mode: 'delta',
+      actorVerified: false,
+      upserts: Array.from({ length: 10 }, (_, index) => ({ index, item: item(`small-${index}`) })),
+      removedIds: [],
+    },
+  };
+  const verifiedLarge = {
+    id: 'verified-large',
+    type: 'board',
+    offsetMs: 88_000,
+    payload: {
+      mode: 'delta',
+      actorVerified: true,
+      upserts: Array.from({ length: 100 }, (_, index) => ({ index, item: item(`verified-${index}`) })),
+      removedIds: [],
+    },
+  };
+  const latePassive = {
+    id: 'late-passive',
+    type: 'board',
+    offsetMs: 121_000,
+    payload: {
+      mode: 'delta',
+      actorVerified: false,
+      upserts: Array.from({ length: 100 }, (_, index) => ({ index, item: item(`late-${index}`) })),
+      removedIds: [],
+    },
+  };
+
+  const repaired = repairLessonReplayInitialBoardState([
+    smallPassive,
+    verifiedLarge,
+    latePassive,
+  ]);
+  assert.deepEqual(repaired.map((event) => [event.id, event.offsetMs]), [
+    ['small-passive', 87_000],
+    ['verified-large', 88_000],
+    ['late-passive', 121_000],
   ]);
 });

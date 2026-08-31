@@ -34,7 +34,10 @@ import {
   getReplayTimelineDurationMs,
 } from '../utils/lessonReplayTimeline';
 import { sortLessonReplayEvents } from '../utils/lessonReplayEventOrder';
-import { removeLessonReplaySyncArtifacts } from '../utils/lessonReplaySyncArtifacts';
+import {
+  removeLessonReplaySyncArtifacts,
+  repairLessonReplayInitialBoardState,
+} from '../utils/lessonReplaySyncArtifacts';
 import {
   buildLessonReplayPlaybackState,
   getLessonReplayActorRole,
@@ -1123,9 +1126,11 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const events = useMemo(() => (
     materializeBoardReplayEvents(
       repairLessonReplayBoardActors(removeLessonReplaySyncArtifacts(
-        sortLessonReplayEvents(
-          (Array.isArray(replay?.events) ? replay.events : [])
-            .map((event) => ({ ...event, offsetMs: Math.max(0, Number(event?.offsetMs) || 0) }))
+        repairLessonReplayInitialBoardState(
+          sortLessonReplayEvents(
+            (Array.isArray(replay?.events) ? replay.events : [])
+              .map((event) => ({ ...event, offsetMs: Math.max(0, Number(event?.offsetMs) || 0) }))
+          )
         )
       ))
     )

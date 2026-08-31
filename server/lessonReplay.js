@@ -327,6 +327,7 @@ const normalizePayload = (type, value) => {
       return {
         mode: 'delta',
         actorVerified: source.actorVerified === true,
+        ...(source.initialState === true ? { initialState: true } : {}),
         ...fitted,
         truncated: source.truncated === true || fitted.truncated,
       };
@@ -336,6 +337,7 @@ const normalizePayload = (type, value) => {
     return {
       mode: 'snapshot',
       actorVerified: source.actorVerified === true,
+      ...(source.initialState === true ? { initialState: true } : {}),
       items: fitted.items,
       truncated: source.truncated === true || fitted.truncated || (Array.isArray(source.items) && source.items.length > MAX_BOARD_ITEMS),
     };

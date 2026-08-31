@@ -11197,12 +11197,15 @@ const BoardSection = ({
       return false;
     }
     const actorVerified = lessonReplayBoardDirtyRef.current;
+    const initialState = !lessonReplayLastBoardStateRef.current && !actorVerified;
     const payloads = splitLessonReplayBoardPayload(checkpoint.payload);
     let accepted = true;
     payloads.forEach((payload) => {
-      const result = lessonReplayEventRef.current('board', actorVerified
-        ? { ...payload, actorVerified: true }
-        : payload, { dedupeMs: 1000 });
+      const result = lessonReplayEventRef.current('board', {
+        ...payload,
+        ...(actorVerified ? { actorVerified: true } : {}),
+        ...(initialState ? { initialState: true } : {}),
+      }, { dedupeMs: 1000 });
       if (result === false) accepted = false;
     });
     lessonReplayBoardDirtyRef.current = false;
