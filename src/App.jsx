@@ -156,7 +156,29 @@ import {
 
 const loadAdminPanel = () => import('./components/AdminPanel');
 const loadCallSection = () => import('./components/CallSection');
-const loadEditor = () => import('@monaco-editor/react');
+let editorRuntimePromise = null;
+const loadEditor = () => {
+  if (!editorRuntimePromise) {
+    editorRuntimePromise = import('@monaco-editor/react').then((editorModule) => {
+      // @monaco-editor/react loads Monaco lazily on the first mount. Start
+      // that network work as soon as the collab view is prefetched so the
+      // editor does not stay on the loading screen after navigation.
+      const loader = editorModule?.loader;
+      if (loader && typeof loader.init === 'function') {
+        void loader.init().catch(() => {
+          // The editor component retries/handles the same loader promise on
+          // mount; a prefetch failure must not break route navigation.
+        });
+      }
+      return editorModule;
+    })
+      .catch((error) => {
+        editorRuntimePromise = null;
+        throw error;
+      });
+  }
+  return editorRuntimePromise;
+};
 const loadFinalReviewSection = () => import('./components/FinalReviewSection');
 const loadHomeworkQuickStart = () => import('./components/HomeworkQuickStart');
 const loadHomeworkStatsPage = () => import('./components/HomeworkStatsPage');
@@ -3418,8 +3440,16 @@ const createPyodideWorker = () => {
       if (!id) return;
       try {
         if (data.type === 'warmup') {
-          await ensurePyodide();
-          self.postMessage({ id, type: 'ready' });
+          try {
+            await ensurePyodide();
+            self.postMessage({ id, type: 'ready' });
+          } catch (err) {
+            self.postMessage({
+              id,
+              type: 'warmup-error',
+              error: err && err.message ? err.message : String(err),
+            });
+          }
           return;
         }
         const result = await runPython(
@@ -3988,6 +4018,8 @@ const CollabSection = ({
   const collabTurtlePayloadRef = useRef({ json: '', runId: '' });
   const collabTurtleSeenRunIdRef = useRef('');
   const runWorkerRef = useRef(null);
+  const runWorkerReadyRef = useRef(false);
+  const runWorkerWarmupStartedRef = useRef(false);
   const runPendingRef = useRef(new Map());
   const runSessionRef = useRef(0);
   const publishRunStateRef = useRef(null);
@@ -6209,7 +6241,9 @@ const CollabSection = ({
         primaryPath,
         variants: getRuntimePathVariantsForTaskFile(file),
       };
-    }).filter((entry) => entry.primaryPath);
+    }).filter((entry) => (
+      entry.primaryPath && entry.primaryPath.toLowerCase() !== reservedRuntimePath
+    ));
     const pathCounts = new Map();
     selectedEntries.forEach((entry) => {
       entry.variants.forEach((candidate) => {
@@ -6217,17 +6251,11 @@ const CollabSection = ({
         pathCounts.set(lowerCandidate, (pathCounts.get(lowerCandidate) || 0) + 1);
       });
     });
-    const mountedPaths = new Set([reservedRuntimePath]);
-    for (const entry of selectedEntries) {
-      const { file, primaryPath, variants } = entry;
+    // Files are independent downloads. Fetch them together so several large
+    // attachments do not turn the first run into a serial network queue.
+    const downloadedEntries = await Promise.all(selectedEntries.map(async (entry) => {
+      const { file, primaryPath } = entry;
       const runtimePath = primaryPath;
-      if (!runtimePath) continue;
-      const lowerPath = runtimePath.toLowerCase();
-      if (mountedPaths.has(lowerPath)) {
-        if (lowerPath === reservedRuntimePath) continue;
-        throw new Error(`\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u0439\u043b\u043e\u0432 \u0441 \u043f\u0443\u0442\u0435\u043c ${runtimePath}. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043e\u0434\u0438\u043d.`);
-      }
-      mountedPaths.add(lowerPath);
       const fileUrl = getTaskFileUrl(file);
       if (!fileUrl) {
         throw new Error(`\u041d\u0435\u0442 \u0441\u0441\u044b\u043b\u043a\u0438 \u0434\u043b\u044f \u0444\u0430\u0439\u043b\u0430 ${runtimePath}.`);
@@ -6245,7 +6273,18 @@ const CollabSection = ({
         );
       }
       const buffer = await response.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
+      return { ...entry, bytes: new Uint8Array(buffer) };
+    }));
+    const mountedPaths = new Set([reservedRuntimePath]);
+    downloadedEntries.forEach((entry) => {
+      const { primaryPath, variants, bytes } = entry;
+      const runtimePath = primaryPath;
+      const lowerPath = runtimePath.toLowerCase();
+      if (mountedPaths.has(lowerPath)) {
+        if (lowerPath === reservedRuntimePath) return;
+        throw new Error(`\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u0439\u043b\u043e\u0432 \u0441 \u043f\u0443\u0442\u0435\u043c ${runtimePath}. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043e\u0434\u0438\u043d.`);
+      }
+      mountedPaths.add(lowerPath);
       payload.push({
         name: runtimePath,
         bytes,
@@ -6262,7 +6301,7 @@ const CollabSection = ({
           bytes,
         });
       });
-    }
+    });
     return payload;
   }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText]);
 
@@ -6958,6 +6997,8 @@ const CollabSection = ({
       runWorkerRef.current.terminate();
       runWorkerRef.current = null;
     }
+    runWorkerReadyRef.current = false;
+    runWorkerWarmupStartedRef.current = false;
     if (message) resolveRunPending(message);
   };
 
@@ -6966,11 +7007,25 @@ const CollabSection = ({
     if (runWorkerRef.current) return runWorkerRef.current;
     try {
       const worker = createPyodideWorker();
+      runWorkerReadyRef.current = false;
       worker.onmessage = (event) => {
         const data = event.data || {};
+        const messageType = typeof data.type === 'string' ? data.type : 'result';
+        if (messageType === 'ready') {
+          runWorkerReadyRef.current = true;
+          return;
+        }
+        if (messageType === 'warmup-error') {
+          // A failed idle prewarm must not poison the worker's rejected
+          // Pyodide promise. Recreate it on the next run (or retry).
+          const reason = typeof data.error === 'string' && data.error.trim()
+            ? data.error.trim()
+            : 'Не удалось подготовить Python.';
+          disposeRunWorker(`Не удалось подготовить Python: ${reason}`);
+          return;
+        }
         const pending = runPendingRef.current.get(data.id);
         if (!pending) return;
-        const messageType = typeof data.type === 'string' ? data.type : 'result';
         if (messageType === 'debug-trace') {
           pending.debugTrace = Array.isArray(data.trace) ? data.trace : [];
           pending.debugTraceTruncated = Boolean(data.truncated);
@@ -7025,6 +7080,45 @@ const CollabSection = ({
   };
 
   useEffect(() => () => disposeRunWorker('Python runner stopped.'), []);
+
+  useEffect(() => {
+    // Pyodide is intentionally kept out of the initial bundle, but loading
+    // it on the first F5 makes that click wait for the CDN and WASM startup.
+    // Warm the existing worker only after the room is connected and the main
+    // thread is idle, so opening the editor itself stays responsive.
+    if (isSandbox || collabReadOnly || !editorReady || status !== 'connected') return undefined;
+    let idleId = null;
+    let timeoutId = null;
+    const warmup = () => {
+      if (runWorkerReadyRef.current || runWorkerWarmupStartedRef.current) return;
+      // Do not compete with the initial Yjs snapshot. The WebSocket can be
+      // connected a little before the document has actually synchronized.
+      if (!isSandbox && collabProviderRef.current?.synced !== true) {
+        timeoutId = window.setTimeout(warmup, 1000);
+        return;
+      }
+      const worker = ensureRunWorker();
+      if (!worker) return;
+      runWorkerWarmupStartedRef.current = true;
+      const id = `warmup_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      worker.postMessage({ id, type: 'warmup' });
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(warmup, { timeout: 5000 });
+    } else {
+      timeoutId = window.setTimeout(warmup, 2500);
+    }
+    return () => {
+      if (idleId !== null && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  // ensureRunWorker intentionally stays out of the dependency list: it is a
+  // render-local helper, while the refs above make the worker initialization
+  // idempotent across renders.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collabReadOnly, editorReady, isSandbox, status]);
 
   const runPythonInMainThread = async (source, inputValue, runtimeFiles = []) => {
     const pyodide = await ensurePyodideReady();
