@@ -1,5 +1,8 @@
 import { sortLessonReplayEvents } from './lessonReplayEventOrder.js';
-import { removeLessonReplaySyncArtifacts } from './lessonReplaySyncArtifacts.js';
+import {
+  removeLessonReplaySyncArtifacts,
+  repairLessonReplayInitialBoardState,
+} from './lessonReplaySyncArtifacts.js';
 
 export const LESSON_REPLAY_BRANCH_SCHEMA_VERSION = 1;
 
@@ -35,9 +38,11 @@ const normalizeEventOffsetMs = (event) => normalizePositionMs(event?.offsetMs);
 
 const getOrderedReplayEvents = (replay) => (
   removeLessonReplaySyncArtifacts(
-    sortLessonReplayEvents(
-      (Array.isArray(replay?.events) ? replay.events : [])
-        .filter((event) => event && typeof event === 'object')
+    repairLessonReplayInitialBoardState(
+      sortLessonReplayEvents(
+        (Array.isArray(replay?.events) ? replay.events : [])
+          .filter((event) => event && typeof event === 'object')
+      )
     )
   )
 );

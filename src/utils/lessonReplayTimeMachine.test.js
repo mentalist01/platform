@@ -136,6 +136,48 @@ test('preserves omitted objects from a server-truncated legacy board keyframe', 
   ]);
 });
 
+test('fullscreen copies include the same recovered initial board at 0:00, 1:23 and 1:31', () => {
+  const initialItems = Array.from({ length: 177 }, (_, index) => ({
+    id: `initial-${index}`, type: 'text', text: `Initial ${index}`, x: 100, y: 6900 + index,
+  }));
+  const delayedItems = Array.from({ length: 513 }, (_, index) => ({
+    id: `delayed-${index}`, type: 'text', text: `Delayed ${index}`, x: 100, y: 8400 + index,
+  }));
+  const delta = (id, offsetMs, items, startIndex = 0) => ({
+    id, type: 'board', offsetMs,
+    payload: {
+      mode: 'delta', actorVerified: false, removedIds: [],
+      upserts: items.map((item, index) => ({ index: startIndex + index, item })),
+    },
+  });
+  const source = deepFreeze({ events: [
+    { id: 'warmup', type: 'board', offsetMs: 22_199, payload: { mode: 'snapshot', items: [] } },
+    delta('first-sync', 27_173, initialItems),
+    delta('duplicate-sync', 32_482, initialItems),
+    delta('delayed-tail', 87_175, delayedItems.slice(0, 1), 177),
+    delta('delayed-middle', 87_176, delayedItems.slice(1), 178),
+    {
+      id: 'real-edit', type: 'board', offsetMs: 125_000,
+      payload: {
+        mode: 'delta', actorVerified: true, removedIds: ['initial-0'],
+        upserts: [{ index: 0, item: { id: 'new', type: 'text', text: 'A later edit' } }],
+      },
+    },
+  ] });
+
+  const expected = [...initialItems, ...delayedItems];
+  for (const positionMs of [0, 83_000, 91_000, 83_000]) {
+    const copy = createLessonReplayBranch(source, positionMs);
+    assert.equal(copy.board.items.length, expected.length, `object count at ${positionMs} ms`);
+    assert.deepEqual(copy.board.items, expected, `board at ${positionMs} ms`);
+    assert.notStrictEqual(copy.board.items[0], initialItems[0]);
+  }
+  const edited = createLessonReplayBranch(source, 125_000);
+  assert.equal(edited.board.items[0].id, 'new');
+  assert.equal(edited.board.items.some((item) => item.id === 'initial-0'), false);
+  assert.equal(edited.board.items.length, expected.length);
+});
+
 test('creates deterministic metadata anchored to the student and replay position', () => {
   const first = createLessonReplayBranchMetadata(replay, 20_000.4);
   const second = createLessonReplayBranchMetadata(structuredClone(replay), 20_000);
