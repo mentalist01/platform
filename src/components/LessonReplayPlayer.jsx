@@ -1886,12 +1886,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     seekReplayTo(rawPositionMs);
   };
 
-  const restartReplay = () => {
-    if (timeMachineBranch) setTimeMachineShowOriginal(true);
-    seekReplayTo(0);
-    setPlaying(false);
-  };
-
   const jumpToActivity = (event) => {
     const surface = getEventSurface(event);
     setPlaying(false);
@@ -2269,7 +2263,6 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
         <button type="button" className="lesson-replay-player__play" onClick={togglePlaying} aria-label={playing ? 'Пауза' : 'Воспроизвести'}>
           {playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}<span>{playing ? 'Пауза' : 'Смотреть'}</span>
         </button>
-        <button type="button" className="lesson-replay-player__restart" onClick={restartReplay} aria-label="В начало" title="В начало"><RotateCcw size={16} /></button>
         <div
           className={`lesson-replay-player__volume${audioEvents.length === 0 ? ' is-disabled' : ''}${audioWarning ? ' is-warning' : ''}`}
           role="group"

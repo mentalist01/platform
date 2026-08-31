@@ -2275,21 +2275,6 @@ body.lesson-replay-fullscreen-fallback-active .student-lesson-capsule__body > .l
   box-shadow: 0 11px 24px rgba(124, 58, 237, 0.3);
 }
 
-.lesson-replay-player__restart {
-  width: 2.65rem;
-  height: 2.65rem;
-  border-radius: 0.8rem;
-  color: #6d5a82;
-  background: rgba(255, 255, 255, 0.94);
-}
-
-.lesson-replay-player__restart:hover,
-.lesson-replay-player__restart:focus-visible {
-  border-color: rgba(109, 40, 217, 0.34) !important;
-  color: var(--replay-purple);
-  background: #f8f6ff;
-}
-
 .lesson-replay-player__time-machine-toggle {
   min-height: 2.65rem;
   border-radius: 0.8rem;
@@ -2381,12 +2366,10 @@ body.lesson-replay-fullscreen-fallback-active .student-lesson-capsule__body > .l
   }
 
   .lesson-replay-player__play,
-  .lesson-replay-player__restart,
   .lesson-replay-player__time-machine-toggle {
     min-height: 2.75rem;
   }
 
-  .lesson-replay-player__restart,
   .lesson-replay-player__time-machine-toggle {
     width: 2.75rem;
     height: 2.75rem;
@@ -2437,8 +2420,7 @@ html[data-theme='dark'] .lesson-replay-player__timeline-meta strong {
 }
 
 html[data-theme='dark'] .lesson-replay-player__audio,
-html[data-theme='dark'] .lesson-replay-player__fullscreen,
-html[data-theme='dark'] .lesson-replay-player__restart {
+html[data-theme='dark'] .lesson-replay-player__fullscreen {
   border-color: rgba(196, 181, 253, 0.24);
   color: #ddd6fe;
   background: rgba(46, 35, 62, 0.94);
@@ -2468,9 +2450,7 @@ html[data-theme='dark'] .lesson-replay-player__volume.is-warning {
 html[data-theme='dark'] .lesson-replay-player__audio:hover:not(:disabled),
 html[data-theme='dark'] .lesson-replay-player__audio:focus-visible,
 html[data-theme='dark'] .lesson-replay-player__fullscreen:hover,
-html[data-theme='dark'] .lesson-replay-player__fullscreen:focus-visible,
-html[data-theme='dark'] .lesson-replay-player__restart:hover,
-html[data-theme='dark'] .lesson-replay-player__restart:focus-visible {
+html[data-theme='dark'] .lesson-replay-player__fullscreen:focus-visible {
   color: #fff;
   background: #3b2a52;
 }
