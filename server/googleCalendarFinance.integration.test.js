@@ -109,6 +109,7 @@ test('finance loads Google Calendar through the end of a selected distant month'
 }, async () => {
   const teacherId = 'teacher-finance-range';
   const studentId = 'student-finance-range';
+  const legacyStudentId = 'student-finance-legacy';
   const now = new Date();
   const selectedMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 6, 1));
   const selectedMonth = selectedMonthDate.toISOString().slice(0, 7);
@@ -117,6 +118,11 @@ test('finance loads Google Calendar through the end of a selected distant month'
   const selectedMonthLastDay = new Date(Date.UTC(selectedYear, selectedMonthIndex + 1, 0))
     .toISOString()
     .slice(0, 10);
+  const legacyCancelledDay = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth() + 1,
+    10
+  )).toISOString().slice(0, 10);
   assert.ok(
     Date.parse(`${selectedMonthLastDay}T17:00:00.000Z`) > Date.now() + (120 * 24 * 60 * 60 * 1000),
     'the regression event must be beyond the default Google Calendar horizon'
@@ -133,6 +139,13 @@ test('finance loads Google Calendar through the end of a selected distant month'
     `DTSTART:${toIcalUtc(selectedMonthLastDay, 17)}`,
     `DTEND:${toIcalUtc(selectedMonthLastDay, 18)}`,
     'SUMMARY:Student Finance',
+    'END:VEVENT',
+    'BEGIN:VEVENT',
+    'UID:legacy-paid-cancelled@example.test',
+    `DTSTAMP:${toIcalUtc(now.toISOString().slice(0, 10), 10)}`,
+    `DTSTART:${toIcalUtc(legacyCancelledDay, 17)}`,
+    `DTEND:${toIcalUtc(legacyCancelledDay, 18)}`,
+    'SUMMARY:Legacy Student',
     'END:VEVENT',
     'END:VCALENDAR',
     '',
@@ -157,19 +170,41 @@ test('finance loads Google Calendar through the end of a selected distant month'
       codeHash: buildCodeHash('teacher-finance-range-code'),
       createdAt: nowIso,
     }]));
-    fs.writeFileSync(path.join(dataDir, 'students.json'), JSON.stringify([{
-      id: studentId,
-      name: 'Student Finance',
-      teacherId,
-      code: 'student-finance-range-code',
-      grade: '11',
-      createdAt: nowIso,
-      deletedAt: null,
-      studyStatus: 'active',
-    }]));
+    fs.writeFileSync(path.join(dataDir, 'students.json'), JSON.stringify([
+      {
+        id: studentId,
+        name: 'Student Finance',
+        teacherId,
+        code: 'student-finance-range-code',
+        grade: '11',
+        createdAt: nowIso,
+        deletedAt: null,
+        studyStatus: 'active',
+      },
+      {
+        id: legacyStudentId,
+        name: 'Legacy Student',
+        teacherId,
+        code: 'student-finance-legacy-code',
+        grade: '11',
+        createdAt: nowIso,
+        deletedAt: null,
+        studyStatus: 'active',
+      },
+    ]));
     fs.writeFileSync(path.join(dataDir, 'tests.json'), JSON.stringify({}));
     fs.writeFileSync(path.join(dataDir, 'progress.json'), JSON.stringify({
       [studentId]: {
+        progress: {},
+        notes: '',
+        mocks: [],
+        schedule: [],
+        solvedByTask: {},
+        solvedEvents: [],
+        nextLesson: null,
+        homeworks: [],
+      },
+      [legacyStudentId]: {
         progress: {},
         notes: '',
         mocks: [],
@@ -194,6 +229,15 @@ test('finance loads Google Calendar through the end of a selected distant month'
       [teacherId]: {
         studentProfiles: {
           [studentId]: {
+            pricingMode: 'perLesson',
+            lessonPrice: 2000,
+            commissionAmount: 0,
+            monthlyRate: 0,
+            plannedLessons: 0,
+            paymentDay: null,
+            note: '',
+          },
+          [legacyStudentId]: {
             pricingMode: 'perLesson',
             lessonPrice: 2000,
             commissionAmount: 0,
@@ -235,7 +279,35 @@ test('finance loads Google Calendar through the end of a selected distant month'
       headers: { Authorization: authorization },
     });
     await assertStatus(warmCacheResponse, 200);
-    assert.equal((await warmCacheResponse.json()).length, 0);
+    const warmSchedule = await warmCacheResponse.json();
+    const legacyEntry = warmSchedule.find((entry) => (
+      entry.externalEventId === 'legacy-paid-cancelled@example.test'
+    ));
+    assert.ok(legacyEntry, 'nearby legacy Google event must be available for migration');
+    assert.notEqual(legacyEntry.id, legacyEntry.externalEventId);
+    const legacyScope = `student:${legacyStudentId}`;
+    const cancellationMarkKey = [
+      'calendar-cancelled',
+      encodeURIComponent(teacherId),
+      encodeURIComponent(legacyEntry.externalEventId),
+      legacyEntry.date,
+      encodeURIComponent(legacyScope),
+      legacyEntry.time,
+    ].join('|');
+    const legacyPaidMarkKey = [
+      teacherId,
+      legacyEntry.id,
+      legacyEntry.date,
+      legacyStudentId,
+      legacyEntry.time,
+      'paid',
+    ].join(':');
+    fs.writeFileSync(path.join(dataDir, 'teacher-calendar-marks.json'), JSON.stringify({
+      [teacherId]: {
+        [cancellationMarkKey]: nowIso,
+        [legacyPaidMarkKey]: nowIso,
+      },
+    }));
 
     const financeResponse = await fetch(
       `${baseUrl}/api/teacher-finance?month=${encodeURIComponent(selectedMonth)}`,
@@ -249,6 +321,25 @@ test('finance loads Google Calendar through the end of a selected distant month'
     assert.equal(finance.calendarPlan.remaining.revenue, 2000);
     assert.equal(finance.calendarPlan.remaining.workingDayCount, 1);
     assert.equal(finance.calendarPlan.total.lessonCount, 1);
+    assert.equal(finance.summary.availableCredit, 2000);
+    assert.equal(
+      finance.students.find((entry) => entry.id === legacyStudentId).availableCredit,
+      2000
+    );
+    const storedMarks = JSON.parse(
+      fs.readFileSync(path.join(dataDir, 'teacher-calendar-marks.json'), 'utf8')
+    );
+    assert.ok(storedMarks[teacherId][cancellationMarkKey]);
+    assert.equal(storedMarks[teacherId][legacyPaidMarkKey], undefined);
+    const storedFinance = JSON.parse(
+      fs.readFileSync(path.join(dataDir, 'teacher-finances.json'), 'utf8')
+    );
+    assert.equal(storedFinance[teacherId].paymentAllocationMigrationVersion, 1);
+    const allocations = Object.values(storedFinance[teacherId].paymentAllocations || {});
+    assert.equal(allocations.length, 1);
+    assert.equal(allocations[0].status, 'credit');
+    assert.equal(allocations[0].sourceEntryId, legacyEntry.id);
+    assert.equal(allocations[0].amount, 2000);
   } finally {
     await stopServer(child);
     await stopHttpServer(calendarServer);

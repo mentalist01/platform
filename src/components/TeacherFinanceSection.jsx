@@ -271,6 +271,7 @@ const getStudentProfitability = (student, commissionDraft) => {
   const lessonCount = Math.max(0, Math.floor(Number(profitability.lessonCount) || 0));
   const grossRevenue = Math.max(0, Number(profitability.grossRevenue) || 0);
   const receivedRevenue = Math.max(0, Number(profitability.receivedRevenue) || 0);
+  const availableCredit = Math.max(0, Number(student?.availableCredit) || 0);
   const netAfterCommission = Math.round((grossRevenue - commissionAmount) * 100) / 100;
   const remainingToPayback = Math.max(0, Math.round((commissionAmount - grossRevenue) * 100) / 100);
   const paybackPercent = commissionAmount > 0
@@ -282,6 +283,7 @@ const getStudentProfitability = (student, commissionDraft) => {
     lessonCount,
     grossRevenue,
     receivedRevenue,
+    availableCredit,
     netAfterCommission,
     remainingToPayback,
     paybackPercent,
@@ -395,6 +397,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
     acc.lessonCount += student.metrics.lessonCount;
     acc.grossRevenue += student.metrics.grossRevenue;
     acc.receivedRevenue += student.metrics.receivedRevenue;
+    acc.availableCredit += student.metrics.availableCredit;
     acc.commissionAmount += student.metrics.commissionAmount;
     acc.netAfterCommission += student.metrics.netAfterCommission;
     return acc;
@@ -402,6 +405,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
     lessonCount: 0,
     grossRevenue: 0,
     receivedRevenue: 0,
+    availableCredit: 0,
     commissionAmount: 0,
     netAfterCommission: 0,
   }), [studentRows]);
@@ -612,7 +616,9 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
         </div>
 
         {!loading ? (
-          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className={`mt-5 grid gap-3 md:grid-cols-2 ${
+            totals.availableCredit > 0 ? 'xl:grid-cols-6' : 'xl:grid-cols-5'
+          }`}>
             <SummaryMetric
               icon={TrendingUp}
               label="Начислено по занятиям"
@@ -650,6 +656,15 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                 : 'В календаре пока нет занятий'}
               tone="amber"
             />
+            {totals.availableCredit > 0 ? (
+              <SummaryMetric
+                icon={WalletCards}
+                label="Аванс учеников"
+                value={formatMoney(totals.availableCredit)}
+                hint="Доступен для следующих занятий"
+                tone="emerald"
+              />
+            ) : null}
           </div>
         ) : null}
       </Card>
@@ -1242,6 +1257,11 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                             {metrics.isPaidBack ? 'Комиссия окупилась' : 'Ещё не окупилась'}
                           </span>
                         ) : null}
+                        {metrics.availableCredit > 0 ? (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">
+                            Аванс {formatMoney(metrics.availableCredit)}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
                         <span>{formatLessonCount(metrics.lessonCount)}</span>
@@ -1307,6 +1327,13 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                       </div>
                     </div>
                   </div>
+
+                  {metrics.availableCredit > 0 ? (
+                    <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+                      <WalletCards size={14} />
+                      {formatMoney(metrics.availableCredit)} перенесено в аванс и автоматически применится к следующему занятию.
+                    </div>
+                  ) : null}
 
                   {metrics.commissionAmount > 0 ? (
                     <div>

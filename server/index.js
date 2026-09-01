@@ -39,6 +39,7 @@ import {
   buildTeacherCalendarCancellationMarkKey,
   filterTeacherCalendarCancelledSchedule,
   isTeacherCalendarLessonCancelled,
+  parseTeacherCalendarCancellationMarkKey,
 } from '../src/utils/teacherCalendarCancellation.js';
 import {
   buildMockExamProgressEntries,
@@ -3144,6 +3145,10 @@ const PAYMENT_NOTIFICATION_TEXT_MAX_LENGTH = 500;
 const PAYMENT_NOTIFICATION_REASON_MAX_LENGTH = 300;
 const PAYMENT_LESSON_SEARCH_PAST_DAYS = 45;
 const PAYMENT_LESSON_SEARCH_FUTURE_DAYS = 45;
+// A prepaid lesson may be moved well beyond the normal payment matching
+// window.  Keep a bounded horizon so a malformed recurring schedule cannot
+// make cancellation handling unbounded.
+const PAYMENT_TRANSFER_LOOKAHEAD_DAYS = 365;
 const STUDENT_SCHEDULE_PAYMENT_LOOKBACK_DAYS = 90;
 const STUDENT_SCHEDULE_PAYMENT_OVERDUE_LIMIT = 16;
 const STUDENT_SCHEDULE_PAYMENT_TRACKING_START_DAY_KEY = '2026-05-01';
@@ -3581,10 +3586,95 @@ const normalizeTeacherFinanceLessonLedger = (value) => {
   return normalized;
 };
 
+// A paid calendar mark used to be the only link between a payment and a
+// lesson.  Keep that mark for backwards compatibility, but also persist the
+// allocation so that a cancelled prepaid lesson can be moved to an advance or
+// to the next lesson without losing the original payment context.
+const TEACHER_FINANCE_PAYMENT_ALLOCATIONS_LIMIT = 2000;
+const TEACHER_FINANCE_PAYMENT_ALLOCATION_MIGRATION_VERSION = 1;
+const TEACHER_FINANCE_PAYMENT_ALLOCATION_STATUSES = new Set([
+  'allocated',
+  'credit',
+  'refunded',
+]);
+
+const normalizeTeacherFinancePaymentAllocation = (value, fallbackKey = '') => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const originMarkKey = normalizeTeacherCalendarMarkKey(source.originMarkKey || fallbackKey);
+  const studentId = String(source.studentId || '').trim();
+  const amount = roundTeacherFinanceNumber(source.amount);
+  const sourceDayKey = normalizeDayKey(source.sourceDayKey || source.dayKey) || '';
+  const sourceTime = normalizeScheduleTime(source.sourceTime || source.time);
+  const statusValue = String(source.status || '').trim().toLowerCase();
+  if (!originMarkKey || !studentId || amount <= 0 || !sourceDayKey || !sourceTime) return null;
+  return {
+    studentId,
+    amount,
+    originMarkKey,
+    currentMarkKey: normalizeTeacherCalendarMarkKey(source.currentMarkKey),
+    sourceEntryId: String(source.sourceEntryId || '').trim(),
+    sourceDayKey,
+    sourceTime,
+    sourceDurationMinutes: normalizeScheduleDurationMinutes(
+      source.sourceDurationMinutes || source.durationMinutes
+    ),
+    sourceGroupId: String(source.sourceGroupId || source.groupId || '').trim(),
+    sourceMarkValue: typeof source.sourceMarkValue === 'string' && source.sourceMarkValue.trim()
+      ? source.sourceMarkValue.trim()
+      : '',
+    currentEntryId: String(source.currentEntryId || source.sourceEntryId || '').trim(),
+    currentDayKey: normalizeDayKey(source.currentDayKey || source.sourceDayKey || source.dayKey) || sourceDayKey,
+    currentTime: normalizeScheduleTime(source.currentTime || source.sourceTime || source.time) || sourceTime,
+    currentDurationMinutes: normalizeScheduleDurationMinutes(
+      source.currentDurationMinutes || source.sourceDurationMinutes || source.durationMinutes
+    ),
+    currentGroupId: String(source.currentGroupId || source.sourceGroupId || source.groupId || '').trim(),
+    previousMarkKey: normalizeTeacherCalendarMarkKey(source.previousMarkKey),
+    previousMarkValue: typeof source.previousMarkValue === 'string' && source.previousMarkValue.trim()
+      ? source.previousMarkValue.trim()
+      : '',
+    previousEntryId: String(source.previousEntryId || '').trim(),
+    previousDayKey: normalizeDayKey(source.previousDayKey) || '',
+    previousTime: normalizeScheduleTime(source.previousTime),
+    previousDurationMinutes: source.previousDurationMinutes
+      ? normalizeScheduleDurationMinutes(source.previousDurationMinutes)
+      : 0,
+    previousGroupId: String(source.previousGroupId || '').trim(),
+    status: TEACHER_FINANCE_PAYMENT_ALLOCATION_STATUSES.has(statusValue)
+      ? statusValue
+      : 'allocated',
+    targetMarkKey: normalizeTeacherCalendarMarkKey(source.targetMarkKey),
+    targetMarkValue: typeof source.targetMarkValue === 'string' && source.targetMarkValue.trim()
+      ? source.targetMarkValue.trim()
+      : '',
+    createdAt: typeof source.createdAt === 'string' && source.createdAt.trim()
+      ? source.createdAt.trim()
+      : '',
+    updatedAt: typeof source.updatedAt === 'string' && source.updatedAt.trim()
+      ? source.updatedAt.trim()
+      : '',
+  };
+};
+
+const normalizeTeacherFinancePaymentAllocations = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([key, rawAllocation]) => {
+    const allocation = normalizeTeacherFinancePaymentAllocation(rawAllocation, key);
+    if (!allocation) return;
+    normalized[allocation.originMarkKey] = allocation;
+  });
+  const entries = Object.entries(normalized);
+  if (entries.length <= TEACHER_FINANCE_PAYMENT_ALLOCATIONS_LIMIT) return normalized;
+  return Object.fromEntries(entries.slice(-TEACHER_FINANCE_PAYMENT_ALLOCATIONS_LIMIT));
+};
+
 const getDefaultTeacherFinanceTeacherEntry = () => ({
   studentProfiles: {},
   months: {},
   lessonLedger: {},
+  paymentAllocations: {},
+  paymentAllocationMigrationVersion: 0,
 });
 
 const normalizeTeacherFinanceTeacherEntry = (value) => {
@@ -3629,6 +3719,11 @@ const normalizeTeacherFinanceTeacherEntry = (value) => {
     studentProfiles,
     months,
     lessonLedger: normalizeTeacherFinanceLessonLedger(source.lessonLedger),
+    paymentAllocations: normalizeTeacherFinancePaymentAllocations(source.paymentAllocations),
+    paymentAllocationMigrationVersion: Math.max(
+      0,
+      Math.floor(Number(source.paymentAllocationMigrationVersion) || 0)
+    ),
   };
 };
 
@@ -3664,6 +3759,17 @@ const getTeacherFinanceTeacherEntry = (db, teacherId) => {
   if (!normalizedTeacherId) return getDefaultTeacherFinanceTeacherEntry();
   return normalizeTeacherFinanceTeacherEntry(normalizedDb[normalizedTeacherId]);
 };
+
+const getTeacherFinanceStudentAvailableCredit = (teacherEntry, studentId) => (
+  roundTeacherFinanceNumber(
+    Object.values(teacherEntry?.paymentAllocations || {})
+      .filter((allocation) => (
+        allocation.studentId === String(studentId || '').trim()
+        && allocation.status === 'credit'
+      ))
+      .reduce((total, allocation) => total + roundTeacherFinanceNumber(allocation.amount), 0)
+  )
+);
 
 const calculateTeacherFinanceStudentMetrics = (record) => {
   const pricingMode = normalizeTeacherFinancePricingMode(record?.pricingMode);
@@ -3723,6 +3829,20 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
   const monthSettings = normalizeTeacherFinanceMonthSettings(monthData.settings);
   const studentList = Array.isArray(teacherStudents) ? teacherStudents : [];
   const studentIds = new Set();
+  const availableCreditByStudentId = new Map();
+  Object.values(currentEntry.paymentAllocations || {}).forEach((allocation) => {
+    if (allocation?.status !== 'credit') return;
+    const studentId = String(allocation?.studentId || '').trim();
+    if (!studentId) return;
+    studentIds.add(studentId);
+    availableCreditByStudentId.set(
+      studentId,
+      roundTeacherFinanceNumber(
+        (availableCreditByStudentId.get(studentId) || 0)
+        + roundTeacherFinanceNumber(allocation.amount)
+      )
+    );
+  });
   studentList.forEach((student) => {
     const id = String(student?.id || '').trim();
     if (id) studentIds.add(id);
@@ -3739,6 +3859,7 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
     const profile = normalizeTeacherFinanceProfile(currentEntry.studentProfiles[studentId]);
     const record = normalizeTeacherFinanceStudentRecord(monthData.students[studentId], profile);
     const metrics = calculateTeacherFinanceStudentMetrics(record);
+    const availableCredit = availableCreditByStudentId.get(studentId) || 0;
     const fullName = typeof student?.name === 'string' && student.name.trim()
       ? student.name.trim()
       : 'Удалённый ученик';
@@ -3756,6 +3877,7 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
       profile,
       record,
       metrics,
+      availableCredit,
     };
   }).sort((left, right) => {
     const leftDeleted = Boolean(left.deletedAt);
@@ -3781,6 +3903,7 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
     acc.netAccrued = roundTeacherFinanceNumber(acc.netAccrued + metrics.netAccrued, { allowNegative: true });
     acc.cashflow = roundTeacherFinanceNumber(acc.cashflow + roundTeacherFinanceNumber(record.paidAmount), { allowNegative: true });
     acc.outstanding = roundTeacherFinanceNumber(acc.outstanding + metrics.outstanding, { allowNegative: true });
+    acc.availableCredit = roundTeacherFinanceNumber(acc.availableCredit + roundTeacherFinanceNumber(student.availableCredit));
     return acc;
   }, {
     studentsCount: 0,
@@ -3795,6 +3918,7 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
     netAccrued: 0,
     cashflow: 0,
     outstanding: 0,
+    availableCredit: 0,
   });
 
   const totalNetAccrued = roundTeacherFinanceNumber(
@@ -3822,6 +3946,7 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
       goalProgress,
       totalNetAccrued,
       totalCashflow,
+      availableCredit: studentTotals.availableCredit,
     },
   };
 };
@@ -15606,6 +15731,12 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
   const rawBaseSchedule = Array.isArray(schedule) ? schedule : [];
   if (!studentId || !teacherId) return rawBaseSchedule;
 
+  try {
+    await reconcileTeacherPaymentCredits(teacherId, { studentId });
+  } catch (error) {
+    console.warn('[payment-credit] schedule reconciliation failed:', error?.message || error);
+  }
+
   const marksDb = readTeacherCalendarMarksDb();
   const teacherMarks = normalizeTeacherCalendarMarks(marksDb[teacherId]);
   const baseSchedule = filterTeacherCalendarCancelledSchedule(
@@ -15849,6 +15980,7 @@ const getPaymentScheduleEntries = async (teacherId, options = {}) => {
     teacherId,
     await fetchTeacherGoogleCalendarEntries(teacherId, {
       throughMonth: options.googleCalendarThroughMonth,
+      throwOnError: options.throwOnGoogleError === true,
     })
   );
   return [...localEntries, ...googleEntries];
@@ -16450,6 +16582,11 @@ const buildTeacherFinanceProfitability = async (
 };
 
 const buildTeacherFinanceResponseWithProfitability = async (teacherId, monthKey) => {
+  try {
+    await reconcileTeacherPaymentCredits(teacherId);
+  } catch (error) {
+    console.warn('[payment-credit] finance reconciliation failed:', error?.message || error);
+  }
   const response = buildTeacherFinanceResponse(teacherId, monthKey);
   const teacherStudents = readStudentsDb().filter(
     (student) => normalizeTeacherId(student?.teacherId) === normalizeTeacherId(teacherId)
@@ -16495,12 +16632,23 @@ const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, par
   if (!teacherId || !studentId) {
     return { status: 'pending', reason: 'Не найден учитель или ученик.' };
   }
-  const financeDb = readTeacherFinanceDb();
-  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacherId);
+  try {
+    // Consume any previously released advance before matching a new bank
+    // notification, otherwise both payments could be assigned to the same
+    // next lesson in a race between the two flows.
+    await reconcileTeacherPaymentCredits(teacherId, { studentId });
+  } catch (error) {
+    console.warn('[payment-credit] notification reconciliation failed:', error?.message || error);
+  }
   const occurrences = await getPaymentCandidateLessonOccurrences(teacherId, student, parsed.receivedAt);
   if (occurrences.length === 0) {
     return { status: 'pending', reason: 'Не нашел неоплаченный урок рядом с датой платежа.' };
   }
+  // Candidate discovery may wait for Google Calendar. Read finance only after
+  // that await so a concurrent cancellation cannot be overwritten by stale
+  // data when this notification is persisted.
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacherId);
 
   const firstPrice = getLessonPriceForPaymentOccurrence(teacherEntry, studentId, occurrences[0]);
   const lessonPrice = roundTeacherFinanceNumber(firstPrice.lessonPrice);
@@ -16534,6 +16682,7 @@ const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, par
   }
 
   const nowIso = new Date().toISOString();
+  const paymentMarkValue = normalizeTeacherCalendarMarkValue(parsed.receivedAt || nowIso);
   selectedOccurrences.forEach((occurrence) => {
     const month = normalizeTeacherFinanceMonthKey(String(occurrence.dayKey || '').slice(0, 7));
     if (!month) return;
@@ -16548,8 +16697,29 @@ const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, par
           paidAmount: roundTeacherFinanceNumber(record.paidAmount + lessonPrice),
           updatedAt: nowIso,
         },
-      },
-    };
+        },
+      };
+    teacherEntry.paymentAllocations[occurrence.markKey] = normalizeTeacherFinancePaymentAllocation({
+      ...(teacherEntry.paymentAllocations[occurrence.markKey] || {}),
+      studentId,
+      amount: lessonPrice,
+      originMarkKey: occurrence.markKey,
+      currentMarkKey: occurrence.markKey,
+      sourceEntryId: String(occurrence.event?.id || occurrence.event?.externalEventId || '').trim(),
+      sourceDayKey: occurrence.dayKey,
+      sourceTime: occurrence.event?.time || occurrence.time,
+      sourceDurationMinutes: occurrence.event?.durationMinutes,
+      sourceGroupId: occurrence.groupId,
+      sourceMarkValue: paymentMarkValue,
+      currentEntryId: String(occurrence.event?.id || occurrence.event?.externalEventId || '').trim(),
+      currentDayKey: occurrence.dayKey,
+      currentTime: occurrence.event?.time || occurrence.time,
+      currentDurationMinutes: occurrence.event?.durationMinutes,
+      currentGroupId: occurrence.groupId,
+      status: 'allocated',
+      createdAt: teacherEntry.paymentAllocations[occurrence.markKey]?.createdAt || nowIso,
+      updatedAt: nowIso,
+    }, occurrence.markKey);
   });
   financeDb[teacherId] = teacherEntry;
   writeTeacherFinanceDb(financeDb);
@@ -32911,6 +33081,7 @@ const buildParentFinanceSummary = (student) => {
     plannedLessons: roundTeacherFinanceNumber(record.plannedLessons),
     completedLessons: roundTeacherFinanceNumber(record.completedLessons),
     paidAmount: roundTeacherFinanceNumber(record.paidAmount),
+    availableCredit: getTeacherFinanceStudentAvailableCredit(financeContext.teacherEntry, student.id),
     netAccrued: roundTeacherFinanceNumber(metrics.netAccrued, { allowNegative: true }),
     outstanding: roundTeacherFinanceNumber(metrics.outstanding, { allowNegative: true }),
     paymentStatus: metrics.paymentStatus,
@@ -33319,6 +33490,1140 @@ const synchronizeHomeworkAfterTeacherCalendarCancellation = ({
   });
 };
 
+// Apply an advance that was created by a cancelled prepaid lesson as soon as
+// a suitable future lesson becomes available (for example after adding a new
+// schedule entry or after a Google Calendar refresh).
+const bootstrapCancelledTeacherPaymentAllocations = async (teacherId) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  if (!normalizedTeacherId) return { changed: false };
+  const existingFinanceEntry = getTeacherFinanceTeacherEntry(
+    readTeacherFinanceDb(),
+    normalizedTeacherId
+  );
+  if (
+    existingFinanceEntry.paymentAllocationMigrationVersion
+    >= TEACHER_FINANCE_PAYMENT_ALLOCATION_MIGRATION_VERSION
+  ) {
+    return { changed: false };
+  }
+  const completeMigration = () => {
+    const latestFinanceDb = readTeacherFinanceDb();
+    const latestTeacherEntry = getTeacherFinanceTeacherEntry(
+      latestFinanceDb,
+      normalizedTeacherId
+    );
+    latestTeacherEntry.paymentAllocationMigrationVersion =
+      TEACHER_FINANCE_PAYMENT_ALLOCATION_MIGRATION_VERSION;
+    latestFinanceDb[normalizedTeacherId] = latestTeacherEntry;
+    writeTeacherFinanceDb(latestFinanceDb);
+  };
+  const marksDb = readTeacherCalendarMarksDb();
+  let marks = normalizeTeacherCalendarMarks(marksDb[normalizedTeacherId]);
+  const cancellationMarks = Object.keys(marks)
+    .map((key) => ({ key, parsed: parseTeacherCalendarCancellationMarkKey(key) }))
+    .filter((item) => (
+      item.parsed
+      && item.parsed.teacherId === normalizedTeacherId
+    ));
+  if (cancellationMarks.length === 0) {
+    completeMigration();
+    return { changed: false };
+  }
+
+  let entries = [];
+  let loadedAllScheduleEntries = true;
+  const latestCancellationDayNumber = cancellationMarks.reduce((latest, cancellation) => {
+    const dayNumber = dayKeyToNumber(cancellation.parsed?.dayKey);
+    return Number.isFinite(dayNumber) ? Math.max(latest, dayNumber) : latest;
+  }, Number.NEGATIVE_INFINITY);
+  const migrationThroughMonth = Number.isFinite(latestCancellationDayNumber)
+    ? String(numberToDayKey(latestCancellationDayNumber) || '').slice(0, 7)
+    : '';
+  try {
+    entries = await getPaymentScheduleEntries(normalizedTeacherId, {
+      includeDeletedStudents: true,
+      googleCalendarThroughMonth: migrationThroughMonth,
+      throwOnGoogleError: true,
+    });
+  } catch {
+    loadedAllScheduleEntries = false;
+    entries = getTeacherScheduleEntries(normalizedTeacherId, { includeDeletedStudents: true });
+  }
+  let changed = false;
+  let hasPendingMigration = false;
+  for (const cancellation of cancellationMarks) {
+    const { sourceId, dayKey, time, scopeId } = cancellation.parsed;
+    const scopeParts = String(scopeId || '').split(':');
+    const scopedStudentId = scopeParts[0] === 'student' ? scopeParts.slice(1).join(':') : '';
+    const relatedPaidMarkKeys = new Set(Object.keys(marks).filter((markKey) => (
+      markKey.startsWith(`${normalizedTeacherId}:`)
+      && markKey.endsWith(':paid')
+      && (
+        scopedStudentId
+          ? markKey.endsWith(`:${dayKey}:${scopedStudentId}:${time}:paid`)
+          : (markKey.includes(`:${dayKey}:`) && markKey.endsWith(`:${time}:paid`))
+      )
+    )));
+    const matchingEntries = (Array.isArray(entries) ? entries : []).filter((entry) => (
+      String(entry?.externalEventId || entry?.id || '').trim() === sourceId
+      && normalizeScheduleTime(entry?.time) === time
+      && doesTeacherCalendarEntryOccurOnDay(entry, dayKey)
+    ));
+    for (const sourceEntry of matchingEntries) {
+      const candidateStudentIds = scopedStudentId
+        ? [scopedStudentId]
+        : (Array.isArray(sourceEntry?.participantIds) ? sourceEntry.participantIds : []);
+      for (const rawStudentId of candidateStudentIds) {
+        const currentStudentId = String(rawStudentId || '').trim();
+        if (!currentStudentId) continue;
+        const projectedEntry = {
+          ...sourceEntry,
+          studentId: currentStudentId,
+          participantIds: [currentStudentId],
+          dayKey,
+          date: dayKey,
+          time,
+        };
+        const paidMarkKey = buildTeacherCalendarPaymentMarkKey(
+          normalizedTeacherId,
+          projectedEntry,
+          dayKey,
+          'paid'
+        );
+        if (!paidMarkKey || !marks[paidMarkKey]) continue;
+        const financeEntry = getTeacherFinanceTeacherEntry(
+          readTeacherFinanceDb(),
+          normalizedTeacherId
+        );
+        if (getPaymentAllocationByMarkKey(financeEntry, paidMarkKey, currentStudentId)) {
+          relatedPaidMarkKeys.delete(paidMarkKey);
+          continue;
+        }
+        const result = await synchronizeTeacherCalendarPaymentCancellation({
+          teacherId: normalizedTeacherId,
+          entry: projectedEntry,
+          dayKey,
+          previousMarks: marks,
+          nextMarks: marks,
+          cancelled: true,
+          scheduleEntries: entries,
+        });
+        if (JSON.stringify(result.marks) !== JSON.stringify(marks)) changed = true;
+        marks = result.marks;
+        const latestFinanceEntry = getTeacherFinanceTeacherEntry(
+          readTeacherFinanceDb(),
+          normalizedTeacherId
+        );
+        if (
+          !marks[paidMarkKey]
+          || getPaymentAllocationByMarkKey(latestFinanceEntry, paidMarkKey, currentStudentId)
+        ) {
+          relatedPaidMarkKeys.delete(paidMarkKey);
+        }
+      }
+    }
+    if (relatedPaidMarkKeys.size > 0) hasPendingMigration = true;
+  }
+  if (changed) {
+    marksDb[normalizedTeacherId] = normalizeTeacherCalendarMarks(marks);
+    writeTeacherCalendarMarksDb(marksDb);
+  }
+  // Do not permanently skip legacy Google Calendar records when the remote
+  // calendar was temporarily unavailable. A later read will retry them.
+  if (loadedAllScheduleEntries && !hasPendingMigration) completeMigration();
+  return { changed };
+};
+
+const getPaymentAllocationScheduleCandidates = ({
+  teacherId,
+  allocation,
+  student,
+  teacherMarks,
+  teacherEntry,
+  scheduleEntries,
+}) => {
+  const sourceOccurrence = getPaymentAllocationCurrentOccurrence(allocation);
+  const sourceEntryId = String(sourceOccurrence.id || sourceOccurrence.externalEventId || '').trim();
+  const sourceDayNumber = dayKeyToNumber(sourceOccurrence.dayKey);
+  if (!sourceEntryId || !Number.isFinite(sourceDayNumber)) return [];
+  const rangeInfo = {
+    todayNumber: sourceDayNumber + PAYMENT_TRANSFER_LOOKAHEAD_DAYS,
+    lookbackStartNumber: sourceDayNumber - PAYMENT_TRANSFER_LOOKAHEAD_DAYS,
+    trackingStartNumber: NaN,
+  };
+  const candidates = [];
+  const seenMarkKeys = new Set();
+  (Array.isArray(scheduleEntries) ? scheduleEntries : []).forEach((entry) => {
+    if (!doesPaymentScheduleEntryMatchStudent(entry, student)) return;
+    const entryIds = new Set([
+      String(entry?.id || '').trim(),
+      String(entry?.externalEventId || '').trim(),
+    ].filter(Boolean));
+    if (!entryIds.has(sourceEntryId)) return;
+    const entryWithStudent = {
+      ...entry,
+      studentId: String(student?.id || entry?.studentId || '').trim(),
+    };
+    getStudentScheduleOccurrenceDays(entryWithStudent, rangeInfo).forEach((occurrence) => {
+      const dayKey = normalizeDayKey(occurrence?.dayKey);
+      const time = normalizeScheduleTime(entryWithStudent.time);
+      if (!dayKey || !time) return;
+      const event = {
+        ...entryWithStudent,
+        id: String(entryWithStudent?.id || entryWithStudent?.externalEventId || '').trim(),
+        externalEventId: String(entryWithStudent?.externalEventId || entryWithStudent?.id || '').trim(),
+        date: dayKey,
+        dayKey,
+        time,
+        durationMinutes: normalizeScheduleDurationMinutes(entryWithStudent?.durationMinutes),
+      };
+      const markKey = buildTeacherCalendarPaymentMarkKey(
+        teacherId,
+        event,
+        dayKey,
+        'paid'
+      );
+      if (!markKey || seenMarkKeys.has(markKey)) return;
+      seenMarkKeys.add(markKey);
+      const trialMarkKey = buildTeacherCalendarPaymentMarkKey(
+        teacherId,
+        event,
+        dayKey,
+        'trial'
+      );
+      const { lessonPrice } = getLessonPriceForPaymentOccurrence(
+        teacherEntry,
+        allocation.studentId,
+        event
+      );
+      candidates.push({
+        event,
+        dayKey,
+        time,
+        durationMinutes: event.durationMinutes,
+        dayNumber: Number(occurrence?.dayNumber),
+        startMinutes: parseScheduleMinutes(time),
+        markKey,
+        trialMarkKey,
+        lessonPrice: roundTeacherFinanceNumber(lessonPrice),
+        cancelled: isTeacherCalendarLessonCancelled(teacherId, event, dayKey, teacherMarks),
+      });
+    });
+  });
+  return candidates.sort((left, right) => {
+    const leftDistance = Math.abs(Number(left.dayNumber) - sourceDayNumber);
+    const rightDistance = Math.abs(Number(right.dayNumber) - sourceDayNumber);
+    return (leftDistance - rightDistance)
+      || (Number(left.dayNumber) - Number(right.dayNumber))
+      || (Number(left.startMinutes) - Number(right.startMinutes));
+  });
+};
+
+const releasePaymentAllocationToCredit = ({ allocation, marks, nowIso }) => {
+  const currentMarkKey = normalizeTeacherCalendarMarkKey(allocation?.currentMarkKey);
+  if (!allocation || allocation.status !== 'allocated' || !currentMarkKey) return false;
+  const currentOccurrence = getPaymentAllocationCurrentOccurrence(allocation);
+  if (!allocation.previousMarkKey) {
+    allocation.previousMarkKey = currentMarkKey;
+    allocation.previousMarkValue = marks[currentMarkKey]
+      || allocation.targetMarkValue
+      || allocation.sourceMarkValue
+      || nowIso;
+    allocation.previousEntryId = currentOccurrence.id;
+    allocation.previousDayKey = currentOccurrence.dayKey;
+    allocation.previousTime = currentOccurrence.time;
+    allocation.previousDurationMinutes = currentOccurrence.durationMinutes;
+    allocation.previousGroupId = currentOccurrence.groupId;
+  }
+  delete marks[currentMarkKey];
+  allocation.currentMarkKey = '';
+  allocation.targetMarkKey = '';
+  allocation.targetMarkValue = '';
+  allocation.status = 'credit';
+  allocation.updatedAt = nowIso;
+  return true;
+};
+
+const refundPaymentAllocationAfterManualMarkRemoval = (allocation, nowIso) => {
+  if (!allocation || allocation.status === 'refunded') return false;
+  allocation.currentMarkKey = '';
+  allocation.targetMarkKey = '';
+  allocation.targetMarkValue = '';
+  allocation.status = 'refunded';
+  allocation.updatedAt = nowIso;
+  return true;
+};
+
+const invalidateTeacherPaymentAllocationsForRemovedMarks = (
+  teacherId,
+  previousMarks,
+  nextMarks
+) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  if (!normalizedTeacherId) return false;
+  const removedPaidMarkKeys = new Set(
+    Object.keys(normalizeTeacherCalendarMarks(previousMarks)).filter((markKey) => (
+      markKey.endsWith(':paid') && !nextMarks?.[markKey]
+    ))
+  );
+  if (removedPaidMarkKeys.size === 0) return false;
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, normalizedTeacherId);
+  const nowIso = new Date().toISOString();
+  let changed = false;
+  Object.values(teacherEntry.paymentAllocations).forEach((allocation) => {
+    if (!removedPaidMarkKeys.has(allocation.currentMarkKey)) return;
+    if (refundPaymentAllocationAfterManualMarkRemoval(allocation, nowIso)) changed = true;
+  });
+  if (!changed) return false;
+  financeDb[normalizedTeacherId] = normalizeTeacherFinanceTeacherEntry(teacherEntry);
+  writeTeacherFinanceDb(financeDb);
+  return true;
+};
+
+const reconcileTeacherPaymentCredits = async (
+  teacherId,
+  { studentId = '', validateAllocated = false, invalidatedEntryIds = [] } = {}
+) => {
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  const normalizedStudentId = String(studentId || '').trim();
+  const invalidatedIds = new Set(
+    (Array.isArray(invalidatedEntryIds) ? invalidatedEntryIds : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
+  if (!normalizedTeacherId) return { changed: false, transfers: [] };
+  await bootstrapCancelledTeacherPaymentAllocations(normalizedTeacherId);
+  const previewTeacherEntry = getTeacherFinanceTeacherEntry(
+    readTeacherFinanceDb(),
+    normalizedTeacherId
+  );
+  const previewAllocations = Object.values(previewTeacherEntry.paymentAllocations)
+    .filter((allocation) => (
+      (allocation.status === 'credit' || (validateAllocated && allocation.status === 'allocated'))
+      && (!normalizedStudentId || allocation.studentId === normalizedStudentId)
+    ));
+  if (previewAllocations.length === 0) return { changed: false, transfers: [] };
+
+  let scheduleEntries = [];
+  let loadedCompleteSchedule = true;
+  const latestRelevantDayNumber = previewAllocations.reduce((latest, allocation) => {
+    const occurrence = getPaymentAllocationCurrentOccurrence(allocation);
+    const dayNumber = dayKeyToNumber(occurrence.dayKey);
+    return Number.isFinite(dayNumber) ? Math.max(latest, dayNumber) : latest;
+  }, Number.NEGATIVE_INFINITY);
+  const scheduleThroughMonth = Number.isFinite(latestRelevantDayNumber)
+    ? String(numberToDayKey(latestRelevantDayNumber + PAYMENT_TRANSFER_LOOKAHEAD_DAYS) || '').slice(0, 7)
+    : '';
+  try {
+    scheduleEntries = await getPaymentScheduleEntries(normalizedTeacherId, {
+      includeDeletedStudents: true,
+      googleCalendarThroughMonth: scheduleThroughMonth,
+      throwOnGoogleError: true,
+    });
+  } catch {
+    loadedCompleteSchedule = false;
+    scheduleEntries = getTeacherScheduleEntries(normalizedTeacherId, {
+      includeDeletedStudents: true,
+    });
+  }
+
+  // Schedule loading can perform network I/O. Reload both stores afterwards
+  // so this reconciliation never persists an older finance/marks snapshot.
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, normalizedTeacherId);
+  teacherEntry.paymentAllocations = normalizeTeacherFinancePaymentAllocations(
+    teacherEntry.paymentAllocations
+  );
+  const marksDb = readTeacherCalendarMarksDb();
+  const marks = normalizeTeacherCalendarMarks(marksDb[normalizedTeacherId]);
+  const transfers = [];
+  let changed = false;
+  const nowIso = new Date().toISOString();
+  const todayNumber = dayKeyToNumber(getStudentSchedulePaymentNowInfo().todayKey);
+  const allocated = Object.values(teacherEntry.paymentAllocations)
+    .filter((allocation) => (
+      validateAllocated
+      &&
+      allocation.status === 'allocated'
+      && (!normalizedStudentId || allocation.studentId === normalizedStudentId)
+      && allocation.targetMarkKey === allocation.currentMarkKey
+      && allocation.currentMarkKey !== allocation.originMarkKey
+      && (
+        invalidatedIds.size === 0
+        || invalidatedIds.has(String(allocation.currentEntryId || '').trim())
+      )
+    ));
+  for (const allocation of allocated) {
+    if (!loadedCompleteSchedule && invalidatedIds.size === 0) continue;
+    const currentMarkKey = normalizeTeacherCalendarMarkKey(allocation.currentMarkKey);
+    if (!currentMarkKey) continue;
+    const currentOccurrence = getPaymentAllocationCurrentOccurrence(allocation);
+    const currentDayNumber = dayKeyToNumber(currentOccurrence.dayKey);
+    if (
+      Number.isFinite(todayNumber)
+      && Number.isFinite(currentDayNumber)
+      && currentDayNumber < todayNumber
+    ) continue;
+    const completedMarkKey = buildTeacherCalendarPaymentMarkKey(
+      normalizedTeacherId,
+      currentOccurrence,
+      currentOccurrence.dayKey,
+      'completed'
+    );
+    if (completedMarkKey && marks[completedMarkKey]) continue;
+    const currentMarkValue = String(marks[currentMarkKey] || '').trim();
+    const expectedMarkValue = String(
+      allocation.targetMarkValue || allocation.sourceMarkValue || ''
+    ).trim();
+    const student = findStudentById(allocation.studentId, { allowDeleted: true }) || {
+      id: allocation.studentId,
+    };
+    const identityCandidates = getPaymentAllocationScheduleCandidates({
+      teacherId: normalizedTeacherId,
+      allocation,
+      student,
+      teacherMarks: marks,
+      teacherEntry,
+      scheduleEntries,
+    });
+    const exactOccurrence = identityCandidates.find((candidate) => (
+      candidate.markKey === currentMarkKey && !candidate.cancelled
+    ));
+    if (exactOccurrence) {
+      if (currentMarkValue) continue;
+      // The lesson still exists, so a missing mark was a manual removal rather
+      // than a schedule mutation. Do not ever resurrect that payment.
+      if (refundPaymentAllocationAfterManualMarkRemoval(allocation, nowIso)) changed = true;
+      continue;
+    }
+    if (!currentMarkValue || (expectedMarkValue && currentMarkValue !== expectedMarkValue)) {
+      if (!currentMarkValue) {
+        if (refundPaymentAllocationAfterManualMarkRemoval(allocation, nowIso)) changed = true;
+      }
+      continue;
+    }
+    const replacement = identityCandidates.find((candidate) => (
+      candidate.markKey !== currentMarkKey
+      && !candidate.cancelled
+      && !marks[candidate.markKey]
+      && !(candidate.trialMarkKey && marks[candidate.trialMarkKey])
+      && candidate.lessonPrice > 0
+      && Math.abs(candidate.lessonPrice - roundTeacherFinanceNumber(allocation.amount)) <= 0.01
+    ));
+    if (replacement && updatePaymentAllocationAtOccurrence({
+      allocation,
+      target: replacement,
+      teacherEntry,
+      marks,
+      nowIso,
+      preservePrevious: true,
+    })) {
+      changed = true;
+      transfers.push({
+        studentId: allocation.studentId,
+        type: 'transferred',
+        amount: allocation.amount,
+        fromDayKey: currentOccurrence.dayKey,
+        toDayKey: replacement.dayKey,
+        markKey: replacement.markKey,
+      });
+      continue;
+    }
+    if (releasePaymentAllocationToCredit({ allocation, marks, nowIso })) {
+      changed = true;
+    }
+  }
+
+  const credits = Object.values(teacherEntry.paymentAllocations)
+    .filter((allocation) => (
+      allocation.status === 'credit'
+      && (!normalizedStudentId || allocation.studentId === normalizedStudentId)
+    ))
+    .sort((left, right) => String(left.createdAt || '').localeCompare(String(right.createdAt || '')));
+  for (const allocation of loadedCompleteSchedule ? credits : []) {
+    const student = findStudentById(allocation.studentId, { allowDeleted: true }) || {
+      id: allocation.studentId,
+    };
+    const currentOccurrence = getPaymentAllocationCurrentOccurrence(allocation);
+    const sourceOccurrence = allocation.previousDayKey && allocation.previousTime
+      ? {
+          id: String(allocation.previousEntryId || currentOccurrence.id || '').trim(),
+          externalEventId: String(allocation.previousEntryId || currentOccurrence.id || '').trim(),
+          studentId: allocation.studentId,
+          dayKey: allocation.previousDayKey,
+          date: allocation.previousDayKey,
+          time: allocation.previousTime,
+          durationMinutes: allocation.previousDurationMinutes || currentOccurrence.durationMinutes,
+          groupId: allocation.previousGroupId || currentOccurrence.groupId,
+        }
+      : currentOccurrence;
+    const candidates = await getPaymentTransferCandidates({
+      teacherId: normalizedTeacherId,
+      student,
+      sourceOccurrence,
+      teacherMarks: marks,
+      teacherEntry,
+      scheduleEntries,
+    });
+    const target = candidates.find((candidate) => (
+      Math.abs(roundTeacherFinanceNumber(candidate.lessonPrice) - roundTeacherFinanceNumber(allocation.amount)) <= 0.01
+    ));
+    if (!target) continue;
+    if (!updatePaymentAllocationAtOccurrence({
+      allocation,
+      target,
+      teacherEntry,
+      marks,
+      nowIso,
+    })) continue;
+    changed = true;
+    transfers.push({
+      studentId: allocation.studentId,
+      type: 'transferred',
+      amount: allocation.amount,
+      fromDayKey: currentOccurrence.dayKey,
+      toDayKey: target.dayKey,
+      markKey: target.markKey,
+    });
+  }
+  if (!changed) return { changed: false, transfers: [] };
+  financeDb[normalizedTeacherId] = normalizeTeacherFinanceTeacherEntry(teacherEntry);
+  writeTeacherFinanceDb(financeDb);
+  marksDb[normalizedTeacherId] = normalizeTeacherCalendarMarks(marks);
+  writeTeacherCalendarMarksDb(marksDb);
+  notifyScheduleSyncUpdate({
+    scope: 'teacher-calendar-marks',
+    action: 'payment-credit-applied',
+    teacherId: normalizedTeacherId,
+    ...(normalizedStudentId ? { studentId: normalizedStudentId } : {}),
+  });
+  return { changed: true, transfers };
+};
+
+const getPaymentAllocationCurrentOccurrence = (allocation = {}) => ({
+  id: String(allocation.currentEntryId || allocation.sourceEntryId || '').trim(),
+  externalEventId: String(allocation.currentEntryId || allocation.sourceEntryId || '').trim(),
+  studentId: String(allocation.studentId || '').trim(),
+  dayKey: normalizeDayKey(allocation.currentDayKey || allocation.sourceDayKey) || '',
+  date: normalizeDayKey(allocation.currentDayKey || allocation.sourceDayKey) || '',
+  time: normalizeScheduleTime(allocation.currentTime || allocation.sourceTime),
+  durationMinutes: normalizeScheduleDurationMinutes(
+    allocation.currentDurationMinutes || allocation.sourceDurationMinutes
+  ),
+  groupId: String(allocation.currentGroupId || allocation.sourceGroupId || '').trim(),
+});
+
+const updateTeacherFinanceStudentPaidAmount = (
+  teacherEntry,
+  studentId,
+  month,
+  delta,
+  nowIso = new Date().toISOString()
+) => {
+  const normalizedMonth = normalizeTeacherFinanceMonthKey(month);
+  const normalizedStudentId = String(studentId || '').trim();
+  const amountDelta = Number(delta);
+  if (!normalizedMonth || !normalizedStudentId || !Number.isFinite(amountDelta) || amountDelta === 0) return;
+  const currentMonth = teacherEntry.months[normalizedMonth] || {
+    settings: getDefaultTeacherFinanceMonthSettings(),
+    students: {},
+  };
+  const profile = normalizeTeacherFinanceProfile(teacherEntry.studentProfiles[normalizedStudentId]);
+  const record = normalizeTeacherFinanceStudentRecord(
+    currentMonth.students?.[normalizedStudentId],
+    profile
+  );
+  teacherEntry.studentProfiles[normalizedStudentId] = profile;
+  teacherEntry.months[normalizedMonth] = {
+    settings: normalizeTeacherFinanceMonthSettings(currentMonth.settings),
+    students: {
+      ...(currentMonth.students || {}),
+      [normalizedStudentId]: {
+        ...record,
+        paidAmount: roundTeacherFinanceNumber(record.paidAmount + amountDelta),
+        updatedAt: nowIso,
+      },
+    },
+  };
+};
+
+const moveTeacherFinancePaymentAmount = (
+  teacherEntry,
+  studentId,
+  fromMonth,
+  toMonth,
+  amount,
+  nowIso = new Date().toISOString()
+) => {
+  const normalizedFrom = normalizeTeacherFinanceMonthKey(fromMonth);
+  const normalizedTo = normalizeTeacherFinanceMonthKey(toMonth);
+  const normalizedAmount = roundTeacherFinanceNumber(amount);
+  if (
+    !normalizedFrom
+    || !normalizedTo
+    || normalizedFrom === normalizedTo
+    || normalizedAmount <= 0
+  ) return;
+  updateTeacherFinanceStudentPaidAmount(
+    teacherEntry,
+    studentId,
+    normalizedFrom,
+    -normalizedAmount,
+    nowIso
+  );
+  updateTeacherFinanceStudentPaidAmount(
+    teacherEntry,
+    studentId,
+    normalizedTo,
+    normalizedAmount,
+    nowIso
+  );
+};
+
+const getPaymentAllocationByMarkKey = (teacherEntry, markKey, studentId = '') => {
+  const normalizedMarkKey = normalizeTeacherCalendarMarkKey(markKey);
+  const normalizedStudentId = String(studentId || '').trim();
+  if (!normalizedMarkKey) return null;
+  // Normalize the map in place so callers can safely update the returned
+  // allocation and persist those changes with the enclosing teacher entry.
+  if (teacherEntry && typeof teacherEntry === 'object') {
+    teacherEntry.paymentAllocations = normalizeTeacherFinancePaymentAllocations(
+      teacherEntry.paymentAllocations
+    );
+  }
+  const allocations = Object.values(teacherEntry?.paymentAllocations || {});
+  return allocations.find((allocation) => (
+    (!normalizedStudentId || allocation.studentId === normalizedStudentId)
+    && (
+      allocation.currentMarkKey === normalizedMarkKey
+      || allocation.originMarkKey === normalizedMarkKey
+      || allocation.previousMarkKey === normalizedMarkKey
+      || allocation.targetMarkKey === normalizedMarkKey
+    )
+  )) || null;
+};
+
+const makeTeacherFinancePaymentAllocation = ({
+  teacherEntry,
+  studentId,
+  markKey,
+  markValue,
+  occurrence,
+  nowIso,
+}) => {
+  const normalizedStudentId = String(studentId || '').trim();
+  const normalizedMarkKey = normalizeTeacherCalendarMarkKey(markKey);
+  const sourceDayKey = normalizeDayKey(occurrence?.dayKey || occurrence?.date) || '';
+  const sourceTime = normalizeScheduleTime(occurrence?.time);
+  if (!normalizedStudentId || !normalizedMarkKey || !sourceDayKey || !sourceTime) return null;
+  const { lessonPrice } = getLessonPriceForPaymentOccurrence(
+    teacherEntry,
+    normalizedStudentId,
+    occurrence
+  );
+  const amount = roundTeacherFinanceNumber(lessonPrice);
+  if (amount <= 0) return null;
+  const sourceEntryId = String(occurrence?.id || occurrence?.externalEventId || '').trim();
+  return normalizeTeacherFinancePaymentAllocation({
+    studentId: normalizedStudentId,
+    amount,
+    originMarkKey: normalizedMarkKey,
+    currentMarkKey: normalizedMarkKey,
+    sourceEntryId,
+    sourceDayKey,
+    sourceTime,
+    sourceDurationMinutes: occurrence?.durationMinutes,
+    sourceGroupId: occurrence?.groupId,
+    sourceMarkValue: normalizeTeacherCalendarMarkValue(markValue || nowIso),
+    currentEntryId: sourceEntryId,
+    currentDayKey: sourceDayKey,
+    currentTime: sourceTime,
+    currentDurationMinutes: occurrence?.durationMinutes,
+    currentGroupId: occurrence?.groupId,
+    status: 'allocated',
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  }, normalizedMarkKey);
+};
+
+const getPaymentTransferCandidates = async ({
+  teacherId,
+  student,
+  sourceOccurrence,
+  teacherMarks,
+  teacherEntry,
+  scheduleEntries = null,
+}) => {
+  const sourceDayKey = normalizeDayKey(sourceOccurrence?.dayKey || sourceOccurrence?.date) || '';
+  const sourceDayNumber = dayKeyToNumber(sourceDayKey);
+  const sourceTime = normalizeScheduleTime(sourceOccurrence?.time);
+  const sourceMinutes = parseScheduleMinutes(sourceTime);
+  if (!sourceDayKey || !Number.isFinite(sourceDayNumber) || !Number.isFinite(sourceMinutes)) return [];
+  const endDayKey = numberToDayKey(sourceDayNumber + PAYMENT_TRANSFER_LOOKAHEAD_DAYS);
+  const rangeInfo = {
+    todayNumber: sourceDayNumber + PAYMENT_TRANSFER_LOOKAHEAD_DAYS,
+    trackingStartNumber: sourceDayNumber,
+    trackingStartDayKey: sourceDayKey,
+    lookbackStartNumber: sourceDayNumber,
+  };
+  let entries = Array.isArray(scheduleEntries) ? scheduleEntries : [];
+  if (!Array.isArray(scheduleEntries)) {
+    try {
+      entries = await getPaymentScheduleEntries(teacherId, {
+        includeDeletedStudents: true,
+        googleCalendarThroughMonth: String(endDayKey || '').slice(0, 7),
+      });
+    } catch {
+      entries = getTeacherScheduleEntries(teacherId, { includeDeletedStudents: true });
+    }
+  }
+  const candidates = [];
+  const seenMarkKeys = new Set();
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    if (!doesPaymentScheduleEntryMatchStudent(entry, student)) return;
+    const entryWithStudent = {
+      ...entry,
+      studentId: String(entry?.studentId || student?.id || '').trim(),
+    };
+    getStudentScheduleOccurrenceDays(entryWithStudent, rangeInfo).forEach((occurrence) => {
+      const dayNumber = Number(occurrence?.dayNumber);
+      const dayKey = normalizeDayKey(occurrence?.dayKey);
+      const time = normalizeScheduleTime(entryWithStudent?.time);
+      if (!dayKey || !Number.isFinite(dayNumber) || !time) return;
+      const startMinutes = parseScheduleMinutes(time);
+      if (
+        dayNumber < sourceDayNumber
+        || (dayNumber === sourceDayNumber && startMinutes <= sourceMinutes)
+        || dayNumber > sourceDayNumber + PAYMENT_TRANSFER_LOOKAHEAD_DAYS
+      ) return;
+      const event = {
+        ...entryWithStudent,
+        studentId: String(student?.id || entryWithStudent.studentId || '').trim(),
+        id: String(entryWithStudent?.id || entryWithStudent?.externalEventId || '').trim(),
+        externalEventId: String(entryWithStudent?.externalEventId || entryWithStudent?.id || '').trim(),
+        date: dayKey,
+        dayKey,
+        time,
+        durationMinutes: normalizeScheduleDurationMinutes(entryWithStudent?.durationMinutes),
+        startMinutes,
+        endMinutes: startMinutes + normalizeScheduleDurationMinutes(entryWithStudent?.durationMinutes),
+      };
+      const markKey = buildTeacherCalendarPaymentMarkKey(
+        teacherId,
+        event,
+        dayKey,
+        'paid'
+      );
+      const trialMarkKey = buildTeacherCalendarPaymentMarkKey(
+        teacherId,
+        event,
+        dayKey,
+        'trial'
+      );
+      if (
+        !markKey
+        || seenMarkKeys.has(markKey)
+        || teacherMarks?.[markKey]
+        || (trialMarkKey && teacherMarks?.[trialMarkKey])
+        || isTeacherCalendarLessonCancelled(teacherId, event, dayKey, teacherMarks)
+      ) return;
+      const { lessonPrice } = getLessonPriceForPaymentOccurrence(
+        teacherEntry,
+        String(student?.id || entryWithStudent.studentId || '').trim(),
+        event
+      );
+      const normalizedPrice = roundTeacherFinanceNumber(lessonPrice);
+      if (normalizedPrice <= 0) return;
+      seenMarkKeys.add(markKey);
+      candidates.push({
+        event,
+        dayKey,
+        time,
+        durationMinutes: event.durationMinutes,
+        dayNumber,
+        startMinutes,
+        markKey,
+        lessonPrice: normalizedPrice,
+        month: normalizeTeacherFinanceMonthKey(dayKey.slice(0, 7)),
+      });
+    });
+  });
+  return candidates.sort((left, right) => (
+    (left.dayNumber - right.dayNumber)
+    || (left.startMinutes - right.startMinutes)
+    || String(left.markKey).localeCompare(String(right.markKey), 'ru')
+  ));
+};
+
+const updatePaymentAllocationAtOccurrence = ({
+  allocation,
+  target,
+  teacherEntry,
+  marks,
+  nowIso,
+  preservePrevious = false,
+}) => {
+  if (!allocation || !target || !target.markKey) return false;
+  const sourceOccurrence = getPaymentAllocationCurrentOccurrence(allocation);
+  const sourceMarkKey = normalizeTeacherCalendarMarkKey(allocation.currentMarkKey);
+  const sourceMonth = normalizeTeacherFinanceMonthKey(
+    String(sourceOccurrence.dayKey || '').slice(0, 7)
+  );
+  const targetMonth = normalizeTeacherFinanceMonthKey(String(target.dayKey || '').slice(0, 7));
+  if (!sourceMonth || !targetMonth) return false;
+  if (
+    target.lessonPrice > 0
+    && Math.abs(roundTeacherFinanceNumber(target.lessonPrice) - roundTeacherFinanceNumber(allocation.amount)) > 0.01
+  ) return false;
+
+  if (!preservePrevious) {
+    const previousAllocationMarkKey = allocation.currentMarkKey
+      || allocation.previousMarkKey
+      || allocation.originMarkKey;
+    const keepsExistingPrevious = allocation.previousMarkKey === previousAllocationMarkKey;
+    allocation.previousMarkKey = previousAllocationMarkKey;
+    allocation.previousMarkValue = keepsExistingPrevious
+      ? (allocation.previousMarkValue || allocation.sourceMarkValue || nowIso)
+      : (marks[previousAllocationMarkKey] || allocation.sourceMarkValue || nowIso);
+    if (!keepsExistingPrevious) {
+      allocation.previousEntryId = allocation.currentEntryId;
+      allocation.previousDayKey = allocation.currentDayKey;
+      allocation.previousTime = allocation.currentTime;
+      allocation.previousDurationMinutes = allocation.currentDurationMinutes;
+      allocation.previousGroupId = allocation.currentGroupId;
+    }
+  }
+  allocation.currentMarkKey = target.markKey;
+  allocation.currentEntryId = String(target.event?.id || target.event?.externalEventId || '').trim();
+  allocation.currentDayKey = target.dayKey;
+  allocation.currentTime = target.time;
+  allocation.currentDurationMinutes = target.durationMinutes;
+  allocation.currentGroupId = String(target.event?.groupId || '').trim();
+  allocation.targetMarkKey = target.markKey;
+  allocation.targetMarkValue = allocation.sourceMarkValue || nowIso;
+  allocation.status = 'allocated';
+  allocation.updatedAt = nowIso;
+  moveTeacherFinancePaymentAmount(
+    teacherEntry,
+    allocation.studentId,
+    sourceMonth,
+    targetMonth,
+    allocation.amount,
+    nowIso
+  );
+  if (sourceMarkKey) delete marks[sourceMarkKey];
+  marks[target.markKey] = allocation.targetMarkValue;
+  return true;
+};
+
+const restorePaymentAllocationFromCancellation = ({
+  teacherId,
+  allocation,
+  sourceMarkKey,
+  teacherEntry,
+  marks,
+  nowIso,
+}) => {
+  if (!allocation || !sourceMarkKey) return { changed: false, warning: '' };
+  if (allocation.status === 'refunded') return { changed: false, warning: '' };
+  const normalizedSourceKey = normalizeTeacherCalendarMarkKey(sourceMarkKey);
+  const currentMarkKey = normalizeTeacherCalendarMarkKey(allocation.currentMarkKey);
+  const previousMarkKey = normalizeTeacherCalendarMarkKey(allocation.previousMarkKey);
+  const restoresOrigin = allocation.originMarkKey === normalizedSourceKey;
+  const restoresPrevious = previousMarkKey === normalizedSourceKey;
+  if (allocation.status === 'credit') {
+    if (!restoresOrigin && !restoresPrevious) {
+      return { changed: false, warning: '' };
+    }
+    const creditOccurrence = getPaymentAllocationCurrentOccurrence(allocation);
+    const restoredDayKey = restoresOrigin
+      ? allocation.sourceDayKey
+      : allocation.previousDayKey;
+    moveTeacherFinancePaymentAmount(
+      teacherEntry,
+      allocation.studentId,
+      String(creditOccurrence.dayKey || '').slice(0, 7),
+      String(restoredDayKey || '').slice(0, 7),
+      allocation.amount,
+      nowIso
+    );
+    const restoredMarkValue = restoresOrigin
+      ? (allocation.sourceMarkValue || nowIso)
+      : (allocation.previousMarkValue || allocation.sourceMarkValue || nowIso);
+    allocation.currentMarkKey = normalizedSourceKey;
+    allocation.currentEntryId = restoresOrigin
+      ? allocation.sourceEntryId
+      : allocation.previousEntryId;
+    allocation.currentDayKey = restoresOrigin
+      ? allocation.sourceDayKey
+      : allocation.previousDayKey;
+    allocation.currentTime = restoresOrigin
+      ? allocation.sourceTime
+      : allocation.previousTime;
+    allocation.currentDurationMinutes = restoresOrigin
+      ? allocation.sourceDurationMinutes
+      : allocation.previousDurationMinutes;
+    allocation.currentGroupId = restoresOrigin
+      ? allocation.sourceGroupId
+      : allocation.previousGroupId;
+    allocation.previousMarkKey = '';
+    allocation.previousMarkValue = '';
+    allocation.previousEntryId = '';
+    allocation.previousDayKey = '';
+    allocation.previousTime = '';
+    allocation.previousDurationMinutes = 0;
+    allocation.previousGroupId = '';
+    allocation.targetMarkKey = restoresOrigin ? '' : normalizedSourceKey;
+    allocation.targetMarkValue = restoresOrigin ? '' : restoredMarkValue;
+    allocation.status = 'allocated';
+    allocation.updatedAt = nowIso;
+    marks[normalizedSourceKey] = restoredMarkValue;
+    return { changed: true, warning: '' };
+  }
+  if (currentMarkKey === normalizedSourceKey && !previousMarkKey) {
+    marks[normalizedSourceKey] = allocation.sourceMarkValue || marks[normalizedSourceKey] || nowIso;
+    allocation.status = 'allocated';
+    allocation.updatedAt = nowIso;
+    return { changed: true, warning: '' };
+  }
+  if ((!restoresOrigin && !restoresPrevious) || currentMarkKey === normalizedSourceKey) {
+    return { changed: false, warning: '' };
+  }
+  const targetValue = String(allocation.targetMarkValue || '').trim();
+  const currentValue = String(marks[currentMarkKey] || '').trim();
+  const targetOccurrence = getPaymentAllocationCurrentOccurrence(allocation);
+  const completedMarkKey = buildTeacherCalendarPaymentMarkKey(
+    teacherId,
+    targetOccurrence,
+    targetOccurrence.dayKey,
+    'completed'
+  );
+  if (completedMarkKey && marks[completedMarkKey]) {
+    return {
+      changed: false,
+      warning: 'Оплата уже использована на проведённом занятии и не была перенесена обратно.',
+    };
+  }
+  if (!currentValue || (targetValue && currentValue !== targetValue)) {
+    return {
+      changed: false,
+      warning: 'Оплата уже была изменена вручную на следующем занятии; проверьте её распределение.',
+    };
+  }
+  const targetMonth = normalizeTeacherFinanceMonthKey(String(targetOccurrence.dayKey || '').slice(0, 7));
+  const restoredDayKey = restoresOrigin ? allocation.sourceDayKey : allocation.previousDayKey;
+  const sourceMonth = normalizeTeacherFinanceMonthKey(String(restoredDayKey || '').slice(0, 7));
+  delete marks[currentMarkKey];
+  marks[normalizedSourceKey] = restoresOrigin
+    ? (allocation.sourceMarkValue || nowIso)
+    : (allocation.previousMarkValue || allocation.sourceMarkValue || nowIso);
+  moveTeacherFinancePaymentAmount(
+    teacherEntry,
+    allocation.studentId,
+    targetMonth,
+    sourceMonth,
+    allocation.amount,
+    nowIso
+  );
+  allocation.currentMarkKey = normalizedSourceKey;
+  allocation.currentEntryId = restoresOrigin
+    ? allocation.sourceEntryId
+    : allocation.previousEntryId;
+  allocation.currentDayKey = restoresOrigin
+    ? allocation.sourceDayKey
+    : allocation.previousDayKey;
+  allocation.currentTime = restoresOrigin
+    ? allocation.sourceTime
+    : allocation.previousTime;
+  allocation.currentDurationMinutes = restoresOrigin
+    ? allocation.sourceDurationMinutes
+    : allocation.previousDurationMinutes;
+  allocation.currentGroupId = restoresOrigin
+    ? allocation.sourceGroupId
+    : allocation.previousGroupId;
+  allocation.targetMarkKey = restoresOrigin ? '' : normalizedSourceKey;
+  allocation.targetMarkValue = restoresOrigin
+    ? ''
+    : (allocation.previousMarkValue || allocation.sourceMarkValue || nowIso);
+  allocation.previousMarkKey = '';
+  allocation.previousMarkValue = '';
+  allocation.previousEntryId = '';
+  allocation.previousDayKey = '';
+  allocation.previousTime = '';
+  allocation.previousDurationMinutes = 0;
+  allocation.previousGroupId = '';
+  allocation.status = 'allocated';
+  allocation.updatedAt = nowIso;
+  return { changed: true, warning: '' };
+};
+
+const synchronizeTeacherCalendarPaymentCancellation = async ({
+  teacherId,
+  entry,
+  dayKey,
+  previousMarks,
+  nextMarks,
+  cancelled,
+  scheduleEntries = null,
+}) => {
+  const affectedStudentIds = getTeacherCalendarCancellationStudentIds(entry);
+  if (affectedStudentIds.length === 0) return { marks: nextMarks, transfers: [] };
+  const normalizedTeacherId = normalizeTeacherId(teacherId);
+  if (!normalizedTeacherId) return { marks: nextMarks, transfers: [] };
+
+  const financeDb = readTeacherFinanceDb();
+  const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, normalizedTeacherId);
+  const marks = normalizeTeacherCalendarMarks(nextMarks);
+  const transfers = [];
+  let financeChanged = false;
+  const nowIso = new Date().toISOString();
+
+  for (const studentId of affectedStudentIds) {
+    const sourceOccurrence = {
+      ...entry,
+      studentId,
+      dayKey,
+      date: dayKey,
+      time: normalizeScheduleTime(entry?.time),
+      durationMinutes: normalizeScheduleDurationMinutes(entry?.durationMinutes),
+    };
+    const sourceMarkKey = buildTeacherCalendarPaymentMarkKey(
+      normalizedTeacherId,
+      sourceOccurrence,
+      dayKey,
+      'paid'
+    );
+    if (!sourceMarkKey) continue;
+    let allocation = getPaymentAllocationByMarkKey(teacherEntry, sourceMarkKey, studentId);
+    if (!allocation && previousMarks[sourceMarkKey]) {
+      allocation = makeTeacherFinancePaymentAllocation({
+        teacherEntry,
+        studentId,
+        markKey: sourceMarkKey,
+        markValue: previousMarks[sourceMarkKey],
+        occurrence: sourceOccurrence,
+        nowIso,
+      });
+      if (allocation) {
+        teacherEntry.paymentAllocations[allocation.originMarkKey] = allocation;
+        financeChanged = true;
+      } else {
+        transfers.push({
+          studentId,
+          type: 'warning',
+          amount: 0,
+          message: 'Оплата осталась на отменённом занятии: сначала укажите стоимость урока в финансах.',
+        });
+      }
+    }
+    if (!allocation) continue;
+    if (allocation.status === 'refunded') continue;
+
+    if (cancelled) {
+      // A stale allocation must not resurrect a payment that the teacher
+      // explicitly removed from the calendar.
+      if (!previousMarks[sourceMarkKey] && allocation.currentMarkKey === sourceMarkKey) continue;
+      if (
+        allocation.status === 'credit'
+        || (
+          allocation.currentMarkKey
+          && allocation.currentMarkKey !== sourceMarkKey
+        )
+      ) continue;
+      const candidates = await getPaymentTransferCandidates({
+        teacherId: normalizedTeacherId,
+        student: findStudentById(studentId, { allowDeleted: true }) || { id: studentId },
+        sourceOccurrence,
+        teacherMarks: marks,
+        teacherEntry,
+        scheduleEntries,
+      });
+      const target = candidates.find((candidate) => (
+        Math.abs(roundTeacherFinanceNumber(candidate.lessonPrice) - roundTeacherFinanceNumber(allocation.amount)) <= 0.01
+      ));
+      if (target) {
+        const changed = updatePaymentAllocationAtOccurrence({
+          allocation,
+          target,
+          teacherEntry,
+          marks,
+          nowIso,
+        });
+        if (changed) {
+          financeChanged = true;
+          transfers.push({
+            studentId,
+            type: 'transferred',
+            amount: allocation.amount,
+            fromDayKey: sourceOccurrence.dayKey,
+            toDayKey: target.dayKey,
+            markKey: target.markKey,
+          });
+        }
+      } else {
+        const sourceValue = allocation.currentMarkKey
+          ? marks[allocation.currentMarkKey]
+          : previousMarks[sourceMarkKey];
+        allocation.previousMarkKey = sourceMarkKey;
+        allocation.previousMarkValue = sourceValue || allocation.sourceMarkValue || nowIso;
+        allocation.previousEntryId = String(
+          sourceOccurrence?.id || sourceOccurrence?.externalEventId || ''
+        ).trim();
+        allocation.previousDayKey = sourceOccurrence.dayKey;
+        allocation.previousTime = sourceOccurrence.time;
+        allocation.previousDurationMinutes = sourceOccurrence.durationMinutes;
+        allocation.previousGroupId = String(sourceOccurrence?.groupId || '').trim();
+        delete marks[sourceMarkKey];
+        allocation.currentMarkKey = '';
+        allocation.targetMarkKey = '';
+        allocation.targetMarkValue = '';
+        allocation.status = 'credit';
+        allocation.sourceMarkValue = allocation.sourceMarkValue || sourceValue || nowIso;
+        allocation.updatedAt = nowIso;
+        financeChanged = true;
+        transfers.push({
+          studentId,
+          type: 'credit',
+          amount: allocation.amount,
+          fromDayKey: sourceOccurrence.dayKey,
+        });
+      }
+    } else {
+      const restored = restorePaymentAllocationFromCancellation({
+        teacherId: normalizedTeacherId,
+        allocation,
+        sourceMarkKey,
+        teacherEntry,
+        marks,
+        nowIso,
+      });
+      if (restored.changed) {
+        financeChanged = true;
+        transfers.push({
+          studentId,
+          type: 'restored',
+          amount: allocation.amount,
+          markKey: sourceMarkKey,
+        });
+      } else if (restored.warning) {
+        transfers.push({
+          studentId,
+          type: 'warning',
+          amount: allocation.amount,
+          message: restored.warning,
+        });
+      }
+    }
+  }
+
+  if (financeChanged) {
+    financeDb[normalizedTeacherId] = normalizeTeacherFinanceTeacherEntry(teacherEntry);
+    writeTeacherFinanceDb(financeDb);
+  }
+  return { marks: normalizeTeacherCalendarMarks(marks), transfers };
+};
+
 const adjustTeacherCalendarFinanceCancellation = (
   teacherId,
   entry,
@@ -33432,10 +34737,13 @@ app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
     } catch {
       googleEntries = [];
     }
-    const source = findTeacherCalendarCancellationSource([
-      ...getTeacherScheduleEntries(teacher.id, { includeDeletedStudents: true }),
-      ...googleEntries,
-    ], payload);
+    const localEntries = getTeacherScheduleEntries(teacher.id, { includeDeletedStudents: true });
+    const sourceEntries = [...localEntries, ...googleEntries];
+    const paymentScheduleEntries = [
+      ...localEntries,
+      ...expandGoogleCalendarLearningGroupPaymentEntries(teacher.id, googleEntries),
+    ];
+    const source = findTeacherCalendarCancellationSource(sourceEntries, payload);
     if (!source) {
       return res.status(404).json({ error: 'Занятие не найдено в календаре преподавателя' });
     }
@@ -33456,13 +34764,23 @@ app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
 
     const db = readTeacherCalendarMarksDb();
     const previousMarks = normalizeTeacherCalendarMarks(db[teacher.id]);
-    const nextMarks = { ...previousMarks };
+    let nextMarks = { ...previousMarks };
     const wasCancelled = Boolean(previousMarks[markKey]);
     if (cancelled) {
       nextMarks[markKey] = normalizeTeacherCalendarMarkValue(new Date().toISOString());
     } else {
       delete nextMarks[markKey];
     }
+    const paymentCancellation = await synchronizeTeacherCalendarPaymentCancellation({
+      teacherId: teacher.id,
+      entry: occurrenceEntry,
+      dayKey,
+      previousMarks,
+      nextMarks,
+      cancelled,
+      scheduleEntries: paymentScheduleEntries,
+    });
+    nextMarks = paymentCancellation.marks;
     db[teacher.id] = normalizeTeacherCalendarMarks(nextMarks);
     writeTeacherCalendarMarksDb(db);
     if (wasCancelled !== cancelled) {
@@ -33498,6 +34816,7 @@ app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
       cancelled,
       cancellationMarkKey: markKey,
       marks: db[teacher.id],
+      payment: paymentCancellation.transfers,
     });
   } catch (error) {
     console.error('[teacher-calendar] failed to update lesson cancellation:', error);
@@ -33558,6 +34877,11 @@ app.patch('/api/teacher-calendar-marks', (req, res) => {
     });
   }
 
+  invalidateTeacherPaymentAllocationsForRemovedMarks(
+    teacher.id,
+    currentMarks,
+    nextMarks
+  );
   db[teacher.id] = normalizeTeacherCalendarMarks(nextMarks);
   writeTeacherCalendarMarksDb(db);
   notifyScheduleSyncUpdate({
@@ -33611,6 +34935,11 @@ app.post('/api/teacher-calendar-sync/refresh', async (req, res) => {
     const result = await runTeacherCalendarRefresh(teacher.id, req.auth, {
       force: force === true,
     });
+    try {
+      await reconcileTeacherPaymentCredits(teacher.id, { validateAllocated: true });
+    } catch (error) {
+      console.warn('[payment-credit] calendar-refresh reconciliation failed:', error?.message || error);
+    }
     return res.json(result);
   } catch (error) {
     return res.status(502).json({
@@ -33620,7 +34949,7 @@ app.post('/api/teacher-calendar-sync/refresh', async (req, res) => {
   }
 });
 
-app.post('/api/teacher-schedule', (req, res) => {
+app.post('/api/teacher-schedule', async (req, res) => {
   const { teacherId } = req.body || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
@@ -33642,6 +34971,11 @@ app.post('/api/teacher-schedule', (req, res) => {
     calendarSchedule: [entry, ...currentSchedule],
   };
   writeTeachersDb(teachers);
+  try {
+    await reconcileTeacherPaymentCredits(teacher.id);
+  } catch (error) {
+    console.warn('[payment-credit] schedule-create reconciliation failed:', error?.message || error);
+  }
   notifyScheduleSyncUpdate({
     scope: 'teacher-schedule',
     action: 'created',
@@ -33651,7 +34985,7 @@ app.post('/api/teacher-schedule', (req, res) => {
   return res.json(entry);
 });
 
-app.put('/api/teacher-schedule/:id', (req, res) => {
+app.put('/api/teacher-schedule/:id', async (req, res) => {
   const { id } = req.params || {};
   const { teacherId } = req.body || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
@@ -33686,6 +35020,14 @@ app.put('/api/teacher-schedule/:id', (req, res) => {
     calendarSchedule: currentSchedule,
   };
   writeTeachersDb(teachers);
+  try {
+    await reconcileTeacherPaymentCredits(teacher.id, {
+      validateAllocated: true,
+      invalidatedEntryIds: [entryId],
+    });
+  } catch (error) {
+    console.warn('[payment-credit] schedule-update reconciliation failed:', error?.message || error);
+  }
   notifyScheduleSyncUpdate({
     scope: 'teacher-schedule',
     action: 'updated',
@@ -33695,7 +35037,7 @@ app.put('/api/teacher-schedule/:id', (req, res) => {
   return res.json(entry);
 });
 
-app.delete('/api/teacher-schedule/:id', (req, res) => {
+app.delete('/api/teacher-schedule/:id', async (req, res) => {
   const { id } = req.params || {};
   const { teacherId } = req.query || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
@@ -33722,6 +35064,14 @@ app.delete('/api/teacher-schedule/:id', (req, res) => {
     calendarSchedule: nextSchedule,
   };
   writeTeachersDb(teachers);
+  try {
+    await reconcileTeacherPaymentCredits(teacher.id, {
+      validateAllocated: true,
+      invalidatedEntryIds: [entryId],
+    });
+  } catch (error) {
+    console.warn('[payment-credit] schedule-delete reconciliation failed:', error?.message || error);
+  }
   notifyScheduleSyncUpdate({
     scope: 'teacher-schedule',
     action: 'deleted',
@@ -34104,7 +35454,7 @@ app.patch('/api/student-schedule-requests/:id', async (req, res) => {
   return res.json(requests[index]);
 });
 
-app.post('/api/student-schedule', (req, res) => {
+app.post('/api/student-schedule', async (req, res) => {
   if (isStudentRole(req.auth)) {
     return res.status(403).json({ error: 'Изменение расписания ученика требует подтверждения преподавателя' });
   }
@@ -34118,6 +35468,11 @@ app.post('/api/student-schedule', (req, res) => {
   const data = getStudentData(student.id);
   const schedule = [entry, ...(data.schedule || [])];
   setStudentScheduleWithHomeworkSync(student.id, data, schedule);
+  try {
+    await reconcileTeacherPaymentCredits(student.teacherId, { studentId: student.id });
+  } catch (error) {
+    console.warn('[payment-credit] student-schedule-create reconciliation failed:', error?.message || error);
+  }
   notifyScheduleSyncUpdate({
     scope: 'student-schedule',
     action: 'created',
@@ -34159,6 +35514,15 @@ app.put('/api/student-schedule/:id', async (req, res) => {
   }
   schedule[index] = entry;
   setStudentScheduleWithHomeworkSync(student.id, data, schedule);
+  try {
+    await reconcileTeacherPaymentCredits(student.teacherId, {
+      studentId: student.id,
+      validateAllocated: true,
+      invalidatedEntryIds: [id],
+    });
+  } catch (reconcileError) {
+    console.warn('[payment-credit] student-schedule-update reconciliation failed:', reconcileError?.message || reconcileError);
+  }
   notifyScheduleSyncUpdate({
     scope: 'student-schedule',
     action: 'updated',
@@ -34188,6 +35552,15 @@ app.delete('/api/student-schedule/:id', async (req, res) => {
   }
   const schedule = (data.schedule || []).filter((item) => item.id !== id);
   setStudentScheduleWithHomeworkSync(student.id, data, schedule);
+  try {
+    await reconcileTeacherPaymentCredits(student.teacherId, {
+      studentId: student.id,
+      validateAllocated: true,
+      invalidatedEntryIds: [id],
+    });
+  } catch (reconcileError) {
+    console.warn('[payment-credit] student-schedule-delete reconciliation failed:', reconcileError?.message || reconcileError);
+  }
   notifyScheduleSyncUpdate({
     scope: 'student-schedule',
     action: 'deleted',

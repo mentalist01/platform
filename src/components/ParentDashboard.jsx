@@ -597,11 +597,18 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
   );
   const unpaidLessonDetail = formatUnpaidLessonDetail(unpaidLessons);
   const monthlyOutstanding = Math.max(0, Number(finance.outstanding) || 0);
-  const paymentAmount = Math.max(monthlyOutstanding, unpaidLessons.amount);
+  const availableCredit = Math.max(0, Number(finance.availableCredit) || 0);
+  // Finance outstanding already subtracts every received payment, including
+  // an advance. Only the schedule-derived fallback still needs that advance
+  // deducted, otherwise the same money would be counted twice.
+  const uncoveredScheduleAmount = Math.max(0, unpaidLessons.amount - availableCredit);
+  const paymentAmount = Math.max(monthlyOutstanding, uncoveredScheduleAmount);
   const paymentAmountKnown = paymentAmount > 0
     && (monthlyOutstanding > 0 || unpaidLessons.amountKnown);
+  const unpaidLessonsCoveredByCredit = unpaidLessons.amountKnown
+    && availableCredit >= unpaidLessons.amount;
   const paymentRequired = paymentAmount > 0
-    || unpaidLessons.count > 0
+    || (unpaidLessons.count > 0 && !unpaidLessonsCoveredByCredit)
     || ['unpaid', 'partial'].includes(financeStatus);
   const currentHomeworkEntry = orderedHomeworkEntries.find((entry) => entry.isLatest)
     || orderedHomeworkEntries[0]
@@ -848,23 +855,29 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             : unpaidLessons.count > 1
               ? 'Есть неоплаченные занятия'
               : 'Есть задолженность'
-        : (financeStatus === 'paid' ? 'Всё оплачено' : 'Оплачивать пока не нужно'),
+        : availableCredit > 0
+          ? `Аванс ${formatMoney(availableCredit)}`
+          : (financeStatus === 'paid' ? 'Всё оплачено' : 'Оплачивать пока не нужно'),
       detail: paymentRequired
         ? unpaidLessons.count > 0
           ? unpaidLessonDetail
             : paymentAmountKnown
               ? 'Осталась сумма за этот месяц.'
               : 'Сумма пока не указана.'
-        : financeStatus === 'paid'
-          ? 'Задолженности нет.'
-          : 'Новых начислений нет.',
+        : availableCredit > 0
+          ? 'Сумма сохранена после отмены занятия и применится к следующему.'
+          : financeStatus === 'paid'
+            ? 'Задолженности нет.'
+            : 'Новых начислений нет.',
       mobileDetail: paymentRequired
         ? unpaidLessons.count > 0
           ? unpaidLessonDetail
           : 'Осталась сумма за этот месяц.'
-        : financeStatus === 'paid'
-          ? 'Задолженности нет.'
-          : 'Новых начислений нет.',
+        : availableCredit > 0
+          ? 'Аванс применится к следующему занятию.'
+          : financeStatus === 'paid'
+            ? 'Задолженности нет.'
+            : 'Новых начислений нет.',
       valueClass: 'md:text-xl',
       isImportant: paymentRequired,
       mobileFlag: paymentRequired ? 'К оплате' : '',

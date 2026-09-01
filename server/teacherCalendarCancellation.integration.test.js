@@ -70,7 +70,13 @@ const getFutureLessonDays = () => {
   const now = new Date();
   const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 5));
   const second = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 12));
-  return [first.toISOString().slice(0, 10), second.toISOString().slice(0, 10)];
+  const third = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 5));
+  const fourth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 12));
+  const fifth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 19));
+  const sixth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 26));
+  const seventh = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 3, 5));
+  return [first, second, third, fourth, fifth, sixth, seventh]
+    .map((date) => date.toISOString().slice(0, 10));
 };
 
 const shiftDay = (value, amount) => {
@@ -84,10 +90,14 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
 }, async () => {
   const teacherId = 'teacher-cancel';
   const studentId = 'student-cancel';
-  const [firstDay, secondDay] = getFutureLessonDays();
+  const [firstDay, secondDay, thirdDay, fourthDay, fifthDay, sixthDay, seventhDay] = getFutureLessonDays();
   const month = firstDay.slice(0, 7);
+  const followingMonth = thirdDay.slice(0, 7);
+  const laterMonth = seventhDay.slice(0, 7);
   const firstLessonId = 'lesson-first';
   const secondLessonId = 'lesson-second';
+  const thirdLessonId = 'lesson-third';
+  const fourthLessonId = 'lesson-fourth';
   const pastLessonId = 'lesson-past';
   const pastDay = shiftDay(new Date(), -2);
   const firstDueAt = `${firstDay}T17:00:00.000Z`;
@@ -131,6 +141,26 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
       id: secondLessonId,
       studentId,
       date: secondDay,
+      time: '20:00',
+      durationMinutes: 60,
+      subject: 'Информатика',
+      createdAt: studentCreatedAt,
+      updatedAt: now,
+    },
+    {
+      id: thirdLessonId,
+      studentId,
+      date: thirdDay,
+      time: '20:00',
+      durationMinutes: 60,
+      subject: 'Информатика',
+      createdAt: studentCreatedAt,
+      updatedAt: now,
+    },
+    {
+      id: fourthLessonId,
+      studentId,
+      date: fourthDay,
       time: '20:00',
       durationMinutes: 60,
       subject: 'Информатика',
@@ -211,13 +241,24 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
         month,
         lessonPrice: 2000,
         completedLessons: 1,
+        paidAmount: 4000,
       },
     });
     const completedMarkKey = `${teacherId}:${firstLessonId}:${firstDay}:${studentId}:20:00:completed`;
+    const paidMarkKey = `${teacherId}:${firstLessonId}:${firstDay}:${studentId}:20:00:paid`;
+    const secondPaidMarkKey = `${teacherId}:${secondLessonId}:${secondDay}:${studentId}:20:00:paid`;
+    const thirdPaidMarkKey = `${teacherId}:${thirdLessonId}:${thirdDay}:${studentId}:20:00:paid`;
+    const fourthPaidMarkKey = `${teacherId}:${fourthLessonId}:${fourthDay}:${studentId}:20:00:paid`;
     await jsonRequest(baseUrl, '/api/teacher-calendar-marks', {
       token,
       method: 'PATCH',
-      body: { set: { [completedMarkKey]: now } },
+      body: {
+        set: {
+          [completedMarkKey]: now,
+          [paidMarkKey]: now,
+          [secondPaidMarkKey]: now,
+        },
+      },
     });
 
     const financeBefore = await jsonRequest(baseUrl, `/api/teacher-finance?month=${month}`, { token });
@@ -237,12 +278,25 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
     assert.equal(cancelled.cancelled, true);
     assert.ok(cancelled.marks[cancelled.cancellationMarkKey]);
     assert.ok(cancelled.marks[completedMarkKey], 'completed mark must survive a reversible cancellation');
+    assert.equal(cancelled.marks[paidMarkKey], undefined, 'payment must leave the cancelled lesson');
+    assert.ok(cancelled.marks[secondPaidMarkKey], 'an already paid next lesson must remain paid');
+    assert.ok(cancelled.marks[thirdPaidMarkKey], 'payment must skip an already paid lesson');
+    assert.deepEqual(cancelled.payment, [{
+      studentId,
+      type: 'transferred',
+      amount: 2000,
+      fromDayKey: firstDay,
+      toDayKey: thirdDay,
+      markKey: thirdPaidMarkKey,
+    }]);
 
-    await jsonRequest(baseUrl, '/api/teacher-calendar-cancellations', {
+    const repeatedCancellation = await jsonRequest(baseUrl, '/api/teacher-calendar-cancellations', {
       token,
       method: 'PATCH',
       body: { occurrence, cancelled: true },
     });
+    assert.deepEqual(repeatedCancellation.payment, [], 'repeated cancellation must be idempotent');
+    assert.ok(repeatedCancellation.marks[thirdPaidMarkKey]);
     await jsonRequest(baseUrl, '/api/teacher-calendar-marks', {
       token,
       method: 'PATCH',
@@ -263,6 +317,8 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
     );
     assert.equal(studentSchedule.some((entry) => entry.id === firstLessonId), false);
     assert.equal(studentSchedule.some((entry) => entry.id === secondLessonId), true);
+    assert.equal(studentSchedule.some((entry) => entry.id === thirdLessonId), true);
+    assert.equal(studentSchedule.some((entry) => entry.id === fourthLessonId), true);
     const homeworkAfterCancel = await jsonRequest(
       baseUrl,
       `/api/student-next-lesson?studentId=${studentId}`,
@@ -284,6 +340,9 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
     assert.equal(restored.cancelled, false);
     assert.equal(restored.marks[restored.cancellationMarkKey], undefined);
     assert.ok(restored.marks[completedMarkKey]);
+    assert.ok(restored.marks[paidMarkKey], 'restoring a cancellation must restore the original payment');
+    assert.ok(restored.marks[secondPaidMarkKey], 'unrelated payment must remain on the next lesson');
+    assert.equal(restored.marks[thirdPaidMarkKey], undefined, 'transferred mark must be removed on restore');
 
     const restoredSchedule = await jsonRequest(
       baseUrl,
@@ -304,6 +363,354 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
     assert.equal(financeAfterRestore.calendarPlan.total.lessonCount, 2);
     assert.equal(studentFinanceAfterRestore.record.cancelledLessons, 0);
     assert.equal(studentFinanceAfterRestore.record.completedLessons, 1);
+
+    // Cancelling the already prepaid next lesson moves that distinct payment
+    // across a month boundary and restoring it reverses both calendar marks
+    // and monthly finance allocation.
+    const secondOccurrence = {
+      id: secondLessonId,
+      dayKey: secondDay,
+      time: '20:00',
+      studentId,
+    };
+    const secondCancelled = await jsonRequest(baseUrl, '/api/teacher-calendar-cancellations', {
+      token,
+      method: 'PATCH',
+      body: { occurrence: secondOccurrence, cancelled: true },
+    });
+    assert.equal(secondCancelled.marks[secondPaidMarkKey], undefined);
+    assert.ok(secondCancelled.marks[thirdPaidMarkKey]);
+    assert.deepEqual(secondCancelled.payment, [{
+      studentId,
+      type: 'transferred',
+      amount: 2000,
+      fromDayKey: secondDay,
+      toDayKey: thirdDay,
+      markKey: thirdPaidMarkKey,
+    }]);
+    const financeAfterCrossMonthTransfer = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${month}`,
+      { token }
+    );
+    const sourceMonthStudent = financeAfterCrossMonthTransfer.students.find(
+      (entry) => entry.id === studentId
+    );
+    assert.equal(sourceMonthStudent.record.paidAmount, 2000);
+    const followingMonthFinance = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${followingMonth}`,
+      { token }
+    );
+    const targetMonthStudent = followingMonthFinance.students.find((entry) => entry.id === studentId);
+    assert.equal(targetMonthStudent.record.paidAmount, 2000);
+
+    const secondRestored = await jsonRequest(baseUrl, '/api/teacher-calendar-cancellations', {
+      token,
+      method: 'PATCH',
+      body: { occurrence: secondOccurrence, cancelled: false },
+    });
+    assert.ok(secondRestored.marks[secondPaidMarkKey]);
+    assert.equal(secondRestored.marks[thirdPaidMarkKey], undefined);
+    const sourceFinanceAfterTransferRestore = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${month}`,
+      { token }
+    );
+    assert.equal(
+      sourceFinanceAfterTransferRestore.students.find((entry) => entry.id === studentId).record.paidAmount,
+      4000
+    );
+    const targetFinanceAfterTransferRestore = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${followingMonth}`,
+      { token }
+    );
+    assert.equal(
+      targetFinanceAfterTransferRestore.students.find((entry) => entry.id === studentId).record.paidAmount,
+      0
+    );
+
+    // A paid lesson with no later slot becomes an explicit student advance and
+    // is restored to the original lesson when the cancellation is undone.
+    await jsonRequest(baseUrl, `/api/teacher-finance/students/${studentId}`, {
+      token,
+      method: 'PATCH',
+      body: {
+        month: followingMonth,
+        paidAmount: 2000,
+      },
+    });
+    await jsonRequest(baseUrl, '/api/teacher-calendar-marks', {
+      token,
+      method: 'PATCH',
+      body: { set: { [fourthPaidMarkKey]: now } },
+    });
+    const fourthOccurrence = {
+      id: fourthLessonId,
+      dayKey: fourthDay,
+      time: '20:00',
+      studentId,
+    };
+    const fourthCancelled = await jsonRequest(baseUrl, '/api/teacher-calendar-cancellations', {
+      token,
+      method: 'PATCH',
+      body: { occurrence: fourthOccurrence, cancelled: true },
+    });
+    assert.equal(fourthCancelled.marks[fourthPaidMarkKey], undefined);
+    assert.deepEqual(fourthCancelled.payment, [{
+      studentId,
+      type: 'credit',
+      amount: 2000,
+      fromDayKey: fourthDay,
+    }]);
+    const financeWithCredit = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${followingMonth}`,
+      { token }
+    );
+    const studentFinanceWithCredit = financeWithCredit.students.find((entry) => entry.id === studentId);
+    assert.equal(studentFinanceWithCredit.availableCredit, 2000);
+
+    const addedLesson = await jsonRequest(baseUrl, '/api/student-schedule', {
+      token,
+      method: 'POST',
+      body: {
+        studentId,
+        date: fifthDay,
+        time: '20:00',
+        durationMinutes: 60,
+        subject: 'Информатика',
+      },
+    });
+    const addedLessonPaidMarkKey = `${teacherId}:${addedLesson.id}:${fifthDay}:${studentId}:20:00:paid`;
+    const marksAfterAddingLesson = await jsonRequest(baseUrl, '/api/teacher-calendar-marks', { token });
+    assert.ok(
+      marksAfterAddingLesson.marks[addedLessonPaidMarkKey],
+      'stored advance must automatically apply when the next lesson is added'
+    );
+    const financeAfterAutomaticCredit = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${followingMonth}`,
+      { token }
+    );
+    assert.equal(
+      financeAfterAutomaticCredit.students.find((entry) => entry.id === studentId).availableCredit,
+      0
+    );
+
+    const fourthRestored = await jsonRequest(baseUrl, '/api/teacher-calendar-cancellations', {
+      token,
+      method: 'PATCH',
+      body: { occurrence: fourthOccurrence, cancelled: false },
+    });
+    assert.ok(fourthRestored.marks[fourthPaidMarkKey]);
+    assert.equal(
+      fourthRestored.marks[addedLessonPaidMarkKey],
+      undefined,
+      'restoring the original cancellation must reverse an unused automatic transfer'
+    );
+    const financeAfterCreditRestore = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${followingMonth}`,
+      { token }
+    );
+    const studentFinanceAfterCreditRestore = financeAfterCreditRestore.students.find((entry) => entry.id === studentId);
+    assert.equal(studentFinanceAfterCreditRestore.availableCredit, 0);
+
+    // If the target of an automatic transfer is later deleted, the payment
+    // must leave the stale occurrence and continue to the next suitable lesson.
+    const fourthCancelledAgain = await jsonRequest(baseUrl, '/api/teacher-calendar-cancellations', {
+      token,
+      method: 'PATCH',
+      body: { occurrence: fourthOccurrence, cancelled: true },
+    });
+    assert.ok(fourthCancelledAgain.marks[addedLessonPaidMarkKey]);
+    const sixthLesson = await jsonRequest(baseUrl, '/api/student-schedule', {
+      token,
+      method: 'POST',
+      body: {
+        studentId,
+        date: sixthDay,
+        time: '20:00',
+        durationMinutes: 60,
+        subject: 'Информатика',
+      },
+    });
+    const sixthLessonPaidMarkKey = `${teacherId}:${sixthLesson.id}:${sixthDay}:${studentId}:20:00:paid`;
+    const addedLessonOccurrence = {
+      id: addedLesson.id,
+      dayKey: fifthDay,
+      time: '20:00',
+      studentId,
+    };
+    const addedLessonCancelled = await jsonRequest(
+      baseUrl,
+      '/api/teacher-calendar-cancellations',
+      {
+        token,
+        method: 'PATCH',
+        body: { occurrence: addedLessonOccurrence, cancelled: true },
+      }
+    );
+    assert.equal(addedLessonCancelled.marks[addedLessonPaidMarkKey], undefined);
+    assert.ok(addedLessonCancelled.marks[sixthLessonPaidMarkKey]);
+
+    // Moving a nested transfer target must preserve the anchor of the most
+    // recent cancellation so that restoring it still returns the payment.
+    const movedSixthLesson = await jsonRequest(baseUrl, `/api/student-schedule/${sixthLesson.id}`, {
+      token,
+      method: 'PUT',
+      body: { studentId, date: seventhDay },
+    });
+    const movedSixthPaidMarkKey = `${teacherId}:${movedSixthLesson.id}:${seventhDay}:${studentId}:20:00:paid`;
+    const marksAfterMovingTransferTarget = await jsonRequest(
+      baseUrl,
+      '/api/teacher-calendar-marks',
+      { token }
+    );
+    assert.equal(marksAfterMovingTransferTarget.marks[sixthLessonPaidMarkKey], undefined);
+    assert.ok(marksAfterMovingTransferTarget.marks[movedSixthPaidMarkKey]);
+    const restoredAddedLesson = await jsonRequest(
+      baseUrl,
+      '/api/teacher-calendar-cancellations',
+      {
+        token,
+        method: 'PATCH',
+        body: { occurrence: addedLessonOccurrence, cancelled: false },
+      }
+    );
+    assert.ok(restoredAddedLesson.marks[addedLessonPaidMarkKey]);
+    assert.equal(
+      restoredAddedLesson.marks[movedSixthPaidMarkKey],
+      undefined,
+      'restoring a nested cancellation must survive a later schedule move'
+    );
+
+    await jsonRequest(
+      baseUrl,
+      `/api/student-schedule/${addedLesson.id}?studentId=${encodeURIComponent(studentId)}`,
+      {
+      token,
+      method: 'DELETE',
+      }
+    );
+    const marksAfterDeletingTransferTarget = await jsonRequest(
+      baseUrl,
+      '/api/teacher-calendar-marks',
+      { token }
+    );
+    assert.equal(marksAfterDeletingTransferTarget.marks[addedLessonPaidMarkKey], undefined);
+    assert.ok(
+      marksAfterDeletingTransferTarget.marks[movedSixthPaidMarkKey],
+      'deleting the transfer target must move its payment to the next lesson'
+    );
+
+    // The direct move and subsequent deletion both shift monthly paidAmount
+    // bookkeeping together with the calendar mark.
+    const financeAfterMovingTarget = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${followingMonth}`,
+      { token }
+    );
+    assert.equal(
+      financeAfterMovingTarget.students.find((entry) => entry.id === studentId).record.paidAmount,
+      0
+    );
+    const laterFinanceAfterMovingTarget = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${laterMonth}`,
+      { token }
+    );
+    assert.equal(
+      laterFinanceAfterMovingTarget.students.find((entry) => entry.id === studentId).record.paidAmount,
+      2000
+    );
+
+    await jsonRequest(
+      baseUrl,
+      `/api/student-schedule/${movedSixthLesson.id}?studentId=${encodeURIComponent(studentId)}`,
+      {
+        token,
+        method: 'DELETE',
+      }
+    );
+    const financeAfterDeletingLastTarget = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${laterMonth}`,
+      { token }
+    );
+    const studentFinanceAfterDeletingLastTarget = financeAfterDeletingLastTarget.students.find(
+      (entry) => entry.id === studentId
+    );
+    assert.equal(studentFinanceAfterDeletingLastTarget.record.paidAmount, 2000);
+    assert.equal(studentFinanceAfterDeletingLastTarget.availableCredit, 2000);
+
+    const fourthRestoredAgain = await jsonRequest(baseUrl, '/api/teacher-calendar-cancellations', {
+      token,
+      method: 'PATCH',
+      body: { occurrence: fourthOccurrence, cancelled: false },
+    });
+    assert.ok(fourthRestoredAgain.marks[fourthPaidMarkKey]);
+    assert.equal(fourthRestoredAgain.marks[movedSixthPaidMarkKey], undefined);
+    const financeAfterRestoringDeletedTarget = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${followingMonth}`,
+      { token }
+    );
+    assert.equal(
+      financeAfterRestoringDeletedTarget.students.find((entry) => entry.id === studentId).record.paidAmount,
+      2000
+    );
+    const laterFinanceAfterRestoringDeletedTarget = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${laterMonth}`,
+      { token }
+    );
+    assert.equal(
+      laterFinanceAfterRestoringDeletedTarget.students.find((entry) => entry.id === studentId).record.paidAmount,
+      0
+    );
+
+    // A teacher's explicit removal is final: cancel/restore must not recreate
+    // the paid mark from the persisted allocation history.
+    await jsonRequest(baseUrl, `/api/teacher-finance/students/${studentId}`, {
+      token,
+      method: 'PATCH',
+      body: {
+        month: followingMonth,
+        paidAmount: 0,
+      },
+    });
+    await jsonRequest(baseUrl, '/api/teacher-calendar-marks', {
+      token,
+      method: 'PATCH',
+      body: { unset: [fourthPaidMarkKey] },
+    });
+    await jsonRequest(baseUrl, '/api/teacher-calendar-cancellations', {
+      token,
+      method: 'PATCH',
+      body: { occurrence: fourthOccurrence, cancelled: true },
+    });
+    const restoredAfterManualRemoval = await jsonRequest(
+      baseUrl,
+      '/api/teacher-calendar-cancellations',
+      {
+        token,
+        method: 'PATCH',
+        body: { occurrence: fourthOccurrence, cancelled: false },
+      }
+    );
+    assert.equal(restoredAfterManualRemoval.marks[fourthPaidMarkKey], undefined);
+    const financeAfterManualRemovalRestore = await jsonRequest(
+      baseUrl,
+      `/api/teacher-finance?month=${followingMonth}`,
+      { token }
+    );
+    assert.equal(
+      financeAfterManualRemovalRestore.students.find((entry) => entry.id === studentId).record.paidAmount,
+      0
+    );
 
     const historyBeforePastCancel = await jsonRequest(
       baseUrl,

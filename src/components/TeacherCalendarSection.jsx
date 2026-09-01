@@ -3311,9 +3311,27 @@ const TeacherCalendarSection = ({
         };
       });
       await loadTeacherCalendar({ silent: true });
+      const paymentTransfers = Array.isArray(response?.payment) ? response.payment : [];
+      const transferredCount = paymentTransfers.filter((item) => item?.type === 'transferred').length;
+      const creditCount = paymentTransfers.filter((item) => item?.type === 'credit').length;
+      const restoredCount = paymentTransfers.filter((item) => item?.type === 'restored').length;
+      const paymentWarning = paymentTransfers.find((item) => item?.type === 'warning')?.message || '';
+      const paymentNote = nextCancelled && transferredCount > 0
+        ? (transferredCount > 1
+            ? ' Оплаты перенесены на следующие занятия.'
+            : ' Оплата перенесена на следующее занятие.')
+        : nextCancelled && creditCount > 0
+          ? (creditCount > 1
+              ? ' Оплаты сохранены в авансе учеников и применятся к следующим занятиям.'
+              : ' Оплата сохранена в авансе ученика и применится к следующему занятию.')
+          : (paymentWarning
+              ? ` ${paymentWarning}`
+              : (!nextCancelled && restoredCount > 0
+                  ? ' Оплата возвращена на это занятие.'
+                  : ''));
       setLessonPanelSuccess(nextCancelled
-        ? 'Занятие отменено. Google Calendar не изменён.'
-        : 'Занятие возвращено в расписание.');
+        ? `Занятие отменено. Google Calendar не изменён.${paymentNote}`
+        : `Занятие возвращено в расписание.${paymentNote}`);
     } catch (err) {
       setEventQuickActionError(err?.message || (
         nextCancelled
