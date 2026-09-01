@@ -68772,11 +68772,24 @@ body:has(.python-runtime-modal-shell--solve) .theme-toggle--desktop {
   background: var(--rt-soft) !important;
 }
 
-.python-runtime-modal-shell--solve .python-runtime-task-chip[data-current='true'] {
+.python-runtime-modal-shell--solve .python-runtime-task-chip[data-current='true'],
+.python-runtime-modal-shell--solve .python-runtime-task-strip[data-dense='true'] .python-runtime-task-chip[data-current='true'] {
   border-color: #6b43de !important;
   color: #ffffff !important;
   background: linear-gradient(135deg, #7147e8, #8750ed) !important;
   box-shadow: 0 6px 14px rgba(113, 71, 232, 0.24) !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-chip[data-current='true'] *,
+.python-runtime-modal-shell--solve .python-runtime-task-strip[data-dense='true'] .python-runtime-task-chip[data-current='true'] * {
+  color: inherit !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-chip[data-current='true'] > div > div:first-child,
+.python-runtime-modal-shell--solve .python-runtime-task-strip[data-dense='true'] .python-runtime-task-chip[data-current='true'] > div > div:first-child {
+  border-color: transparent !important;
+  color: #6b43de !important;
+  background: #ffffff !important;
 }
 
 .python-runtime-modal-shell--solve .python-runtime-task-chip[data-solved='true'][data-current='false'] {

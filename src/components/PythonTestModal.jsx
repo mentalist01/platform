@@ -2175,6 +2175,7 @@ const PythonTestModal = ({
                       onClick={() => setCurrentIndex(item.questionIndex)}
                       data-current={isCurrent ? 'true' : 'false'}
                       data-solved={solved ? 'true' : 'false'}
+                      aria-current={isCurrent ? 'step' : undefined}
                       className={`python-runtime-chip python-runtime-task-chip rounded-[14px] border text-left transition-all ${
                         isDenseQuestionNav ? 'w-full min-w-0 px-1.5 py-1' : 'shrink-0 min-w-[136px] px-2 py-1.5'
                       } ${buttonClass}`}
