@@ -1390,15 +1390,17 @@ const ensureDirectoryForFile = (filePath) => {
   const directory = path.dirname(filePath);
   if (directory) fs.mkdirSync(directory, { recursive: true });
 };
-const writeFileAtomic = (filePath, contents, encoding) => {
+const writeFileAtomic = (filePath, contents, encoding, options = {}) => {
   ensureDirectoryForFile(filePath);
+  const fileMode = Number.isInteger(options?.mode) ? options.mode : null;
   const tempPath = path.join(
     path.dirname(filePath),
     `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`
   );
   try {
-    fs.writeFileSync(tempPath, contents, encoding);
+    fs.writeFileSync(tempPath, contents, fileMode === null ? encoding : { encoding, mode: fileMode });
     fs.renameSync(tempPath, filePath);
+    if (fileMode !== null) fs.chmodSync(filePath, fileMode);
     return true;
   } catch (error) {
     try {
@@ -1475,9 +1477,9 @@ const readJsonArrayFileStrict = (filePath) => {
     throw error;
   }
 };
-const writeJsonFileAtomic = (filePath, data) => {
+const writeJsonFileAtomic = (filePath, data, options = {}) => {
   backupJsonFileBeforeWrite(filePath);
-  writeFileAtomic(filePath, stringifyJsonForStorage(data), 'utf8');
+  writeFileAtomic(filePath, stringifyJsonForStorage(data), 'utf8', options);
 };
 const getJsonStorageHash = (serialized) => crypto
   .createHash('sha1')
@@ -3126,7 +3128,7 @@ const writeTeacherCalendarSyncDb = (data) => {
 };
 
 const writeTeacherCalendarGoogleDb = (data) => {
-  writeJsonFileAtomic(teacherCalendarGoogleFile, data || {});
+  writeJsonFileAtomic(teacherCalendarGoogleFile, data || {}, { mode: 0o600 });
 };
 
 const writeTeacherCalendarMarksDb = (data) => {
