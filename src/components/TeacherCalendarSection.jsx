@@ -1001,6 +1001,8 @@ const TeacherCalendarSection = ({
   const [calendarSyncRefreshing, setCalendarSyncRefreshing] = useState(false);
   const [calendarSyncError, setCalendarSyncError] = useState('');
   const [calendarSyncSuccess, setCalendarSyncSuccess] = useState('');
+  const [calendarGoogleWrite, setCalendarGoogleWrite] = useState(null);
+  const [calendarGoogleWriteBusy, setCalendarGoogleWriteBusy] = useState(false);
   const [focusDate, setFocusDate] = useState(() => cloneAsDateOnly(new Date()));
   const [miniMonthCursor, setMiniMonthCursor] = useState(() => {
     const now = new Date();
@@ -1425,9 +1427,114 @@ const TeacherCalendarSection = ({
     }
   }, [teacherId]);
 
+  const loadCalendarGoogleWrite = useCallback(async ({ silent = false } = {}) => {
+    if (!teacherId) {
+      setCalendarGoogleWrite(null);
+      return null;
+    }
+    if (!silent) setCalendarGoogleWriteBusy(true);
+    try {
+      const data = await api.getTeacherCalendarGoogleWrite(teacherId);
+      setCalendarGoogleWrite(data || null);
+      return data || null;
+    } catch (err) {
+      setCalendarSyncError(err?.message || 'Не удалось проверить доступ к Google Calendar.');
+      return null;
+    } finally {
+      if (!silent) setCalendarGoogleWriteBusy(false);
+    }
+  }, [teacherId]);
+
   useEffect(() => {
     loadCalendarSyncSettings();
   }, [loadCalendarSyncSettings]);
+
+  useEffect(() => {
+    loadCalendarGoogleWrite();
+  }, [loadCalendarGoogleWrite]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleGoogleOAuthMessage = (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'ivan100-google-calendar-oauth') return;
+      setCalendarGoogleWriteBusy(false);
+      if (event.data?.ok) {
+        setCalendarSyncError('');
+        setCalendarSyncSuccess('Отмены занятий теперь будут отмечаться в Google Calendar.');
+        loadCalendarGoogleWrite({ silent: true });
+      } else {
+        setCalendarSyncSuccess('');
+        setCalendarSyncError(event.data?.message || 'Не удалось подключить редактирование Google Calendar.');
+      }
+    };
+    window.addEventListener('message', handleGoogleOAuthMessage);
+    return () => window.removeEventListener('message', handleGoogleOAuthMessage);
+  }, [loadCalendarGoogleWrite]);
+
+  const handleConnectCalendarGoogleWrite = useCallback(async () => {
+    if (!teacherId || calendarGoogleWriteBusy || typeof window === 'undefined') return;
+    setCalendarGoogleWriteBusy(true);
+    setCalendarSyncError('');
+    setCalendarSyncSuccess('');
+    const popup = window.open('about:blank', 'ivan100-google-calendar-oauth', 'popup,width=620,height=760');
+    try {
+      const result = await api.startTeacherCalendarGoogleOAuth(teacherId);
+      const authorizationUrl = String(result?.authorizationUrl || '').trim();
+      if (!authorizationUrl) throw new Error('Google не вернул ссылку подключения.');
+      if (popup && !popup.closed) {
+        popup.location.replace(authorizationUrl);
+        const closeWatcher = window.setInterval(() => {
+          if (!popup.closed) return;
+          window.clearInterval(closeWatcher);
+          setCalendarGoogleWriteBusy(false);
+          loadCalendarGoogleWrite({ silent: true });
+        }, 700);
+      } else {
+        window.location.assign(authorizationUrl);
+      }
+    } catch (err) {
+      if (popup && !popup.closed) popup.close();
+      setCalendarGoogleWriteBusy(false);
+      setCalendarSyncError(err?.message || 'Не удалось начать подключение Google Calendar.');
+    }
+  }, [calendarGoogleWriteBusy, loadCalendarGoogleWrite, teacherId]);
+
+  const handleSelectCalendarGoogleWrite = useCallback(async (event) => {
+    const calendarId = String(event.target.value || '').trim();
+    if (!teacherId || !calendarId || calendarGoogleWriteBusy) return;
+    setCalendarGoogleWriteBusy(true);
+    setCalendarSyncError('');
+    setCalendarSyncSuccess('');
+    try {
+      const next = await api.selectTeacherCalendarGoogleWriteCalendar(calendarId, teacherId);
+      setCalendarGoogleWrite(next || null);
+      setCalendarSyncSuccess('Календарь для отметок отмены выбран.');
+    } catch (err) {
+      setCalendarSyncError(err?.message || 'Не удалось выбрать календарь.');
+    } finally {
+      setCalendarGoogleWriteBusy(false);
+    }
+  }, [calendarGoogleWriteBusy, teacherId]);
+
+  const handleDisconnectCalendarGoogleWrite = useCallback(async () => {
+    if (!teacherId || !calendarGoogleWrite?.connected || calendarGoogleWriteBusy) return;
+    if (typeof window !== 'undefined' && !window.confirm(
+      'Отключить редактирование Google Calendar? Отмены в платформе продолжат работать, но события Google больше не будут меняться.'
+    )) return;
+    setCalendarGoogleWriteBusy(true);
+    setCalendarSyncError('');
+    setCalendarSyncSuccess('');
+    try {
+      const next = await api.disconnectTeacherCalendarGoogleWrite(teacherId);
+      setCalendarGoogleWrite(next || null);
+      setCalendarSyncSuccess('Редактирование Google Calendar отключено.');
+    } catch (err) {
+      setCalendarSyncError(err?.message || 'Не удалось отключить доступ к Google Calendar.');
+    } finally {
+      setCalendarGoogleWriteBusy(false);
+    }
+  }, [calendarGoogleWrite?.connected, calendarGoogleWriteBusy, teacherId]);
 
   const handleSaveCalendarSync = useCallback(async (event) => {
     event.preventDefault();
@@ -1578,13 +1685,16 @@ const TeacherCalendarSection = ({
       if (action.includes('calendar-sync')) {
         loadCalendarSyncSettings({ silent: true });
       }
+      if (action.includes('calendar-google-write')) {
+        loadCalendarGoogleWrite({ silent: true });
+      }
     };
     source.addEventListener('schedule-sync', handleScheduleSync);
     return () => {
       source.removeEventListener('schedule-sync', handleScheduleSync);
       source.close();
     };
-  }, [loadCalendarSyncSettings, loadLessonPanelMarks, loadTeacherCalendar, teacherId]);
+  }, [loadCalendarGoogleWrite, loadCalendarSyncSettings, loadLessonPanelMarks, loadTeacherCalendar, teacherId]);
 
   const loadTeacherReminderSetting = useCallback(async () => {
     if (!teacherId) {
@@ -3261,10 +3371,20 @@ const TeacherCalendarSection = ({
     const nextCancelled = !eventDetailsCancelled;
     if (nextCancelled && typeof window !== 'undefined') {
       const dateAndTime = [eventDetailsDateLabel, eventDetailsTimeRangeLabel].filter(Boolean).join(', ');
+      const isGoogleEvent = Boolean(
+        eventDetails.isGoogleCalendarSync
+        || eventDetails.isExternalCalendarEvent
+        || ['google-calendar', 'google-ical'].includes(String(eventDetails.source || '').trim().toLowerCase())
+      );
+      const googleConfirmation = isGoogleEvent
+        ? (calendarGoogleWrite?.connected
+            ? ' Событие Google будет помечено «(ОТМЕНЕНО)» и красным цветом.'
+            : ' Для отметки в Google потребуется подключить редактирование календаря.')
+        : '';
       const confirmed = window.confirm(
         `Отменить занятие${dateAndTime ? ` ${dateAndTime}` : ''}?\n\n`
-        + 'Оно перестанет учитываться в расписании ученика, домашке, напоминаниях и плане начислений. '
-        + 'Если занятие пришло из Google, само событие Google останется на месте.'
+        + 'Оно перестанет учитываться в расписании ученика, домашке, напоминаниях и плане начислений.'
+        + googleConfirmation
       );
       if (!confirmed) return;
     }
@@ -3284,6 +3404,7 @@ const TeacherCalendarSection = ({
         studentId: String(eventDetails.studentId || '').trim(),
         groupId: String(eventDetails.groupId || '').trim(),
         lessonId: String(eventDetails.lessonId || '').trim(),
+        startAt: String(eventDetails.startAt || '').trim(),
       }, nextCancelled, teacherId);
       const nextMarks = normalizeLessonPanelMarks(response?.marks);
       setLessonPanelMarks(nextMarks);
@@ -3329,9 +3450,19 @@ const TeacherCalendarSection = ({
               : (!nextCancelled && restoredCount > 0
                   ? ' Оплата возвращена на это занятие.'
                   : ''));
+      const googleSyncStatus = String(response?.googleSync?.status || '');
+      const googleNote = googleSyncStatus === 'synced'
+        ? (nextCancelled
+            ? ' Событие Google помечено «(ОТМЕНЕНО)».'
+            : ' Исходное название и цвет события Google восстановлены.')
+        : googleSyncStatus === 'not-connected'
+          ? ' Изменение Google ожидает подключения доступа.'
+          : ['pending', 'reauthorize'].includes(googleSyncStatus)
+            ? ' Google Calendar обновится автоматически после восстановления связи.'
+            : '';
       setLessonPanelSuccess(nextCancelled
-        ? `Занятие отменено. Google Calendar не изменён.${paymentNote}`
-        : `Занятие возвращено в расписание.${paymentNote}`);
+        ? `Занятие отменено.${googleNote}${paymentNote}`
+        : `Занятие возвращено в расписание.${googleNote}${paymentNote}`);
     } catch (err) {
       setEventQuickActionError(err?.message || (
         nextCancelled
@@ -3352,6 +3483,7 @@ const TeacherCalendarSection = ({
     eventDetailsTimeRangeLabel,
     eventEditSaving,
     eventQuickActionBusy,
+    calendarGoogleWrite?.connected,
     loadTeacherCalendar,
     teacherId,
   ]);
@@ -4874,6 +5006,83 @@ const TeacherCalendarSection = ({
                       </div>
                       {calendarSyncSettings.lastFetchedAt && (
                         <div>{`Синхр.: ${formatCalendarSyncTimestamp(calendarSyncSettings.lastFetchedAt)}`}</div>
+                      )}
+                    </div>
+                  )}
+                  {calendarSyncSettings?.configured && calendarGoogleWrite && (
+                    <div className={`mt-2 rounded-xl border px-2.5 py-2 text-[11px] ${
+                      calendarGoogleWrite.connected && !calendarGoogleWrite.requiresReauthorization
+                        ? 'border-emerald-200 bg-emerald-50/80 text-emerald-800'
+                        : 'border-amber-200 bg-amber-50/80 text-amber-800'
+                    }`}>
+                      <div className="font-semibold">
+                        {calendarGoogleWrite.connected && !calendarGoogleWrite.requiresReauthorization
+                          ? 'Отмены видны в Google Calendar'
+                          : 'Отметки отмены в Google не подключены'}
+                      </div>
+                      <div className="mt-1 leading-relaxed">
+                        {calendarGoogleWrite.connected && !calendarGoogleWrite.requiresReauthorization
+                          ? 'Для отменённого занятия меняются только название и цвет конкретного события. При восстановлении они возвращаются.'
+                          : 'iCal загружает расписание только для чтения. Разрешите платформе менять конкретные события, чтобы виджет Android тоже показывал отмену.'}
+                      </div>
+                      {calendarGoogleWrite.connected && calendarGoogleWrite.calendars?.length > 1 && (
+                        <label className="mt-2 block">
+                          <span className="sr-only">Календарь для отметок отмены</span>
+                          <select
+                            value={calendarGoogleWrite.calendarId || ''}
+                            onChange={handleSelectCalendarGoogleWrite}
+                            disabled={calendarGoogleWriteBusy}
+                            className="w-full rounded-lg border border-emerald-200 bg-white px-2 py-1.5 text-[11px] text-slate-700 outline-none focus:border-emerald-500 disabled:opacity-60"
+                          >
+                            {calendarGoogleWrite.calendars.map((calendar) => (
+                              <option key={calendar.id} value={calendar.id}>
+                                {calendar.summary}{calendar.primary ? ' (основной)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      {calendarGoogleWrite.connected && (
+                        <div className="mt-1 truncate text-[10px] opacity-80">
+                          {`Календарь: ${calendarGoogleWrite.calendarName || 'выбранный'}`}
+                          {calendarGoogleWrite.pendingCount > 0
+                            ? ` · ожидает отправки: ${calendarGoogleWrite.pendingCount}`
+                            : ''}
+                        </div>
+                      )}
+                      <div className="mt-2 flex items-center gap-1.5">
+                        {(!calendarGoogleWrite.connected || calendarGoogleWrite.requiresReauthorization) && (
+                          <button
+                            type="button"
+                            onClick={handleConnectCalendarGoogleWrite}
+                            disabled={calendarGoogleWriteBusy || !calendarGoogleWrite.available}
+                            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2 py-1.5 font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-55"
+                          >
+                            <ExternalLink size={12} />
+                            {calendarGoogleWrite.requiresReauthorization ? 'Подключить заново' : 'Разрешить изменения'}
+                          </button>
+                        )}
+                        {calendarGoogleWrite.connected && !calendarGoogleWrite.requiresReauthorization && (
+                          <button
+                            type="button"
+                            onClick={handleDisconnectCalendarGoogleWrite}
+                            disabled={calendarGoogleWriteBusy}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-2 py-1.5 font-semibold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-55"
+                          >
+                            <Unlink size={12} />
+                            Отключить изменения
+                          </button>
+                        )}
+                      </div>
+                      {!calendarGoogleWrite.available && (
+                        <div className="mt-1.5 text-[10px] leading-relaxed">
+                          Сначала нужно один раз настроить Google OAuth на сервере.
+                        </div>
+                      )}
+                      {calendarGoogleWrite.lastError && (
+                        <div className="mt-1.5 text-[10px] leading-relaxed text-rose-700">
+                          {calendarGoogleWrite.lastError}
+                        </div>
                       )}
                     </div>
                   )}

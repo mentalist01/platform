@@ -2385,6 +2385,46 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getTeacherCalendarGoogleWrite: async (teacherId) => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/teacher-calendar-google?${qs}` : '/api/teacher-calendar-google');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  startTeacherCalendarGoogleOAuth: async (teacherId) => {
+    const body = {};
+    if (teacherId) body.teacherId = String(teacherId);
+    const res = await apiFetch('/api/teacher-calendar-google/oauth/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  selectTeacherCalendarGoogleWriteCalendar: async (calendarId, teacherId) => {
+    const body = { calendarId: String(calendarId || '').trim() };
+    if (teacherId) body.teacherId = String(teacherId);
+    const res = await apiFetch('/api/teacher-calendar-google', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  disconnectTeacherCalendarGoogleWrite: async (teacherId) => {
+    const params = new URLSearchParams();
+    if (teacherId) params.append('teacherId', String(teacherId));
+    const qs = params.toString();
+    const res = await apiFetch(qs ? `/api/teacher-calendar-google?${qs}` : '/api/teacher-calendar-google', {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   updateTeacherCalendarSync: async (payload = {}, teacherId) => {
     const body = payload && typeof payload === 'object' ? { ...payload } : {};
     if (teacherId) body.teacherId = String(teacherId);

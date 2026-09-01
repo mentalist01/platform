@@ -9,7 +9,14 @@ const LESSON_REPLAY_S3_ENV_KEYS = new Set([
   'LESSON_REPLAY_S3_PREFIX',
 ]);
 
-const readLessonReplayS3Env = (filePath) => {
+const GOOGLE_CALENDAR_ENV_KEYS = new Set([
+  'GOOGLE_CALENDAR_OAUTH_CLIENT_ID',
+  'GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET',
+  'GOOGLE_CALENDAR_OAUTH_REDIRECT_URI',
+  'GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY',
+]);
+
+const readSecretEnv = (filePath, allowedKeys) => {
   try {
     const env = {};
     for (const rawLine of fs.readFileSync(filePath, 'utf8').split(/\r?\n/)) {
@@ -20,7 +27,7 @@ const readLessonReplayS3Env = (filePath) => {
       if (separatorIndex <= 0) continue;
 
       const key = line.slice(0, separatorIndex).trim();
-      if (!LESSON_REPLAY_S3_ENV_KEYS.has(key)) continue;
+      if (!allowedKeys.has(key)) continue;
 
       let value = line.slice(separatorIndex + 1).trim();
       if (
@@ -39,8 +46,13 @@ const readLessonReplayS3Env = (filePath) => {
   }
 };
 
-const lessonReplayS3Env = readLessonReplayS3Env(
-  process.env.PLATFORM_S3_ENV_FILE || '/root/platform-secrets/lesson-replay-s3.env'
+const lessonReplayS3Env = readSecretEnv(
+  process.env.PLATFORM_S3_ENV_FILE || '/root/platform-secrets/lesson-replay-s3.env',
+  LESSON_REPLAY_S3_ENV_KEYS
+);
+const googleCalendarEnv = readSecretEnv(
+  process.env.GOOGLE_CALENDAR_ENV_FILE || '/root/platform-secrets/google-calendar.env',
+  GOOGLE_CALENDAR_ENV_KEYS
 );
 
 module.exports = {
@@ -56,8 +68,10 @@ module.exports = {
       time: true,
       env: {
         ...lessonReplayS3Env,
+        ...googleCalendarEnv,
         NODE_ENV: 'production',
         PORT: '5175',
+        APP_PUBLIC_URL: 'https://ivan100.ru',
         APP_ALLOWED_ORIGINS: 'http://localhost,capacitor://localhost,ionic://localhost',
         AUTH_COOKIE_SAME_SITE: 'None',
         AUTH_COOKIE_SECURE: 'true',

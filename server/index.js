@@ -135,6 +135,17 @@ import {
   resolveGoogleCalendarStudentMatch as resolveGoogleCalendarStudentMatchFromTitle,
 } from './googleCalendarStudentMatch.js';
 import {
+  buildGoogleCalendarAuthorizationUrl,
+  createGoogleCalendarOAuthState,
+  decryptGoogleCalendarTokens,
+  encryptGoogleCalendarTokens,
+  exchangeGoogleCalendarAuthorizationCode,
+  listWritableGoogleCalendars,
+  patchGoogleCalendarOccurrenceCancellation,
+  refreshGoogleCalendarAccessToken,
+  verifyGoogleCalendarOAuthState,
+} from './googleCalendarWriteback.js';
+import {
   canAccessStudentRecord,
   resolveStudentAccessId,
 } from './studentAccess.js';
@@ -566,6 +577,7 @@ const broadcastNotificationsFile = path.join(dataDir, 'broadcast-notifications.j
 const scheduleRequestsFile = path.join(dataDir, 'schedule-requests.json');
 const teacherCalendarSyncFile = path.join(dataDir, 'teacher-calendar-sync.json');
 const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json');
+const teacherCalendarGoogleFile = path.join(dataDir, 'teacher-calendar-google.json');
 const lessonTopicsFile = path.join(dataDir, 'lesson-topics.json');
 const lessonHistoryFile = path.join(dataDir, 'lesson-history.json');
 const lessonReplaysDir = path.join(dataDir, 'lesson-replays');
@@ -2288,6 +2300,16 @@ const readTeacherCalendarSyncDb = () => {
   }
 };
 
+const readTeacherCalendarGoogleDb = () => {
+  try {
+    const raw = fs.readFileSync(teacherCalendarGoogleFile, 'utf8');
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+};
+
 const normalizeTeacherCalendarMarkKey = (value) => {
   const normalized = String(value || '').trim();
   if (!normalized || normalized.length > 500) return '';
@@ -3101,6 +3123,10 @@ const writeBroadcastNotificationsDb = (data) => {
 
 const writeTeacherCalendarSyncDb = (data) => {
   writeJsonFileAtomic(teacherCalendarSyncFile, data || {});
+};
+
+const writeTeacherCalendarGoogleDb = (data) => {
+  writeJsonFileAtomic(teacherCalendarGoogleFile, data || {});
 };
 
 const writeTeacherCalendarMarksDb = (data) => {
@@ -9046,6 +9072,306 @@ const teacherCalendarSyncCache = new Map();
 const teacherCalendarFetchInFlight = new Map();
 const teacherCalendarRefreshInFlight = new Map();
 const teacherCalendarRefreshResultCache = new Map();
+const teacherCalendarGoogleQueueInFlight = new Map();
+const GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH = '/api/teacher-calendar-google/oauth/callback';
+const GOOGLE_CALENDAR_QUEUE_MAX_ITEMS = 250;
+
+const getGoogleCalendarOAuthConfig = (req = null) => {
+  const clientId = String(process.env.GOOGLE_CALENDAR_OAUTH_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET || '').trim();
+  const tokenSecret = String(
+    process.env.GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY
+    || process.env.GOOGLE_CALENDAR_OAUTH_TOKEN_SECRET
+    || ACCESS_CODE_LOOKUP_SECRET
+    || ''
+  ).trim();
+  let redirectUri = String(process.env.GOOGLE_CALENDAR_OAUTH_REDIRECT_URI || '').trim();
+  if (!redirectUri) {
+    const configuredBase = String(process.env.APP_PUBLIC_URL || '').trim();
+    try {
+      if (configuredBase) redirectUri = new URL(GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH, configuredBase).toString();
+    } catch {
+      redirectUri = '';
+    }
+  }
+  if (!redirectUri && req) {
+    const host = String(req.get('host') || '').trim();
+    if (host) redirectUri = `${req.protocol || 'https'}://${host}${GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH}`;
+  }
+  return {
+    clientId,
+    clientSecret,
+    tokenSecret,
+    redirectUri,
+    configured: Boolean(clientId && clientSecret && tokenSecret && redirectUri),
+  };
+};
+
+const normalizeGoogleCalendarDescriptor = (value) => {
+  const id = String(value?.id || '').trim();
+  if (!id) return null;
+  return {
+    id,
+    summary: String(value?.summary || id).trim().slice(0, 300),
+    primary: value?.primary === true,
+    accessRole: String(value?.accessRole || '').trim(),
+  };
+};
+
+const normalizeTeacherCalendarGoogleQueueItem = (value) => {
+  const id = String(value?.id || '').trim().slice(0, 120);
+  const externalEventId = String(value?.externalEventId || '').trim().slice(0, 500);
+  const dayKey = normalizeDayKey(value?.dayKey);
+  const time = normalizeScheduleTime(value?.time);
+  if (!id || !externalEventId || !dayKey || !time) return null;
+  return {
+    id,
+    externalEventId,
+    dayKey,
+    time,
+    startAt: String(value?.startAt || '').trim().slice(0, 100),
+    occurrenceKey: String(value?.occurrenceKey || '').trim().slice(0, 500),
+    cancelled: value?.cancelled === true,
+    attempts: Math.max(0, Math.min(100, Math.floor(Number(value?.attempts) || 0))),
+    nextAttemptAtMs: Math.max(0, Number(value?.nextAttemptAtMs) || 0),
+    lastError: String(value?.lastError || '').trim().slice(0, 500),
+    updatedAt: String(value?.updatedAt || '').trim(),
+  };
+};
+
+const normalizeTeacherCalendarGoogleConnection = (value) => {
+  const calendars = (Array.isArray(value?.calendars) ? value.calendars : [])
+    .map(normalizeGoogleCalendarDescriptor)
+    .filter(Boolean);
+  const queue = (Array.isArray(value?.queue) ? value.queue : [])
+    .map(normalizeTeacherCalendarGoogleQueueItem)
+    .filter(Boolean)
+    .slice(-GOOGLE_CALENDAR_QUEUE_MAX_ITEMS);
+  return {
+    encryptedTokens: String(value?.encryptedTokens || '').trim(),
+    calendarId: String(value?.calendarId || '').trim().slice(0, 500),
+    calendarName: String(value?.calendarName || '').trim().slice(0, 300),
+    calendars,
+    queue,
+    connectedAt: String(value?.connectedAt || '').trim(),
+    updatedAt: String(value?.updatedAt || '').trim(),
+    lastSyncedAt: String(value?.lastSyncedAt || '').trim(),
+    lastError: String(value?.lastError || '').trim().slice(0, 500),
+    requiresReauthorization: value?.requiresReauthorization === true,
+  };
+};
+
+const getTeacherCalendarGoogleConnection = (teacherId) => {
+  const id = String(teacherId || '').trim();
+  if (!id) return normalizeTeacherCalendarGoogleConnection(null);
+  return normalizeTeacherCalendarGoogleConnection(readTeacherCalendarGoogleDb()[id]);
+};
+
+const setTeacherCalendarGoogleConnection = (teacherId, value) => {
+  const id = String(teacherId || '').trim();
+  if (!id) return normalizeTeacherCalendarGoogleConnection(null);
+  const db = readTeacherCalendarGoogleDb();
+  const next = normalizeTeacherCalendarGoogleConnection(value);
+  if (!next.encryptedTokens && next.queue.length === 0) delete db[id];
+  else db[id] = next;
+  writeTeacherCalendarGoogleDb(db);
+  return next;
+};
+
+const patchTeacherCalendarGoogleConnection = (teacherId, patch = {}) => {
+  const current = getTeacherCalendarGoogleConnection(teacherId);
+  return setTeacherCalendarGoogleConnection(teacherId, {
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  });
+};
+
+const buildTeacherCalendarGoogleResponse = (teacherId, req = null) => {
+  const config = getGoogleCalendarOAuthConfig(req);
+  const connection = getTeacherCalendarGoogleConnection(teacherId);
+  return {
+    available: config.configured,
+    connected: Boolean(connection.encryptedTokens && connection.calendarId),
+    requiresReauthorization: connection.requiresReauthorization,
+    calendarId: connection.calendarId,
+    calendarName: connection.calendarName,
+    calendars: connection.calendars,
+    pendingCount: connection.queue.length,
+    connectedAt: connection.connectedAt,
+    lastSyncedAt: connection.lastSyncedAt,
+    lastError: connection.lastError,
+  };
+};
+
+const chooseGoogleCalendarForTeacher = (teacherId, calendars) => {
+  const available = Array.isArray(calendars) ? calendars : [];
+  const importedName = String(getTeacherCalendarSyncSettings(teacherId)?.calendarName || '').trim().toLocaleLowerCase('ru-RU');
+  return (importedName
+    ? available.find((calendar) => String(calendar?.summary || '').trim().toLocaleLowerCase('ru-RU') === importedName)
+    : null)
+    || available.find((calendar) => calendar?.primary)
+    || available[0]
+    || null;
+};
+
+const getTeacherGoogleCalendarAccessToken = async (teacherId) => {
+  const config = getGoogleCalendarOAuthConfig();
+  const connection = getTeacherCalendarGoogleConnection(teacherId);
+  if (!config.configured || !connection.encryptedTokens) {
+    const error = new Error('Редактирование Google Calendar не подключено');
+    error.code = 'GOOGLE_CALENDAR_NOT_CONNECTED';
+    throw error;
+  }
+  const tokens = decryptGoogleCalendarTokens(connection.encryptedTokens, config.tokenSecret);
+  if (String(tokens?.accessToken || '').trim() && Number(tokens?.expiresAtMs) > Date.now() + 60_000) {
+    return tokens.accessToken;
+  }
+  if (!String(tokens?.refreshToken || '').trim()) {
+    const error = new Error('Google Calendar нужно подключить повторно');
+    error.code = 'GOOGLE_CALENDAR_REAUTHORIZE';
+    throw error;
+  }
+  const refreshed = await refreshGoogleCalendarAccessToken({
+    refreshToken: tokens.refreshToken,
+    clientId: config.clientId,
+    clientSecret: config.clientSecret,
+  });
+  const nextTokens = {
+    ...tokens,
+    ...refreshed,
+    refreshToken: tokens.refreshToken,
+  };
+  patchTeacherCalendarGoogleConnection(teacherId, {
+    encryptedTokens: encryptGoogleCalendarTokens(nextTokens, config.tokenSecret),
+    requiresReauthorization: false,
+  });
+  return nextTokens.accessToken;
+};
+
+const enqueueTeacherGoogleCalendarCancellation = (teacherId, entry, dayKey, cancelled, occurrenceKey) => {
+  const externalEventId = String(entry?.externalEventId || '').trim();
+  const time = normalizeScheduleTime(entry?.time);
+  if (!externalEventId || !dayKey || !time || !isGoogleStudentScheduleEntry(entry)) return null;
+  const id = crypto.createHash('sha1')
+    .update(`${teacherId}|${externalEventId}|${dayKey}|${time}`)
+    .digest('hex')
+    .slice(0, 32);
+  const connection = getTeacherCalendarGoogleConnection(teacherId);
+  const nextItem = normalizeTeacherCalendarGoogleQueueItem({
+    id,
+    externalEventId,
+    dayKey,
+    time,
+    startAt: entry?.startAt,
+    occurrenceKey,
+    cancelled,
+    attempts: 0,
+    nextAttemptAtMs: 0,
+    lastError: '',
+    updatedAt: new Date().toISOString(),
+  });
+  const queue = [...connection.queue.filter((item) => item.id !== id), nextItem]
+    .filter(Boolean)
+    .slice(-GOOGLE_CALENDAR_QUEUE_MAX_ITEMS);
+  patchTeacherCalendarGoogleConnection(teacherId, { queue });
+  return nextItem;
+};
+
+const syncTeacherGoogleCalendarQueueItem = async (teacherId, item) => {
+  const normalizedItem = normalizeTeacherCalendarGoogleQueueItem(item);
+  if (!normalizedItem) return { status: 'not-applicable' };
+  const connection = getTeacherCalendarGoogleConnection(teacherId);
+  if (!connection.encryptedTokens || !connection.calendarId) {
+    return { status: 'not-connected', pending: true };
+  }
+  try {
+    const accessToken = await getTeacherGoogleCalendarAccessToken(teacherId);
+    await patchGoogleCalendarOccurrenceCancellation({
+      accessToken,
+      calendarId: connection.calendarId,
+      iCalUid: normalizedItem.externalEventId,
+      expectedStartAt: normalizedItem.startAt || `${normalizedItem.dayKey}T${normalizedItem.time}:00`,
+      occurrenceKey: normalizedItem.occurrenceKey,
+      cancelled: normalizedItem.cancelled,
+    });
+    const latest = getTeacherCalendarGoogleConnection(teacherId);
+    patchTeacherCalendarGoogleConnection(teacherId, {
+      queue: latest.queue.filter((queued) => queued.id !== normalizedItem.id),
+      lastSyncedAt: new Date().toISOString(),
+      lastError: '',
+      requiresReauthorization: false,
+    });
+    teacherCalendarSyncCache.delete(String(teacherId || '').trim());
+    return { status: 'synced', pending: false };
+  } catch (error) {
+    const latest = getTeacherCalendarGoogleConnection(teacherId);
+    const attempts = normalizedItem.attempts + 1;
+    const retryDelayMs = Math.min(30 * 60 * 1000, Math.max(30_000, 30_000 * (2 ** Math.min(attempts - 1, 6))));
+    const reauthorize = ['GOOGLE_CALENDAR_REAUTHORIZE'].includes(String(error?.code || ''))
+      || Number(error?.status) === 401
+      || String(error?.message || '').toLowerCase().includes('invalid_grant');
+    const failedItem = {
+      ...normalizedItem,
+      attempts,
+      nextAttemptAtMs: Date.now() + retryDelayMs,
+      lastError: String(error?.message || 'Ошибка Google Calendar').slice(0, 500),
+      updatedAt: new Date().toISOString(),
+    };
+    patchTeacherCalendarGoogleConnection(teacherId, {
+      queue: [...latest.queue.filter((queued) => queued.id !== failedItem.id), failedItem],
+      lastError: failedItem.lastError,
+      requiresReauthorization: reauthorize || latest.requiresReauthorization,
+    });
+    console.warn('[teacher-calendar-google] occurrence sync failed:', error?.message || error);
+    return { status: reauthorize ? 'reauthorize' : 'pending', pending: true, error: failedItem.lastError };
+  }
+};
+
+const synchronizeTeacherGoogleCalendarCancellation = async ({
+  teacherId,
+  entry,
+  dayKey,
+  cancelled,
+  occurrenceKey,
+}) => {
+  const queued = enqueueTeacherGoogleCalendarCancellation(teacherId, entry, dayKey, cancelled, occurrenceKey);
+  if (!queued) return { status: 'not-applicable', pending: false };
+  return syncTeacherGoogleCalendarQueueItem(teacherId, queued);
+};
+
+const processTeacherGoogleCalendarQueue = async (teacherId, options = {}) => {
+  const id = String(teacherId || '').trim();
+  if (!id) return;
+  if (teacherCalendarGoogleQueueInFlight.has(id)) return teacherCalendarGoogleQueueInFlight.get(id);
+  const promise = (async () => {
+    const connection = getTeacherCalendarGoogleConnection(id);
+    if (!connection.encryptedTokens || !connection.calendarId) return;
+    const limit = Math.max(1, Math.min(20, Number(options.limit) || 5));
+    const due = connection.queue
+      .filter((item) => Number(item.nextAttemptAtMs) <= Date.now())
+      .slice(0, limit);
+    for (const item of due) {
+      await syncTeacherGoogleCalendarQueueItem(id, item);
+    }
+  })().finally(() => teacherCalendarGoogleQueueInFlight.delete(id));
+  teacherCalendarGoogleQueueInFlight.set(id, promise);
+  return promise;
+};
+
+const processAllTeacherGoogleCalendarQueues = async () => {
+  const db = readTeacherCalendarGoogleDb();
+  for (const teacherId of Object.keys(db)) {
+    await processTeacherGoogleCalendarQueue(teacherId, { limit: 5 });
+  }
+};
+
+const teacherCalendarGoogleQueueInterval = setInterval(() => {
+  processAllTeacherGoogleCalendarQueues().catch((error) => {
+    console.warn('[teacher-calendar-google] queue processing failed:', error?.message || error);
+  });
+}, 60_000);
+if (typeof teacherCalendarGoogleQueueInterval.unref === 'function') teacherCalendarGoogleQueueInterval.unref();
 
 const getGoogleCalendarSyncMonthEndMs = (value) => {
   const normalizedMonth = normalizeTeacherFinanceMonthKey(value);
@@ -34807,6 +35133,23 @@ app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
       cancelled,
     });
     synchronizeLearningGroupCalendarCancellation(occurrenceEntry, cancelled, teacher.id);
+    let googleSync = { status: 'not-applicable', pending: false };
+    try {
+      googleSync = await synchronizeTeacherGoogleCalendarCancellation({
+        teacherId: teacher.id,
+        entry: occurrenceEntry,
+        dayKey,
+        cancelled,
+        occurrenceKey: markKey,
+      });
+    } catch (error) {
+      console.warn('[teacher-calendar-google] failed to queue occurrence sync:', error?.message || error);
+      googleSync = {
+        status: 'pending',
+        pending: true,
+        error: 'Изменение сохранено в платформе, но пока не отправлено в Google Calendar',
+      };
+    }
     notifyScheduleSyncUpdate({
       scope: 'teacher-calendar-marks',
       action: cancelled ? 'calendar-lesson-cancelled' : 'calendar-lesson-restored',
@@ -34817,6 +35160,7 @@ app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
       cancellationMarkKey: markKey,
       marks: db[teacher.id],
       payment: paymentCancellation.transfers,
+      googleSync,
     });
   } catch (error) {
     console.error('[teacher-calendar] failed to update lesson cancellation:', error);
@@ -34890,6 +35234,157 @@ app.patch('/api/teacher-calendar-marks', (req, res) => {
     teacherId: teacher.id,
   });
   return res.json({ marks: db[teacher.id] });
+});
+
+app.get('/api/teacher-calendar-google', (req, res) => {
+  const { teacherId } = req.query || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  return res.json(buildTeacherCalendarGoogleResponse(teacher.id, req));
+});
+
+app.post('/api/teacher-calendar-google/oauth/start', (req, res) => {
+  const { teacherId } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const config = getGoogleCalendarOAuthConfig(req);
+  if (!config.configured) {
+    return res.status(503).json({ error: 'Доступ к Google Calendar ещё не настроен на сервере' });
+  }
+  const state = createGoogleCalendarOAuthState({
+    teacherId: teacher.id,
+    authToken: req.authToken,
+    secret: config.tokenSecret,
+    expiresAtMs: Date.now() + 10 * 60 * 1000,
+  });
+  return res.json({
+    authorizationUrl: buildGoogleCalendarAuthorizationUrl({
+      clientId: config.clientId,
+      redirectUri: config.redirectUri,
+      state,
+    }),
+  });
+});
+
+const sendGoogleCalendarOAuthPopupResult = (res, ok, message) => {
+  const safePayload = JSON.stringify({
+    type: 'ivan100-google-calendar-oauth',
+    ok: Boolean(ok),
+    message: String(message || ''),
+  }).replace(/</g, '\\u003c');
+  return res
+    .status(ok ? 200 : 400)
+    .set('Cache-Control', 'no-store')
+    .type('html')
+    .send(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google Calendar</title></head><body style="font-family:system-ui,sans-serif;padding:32px;color:#172033"><h1 style="font-size:20px">${ok ? 'Google Calendar подключён' : 'Не удалось подключить Google Calendar'}</h1><p>${ok ? 'Это окно можно закрыть.' : 'Вернитесь на платформу и попробуйте ещё раз.'}</p><script>try{if(window.opener){window.opener.postMessage(${safePayload},window.location.origin);window.close();}else{setTimeout(function(){window.location.replace('/');},1200);}}catch(e){}</script></body></html>`);
+};
+
+app.get(GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH, async (req, res) => {
+  try {
+    if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+    const config = getGoogleCalendarOAuthConfig(req);
+    if (!config.configured) {
+      return sendGoogleCalendarOAuthPopupResult(res, false, 'Сервер не настроен');
+    }
+    if (String(req.query?.error || '').trim()) {
+      return sendGoogleCalendarOAuthPopupResult(res, false, 'Доступ не был предоставлен');
+    }
+    const state = verifyGoogleCalendarOAuthState({
+      state: req.query?.state,
+      authToken: req.authToken,
+      secret: config.tokenSecret,
+    });
+    if (!state) return sendGoogleCalendarOAuthPopupResult(res, false, 'Срок подключения истёк');
+    const teacher = ensureTeacherAccess(req, res, state.teacherId, { missingError: 'teacherId required' });
+    if (!teacher) return;
+    const code = String(req.query?.code || '').trim();
+    if (!code) return sendGoogleCalendarOAuthPopupResult(res, false, 'Google не вернул код доступа');
+
+    const issuedTokens = await exchangeGoogleCalendarAuthorizationCode({
+      code,
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+      redirectUri: config.redirectUri,
+    });
+    const current = getTeacherCalendarGoogleConnection(teacher.id);
+    let previousTokens = {};
+    if (current.encryptedTokens) {
+      try {
+        previousTokens = decryptGoogleCalendarTokens(current.encryptedTokens, config.tokenSecret);
+      } catch {
+        previousTokens = {};
+      }
+    }
+    const tokens = {
+      ...previousTokens,
+      ...issuedTokens,
+      refreshToken: issuedTokens.refreshToken || previousTokens.refreshToken || '',
+    };
+    if (!tokens.accessToken || !tokens.refreshToken) {
+      throw new Error('Google не выдал постоянный доступ. Подключите календарь ещё раз.');
+    }
+    const calendars = await listWritableGoogleCalendars({ accessToken: tokens.accessToken });
+    const selected = calendars.find((calendar) => calendar.id === current.calendarId)
+      || chooseGoogleCalendarForTeacher(teacher.id, calendars);
+    if (!selected) throw new Error('В аккаунте Google не найден календарь с правом редактирования');
+    patchTeacherCalendarGoogleConnection(teacher.id, {
+      encryptedTokens: encryptGoogleCalendarTokens(tokens, config.tokenSecret),
+      calendarId: selected.id,
+      calendarName: selected.summary,
+      calendars,
+      connectedAt: current.connectedAt || new Date().toISOString(),
+      lastError: '',
+      requiresReauthorization: false,
+    });
+    await processTeacherGoogleCalendarQueue(teacher.id, { limit: 10 });
+    notifyScheduleSyncUpdate({
+      scope: 'teacher-schedule',
+      action: 'calendar-google-write-connected',
+      teacherId: teacher.id,
+    });
+    return sendGoogleCalendarOAuthPopupResult(res, true, 'Google Calendar подключён');
+  } catch (error) {
+    console.error('[teacher-calendar-google] OAuth callback failed:', error?.message || error);
+    return sendGoogleCalendarOAuthPopupResult(res, false, error?.message || 'Ошибка подключения');
+  }
+});
+
+app.patch('/api/teacher-calendar-google', async (req, res) => {
+  const { teacherId, calendarId } = req.body || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  const current = getTeacherCalendarGoogleConnection(teacher.id);
+  if (!current.encryptedTokens) return res.status(409).json({ error: 'Сначала подключите Google Calendar' });
+  const selected = current.calendars.find((calendar) => calendar.id === String(calendarId || '').trim());
+  if (!selected) return res.status(400).json({ error: 'Выберите доступный календарь' });
+  patchTeacherCalendarGoogleConnection(teacher.id, {
+    calendarId: selected.id,
+    calendarName: selected.summary,
+    lastError: '',
+  });
+  await processTeacherGoogleCalendarQueue(teacher.id, { limit: 10 });
+  return res.json(buildTeacherCalendarGoogleResponse(teacher.id, req));
+});
+
+app.delete('/api/teacher-calendar-google', (req, res) => {
+  const { teacherId } = req.query || {};
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
+  const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  setTeacherCalendarGoogleConnection(teacher.id, null);
+  notifyScheduleSyncUpdate({
+    scope: 'teacher-schedule',
+    action: 'calendar-google-write-disconnected',
+    teacherId: teacher.id,
+  });
+  return res.json(buildTeacherCalendarGoogleResponse(teacher.id, req));
 });
 
 app.get('/api/teacher-calendar-sync', (req, res) => {
