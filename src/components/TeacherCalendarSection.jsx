@@ -3453,8 +3453,8 @@ const TeacherCalendarSection = ({
       const googleSyncStatus = String(response?.googleSync?.status || '');
       const googleNote = googleSyncStatus === 'synced'
         ? (nextCancelled
-            ? ' Событие Google помечено «(ОТМЕНЕНО)».'
-            : ' Исходное название и цвет события Google восстановлены.')
+            ? ' Событие Google помечено «(ОТМЕНЕНО)», напоминания отключены.'
+            : ' Исходные название, цвет и напоминания события Google восстановлены.')
         : googleSyncStatus === 'not-connected'
           ? ' Изменение Google ожидает подключения доступа.'
           : ['pending', 'reauthorize'].includes(googleSyncStatus)
@@ -5022,7 +5022,7 @@ const TeacherCalendarSection = ({
                       </div>
                       <div className="mt-1 leading-relaxed">
                         {calendarGoogleWrite.connected && !calendarGoogleWrite.requiresReauthorization
-                          ? 'Для отменённого занятия меняются только название и цвет конкретного события. При восстановлении они возвращаются.'
+                          ? 'Для отменённого занятия меняются название и цвет конкретного события, а его напоминания отключаются. При восстановлении прежние настройки возвращаются.'
                           : 'iCal загружает расписание только для чтения. Разрешите платформе менять конкретные события, чтобы виджет Android тоже показывал отмену.'}
                       </div>
                       {calendarGoogleWrite.connected && calendarGoogleWrite.calendars?.length > 1 && (

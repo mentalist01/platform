@@ -63,6 +63,13 @@ test('only the selected recurring occurrence is marked cancelled and can be rest
     start: { dateTime: startAt },
     originalStartTime: { dateTime: startAt },
     status: 'confirmed',
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: 'popup', minutes: 30 },
+        { method: 'email', minutes: 1440 },
+      ],
+    },
     extendedProperties: { private: { keepMe: 'yes' } },
   };
   const fetchImpl = async (url, options = {}) => {
@@ -99,8 +106,40 @@ test('only the selected recurring occurrence is marked cancelled and can be rest
   assert.match(requests[1].url, /events\/instance-123\?sendUpdates=none$/);
   assert.equal(cancelPatch.summary, 'Роман (ОТМЕНЕНО)');
   assert.equal(cancelPatch.colorId, '11');
+  assert.deepEqual(cancelPatch.reminders, { useDefault: false, overrides: [] });
   assert.equal(cancelPatch.extendedProperties.private.keepMe, 'yes');
   assert.equal(cancelPatch.extendedProperties.private.ivan100OriginalSummary, 'Роман');
+  assert.deepEqual(
+    JSON.parse(cancelPatch.extendedProperties.private.ivan100OriginalReminders),
+    {
+      useDefault: false,
+      overrides: [
+        { method: 'popup', minutes: 30 },
+        { method: 'email', minutes: 1440 },
+      ],
+    }
+  );
+
+  await patchGoogleCalendarOccurrenceCancellation({
+    accessToken: 'token',
+    calendarId: 'primary',
+    iCalUid: 'series@example.com',
+    expectedStartAt: startAt,
+    occurrenceKey: 'mark-1',
+    cancelled: true,
+    fetchImpl,
+  });
+  const repeatedCancelPatch = JSON.parse(requests[3].options.body);
+  assert.deepEqual(
+    JSON.parse(repeatedCancelPatch.extendedProperties.private.ivan100OriginalReminders),
+    {
+      useDefault: false,
+      overrides: [
+        { method: 'popup', minutes: 30 },
+        { method: 'email', minutes: 1440 },
+      ],
+    }
+  );
 
   await patchGoogleCalendarOccurrenceCancellation({
     accessToken: 'token',
@@ -111,10 +150,17 @@ test('only the selected recurring occurrence is marked cancelled and can be rest
     cancelled: false,
     fetchImpl,
   });
-  const restorePatch = JSON.parse(requests[3].options.body);
+  const restorePatch = JSON.parse(requests[5].options.body);
   assert.equal(restorePatch.summary, 'Роман');
   assert.equal(restorePatch.colorId, null);
+  assert.deepEqual(restorePatch.reminders, {
+    useDefault: false,
+    overrides: [
+      { method: 'popup', minutes: 30 },
+      { method: 'email', minutes: 1440 },
+    ],
+  });
   assert.equal(restorePatch.extendedProperties.private.keepMe, 'yes');
   assert.equal(restorePatch.extendedProperties.private.ivan100Cancelled, null);
+  assert.equal(restorePatch.extendedProperties.private.ivan100OriginalReminders, null);
 });
-

@@ -13,10 +13,34 @@ const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 const PLATFORM_CANCELLED_KEY = 'ivan100Cancelled';
 const PLATFORM_ORIGINAL_SUMMARY_KEY = 'ivan100OriginalSummary';
 const PLATFORM_ORIGINAL_COLOR_KEY = 'ivan100OriginalColor';
+const PLATFORM_ORIGINAL_REMINDERS_KEY = 'ivan100OriginalReminders';
 const PLATFORM_OCCURRENCE_KEY = 'ivan100Occurrence';
 const NO_COLOR_SENTINEL = '__calendar_default__';
 
 const normalizeText = (value) => String(value || '').trim();
+const normalizeGoogleEventReminders = (value) => {
+  if (value?.useDefault !== false) return { useDefault: true };
+  const overrides = Array.isArray(value?.overrides)
+    ? value.overrides
+      .map((item) => ({
+        method: ['email', 'popup'].includes(normalizeText(item?.method)) ? normalizeText(item.method) : '',
+        minutes: Number(item?.minutes),
+      }))
+      .filter((item) => item.method && Number.isInteger(item.minutes) && item.minutes >= 0 && item.minutes <= 40_320)
+      .slice(0, 5)
+    : [];
+  return { useDefault: false, overrides };
+};
+const serializeGoogleEventReminders = (value) => JSON.stringify(normalizeGoogleEventReminders(value));
+const parseGoogleEventReminders = (value) => {
+  try {
+    const parsed = JSON.parse(normalizeText(value));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return normalizeGoogleEventReminders(parsed);
+  } catch {
+    return null;
+  }
+};
 const base64UrlEncode = (value) => Buffer.from(value).toString('base64url');
 const base64UrlDecode = (value) => Buffer.from(String(value || ''), 'base64url').toString('utf8');
 const deriveEncryptionKey = (secret) => crypto.createHash('sha256').update(normalizeText(secret)).digest();
@@ -290,6 +314,7 @@ export const patchGoogleCalendarOccurrenceCancellation = async ({
   const currentColor = normalizeText(event.colorId);
   let summary = currentSummary;
   let colorId = currentColor || null;
+  let reminders = null;
   let privateProperties = { ...existingPrivate };
 
   if (cancelled) {
@@ -302,8 +327,11 @@ export const patchGoogleCalendarOccurrenceCancellation = async ({
       [PLATFORM_ORIGINAL_COLOR_KEY]: Object.prototype.hasOwnProperty.call(existingPrivate, PLATFORM_ORIGINAL_COLOR_KEY)
         ? existingPrivate[PLATFORM_ORIGINAL_COLOR_KEY]
         : (currentColor || NO_COLOR_SENTINEL),
+      [PLATFORM_ORIGINAL_REMINDERS_KEY]: normalizeText(existingPrivate[PLATFORM_ORIGINAL_REMINDERS_KEY])
+        || serializeGoogleEventReminders(event.reminders),
       [PLATFORM_OCCURRENCE_KEY]: normalizeText(occurrenceKey),
     };
+    reminders = { useDefault: false, overrides: [] };
   } else {
     const storedOriginalSummary = normalizeText(existingPrivate[PLATFORM_ORIGINAL_SUMMARY_KEY]);
     summary = storedOriginalSummary && appendGoogleCalendarCancelledSuffix(storedOriginalSummary) === currentSummary
@@ -313,11 +341,13 @@ export const patchGoogleCalendarOccurrenceCancellation = async ({
     if (currentColor === GOOGLE_CALENDAR_CANCELLED_COLOR_ID && storedOriginalColor) {
       colorId = storedOriginalColor === NO_COLOR_SENTINEL ? null : storedOriginalColor;
     }
+    reminders = parseGoogleEventReminders(existingPrivate[PLATFORM_ORIGINAL_REMINDERS_KEY]);
     privateProperties = {
       ...privateProperties,
       [PLATFORM_CANCELLED_KEY]: null,
       [PLATFORM_ORIGINAL_SUMMARY_KEY]: null,
       [PLATFORM_ORIGINAL_COLOR_KEY]: null,
+      [PLATFORM_ORIGINAL_REMINDERS_KEY]: null,
       [PLATFORM_OCCURRENCE_KEY]: null,
     };
   }
@@ -329,6 +359,7 @@ export const patchGoogleCalendarOccurrenceCancellation = async ({
     body: {
       summary,
       colorId,
+      ...(reminders ? { reminders } : {}),
       extendedProperties: { private: privateProperties },
     },
     fetchImpl,
@@ -339,4 +370,3 @@ export const patchGoogleCalendarOccurrenceCancellation = async ({
     cancelled: Boolean(cancelled),
   };
 };
-
