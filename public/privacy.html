@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="index,follow" />
+    <title>Политика конфиденциальности — Иван на сотку</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #172033;
+        background: #f6f4ff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at top left, rgba(124, 58, 237, 0.13), transparent 32rem),
+          radial-gradient(circle at top right, rgba(14, 165, 233, 0.12), transparent 28rem),
+          #f8f7fc;
+      }
+      main {
+        width: min(820px, calc(100% - 32px));
+        margin: 48px auto;
+        padding: clamp(28px, 5vw, 52px);
+        border: 1px solid rgba(124, 58, 237, 0.16);
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 24px 80px rgba(59, 38, 113, 0.12);
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 24px;
+        color: #6d28d9;
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .mark {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        place-items: center;
+        border-radius: 12px;
+        color: white;
+        background: linear-gradient(135deg, #7c3aed, #2563eb);
+      }
+      h1 { margin: 0 0 12px; font-size: clamp(32px, 6vw, 48px); line-height: 1.05; }
+      h2 { margin: 34px 0 10px; font-size: 21px; }
+      p, li { color: #526079; font-size: 16px; line-height: 1.7; }
+      ul { padding-left: 22px; }
+      a { color: #6d28d9; font-weight: 650; }
+      .updated { margin: 0 0 30px; color: #7b8497; font-size: 14px; }
+      .notice {
+        margin-top: 34px;
+        padding: 18px 20px;
+        border-radius: 18px;
+        background: #f4efff;
+      }
+      .notice p { margin: 0; }
+      @media (max-width: 560px) {
+        main { margin: 16px auto; border-radius: 22px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand"><span class="mark">100</span> Иван на сотку</div>
+      <h1>Политика конфиденциальности</h1>
+      <p class="updated">Последнее обновление: 1 сентября 2026 года</p>
+
+      <p>
+        Эта политика описывает обработку данных при подключении Google Calendar к образовательной
+        платформе «Иван на сотку».
+      </p>
+
+      <h2>Какие данные используются</h2>
+      <ul>
+        <li>список календарей, доступных подключённому Google-аккаунту;</li>
+        <li>идентификаторы, время, название и цвет событий занятий;</li>
+        <li>OAuth-токены, необходимые для выполнения разрешённых операций.</li>
+      </ul>
+
+      <h2>Для чего нужны данные</h2>
+      <p>
+        Доступ используется только для выбора календаря преподавателя и отметки отменённого занятия
+        в соответствующем событии. Платформа добавляет отметку «ОТМЕНЕНО» и меняет цвет конкретного
+        события. При восстановлении занятия исходные название и цвет возвращаются.
+      </p>
+
+      <h2>Хранение и защита</h2>
+      <p>
+        OAuth-токены хранятся на сервере в зашифрованном виде с ограниченным доступом. Также могут
+        храниться идентификатор выбранного календаря и служебные данные очереди синхронизации.
+        Данные Google Calendar не продаются и не передаются третьим лицам для рекламы.
+      </p>
+
+      <h2>Срок хранения и удаление</h2>
+      <p>
+        Данные подключения хранятся, пока преподаватель использует интеграцию. Их можно удалить
+        кнопкой «Отключить изменения» в разделе «Общий календарь». Доступ также можно отозвать в
+        настройках безопасности Google-аккаунта.
+      </p>
+
+      <h2>Контакты</h2>
+      <p>
+        По вопросам конфиденциальности и удаления данных напишите на
+        <a href="mailto:ivankickass03@gmail.com">ivankickass03@gmail.com</a>.
+      </p>
+
+      <div class="notice">
+        <p><a href="/">Вернуться на платформу</a></p>
+      </div>
+    </main>
+  </body>
+</html>
