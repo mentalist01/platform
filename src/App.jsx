@@ -10986,6 +10986,7 @@ const BoardSection = ({
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isSpaceDown, setIsSpaceDown] = useState(false);
+  const [isBoardPanning, setIsBoardPanning] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
   const [selectedImageId, setSelectedImageId] = useState(null);
@@ -11503,6 +11504,7 @@ const BoardSection = ({
     imageResizePreviewRef.current = null;
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
     panStateRef.current = { active: false, startX: 0, startY: 0, originX: 0, originY: 0 };
+    setIsBoardPanning(false);
     sandboxNavigationPointersRef.current.clear();
     sandboxPinchRef.current = {
       active: false,
@@ -12078,6 +12080,7 @@ const BoardSection = ({
     pendingSelectionMoveRef.current = { dx: 0, dy: 0 };
     eraserStateRef.current.active = false;
     panStateRef.current.active = false;
+    setIsBoardPanning(false);
     sandboxNavigationPointersRef.current.clear();
     sandboxPinchRef.current.active = false;
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
@@ -14805,6 +14808,7 @@ const BoardSection = ({
     const handleBlur = () => {
       setIsSpaceDown(false);
       panStateRef.current.active = false;
+      setIsBoardPanning(false);
       scheduleCursorUpdate(null);
     };
     if (typeof window === 'undefined') return undefined;
@@ -15779,6 +15783,7 @@ const BoardSection = ({
       worldY: offsetRef.current.y + screenY / currentZoom,
     };
     panStateRef.current.active = false;
+    setIsBoardPanning(false);
     return true;
   };
 
@@ -15844,6 +15849,7 @@ const BoardSection = ({
         originX: offsetRef.current.x,
         originY: offsetRef.current.y,
       };
+      setIsBoardPanning(true);
       event.currentTarget.setPointerCapture?.(event.pointerId);
       return;
     }
@@ -15856,6 +15862,7 @@ const BoardSection = ({
         originX: offsetRef.current.x,
         originY: offsetRef.current.y,
       };
+      setIsBoardPanning(true);
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
@@ -15935,6 +15942,7 @@ const BoardSection = ({
         originX: offsetRef.current.x,
         originY: offsetRef.current.y,
       };
+      setIsBoardPanning(true);
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
@@ -16093,13 +16101,16 @@ const BoardSection = ({
           originX: offsetRef.current.x,
           originY: offsetRef.current.y,
         };
+        setIsBoardPanning(true);
       } else {
         panStateRef.current.active = false;
+        setIsBoardPanning(false);
       }
       return;
     }
     if (panStateRef.current.active) {
       panStateRef.current.active = false;
+      setIsBoardPanning(false);
       return;
     }
     if (selectionDragRef.current.active) {
@@ -17140,13 +17151,15 @@ const BoardSection = ({
           className="absolute inset-0 w-full h-full"
           style={{
             touchAction: 'none',
-            cursor: boardReadOnly
-              ? (panStateRef.current.active ? 'grabbing' : 'grab')
+            cursor: isBoardPanning
+              ? 'grabbing'
+              : (boardReadOnly
+              ? 'grab'
               : (isSpaceDown
-              ? (panStateRef.current.active ? 'grabbing' : 'grab')
+              ? 'grab'
               : (tool === 'pen' || tool === 'line' || tool === 'arrow' || tool === 'shape' || tool === 'eraser'
                 ? 'crosshair'
-                : (tool === 'text' ? 'text' : (tool === 'move' ? 'grab' : 'default'))))
+                : (tool === 'text' ? 'text' : (tool === 'move' ? 'grab' : 'default')))))
           }}
           onPointerDown={handlePointerDown}
           onPointerEnter={rememberBoardPointer}
