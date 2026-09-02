@@ -80,6 +80,12 @@ const toIcalUtc = (dayKey, hour) => (
   `${dayKey.replaceAll('-', '')}T${String(hour).padStart(2, '0')}0000Z`
 );
 
+const shiftUtcDayKey = (dayKey, dayOffset) => {
+  const date = new Date(`${dayKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + dayOffset);
+  return date.toISOString().slice(0, 10);
+};
+
 const startFakeIcalServer = async (icalBody) => {
   const server = http.createServer((req, res) => {
     if (req.url !== '/calendar.ics') {
@@ -340,6 +346,173 @@ test('finance loads Google Calendar through the end of a selected distant month'
     assert.equal(allocations[0].status, 'credit');
     assert.equal(allocations[0].sourceEntryId, legacyEntry.id);
     assert.equal(allocations[0].amount, 2000);
+  } finally {
+    await stopServer(child);
+    await stopHttpServer(calendarServer);
+    const tempBase = `${path.resolve(os.tmpdir())}${path.sep}`;
+    const safeTempRoot = path.resolve(tempRoot);
+    if (safeTempRoot.startsWith(tempBase)) {
+      fs.rmSync(safeTempRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test('former namesake keeps historical Google events matched by exact nickname', {
+  timeout: 40_000,
+}, async () => {
+  const teacherId = 'teacher-calendar-namesakes';
+  const currentStudentId = 'student-current-nikita';
+  const formerStudentId = 'student-former-nikita';
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const formerLessonDay = shiftUtcDayKey(today, -14);
+  const currentLessonDay = shiftUtcDayKey(today, 1);
+  const formerCreatedAt = new Date(now.getTime() - (120 * 24 * 60 * 60 * 1000)).toISOString();
+
+  const fakeIcal = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Ivan EGE//Google calendar namesake integration test//EN',
+    'X-WR-CALNAME:Namesake calendar',
+    'BEGIN:VEVENT',
+    'UID:former-nikita@example.test',
+    `DTSTAMP:${toIcalUtc(today, 10)}`,
+    `DTSTART:${toIcalUtc(formerLessonDay, 16)}`,
+    `DTEND:${toIcalUtc(formerLessonDay, 17)}`,
+    'SUMMARY:Никита 2000',
+    'END:VEVENT',
+    'BEGIN:VEVENT',
+    'UID:current-nikita@example.test',
+    `DTSTAMP:${toIcalUtc(today, 10)}`,
+    `DTSTART:${toIcalUtc(currentLessonDay, 16)}`,
+    `DTEND:${toIcalUtc(currentLessonDay, 17)}`,
+    'SUMMARY:Никита1 пробное (мама Оксана)',
+    'END:VEVENT',
+    'END:VCALENDAR',
+    '',
+  ].join('\r\n');
+
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan-ege-google-namesakes-'));
+  const dataDir = path.join(tempRoot, 'data');
+  const uploadsDir = path.join(tempRoot, 'uploads');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(uploadsDir, { recursive: true });
+
+  let child = null;
+  let calendarServer = null;
+  let serverLogs = '';
+  try {
+    const fakeCalendar = await startFakeIcalServer(fakeIcal);
+    calendarServer = fakeCalendar.server;
+    const nowIso = now.toISOString();
+    fs.writeFileSync(path.join(dataDir, 'teachers.json'), JSON.stringify([{
+      id: teacherId,
+      name: 'Teacher Namesakes',
+      codeHash: buildCodeHash('teacher-calendar-namesakes-code'),
+      createdAt: formerCreatedAt,
+    }]));
+    fs.writeFileSync(path.join(dataDir, 'students.json'), JSON.stringify([
+      {
+        id: currentStudentId,
+        name: 'Никита',
+        nickname: 'Никита1',
+        teacherId,
+        code: 'student-current-nikita-code',
+        grade: 11,
+        studyStatus: 'active',
+        createdAt: nowIso,
+        deletedAt: null,
+      },
+      {
+        id: formerStudentId,
+        name: 'Никита',
+        nickname: 'Никита 2000',
+        teacherId,
+        code: 'student-former-nikita-code',
+        grade: 'graduate',
+        studyStatus: 'inactive',
+        createdAt: formerCreatedAt,
+        deletedAt: null,
+      },
+    ]));
+    fs.writeFileSync(path.join(dataDir, 'tests.json'), JSON.stringify({}));
+    fs.writeFileSync(path.join(dataDir, 'progress.json'), JSON.stringify({
+      [currentStudentId]: {
+        progress: {},
+        notes: '',
+        mocks: [],
+        schedule: [],
+        solvedByTask: {},
+        solvedEvents: [],
+        nextLesson: null,
+        homeworks: [],
+      },
+      [formerStudentId]: {
+        progress: {},
+        notes: '',
+        mocks: [],
+        schedule: [],
+        solvedByTask: {},
+        solvedEvents: [],
+        nextLesson: null,
+        homeworks: [],
+      },
+    }));
+    fs.writeFileSync(path.join(dataDir, 'teacher-calendar-sync.json'), JSON.stringify({
+      [teacherId]: {
+        enabled: true,
+        icalUrl: fakeCalendar.url,
+        updatedAt: nowIso,
+        lastFetchedAt: '',
+        lastError: '',
+        calendarName: '',
+      },
+    }));
+    fs.writeFileSync(path.join(dataDir, 'teacher-finances.json'), JSON.stringify({}));
+
+    const port = await getFreePort();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    child = spawn(process.execPath, ['server/index.js'], {
+      cwd: workspaceDir,
+      env: {
+        ...process.env,
+        PORT: String(port),
+        NODE_ENV: 'test',
+        TZ: 'Europe/Moscow',
+        PLATFORM_CALENDAR_TIME_ZONE: 'Europe/Moscow',
+        PLATFORM_DATA_DIR: dataDir,
+        PLATFORM_UPLOADS_DIR: uploadsDir,
+        PLATFORM_JSON_BACKUPS_DIR: path.join(tempRoot, 'json-backups'),
+        COLLAB_PERSISTENCE: '0',
+        DISABLE_STARTUP_XP_REBALANCE: '1',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout.on('data', (chunk) => { serverLogs += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { serverLogs += chunk.toString(); });
+    await waitForServer(baseUrl, child, () => serverLogs);
+
+    const authorization = await login(baseUrl, 'teacher-calendar-namesakes-code');
+    const scheduleResponse = await fetch(`${baseUrl}/api/teacher-schedule`, {
+      headers: { Authorization: authorization },
+    });
+    await assertStatus(scheduleResponse, 200);
+    const schedule = await scheduleResponse.json();
+    const formerEntry = schedule.find((entry) => entry.externalEventId === 'former-nikita@example.test');
+    const currentEntry = schedule.find((entry) => entry.externalEventId === 'current-nikita@example.test');
+    assert.equal(formerEntry?.studentId, formerStudentId);
+    assert.equal(currentEntry?.studentId, currentStudentId);
+
+    const currentStudentScheduleResponse = await fetch(
+      `${baseUrl}/api/student-schedule?studentId=${encodeURIComponent(currentStudentId)}`,
+      { headers: { Authorization: authorization } }
+    );
+    await assertStatus(currentStudentScheduleResponse, 200);
+    const currentStudentSchedule = await currentStudentScheduleResponse.json();
+    assert.equal(
+      currentStudentSchedule.some((entry) => entry.subject === 'Никита 2000'),
+      false,
+    );
   } finally {
     await stopServer(child);
     await stopHttpServer(calendarServer);

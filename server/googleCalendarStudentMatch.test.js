@@ -55,3 +55,35 @@ test('exact calendar-to-student sync matching also ignores parentheses', () => {
     false,
   );
 });
+
+test('exact nickname keeps a former namesake calendar event on the former student', () => {
+  const namesakes = [
+    {
+      id: 'current-nikita',
+      name: 'Никита',
+      nickname: 'Никита1',
+      studyStatus: 'active',
+    },
+    {
+      id: 'former-nikita',
+      name: 'Никита',
+      nickname: 'Никита 2000',
+      studyStatus: 'inactive',
+    },
+  ];
+
+  assert.equal(
+    resolveGoogleCalendarStudentMatch(
+      { summary: 'Никита 2000' },
+      namesakes,
+    )?.id,
+    'former-nikita',
+  );
+  assert.equal(
+    resolveGoogleCalendarStudentMatch(
+      { summary: 'Никита1 пробное (мама Оксана), 4Р' },
+      namesakes,
+    )?.id,
+    'current-nikita',
+  );
+});

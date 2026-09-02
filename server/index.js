@@ -9836,8 +9836,13 @@ const syncTeacherStudentSchedulesFromGoogleCalendar = async (
 };
 
 const resolveGoogleCalendarStudentMatch = (event, students = []) => {
-  const currentStudents = (Array.isArray(students) ? students : []).filter(isCurrentStudent);
-  return resolveGoogleCalendarStudentMatchFromTitle(event, currentStudents);
+  // Historical Google Calendar events still belong to former students. Keep
+  // non-deleted inactive students in the candidate set so an exact nickname
+  // such as "Никита 2000" cannot fall back to a current student's shared
+  // primary name ("Никита"). Downstream schedule/finance code decides whether
+  // an inactive student's future lessons should be included.
+  const availableStudents = (Array.isArray(students) ? students : []).filter(isActiveStudent);
+  return resolveGoogleCalendarStudentMatchFromTitle(event, availableStudents);
 };
 
 const getGoogleCalendarLearningGroupParticipants = (group, students = []) => {
