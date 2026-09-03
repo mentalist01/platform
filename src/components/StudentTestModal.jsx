@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import Editor from '@monaco-editor/react';
+import Editor from './SelfHostedMonacoEditor';
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, MoreHorizontal, Music, PanelLeft, PanelTop, PictureInPicture2, PlayCircle, RefreshCcw, Send, Share2, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import useWorkbookHelper from '../hooks/useWorkbookHelper';

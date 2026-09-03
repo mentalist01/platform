@@ -59772,6 +59772,54 @@ html[data-theme='dark'] .collab-code-loading-state {
   min-width: 0;
 }
 
+.collab-code-loading-state--error {
+  padding: 24px;
+}
+
+.collab-code-loading-state--error .collab-code-loading-state__mark {
+  border-color: color-mix(in srgb, #f59e0b 44%, transparent);
+  background: color-mix(in srgb, #f59e0b 13%, var(--collab-code-panel, #ffffff));
+  color: #d97706;
+}
+
+.collab-code-loading-state--error .collab-code-loading-state__mark svg {
+  animation: none;
+}
+
+.collab-code-loading-state__retry {
+  display: inline-flex;
+  min-height: 34px;
+  margin-top: 12px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border: 1px solid var(--collab-code-accent-line, rgba(124, 58, 237, 0.32));
+  border-radius: 10px;
+  background: var(--collab-code-accent, #7c3aed);
+  color: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--collab-code-accent, #7c3aed) 18%, transparent);
+  transition: transform 140ms ease, filter 140ms ease;
+}
+
+.collab-code-loading-state__retry:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.collab-code-loading-state__retry:active {
+  transform: translateY(0);
+}
+
+.collab-code-loading-state__retry:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--collab-code-accent, #7c3aed) 30%, transparent);
+  outline-offset: 2px;
+}
+
 .collab-code-loading-state__title,
 .board-loading-overlay__title {
   font-size: 13px;

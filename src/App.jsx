@@ -159,19 +159,7 @@ const loadCallSection = () => import('./components/CallSection');
 let editorRuntimePromise = null;
 const loadEditor = () => {
   if (!editorRuntimePromise) {
-    editorRuntimePromise = import('@monaco-editor/react').then((editorModule) => {
-      // @monaco-editor/react loads Monaco lazily on the first mount. Start
-      // that network work as soon as the collab view is prefetched so the
-      // editor does not stay on the loading screen after navigation.
-      const loader = editorModule?.loader;
-      if (loader && typeof loader.init === 'function') {
-        void loader.init().catch(() => {
-          // The editor component retries/handles the same loader promise on
-          // mount; a prefetch failure must not break route navigation.
-        });
-      }
-      return editorModule;
-    })
+    editorRuntimePromise = import('./components/SelfHostedMonacoEditor')
       .catch((error) => {
         editorRuntimePromise = null;
         throw error;
@@ -3871,6 +3859,8 @@ const CollabSection = ({
   const [remoteTestFileSelections, setRemoteTestFileSelections] = useState([]);
   const [localTestFileSelection, setLocalTestFileSelection] = useState(null);
   const [editorReady, setEditorReady] = useState(false);
+  const [editorWaitTimedOut, setEditorWaitTimedOut] = useState(false);
+  const [editorConnectionRetry, setEditorConnectionRetry] = useState(0);
   const [editorViewportVersion, setEditorViewportVersion] = useState(0);
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const editorRef = useRef(null);
@@ -5124,6 +5114,28 @@ const CollabSection = ({
     scheduleCollabEditorCursor,
     scheduleLessonReplayCodeViewport,
   ]);
+
+  useEffect(() => {
+    const waitingForEditor = Boolean(roomId && !editorReady);
+    const waitingForConnection = Boolean(roomId && editorReady && status === 'connecting');
+    if (!waitingForEditor && !waitingForConnection) {
+      setEditorWaitTimedOut(false);
+      return undefined;
+    }
+
+    setEditorWaitTimedOut(false);
+    const timeoutId = window.setTimeout(() => setEditorWaitTimedOut(true), 15_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [editorConnectionRetry, editorReady, roomId, status]);
+
+  const retryEditorConnection = useCallback(() => {
+    setEditorWaitTimedOut(false);
+    if (!editorReady) {
+      window.location.reload();
+      return;
+    }
+    setEditorConnectionRetry((current) => current + 1);
+  }, [editorReady]);
 
   useEffect(() => () => {
     collabSnippetProviderRef.current?.dispose?.();
@@ -8140,6 +8152,7 @@ const CollabSection = ({
     isSandbox,
     sandboxId,
     editorReady,
+    editorConnectionRetry,
     wsUrl,
     wsParams,
     localName,
@@ -9033,14 +9046,38 @@ const CollabSection = ({
     </div>
   ) : null;
 
-  const editorLoadingState = (
+  const editorLoadingState = editorWaitTimedOut ? (
+    <div className="collab-code-loading-state collab-code-loading-state--error" role="alert">
+      <div className="collab-code-loading-state__mark" aria-hidden="true">
+        <AlertTriangle size={18} />
+      </div>
+      <div className="collab-code-loading-state__content">
+        <div className="collab-code-loading-state__title">
+          {editorReady ? 'Не удалось подключиться к совместному коду' : 'Редактор загружается слишком долго'}
+        </div>
+        <div className="collab-code-loading-state__subtitle">
+          {editorReady
+            ? 'Проверьте интернет и повторите подключение — написанный код не потеряется.'
+            : 'Проверьте интернет и обновите редактор. Остальные разделы урока продолжат работать.'}
+        </div>
+        <button type="button" className="collab-code-loading-state__retry" onClick={retryEditorConnection}>
+          <RefreshCcw size={14} aria-hidden="true" />
+          Повторить
+        </button>
+      </div>
+    </div>
+  ) : (
     <div className="collab-code-loading-state" role="status" aria-live="polite">
       <div className="collab-code-loading-state__mark" aria-hidden="true">
         <RefreshCcw size={18} />
       </div>
       <div className="collab-code-loading-state__content">
-        <div className="collab-code-loading-state__title">Загружаем редактор</div>
-        <div className="collab-code-loading-state__subtitle">Готовим совместный код и файлы.</div>
+        <div className="collab-code-loading-state__title">
+          {editorReady ? 'Подключаем совместный код' : 'Загружаем редактор'}
+        </div>
+        <div className="collab-code-loading-state__subtitle">
+          {editorReady ? 'Соединяемся с участниками урока.' : 'Готовим совместный код и файлы.'}
+        </div>
       </div>
     </div>
   );

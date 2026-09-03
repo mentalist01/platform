@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import Editor from '@monaco-editor/react';
+import Editor from './SelfHostedMonacoEditor';
 import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileCode2, FileSpreadsheet, History, ListChecks, ListPlus, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';

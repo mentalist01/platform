@@ -93,7 +93,7 @@ const AUDIO_LOAD_TIMEOUT_MS = 12_000;
 const TIME_MACHINE_RUN_TIMEOUT_MS = 40_000;
 const TIME_MACHINE_OUTPUT_LIMIT = 20_000;
 const NOOP = () => {};
-const LazyEditor = lazy(() => import('@monaco-editor/react'));
+const LazyEditor = lazy(() => import('./SelfHostedMonacoEditor'));
 
 const formatClock = (value) => {
   const totalSeconds = Math.max(0, Math.floor((Number(value) || 0) / 1000));

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor from './SelfHostedMonacoEditor';
 import { Button } from './ui';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';

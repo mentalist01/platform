@@ -25,7 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { createPortal, flushSync } from 'react-dom';
-import Editor from '@monaco-editor/react';
+import Editor from './SelfHostedMonacoEditor';
 import ImageViewer from './ImageViewer';
 import StudentSearchSelect from './StudentSearchSelect';
 import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';

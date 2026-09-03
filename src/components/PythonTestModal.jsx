@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import Editor from '@monaco-editor/react';
+import Editor from './SelfHostedMonacoEditor';
 import {
   BookOpen,
   CheckCircle2,

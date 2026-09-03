@@ -61,6 +61,21 @@ const precompressDirectory = async (directoryPath) => {
 
 const outDir = resolveOutDir();
 
+const copyMonacoAssets = async () => {
+  const sourcePath = path.resolve('node_modules/monaco-editor/min/vs');
+  const destinationPath = path.join(outDir, 'vendor', 'monaco', 'vs');
+  await fs.cp(sourcePath, destinationPath, { recursive: true, force: true });
+
+  const requiredAssets = [
+    'loader.js',
+    path.join('editor', 'editor.main.js'),
+    path.join('editor', 'editor.main.css'),
+    path.join('base', 'worker', 'workerMain.js'),
+  ];
+  await Promise.all(requiredAssets.map((assetPath) => fs.access(path.join(destinationPath, assetPath))));
+  console.log(`[build] copied self-hosted Monaco assets to ${path.relative(process.cwd(), destinationPath)}`);
+};
+
 const verifyInitialBundle = async () => {
   const indexPath = path.join(outDir, 'index.html');
   const html = await fs.readFile(indexPath, 'utf8');
@@ -101,6 +116,7 @@ const verifyInitialBundle = async () => {
   );
 };
 
+await copyMonacoAssets();
 await verifyInitialBundle();
 await precompressDirectory(outDir);
 console.log(
