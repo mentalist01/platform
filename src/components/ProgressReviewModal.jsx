@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from '@monaco-editor/react';
-import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileCode2, History, ListChecks, ListPlus, RefreshCcw, X } from 'lucide-react';
+import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileCode2, FileSpreadsheet, History, ListChecks, ListPlus, RefreshCcw, X } from 'lucide-react';
 import { api } from '../services/api';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -14,6 +14,36 @@ import { compareTeacherHomeworkReviewDifficulty } from '../utils/teacherHomework
 import { Button } from './ui';
 
 const TEACHER_CODE_COPY_FEEDBACK_MS = 1800;
+const REVIEW_WORKBOOK_EXTENSIONS = new Set(['xls', 'xlsx', 'xlsm', 'xlsb', 'ods', 'fods']);
+const REVIEW_TEXT_TO_WORKBOOK_TASKS = new Set([26, 27]);
+const REVIEW_TEXT_TO_WORKBOOK_EXTENSIONS = new Set(['txt', 'csv', 'tsv']);
+
+const getReviewFileExtension = (file) => {
+  const name = String(file?.name || file?.storageName || '').trim();
+  const match = name.match(/\.([^.\\/]+)$/);
+  return match ? match[1].toLowerCase() : '';
+};
+
+const isReviewWorkbookAttachment = (taskNumber, file) => {
+  const extension = getReviewFileExtension(file);
+  return REVIEW_WORKBOOK_EXTENSIONS.has(extension)
+    || (
+      REVIEW_TEXT_TO_WORKBOOK_TASKS.has(Number(taskNumber))
+      && REVIEW_TEXT_TO_WORKBOOK_EXTENSIONS.has(extension)
+    );
+};
+
+const formatWorkbookSavedAt = (value) => {
+  const timestamp = Date.parse(String(value || ''));
+  if (!Number.isFinite(timestamp)) return '';
+  return new Date(timestamp).toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
 const getStudentSolveDurationMs = (history) => {
   const entries = Array.isArray(history) ? history : [];
@@ -151,11 +181,18 @@ const ProgressReviewModal = ({
   const [questionCodeCopyState, setQuestionCodeCopyState] = useState('idle');
   const [questionBoardCopyState, setQuestionBoardCopyState] = useState('idle');
   const [questionCodePreviewOpen, setQuestionCodePreviewOpen] = useState(false);
+  const [questionWorkbookState, setQuestionWorkbookState] = useState({
+    solutions: [],
+    loading: false,
+    error: '',
+  });
+  const [questionWorkbookReloadKey, setQuestionWorkbookReloadKey] = useState(0);
   const [questionImageStateByKey, setQuestionImageStateByKey] = useState({});
   const [expandedImage, setExpandedImage] = useState(null);
   const questionCodeCopyResetTimerRef = React.useRef(null);
   const questionBoardCopyResetTimerRef = React.useRef(null);
   const questionCodeRequestScopeRef = React.useRef('');
+  const questionWorkbookRequestScopeRef = React.useRef('');
 
   const orderedQuestions = React.useMemo(() => {
     const list = (Array.isArray(questions) ? questions : []).map((question, index) => ({ question, index }));
@@ -421,6 +458,48 @@ const ProgressReviewModal = ({
     loadQuestionCode(currentId);
   }, [studentId, taskNumber, levelId, orderedQuestions, questions, currentIndex]);
 
+  useEffect(() => {
+    const current = orderedQuestions[currentIndex];
+    const currentFiles = Array.isArray(current?.files) ? current.files : [];
+    const hasWorkbook = currentFiles.some((file) => isReviewWorkbookAttachment(taskNumber, file));
+    const originalIndex = questions.indexOf(current);
+    const questionId = String(current?.id ?? (originalIndex >= 0 ? originalIndex : currentIndex)).trim();
+    const requestScope = `${studentId || ''}:${taskNumber || ''}:${levelId || ''}:${questionId}`;
+    questionWorkbookRequestScopeRef.current = requestScope;
+
+    if (!studentId || !taskNumber || !levelId || !questionId || !hasWorkbook) {
+      setQuestionWorkbookState({ solutions: [], loading: false, error: '' });
+      return undefined;
+    }
+
+    let active = true;
+    setQuestionWorkbookState({ solutions: [], loading: true, error: '' });
+    api.getQuestionWorkbookSolutions(studentId, taskNumber, levelId, questionId)
+      .then((payload) => {
+        if (!active || questionWorkbookRequestScopeRef.current !== requestScope) return;
+        setQuestionWorkbookState({
+          solutions: Array.isArray(payload?.solutions) ? payload.solutions : [],
+          loading: false,
+          error: '',
+        });
+      })
+      .catch((error) => {
+        if (!active || questionWorkbookRequestScopeRef.current !== requestScope) return;
+        setQuestionWorkbookState({
+          solutions: [],
+          loading: false,
+          error: error?.message || 'Не удалось загрузить Excel-решение ученика.',
+        });
+      });
+
+    return () => {
+      active = false;
+      if (questionWorkbookRequestScopeRef.current === requestScope) {
+        questionWorkbookRequestScopeRef.current = '';
+      }
+    };
+  }, [currentIndex, levelId, orderedQuestions, questionWorkbookReloadKey, questions, studentId, taskNumber]);
+
   if (!task) return null;
 
   const parseStoredAnswers = (raw) => {
@@ -516,6 +595,10 @@ const ProgressReviewModal = ({
       const rawUrl = file?.url || (file?.storageName ? `/uploads/${file.storageName}` : '');
       return { ...file, url: withStudentId(rawUrl, studentId) };
     });
+  const hasWorkbookAttachment = extraFiles.some((file) => isReviewWorkbookAttachment(taskNumber, file));
+  const workbookSolutions = Array.isArray(questionWorkbookState.solutions)
+    ? questionWorkbookState.solutions
+    : [];
   const solvedQuestionCount = orderedQuestions.reduce((count, question, index) => (
     solvedIds.has(String(question?.id ?? (getQuestionDisplayNumber(question, index) - 1))) ? count + 1 : count
   ), 0);
@@ -913,6 +996,74 @@ const ProgressReviewModal = ({
                         ))}
                       </div>
                     </div>
+                  )}
+
+                  {hasWorkbookAttachment && (
+                    <section className="teacher-homework-workbook-solutions mb-5 md:mb-6" aria-label="Файлы решения ученика">
+                      <div className="teacher-homework-workbook-solutions__header">
+                        <div>
+                          <span className="teacher-homework-workbook-solutions__icon" aria-hidden="true">
+                            <FileSpreadsheet size={18} />
+                          </span>
+                          <div>
+                            <strong>Excel-решение ученика</strong>
+                            <small>{questionWorkbookState.loading
+                              ? 'Проверяем сохранённые таблицы…'
+                              : workbookSolutions.length > 0
+                                ? `Доступно для скачивания: ${workbookSolutions.length}`
+                                : 'Ученик ещё не сохранил решение'}</small>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setQuestionWorkbookReloadKey((value) => value + 1)}
+                          disabled={questionWorkbookState.loading}
+                          title="Обновить список решений"
+                        >
+                          <RefreshCcw size={14} className={questionWorkbookState.loading ? 'animate-spin' : ''} />
+                          <span>Обновить</span>
+                        </button>
+                      </div>
+
+                      {questionWorkbookState.error ? (
+                        <div className="teacher-homework-workbook-solutions__message is-error" role="alert">
+                          {questionWorkbookState.error}
+                        </div>
+                      ) : workbookSolutions.length > 0 ? (
+                        <div className="teacher-homework-workbook-solutions__list">
+                          {workbookSolutions.map((solution) => {
+                            const solutionUrl = withStudentId(solution?.url || '', studentId);
+                            const savedAt = formatWorkbookSavedAt(solution?.updatedAt);
+                            return (
+                              <a
+                                key={solution?.fileId || `${solution?.attachmentId}-${solution?.slot}`}
+                                href={buildDownloadUrl(solutionUrl)}
+                                download={solution?.name || undefined}
+                                className="teacher-homework-workbook-solution"
+                              >
+                                <span className="teacher-homework-workbook-solution__file">
+                                  <FileSpreadsheet size={17} aria-hidden="true" />
+                                  <span>
+                                    <strong>{solution?.name || `Решение ${solution?.slot || 1}`}</strong>
+                                    <small>
+                                      {[
+                                        solution?.size,
+                                        savedAt ? `Сохранено ${savedAt}` : '',
+                                        solution?.revision ? `Версия ${solution.revision}` : '',
+                                      ].filter(Boolean).join(' · ')}
+                                    </small>
+                                  </span>
+                                </span>
+                                <span className="teacher-homework-workbook-solution__download">
+                                  <Download size={15} aria-hidden="true" />
+                                  Скачать решение
+                                </span>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </section>
                   )}
 
                   {isSolved && (
