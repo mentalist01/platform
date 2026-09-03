@@ -19,6 +19,7 @@ import {
   Pencil,
   PlayCircle,
   Plus,
+  RefreshCcw,
   Save,
   Search,
   Settings,
