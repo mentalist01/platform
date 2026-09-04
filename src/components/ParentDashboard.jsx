@@ -81,6 +81,7 @@ const getHomeworkStatusLabel = (entry, isCurrent = false) => {
 
 const HOMEWORK_ITEM_LABELS = {
   clean: 'Сразу верно',
+  completed: 'Пробник завершён',
   'with-errors': 'Исправлено',
   wrong: 'Пока неверно',
   untouched: 'Не начато',
@@ -1920,7 +1921,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                             <div className="mt-1.5 flex flex-wrap gap-1.5">
                               {(goal.items || []).map((item) => (
                                 <span key={item.id} className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${
-                                  item.state === 'clean'
+                                  item.state === 'clean' || item.state === 'completed'
                                     ? (dark ? 'border-emerald-800 bg-emerald-950/50 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-700')
                                     : item.state === 'with-errors'
                                       ? (dark ? 'border-amber-800 bg-amber-950/50 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700')

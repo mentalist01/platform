@@ -158,7 +158,7 @@ test('checklist is used as the percentage fallback when there are no measurable 
   assert.equal(entry.checklist.completedCount, 1);
 });
 
-test('mock goals expose correct, wrong and untouched tasks', () => {
+test('an active mock exam is one unfinished homework item regardless of task results', () => {
   const [entry] = buildHomeworkStatistics({
     homeworks: [{
       id: 'mock-homework',
@@ -181,14 +181,16 @@ test('mock goals expose correct, wrong and untouched tasks', () => {
     nowMs: Date.parse('2026-09-03T10:00:00.000Z'),
   });
 
-  assert.equal(entry.percent, 33);
-  assert.equal(entry.cleanCount, 1);
-  assert.equal(entry.wrongCount, 1);
+  assert.equal(entry.percent, 0);
+  assert.equal(entry.totalCount, 1);
+  assert.equal(entry.cleanCount, 0);
+  assert.equal(entry.wrongCount, 0);
   assert.equal(entry.untouchedCount, 1);
   assert.equal(entry.goals[0].label, 'Пробник · Вариант 1');
+  assert.equal(entry.goals[0].items[0].label, 'Пробник не завершён');
 });
 
-test('mock homework statistics ignore lifetime solutions from an earlier assignment', () => {
+test('a finished mock exam counts as one completed homework item regardless of score', () => {
   const [entry] = buildHomeworkStatistics({
     homeworks: [{
       id: 'homework-2',
@@ -203,6 +205,8 @@ test('mock homework statistics ignore lifetime solutions from an earlier assignm
     mockAttemptsByExam: {
       'exam-1': {
         homeworkId: 'homework-2',
+        status: 'finished',
+        finishedAt: '2026-09-06T10:00:00.000Z',
         updatedAt: '2026-09-06T10:00:00.000Z',
         answers: { 1: 'old answer', 2: 'new answer' },
         solved: { 1: false, 2: true },
@@ -212,14 +216,17 @@ test('mock homework statistics ignore lifetime solutions from an earlier assignm
     nowMs: Date.parse('2026-09-07T10:00:00.000Z'),
   });
 
-  assert.equal(entry.percent, 50);
-  assert.deepEqual(
-    entry.goals[0].items.map((item) => item.state),
-    [HOMEWORK_STAT_STATE.WRONG, HOMEWORK_STAT_STATE.CLEAN]
-  );
+  assert.equal(entry.percent, 100);
+  assert.equal(entry.totalCount, 1);
+  assert.equal(entry.completedCount, 1);
+  assert.equal(entry.completionOnlyCount, 1);
+  assert.equal(entry.cleanCount, 0);
+  assert.equal(entry.wrongCount, 0);
+  assert.equal(entry.goals[0].items[0].state, HOMEWORK_STAT_STATE.COMPLETED);
+  assert.equal(entry.goals[0].items[0].label, 'Пробник завершён');
 });
 
-test('mock homework statistics keep a continued attempt outside the new homework time window', () => {
+test('mock homework statistics keep a finished continued attempt outside the new homework time window', () => {
   const [entry] = buildHomeworkStatistics({
     homeworks: [{
       id: 'homework-2',
@@ -235,6 +242,8 @@ test('mock homework statistics keep a continued attempt outside the new homework
     mockAttemptsByExam: {
       'exam-1': {
         homeworkId: 'homework-1',
+        status: 'finished',
+        finishedAt: '2026-09-04T10:00:00.000Z',
         updatedAt: '2026-09-04T10:00:00.000Z',
         answers: { 1: '', 2: 'new answer' },
         solved: { 1: false, 2: true },
@@ -244,11 +253,33 @@ test('mock homework statistics keep a continued attempt outside the new homework
     nowMs: Date.parse('2026-09-07T10:00:00.000Z'),
   });
 
-  assert.equal(entry.percent, 50);
-  assert.deepEqual(
-    entry.goals[0].items.map((item) => item.state),
-    [HOMEWORK_STAT_STATE.UNTOUCHED, HOMEWORK_STAT_STATE.CLEAN]
-  );
+  assert.equal(entry.percent, 100);
+  assert.equal(entry.totalCount, 1);
+  assert.equal(entry.goals[0].items[0].state, HOMEWORK_STAT_STATE.COMPLETED);
+});
+
+test('a finished empty mock exam is not treated as completed homework', () => {
+  const [entry] = buildHomeworkStatistics({
+    homeworks: [{
+      id: 'empty-mock-homework',
+      issuedAt: '2026-09-01T10:00:00.000Z',
+      goals: [{ type: 'mock', mockExamId: 'exam-1' }],
+    }],
+    mockExams: [{ id: 'exam-1', title: 'Вариант 1', tasks: { 1: {}, 2: {} } }],
+    mockAttemptsByExam: {
+      'exam-1': {
+        status: 'finished',
+        finishedAt: '2026-09-02T10:00:00.000Z',
+        updatedAt: '2026-09-02T10:00:00.000Z',
+        answers: { 1: '', 2: '' },
+      },
+    },
+    nowMs: Date.parse('2026-09-03T10:00:00.000Z'),
+  });
+
+  assert.equal(entry.percent, 0);
+  assert.equal(entry.completedCount, 0);
+  assert.equal(entry.untouchedCount, 1);
 });
 
 test('academic year starts in September and summaries include the recent trend', () => {

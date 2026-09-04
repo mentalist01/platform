@@ -4,6 +4,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const HOMEWORK_STAT_STATE = Object.freeze({
   CLEAN: 'clean',
+  COMPLETED: 'completed',
   WITH_ERRORS: 'with-errors',
   WRONG: 'wrong',
   UNTOUCHED: 'untouched',
@@ -34,7 +35,9 @@ const hasAnswerValue = (value) => {
 };
 
 const isCompletedState = (state) => (
-  state === HOMEWORK_STAT_STATE.CLEAN || state === HOMEWORK_STAT_STATE.WITH_ERRORS
+  state === HOMEWORK_STAT_STATE.CLEAN
+  || state === HOMEWORK_STAT_STATE.COMPLETED
+  || state === HOMEWORK_STAT_STATE.WITH_ERRORS
 );
 
 const getHomeworkTitle = (entry, chronologicalIndex) => {
@@ -254,6 +257,7 @@ const buildTaskGoal = ({
 const getMockAttemptActivityMs = (attempt) => {
   const candidates = [
     attempt?.updatedAt,
+    attempt?.finishedAt,
     attempt?.timerFinishedAt,
     attempt?.timerStartedAt,
     attempt?.modeLockedAt,
@@ -261,6 +265,16 @@ const getMockAttemptActivityMs = (attempt) => {
     .map(asTimestamp)
     .filter((timestamp) => timestamp != null);
   return candidates.length > 0 ? Math.max(...candidates) : null;
+};
+
+const getMockAttemptFinishedMs = (attempt, fallbackActivityMs = null) => {
+  const explicit = [attempt?.finishedAt, attempt?.timerFinishedAt]
+    .map(asTimestamp)
+    .find((timestamp) => timestamp != null);
+  if (explicit != null) return explicit;
+  return normalizeText(attempt?.status).toLowerCase() === 'finished'
+    ? fallbackActivityMs
+    : null;
 };
 
 const getMockTargetKeys = (goal, exam) => {
@@ -340,40 +354,28 @@ const buildMockGoal = ({
   const answers = canUseAttempt && attempt?.answers && typeof attempt.answers === 'object'
     ? attempt.answers
     : {};
-  const solved = canUseAttempt && attempt?.solved && typeof attempt.solved === 'object'
-    ? attempt.solved
-    : {};
-  const solvedEver = canUseAttempt && attempt?.solvedEver && typeof attempt.solvedEver === 'object'
-    ? attempt.solvedEver
-    : solved;
-  const useLifetimeFallback = windowStartMs == null && !hasAssignmentId;
-
-  const items = targetKeys.map((taskKey) => {
-    const answered = hasAnswerValue(answers?.[taskKey]);
-    const solvedNow = Boolean(solved?.[taskKey]);
-    const completedEver = Boolean(solvedEver?.[taskKey]);
-    const completed = solvedNow || (useLifetimeFallback && completedEver);
-    const hasWrongResult = answered && !solvedNow;
-    const state = completed
-      ? (hasWrongResult ? HOMEWORK_STAT_STATE.WITH_ERRORS : HOMEWORK_STAT_STATE.CLEAN)
-      : (hasWrongResult ? HOMEWORK_STAT_STATE.WRONG : HOMEWORK_STAT_STATE.UNTOUCHED);
-    const isKnownAtCheckpoint = resultAtMs == null || checkpointMs == null || resultAtMs <= checkpointMs;
-    const checkpointState = isKnownAtCheckpoint ? state : HOMEWORK_STAT_STATE.UNTOUCHED;
-    return {
-      id: `mock-${mockExamId}-${taskKey}`,
-      label: `№${taskKey}`,
-      questionNumber: taskKey,
-      questionId: taskKey,
-      state,
-      checkpointState,
-      completedAt: completed ? resultAtMs : null,
-      attemptCount: answered ? 1 : 0,
-      wrongCount: hasWrongResult ? 1 : 0,
-      checkpointWrongCount: isKnownAtCheckpoint && hasWrongResult ? 1 : 0,
-      completedLate: completed && resultAtMs != null && dueAtMs != null && resultAtMs > dueAtMs,
-      estimated: true,
-    };
-  });
+  const answeredCount = targetKeys.filter((taskKey) => hasAnswerValue(answers?.[taskKey])).length;
+  const finishedAtMs = canUseAttempt ? getMockAttemptFinishedMs(attempt, resultAtMs) : null;
+  const completed = answeredCount > 0 && finishedAtMs != null;
+  const state = completed ? HOMEWORK_STAT_STATE.COMPLETED : HOMEWORK_STAT_STATE.UNTOUCHED;
+  const completedAtCheckpoint = completed
+    && (checkpointMs == null || finishedAtMs <= checkpointMs);
+  const items = [{
+    id: `mock-${mockExamId}`,
+    label: completed ? 'Пробник завершён' : 'Пробник не завершён',
+    questionId: mockExamId,
+    state,
+    checkpointState: completedAtCheckpoint
+      ? HOMEWORK_STAT_STATE.COMPLETED
+      : HOMEWORK_STAT_STATE.UNTOUCHED,
+    completedAt: completed ? finishedAtMs : null,
+    attemptCount: answeredCount,
+    wrongCount: 0,
+    checkpointWrongCount: 0,
+    completedLate: completed && dueAtMs != null && finishedAtMs > dueAtMs,
+    completionOnly: true,
+    estimated: false,
+  }];
 
   return {
     id: `mock-${goalIndex}-${mockExamId}`,
@@ -381,7 +383,8 @@ const buildMockGoal = ({
     label: `Пробник · ${normalizeText(exam?.title) || 'без названия'}`,
     mockExamId,
     items,
-    estimated: true,
+    completionOnly: true,
+    estimated: false,
   };
 };
 
@@ -423,6 +426,7 @@ const summarizeItems = (items, stateField = 'state') => {
     totalCount: list.length,
     completedCount: 0,
     cleanCount: 0,
+    completionOnlyCount: 0,
     withErrorsCount: 0,
     wrongCount: 0,
     untouchedCount: 0,
@@ -431,6 +435,9 @@ const summarizeItems = (items, stateField = 'state') => {
     const state = item?.[stateField] || HOMEWORK_STAT_STATE.UNTOUCHED;
     if (state === HOMEWORK_STAT_STATE.CLEAN) {
       counts.cleanCount += 1;
+      counts.completedCount += 1;
+    } else if (state === HOMEWORK_STAT_STATE.COMPLETED) {
+      counts.completionOnlyCount += 1;
       counts.completedCount += 1;
     } else if (state === HOMEWORK_STAT_STATE.WITH_ERRORS) {
       counts.withErrorsCount += 1;

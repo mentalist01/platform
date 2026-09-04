@@ -33,6 +33,14 @@ const STATE_META = {
     darkChipClass: 'border-emerald-700/70 bg-emerald-950/55 text-emerald-200',
     icon: CheckCircle2,
   },
+  [HOMEWORK_STAT_STATE.COMPLETED]: {
+    label: 'Пробник завершён',
+    shortLabel: 'Завершено',
+    dotClass: 'bg-emerald-500',
+    chipClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    darkChipClass: 'border-emerald-700/70 bg-emerald-950/55 text-emerald-200',
+    icon: CheckCircle2,
+  },
   [HOMEWORK_STAT_STATE.WITH_ERRORS]: {
     label: 'Решено после ошибок',
     shortLabel: 'После ошибок',
@@ -176,6 +184,7 @@ const summarizeGoal = (goal) => {
   const items = Array.isArray(goal?.items) ? goal.items : [];
   const completedCount = items.filter((item) => (
     item.state === HOMEWORK_STAT_STATE.CLEAN
+    || item.state === HOMEWORK_STAT_STATE.COMPLETED
     || item.state === HOMEWORK_STAT_STATE.WITH_ERRORS
   )).length;
   return {
@@ -198,7 +207,7 @@ const DetailStateGroup = ({ state, items, dark }) => {
       }`}>
         <span className="inline-flex items-center gap-1.5">
           <Icon size={14} className={
-            state === HOMEWORK_STAT_STATE.CLEAN
+            state === HOMEWORK_STAT_STATE.CLEAN || state === HOMEWORK_STAT_STATE.COMPLETED
               ? 'text-emerald-500'
               : state === HOMEWORK_STAT_STATE.WITH_ERRORS
                 ? 'text-amber-500'
@@ -696,6 +705,11 @@ const HomeworkStatsSection = ({
                   const completedTotal = Math.max(1, Number(entry.completedCount) || 0);
                   const completedSegments = [
                     {
+                      key: HOMEWORK_STAT_STATE.COMPLETED,
+                      count: entry.completionOnlyCount,
+                      className: 'bg-emerald-500',
+                    },
+                    {
                       key: HOMEWORK_STAT_STATE.CLEAN,
                       count: entry.cleanCount,
                       className: 'bg-emerald-500',
@@ -922,8 +936,17 @@ const HomeworkStatsSection = ({
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className={`mt-4 grid grid-cols-2 gap-2 ${
+                  selectedHomework.completionOnlyCount > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'
+                }`}>
                   {[
+                    selectedHomework.completionOnlyCount > 0 ? {
+                      label: 'Завершено',
+                      value: selectedHomework.completionOnlyCount,
+                      className: dark
+                        ? 'border-emerald-800/70 bg-emerald-950/35 text-emerald-200'
+                        : 'border-emerald-100 bg-emerald-50 text-emerald-700',
+                    } : null,
                     {
                       label: 'Сразу верно',
                       value: selectedHomework.cleanCount,
@@ -952,7 +975,7 @@ const HomeworkStatsSection = ({
                         ? 'border-slate-700 bg-slate-800/70 text-slate-300'
                         : 'border-slate-200 bg-slate-50 text-slate-600',
                     },
-                  ].map((item) => (
+                  ].filter(Boolean).map((item) => (
                     <div key={item.label} className={`rounded-xl border px-3 py-2 shadow-sm ${item.className}`}>
                       <strong className="block text-lg font-black">{item.value}</strong>
                       <span className="text-[11px] font-bold">{item.label}</span>

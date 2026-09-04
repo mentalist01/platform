@@ -33548,6 +33548,7 @@ const compactParentHomeworkEntry = (entry) => ({
   totalCount: Number(entry.totalCount) || 0,
   completedCount: Number(entry.completedCount) || 0,
   cleanCount: Number(entry.cleanCount) || 0,
+  completionOnlyCount: Number(entry.completionOnlyCount) || 0,
   withErrorsCount: Number(entry.withErrorsCount) || 0,
   wrongCount: Number(entry.wrongCount) || 0,
   untouchedCount: Number(entry.untouchedCount) || 0,
