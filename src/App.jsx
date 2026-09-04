@@ -11084,6 +11084,7 @@ const BoardSection = ({
   const sandboxPlaybackSyncOriginRef = useRef(Symbol('board-sandbox-playback-sync'));
   const previewRafRef = useRef(null);
   const cursorRafRef = useRef(null);
+  const overlayRenderRafRef = useRef(null);
   const pendingCursorRef = useRef(null);
   const lastCursorSyncAtRef = useRef(0);
   const lastPreviewSyncAtRef = useRef(0);
@@ -12398,10 +12399,10 @@ const BoardSection = ({
     followingRemoteCursorId,
   ]);
 
-  const getCanvasSurfacePoint = (clientX, clientY) => {
+  const getCanvasSurfacePoint = (clientX, clientY, cachedRect = null) => {
     const surface = overlayRef.current || canvasRef.current;
     if (!surface) return null;
-    const rect = surface.getBoundingClientRect();
+    const rect = cachedRect || surface.getBoundingClientRect();
     const rectWidth = Math.max(1, Number(rect?.width) || 0);
     const rectHeight = Math.max(1, Number(rect?.height) || 0);
     const renderWidth = Math.max(1, Number(boardSizeRef.current?.width) || rectWidth);
@@ -12415,8 +12416,8 @@ const BoardSection = ({
     };
   };
 
-  const getCanvasPoint = (event) => {
-    const surfacePoint = getCanvasSurfacePoint(event?.clientX, event?.clientY);
+  const getCanvasPoint = (event, cachedRect = null) => {
+    const surfacePoint = getCanvasSurfacePoint(event?.clientX, event?.clientY, cachedRect);
     if (!surfacePoint) return { x: 0.5, y: 0.5 };
     const screenX = surfacePoint.x;
     const screenY = surfacePoint.y;
@@ -12429,8 +12430,8 @@ const BoardSection = ({
     };
   };
 
-  const rememberBoardPointer = (event) => {
-    const point = getCanvasPoint(event);
+  const rememberBoardPointer = (event, cachedRect = null) => {
+    const point = getCanvasPoint(event, cachedRect);
     lastPointerRef.current = point;
     lastPointerClientRef.current = {
       x: Number(event?.clientX) || 0,
@@ -12438,6 +12439,34 @@ const BoardSection = ({
     };
     pointerInsideBoardRef.current = true;
     return point;
+  };
+
+  const getBoardPointerSamples = (event) => {
+    const nativeEvent = event?.nativeEvent || event;
+    let pointerEvents = [nativeEvent];
+    if (typeof nativeEvent?.getCoalescedEvents === 'function') {
+      try {
+        const coalescedEvents = nativeEvent.getCoalescedEvents();
+        if (Array.isArray(coalescedEvents) && coalescedEvents.length > 0) {
+          pointerEvents = coalescedEvents;
+          const latest = coalescedEvents[coalescedEvents.length - 1];
+          if (
+            Number(latest?.clientX) !== Number(nativeEvent?.clientX)
+            || Number(latest?.clientY) !== Number(nativeEvent?.clientY)
+          ) {
+            pointerEvents = [...coalescedEvents, nativeEvent];
+          }
+        }
+      } catch {
+        pointerEvents = [nativeEvent];
+      }
+    }
+    const surface = overlayRef.current || canvasRef.current;
+    const rect = surface?.getBoundingClientRect?.() || null;
+    return pointerEvents.map((pointerEvent) => ({
+      event: pointerEvent,
+      point: getCanvasPoint(pointerEvent, rect),
+    }));
   };
 
   const clearBoardPointer = () => {
@@ -14812,6 +14841,18 @@ const BoardSection = ({
     }
   };
 
+  const scheduleOverlayRender = () => {
+    if (typeof window === 'undefined') {
+      renderOverlay();
+      return;
+    }
+    if (overlayRenderRafRef.current) return;
+    overlayRenderRafRef.current = window.requestAnimationFrame(() => {
+      overlayRenderRafRef.current = null;
+      renderOverlay();
+    });
+  };
+
   useEffect(() => {
     renderOverlay();
   }, [remotePreviews, boardSize, tool, color, penWidth, shapeKind, displaySelectedImage, selectionBox]);
@@ -15028,7 +15069,11 @@ const BoardSection = ({
       resetBoardInteractionState();
       resetBoardData();
     };
-    const handleAwareness = () => {
+    const handleAwareness = (_changes, origin) => {
+      // Local cursor and drawing previews do not change any remote participant.
+      // Rebuilding React state for them on every pointer frame made handwriting
+      // compete with a full BoardSection render on the writer's own device.
+      if (origin === 'local') return;
       const states = provider.awareness.getStates();
       const total = states.size;
       setPeerCount(Math.max(0, total - 1));
@@ -15659,6 +15704,10 @@ const BoardSection = ({
   }, []);
 
   useEffect(() => () => {
+    if (overlayRenderRafRef.current) cancelAnimationFrame(overlayRenderRafRef.current);
+  }, []);
+
+  useEffect(() => () => {
     if (imageDragRafRef.current) cancelAnimationFrame(imageDragRafRef.current);
     imageResizeRef.current?.cleanup?.();
     if (imageActionNoticeTimeoutRef.current) clearTimeout(imageActionNoticeTimeoutRef.current);
@@ -16029,8 +16078,21 @@ const BoardSection = ({
   };
 
   const handlePointerMove = (event) => {
-    const point = rememberBoardPointer(event);
-    scheduleCursorUpdate(point);
+    const activePenStroke = tool === 'pen' && drawStateRef.current.drawing;
+    const samples = activePenStroke
+      ? getBoardPointerSamples(event)
+      : [{ event: event?.nativeEvent || event, point: rememberBoardPointer(event) }];
+    const latestSample = samples[samples.length - 1];
+    const point = latestSample?.point || rememberBoardPointer(event);
+    if (activePenStroke) {
+      lastPointerRef.current = point;
+      lastPointerClientRef.current = {
+        x: Number(latestSample?.event?.clientX) || Number(event?.clientX) || 0,
+        y: Number(latestSample?.event?.clientY) || Number(event?.clientY) || 0,
+      };
+      pointerInsideBoardRef.current = true;
+    }
+    if (!drawStateRef.current.drawing) scheduleCursorUpdate(point);
     if (boardReadOnly) {
       if (
         event.pointerType === 'touch'
@@ -16105,16 +16167,18 @@ const BoardSection = ({
     const state = drawStateRef.current;
     if (!state.drawing) return;
     if (tool === 'pen') {
-      const penPoint = withPenPressure(point, event);
-      const last = state.points[state.points.length - 1];
-      const dx = penPoint.x - (last?.x || 0);
-      const dy = penPoint.y - (last?.y || 0);
-      if ((dx * dx + dy * dy) < BOARD_POINT_MIN_DISTANCE * BOARD_POINT_MIN_DISTANCE) return;
-      state.points.push(penPoint);
+      samples.forEach((sample) => {
+        const penPoint = withPenPressure(sample.point, sample.event);
+        const last = state.points[state.points.length - 1];
+        const dx = penPoint.x - (last?.x || 0);
+        const dy = penPoint.y - (last?.y || 0);
+        if ((dx * dx + dy * dy) < BOARD_POINT_MIN_DISTANCE * BOARD_POINT_MIN_DISTANCE) return;
+        state.points.push(penPoint);
+      });
     } else if (tool === 'line' || tool === 'arrow' || tool === 'shape') {
       state.end = point;
     }
-    renderOverlay();
+    scheduleOverlayRender();
     schedulePreviewUpdate();
   };
 
@@ -16311,6 +16375,7 @@ const BoardSection = ({
     }
     undoManagerRef.current?.stopCapturing();
     drawStateRef.current = { drawing: false, points: [], start: null, end: null };
+    scheduleCursorUpdate(lastPointerRef.current);
   };
 
   const handlePointerLeave = (event) => {
