@@ -161,3 +161,43 @@ test('task analysis exposes the student active time and teacher aggregate', () =
   assert.equal(analysis.tasks[0].activeDurationMs, 95_000);
   assert.equal(analysis.tasks[0].analytics.averageDurationMs, 120_000);
 });
+
+test('analysis identifies a result corrected by the teacher and keeps the original answer', () => {
+  const analysis = buildMockExamAnalysis({
+    exam: { id: 'reviewed', tasks: { 7: { answer: '7657' } } },
+    attempt: {
+      mode: 'classic',
+      answers: { 7: '7656' },
+      solved: { 7: true },
+      resultOverrides: {
+        7: { correct: true, reviewedAt: '2026-09-04T10:00:00.000Z', reviewedBy: 'teacher-a' },
+      },
+    },
+    getAnswerCountForTask,
+    getExpectedAnswers,
+    getPrimaryScoreFromSolved,
+    getSecondaryScoreFromPrimary,
+  });
+
+  assert.equal(analysis.tasks[0].status, 'correct');
+  assert.equal(analysis.tasks[0].manualOverride, true);
+  assert.deepEqual(analysis.tasks[0].providedAnswers, ['7656']);
+  assert.equal(analysis.primaryScore, 1);
+});
+
+test('analysis exposes every configured accepted answer variant', () => {
+  const analysis = buildMockExamAnalysis({
+    exam: {
+      tasks: {
+        7: { answer: '7657', acceptedAnswerVariants: [['7657'], ['7656']] },
+      },
+    },
+    attempt: { mode: 'classic', answers: { 7: '7656' }, solved: { 7: true } },
+    getAnswerCountForTask,
+    getExpectedAnswers,
+    getPrimaryScoreFromSolved,
+    getSecondaryScoreFromPrimary,
+  });
+
+  assert.deepEqual(analysis.tasks[0].acceptedAnswerVariants, [['7657'], ['7656']]);
+});

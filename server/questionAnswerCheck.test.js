@@ -60,3 +60,32 @@ test('all-empty multi-answer submissions are never accepted', () => {
   const rawValue = buildQuestionCheckRawValue(['', ''], 2);
   assert.equal(rules.isSolvedAnswerValid({ answers: ['', ''] }, rawValue, 17), false);
 });
+
+test('accepts any configured answer variant without changing the primary answer', () => {
+  const question = {
+    answer: '7657',
+    acceptedAnswerVariants: [['7657'], ['7656']],
+  };
+  assert.deepEqual(rules.getExpectedAnswersForQuestion(question, 1), ['7657']);
+  assert.equal(rules.isSolvedAnswerValid(question, '7657', 7), true);
+  assert.equal(rules.isSolvedAnswerValid(question, ' 7656 ', 7), true);
+  assert.equal(rules.isSolvedAnswerValid(question, '7655', 7), false);
+});
+
+test('supports alternative vectors for questions with several answer fields', () => {
+  const question = {
+    answers: ['left', 'right'],
+    acceptedAnswerVariants: [
+      ['left', 'right'],
+      ['up', 'down'],
+    ],
+  };
+  assert.equal(
+    rules.isSolvedAnswerValid(question, buildQuestionCheckRawValue(['UP', ' down '], 2), 17),
+    true
+  );
+  assert.equal(
+    rules.isSolvedAnswerValid(question, buildQuestionCheckRawValue(['up', 'right'], 2), 17),
+    false
+  );
+});

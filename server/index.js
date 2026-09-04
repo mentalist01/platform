@@ -79,6 +79,7 @@ import {
   normalizeRandomMockSolvedByTask,
 } from './randomMockExam.js';
 import {
+  buildMockExamFollowupSourceKey,
   finalizeMockExamFollowup,
   mergeMockExamFollowupQueueIntoTestsDb,
   normalizeMockExamFollowupHistory,
@@ -12834,6 +12835,7 @@ const getAnswerCountForTask = (taskNumber) => {
 
 const {
   getAnswerCountForQuestion,
+  getAcceptedAnswerVariantsForQuestion,
   getExpectedAnswersForQuestion,
   isSolvedAnswerValid,
   normalizeAnswerValue,
@@ -13464,7 +13466,7 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
   const solved = {};
   Object.entries(tasks).forEach(([taskKey, question]) => {
     const answerCount = getMockAnswerCountForTask(taskKey, question);
-    const expectedAnswers = getExpectedAnswersForQuestion(question, answerCount);
+    const acceptedAnswerVariants = getAcceptedAnswerVariantsForQuestion(question, answerCount);
     const provided = parseMockAttemptAnswers(answersMap?.[taskKey], answerCount);
     if (answerCount <= 1) {
       const value = String(provided[0] ?? '');
@@ -13472,7 +13474,9 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
         solved[taskKey] = false;
         return;
       }
-      solved[taskKey] = normalizeAnswerValue(value) === normalizeAnswerValue(expectedAnswers[0]);
+      solved[taskKey] = acceptedAnswerVariants.some((variant) => (
+        normalizeAnswerValue(value) === normalizeAnswerValue(variant[0])
+      ));
       return;
     }
     const allowPartial = allowsPartialMockAnswers(taskKey, question);
@@ -13484,11 +13488,31 @@ const recomputeMockSolvedMap = (exam, answersMap) => {
       solved[taskKey] = false;
       return;
     }
-    solved[taskKey] = expectedAnswers.every((expected, index) => (
+    solved[taskKey] = acceptedAnswerVariants.some((variant) => variant.every((expected, index) => (
       normalizeAnswerValue(expected) === normalizeAnswerValue(provided[index])
-    ));
+    )));
   });
   return solved;
+};
+
+const normalizeMockResultOverrides = (value, exam) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const taskKeys = new Set(Object.keys(exam?.tasks || {}).map((taskKey) => String(taskKey)));
+  return Object.entries(value).reduce((result, [rawTaskKey, rawOverride]) => {
+    const taskKey = String(rawTaskKey || '').trim();
+    if (!taskKey || !taskKeys.has(taskKey) || rawOverride?.correct !== true) return result;
+    const reviewedAt = normalizeMockTimerTimestamp(rawOverride.reviewedAt || rawOverride.overriddenAt);
+    const reviewedBy = typeof rawOverride.reviewedBy === 'string'
+      ? rawOverride.reviewedBy.trim().slice(0, 200)
+      : '';
+    result[taskKey] = {
+      correct: true,
+      ...(reviewedAt ? { reviewedAt } : {}),
+      ...(reviewedBy ? { reviewedBy } : {}),
+      source: 'teacher-review',
+    };
+    return result;
+  }, {});
 };
 
 const normalizeMockTaskDurationsMs = (exam, value) => {
@@ -13524,12 +13548,16 @@ const filterMockTaskDurationsToTaskKeys = (durations, targetTaskKeys = []) => {
 const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => {
   const answers = normalizeMockAttemptAnswers(exam, rawAnswers);
   const finishedAt = normalizeMockTimerTimestamp(meta?.finishedAt);
+  const resultOverrides = normalizeMockResultOverrides(meta?.resultOverrides, exam);
   const storedFinalSolved = meta?.solved && typeof meta.solved === 'object' && !Array.isArray(meta.solved)
     ? meta.solved
     : null;
   const solved = finishedAt && storedFinalSolved
     ? { ...storedFinalSolved }
     : recomputeMockSolvedMap(exam, answers);
+  Object.keys(resultOverrides).forEach((taskKey) => {
+    solved[taskKey] = true;
+  });
   const hasTimerMarkers = Boolean(
     normalizeMockTimerTimestamp(meta?.timerStartedAt)
     || normalizeMockTimerTimestamp(meta?.timerExpiresAt)
@@ -13628,6 +13656,7 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     answers,
     solved,
     solvedEver,
+    ...(Object.keys(resultOverrides).length > 0 ? { resultOverrides } : {}),
     mode,
     ...(attemptId ? { attemptId } : {}),
     attemptNumber,
@@ -18256,6 +18285,7 @@ const sanitizeStudentQuestion = (question) => {
   delete safe.correctIndex;
   delete safe.answer;
   delete safe.answers;
+  delete safe.acceptedAnswerVariants;
   Object.keys(safe).forEach((key) => {
     if (/^answer\d+$/i.test(key)) {
       delete safe[key];
@@ -28794,6 +28824,159 @@ app.get('/api/mock-exams/attempt/history', (req, res) => {
     history,
     firstAttempt: history[0] || null,
     canRollback: Boolean(history[0] || currentAttempt?.attemptNumber === 1 || currentAttempt?.attemptId),
+  });
+});
+
+app.patch('/api/mock-exams/attempt/task-result', (req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const requestedStudentId = typeof req.body?.studentId === 'string' ? req.body.studentId.trim() : '';
+  const requestedExamId = typeof req.body?.examId === 'string' ? req.body.examId.trim() : '';
+  const requestedAttemptId = typeof req.body?.attemptId === 'string' ? req.body.attemptId.trim() : '';
+  const requestedTaskKey = String(req.body?.taskKey ?? '').trim();
+  if (!requestedStudentId || !requestedExamId || !requestedTaskKey) {
+    return res.status(400).json({ error: 'studentId, examId and taskKey required' });
+  }
+
+  const student = ensureStudentAccess(req, res, requestedStudentId);
+  if (!student) return;
+  const exam = readMockExamsDb().find((item) => String(item?.id || '') === requestedExamId);
+  if (!exam) return res.status(404).json({ error: 'Mock exam not found' });
+  if (!isMockExamVisibleToStudent(exam, student.id)) {
+    return res.status(403).json({ error: 'Mock exam access denied' });
+  }
+
+  const data = getStudentData(student.id);
+  const attempts = data.mockAttempts && typeof data.mockAttempts === 'object'
+    ? { ...data.mockAttempts }
+    : {};
+  const currentAttempt = attempts[requestedExamId] && typeof attempts[requestedExamId] === 'object'
+    ? attempts[requestedExamId]
+    : null;
+  const history = normalizeMockExamFollowupHistory(data.mockAttemptResults);
+  const historyIndex = history.findIndex((entry) => (
+    String(entry?.examId || '').trim() === requestedExamId
+    && (!requestedAttemptId || String(entry?.attemptId || '').trim() === requestedAttemptId)
+  ));
+  const historyEntry = historyIndex >= 0 ? history[historyIndex] : null;
+  const currentAttemptId = String(currentAttempt?.attemptId || '').trim();
+  const currentMatches = Boolean(currentAttempt && (
+    !requestedAttemptId || currentAttemptId === requestedAttemptId
+  ));
+  if (!historyEntry && !currentMatches) {
+    return res.status(404).json({ error: 'Попытка пробника не найдена' });
+  }
+
+  const targetAttempt = historyEntry?.attemptSnapshot && typeof historyEntry.attemptSnapshot === 'object'
+    ? historyEntry.attemptSnapshot
+    : (historyEntry || currentAttempt);
+  const targetTasks = historyEntry?.tasks && typeof historyEntry.tasks === 'object'
+    ? historyEntry.tasks
+    : (exam.tasks || {});
+  const targetQuestion = targetTasks[requestedTaskKey];
+  if (!targetQuestion || typeof targetQuestion !== 'object') {
+    return res.status(404).json({ error: 'Задание в этой попытке не найдено' });
+  }
+  const targetAnswers = targetAttempt?.answers && typeof targetAttempt.answers === 'object'
+    ? targetAttempt.answers
+    : (historyEntry?.answers || {});
+  const answerCount = getMockAnswerCountForTask(requestedTaskKey, targetQuestion);
+  if (!hasMockAttemptAnswerValue(targetAnswers?.[requestedTaskKey], answerCount)) {
+    return res.status(409).json({ error: 'Нельзя засчитать задание без ответа ученика.' });
+  }
+  const targetMode = normalizeMockAttemptMode(targetAttempt?.mode || historyEntry?.mode);
+  if (targetMode === MOCK_ATTEMPT_MODE_TIMER && !normalizeMockTimerTimestamp(
+    targetAttempt?.timerFinishedAt || historyEntry?.finishedAt
+  )) {
+    return res.status(409).json({ error: 'Сначала завершите пробник с таймером.' });
+  }
+
+  const reviewedAt = new Date().toISOString();
+  const reviewedBy = String(req.auth?.id || '').trim();
+  const applyCorrectOverride = (attempt) => {
+    const previousOverrides = normalizeMockResultOverrides(attempt?.resultOverrides, {
+      ...exam,
+      tasks: targetTasks,
+    });
+    return {
+      ...(attempt || {}),
+      answers: attempt?.answers && typeof attempt.answers === 'object' ? attempt.answers : targetAnswers,
+      solved: { ...(attempt?.solved || {}), [requestedTaskKey]: true },
+      solvedEver: { ...(attempt?.solvedEver || attempt?.solved || {}), [requestedTaskKey]: true },
+      resultOverrides: {
+        ...previousOverrides,
+        [requestedTaskKey]: {
+          correct: true,
+          reviewedAt,
+          reviewedBy,
+          source: 'teacher-review',
+        },
+      },
+      reviewedAt,
+    };
+  };
+
+  let reviewedAttempt = applyCorrectOverride(targetAttempt);
+  if (currentMatches && (!historyEntry || currentAttemptId === String(historyEntry?.attemptId || '').trim())) {
+    attempts[requestedExamId] = applyCorrectOverride(currentAttempt);
+    if (!historyEntry) reviewedAttempt = attempts[requestedExamId];
+  }
+
+  const attemptId = String(historyEntry?.attemptId || reviewedAttempt?.attemptId || requestedAttemptId).trim();
+  const primaryScore = getMockPrimaryScoreFromSolved(reviewedAttempt.solved);
+  const secondaryScore = getMockSecondaryScoreFromSolved(reviewedAttempt.solved);
+  const sourceKey = buildMockExamFollowupSourceKey({
+    examId: requestedExamId,
+    attemptId,
+    taskNumber: requestedTaskKey,
+  });
+  let nextHistory = history;
+  if (historyEntry) {
+    nextHistory = history.map((entry, index) => {
+      if (index !== historyIndex) return entry;
+      return {
+        ...entry,
+        solved: { ...(entry.solved || {}), [requestedTaskKey]: true },
+        resultOverrides: reviewedAttempt.resultOverrides,
+        reviewedAt,
+        primaryScore,
+        secondaryScore,
+        attemptSnapshot: reviewedAttempt,
+        queuedSourceKeys: (Array.isArray(entry.queuedSourceKeys) ? entry.queuedSourceKeys : [])
+          .filter((entrySourceKey) => String(entrySourceKey) !== sourceKey),
+      };
+    });
+  }
+  const nextQueue = normalizeMockExamFollowupQueue(data.mockTestingQueue)
+    .filter((entry) => String(entry?.sourceKey || '') !== sourceKey);
+  const updated = setStudentData(student.id, {
+    ...data,
+    mockAttempts: attempts,
+    mockAttemptResults: nextHistory,
+    mockTestingQueue: nextQueue,
+  });
+  const storedCurrentAttempt = updated.mockAttempts?.[requestedExamId] || currentAttempt || {};
+  const storedHistory = getFirstMockAttemptHistory(updated.mockAttemptResults, requestedExamId);
+  const storedResult = storedHistory.find((entry) => String(entry?.attemptId || '') === attemptId) || null;
+  const responseAttempt = storedResult?.attemptSnapshot && typeof storedResult.attemptSnapshot === 'object'
+    ? storedResult.attemptSnapshot
+    : (storedResult || reviewedAttempt);
+  return res.json({
+    ok: true,
+    studentId: student.id,
+    examId: requestedExamId,
+    taskKey: requestedTaskKey,
+    attempt: responseAttempt,
+    currentAttempt: hideUnfinishedMockTimerResults(normalizeMockAttemptPayload(
+      exam,
+      storedCurrentAttempt.answers,
+      storedCurrentAttempt.updatedAt,
+      storedCurrentAttempt
+    )),
+    history: storedHistory,
+    firstAttempt: storedHistory[0] || null,
+    primaryScore,
+    secondaryScore,
+    rewardsChanged: false,
   });
 });
 

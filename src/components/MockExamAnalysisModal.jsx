@@ -66,6 +66,11 @@ const formatAnswer = (values) => {
   return list.some(Boolean) ? list.map((value) => value || '—').join(' · ') : 'Нет ответа';
 };
 
+const formatAnswerVariants = (variants, fallback) => {
+  const list = Array.isArray(variants) && variants.length > 0 ? variants : [fallback];
+  return list.map((variant) => formatAnswer(variant)).join(' или ');
+};
+
 const getAttachmentUrl = (attachment) => {
   const raw = String(
     attachment?.url
@@ -90,10 +95,13 @@ const MockExamAnalysisModal = ({
   onClose,
   onOpenTask,
   onAssignReview,
+  onMarkTaskCorrect,
   revealUnansweredAnswers = false,
 }) => {
   const [filterSelection, setFilterSelection] = useState({ viewKey: '', value: 'problem' });
   const [expandedSelection, setExpandedSelection] = useState({ viewKey: '', taskKey: '' });
+  const [markingTaskKey, setMarkingTaskKey] = useState('');
+  const [correctionError, setCorrectionError] = useState('');
 
   const analysis = useMemo(() => buildMockExamAnalysis({
     exam,
@@ -142,6 +150,22 @@ const MockExamAnalysisModal = ({
   }, [onClose, open]);
 
   if (!open || !exam) return null;
+
+  const handleMarkTaskCorrect = async (task) => {
+    if (typeof onMarkTaskCorrect !== 'function' || !task?.taskKey || markingTaskKey) return;
+    if (typeof window !== 'undefined' && !window.confirm(
+      `Засчитать ответ ученика в задании №${task.taskKey} как правильный? Исходный ответ сохранится в истории.`
+    )) return;
+    setMarkingTaskKey(task.taskKey);
+    setCorrectionError('');
+    try {
+      await onMarkTaskCorrect(task, analysis);
+    } catch (error) {
+      setCorrectionError(error?.message || 'Не удалось изменить результат задания.');
+    } finally {
+      setMarkingTaskKey('');
+    }
+  };
 
   const filteredTasks = analysis.tasks.filter((task) => {
     if (filter === 'problem') return ['incorrect', 'unanswered'].includes(task.status);
@@ -342,6 +366,12 @@ const MockExamAnalysisModal = ({
                   </div>
                 </div>
 
+                {correctionError && (
+                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                    {correctionError}
+                  </div>
+                )}
+
                 <div className="mt-3 space-y-2">
                   {filteredTasks.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-slate-200 bg-[rgb(var(--surface-soft))] px-4 py-8 text-center text-sm font-semibold text-[rgb(var(--ink-soft))]">
@@ -372,7 +402,9 @@ const MockExamAnalysisModal = ({
                             <strong className="block truncate text-sm">{task.title}</strong>
                             <small className="mt-0.5 block text-[11px] font-semibold text-[rgb(var(--ink-soft))]">
                               {task.status === 'correct'
-                                ? `Получено ${task.primaryWeight} из ${task.primaryWeight}`
+                                ? (task.manualOverride
+                                    ? `Засчитано преподавателем · ${task.primaryWeight} из ${task.primaryWeight}`
+                                    : `Получено ${task.primaryWeight} из ${task.primaryWeight}`)
                                 : task.status === 'pending'
                                   ? 'Ответ сохранён, результат скрыт'
                                   : `Потеряно: ${task.primaryWeight} ${task.primaryWeight === 1 ? 'первичный балл' : 'первичных балла'}`}
@@ -432,9 +464,29 @@ const MockExamAnalysisModal = ({
                                 </div>
                                 {analysis.resultsVisible && (task.answered || revealUnansweredAnswers) && (
                                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                                    <span className="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-600">Правильный ответ</span>
-                                    <strong className="mt-1 block break-words text-sm text-emerald-800">{formatAnswer(task.expectedAnswers)}</strong>
+                                    <span className="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-600">
+                                      {task.acceptedAnswerVariants?.length > 1 ? 'Допустимые ответы' : 'Правильный ответ'}
+                                    </span>
+                                    <strong className="mt-1 block break-words text-sm text-emerald-800">
+                                      {formatAnswerVariants(task.acceptedAnswerVariants, task.expectedAnswers)}
+                                    </strong>
                                   </div>
+                                )}
+                                {task.manualOverride && (
+                                  <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
+                                    <CheckCircle2 size={14} /> Ответ засчитан преподавателем
+                                  </div>
+                                )}
+                                {typeof onMarkTaskCorrect === 'function' && task.status === 'incorrect' && task.answered && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMarkTaskCorrect(task)}
+                                    disabled={Boolean(markingTaskKey)}
+                                    className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white shadow-sm hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                                  >
+                                    <CheckCircle2 size={14} />
+                                    {markingTaskKey === task.taskKey ? 'Засчитываем…' : 'Засчитать как правильное'}
+                                  </button>
                                 )}
                                 {typeof onOpenTask === 'function' && (
                                   <button

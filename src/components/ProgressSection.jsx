@@ -3206,6 +3206,56 @@ const ProgressSection = ({
     setMockAnalysisLoading(false);
   };
 
+  const handleMarkMockTaskCorrect = async (task) => {
+    if (role !== 'teacher' || !effectiveStudentId || !mockAnalysisExam?.id || !task?.taskKey) return;
+    const examId = String(mockAnalysisExam.id);
+    const response = await api.markMockExamTaskCorrect(
+      effectiveStudentId,
+      examId,
+      mockAnalysisAttempt?.attemptId,
+      task.taskKey
+    );
+    const nextAttempt = response?.attempt && typeof response.attempt === 'object'
+      ? response.attempt
+      : mockAnalysisAttempt;
+    const history = Array.isArray(response?.history) ? response.history : [];
+    const currentAttempt = response?.currentAttempt && typeof response.currentAttempt === 'object'
+      ? response.currentAttempt
+      : {};
+    setMockAnalysisAttempt(nextAttempt);
+    setMockAttemptsByExam((previous) => ({
+      ...(previous || {}),
+      [examId]: {
+        ...currentAttempt,
+        attemptHistory: history,
+        firstAttempt: history[0] || null,
+        firstAttemptAvailable: Boolean(history[0]),
+      },
+    }));
+    setActiveMockAttempt((current) => (
+      String(activeMockExam?.id || '') === examId ? currentAttempt : current
+    ));
+    if (history.length > 0) {
+      setStudentData((previous) => ({
+        ...previous,
+        mockAttemptResults: [
+          ...(Array.isArray(previous?.mockAttemptResults) ? previous.mockAttemptResults : [])
+            .filter((entry) => String(entry?.examId || '') !== examId),
+          ...history,
+        ],
+      }));
+    }
+    try {
+      const analytics = await api.getMockExamTaskAnalytics(examId);
+      setMockTaskAnalyticsByExam((previous) => ({
+        ...previous,
+        [examId]: analytics && typeof analytics === 'object' ? analytics : {},
+      }));
+    } catch {
+      // The corrected result is already saved; aggregate analytics can refresh on the next load.
+    }
+  };
+
   const renderStudentMockCard = (exam, examRow = null) => {
     if (!exam) return null;
     const examBadges = normalizeMockExamBadges(exam.badges);
@@ -5694,6 +5744,7 @@ const ProgressSection = ({
                     closeMockAnalysis();
                   }
                 : null}
+              onMarkTaskCorrect={role === 'teacher' ? handleMarkMockTaskCorrect : null}
               onClose={closeMockAnalysis}
             />
           )}

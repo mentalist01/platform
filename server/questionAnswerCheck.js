@@ -1,3 +1,10 @@
+import {
+  answerVectorsMatch,
+  getAcceptedAnswerVariants,
+  getPrimaryAnswerVector,
+  normalizeComparableAnswer,
+} from '../src/utils/answerVariants.js';
+
 const clampAnswerCount = (value) => {
   const parsed = Math.trunc(Number(value));
   if (!Number.isFinite(parsed)) return 1;
@@ -9,42 +16,10 @@ export const createQuestionAnswerRules = ({ getAnswerCountForTask }) => {
     throw new TypeError('getAnswerCountForTask must be a function');
   }
 
-  const normalizeAnswerValue = (value) => String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
+  const normalizeAnswerValue = normalizeComparableAnswer;
 
   const getExpectedAnswersForQuestion = (question, count) => {
-    const safeCount = clampAnswerCount(count);
-    if (!question || typeof question !== 'object') {
-      return Array.from({ length: safeCount }, () => '');
-    }
-    if (safeCount <= 1) {
-      const fallback = Array.isArray(question?.options)
-        ? question.options[question.correctIndex]
-        : '';
-      const directAnswer = question?.answer;
-      if (directAnswer !== undefined && directAnswer !== null && String(directAnswer).trim() !== '') {
-        return [directAnswer];
-      }
-      const fromArray = Array.isArray(question?.answers) ? question.answers : [];
-      if (fromArray.length > 0 && String(fromArray[0] ?? '').trim() !== '') {
-        return [fromArray[0]];
-      }
-      return [fallback ?? ''];
-    }
-    const fromArray = Array.isArray(question.answers) ? question.answers : [];
-    if (fromArray.length > 0) {
-      const filled = [...fromArray];
-      while (filled.length < safeCount) filled.push('');
-      return filled.slice(0, safeCount);
-    }
-    const answers = [];
-    for (let index = 1; index <= safeCount; index += 1) {
-      const key = index === 1 ? 'answer' : `answer${index}`;
-      answers.push(question?.[key] ?? '');
-    }
-    return answers;
+    return getPrimaryAnswerVector(question, clampAnswerCount(count));
   };
 
   const parseSubmittedAnswers = (rawValue, count) => {
@@ -82,20 +57,15 @@ export const createQuestionAnswerRules = ({ getAnswerCountForTask }) => {
 
   const isSolvedAnswerValid = (question, rawValue, taskNumber) => {
     const answerCount = getAnswerCountForQuestion(question, taskNumber);
-    const expectedAnswers = getExpectedAnswersForQuestion(question, answerCount);
+    const acceptedVariants = getAcceptedAnswerVariants(question, answerCount);
     const providedAnswers = parseSubmittedAnswers(rawValue, answerCount);
-    if (answerCount <= 1) {
-      if (!String(providedAnswers[0] ?? '').trim()) return false;
-      return normalizeAnswerValue(providedAnswers[0]) === normalizeAnswerValue(expectedAnswers[0]);
-    }
     if (providedAnswers.every((value) => !String(value ?? '').trim())) return false;
-    return expectedAnswers.every((expected, index) => (
-      normalizeAnswerValue(expected) === normalizeAnswerValue(providedAnswers[index])
-    ));
+    return acceptedVariants.some((variant) => answerVectorsMatch(variant, providedAnswers, answerCount));
   };
 
   return {
     getAnswerCountForQuestion,
+    getAcceptedAnswerVariantsForQuestion: getAcceptedAnswerVariants,
     getExpectedAnswersForQuestion,
     isSolvedAnswerValid,
     normalizeAnswerValue,

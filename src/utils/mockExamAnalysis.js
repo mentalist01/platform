@@ -1,3 +1,8 @@
+import {
+  getAcceptedAnswerVariants,
+  getAnswerVectorSignature,
+} from './answerVariants.js';
+
 const TIMER_MODE = 'timer';
 
 const normalizeText = (value) => String(value ?? '').trim();
@@ -143,6 +148,11 @@ export const buildMockExamAnalysis = ({
     && !Array.isArray(attempt.taskDurationsMs)
     ? attempt.taskDurationsMs
     : {};
+  const resultOverrides = attempt?.resultOverrides
+    && typeof attempt.resultOverrides === 'object'
+    && !Array.isArray(attempt.resultOverrides)
+    ? attempt.resultOverrides
+    : {};
   const analyticsByTask = taskAnalytics && typeof taskAnalytics === 'object' && !Array.isArray(taskAnalytics)
     ? taskAnalytics
     : {};
@@ -154,8 +164,18 @@ export const buildMockExamAnalysis = ({
     const answerCount = Math.max(1, Math.trunc(Number(getAnswerCountForTask(taskKey, question)) || 1));
     const providedAnswers = toAnswerValues(answers[taskKey], answerCount);
     const expectedAnswers = toAnswerValues(getExpectedAnswers(question, answerCount), answerCount);
+    const acceptedAnswerVariants = [expectedAnswers, ...getAcceptedAnswerVariants(question, answerCount)]
+      .reduce((result, variant) => {
+        const normalized = toAnswerValues(variant, answerCount);
+        const signature = getAnswerVectorSignature(normalized, answerCount);
+        if (!normalized.some(Boolean) || result.some((entry) => entry.signature === signature)) return result;
+        result.push({ signature, values: normalized });
+        return result;
+      }, [])
+      .map((entry) => entry.values);
     const answered = hasAnswerValues(providedAnswers);
     const isCorrect = resultsVisible && answered && Boolean(solved[taskKey]);
+    const manualOverride = resultOverrides?.[taskKey]?.correct === true;
     const status = !resultsVisible && answered
       ? 'pending'
       : isCorrect
@@ -184,8 +204,10 @@ export const buildMockExamAnalysis = ({
       answerCount,
       providedAnswers,
       expectedAnswers,
+      acceptedAnswerVariants,
       answered,
       solved: isCorrect,
+      manualOverride,
       status,
       primaryWeight,
       lostPrimary: resultsVisible && !isCorrect ? primaryWeight : 0,

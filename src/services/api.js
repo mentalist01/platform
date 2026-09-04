@@ -1679,6 +1679,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  markMockExamTaskCorrect: async (studentId, examId, attemptId, taskKey) => {
+    const res = await apiFetch('/api/mock-exams/attempt/task-result', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, examId, attemptId, taskKey }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponseAndInvalidateTestsCache(res);
+  },
   continueMockTimerAttempt: async (studentId, examId) => {
     const res = await apiFetch('/api/mock-exams/attempt/continue-timer', {
       method: 'PATCH',

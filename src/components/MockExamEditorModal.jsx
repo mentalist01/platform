@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, X } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../services/api';
 import {
   DEFAULT_MOCK_EXAM_BADGE_THEME_ID,
@@ -16,6 +16,11 @@ import { Button } from './ui';
 import { resolveUploadsUrl } from '../utils/runtimeUrls';
 import { formatDifficultyDuration } from '../utils/questionDifficulty';
 import MockExamTaskDifficultyBadge from './MockExamTaskDifficultyBadge';
+import {
+  getAcceptedAnswerVariants,
+  getAnswerVectorSignature,
+  normalizeAnswerVector,
+} from '../utils/answerVariants';
 
 const getAttachmentKey = (item) => String(item?.storageName || item?.id || item?.url || item?.name || '').trim();
 const buildAttachmentSignature = (items = []) => (
@@ -27,6 +32,16 @@ const buildAttachmentSignature = (items = []) => (
 );
 const normalizeAnswerValues = (values, count) => (
   Array.from({ length: count }, (_, idx) => String(values?.[idx] ?? '').trim())
+);
+const getAlternativeAnswerValues = (entry, count, getExpectedAnswers) => {
+  const primary = normalizeAnswerValues(getExpectedAnswers(entry, count), count);
+  const primarySignature = getAnswerVectorSignature(primary, count);
+  return getAcceptedAnswerVariants(entry, count)
+    .filter((variant) => getAnswerVectorSignature(variant, count) !== primarySignature)
+    .map((variant) => normalizeAnswerValues(variant, count));
+};
+const buildAnswerVariantsSignature = (variants, count) => JSON.stringify(
+  (Array.isArray(variants) ? variants : []).map((variant) => normalizeAnswerValues(variant, count))
 );
 const hasTaskContent = (entry, taskNumber, getMockAnswerCountForTask, getExpectedAnswers) => {
   if (!entry || typeof entry !== 'object') return false;
@@ -56,6 +71,7 @@ const MockExamEditorModal = ({
   const [selectedTask, setSelectedTask] = useState(MOCK_TASK_NUMBERS[0] || 1);
   const [question, setQuestion] = useState('');
   const [answerInputs, setAnswerInputs] = useState(['']);
+  const [alternativeAnswerInputs, setAlternativeAnswerInputs] = useState([]);
   const [existingScreenshots, setExistingScreenshots] = useState([]);
   const [existingFiles, setExistingFiles] = useState([]);
   const [newScreenshots, setNewScreenshots] = useState([]);
@@ -95,6 +111,7 @@ const MockExamEditorModal = ({
     const requiredCount = getMockAnswerCountForTask(taskNumber, entry);
     setQuestion(entry?.question || '');
     setAnswerInputs(getExpectedAnswers(entry, requiredCount));
+    setAlternativeAnswerInputs(getAlternativeAnswerValues(entry, requiredCount, getExpectedAnswers));
     setExistingScreenshots(Array.isArray(entry?.screenshots) ? entry.screenshots : []);
     setExistingFiles(Array.isArray(entry?.files) ? entry.files : []);
     setNewScreenshots([]);
@@ -117,16 +134,23 @@ const MockExamEditorModal = ({
     requiredAnswerCount
   );
   const currentAnswers = normalizeAnswerValues(answerInputs, requiredAnswerCount);
+  const initialAlternativeAnswers = getAlternativeAnswerValues(
+    currentTaskEntry,
+    requiredAnswerCount,
+    getExpectedAnswers
+  );
 
   const questionDirty = String(question || '').trim() !== String(currentTaskEntry?.question || '').trim();
   const answersDirty = currentAnswers.join('||') !== initialAnswers.join('||');
+  const answerVariantsDirty = buildAnswerVariantsSignature(alternativeAnswerInputs, requiredAnswerCount)
+    !== buildAnswerVariantsSignature(initialAlternativeAnswers, requiredAnswerCount);
   const existingScreensDirty = buildAttachmentSignature(existingScreenshots)
     !== buildAttachmentSignature(Array.isArray(currentTaskEntry?.screenshots) ? currentTaskEntry.screenshots : []);
   const existingFilesDirty = buildAttachmentSignature(existingFiles)
     !== buildAttachmentSignature(Array.isArray(currentTaskEntry?.files) ? currentTaskEntry.files : []);
   const uploadsQueued = newScreenshots.length > 0 || newFiles.length > 0;
   const removedQueued = removedScreenshots.length > 0 || removedFiles.length > 0;
-  const taskDirty = questionDirty || answersDirty || existingScreensDirty || existingFilesDirty || uploadsQueued || removedQueued;
+  const taskDirty = questionDirty || answersDirty || answerVariantsDirty || existingScreensDirty || existingFilesDirty || uploadsQueued || removedQueued;
   const titleDirty = String(title || '').trim() !== String(exam?.title || '').trim();
   const badgesDirty = getMockExamBadgeSignature(badges) !== getMockExamBadgeSignature(exam?.badges);
   const metadataDirty = titleDirty || badgesDirty;
@@ -296,6 +320,23 @@ const MockExamEditorModal = ({
       setError(requiredCount > 1 ? 'Введите все правильные ответы' : 'Введите правильный ответ');
       return null;
     }
+    const acceptedAnswerVariants = [answersSlice];
+    const acceptedSignatures = new Set([getAnswerVectorSignature(answersSlice, requiredCount)]);
+    for (let index = 0; index < alternativeAnswerInputs.length; index += 1) {
+      const variant = normalizeAnswerVector(alternativeAnswerInputs[index], requiredCount);
+      if (variant.every((value) => !value)) continue;
+      if (!allowsPartialAnswers(selectedTask, currentTaskEntry) && variant.some((value) => !value)) {
+        setError(`Заполните все поля варианта ${index + 2} или удалите его`);
+        return null;
+      }
+      const signature = getAnswerVectorSignature(variant, requiredCount);
+      if (acceptedSignatures.has(signature)) {
+        setError(`Вариант ${index + 2} повторяет уже добавленный ответ`);
+        return null;
+      }
+      acceptedSignatures.add(signature);
+      acceptedAnswerVariants.push(variant);
+    }
     const hasAnyAttachments = existingScreenshots.length > 0 || existingFiles.length > 0 || newScreenshots.length > 0 || newFiles.length > 0;
     if (!question.trim() && !hasAnyAttachments) {
       setError('Добавьте текст вопроса или прикрепите файл/скриншот');
@@ -320,6 +361,7 @@ const MockExamEditorModal = ({
         ? Date.now()
         : (previousTaskEntry?.analyticsVersion || taskIdentity);
       const taskEntry = {
+        ...(previousTaskEntry || {}),
         id: taskIdentity,
         analyticsVersion,
         question: question.trim(),
@@ -329,6 +371,13 @@ const MockExamEditorModal = ({
           ? { answers: answersSlice }
           : { answer: trimmedAnswers[0] })
       };
+      if (requiredCount > 1) delete taskEntry.answer;
+      else delete taskEntry.answers;
+      Object.keys(taskEntry).forEach((key) => {
+        if (/^answer\d+$/i.test(key)) delete taskEntry[key];
+      });
+      if (acceptedAnswerVariants.length > 1) taskEntry.acceptedAnswerVariants = acceptedAnswerVariants;
+      else delete taskEntry.acceptedAnswerVariants;
 
       const nextTasks = { ...(exam.tasks || {}) };
       nextTasks[String(selectedTask)] = taskEntry;
@@ -856,7 +905,9 @@ const MockExamEditorModal = ({
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-500">Правильные ответы</label>
+                <label className="text-xs font-semibold text-gray-500">
+                  {requiredAnswerCount > 1 ? 'Основной правильный набор ответов' : 'Основной правильный ответ'}
+                </label>
                 <div className="mt-1 text-[11px] text-gray-500">
                   {requiredAnswerCount > 1
                     ? (allowsPartialAnswers(selectedTask, currentTaskEntry)
@@ -883,6 +934,60 @@ const MockExamEditorModal = ({
                     />
                   ))}
                 </div>
+                {alternativeAnswerInputs.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {alternativeAnswerInputs.map((variant, variantIndex) => (
+                      <div key={`answer-variant-${variantIndex}`} className="rounded-xl border border-purple-100 bg-purple-50/60 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <span className="text-[11px] font-semibold text-purple-700">Допустимый вариант {variantIndex + 2}</span>
+                          <button
+                            type="button"
+                            onClick={() => setAlternativeAnswerInputs((previous) => previous.filter((_, index) => index !== variantIndex))}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500"
+                            aria-label={`Удалить допустимый вариант ${variantIndex + 2}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                          {Array.from({ length: requiredAnswerCount }).map((_, answerIndex) => (
+                            <input
+                              key={answerIndex}
+                              type="text"
+                              value={variant[answerIndex] ?? ''}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setAlternativeAnswerInputs((previous) => previous.map((entry, index) => {
+                                  if (index !== variantIndex) return entry;
+                                  const next = [...entry];
+                                  next[answerIndex] = value;
+                                  return next;
+                                }));
+                              }}
+                              placeholder={requiredAnswerCount > 1 ? `Ответ ${answerIndex + 1}` : 'Ещё один верный ответ'}
+                              className="w-full rounded-lg border border-purple-100 bg-white px-3 py-2 text-sm outline-none focus:border-purple-500"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setAlternativeAnswerInputs((previous) => (
+                    previous.length >= 19
+                      ? previous
+                      : [...previous, Array.from({ length: requiredAnswerCount }, () => '')]
+                  ))}
+                  disabled={alternativeAnswerInputs.length >= 19}
+                  className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-purple-200 bg-white px-3 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus size={14} /> Добавить ещё вариант ответа
+                </button>
+                <p className="mt-1.5 text-[11px] text-gray-500">
+                  При проверке будет принят любой из указанных вариантов.
+                </p>
               </div>
 
               {error && <div className="text-xs text-red-500">{error}</div>}
