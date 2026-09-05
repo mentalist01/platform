@@ -3,6 +3,92 @@ import test from 'node:test';
 
 import { createSegmentedAudioRecorder } from './segmentedAudioRecorder.js';
 
+const createRecorderHarness = (onSegment = () => ({ saved: true })) => {
+  const recorders = [];
+  const timers = new Map();
+  const failures = [];
+  let monotonic = 0;
+  let wall = 1_700_000_000_000;
+  let nextTimer = 0;
+  class Recorder {
+    constructor() { this.state = 'inactive'; recorders.push(this); }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; }
+    finish() {
+      this.state = 'inactive';
+      this.ondataavailable?.({ data: new Blob(['audio']) });
+      this.onstop?.();
+    }
+  }
+  const controller = createSegmentedAudioRecorder({
+    stream: {}, mimeType: 'audio/webm', onSegment,
+    onDisabled: (error) => failures.push(error),
+    MediaRecorderClass: Recorder,
+    nowWall: () => wall, nowMonotonic: () => monotonic,
+    setTimer: (callback) => { timers.set(++nextTimer, callback); return nextTimer; },
+    clearTimer: (id) => timers.delete(id),
+  });
+  return {
+    controller, recorders, failures,
+    advance: (elapsed, wallElapsed = elapsed) => { monotonic += elapsed; wall += wallElapsed; },
+    rotate: () => timers.values().next().value(),
+  };
+};
+
+test('preserves continuous segment timestamps when the system clock changes', async () => {
+  const metadata = [];
+  const h = createRecorderHarness((blob, info) => { metadata.push(info); });
+  h.advance(30_000, -3_600_000);
+  h.rotate();
+  h.recorders[0].finish();
+  h.advance(5000);
+  const stopped = h.controller.stop();
+  h.recorders[1].finish();
+  await stopped;
+  await h.controller.uploadsDrained;
+  assert.equal(Date.parse(metadata[1].occurredAt) - Date.parse(metadata[0].occurredAt), 30_000);
+  assert.equal(metadata[0].durationMs, 30_000);
+  assert.equal(metadata[1].durationMs, 5000);
+});
+
+test('waits for final audio when an encoder error makes the recorder inactive', async () => {
+  let uploads = 0;
+  const h = createRecorderHarness(() => { uploads++; });
+  const recorder = h.recorders[0];
+  recorder.state = 'inactive';
+  recorder.onerror({ error: new Error('encoder failed') });
+  let stopped = false;
+  h.controller.captureStopped.then(() => { stopped = true; });
+  await Promise.resolve();
+  assert.equal(stopped, false);
+  assert.equal(h.controller.disabled, true);
+  recorder.finish();
+  await h.controller.uploadsDrained;
+  assert.equal(uploads, 1);
+  assert.equal(h.failures.length, 1);
+});
+
+test('unexpected recorder stop finalizes capture and reports the failure', async () => {
+  const h = createRecorderHarness();
+  h.recorders[0].finish();
+  await h.controller.uploadsDrained;
+  assert.equal(h.controller.disabled, true);
+  assert.match(h.failures[0].message, /stopped unexpectedly/);
+});
+
+test('rejected uploads stop capture instead of silently losing later segments', async () => {
+  const h = createRecorderHarness(() => Promise.reject(new Error('upload failed')));
+  h.advance(30_000);
+  h.rotate();
+  h.recorders[0].finish();
+  for (let index = 0; index < 8; index++) await Promise.resolve();
+  assert.equal(h.controller.disabled, true);
+  assert.equal(h.recorders[1].state, 'inactive');
+  h.recorders[1].finish();
+  await h.controller.uploadsDrained;
+  assert.equal(h.failures.length, 1);
+});
+
 test('starts the next recorder before stopping the previous segment', async () => {
   const operations = [];
   const timers = new Map();

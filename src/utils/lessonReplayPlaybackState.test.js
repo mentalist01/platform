@@ -4,9 +4,28 @@ import test from 'node:test';
 import {
   buildLessonReplayPlaybackState,
   createLessonReplayPlaybackIndex,
+  createLessonReplayPlaybackLookup,
   getLessonReplayActorRole,
   getLessonReplayFollowSurface,
 } from './lessonReplayPlaybackState.js';
+
+test('indexed playback matches reconstruction across forward and backward seeks', () => {
+  const source = [
+    ...events,
+    { id: 'audio', type: 'audio', offsetMs: 400, payload: { audioId: 'segment' } },
+    { id: 'task', type: 'task', offsetMs: 500, actor: { role: 'student' }, payload: {} },
+    { id: 'close', type: 'task', offsetMs: 500, actor: { role: 'student' }, payload: { active: false } },
+    { id: 'screen', type: 'screen', offsetMs: 600, actor: { role: 'teacher' }, payload: {} },
+    { id: 'stop', type: 'screen', offsetMs: 700, actor: { role: 'teacher' }, payload: { active: false } },
+  ];
+  const read = createLessonReplayPlaybackLookup(source);
+  for (const position of [0, 100, 349, 500, 800, 600, 200, 400, 700, 0]) {
+    assert.deepEqual(read(position), buildLessonReplayPlaybackState(source, position));
+  }
+  assert.equal(read(351), read(399), 'clock ticks reuse the same snapshot');
+  assert.notEqual(read(399), read(400));
+  assert.equal(read(600).screen.id, 'screen', 'later queries do not mutate earlier states');
+});
 
 const events = [
   {

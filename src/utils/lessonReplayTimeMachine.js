@@ -62,6 +62,40 @@ const normalizeCodeState = (value = {}) => {
   };
 };
 
+export const getLessonReplayCodeState = (codeEvent, runEvent) => {
+  const code = normalizeCodeState(codeEvent?.payload);
+  if (runEvent && normalizeEventOffsetMs(runEvent) >= normalizeEventOffsetMs(codeEvent)) {
+    const runPayload = runEvent.payload || {};
+    code.status = String(runPayload.status || '');
+    code.output = String(runPayload.output || '');
+    code.error = String(runPayload.error || '');
+  }
+  return code;
+};
+
+// The following surface is read-only and can reuse already materialized board
+// items. Editable branches still use createLessonReplayBranch's isolated copy.
+export const createLessonReplayFollowBranch = (replay, {
+  boardEvent, boardView, codeEvent, codeView, runEvent, positionMs,
+}) => {
+  const code = getLessonReplayCodeState(codeEvent, runEvent);
+  if (codeView) code.viewport = codeView;
+  return {
+    branchId: 'lesson-replay-follow',
+    metadata: {
+      studentId: String(replay?.occurrence?.studentId || ''),
+      occurrenceKey: String(replay?.occurrence?.key || ''),
+      positionMs: normalizePositionMs(positionMs),
+    },
+    revision: 0,
+    code,
+    board: {
+      items: Array.isArray(boardEvent?.payload?.items) ? boardEvent.payload.items : [],
+      ...(boardView ? { viewport: boardView } : {}),
+    },
+  };
+};
+
 const normalizeBoardState = (value = {}) => {
   const source = value && typeof value === 'object' && !Array.isArray(value)
     ? cloneValue(value)
@@ -164,24 +198,13 @@ export const getLessonReplayStateAt = (replay, rawPositionMs, options = {}) => {
     }
   }
 
-  const code = normalizeCodeState(codeEvent?.payload);
+  const code = getLessonReplayCodeState(codeEvent, runEvent);
   const resolvedBoardViewport = actorBoardViewport || boardViewport
     || boardEvent?.payload?.viewport || boardEvent?.payload?.view
     || getLessonReplayInitialBoardViewport(events);
   const resolvedCodeViewport = actorCodeViewport || codeViewport
     || codeEvent?.payload?.editor || codeEvent?.payload?.view;
   if (resolvedCodeViewport) code.viewport = cloneValue(resolvedCodeViewport);
-  if (
-    runEvent
-    && normalizeEventOffsetMs(runEvent) >= normalizeEventOffsetMs(codeEvent)
-  ) {
-    const runPayload = runEvent.payload && typeof runEvent.payload === 'object'
-      ? runEvent.payload
-      : {};
-    code.status = String(runPayload.status || '');
-    code.output = String(runPayload.output || '');
-    code.error = String(runPayload.error || '');
-  }
 
   return {
     code,

@@ -31,6 +31,92 @@ const eventContext = {
   nowMs: START_MS,
 };
 
+const replayBoardStates = (events) => {
+  let items = [];
+  return events.filter((event) => event.type === 'board').map((event) => {
+    const payload = event.payload;
+    if (payload.mode !== 'delta') items = [...payload.items];
+    else {
+      const replaced = new Set(payload.upserts.map((entry) => entry.item.id));
+      items = items.filter((item) => !replaced.has(item.id) && !payload.removedIds.includes(item.id));
+      [...payload.upserts].sort((left, right) => left.index - right.index).forEach(({ item, index }) => {
+        items.splice(Math.min(items.length, index), 0, item);
+      });
+    }
+    return { id: event.id, items: [...items] };
+  });
+};
+
+test('more than 6000 board edits preserve every drawing and deletion after save/reload', () => {
+  const events = Array.from({ length: 6201 }, (_, index) => ({
+    id: `board-${index}`, type: 'board',
+    occurredAt: new Date(START_MS + index * 500).toISOString(),
+    payload: index === 0 ? { mode: 'snapshot', items: [] } : {
+      mode: 'delta', actorVerified: true,
+      upserts: [{ index: index % 201, item: {
+        id: index % 30 === 0 ? `note-${index}` : 'moving', type: 'text',
+        text: `note ${index}`, x: index, y: 0, width: 100, height: 30,
+      } }], removedIds: index === 6150 ? ['note-30', 'note-60'] : [],
+    },
+  }));
+  const normalizedEvents = events.map((event) => normalizeLessonReplayEvent(event, eventContext));
+  const replay = normalizeLessonReplay({ occurrence, events });
+  const reloaded = normalizeLessonReplay(JSON.parse(JSON.stringify(replay)));
+  assert.equal(reloaded.events.length, 6201);
+  assert.deepEqual(replayBoardStates(reloaded.events), replayBoardStates(normalizedEvents));
+});
+
+test('byte budget removes optional events without breaking any board frames', () => {
+  const board = Array.from({ length: 8 }, (_, index) => ({
+    id: `note-${index}`, type: 'board', occurredAt: new Date(START_MS + index * 1000).toISOString(),
+    payload: { mode: 'delta', actorVerified: true, removedIds: index === 7 ? ['text-1'] : [], upserts: [{
+      index, item: { id: `text-${index}`, type: 'text', text: 'kept', x: index, y: 0 },
+    }] },
+  }));
+  const events = [...board, ...Array.from({ length: 30 }, (_, index) => ({
+    id: `optional-${index}`, type: 'navigation', occurredAt: new Date(START_MS + index * 1000).toISOString(),
+    payload: { view: `view-${index}`, label: 'x'.repeat(160) },
+  }))];
+  const expected = normalizeLessonReplay({ occurrence, events });
+  const result = appendLessonReplayEvents(createLessonReplay(occurrence, START_MS), events, {
+    ...eventContext, maxBytes: 6 * 1024,
+  });
+  assert.ok(result.bytes <= 6 * 1024);
+  assert.ok(result.replay.events.length < expected.events.length);
+  assert.deepEqual(replayBoardStates(result.replay.events), replayBoardStates(expected.events));
+});
+
+test('a too-large board delta chain leaves the previous recording unchanged', () => {
+  const replay = appendLessonReplayEvents(createLessonReplay(occurrence, START_MS), [{
+    id: 'baseline', type: 'board', occurredAt: new Date(START_MS).toISOString(),
+    payload: { mode: 'snapshot', items: [{ id: 'old', type: 'text', text: 'saved' }] },
+  }], eventContext).replay;
+  const original = JSON.stringify(replay);
+  const events = Array.from({ length: 46 }, (_, index) => ({
+    id: `new-${index}`, type: 'board', occurredAt: new Date(START_MS + (index + 1) * 1000).toISOString(),
+    payload: { mode: 'delta', upserts: [{ index, item: {
+      id: `text-${index}`, type: 'text', text: 'x'.repeat(1500),
+    } }], removedIds: [] },
+  }));
+  assert.throws(() => appendLessonReplayEvents(replay, events, {
+    ...eventContext, normalizedReplay: true, maxBytes: 12 * 1024,
+  }), { code: 'LESSON_REPLAY_CAPACITY', statusCode: 413 });
+  assert.equal(JSON.stringify(replay), original);
+});
+
+test('keeps delayed earlier events when a newer identical state arrived first', () => {
+  const event = (id, offsetMs) => ({
+    id, type: 'code', occurredAt: new Date(START_MS + offsetMs).toISOString(),
+    payload: { code: 'print(1)' },
+  });
+  const newer = appendLessonReplayEvents(createLessonReplay(occurrence, START_MS), [event('new', 180_000)], eventContext);
+  const delayed = appendLessonReplayEvents(newer.replay, [event('old', 1000)], eventContext);
+  assert.equal(delayed.added, 1);
+  assert.deepEqual(delayed.replay.events.map((entry) => entry.id), ['old', 'new']);
+  const retry = appendLessonReplayEvents(delayed.replay, [event('old', 1000)], eventContext);
+  assert.equal(retry.added, 0);
+});
+
 test('keeps a bounded participant snapshot on a shared group replay', () => {
   const replay = normalizeLessonReplay({
     occurrence: {
@@ -686,7 +772,7 @@ test('strictly bounds a replay even when one snapshot is larger than the request
   assert.ok(Buffer.byteLength(JSON.stringify(result.replay), 'utf8') <= 1000);
 });
 
-test('byte compaction preserves board and code history before a final clear', () => {
+test('byte compaction rejects a write instead of deleting board history before a final clear', () => {
   const events = [];
   for (let index = 0; index < 48; index += 1) {
     events.push({
@@ -725,20 +811,24 @@ test('byte compaction preserves board and code history before a final clear', ()
   });
 
   let result = { replay: createLessonReplay(occurrence, START_MS) };
+  let rejected = false;
   for (let index = 0; index < events.length; index += 48) {
-    result = appendLessonReplayEvents(result.replay, events.slice(index, index + 48), {
-      ...eventContext,
-      maxBytes: 32 * 1024,
-    });
+    const saved = JSON.stringify(result.replay);
+    try {
+      result = appendLessonReplayEvents(result.replay, events.slice(index, index + 48), {
+        ...eventContext,
+        maxBytes: 32 * 1024,
+      });
+    } catch (error) {
+      assert.equal(error.code, 'LESSON_REPLAY_CAPACITY');
+      assert.equal(error.statusCode, 413);
+      assert.equal(JSON.stringify(result.replay), saved, 'failed write does not mutate saved history');
+      rejected = true;
+      break;
+    }
   }
-  const boardEvents = result.replay.events.filter((event) => event.type === 'board');
-  const codeEvents = result.replay.events.filter((event) => event.type === 'code');
-
+  assert.equal(rejected, true);
   assert.ok(Buffer.byteLength(JSON.stringify(result.replay), 'utf8') <= 32 * 1024);
-  assert.ok(boardEvents.some((event) => event.payload.items.length > 0));
-  assert.ok(codeEvents.some((event) => event.payload.code.length > 0));
-  assert.equal(boardEvents.at(-1)?.payload.items.length, 0);
-  assert.equal(codeEvents.at(-1)?.payload.code, '');
 });
 
 test('caps a full board snapshot before it can dominate the replay file', () => {

@@ -2300,7 +2300,11 @@ export const api = {
       body: JSON.stringify({ sessionId, events: Array.isArray(options.events) ? options.events : [] }),
       keepalive: Boolean(options.keepalive),
     });
-    if (!res.ok) throw new Error(await parseApiError(res));
+    if (!res.ok) {
+      const error = new Error(await parseApiError(res));
+      error.status = res.status;
+      throw error;
+    }
     return parseJsonResponse(res);
   },
   updateLessonTopic: async (studentId, occurrence = {}, text = '') => {

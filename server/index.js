@@ -32447,7 +32447,14 @@ const finishActiveLessonReplaySession = async (session, rawEvents = [], options 
   try {
     await withLessonReplayWriteLock(session.occurrenceKey, async () => {
       const replay = readLessonReplay(session.occurrenceKey);
-      if (!replay) return;
+      if (!replay) {
+        if (rawEvents.length > 0) {
+          const error = new Error('Запись занятия не найдена. Последние изменения не сохранены.');
+          error.statusCode = 404;
+          throw error;
+        }
+        return;
+      }
       const context = {
         actorRole: session.actorRole,
         actorId: session.actorId,
@@ -33377,6 +33384,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     });
   } catch (error) {
     if (error?.statusCode === 404) return res.status(404).json({ error: error.message });
+    if (error?.statusCode === 413) return res.status(413).json({ error: error.message, code: error.code });
     console.error('[lesson-replay] failed to append events:', error);
     return res.status(500).json({ error: 'Не удалось сохранить ход занятия' });
   }
@@ -33385,14 +33393,19 @@ app.post('/api/lesson-replay/events', async (req, res) => {
 app.post('/api/lesson-replay/finish', async (req, res) => {
   const sessionId = String(req.body?.sessionId || '').trim();
   const session = activeLessonReplaySessions.get(sessionId);
-  if (!session) return res.json({ ok: true, alreadyFinished: true });
+  const submittedEvents = Array.isArray(req.body?.events) ? req.body.events : [];
+  if (!session) {
+    if (submittedEvents.length > 0) {
+      return res.status(410).json({ error: 'Сессия записи истекла. Последние изменения не сохранены.' });
+    }
+    return res.json({ ok: true, alreadyFinished: true });
+  }
   if (
     session.actorId !== String(req.auth?.id || '').trim()
     || session.actorRole !== String(req.auth?.role || '').trim()
   ) return forbid(res);
   const access = ensureLessonReplaySessionAccess(req, res, session);
   if (!access) return;
-  const submittedEvents = Array.isArray(req.body?.events) ? req.body.events : [];
   if (submittedEvents.length > LESSON_REPLAY_MAX_BATCH_EVENTS) {
     return res.status(400).json({ error: `За один раз можно сохранить не более ${LESSON_REPLAY_MAX_BATCH_EVENTS} событий` });
   }
@@ -33416,9 +33429,12 @@ app.post('/api/lesson-replay/finish', async (req, res) => {
     })
     : submittedEvents;
   try {
-    await finishActiveLessonReplaySession(session, rawEvents, {
+    const finished = await finishActiveLessonReplaySession(session, rawEvents, {
       nowMs: shouldApplyTelemostCutoff ? telemostCutoffMs : nowMs,
     });
+    if (!finished && rawEvents.length > 0) {
+      return res.status(425).json({ error: 'Сохранение записи уже выполняется. Повторите отправку.' });
+    }
     if (access.scope === 'student') {
       const hasOtherStudentSession = Array.from(activeLessonReplaySessions.values())
         .some((entry) => entry.studentId === access.student.id && entry.expiresAt >= Date.now());
@@ -33429,6 +33445,8 @@ app.post('/api/lesson-replay/finish', async (req, res) => {
     }
     return res.json({ ok: true });
   } catch (error) {
+    if (error?.statusCode === 404) return res.status(404).json({ error: error.message });
+    if (error?.statusCode === 413) return res.status(413).json({ error: error.message, code: error.code });
     console.error('[lesson-replay] failed to finish session:', error);
     return res.status(500).json({ error: 'Не удалось завершить запись действий' });
   }

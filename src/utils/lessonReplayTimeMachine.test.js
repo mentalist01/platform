@@ -1,5 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createLessonReplayFollowBranch, getLessonReplayCodeState } from './lessonReplayTimeMachine.js';
+
+test('a successful or empty run clears previous errors and output', () => {
+  const code = { offsetMs: 10, payload: { code: 'print(1)', error: 'old error', output: 'old output' } };
+  const success = { offsetMs: 20, payload: { output: '1', status: 'success' } };
+  assert.equal(getLessonReplayCodeState(code, success).error, '');
+  assert.equal(getLessonReplayCodeState(code, success).output, '1');
+  assert.equal(getLessonReplayCodeState(code, { offsetMs: 20, payload: {} }).output, '');
+  assert.equal(getLessonReplayCodeState(code, { ...success, offsetMs: 5 }).error, 'old error');
+});
+
+test('read-only following uses materialized items without reading history again', () => {
+  const items = Object.freeze([{ id: 'stroke', type: 'stroke', points: [{ x: 1, y: 2 }] }]);
+  const replay = {
+    occurrence: { key: 'lesson', studentId: 'student' },
+    get events() { throw new Error('must not reconstruct history during playback'); },
+  };
+  const viewport = { zoom: 2 };
+  const branch = createLessonReplayFollowBranch(replay, {
+    boardEvent: { payload: { items } }, boardView: viewport,
+    codeEvent: { offsetMs: 10, payload: { code: 'print(1)' } },
+    runEvent: { offsetMs: 20, payload: { output: '1' } }, positionMs: 20,
+  });
+  assert.equal(branch.board.items, items);
+  assert.equal(branch.board.viewport, viewport);
+  assert.equal(branch.code.output, '1');
+  assert.equal(branch.metadata.studentId, 'student');
+});
 
 import { buildLessonReplayPlaybackState } from './lessonReplayPlaybackState.js';
 import {

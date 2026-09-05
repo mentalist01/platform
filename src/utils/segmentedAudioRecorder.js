@@ -35,6 +35,8 @@ export const createSegmentedAudioRecorder = ({
   let disabled = false;
   let captureSettled = false;
   let uploadsSettled = false;
+  const timelineWallStart = nowWall();
+  const timelineMonotonicStart = nowMonotonic();
   let resolveCaptureStopped;
   let resolveUploadsDrained;
   const captureStopped = new Promise((resolve) => {
@@ -66,14 +68,14 @@ export const createSegmentedAudioRecorder = ({
     if (segment.recorder.state === 'recording' || segment.recorder.state === 'paused') {
       try {
         segment.recorder.stop();
-      } catch {
+      } catch (error) {
         activeSegments.delete(segment);
+        disable(error);
         finishIfIdle();
       }
-    } else {
-      activeSegments.delete(segment);
-      finishIfIdle();
     }
+    // An inactive recorder may still have its final dataavailable/stop events
+    // queued (including after an encoder error). Wait for that last Blob.
   };
 
   const disable = (reason = null) => {
@@ -98,20 +100,24 @@ export const createSegmentedAudioRecorder = ({
       return null;
     }
 
+    const startedMonotonic = nowMonotonic();
     const segment = {
       recorder,
       chunks: [],
-      startedAtMs: nowWall(),
-      startedMonotonic: nowMonotonic(),
+      startedAtMs: timelineWallStart + (startedMonotonic - timelineMonotonicStart),
+      startedMonotonic,
       durationMs: null,
       timerId: null,
       stopRequested: false,
+      finalized: false,
     };
 
     recorder.ondataavailable = (event) => {
       if (event.data?.size > 0) segment.chunks.push(event.data);
     };
     recorder.onstop = () => {
+      if (segment.finalized) return;
+      segment.finalized = true;
       clearTimer(segment.timerId);
       segment.timerId = null;
       const durationMs = segment.durationMs
@@ -135,7 +141,7 @@ export const createSegmentedAudioRecorder = ({
             if (result?.disabled) disable(result?.error || null);
             return result;
           })
-          .catch(() => null)
+          .catch((error) => { disable(error); })
           .finally(() => {
             pendingUploads.delete(upload);
             finishIfIdle();
@@ -146,7 +152,13 @@ export const createSegmentedAudioRecorder = ({
       // close the audio graph after stop() without racing the final Blob.
       activeSegments.delete(segment);
       if (currentSegment === segment) currentSegment = null;
+      if (!segment.stopRequested && !stopping && !disabled) {
+        disable(new Error('Audio recorder stopped unexpectedly'));
+      }
       finishIfIdle();
+    };
+    recorder.onerror = (event) => {
+      disable(event?.error || new Error('Audio recording failed'));
     };
 
     try {
@@ -154,6 +166,7 @@ export const createSegmentedAudioRecorder = ({
     } catch (error) {
       recorder.ondataavailable = null;
       recorder.onstop = null;
+      recorder.onerror = null;
       disable(error);
       return null;
     }

@@ -117,6 +117,25 @@ export const buildLessonReplayPlaybackState = (events, rawPositionMs, playbackIn
   return state;
 };
 
+// Build once per recording. Queries share immutable snapshots until the next
+// event, so ticking the clock does not replay the entire lesson or redraw it.
+export const createLessonReplayPlaybackLookup = (events) => {
+  const source = Array.isArray(events) ? events : [];
+  const initialState = createPlaybackState();
+  const snapshots = [];
+  let previous = initialState;
+  for (const event of source) {
+    const state = clonePlaybackState(previous);
+    applyPlaybackEvent(state, event);
+    snapshots.push(state);
+    previous = state;
+  }
+  return (rawPositionMs) => {
+    const positionMs = Math.max(0, Number(rawPositionMs) || 0);
+    return snapshots[findLastEventIndexAtOrBefore(source, positionMs)] || initialState;
+  };
+};
+
 const getSurfaceForEvent = (event) => {
   if (event?.type === 'board' || event?.type === 'board-view') return 'board';
   if (event?.type === 'code' || event?.type === 'code-view' || event?.type === 'run') return 'code';

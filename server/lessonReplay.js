@@ -601,12 +601,18 @@ export const normalizeLessonReplayEvent = (value, context = {}) => {
   return normalized;
 };
 
+const isRequiredReplayEvent = (event) => event?.type === 'board' || event?.type === 'audio';
+
 const trimEventsToCountLimit = (events, maxEvents = LESSON_REPLAY_MAX_EVENTS) => {
   const source = Array.isArray(events) ? events : [];
   if (source.length <= maxEvents) return source;
-  const keepIds = new Set(
-    getCompactionPriorityEvents(source).slice(0, maxEvents).map((event) => event.id)
-  );
+  // The count is a soft telemetry budget; the byte limit still bounds the
+  // file. Board deltas and audio segments cannot be sampled independently.
+  const keepIds = new Set(source.filter(isRequiredReplayEvent).map((event) => event.id));
+  for (const event of getCompactionPriorityEvents(source)) {
+    if (keepIds.size >= maxEvents) break;
+    keepIds.add(event.id);
+  }
   return source.filter((event) => keepIds.has(event.id));
 };
 
@@ -699,6 +705,18 @@ const trimReplayToByteLimit = (replay, maxBytes, currentBytes = null) => {
   const baseBytes = Buffer.byteLength(JSON.stringify({ ...replay, events: [] }), 'utf8');
   let selectedBytes = baseBytes;
   const selectedIds = new Set();
+  // Reserve the entire board/audio history first, including every dependent
+  // delta. If it cannot fit, fail the write without replacing the saved file.
+  events.filter(isRequiredReplayEvent).forEach((event) => {
+    selectedBytes += Buffer.byteLength(JSON.stringify(event), 'utf8') + (selectedIds.size > 0 ? 1 : 0);
+    selectedIds.add(event.id);
+  });
+  if (selectedBytes > normalizedMaxBytes) {
+    const error = new Error('Запись достигла предельного размера. Сохранённые данные доски не изменены.');
+    error.code = 'LESSON_REPLAY_CAPACITY';
+    error.statusCode = 413;
+    throw error;
+  }
   const addIfFits = (event) => {
     if (!event || selectedIds.has(event.id)) return;
     const eventBytes = Buffer.byteLength(JSON.stringify(event), 'utf8') + (selectedIds.size > 0 ? 1 : 0);
@@ -709,12 +727,6 @@ const trimReplayToByteLimit = (replay, maxBytes, currentBytes = null) => {
   getCompactionPriorityEvents(events).forEach(addIfFits);
   replay.events = events.filter((event) => selectedIds.has(event.id));
 
-  // This should only be needed for unusually tiny custom limits, but keeps the
-  // persisted representation strictly bounded in every case.
-  while (
-    replay.events.length > 0
-    && Buffer.byteLength(JSON.stringify(replay), 'utf8') > normalizedMaxBytes
-  ) replay.events.shift();
   return replay;
 };
 
@@ -782,6 +794,7 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
       && previous.signature === signature
       && Number.isFinite(previous.occurredAtMs)
       && Number.isFinite(occurredAtMs)
+      && occurredAtMs >= previous.occurredAtMs
       && occurredAtMs - previous.occurredAtMs < 60_000
     ) {
       return;

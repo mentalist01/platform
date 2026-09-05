@@ -27,6 +27,15 @@ const installStorage = (authToken) => {
   return values;
 };
 
+test('replay final-save errors preserve HTTP status for recovery decisions', async () => {
+  installStorage('replay-token');
+  for (const status of [410, 413, 425]) {
+    globalThis.fetch = async () => jsonResponse({ error: 'Запись не сохранена' }, status);
+    await assert.rejects(api.finishLessonReplaySession('session', { events: [{ id: 'pending' }] }),
+      (error) => error.status === status && error.message === 'Запись не сохранена');
+  }
+});
+
 test('tests cache deduplicates requests while returning independent object graphs', async () => {
   installStorage('cache-token-a');
   invalidateTestsCache();

@@ -15015,7 +15015,9 @@ const BoardSection = ({
       // `updateItems()` is also called manually during mount. An undefined
       // transaction is a restored/shared snapshot, not a mutation authored by
       // the participant who mounted the board.
-      const shouldRecordReplay = transaction?.local === true && provider?.synced === true;
+      // Local edits remain part of the lesson while Yjs is reconnecting. The
+      // replay recorder queues them until its own connection recovers.
+      const shouldRecordReplay = transaction?.local === true;
       if (
         lessonReplayActiveRef.current
         && shouldRecordReplay
@@ -15052,7 +15054,8 @@ const BoardSection = ({
     };
     const handleSync = (isSynced) => {
       if (!isSynced || !lessonReplayActiveRef.current) return;
-      if (lessonReplayLastBoardStateRef.current && !lessonReplayBoardDirtyRef.current) return;
+      // Include the merged scene after reconnect even if the local offline
+      // changes have already been flushed. An unchanged checkpoint is a no-op.
       scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
     };
     const handleConnectionClose = (event) => {
@@ -15252,7 +15255,7 @@ const BoardSection = ({
     return () => {
       yItems.unobserve(updateItems);
       if (lessonReplayBoardHeartbeatId) window.clearInterval(lessonReplayBoardHeartbeatId);
-      if (!isSandbox && provider?.synced === true && lessonReplayBoardDirtyRef.current) {
+      if (!isSandbox && lessonReplayBoardDirtyRef.current) {
         scheduleLessonReplayBoardSnapshot(yItems.toArray(), 0);
         flushLessonReplayBoardSnapshot();
       }
@@ -18598,6 +18601,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, []);
   const {
     recordLessonReplayEvent,
+    lessonReplayError,
+    retryLessonReplaySave,
+    downloadLessonReplayBackup,
     finishLessonReplayNow,
     uploadLessonReplayScreenSnapshot,
     uploadLessonReplayAudioSegment,
@@ -24148,6 +24154,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
+      {lessonReplayError && (
+        <div role="alert" className="fixed left-3 right-3 top-3 z-[1400] flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-lg">
+          <span>{lessonReplayError}</span>
+          <button type="button" onClick={() => void retryLessonReplaySave()} className="shrink-0 rounded-lg border border-amber-400 px-3 py-2 font-semibold">
+            Повторить сохранение
+          </button>
+          <button type="button" onClick={downloadLessonReplayBackup} className="shrink-0 rounded-lg border border-amber-400 px-3 py-2 font-semibold">
+            Скачать резервную копию
+          </button>
+        </div>
+      )}
       {user.role === 'teacher' && isAnyTelemostLessonReplayActive && (
         <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1350] flex max-w-[calc(100vw-1.5rem)] items-center gap-3 rounded-2xl border border-violet-200/90 bg-white/95 px-3 py-2.5 shadow-[0_16px_42px_rgba(91,33,182,0.22)] backdrop-blur-xl md:bottom-5 md:right-5">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white shadow-md shadow-violet-200/70">

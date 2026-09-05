@@ -38,13 +38,14 @@ import {
   repairLessonReplayInitialBoardState,
 } from '../utils/lessonReplaySyncArtifacts';
 import {
-  buildLessonReplayPlaybackState,
-  createLessonReplayPlaybackIndex,
+  createLessonReplayPlaybackLookup,
   getLessonReplayActorRole,
 } from '../utils/lessonReplayPlaybackState';
 import { repairLessonReplayBoardActors } from '../utils/lessonReplayBoardActors';
 import {
   createLessonReplayBranch,
+  createLessonReplayFollowBranch,
+  getLessonReplayCodeState,
   updateLessonReplayBranchBoard,
   updateLessonReplayBranchCode,
 } from '../utils/lessonReplayTimeMachine';
@@ -448,7 +449,7 @@ const ReplayBoardTask = ({ item }) => {
   );
 };
 
-const ReplayBoardItems = ({ items, arrowMarkerId }) => (
+const ReplayBoardItems = React.memo(({ items, arrowMarkerId }) => (
   <>
     {(Array.isArray(items) ? items : []).map((item) => {
       const key = item.id;
@@ -487,9 +488,9 @@ const ReplayBoardItems = ({ items, arrowMarkerId }) => (
       return null;
     })}
   </>
-);
+));
 
-const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
+const ReplayBoard = React.memo(function ReplayBoard({ items, recordedView, freeNavigation }) {
   const normalizedItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
   const fitView = useMemo(() => getFitView(normalizedItems), [normalizedItems]);
   const [freeView, setFreeView] = useState(null);
@@ -582,13 +583,12 @@ const ReplayBoard = ({ items, recordedView, freeNavigation }) => {
       </svg>
     </div>
   );
-};
+});
 
-const ReplayCode = ({ event, runEvent, recordedView, freeNavigation }) => {
-  const payload = event?.payload || {};
-  const runPayload = runEvent && Number(runEvent.offsetMs) >= Number(event?.offsetMs || 0) ? (runEvent.payload || {}) : {};
-  const error = runPayload.error || payload.error;
-  const output = error || runPayload.output || payload.output;
+const ReplayCode = React.memo(function ReplayCode({ event, runEvent, recordedView, freeNavigation }) {
+  const payload = getLessonReplayCodeState(event, runEvent);
+  const error = payload.error;
+  const output = error || payload.output;
   const codeLines = String(payload.code || '# Код пока не появился').split('\n');
   const codeRef = useRef(null);
   const view = recordedView || payload.editor || payload.view || {};
@@ -628,7 +628,7 @@ const ReplayCode = ({ event, runEvent, recordedView, freeNavigation }) => {
       )}
     </div>
   );
-};
+});
 
 const limitTimeMachineOutput = (value) => {
   const text = String(value ?? '');
@@ -1384,17 +1384,14 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
 
   const toggleFullscreen = useCallback(() => fullscreenControllerRef.current?.toggle(), []);
 
-  const playbackIndex = useMemo(() => createLessonReplayPlaybackIndex(events), [events]);
-  const state = useMemo(
-    () => buildLessonReplayPlaybackState(events, positionMs, playbackIndex),
-    [events, playbackIndex, positionMs]
-  );
+  const getPlaybackState = useMemo(() => createLessonReplayPlaybackLookup(events), [events]);
+  const state = getPlaybackState(positionMs);
   const boardEvent = state.board;
   const codeEvent = state.code;
   const runEvent = state.run;
   const freeScreenEvent = useMemo(
-    () => getActiveReplayScreenEvent(events, positionMs, ''),
-    [events, positionMs]
+    () => getActiveReplayScreenEvent(events, state.current?.offsetMs || 0, ''),
+    [events, state]
   );
   const screenEvent = freeScreenEvent;
   const boardView = (
@@ -1416,11 +1413,11 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     Number(state.codeView?.offsetMs) || 0
   );
   const followBranch = useMemo(() => {
-    const snapshot = createLessonReplayBranch(replay, followSnapshotPositionMs);
-    if (boardView && typeof boardView === 'object') snapshot.board.viewport = boardView;
-    if (codeView && typeof codeView === 'object') snapshot.code.viewport = codeView;
-    return snapshot;
-  }, [boardView, codeView, followSnapshotPositionMs, replay]);
+    if (!timeMachineOpen || typeof renderLessonReplaySandbox !== 'function') return null;
+    return createLessonReplayFollowBranch(replay, {
+      boardEvent, boardView, codeEvent, codeView, runEvent, positionMs: followSnapshotPositionMs,
+    });
+  }, [boardEvent, boardView, codeEvent, codeView, runEvent, followSnapshotPositionMs, replay, timeMachineOpen, renderLessonReplaySandbox]);
   const followSandboxSessionId = useMemo(() => {
     const occurrence = replay?.occurrence || {};
     const occurrenceIdentity = String(
@@ -1509,7 +1506,10 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     const actualDuration = Number.isFinite(audio?.duration) && audio.duration > 0
       ? audio.duration * 1000
       : recordedDuration;
-    const actualEnd = Number(entry.event.offsetMs) + actualDuration;
+    const actualEnd = Math.min(
+      Number(entry.event.offsetMs) + actualDuration,
+      clock.nextAudioStart ?? Infinity
+    );
     const nextPosition = Math.min(durationMs, Math.max(positionRef.current, actualEnd));
     positionRef.current = nextPosition;
     setPositionMs(nextPosition);
@@ -1539,6 +1539,8 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   useEffect(() => {
     audioRefs.current.forEach((audio) => {
       if (!audio) return;
+      // Loading the next src resets playbackRate to defaultPlaybackRate.
+      audio.defaultPlaybackRate = speed;
       audio.playbackRate = speed;
       audio.volume = audioVolume;
       audio.muted = audioVolume <= 0;
@@ -1582,6 +1584,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       const clock = audioClockRef.current;
       if (clock.slot !== activeAudioSlot || clock.event?.id !== audioEvent.id) return;
       const desiredTime = Math.max(0, (positionRef.current - Number(audioEvent.offsetMs)) / 1000);
+      // A preloaded segment already starts at zero. Seeking it again at every
+      // hand-off unnecessarily flushes the decoder and can interrupt speech.
+      if (Math.abs(audio.currentTime - desiredTime) < 0.02 && !audio.seeking) {
+        resumeAfterSeek();
+        return;
+      }
       waitingForSeek = true;
       audio.addEventListener('seeked', resumeAfterSeek, { once: true });
       try {
@@ -1832,10 +1840,10 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     if (state.current?.type !== 'audio') return state.current;
     for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index];
-      if ((Number(event?.offsetMs) || 0) <= positionMs && event?.type !== 'audio') return event;
+      if ((Number(event?.offsetMs) || 0) <= (state.current?.offsetMs || 0) && event?.type !== 'audio') return event;
     }
     return null;
-  }, [events, positionMs, state]);
+  }, [events, state]);
   const actionNarration = getReplayEventNarration(currentEvent);
   const currentSurface = getEventSurface(currentEvent);
   const currentContextDetail = (() => {
