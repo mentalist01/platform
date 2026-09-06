@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, Camera, CameraOff, CheckCircle2, ExternalLink, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, Save, SendHorizontal, Settings, Signal, Trash2, Users, Video, X } from 'lucide-react';
+import { AlertCircle, Camera, CameraOff, CheckCircle2, ExternalLink, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, Save, SendHorizontal, Settings, Signal, Trash2, Users, Video, Volume2, X } from 'lucide-react';
 import { api, withStoredAuthToken } from '../services/api';
 import LinkifiedText from './LinkifiedText';
 import StudentSearchSelect from './StudentSearchSelect';
 import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
 import { normalizeRtcParticipantIds, resolveCallRtcRoom } from '../utils/rtcRooms';
 import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
+import { useCallAlertSounds } from '../hooks/useCallAlertSounds';
 import { shouldSaveLessonReplayScreenFrame } from '../utils/lessonReplayScreenCapture';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 import './CallSection.css';
@@ -78,28 +79,8 @@ const MIC_LEVEL_METER_MAX_DB = -8;
 const MIC_SETTINGS_POPUP_WIDTH = 360;
 const MIC_SETTINGS_POPUP_OFFSET = 10;
 const MIC_SETTINGS_POPUP_MARGIN = 8;
-const MIC_SETTINGS_POPUP_ESTIMATED_HEIGHT = 280;
+const MIC_SETTINGS_POPUP_ESTIMATED_HEIGHT = 330;
 const RTC_MIC_SETTINGS_STORAGE_KEY_PREFIX = 'ege_rtc_mic_settings_v4';
-const RTC_ALERT_SOUND_SOURCES = Object.freeze({
-  connected: '/sounds/user_join.mp3',
-  disconnected: '/sounds/user_leave.mp3',
-  peerJoined: '/sounds/user_join.mp3',
-  peerLeft: '/sounds/user_leave.mp3',
-  micMuted: '/sounds/mute.mp3',
-  micUnmuted: '/sounds/unmute.mp3',
-  screenOn: '/sounds/demonstration_on.mp3',
-  screenOff: '/sounds/demonstration_off.mp3',
-});
-const RTC_ALERT_SOUND_VOLUME = 0.1;
-const RTC_ALERT_SOUND_VOLUME_OVERRIDES = Object.freeze({
-  disconnected: 0.075,
-  peerLeft: 0.075,
-});
-const getRtcAlertSoundVolume = (soundKey) => {
-  const override = RTC_ALERT_SOUND_VOLUME_OVERRIDES[String(soundKey || '')];
-  if (!Number.isFinite(override)) return RTC_ALERT_SOUND_VOLUME;
-  return Math.max(0, Math.min(1, override));
-};
 const CALL_BACKGROUND_PARTICLE_COUNT = 14;
 const CALL_CHAT_POLL_INTERVAL_MS = 4500;
 const INLINE_PANEL_BOTTOM_GAP_PX = 2;
@@ -1451,8 +1432,7 @@ const CallSection = ({
   const localMixedAudioScreenGainNodeRef = useRef(null);
   const localMixedAudioTrackRef = useRef(null);
   const localMixedAudioSignatureRef = useRef('');
-  const alertAudioTemplatesRef = useRef(new Map());
-  const alertAudioActiveRef = useRef(new Set());
+  const { primeAlertSounds, playAlertSound, testAlertSound, alertSoundError } = useCallAlertSounds();
   const lessonChatListRef = useRef(null);
   const lessonChatImageInputRef = useRef(null);
   const lessonChatPrevCountRef = useRef(0);
@@ -1857,63 +1837,6 @@ const CallSection = ({
     statusRef.current = nextStatus;
     setStatus(nextStatus);
   }, []);
-  const getAlertAudioTemplate = useCallback((soundKey) => {
-    const key = String(soundKey || '');
-    const source = RTC_ALERT_SOUND_SOURCES[key];
-    if (!source || typeof window === 'undefined') return null;
-    const volume = getRtcAlertSoundVolume(key);
-
-    const cachedTemplates = alertAudioTemplatesRef.current;
-    let template = cachedTemplates.get(key);
-    if (!template) {
-      template = new Audio(source);
-      template.preload = 'auto';
-      template.volume = volume;
-      cachedTemplates.set(key, template);
-    }
-    return template;
-  }, []);
-
-  const primeAlertSounds = useCallback(() => {
-    Object.keys(RTC_ALERT_SOUND_SOURCES).forEach((soundKey) => {
-      const template = getAlertAudioTemplate(soundKey);
-      try {
-        template?.load?.();
-      } catch {}
-    });
-  }, [getAlertAudioTemplate]);
-
-  const playAlertSound = useCallback((soundKey) => {
-    const template = getAlertAudioTemplate(soundKey);
-    if (!template) return;
-    const volume = getRtcAlertSoundVolume(soundKey);
-
-    const audio = template.cloneNode(true);
-    audio.preload = 'auto';
-    audio.volume = volume;
-    const activeAudios = alertAudioActiveRef.current;
-    const finalize = () => {
-      activeAudios.delete(audio);
-      audio.onended = null;
-      audio.onerror = null;
-    };
-
-    activeAudios.add(audio);
-    audio.onended = finalize;
-    audio.onerror = finalize;
-    try {
-      audio.currentTime = 0;
-      const playPromise = audio.play?.();
-      if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => {
-          finalize();
-        });
-      }
-    } catch {
-      finalize();
-    }
-  }, [getAlertAudioTemplate]);
-
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
     if (previousStatus !== status) {
@@ -4546,22 +4469,6 @@ const CallSection = ({
     clearWsReconnectTimer();
   }, [clearWsReconnectTimer]);
 
-  useEffect(() => () => {
-    alertAudioActiveRef.current.forEach((audio) => {
-      try {
-        audio.pause();
-      } catch {}
-    });
-    alertAudioActiveRef.current.clear();
-
-    alertAudioTemplatesRef.current.forEach((audio) => {
-      try {
-        audio.pause();
-      } catch {}
-    });
-    alertAudioTemplatesRef.current.clear();
-  }, []);
-
   const toggleMic = useCallback(async () => {
     if (micBusy) return;
     setMicBusy(true);
@@ -6207,6 +6114,16 @@ const CallSection = ({
             </div>
           )}
 
+          {alertSoundError && (
+            <div className={errorBoxClass} role="status">
+              <Volume2 size={16} className="mt-0.5 shrink-0" />
+              <p>{alertSoundError}</p>
+              <button type="button" onClick={testAlertSound} className="shrink-0 underline underline-offset-2">
+                Проверить звук
+              </button>
+            </div>
+          )}
+
           <div className={callLayoutClass}>
             <div className={callMainColumnClass}>
               {isConnected && remotePeers.map((peer) => (
@@ -6333,6 +6250,10 @@ const CallSection = ({
                     {prejoinCheck.error && (
                       <p className="call-prejoin-check-note" data-tone="problem" role="alert">{prejoinCheck.error}</p>
                     )}
+                    <button type="button" onClick={testAlertSound} className={`${prejoinSecondaryActionClass} mt-2 w-full justify-center`}>
+                      <Volume2 size={16} />
+                      <span>Проверить звук</span>
+                    </button>
                     </div>
 
                     <aside className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
@@ -6865,8 +6786,12 @@ const CallSection = ({
               onMouseDown={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
             >
-              <p className={popupTitleClass}>Настройки микрофона</p>
+              <p className={popupTitleClass}>Настройки звука</p>
               <div className="mt-3 flex flex-col gap-3">
+                <button type="button" onClick={testAlertSound} className={`${prejoinSecondaryActionClass} w-full justify-center`}>
+                  <Volume2 size={16} />
+                  <span>Проверить звук</span>
+                </button>
                 <div className={micSettingsSectionClass}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className={micSensitivityLabelClass}>Усиление микрофона</span>
