@@ -418,7 +418,7 @@ const useLessonReplayRecorder = ({
   finishSessionRef.current = finishSession;
 
   const retryLessonReplaySave = useCallback(async () => {
-    void journal.drain();
+    void journal.retry();
     capacityBlockedSessionRef.current = '';
     if (!sessionRef.current && queueRef.current.length > 0) {
       if (enabledRef.current) startSessionRef.current?.();

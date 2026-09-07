@@ -337,6 +337,7 @@ const lessonReplayWriteQueueByOccurrenceKey = new Map();
 const lessonReplayCacheByOccurrenceKey = new Map();
 const lessonReplayPersistTimerByOccurrenceKey = new Map();
 const lessonReplayPersistFailureByOccurrenceKey = new Map();
+const lessonReplayCapacityBlockedOccurrenceKeys = new Set();
 const lessonReplayAudioUploadTickets = new Map();
 const lessonReplayStorageSummaryCacheByOccurrenceKey = new Map();
 const lessonReplayStorageIndexByHash = new Map();
@@ -33471,6 +33472,16 @@ app.post('/api/lesson-replay/events', async (req, res) => {
   if (submittedEvents.length > LESSON_REPLAY_MAX_BATCH_EVENTS) {
     return res.status(400).json({ error: `За один раз можно сохранить не более ${LESSON_REPLAY_MAX_BATCH_EVENTS} событий` });
   }
+  // A replay that has reached its hard capacity must not be parsed and
+  // serialized on every client retry. Keep the session in a fast-fail state
+  // until it is closed; the browser journal still retains the unsaved events
+  // for a later backup/recovery attempt.
+  if (lessonReplayCapacityBlockedOccurrenceKeys.has(session.occurrenceKey)) {
+    return res.status(413).json({
+      error: 'Запись достигла предельного размера. Сохранённые данные урока не изменены.',
+      code: 'LESSON_REPLAY_CAPACITY',
+    });
+  }
   try {
     const result = await withLessonReplayWriteLock(session.occurrenceKey, async () => {
       if (!req.lessonReplayRecovery && (session.closing || activeLessonReplaySessions.get(sessionId) !== session)) {
@@ -33534,7 +33545,10 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     });
   } catch (error) {
     if (error?.statusCode === 404) return res.status(404).json({ error: error.message });
-    if (error?.statusCode === 413) return res.status(413).json({ error: error.message, code: error.code });
+    if (error?.statusCode === 413) {
+      lessonReplayCapacityBlockedOccurrenceKeys.add(session.occurrenceKey);
+      return res.status(413).json({ error: error.message, code: error.code });
+    }
     console.error('[lesson-replay] failed to append events:', error);
     return res.status(500).json({ error: 'Не удалось сохранить ход занятия' });
   }

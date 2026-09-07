@@ -54,6 +54,25 @@ test('offline data stays on disk across recovery attempts and sends when the ser
   assert.equal(h.writes[0].events[0].id,'kept');
 });
 
+test('capacity failure stops automatic journal retries until the user retries', async () => {
+  const h = harness(); const journal = h.make();
+  await journal.register(session, { live: false });
+  await journal.saveEvent(session, event('too-large'));
+  let attempts = 0;
+  const send = h.api.appendLessonReplayEvents;
+  h.api.appendLessonReplayEvents = async () => {
+    attempts += 1;
+    throw Object.assign(new Error('capacity'), { status: 413 });
+  };
+  await journal.drain();
+  await journal.drain();
+  assert.equal(attempts, 1);
+  assert.equal((await h.store.records('teacher:one:capture-one')).length, 1);
+  h.api.appendLessonReplayEvents = send;
+  await journal.retry();
+  assert.equal(h.writes[0].events[0].id, 'too-large');
+});
+
 test('response loss repeats the same IDs and leaves deduplication possible', async () => {
   const h=harness(); const old=h.make();
   await old.register(session); await old.saveEvent(session,event('same-id'));

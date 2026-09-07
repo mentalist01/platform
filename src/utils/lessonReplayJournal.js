@@ -29,6 +29,7 @@ export function createLessonReplayJournal({ owner, api, store = createLessonRepl
   let storageFailed = false;
   const descriptors = new Map();
   const active = new Set();
+  const blocked = new Map();
   const enabled = Boolean(owner);
   const keyFor = (session) => `${owner}:${session.pendingKey || session.sessionId}`;
   const enqueue = (operation) => {
@@ -103,6 +104,10 @@ export function createLessonReplayJournal({ owner, api, store = createLessonRepl
       let permanentError = '';
       for (let entry of await store.sessions(owner)) {
         if (!isCurrent()) return;
+        if (blocked.has(entry.key)) {
+          permanentError ||= blocked.get(entry.key);
+          continue;
+        }
         try {
           let records = await store.records(entry.key);
           if (!isCurrent()) return;
@@ -151,7 +156,10 @@ export function createLessonReplayJournal({ owner, api, store = createLessonRepl
           }
         } catch (error) {
           failed = true;
-          if ([400, 403, 404, 409, 413, 507].includes(error?.status)) permanentError = error.message;
+          if ([400, 403, 404, 409, 413, 507].includes(error?.status)) {
+            permanentError = error.message;
+            blocked.set(entry.key, permanentError);
+          }
         }
       }
       if (isCurrent()) onError(storageFailed ? REPLAY_LOCAL_STORAGE_ERROR : permanentError
@@ -179,5 +187,6 @@ export function createLessonReplayJournal({ owner, api, store = createLessonRepl
     needsPageProtection: () => pendingWrites > 0 || storageFailed,
     detach: (session) => register(session, { live: false, closed: true }),
     drain,
+    retry: () => { blocked.clear(); return drain(); },
   };
 }
