@@ -26,6 +26,9 @@ import leagueCelestial from './assets/leagues/celestial.png';
 import LoginPage from './components/LoginPage';
 import { LogoMark, PythonLogoIcon } from './components/Identity';
 import StudentTodayOverview from './components/StudentTodayOverview';
+import MonthlyMockExamStatus from './components/MonthlyMockExamStatus';
+import { LessonAlarmNotice } from './components/LessonAlarmControls';
+import { useLessonAlarm } from './hooks/useLessonAlarm';
 import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
 import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
 import MockChestOpeningOverlay from './components/MockChestOpeningOverlay';
@@ -18341,6 +18344,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [goalTestsDb, setGoalTestsDb] = useState(null);
   const [goalRefreshTick, setGoalRefreshTick] = useState(0);
   const [homeworkSyncTick, setHomeworkSyncTick] = useState(0);
+  const lessonAlarm = useLessonAlarm(user.role === 'teacher' ? user.id : '');
   const [quickHomeworkSession, setQuickHomeworkSession] = useState({
     status: 'idle',
     mode: null,
@@ -22963,6 +22967,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     updateUserLocation(user, { mockExamId: null });
   };
 
+  const handleAssignMonthlyMock = (studentId) => {
+    if (user.role !== 'teacher') return;
+    setActiveLearningLesson(null);
+    handleSelectStudent(studentId);
+    setPendingHomeworkPrefill({ id: `monthly-mock-${Date.now()}`, source: 'monthly-mock', studentId });
+    navigateToView('schedule');
+    setMenuOpen(false);
+  };
+
+  const handleOpenMonthlyMocks = (studentId) => {
+    if (user.role === 'student') { handleOpenMockGoal(); return; }
+    if (user.role !== 'teacher') return;
+    setActiveLearningLesson(null);
+    handleSelectStudent(studentId);
+    setPendingOpenTask(null);
+    updateUserLocation(user, { progressSection: 'mocks', mockExamId: null, openTask: null });
+    setProgressSectionJumpToken((value) => value + 1);
+    navigateToView('progress');
+  };
+
   const handleAssignMockReview = useCallback((request) => {
     if (user.role !== 'teacher') return;
     const targetStudentId = String(request?.studentId || '').trim();
@@ -25156,6 +25180,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           onRetry={retryLessonReplaySave}
           onDownload={downloadLessonReplayBackup}
         />
+        {user.role === 'teacher' && <LessonAlarmNotice alarm={lessonAlarm} />}
         <main
           ref={mainScrollRef}
           className={mainLayoutClass}
@@ -25421,6 +25446,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 </div>
               )}
             </div>
+          )}
+          {((user.role === 'teacher' && (['schedule', 'progress', 'teacher-calendar'].includes(view) || lessonQuickNavIds.includes(view)))
+            || (user.role === 'student' && ['schedule', 'progress'].includes(view))) && (
+            <MonthlyMockExamStatus
+              key={user.id}
+              role={user.role}
+              userId={user.id}
+              activeStudentId={activeLearningLesson ? null : activeStudentId}
+              students={currentStudentsWithNicknames}
+              refreshKey={`${goalRefreshTick}:${homeworkSyncTick}`}
+              onAssign={handleAssignMonthlyMock}
+              onOpenMocks={handleOpenMonthlyMocks}
+            />
           )}
           {user.role === 'teacher' && activeLearningLesson && lessonQuickNavIds.includes(view) && (
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-emerald-900 shadow-sm">
@@ -25849,6 +25887,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}
           {view === 'teacher-calendar' && user.role === 'teacher' && (
             <TeacherCalendarSection
+              lessonAlarm={lessonAlarm}
               teacherId={user.id}
               students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}

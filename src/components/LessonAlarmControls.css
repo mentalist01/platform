@@ -1,0 +1,11 @@
+.lesson-alarm-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 14px; color: rgb(var(--ink)); background: rgb(var(--surface)); border-bottom: 1px solid rgb(var(--ink) / .12); font-size: 12px; }
+.lesson-alarm-notice[data-ringing="true"] { background: #fef3c7; color: #92400e; }
+.lesson-alarm-notice > span { flex: 1; min-width: 180px; }
+.lesson-alarm-notice button, .lesson-alarm-settings button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 5px 10px; border-radius: 9px; border: 1px solid rgb(var(--ink) / .18); font-size: 12px; background: rgb(var(--surface)); color: rgb(var(--ink)); }
+.lesson-alarm-notice button:focus-visible, .lesson-alarm-settings button:focus-visible { outline: 2px solid #8b5cf6; outline-offset: 2px; }
+.lesson-alarm-settings { padding-top: 10px; color: rgb(var(--ink)); font-size: 12px; }
+.lesson-alarm-settings__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lesson-alarm-settings p { margin: 7px 0; color: rgb(var(--ink-soft)); }
+.lesson-alarm-settings summary { cursor: pointer; padding: 6px 0; }
+.lesson-alarm-settings label { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+.lesson-alarm-settings input { width: 230px; max-width: 100%; border: 1px solid rgb(var(--ink) / .14); border-radius: 8px; padding: 5px 8px; background: rgb(var(--surface)); color: inherit; }

@@ -1133,6 +1133,12 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getMonthlyMockStatus: async (month = '') => {
+    const query = month ? `?${new URLSearchParams({ month })}` : '';
+    const res = await apiFetch(`/api/monthly-mock-status${query}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
   getStudents: async (teacherId, options = {}) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', teacherId);

@@ -2,6 +2,7 @@
 import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, Users, Video, WifiOff, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';
+import { prepareMonthlyMockHomeworkGoals } from '../utils/monthlyMockExam';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -4138,6 +4139,7 @@ const ScheduleSection = ({
 
   const openNewHomeworkComposer = async (prefill = null) => {
     if (!effectiveStudentId || role !== 'teacher') return;
+    const isMonthlyMockPrefill = prefill?.source === 'monthly-mock';
     const normalizedPrefill = prefill && typeof prefill === 'object' && prefill.source === 'mock-analysis'
       ? {
           mockExamId: normalizeMockExamId(prefill.mockExamId),
@@ -4436,6 +4438,9 @@ const ScheduleSection = ({
         else carryoverGoals.push(mergedGoal);
       });
     }
+    if (isMonthlyMockPrefill) {
+      carryoverGoals = prepareMonthlyMockHomeworkGoals(carryoverGoals, createDefaultGoal(GOAL_TYPE_MOCK));
+    }
     setForm(restoredDraftForm
       ? {
           ...restoredDraftForm,
@@ -4451,7 +4456,7 @@ const ScheduleSection = ({
           )),
           dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
           daysToComplete: sourceData?.daysToComplete || 7,
-          goals: [...carryoverGoals, createDefaultGoal()],
+          goals: isMonthlyMockPrefill ? carryoverGoals : [...carryoverGoals, createDefaultGoal()],
           dayPlanEnabled: true,
           dayPlanSessionCount: 3,
           dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],

@@ -31,6 +31,13 @@ import {
 } from '../src/data/pythonInfiniteTrainingTasks.js';
 import { getLevelFromXp } from '../src/utils/leveling.js';
 import {
+  buildMonthlyMockStatus,
+  collectMonthlyMockCompletions,
+  getMonthlyMockMonth,
+  getMonthlyMockPeriod,
+  normalizeMonthlyMockCompletions,
+} from '../src/utils/monthlyMockExam.js';
+import {
   buildHomeworkStatistics,
   isHomeworkReadyForOverallStatistics,
   summarizeHomeworkStatistics,
@@ -14219,6 +14226,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
       mockAttemptResults: normalizeMockExamFollowupHistory(raw.mockAttemptResults),
+      monthlyMockCompletions: normalizeMonthlyMockCompletions(raw.monthlyMockCompletions),
       mockTestingQueue: normalizeMockExamFollowupQueue(raw.mockTestingQueue),
       randomMockSolvedByTask: normalizeRandomMockSolvedByTask(raw.randomMockSolvedByTask),
       xpTotal,
@@ -14307,6 +14315,7 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
     mockAttempts: data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {},
     mockAttemptResults: normalizeMockExamFollowupHistory(data.mockAttemptResults),
+    monthlyMockCompletions: normalizeMonthlyMockCompletions(data.monthlyMockCompletions),
     mockTestingQueue: normalizeMockExamFollowupQueue(data.mockTestingQueue),
     randomMockSolvedByTask: normalizeRandomMockSolvedByTask(data.randomMockSolvedByTask),
     xpTotal: normalizeXpTotal(data.xpTotal),
@@ -26810,6 +26819,39 @@ app.patch('/api/push/teacher-calendar-reminder', (req, res) => {
   });
 });
 
+app.get('/api/monthly-mock-status', (req, res) => {
+  if (!isTeacherRole(req.auth) && !isStudentRole(req.auth)) return forbid(res);
+  const now = Date.now();
+  const currentMonth = getMonthlyMockMonth(now);
+  const requestedMonth = req.query.month === undefined ? currentMonth : req.query.month;
+  const period = typeof requestedMonth === 'string' ? getMonthlyMockPeriod(requestedMonth) : null;
+  if (!period || period.month > currentMonth) {
+    return res.status(400).json({ error: 'Выберите текущий или прошедший месяц в формате ГГГГ-ММ.' });
+  }
+  // Scope comes exclusively from the session, never from query parameters.
+  const students = readStudentsDb().filter((student) => (
+    isStudentRole(req.auth)
+      ? student.id === req.auth.id && isActiveStudent(student)
+      : student.teacherId === req.auth.id && isCurrentStudent(student)
+  ));
+  const progressDb = readProgressDb();
+  const exams = readMockExamsDb();
+  const rows = students.map((student) => ({
+    studentId: student.id,
+    name: student.name,
+    ...buildMonthlyMockStatus(progressDb[student.id] || {}, exams, period, now),
+  }));
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({
+    period, currentMonth, generatedAt: new Date(now).toISOString(), rows,
+    summary: {
+      total: rows.length,
+      completed: rows.filter((row) => row.status === 'completed').length,
+      pending: rows.filter((row) => row.status !== 'completed').length,
+    },
+  });
+});
+
 app.get('/api/students', async (req, res) => {
   const { teacherId, includeDeleted, deletedOnly } = req.query;
   if (isStudentRole(req.auth)) return forbid(res);
@@ -29180,6 +29222,7 @@ app.patch('/api/mock-exams/attempt/continue-timer', (req, res) => {
   const updated = setStudentData(student.id, {
     ...data,
     mockAttempts: attempts,
+    monthlyMockCompletions: collectMonthlyMockCompletions(data, list),
   });
   const stored = updated.mockAttempts?.[requestedExamId] || normalizedAttempt;
   return res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, stored));
@@ -29483,6 +29526,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     const updated = setStudentData(student.id, {
       ...data,
       mockAttempts: attempts,
+      monthlyMockCompletions: collectMonthlyMockCompletions(data, list),
     });
     return res.json({
       ...hideUnfinishedMockTimerResults(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
@@ -29688,6 +29732,10 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     ...data,
     mockAttempts: attempts,
     mockAttemptResults,
+    monthlyMockCompletions: normalizeMonthlyMockCompletions([
+      ...collectMonthlyMockCompletions(data, list),
+      ...collectMonthlyMockCompletions({ mockAttempts: attempts, mockAttemptResults }, list),
+    ]),
     mockTestingQueue,
     xpTotal,
     coinsTotal,
