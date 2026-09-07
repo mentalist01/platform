@@ -601,13 +601,14 @@ export const normalizeLessonReplayEvent = (value, context = {}) => {
   return normalized;
 };
 
-const isRequiredReplayEvent = (event) => event?.type === 'board' || event?.type === 'audio';
+const isRequiredReplayEvent = (event) => EVENT_TYPES.has(event?.type)
+  && event.type !== 'navigation' && event.type !== 'viewport';
 
 const trimEventsToCountLimit = (events, maxEvents = LESSON_REPLAY_MAX_EVENTS) => {
   const source = Array.isArray(events) ? events : [];
   if (source.length <= maxEvents) return source;
   // The count is a soft telemetry budget; the byte limit still bounds the
-  // file. Board deltas and audio segments cannot be sampled independently.
+  // file. Lesson content and media cannot be sampled independently.
   const keepIds = new Set(source.filter(isRequiredReplayEvent).map((event) => event.id));
   for (const event of getCompactionPriorityEvents(source)) {
     if (keepIds.size >= maxEvents) break;
@@ -705,14 +706,14 @@ const trimReplayToByteLimit = (replay, maxBytes, currentBytes = null) => {
   const baseBytes = Buffer.byteLength(JSON.stringify({ ...replay, events: [] }), 'utf8');
   let selectedBytes = baseBytes;
   const selectedIds = new Set();
-  // Reserve the entire board/audio history first, including every dependent
+  // Reserve the entire content/media history first, including every dependent
   // delta. If it cannot fit, fail the write without replacing the saved file.
   events.filter(isRequiredReplayEvent).forEach((event) => {
     selectedBytes += Buffer.byteLength(JSON.stringify(event), 'utf8') + (selectedIds.size > 0 ? 1 : 0);
     selectedIds.add(event.id);
   });
   if (selectedBytes > normalizedMaxBytes) {
-    const error = new Error('Запись достигла предельного размера. Сохранённые данные доски не изменены.');
+    const error = new Error('Запись достигла предельного размера. Сохранённые данные урока не изменены.');
     error.code = 'LESSON_REPLAY_CAPACITY';
     error.statusCode = 413;
     throw error;
@@ -759,7 +760,8 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
   }));
   let added = 0;
 
-  const incomingEvents = (Array.isArray(rawEvents) ? rawEvents : [])
+  const submittedEvents = Array.isArray(rawEvents) ? rawEvents : [];
+  const incomingEvents = submittedEvents
     .slice(0, LESSON_REPLAY_MAX_BATCH_EVENTS)
     .map((entry) => normalizeLessonReplayEvent(entry, {
       ...context,
@@ -769,6 +771,12 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
       endMs: replay.occurrence.endMs,
     }))
     .filter(Boolean);
+  if (context.strictIncoming && incomingEvents.length !== submittedEvents.length) {
+    const error = new Error('Часть событий записи не прошла проверку. Локальная копия сохранена.');
+    error.code = 'LESSON_REPLAY_INVALID_EVENTS';
+    error.statusCode = 400;
+    throw error;
+  }
   const earliestIncomingAtMs = incomingEvents.reduce((earliest, event) => {
     const occurredAtMs = Date.parse(event.occurredAt);
     return Number.isFinite(occurredAtMs) ? Math.min(earliest, occurredAtMs) : earliest;

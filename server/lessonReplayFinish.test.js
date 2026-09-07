@@ -14,6 +14,7 @@ const createHarness = (session, { replay = { events: [] }, writeError = null } =
   const context = vm.createContext({
     app: { post: (_path, fn) => { handler = fn; } },
     activeLessonReplaySessions: sessions,
+    resolveLessonReplayWriteSession: (req) => sessions.get(req.body.sessionId),
     lessonReplayPersistTimerByOccurrenceKey: new Map(),
     lessonReplayCacheByOccurrenceKey: new Map(),
     lessonReplayPersistFailureByOccurrenceKey: new Map(),

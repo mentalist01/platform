@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
+import { setImmediate } from 'node:timers';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
+import { createLessonReplayJournal, REPLAY_UPLOAD_PENDING } from '../utils/lessonReplayJournal.js';
 import {
   createLessonReplayBoardRecordingState,
   evaluateLessonReplayBoardPayload,
@@ -13,7 +16,7 @@ const source = (await readFile(new URL('./useLessonReplayRecorder.js', import.me
   .replace(/^import[\s\S]*?from\s+['"][^'"]+['"];\s*/gm, '')
   .replace('export default useLessonReplayRecorder;', 'globalThis.useRecorder = useLessonReplayRecorder;');
 
-const createHarness = async (configureApi = () => {}) => {
+const createHarness = async (configureApi = () => {}, { initialProps = {}, store } = {}) => {
   let now = 1_700_000_000_000;
   let timerId = 0;
   const timers = new Map();
@@ -47,7 +50,16 @@ const createHarness = async (configureApi = () => {}) => {
     static now() { return now; }
   }
   const context = vm.createContext({
-    api, window, Date: ClockDate, Blob, AbortController,
+    api, window, Date: ClockDate, Blob, AbortController, structuredClone, REPLAY_UPLOAD_PENDING,
+    createLessonReplayJournal: (options) => createLessonReplayJournal({ ...options, ...(store ? { store } : {}) }),
+    FileReader: class {
+      readAsDataURL(blob) {
+        blob.arrayBuffer().then((buffer) => {
+          this.result = `data:${blob.type};base64,${Buffer.from(buffer).toString('base64')}`;
+          this.onload();
+        });
+      }
+    },
     URL: { createObjectURL: (blob) => { downloads.push(blob); return 'blob:backup'; }, revokeObjectURL() {} },
     document: { createElement: () => ({ click() {} }) },
     useRef: (value) => (hookSlots[hookIndex++] ||= { current: value }),
@@ -73,7 +85,7 @@ const createHarness = async (configureApi = () => {}) => {
     createLessonReplayBoardRecordingState, evaluateLessonReplayBoardPayload,
   });
   vm.runInContext(source, context);
-  let props = { active: true, studentId: 'student' };
+  let props = { active: true, studentId: 'student', ...initialProps };
   let hook;
   const render = (next = {}) => {
     props = { ...props, ...next };
@@ -247,7 +259,7 @@ test('backup includes both an in-flight batch and queued edits without credentia
   h.hook.recordLessonReplayEvent('board', { mode: 'snapshot', items: [{ id: 'first' }] });
   await h.advance(8000);
   h.hook.recordLessonReplayEvent('board', { mode: 'delta', actorVerified: true, upserts: [{ index: 1, item: { id: 'second' } }] });
-  h.hook.downloadLessonReplayBackup();
+  await h.hook.downloadLessonReplayBackup();
   const json = await h.downloads[0].text();
   const backup = JSON.parse(json);
   assert.equal(backup.sessions.length, 1);
@@ -272,7 +284,7 @@ test('leaving after session expiration preserves the original lesson backup', as
   await h.advance(8000);
   h.render({ active: false });
   await h.settle();
-  h.hook.downloadLessonReplayBackup();
+  await h.hook.downloadLessonReplayBackup();
   const backup = JSON.parse(await h.downloads[0].text());
   assert.equal(backup.sessions[0].occurrenceKey, 'original-lesson');
   assert.equal(backup.sessions[0].events[0].payload.items[0].id, 'offline');
@@ -288,7 +300,7 @@ test('switching students keeps detached edits out of the new lesson', async () =
   h.render({ studentId: 'next-student' });
   await h.settle();
   h.hook.recordLessonReplayEvent('board', { mode: 'snapshot', items: [{ id: 'new' }] });
-  h.hook.downloadLessonReplayBackup();
+  await h.hook.downloadLessonReplayBackup();
   const backup = JSON.parse(await h.downloads[0].text());
   assert.equal(backup.sessions.length, 2);
   for (const session of backup.sessions) {
@@ -303,7 +315,7 @@ test('edits made before a session starts survive finish failure and retry', asyn
   });
   h.hook.recordLessonReplayEvent('board', { mode: 'snapshot', items: [{ id: 'before-start' }] });
   await assert.rejects(h.hook.finishLessonReplayNow());
-  h.hook.downloadLessonReplayBackup();
+  await h.hook.downloadLessonReplayBackup();
   assert.equal(JSON.parse(await h.downloads[0].text()).sessions[0].events.length, 1);
   h.api.startLessonReplaySession = async () => ({ sessionId: 'recovered' });
   // Recovering a session can itself encounter a final-save error. It must
@@ -316,6 +328,53 @@ test('edits made before a session starts survive finish failure and retry', asyn
   assert.equal(h.finishes.length, 1);
   assert.equal(h.finishes[0].options.events[0].payload.items[0].id, 'before-start');
   assert.equal(h.messages.at(-1), '');
-  h.hook.downloadLessonReplayBackup();
+  await h.hook.downloadLessonReplayBackup();
   assert.equal(JSON.parse(await h.downloads[1].text()).sessions.flatMap((session) => session.events).length, 0);
+});
+
+test('later board mutations cannot change an already recorded snapshot', async () => {
+  const h = await createHarness();
+  const payload = { mode: 'snapshot', items: [{ id: 'stroke', text: 'original' }] };
+  h.hook.recordLessonReplayEvent('board', payload);
+  payload.items[0].text = 'later edit';
+  await h.advance(8000);
+  assert.equal(h.writes[0].events[0].payload.items[0].text, 'original');
+});
+
+test('the production recorder journals offline media and recovers it on the dashboard after remount', async () => {
+  const sessions = new Map(), records = new Map();
+  const store = {
+    save: async (session, record) => { sessions.set(session.key, structuredClone(session)); if (record) records.set(record.key, structuredClone(record)); },
+    sessions: async (owner) => [...sessions.values()].filter((session) => session.owner === owner),
+    records: async (key) => [...records.values()].filter((record) => record.sessionKey === key),
+    acknowledge: async (keys) => keys.forEach((key) => records.delete(key)),
+    acknowledgeEvents: async (key, ids) => { for (const [id, record] of records) if (record.sessionKey === key && ids.includes(record.id)) records.delete(id); },
+    removeEmptySession: async (key) => { if (![...records.values()].some((record) => record.sessionKey === key)) sessions.delete(key); },
+  };
+  const options = { initialProps: { ownerId: 'teacher:owner' }, store };
+  const h = await createHarness((api) => {
+    api.appendLessonReplayEvents = async () => { throw Object.assign(new Error('offline'), { status: 503 }); };
+    api.prepareLessonReplayAudioSegment = async () => { throw new Error('offline'); };
+  }, options);
+  h.hook.recordLessonReplayEvent('board', { mode: 'snapshot', items: [{ id: 'surviving-stroke' }] });
+  const queued = await h.hook.uploadLessonReplayAudioSegment(new Blob(['voice'], { type: 'audio/webm' }), { occurredAt: new Date(1_700_000_000_100).toISOString(), durationMs: 1000 });
+  assert.equal(queued.queued, true);
+  await h.advance(8000);
+  assert.equal(records.size, 2);
+  await h.hook.downloadLessonReplayBackup();
+  const backup = JSON.parse(await h.downloads[0].text());
+  assert.equal(backup.sessions[0].events[0].payload.items[0].id, 'surviving-stroke');
+  assert.equal(backup.sessions[0].media[0].dataUrl, 'data:audio/webm;base64,dm9pY2U=');
+  let voice;
+  const next = await createHarness((api) => {
+    api.prepareLessonReplayAudioSegment = async () => ({ storage: 'local', audioId: 'restored' });
+    api.uploadPreparedLessonReplayAudioSegment = async (_id, blob) => { voice = await blob.text(); };
+    api.completeLessonReplayAudioSegment = async () => ({});
+  }, { ...options, initialProps: { ownerId: 'teacher:owner', active: false, studentId: '' } });
+  // Blob decoding is asynchronous I/O, unlike the deterministic hook timers.
+  await new Promise((resolve) => setImmediate(resolve));
+  await next.settle();
+  assert.equal(next.writes[0].events[0].payload.items[0].id, 'surviving-stroke');
+  assert.equal(voice, 'voice');
+  assert.equal(records.size, 0);
 });

@@ -2164,8 +2164,11 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: options?.signal,
+      requestTimeoutMs: 30_000,
       body: JSON.stringify({
         sessionId: String(sessionId || '').trim(),
+        recovery: Boolean(options.recovery),
+        clientUploadId: String(metadata.clientUploadId || ''),
         mimeType: String(metadata?.mimeType || '').trim(),
         sizeBytes: Math.max(0, Math.round(Number(metadata?.sizeBytes) || 0)),
         durationMs: Math.max(0, Math.round(Number(metadata?.durationMs) || 0)),
@@ -2188,6 +2191,7 @@ export const api = {
             'Content-Type': String(metadata?.mimeType || blob?.type || 'audio/webm;codecs=opus'),
           },
           signal: options?.signal,
+          requestTimeoutMs: 30_000,
           body: blob,
       }
     );
@@ -2203,6 +2207,7 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: options?.signal,
+      requestTimeoutMs: 30_000,
       body: JSON.stringify({ audioId: String(audioId || '').trim() }),
     });
     if (!res.ok) {
@@ -2217,6 +2222,8 @@ export const api = {
     const extension = mimeType === 'image/jpeg' ? 'jpg' : 'webp';
     const formData = new FormData();
     formData.append('sessionId', String(sessionId || '').trim());
+    formData.append('recovery', metadata.recovery ? 'true' : 'false');
+    formData.append('clientUploadId', String(metadata.clientUploadId || ''));
     formData.append('occurredAt', String(metadata?.occurredAt || new Date().toISOString()));
     formData.append('width', String(Math.max(1, Math.round(Number(metadata?.width) || 1280))));
     formData.append('height', String(Math.max(1, Math.round(Number(metadata?.height) || 720))));
@@ -2258,9 +2265,12 @@ export const api = {
     const res = await apiFetch('/api/lesson-replay/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ studentId, learningLessonId, via, occurrenceKey }),
+      body: JSON.stringify({ studentId, learningLessonId, via, occurrenceKey,
+        clientSessionId: String(options.clientSessionId || ''), recovery: Boolean(options.recovery),
+        createdAt: Number(options.createdAt) || 0, clientNowMs: Date.now() }),
+      requestTimeoutMs: 30_000,
     });
-    if (!res.ok) throw new Error(await parseApiError(res));
+    if (!res.ok) throw Object.assign(new Error(await parseApiError(res)), { status: res.status });
     return parseJsonResponse(res);
   },
   switchLessonReplaySession: async (sessionId, via) => {
@@ -2283,7 +2293,8 @@ export const api = {
     const res = await apiFetch('/api/lesson-replay/events', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, events }),
+      body: JSON.stringify({ sessionId, events, recovery: Boolean(options.recovery), durable: Boolean(options.durable) }),
+      requestTimeoutMs: 30_000,
       keepalive: Boolean(options.keepalive),
     });
     if (!res.ok) {
@@ -2297,7 +2308,9 @@ export const api = {
     const res = await apiFetch('/api/lesson-replay/finish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, events: Array.isArray(options.events) ? options.events : [] }),
+      body: JSON.stringify({ sessionId, events: Array.isArray(options.events) ? options.events : [],
+        recovery: Boolean(options.recovery), endedAt: options.endedAt || new Date().toISOString() }),
+      requestTimeoutMs: 30_000,
       keepalive: Boolean(options.keepalive),
     });
     if (!res.ok) {

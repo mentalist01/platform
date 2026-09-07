@@ -760,16 +760,15 @@ test('rejects events far outside the lesson window', () => {
   assert.equal(tooLate, null);
 });
 
-test('strictly bounds a replay even when one snapshot is larger than the requested limit', () => {
+test('rejects an oversized code snapshot without silently acknowledging its removal', () => {
   const replay = createLessonReplay(occurrence, START_MS);
-  const result = appendLessonReplayEvents(replay, [{
+  assert.throws(() => appendLessonReplayEvents(replay, [{
     id: 'large-code',
     type: 'code',
     occurredAt: new Date(START_MS + 1000).toISOString(),
     payload: { code: 'x'.repeat(80_000) },
-  }], { ...eventContext, maxBytes: 1000 });
-
-  assert.ok(Buffer.byteLength(JSON.stringify(result.replay), 'utf8') <= 1000);
+  }], { ...eventContext, maxBytes: 1000 }), { code: 'LESSON_REPLAY_CAPACITY' });
+  assert.equal(replay.events.length, 0);
 });
 
 test('byte compaction rejects a write instead of deleting board history before a final clear', () => {

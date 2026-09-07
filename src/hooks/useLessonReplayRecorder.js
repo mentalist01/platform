@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '../services/api';
+import { createLessonReplayJournal, REPLAY_UPLOAD_PENDING } from '../utils/lessonReplayJournal';
 import {
   createLessonReplayBoardRecordingState,
   evaluateLessonReplayBoardPayload,
@@ -137,6 +138,7 @@ const useLessonReplayRecorder = ({
   mode = 'platform',
   occurrenceKey = '',
   learningLessonId = '',
+  ownerId = '',
 } = {}) => {
   const normalizedMode = normalizeRecorderMode(mode);
   const normalizedOccurrenceKey = String(occurrenceKey || '').trim();
@@ -146,6 +148,17 @@ const useLessonReplayRecorder = ({
     : `student:${String(studentId || '').trim()}`;
   const hasRecorderTarget = Boolean(normalizedLearningLessonId || studentId);
   const [lessonReplayError, setLessonReplayError] = useState('');
+  const [journalError, setJournalError] = useState('');
+  const ownerRef = useRef(ownerId);
+  const mountedRef = useRef(true);
+  ownerRef.current = ownerId;
+  const journalRef = useRef(null);
+  if (!journalRef.current || journalRef.current.owner !== ownerId) {
+    journalRef.current = { owner: ownerId, value: createLessonReplayJournal({
+      owner: ownerId, api, onError: setJournalError, isCurrent: () => mountedRef.current && ownerRef.current === ownerId,
+    }) };
+  }
+  const journal = journalRef.current.value;
   const sessionRef = useRef(null);
   const queueSessionRef = useRef(null);
   const failedFinishesRef = useRef(new Map());
@@ -194,7 +207,9 @@ const useLessonReplayRecorder = ({
     flushingRef.current = true;
     const operation = (async () => {
       try {
-        const result = await api.appendLessonReplayEvents(session.sessionId, events);
+        await journal.settle();
+        const result = await api.appendLessonReplayEvents(session.sessionId, events, { recovery: true, durable: true });
+        void journal.acknowledge(session, queuedEvents.map((event) => event.id)).catch(() => {});
         if (sessionRef.current?.sessionId === session.sessionId && queueRef.current.length === 0 && failedFinishesRef.current.size === 0) {
           setLessonReplayError('');
         }
@@ -213,7 +228,7 @@ const useLessonReplayRecorder = ({
           if (error?.status === 413) capacityBlockedSessionRef.current = session.sessionId;
           setLessonReplayError(error?.status === 413
             ? (error.message || 'Не удалось сохранить запись: превышен допустимый размер.')
-            : 'Запись урока ожидает сохранения. Не закрывайте страницу до восстановления связи.');
+            : ownerId ? REPLAY_UPLOAD_PENDING : 'Запись урока ожидает сохранения. Не закрывайте страницу до восстановления связи.');
         }
         const message = String(error?.message || '');
         const sessionUnavailable = (
@@ -257,7 +272,7 @@ const useLessonReplayRecorder = ({
       if (flushPromiseRef.current === operation) flushPromiseRef.current = null;
     }
     return null;
-  }, []);
+  }, [journal, ownerId]);
 
   const scheduleFlush = useCallback((delay = FLUSH_INTERVAL_MS) => {
     if (typeof window === 'undefined') return;
@@ -324,6 +339,8 @@ const useLessonReplayRecorder = ({
 
   const finishSession = useCallback(async (session, pendingEvents = null, options = {}) => {
     if (!session) return { ok: true, alreadyFinished: true };
+    session = { ...session, endedAt: session.endedAt || new Date().toISOString() };
+    void journal.detach(session).catch(() => {});
     await drainAudioUploads(session.sessionId);
     const pending = Array.isArray(pendingEvents) ? pendingEvents : queueRef.current.splice(0);
     const failureKey = session.pendingKey || session.sessionId;
@@ -335,7 +352,7 @@ const useLessonReplayRecorder = ({
       ].map((event) => [event.id, event]));
       const entry = { session, events: Array.from(eventsById.values()), options };
       failedFinishesRef.current.set(failureKey, entry);
-      setLessonReplayError('Последние изменения урока ещё не сохранены. Повторите сохранение или скачайте резервную копию.');
+      setLessonReplayError(ownerId ? REPLAY_UPLOAD_PENDING : 'Последние изменения урока ещё не сохранены. Повторите сохранение или скачайте резервную копию.');
       return { ok: false, error, unsavedEvents: entry.events.length };
     };
     if (!session.sessionId) {
@@ -346,14 +363,18 @@ const useLessonReplayRecorder = ({
           via: session.via,
           occurrenceKey: session.occurrenceKey,
           learningLessonId: session.learningLessonId,
+          clientSessionId: session.pendingKey,
+          recovery: true,
+          createdAt: session.createdAt,
         });
         const serverNowMs = Number(started?.serverNowMs) || Date.parse(started?.serverNow || '');
         session = {
           ...session,
           ...started,
-          clockOffsetMs: Number.isFinite(serverNowMs)
+          clockOffsetMs: started.recovered ? Number(started.clockOffsetMs) || 0 : Number.isFinite(serverNowMs)
             ? Math.round(serverNowMs - (requestStartedAtMs + Date.now()) / 2) : 0,
         };
+        void journal.register(session, { live: false, closed: true }).catch(() => {});
       } catch (error) {
         return rememberFailure(error, 0);
       }
@@ -366,8 +387,9 @@ const useLessonReplayRecorder = ({
           session
         );
         await runEventWriteWithRetry(() => (
-          api.appendLessonReplayEvents(session.sessionId, batch, options)
+          api.appendLessonReplayEvents(session.sessionId, batch, { ...options, recovery: true, durable: true })
         ));
+        void journal.acknowledge(session, batch.map((event) => event.id)).catch(() => {});
       } catch (error) {
         // Never move events from a finished lesson into the next student's queue.
         return rememberFailure(error, index);
@@ -378,8 +400,11 @@ const useLessonReplayRecorder = ({
         api.finishLessonReplaySession(session.sessionId, {
           ...options,
           events: applySessionClockToEvents(pending.slice(finalBatchStart), session),
+          recovery: true,
+          endedAt: new Date(Date.parse(session.endedAt) + (Number(session.clockOffsetMs) || 0)).toISOString(),
         })
       ));
+      void journal.acknowledge(session, pending.slice(finalBatchStart).map((event) => event.id)).catch(() => {});
       if (failedFinishesRef.current.get(failureKey) === previousFailure) {
         failedFinishesRef.current.delete(failureKey);
       }
@@ -388,11 +413,12 @@ const useLessonReplayRecorder = ({
     } catch (error) {
       return rememberFailure(error, finalBatchStart);
     }
-  }, [drainAudioUploads]);
+  }, [drainAudioUploads, journal, ownerId]);
 
   finishSessionRef.current = finishSession;
 
   const retryLessonReplaySave = useCallback(async () => {
+    void journal.drain();
     capacityBlockedSessionRef.current = '';
     if (!sessionRef.current && queueRef.current.length > 0) {
       if (enabledRef.current) startSessionRef.current?.();
@@ -404,29 +430,64 @@ const useLessonReplayRecorder = ({
     for (const entry of Array.from(failedFinishesRef.current.values())) {
       await finishSession(entry.session, entry.events, { ...entry.options, keepalive: false });
     }
-  }, [finishSession, flush]);
+  }, [finishSession, flush, journal]);
 
-  const downloadLessonReplayBackup = useCallback(() => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!ownerId) return undefined;
+    let cancelled = false;
+    let timer;
+    const recover = async () => {
+      await journal.drain();
+      if (!cancelled) timer = window.setTimeout(recover, 15_000);
+    };
+    void recover();
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [journal, ownerId]);
+
+  const downloadLessonReplayBackup = useCallback(async () => {
     const sessions = new Map();
     const add = (session, events) => {
       if (!session) return;
       const key = session.sessionId || session.pendingKey || session.targetKey;
-      if (!sessions.has(key)) sessions.set(key, { session, events: new Map() });
+      if (!sessions.has(key)) sessions.set(key, { session, events: new Map(), media: [] });
       const entry = sessions.get(key);
       for (const event of events || []) entry.events.set(event.id, event);
+      return entry;
     };
     add(inFlightEventsRef.current?.session, inFlightEventsRef.current?.events);
     add(sessionRef.current || queueSessionRef.current, queueRef.current);
     failedFinishesRef.current.forEach((entry) => add(entry.session, entry.events));
+    // Include previous-page data as well as the current in-memory batch.
+    const stored = await journal.snapshot().catch(() => []);
+    for (const { session, records } of stored) {
+      const entry = add(session, records.filter((record) => record.kind === 'event').map((record) => record.event));
+      for (const record of records.filter((record) => record.blob)) {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(record.blob);
+        });
+        entry.media.push({ id: record.id, kind: record.kind, ...record.metadata,
+          occurredAt: getAdjustedOccurredAt(record.metadata.occurredAt, session.clockOffsetMs), dataUrl });
+      }
+    }
     const backup = {
-      version: 1,
+      version: 2,
       createdAt: new Date().toISOString(),
-      sessions: Array.from(sessions.values(), ({ session, events }) => ({
+      sessions: Array.from(sessions.values(), ({ session, events, media }) => ({
         sessionId: session.sessionId,
+        clientSessionId: session.pendingKey,
         studentId: session.studentId,
         learningLessonId: session.learningLessonId,
         occurrenceKey: session.occurrenceKey,
         events: applySessionClockToEvents(Array.from(events.values()), session),
+        media,
       })),
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(backup)], { type: 'application/json' }));
@@ -435,7 +496,7 @@ const useLessonReplayRecorder = ({
     link.download = `lesson-replay-backup-${Date.now()}.json`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  }, []);
+  }, [journal]);
 
   useEffect(() => {
     const handleOnline = () => { void retryLessonReplaySave(); };
@@ -459,18 +520,21 @@ const useLessonReplayRecorder = ({
     }
     lastEventRef.current = { signature, at: now };
     if (boardEvaluation) boardRecordingStateRef.current = boardEvaluation.state;
-    queueRef.current.push({
+    const event = {
       id: createEventId(),
       type,
       occurredAt: new Date(now).toISOString(),
-      payload,
-    });
+      payload: structuredClone(payload),
+    };
+    queueRef.current.push(event);
+    const recordingSession = sessionRef.current || queueSessionRef.current;
+    if (recordingSession) void journal.saveEvent(recordingSession, event).catch(() => {});
     if (queueRef.current.length > MAX_QUEUED_EVENTS) {
       queueRef.current = trimLessonReplayQueue(queueRef.current);
     }
     scheduleFlush(options.immediate ? 0 : FLUSH_INTERVAL_MS);
     return true;
-  }, [scheduleFlush]);
+  }, [journal, scheduleFlush]);
 
   useEffect(() => {
     const normalizedStudentId = String(studentId || '').trim();
@@ -480,12 +544,13 @@ const useLessonReplayRecorder = ({
     window.clearTimeout(startRetryTimerRef.current);
     if (!active || !hasRecorderTarget) {
       lastEventRef.current = { signature: '', at: 0 };
-      const previous = sessionRef.current;
+      const previous = sessionRef.current || queueSessionRef.current;
       window.clearTimeout(flushTimerRef.current);
       flushTimerRef.current = null;
-      if (previous?.sessionId) {
+      if (previous && (previous.sessionId || queueRef.current.length > 0 || ownerId)) {
         stopTimerRef.current = window.setTimeout(() => {
-          if (sessionRef.current?.sessionId !== previous.sessionId) return;
+          const current = sessionRef.current || queueSessionRef.current;
+          if (!current || (current.pendingKey || current.sessionId) !== (previous.pendingKey || previous.sessionId)) return;
           sessionRef.current = null;
           enabledRef.current = false;
           const pending = queueRef.current.splice(0);
@@ -522,12 +587,14 @@ const useLessonReplayRecorder = ({
     if (queueRef.current.length === 0 && !sessionRef.current) {
       queueSessionRef.current = {
         pendingKey: createEventId(),
+        createdAt: Date.now(),
         studentId: normalizedStudentId,
         learningLessonId: normalizedLearningLessonId,
         targetKey: recorderTargetKey,
         occurrenceKey: normalizedOccurrenceKey,
         via: modeRef.current,
       };
+      void journal.register(queueSessionRef.current).catch(() => {});
     }
     if (!hasReusableSession) {
       lastEventRef.current = { signature: '', at: 0 };
@@ -555,6 +622,8 @@ const useLessonReplayRecorder = ({
         via: requestedMode,
         occurrenceKey: requestedOccurrenceKey,
         learningLessonId: normalizedLearningLessonId,
+        clientSessionId: queuedSession?.pendingKey,
+        createdAt: queuedSession?.createdAt,
       })
         .then((session) => {
           const responseReceivedAtMs = Date.now();
@@ -568,7 +637,7 @@ const useLessonReplayRecorder = ({
           const serverNowMs = Number(session?.serverNowMs)
             || Date.parse(String(session?.serverNow || '').trim());
           const serverRequestReceivedAtMs = Number(session?.serverRequestReceivedAtMs);
-          const clockOffsetMs = Number.isFinite(serverNowMs)
+          const clockOffsetMs = session?.recovered ? Number(session.clockOffsetMs) || 0 : Number.isFinite(serverNowMs)
             ? Math.round(Number.isFinite(serverRequestReceivedAtMs)
               ? (
                 (serverRequestReceivedAtMs - requestStartedAtMs)
@@ -578,6 +647,8 @@ const useLessonReplayRecorder = ({
             : 0;
           sessionRef.current = {
             ...session,
+            pendingKey: queuedSession?.pendingKey || session.sessionId,
+            createdAt: queuedSession?.createdAt || requestStartedAtMs,
             studentId: normalizedStudentId,
             learningLessonId: normalizedLearningLessonId,
             targetKey: recorderTargetKey,
@@ -591,6 +662,7 @@ const useLessonReplayRecorder = ({
             ).trim(),
           };
           queueSessionRef.current = sessionRef.current;
+          void journal.register(sessionRef.current).catch(() => {});
           lastEventRef.current = { signature: '', at: 0 };
           screenSnapshotDisabledSessionRef.current = '';
           audioUploadDisabledSessionRef.current = '';
@@ -622,6 +694,8 @@ const useLessonReplayRecorder = ({
     };
   }, [
     active,
+    journal,
+    ownerId,
     finishSession,
     hasRecorderTarget,
     normalizedLearningLessonId,
@@ -642,6 +716,17 @@ const useLessonReplayRecorder = ({
     if (!active || !hasRecorderTarget || !view) return;
     recordEvent('navigation', { view, label: viewLabel }, { immediate: true, dedupeMs: 5000 });
   }, [active, hasRecorderTarget, recordEvent, view, viewLabel]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const protectLocalWrite = (event) => {
+      if (!journal.needsPageProtection()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', protectLocalWrite);
+    return () => window.removeEventListener('beforeunload', protectLocalWrite);
+  }, [journal]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -709,7 +794,16 @@ const useLessonReplayRecorder = ({
   }, [finishSession]);
 
   const uploadLessonReplayScreenSnapshot = useCallback(async (blob, metadata = {}) => {
-    const session = sessionRef.current;
+    const session = sessionRef.current || queueSessionRef.current;
+    if (ownerId && enabledRef.current && session && blob instanceof Blob && blob.size > 0) {
+      try {
+        await journal.saveMedia(session, 'screen', blob, metadata);
+        void journal.drain();
+        return { saved: true, queued: true };
+      } catch (error) {
+        return { saved: false, disabled: true, error };
+      }
+    }
     if (
       !enabledRef.current
       || !session?.sessionId
@@ -753,10 +847,16 @@ const useLessonReplayRecorder = ({
       if (enabledRef.current) startSessionRef.current?.();
     }
     return { saved: false, disabled, error };
-  }, []);
+  }, [journal, ownerId]);
 
   const uploadLessonReplayAudioSegment = useCallback((blob, metadata = {}) => {
-    const session = sessionRef.current;
+    const session = sessionRef.current || queueSessionRef.current;
+    if (ownerId && enabledRef.current && session && blob instanceof Blob && blob.size > 0) {
+      return journal.saveMedia(session, 'audio', blob, metadata).then(() => {
+        void journal.drain();
+        return { saved: true, queued: true };
+      }, (error) => ({ saved: false, disabled: true, error }));
+    }
     if (
       !enabledRef.current
       || !session?.sessionId
@@ -859,10 +959,10 @@ const useLessonReplayRecorder = ({
       ) audioUploadQueuesRef.current.delete(session.sessionId);
     });
     return operation;
-  }, []);
+  }, [journal, ownerId]);
 
   return {
-    lessonReplayError,
+    lessonReplayError: journalError || lessonReplayError,
     retryLessonReplaySave,
     downloadLessonReplayBackup,
     recordLessonReplayEvent: recordEvent,

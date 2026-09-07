@@ -2150,7 +2150,7 @@ const LESSON_REPLAY_VIEW_LABELS = Object.freeze({
   teacher: 'Ученики',
   'teacher-calendar': 'Календарь',
 });
-const TELEMOST_AUDIO_SEGMENT_MS = 30_000;
+const TELEMOST_AUDIO_SEGMENT_MS = 10_000;
 const TELEMOST_AUDIO_BITRATE = 32_000;
 const getTelemostReplayAudioMimeType = () => {
   if (typeof MediaRecorder === 'undefined') return '';
@@ -18609,6 +18609,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     uploadLessonReplayScreenSnapshot,
     uploadLessonReplayAudioSegment,
   } = useLessonReplayRecorder({
+    ownerId: `${user.role}:${user.id}`,
     active: callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive,
     studentId: lessonReplayStudentId,
     mode: lessonReplayMode || 'platform',
