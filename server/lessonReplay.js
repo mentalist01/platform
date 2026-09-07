@@ -417,6 +417,18 @@ const normalizePayload = (type, value) => {
 };
 
 const stableSignature = (event) => JSON.stringify([event.type, event.payload]);
+const replayEventByteLengths = new WeakMap();
+const replayEventBytes = (event) => {
+  let bytes = replayEventByteLengths.get(event);
+  if (bytes === undefined) {
+    bytes = Buffer.byteLength(JSON.stringify(event), 'utf8');
+    replayEventByteLengths.set(event, bytes);
+  }
+  return bytes;
+};
+const replayBytes = (replay) => Buffer.byteLength(JSON.stringify({ ...replay, events: [] }), 'utf8')
+  + replay.events.reduce((bytes, event) => bytes + replayEventBytes(event), 0)
+  + Math.max(0, replay.events.length - 1);
 
 const isSharedSurfaceEvent = (event) => ['code', 'board', 'run'].includes(event?.type);
 
@@ -736,7 +748,7 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
     ? {
       ...rawReplay,
       occurrence: { ...(rawReplay.occurrence || {}) },
-      events: Array.isArray(rawReplay.events) ? rawReplay.events.map((event) => ({ ...event })) : [],
+      events: Array.isArray(rawReplay.events) ? rawReplay.events.slice() : [],
     }
     : normalizeLessonReplay(rawReplay);
   const occurrenceStartMs = Number(replay.occurrence.startMs);
@@ -755,7 +767,8 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
   const knownIds = new Set(replay.events.map((event) => event.id));
   const latestSignatureByActorAndType = new Map();
   replay.events.forEach((event) => latestSignatureByActorAndType.set(actorEventTypeKey(event), {
-    signature: stableSignature(event),
+    event,
+    signature: null,
     occurredAtMs: Date.parse(event.occurredAt),
   }));
   let added = 0;
@@ -783,6 +796,7 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
   }, Number.POSITIVE_INFINITY);
   if (Number.isFinite(earliestIncomingAtMs) && earliestIncomingAtMs < replay.timelineStartMs) {
     replay.timelineStartMs = Math.max(minimumTimelineStartMs, earliestIncomingAtMs);
+    replay.events = replay.events.map((event) => ({ ...event }));
     [...replay.events, ...incomingEvents].forEach((event) => {
       const occurredAtMs = Date.parse(event.occurredAt);
       if (Number.isFinite(occurredAtMs)) {
@@ -799,7 +813,7 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
     const occurredAtMs = Date.parse(event.occurredAt);
     if (
       previous
-      && previous.signature === signature
+      && (previous.signature ?? (previous.signature = stableSignature(previous.event))) === signature
       && Number.isFinite(previous.occurredAtMs)
       && Number.isFinite(occurredAtMs)
       && occurredAtMs >= previous.occurredAtMs
@@ -819,10 +833,10 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
   replay.createdAt = replay.createdAt || now;
   if (added > 0) replay.updatedAt = now;
   const maxBytes = Number(context.maxBytes) || LESSON_REPLAY_MAX_FILE_BYTES;
-  let bytes = Buffer.byteLength(JSON.stringify(replay), 'utf8');
+  let bytes = replayBytes(replay);
   if (bytes > maxBytes) {
     trimReplayToByteLimit(replay, maxBytes, bytes);
-    bytes = Buffer.byteLength(JSON.stringify(replay), 'utf8');
+    bytes = replayBytes(replay);
   }
 
   return {

@@ -31,6 +31,31 @@ const eventContext = {
   nowMs: START_MS,
 };
 
+test('appending to a warm replay does not serialize historical board payloads again', () => {
+  let visits = 0;
+  const replay = createLessonReplay(occurrence, START_MS);
+  replay.events = Array.from({ length: 200 }, (_, index) => ({
+    id: `historical-${index}`, type: 'board', occurredAt: new Date(START_MS + index * 1000).toISOString(),
+    offsetMs: index * 1000, actor: { id: 'teacher-1', role: 'teacher', name: 'Иван' },
+    payload: { mode: 'snapshot', items: [], toJSON() { visits += 1; return { mode: 'snapshot', items: [] }; } },
+  }));
+  const warm = appendLessonReplayEvents(replay, [], { ...eventContext, normalizedReplay: true });
+  assert.equal(warm.bytes, Buffer.byteLength(JSON.stringify(warm.replay)));
+  visits = 0;
+  const next = appendLessonReplayEvents(warm.replay, [{ id: 'nav', type: 'navigation', occurredAt: new Date(START_MS + 300_000).toISOString(), payload: { view: 'board' } }], { ...eventContext, normalizedReplay: true });
+  assert.equal(visits, 0, 'historical payloads must not be revisited by an unrelated append');
+  assert.equal(next.replay.events.length, 201);
+  assert.equal(next.bytes, Buffer.byteLength(JSON.stringify(next.replay)));
+});
+
+test('cached byte lengths stay correct when an earlier event rebases the timeline', () => {
+  const later = appendLessonReplayEvents(createLessonReplay(occurrence, START_MS), [{ id: 'later', type: 'code', occurredAt: new Date(START_MS + 1000).toISOString(), payload: { code: 'print(1)' } }], eventContext).replay;
+  const next = appendLessonReplayEvents(later, [{ id: 'earlier', type: 'code', occurredAt: new Date(START_MS - 1000).toISOString(), payload: { code: 'print(0)' } }], { ...eventContext, normalizedReplay: true });
+  assert.equal(later.events[0].offsetMs, 1000, 'rebasing must leave the acknowledged replay unchanged');
+  assert.equal(next.replay.events[1].offsetMs, 2000);
+  assert.equal(next.bytes, Buffer.byteLength(JSON.stringify(next.replay)));
+});
+
 const replayBoardStates = (events) => {
   let items = [];
   return events.filter((event) => event.type === 'board').map((event) => {
