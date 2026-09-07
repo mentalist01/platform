@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, CheckCircle2, ChevronDown, Clock3, RefreshCcw } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronDown, CircleMinus, Clock3, RefreshCcw } from 'lucide-react';
 import { api } from '../services/api';
 import { getMonthlyMockPeriod, MONTHLY_MOCK_TIME_ZONE } from '../utils/monthlyMockExam';
 import './MonthlyMockExamStatus.css';
 
-const labels = { completed: 'Пройден', in_progress: 'Начат, не завершён', pending: 'Нужно пройти' };
+const labels = { completed: 'Пройден', in_progress: 'Начат, не завершён', pending: 'Нужно пройти', exempt: 'Не нужно' };
 function Status({ row }) {
-  const Icon = row?.status === 'completed' ? CheckCircle2 : Clock3;
+  const Icon = row?.status === 'completed' ? CheckCircle2 : (row?.status === 'exempt' ? CircleMinus : Clock3);
   return <span className="monthly-mock__status" data-status={row?.status || 'unknown'}>
     <Icon size={14} aria-hidden="true" />{labels[row?.status] || 'Нет данных'}
     {row?.completion && <span> · {new Date(row.completion.finishedAt).toLocaleDateString('ru-RU', {
@@ -25,6 +25,7 @@ export default function MonthlyMockExamStatus({ role, userId, activeStudentId, s
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [updatingStudentId, setUpdatingStudentId] = useState('');
   const requestKey = `${role}:${userId}:${selectedMonth}`;
   const data = result?.key === requestKey ? result.data : null;
   useEffect(() => {
@@ -62,7 +63,9 @@ export default function MonthlyMockExamStatus({ role, userId, activeStudentId, s
   const rows = data?.rows || [];
   const selected = rows.find((row) => row.studentId === (teacher ? activeStudentId : userId));
   const filteredRows = rows.filter((row) => (
-    (filter === 'all' || (filter === 'completed' ? row.status === 'completed' : row.status !== 'completed'))
+    (filter === 'all'
+      || row.status === filter
+      || (filter === 'pending' && (row.status === 'pending' || row.status === 'in_progress')))
     && String(names.get(row.studentId) || row.name).toLocaleLowerCase('ru').includes(query.trim().toLocaleLowerCase('ru'))
   )).sort((a, b) => String(names.get(a.studentId) || a.name).localeCompare(String(names.get(b.studentId) || b.name), 'ru'));
   const months = data ? Array.from({ length: 12 }, (_, index) => {
@@ -70,12 +73,42 @@ export default function MonthlyMockExamStatus({ role, userId, activeStudentId, s
     return getMonthlyMockPeriod(new Date(Date.UTC(year, month - 1 - index, 1)).toISOString().slice(0, 7));
   }) : [];
   const current = data?.period.month === data?.currentMonth;
+  const updateExemption = async (row) => {
+    if (!data || updatingStudentId) return;
+    const exempt = row.status !== 'exempt';
+    setUpdatingStudentId(row.studentId);
+    setError('');
+    try {
+      const response = await api.setMonthlyMockExemption(row.studentId, data.period.month, exempt);
+      const nextRows = rows.map((entry) => (entry.studentId === row.studentId ? response.row : entry));
+      setResult({
+        key: requestKey,
+        data: {
+          ...data,
+          rows: nextRows,
+          summary: {
+            total: nextRows.length,
+            completed: nextRows.filter((entry) => entry.status === 'completed').length,
+            pending: nextRows.filter((entry) => entry.status === 'pending' || entry.status === 'in_progress').length,
+            exempt: nextRows.filter((entry) => entry.status === 'exempt').length,
+          },
+        },
+      });
+    } catch (failure) {
+      setError(String(failure?.message || 'Не удалось изменить требование пробника'));
+    } finally {
+      setUpdatingStudentId('');
+    }
+  };
   return <section className="monthly-mock" aria-label="Пробник за месяц">
     <div className="monthly-mock__bar">
       <BookOpen size={18} className="monthly-mock__icon" aria-hidden="true" />
       <div className="monthly-mock__heading">
         <strong>Пробник · {data?.period.label || 'этот месяц'}</strong>
-        {teacher && data && <small>Прошли {data.summary.completed} из {data.summary.total} · ещё не прошли {data.summary.pending}</small>}
+        {teacher && data && <small>
+          Прошли {data.summary.completed} · нужно пройти {data.summary.pending}
+          {data.summary.exempt > 0 ? ` · не нужно ${data.summary.exempt}` : ''}
+        </small>}
         {!data && <small>{error ? 'Статус недоступен' : 'Проверяем результаты…'}</small>}
       </div>
       {selected && <div className="monthly-mock__selected">
@@ -83,7 +116,7 @@ export default function MonthlyMockExamStatus({ role, userId, activeStudentId, s
         <Status row={selected} />
       </div>}
       <div className="monthly-mock__actions">
-        {teacher && selected && current && selected.status !== 'completed' && <button type="button" onClick={() => onAssign?.(selected.studentId)}>Задать пробник</button>}
+        {teacher && selected && current && (selected.status === 'pending' || selected.status === 'in_progress') && <button type="button" onClick={() => onAssign?.(selected.studentId)}>Задать пробник</button>}
         {!teacher && selected && <button type="button" onClick={() => onOpenMocks?.()}>{selected.status === 'completed' ? 'Мои пробники' : 'Открыть пробники'}</button>}
         {teacher && <button type="button" aria-expanded={expanded} aria-controls="monthly-mock-roster" onClick={() => setExpanded(!expanded)}>Все ученики <ChevronDown size={14} style={{ transform: expanded ? 'rotate(180deg)' : undefined }} /></button>}
         <button type="button" onClick={() => setRevision((value) => value + 1)} disabled={busy} aria-label="Обновить статусы пробников" title="Обновить статусы"><RefreshCcw size={14} className={busy ? 'animate-spin' : ''} /></button>
@@ -93,7 +126,7 @@ export default function MonthlyMockExamStatus({ role, userId, activeStudentId, s
     {teacher && expanded && <div id="monthly-mock-roster" className="monthly-mock__roster">
       <div className="monthly-mock__filters">
         <label>Месяц<select value={selectedMonth || data?.currentMonth || ''} onChange={(e) => setSelectedMonth(e.target.value === data?.currentMonth ? '' : e.target.value)}>{months.map((period) => <option key={period.month} value={period.month}>{period.label}</option>)}</select></label>
-        <div className="monthly-mock__tabs" aria-label="Фильтр учеников">{[['pending', 'Не прошли'], ['completed', 'Прошли'], ['all', 'Все']].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div>
+        <div className="monthly-mock__tabs" aria-label="Фильтр учеников">{[['pending', 'Не прошли'], ['completed', 'Прошли'], ['exempt', 'Не нужно'], ['all', 'Все']].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div>
         <input type="search" aria-label="Найти ученика по имени" placeholder="Найти ученика" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
       <p className="monthly-mock__help">Один завершённый пробник за календарный месяц, с любым результатом. Часовой пояс — Москва. Отдельные задания из пробника не засчитываются.</p>
@@ -101,11 +134,26 @@ export default function MonthlyMockExamStatus({ role, userId, activeStudentId, s
         <div className="monthly-mock__person"><strong>{names.get(row.studentId) || row.name}</strong>{row.completion && <small>{row.completion.title}</small>}</div>
         <Status row={row} />
         <div className="monthly-mock__actions">
-          {current && row.status !== 'completed' && <button type="button" onClick={() => onAssign?.(row.studentId)}>Задать пробник</button>}
+          {current && (row.status === 'pending' || row.status === 'in_progress') && <button type="button" onClick={() => onAssign?.(row.studentId)}>Задать пробник</button>}
+          {row.status !== 'completed' && <button
+            type="button"
+            className="monthly-mock__exemption"
+            data-active={row.status === 'exempt'}
+            disabled={Boolean(updatingStudentId)}
+            onClick={() => void updateExemption(row)}
+          >
+            {updatingStudentId === row.studentId ? 'Сохраняем…' : (row.status === 'exempt' ? 'Вернуть требование' : 'Не нужно проходить')}
+          </button>}
           <button type="button" onClick={() => onOpenMocks?.(row.studentId)}>Пробники ученика</button>
         </div>
       </div>)}
-      {data && !filteredRows.length && <p className="monthly-mock__help">{query ? 'Ученики не найдены.' : filter === 'pending' && rows.length ? 'Все ученики прошли пробник за этот месяц.' : 'В этом списке пока нет учеников.'}</p>}</div>
+      {data && !filteredRows.length && <p className="monthly-mock__help">{query
+        ? 'Ученики не найдены.'
+        : filter === 'pending' && rows.length
+          ? 'Нет учеников, которым ещё нужно пройти пробник.'
+          : filter === 'exempt'
+            ? 'Нет учеников, которым пробник в этом месяце не нужен.'
+            : 'В этом списке пока нет учеников.'}</p>}</div>
     </div>}
   </section>;
 }

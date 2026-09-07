@@ -36,6 +36,7 @@ import {
   getMonthlyMockMonth,
   getMonthlyMockPeriod,
   normalizeMonthlyMockCompletions,
+  normalizeMonthlyMockExemptions,
 } from '../src/utils/monthlyMockExam.js';
 import {
   buildHomeworkStatistics,
@@ -14115,6 +14116,8 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       homeworks: [],
       mockAttempts: {},
       mockAttemptResults: [],
+      monthlyMockCompletions: [],
+      monthlyMockExemptions: {},
       mockTestingQueue: [],
       randomMockSolvedByTask: {},
       xpTotal: 0,
@@ -14151,6 +14154,8 @@ const getStudentData = (studentId, progressDbOverride = null) => {
     || raw.streak
     || raw.mockAttempts
     || Object.prototype.hasOwnProperty.call(raw, 'mockAttemptResults')
+    || Object.prototype.hasOwnProperty.call(raw, 'monthlyMockCompletions')
+    || Object.prototype.hasOwnProperty.call(raw, 'monthlyMockExemptions')
     || Object.prototype.hasOwnProperty.call(raw, 'mockTestingQueue')
     || Object.prototype.hasOwnProperty.call(raw, 'randomMockSolvedByTask')
     || Object.prototype.hasOwnProperty.call(raw, 'xpTotal')
@@ -14229,6 +14234,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
       mockAttemptResults: normalizeMockExamFollowupHistory(raw.mockAttemptResults),
       monthlyMockCompletions: normalizeMonthlyMockCompletions(raw.monthlyMockCompletions),
+      monthlyMockExemptions: normalizeMonthlyMockExemptions(raw.monthlyMockExemptions),
       mockTestingQueue: normalizeMockExamFollowupQueue(raw.mockTestingQueue),
       randomMockSolvedByTask: normalizeRandomMockSolvedByTask(raw.randomMockSolvedByTask),
       xpTotal,
@@ -14271,6 +14277,8 @@ const getStudentData = (studentId, progressDbOverride = null) => {
     homeworks: [],
     mockAttempts: {},
     mockAttemptResults: [],
+    monthlyMockCompletions: [],
+    monthlyMockExemptions: {},
     mockTestingQueue: [],
     randomMockSolvedByTask: {},
     xpTotal: legacyXp,
@@ -14318,6 +14326,7 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     mockAttempts: data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {},
     mockAttemptResults: normalizeMockExamFollowupHistory(data.mockAttemptResults),
     monthlyMockCompletions: normalizeMonthlyMockCompletions(data.monthlyMockCompletions),
+    monthlyMockExemptions: normalizeMonthlyMockExemptions(data.monthlyMockExemptions),
     mockTestingQueue: normalizeMockExamFollowupQueue(data.mockTestingQueue),
     randomMockSolvedByTask: normalizeRandomMockSolvedByTask(data.randomMockSolvedByTask),
     xpTotal: normalizeXpTotal(data.xpTotal),
@@ -26849,8 +26858,37 @@ app.get('/api/monthly-mock-status', (req, res) => {
     summary: {
       total: rows.length,
       completed: rows.filter((row) => row.status === 'completed').length,
-      pending: rows.filter((row) => row.status !== 'completed').length,
+      pending: rows.filter((row) => row.status === 'pending' || row.status === 'in_progress').length,
+      exempt: rows.filter((row) => row.status === 'exempt').length,
     },
+  });
+});
+
+app.patch('/api/monthly-mock-status/:studentId/exemption', (req, res) => {
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.params.studentId, { strictStudentId: true });
+  if (!student) return undefined;
+  if (typeof req.body?.exempt !== 'boolean') {
+    return res.status(400).json({ error: 'Укажите, нужно ли освобождать ученика от пробника.' });
+  }
+  const now = Date.now();
+  const currentMonth = getMonthlyMockMonth(now);
+  const requestedMonth = req.body?.month === undefined ? currentMonth : req.body.month;
+  const period = typeof requestedMonth === 'string' ? getMonthlyMockPeriod(requestedMonth) : null;
+  if (!period || period.month > currentMonth) {
+    return res.status(400).json({ error: 'Выберите текущий или прошедший месяц в формате ГГГГ-ММ.' });
+  }
+
+  const data = getStudentData(student.id);
+  const monthlyMockExemptions = normalizeMonthlyMockExemptions(data.monthlyMockExemptions);
+  if (req.body.exempt) monthlyMockExemptions[period.month] = new Date(now).toISOString();
+  else delete monthlyMockExemptions[period.month];
+  const updated = setStudentData(student.id, { ...data, monthlyMockExemptions });
+  const status = buildMonthlyMockStatus(updated, readMockExamsDb(), period, now);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({
+    ok: true,
+    row: { studentId: student.id, name: student.name, ...status },
   });
 });
 

@@ -9,13 +9,17 @@
 .monthly-mock__status { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 12px; font-weight: 600; color: rgb(var(--ink-soft)); }
 .monthly-mock__status[data-status="completed"] { color: #059669; }
 .monthly-mock__status[data-status="pending"], .monthly-mock__status[data-status="in_progress"] { color: #b45309; }
+.monthly-mock__status[data-status="exempt"] { color: #64748b; }
 html[data-theme="dark"] .monthly-mock__status[data-status="completed"] { color: #6ee7b7; }
 html[data-theme="dark"] .monthly-mock__status[data-status="pending"], html[data-theme="dark"] .monthly-mock__status[data-status="in_progress"] { color: #fcd34d; }
+html[data-theme="dark"] .monthly-mock__status[data-status="exempt"] { color: #cbd5e1; }
 .monthly-mock__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
 .monthly-mock button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; padding: 5px 10px; border: 1px solid rgb(var(--ink) / .14); border-radius: 9px; color: inherit; background: rgb(var(--surface)); font-size: 12px; font-weight: 600; }
 .monthly-mock button:hover { background: rgb(var(--ink) / .06); }
 .monthly-mock button:focus-visible, .monthly-mock input:focus-visible, .monthly-mock select:focus-visible { outline: 2px solid #8b5cf6; outline-offset: 2px; }
 .monthly-mock button:disabled { opacity: .5; }
+.monthly-mock .monthly-mock__exemption[data-active="true"] { border-color: rgb(100 116 139 / .45); background: rgb(100 116 139 / .1); color: #475569; }
+html[data-theme="dark"] .monthly-mock .monthly-mock__exemption[data-active="true"] { color: #e2e8f0; }
 .monthly-mock__roster { border-top: 1px solid rgb(var(--ink) / .1); padding: 12px 14px; }
 .monthly-mock__filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
 .monthly-mock__filters label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }

@@ -1139,6 +1139,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  setMonthlyMockExemption: async (studentId, month, exempt) => {
+    const res = await apiFetch(`/api/monthly-mock-status/${encodeURIComponent(studentId)}/exemption`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ month, exempt }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
   getStudents: async (teacherId, options = {}) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', teacherId);

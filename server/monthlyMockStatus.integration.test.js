@@ -65,7 +65,7 @@ test('monthly status scopes student data and preserves legacy and repeated compl
     const legacy = await login('legacy-code');
     assert.equal((await request('/api/monthly-mock-status')).status, 401);
     const roster = await json(await request('/api/monthly-mock-status?teacherId=teacher-b', teacher));
-    assert.deepEqual(roster.summary, { total: 3, completed: 2, pending: 1 });
+    assert.deepEqual(roster.summary, { total: 3, completed: 2, pending: 1, exempt: 0 });
     assert.equal(roster.period.month, month);
     assert.equal(roster.rows.find((row) => row.studentId === 'old').status, 'completed');
     assert.equal(roster.rows.find((row) => row.studentId === 'new').status, 'pending');
@@ -73,6 +73,15 @@ test('monthly status scopes student data and preserves legacy and repeated compl
     assert.deepEqual(own.rows.map((row) => row.studentId), ['new']);
     const other = await json(await request('/api/monthly-mock-status', otherTeacher));
     assert.deepEqual(other.rows.map((row) => row.studentId), ['other']);
+    assert.equal((await request(`/api/monthly-mock-status/new/exemption`, student, 'PATCH', { month, exempt: true })).status, 403);
+    assert.equal((await request(`/api/monthly-mock-status/new/exemption`, otherTeacher, 'PATCH', { month, exempt: true })).status, 403);
+    const exempted = await json(await request('/api/monthly-mock-status/new/exemption', teacher, 'PATCH', { month, exempt: true }));
+    assert.equal(exempted.row.status, 'exempt');
+    const exemptRoster = await json(await request('/api/monthly-mock-status', teacher));
+    assert.deepEqual(exemptRoster.summary, { total: 3, completed: 2, pending: 0, exempt: 1 });
+    assert.equal((await json(await request('/api/monthly-mock-status', student))).rows[0].status, 'exempt');
+    await json(await request('/api/monthly-mock-status/new/exemption', teacher, 'PATCH', { month, exempt: false }));
+    assert.equal((await json(await request('/api/monthly-mock-status', student))).rows[0].status, 'pending');
     await json(await request('/api/monthly-mock-status?month=bad', teacher), 400);
     await json(await request('/api/monthly-mock-status?month=2099-12', teacher), 400);
     const oldMonth = getMonthlyMockMonth(period.startMs - 1000);

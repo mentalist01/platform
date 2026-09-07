@@ -25447,8 +25447,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               )}
             </div>
           )}
-          {((user.role === 'teacher' && (['schedule', 'progress', 'teacher-calendar'].includes(view) || lessonQuickNavIds.includes(view)))
-            || (user.role === 'student' && ['schedule', 'progress'].includes(view))) && (
+          {user.role === 'teacher' && view === 'teacher-calendar' && (
             <MonthlyMockExamStatus
               key={user.id}
               role={user.role}

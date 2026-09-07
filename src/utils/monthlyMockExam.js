@@ -69,6 +69,18 @@ export const normalizeMonthlyMockCompletions = (entries) => {
   return [...unique.values()].sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
 };
 
+export const normalizeMonthlyMockExemptions = (value) => {
+  if (!record(value)) return {};
+  const normalized = {};
+  Object.entries(value).forEach(([month, updatedAt]) => {
+    if (!getMonthlyMockPeriod(month)) return;
+    const updatedMs = timestamp(updatedAt);
+    if (updatedMs == null) return;
+    normalized[month] = new Date(updatedMs).toISOString();
+  });
+  return normalized;
+};
+
 // Derive older completions on read, so September attempts count without a migration.
 // The small ledger keeps later completions even when a variant is restarted/deleted.
 export const collectMonthlyMockCompletions = (studentData = {}, exams = []) => {
@@ -130,9 +142,10 @@ export const buildMonthlyMockStatus = (studentData = {}, exams = [], period = ge
     })
     .sort((a, b) => (timestamp(b[1].updatedAt) || 0) - (timestamp(a[1].updatedAt) || 0));
   const currentMonth = getMonthlyMockMonth(now) === period.month;
+  const exempt = Boolean(normalizeMonthlyMockExemptions(studentData.monthlyMockExemptions)[period.month]);
   return {
     month: period.month,
-    status: completions.length ? 'completed' : (currentMonth && active.length ? 'in_progress' : 'pending'),
+    status: completions.length ? 'completed' : (exempt ? 'exempt' : (currentMonth && active.length ? 'in_progress' : 'pending')),
     completedCount: completions.length,
     completion: completions[0] || null,
     activeExamId: currentMonth && active.length ? active[0][0] : '',

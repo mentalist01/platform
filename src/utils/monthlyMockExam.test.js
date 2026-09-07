@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMonthlyMockStatus, collectMonthlyMockCompletions, getMonthlyMockMonth, getMonthlyMockPeriod, prepareMonthlyMockHomeworkGoals } from './monthlyMockExam.js';
+import { buildMonthlyMockStatus, collectMonthlyMockCompletions, getMonthlyMockMonth, getMonthlyMockPeriod, normalizeMonthlyMockExemptions, prepareMonthlyMockHomeworkGoals } from './monthlyMockExam.js';
 
 const period = getMonthlyMockPeriod('2026-09');
 const now = Date.parse('2026-09-07T15:00:00Z');
@@ -50,6 +50,14 @@ test('old timed, old untimed, teacher-entered and future records', () => {
 });
 test('old completion edits never turn into a new month completion', () => {
   assert.equal(status({ mockAttempts: { exam: { ...finished, finishedAt: '2026-08-02', updatedAt: '2026-09-03' } } }).status, 'pending');
+});
+
+test('a monthly exemption removes an unfinished student from the required list', () => {
+  const exemption = { '2026-09': '2026-09-02T12:00:00Z', invalid: '2026-09-02T12:00:00Z' };
+  assert.deepEqual(normalizeMonthlyMockExemptions(exemption), { '2026-09': '2026-09-02T12:00:00.000Z' });
+  assert.equal(status({ monthlyMockExemptions: exemption }).status, 'exempt');
+  assert.equal(status({ monthlyMockExemptions: exemption, mockAttempts: { exam: finished } }).status, 'completed');
+  assert.equal(buildMonthlyMockStatus({ monthlyMockExemptions: exemption }, exams, getMonthlyMockPeriod('2026-08'), now).status, 'pending');
 });
 
 test('manual result for today counts before noon and invalid dates are ignored', () => {
