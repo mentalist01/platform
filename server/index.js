@@ -338,6 +338,7 @@ const lessonReplayCacheByOccurrenceKey = new Map();
 const lessonReplayPersistTimerByOccurrenceKey = new Map();
 const lessonReplayPersistFailureByOccurrenceKey = new Map();
 const lessonReplayCapacityBlockedOccurrenceKeys = new Set();
+let lessonReplayCapacityCircuitOpenUntilMs = 0;
 const lessonReplayAudioUploadTickets = new Map();
 const lessonReplayStorageSummaryCacheByOccurrenceKey = new Map();
 const lessonReplayStorageIndexByHash = new Map();
@@ -33476,7 +33477,10 @@ app.post('/api/lesson-replay/events', async (req, res) => {
   // serialized on every client retry. Keep the session in a fast-fail state
   // until it is closed; the browser journal still retains the unsaved events
   // for a later backup/recovery attempt.
-  if (lessonReplayCapacityBlockedOccurrenceKeys.has(session.occurrenceKey)) {
+  if (
+    Date.now() < lessonReplayCapacityCircuitOpenUntilMs
+    || lessonReplayCapacityBlockedOccurrenceKeys.has(session.occurrenceKey)
+  ) {
     return res.status(413).json({
       error: 'Запись достигла предельного размера. Сохранённые данные урока не изменены.',
       code: 'LESSON_REPLAY_CAPACITY',
@@ -33547,6 +33551,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     if (error?.statusCode === 404) return res.status(404).json({ error: error.message });
     if (error?.statusCode === 413) {
       lessonReplayCapacityBlockedOccurrenceKeys.add(session.occurrenceKey);
+      lessonReplayCapacityCircuitOpenUntilMs = Date.now() + 30 * 60 * 1000;
       return res.status(413).json({ error: error.message, code: error.code });
     }
     console.error('[lesson-replay] failed to append events:', error);
