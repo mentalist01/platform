@@ -121,9 +121,10 @@ const formatMockUpdatedAt = (value) => {
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
 };
 
-const formatMockTaskLabel = (taskKey, gameTheoryTask) => {
+const formatMockTaskLabel = (taskKey) => {
   const taskNumber = Number(taskKey);
-  if (Number.isFinite(taskNumber) && taskNumber === gameTheoryTask) return '19-21';
+  // An exam has separate slots 19, 20 and 21, even though the question bank
+  // groups their shared game-theory exercise under one training card.
   return Number.isFinite(taskNumber) ? String(taskNumber) : String(taskKey || '');
 };
 
@@ -893,7 +894,7 @@ const ProgressSection = ({
         const solved = Boolean(solvedMap[String(taskKey)]);
         return {
           taskKey,
-          label: formatMockTaskLabel(taskKey, GAME_THEORY_TASK),
+          label: formatMockTaskLabel(taskKey),
           attempted,
           solved,
         };
@@ -1095,7 +1096,7 @@ const ProgressSection = ({
         taskKey,
         taskNumber,
         label: String(taskNumber),
-        detailLabel: formatMockTaskLabel(taskNumber, GAME_THEORY_TASK),
+        detailLabel: formatMockTaskLabel(taskNumber),
         totalCount,
         attemptedCount,
         reviewedCount,

@@ -110,6 +110,14 @@ test('mock exams accept answer variants and teacher corrections update the froze
       },
       8: { id: 'task-8', question: 'Ответ right', answer: 'right' },
     },
+  }, {
+    id: 'exam-games', title: 'Отдельные задания теории игр', createdAt: now, updatedAt: now,
+    access: { all: true, students: [], mode: 'classic' },
+    tasks: {
+      19: { id: 'game-19', sourceTaskNumber: 19, question: 'Первый выигрыш', answer: '10' },
+      20: { id: 'game-20', sourceTaskNumber: 19, question: 'Два значения', answers: ['11', '12'] },
+      21: { id: 'game-21', sourceTaskNumber: 19, question: 'Второй выигрыш', answer: '13' },
+    },
   }]));
 
   const port = await getFreePort();
@@ -201,6 +209,28 @@ test('mock exams accept answer variants and teacher corrections update the froze
     assert.equal(persisted.mockTestingQueue.length, 0);
     assert.equal(persisted.xpTotal, xpBefore);
     assert.equal(persisted.coinsTotal, coinsBefore);
+
+    // Each exam slot must keep its own answer and solved state, including
+    // personal mock questions expanded from the combined source card 19.
+    const saveGames = async (answers, finishAttempt = false) => {
+      const response = await request('/api/mock-exams/attempt', studentAuthorization, 'PUT', {
+        examId: 'exam-games', mode: 'classic', answers, finishAttempt,
+      });
+      await assertStatus(response, 200);
+      return response.json();
+    };
+    const firstOnly = await saveGames({ 19: '10', 20: ['11', ''], 21: 'wrong' });
+    assert.deepEqual(firstOnly.solved, { 19: true, 20: false, 21: false });
+    assert.equal(firstOnly.answers['19'], '10');
+    assert.deepEqual(firstOnly.answers['20'], ['11', '']);
+    const lastOnly = await saveGames({ 19: 'wrong', 20: ['11', 'wrong'], 21: '13' });
+    assert.deepEqual(lastOnly.solved, { 19: false, 20: false, 21: true });
+    const allGames = await saveGames({ 19: '10', 20: ['11', '12'], 21: '13' }, true);
+    assert.deepEqual(allGames.solved, { 19: true, 20: true, 21: true });
+    const gameResult = JSON.parse(fs.readFileSync(path.join(dataDir, 'progress.json'), 'utf8'))['student-a']
+      .mockAttemptResults.find((entry) => entry.examId === 'exam-games');
+    assert.equal(gameResult.primaryScore, 3);
+    assert.equal(gameResult.secondaryScore, 20);
   } finally {
     await stopServer(child);
     const tempBase = `${path.resolve(os.tmpdir())}${path.sep}`;
