@@ -1,10 +1,11 @@
 import { useState } from 'react';
 
-export default function LessonReplaySaveNotice({ role, error, onRetry, onDownload }) {
+export default function LessonReplaySaveNotice({ role, error, onRetry, onDownload, onDiscard }) {
   const [retrying, setRetrying] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
   if (role !== 'teacher' || !error) return null;
+  const discardable = /^Часть записи остаётся в браузере\./u.test(error);
 
   const retry = async () => {
     if (retrying) return;
@@ -40,6 +41,9 @@ export default function LessonReplaySaveNotice({ role, error, onRetry, onDownloa
           <button type="button" onClick={() => void download()} disabled={downloading} className="rounded-lg border border-amber-400 px-3 py-2 font-semibold disabled:opacity-60">
             {downloading ? 'Готовим копию…' : 'Скачать резервную копию'}
           </button>
+          {discardable && <button type="button" onClick={() => void onDiscard()} className="rounded-lg border border-amber-400 px-3 py-2 font-semibold">
+            Удалить старую копию
+          </button>}
         </div>
       </div>
     </details>

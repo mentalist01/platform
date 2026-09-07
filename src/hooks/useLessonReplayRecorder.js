@@ -432,6 +432,11 @@ const useLessonReplayRecorder = ({
     }
   }, [finishSession, flush, journal]);
 
+  const discardBlockedLessonReplayBackup = useCallback(async () => {
+    await journal.discardBlocked();
+    setJournalError('');
+  }, [journal]);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
@@ -964,6 +969,7 @@ const useLessonReplayRecorder = ({
   return {
     lessonReplayError: journalError || lessonReplayError,
     retryLessonReplaySave,
+    discardBlockedLessonReplayBackup,
     downloadLessonReplayBackup,
     recordLessonReplayEvent: recordEvent,
     flushLessonReplay: flush,

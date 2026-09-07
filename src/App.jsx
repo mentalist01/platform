@@ -18608,6 +18608,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     recordLessonReplayEvent,
     lessonReplayError,
     retryLessonReplaySave,
+    discardBlockedLessonReplayBackup,
     downloadLessonReplayBackup,
     finishLessonReplayNow,
     uploadLessonReplayScreenSnapshot,
@@ -25174,12 +25175,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </button>
           </div>
         </header>
-        <LessonReplaySaveNotice
+        {lessonQuickNavIds.includes(view) && <LessonReplaySaveNotice
           role={user.role}
           error={lessonReplayError}
           onRetry={retryLessonReplaySave}
           onDownload={downloadLessonReplayBackup}
-        />
+          onDiscard={discardBlockedLessonReplayBackup}
+        />}
         {user.role === 'teacher' && <LessonAlarmNotice alarm={lessonAlarm} />}
         <main
           ref={mainScrollRef}

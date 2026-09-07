@@ -12,6 +12,10 @@ const memoryStore = () => {
     acknowledge: async (keys) => keys.forEach((key) => records.delete(key)),
     acknowledgeEvents: async (sessionKey, ids) => { for (const [key, record] of records) if (record.sessionKey === sessionKey && record.kind === 'event' && ids.includes(record.id)) records.delete(key); },
     removeEmptySession: async (key) => { if (![...records.values()].some((record) => record.sessionKey === key)) sessions.delete(key); },
+    removeSession: async (key) => {
+      sessions.delete(key);
+      for (const [recordKey, record] of records) if (record.sessionKey === key) records.delete(recordKey);
+    },
   };
 };
 const session = { pendingKey: 'capture-one', sessionId: 'server-one', studentId: 'student-one', occurrenceKey: 'original-lesson', clockOffsetMs: 2000 };
@@ -71,6 +75,20 @@ test('capacity failure stops automatic journal retries until the user retries', 
   h.api.appendLessonReplayEvents = send;
   await journal.retry();
   assert.equal(h.writes[0].events[0].id, 'too-large');
+});
+
+test('a blocked local copy can be discarded without touching saved server data', async () => {
+  const h = harness(); const journal = h.make();
+  await journal.register(session, { live: false });
+  await journal.saveEvent(session, event('too-large'));
+  h.api.appendLessonReplayEvents = async () => {
+    throw Object.assign(new Error('capacity'), { status: 413 });
+  };
+  await journal.drain();
+  assert.equal(await journal.discardBlocked(), 1);
+  assert.equal((await h.store.sessions('teacher:one')).length, 0);
+  assert.equal((await h.store.records('teacher:one:capture-one')).length, 0);
+  assert.equal(h.errors.at(-1), '');
 });
 
 test('response loss repeats the same IDs and leaves deduplication possible', async () => {

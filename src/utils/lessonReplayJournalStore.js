@@ -69,5 +69,15 @@ export function createLessonReplayJournalStore(indexedDB = globalThis.indexedDB)
       const request = tx.objectStore('records').index('session').count(key);
       request.onsuccess = () => { if (request.result === 0) tx.objectStore('sessions').delete(key); };
     }),
+    removeSession: (key) => transaction(['sessions', 'records'], 'readwrite', (tx) => {
+      tx.objectStore('sessions').delete(key);
+      const request = tx.objectStore('records').index('session').openCursor(key);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        cursor.delete();
+        cursor.continue();
+      };
+    }),
   };
 }

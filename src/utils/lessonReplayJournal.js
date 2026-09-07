@@ -172,6 +172,19 @@ export function createLessonReplayJournal({ owner, api, store = createLessonRepl
     })().catch(() => { if (isCurrent()) onError(REPLAY_LOCAL_STORAGE_ERROR); }).finally(() => { draining = null; });
     return draining;
   };
+  const discardBlocked = async () => {
+    if (!enabled) return 0;
+    await tail.catch(() => {});
+    const keys = [...blocked.keys()];
+    for (const key of keys) {
+      await store.removeSession(key);
+      descriptors.delete(key);
+      active.delete(key);
+    }
+    blocked.clear();
+    if (isCurrent()) onError('');
+    return keys.length;
+  };
   return {
     register,
     saveEvent: (session, event) => save(session, 'event', { event: structuredClone(event) }, event.id),
@@ -188,5 +201,6 @@ export function createLessonReplayJournal({ owner, api, store = createLessonRepl
     detach: (session) => register(session, { live: false, closed: true }),
     drain,
     retry: () => { blocked.clear(); return drain(); },
+    discardBlocked,
   };
 }
