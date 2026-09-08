@@ -38,12 +38,15 @@ const clampNumber = (value, min, max, fallback = 0) => {
 };
 
 const normalizePoint = (value) => {
+  const roundCoordinate = (coordinate) => Math.round(coordinate * 10) / 10;
   const point = {
-    x: clampNumber(value?.x, -1_000_000, 1_000_000),
-    y: clampNumber(value?.y, -1_000_000, 1_000_000),
+    x: roundCoordinate(clampNumber(value?.x, -1_000_000, 1_000_000)),
+    y: roundCoordinate(clampNumber(value?.y, -1_000_000, 1_000_000)),
   };
   const pressure = Number(value?.pressure);
-  if (Number.isFinite(pressure)) point.pressure = clampNumber(pressure, 0, 1, 0.5);
+  if (Number.isFinite(pressure)) {
+    point.pressure = Math.round(clampNumber(pressure, 0, 1, 0.5) * 1000) / 1000;
+  }
   return point;
 };
 
@@ -832,11 +835,14 @@ export const appendLessonReplayEvents = (rawReplay, rawEvents, context = {}) => 
   const now = new Date(Number(context.nowMs) || Date.now()).toISOString();
   replay.createdAt = replay.createdAt || now;
   if (added > 0) replay.updatedAt = now;
-  const maxBytes = Number(context.maxBytes) || LESSON_REPLAY_MAX_FILE_BYTES;
-  let bytes = replayBytes(replay);
-  if (bytes > maxBytes) {
-    trimReplayToByteLimit(replay, maxBytes, bytes);
+  let bytes = null;
+  if (context.skipByteCompaction !== true) {
+    const maxBytes = Number(context.maxBytes) || LESSON_REPLAY_MAX_FILE_BYTES;
     bytes = replayBytes(replay);
+    if (bytes > maxBytes) {
+      trimReplayToByteLimit(replay, maxBytes, bytes);
+      bytes = replayBytes(replay);
+    }
   }
 
   return {

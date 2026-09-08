@@ -9,7 +9,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import sharp from 'sharp';
-import { createLessonReplay } from './lessonReplay.js';
+import { appendLessonReplayEvents, createLessonReplay } from './lessonReplay.js';
+import { createLessonReplayEventLog } from './lessonReplayEventLog.js';
 import { createLessonReplayReceipts } from './lessonReplayReceipts.js';
 
 const workspace = fileURLToPath(new URL('../', import.meta.url));
@@ -39,7 +40,13 @@ test('durable recovery survives server restarts, response loss and a failed disk
   const hash = crypto.createHash('sha256').update(occurrence.key).digest('hex');
   const replayFile = path.join(data, 'lesson-replays', `${hash}.json.gz`);
   fs.writeFileSync(replayFile, gzipSync(JSON.stringify(createLessonReplay(occurrence, capturedAt))));
-  const readReplay = () => JSON.parse(gunzipSync(fs.readFileSync(replayFile)));
+  const eventLog = createLessonReplayEventLog(path.join(data, 'lesson-replay-event-log'));
+  const readReplay = () => {
+    const compact = JSON.parse(gunzipSync(fs.readFileSync(replayFile)));
+    return appendLessonReplayEvents(compact, eventLog.read(occurrence.key), {
+      normalizedReplay: true,
+    }).replay;
+  };
   const writeJson = (name, value) => fs.writeFileSync(path.join(data, name), JSON.stringify(value));
   writeJson('teachers.json', [teacherId, 'other-teacher'].map((id) => ({ id, name: id, codeHash: codeHash(id), createdAt: new Date(capturedAt).toISOString() })));
   writeJson('students.json', [{ id: studentId, teacherId, name: 'Recovery Student', code: 'recovery-student-code', grade: '11', studyStatus: 'active', createdAt: new Date(capturedAt).toISOString(), deletedAt: null }]);
@@ -106,7 +113,7 @@ test('durable recovery survives server restarts, response loss and a failed disk
     assert.equal(recovered.sessionId, session.id);
     assert.equal(recovered.clockOffsetMs, 1234);
     await ok('lesson-replay/events', batch);
-    assert.equal(readReplay().events.length, 2, 'HTTP acknowledgement follows the durable gzip write');
+    assert.equal(readReplay().events.length, 2, 'HTTP acknowledgement follows the durable event journal write');
     const prepared = await ok('lesson-replay/audio/prepare', audio);
     assert.equal(prepared.storage, 'local');
     assert.equal((await ok('lesson-replay/audio/prepare', audio)).audioId, prepared.audioId);

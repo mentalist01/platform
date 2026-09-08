@@ -208,7 +208,9 @@ const useLessonReplayRecorder = ({
     const operation = (async () => {
       try {
         await journal.settle();
-        const result = await api.appendLessonReplayEvents(session.sessionId, events, { recovery: true, durable: true });
+        const result = await runEventWriteWithRetry(() => (
+          api.appendLessonReplayEvents(session.sessionId, events, { durable: true })
+        ));
         void journal.acknowledge(session, queuedEvents.map((event) => event.id)).catch(() => {});
         if (sessionRef.current?.sessionId === session.sessionId && queueRef.current.length === 0 && failedFinishesRef.current.size === 0) {
           setLessonReplayError('');

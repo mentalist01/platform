@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { createLessonReplayEventLog } from './lessonReplayEventLog.js';
 import { createLessonReplayReceipts } from './lessonReplayReceipts.js';
 import { writeDurableReplayFile } from './lessonReplayFiles.js';
 import zlib from 'zlib';
@@ -337,6 +338,7 @@ const activeLessonReplayOccurrenceByStudentId = new Map();
 const activeTelemostLessonReplayByStudentId = new Map();
 const lessonReplayWriteQueueByOccurrenceKey = new Map();
 const lessonReplayCacheByOccurrenceKey = new Map();
+const lessonReplayEstimatedRawBytesByOccurrenceKey = new Map();
 const lessonReplayPersistTimerByOccurrenceKey = new Map();
 const lessonReplayPersistFailureByOccurrenceKey = new Map();
 const lessonReplayCapacityBlockedOccurrenceKeys = new Set();
@@ -359,12 +361,14 @@ const workbookHelperExchangeAttempts = new Map();
 const workbookHelperContentAttempts = new Map();
 const workbookSolutionWriteQueues = new Map();
 const LESSON_REPLAY_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
-// Live events stay in the in-memory replay cache and are flushed immediately
-// when the lesson ends. A one-minute checkpoint avoids recompressing the whole
-// growing lesson file twice as often on a single-core server.
-const LESSON_REPLAY_PERSIST_INTERVAL_MS = 60 * 1000;
+// Each accepted batch is fsynced to an append-only journal. Rebuilding the
+// complete gzip every five minutes (and when the lesson ends) keeps the small
+// single-core server responsive without risking acknowledged events.
+const LESSON_REPLAY_PERSIST_INTERVAL_MS = 5 * 60 * 1000;
 const LESSON_REPLAY_PERSIST_MAX_RETRY_MS = 5 * 60 * 1000;
 const LESSON_REPLAY_COMPRESSION_TIMEOUT_MS = 30_000;
+const LESSON_REPLAY_COMPACT_THRESHOLD_BYTES = Math.floor(LESSON_REPLAY_MAX_FILE_BYTES * 0.9);
+const LESSON_REPLAY_COMPACT_TARGET_BYTES = Math.floor(LESSON_REPLAY_MAX_FILE_BYTES * 0.75);
 const LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS = 20 * 1000;
 const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;
 const TELEMOST_LESSON_DRAIN_MS = 30 * 1000;
@@ -597,6 +601,9 @@ const lessonHistoryFile = path.join(dataDir, 'lesson-history.json');
 const lessonReplaysDir = path.join(dataDir, 'lesson-replays');
 const lessonReplaySnapshotsDir = path.join(dataDir, 'lesson-replay-snapshots');
 const lessonReplayAudioDir = path.join(dataDir, 'lesson-replay-audio');
+const lessonReplayEventLog = createLessonReplayEventLog(path.join(dataDir, 'lesson-replay-event-log'), {
+  maxBytes: LESSON_REPLAY_MAX_FILE_BYTES,
+});
 const lessonReplayReceipts = createLessonReplayReceipts(path.join(dataDir, 'lesson-replay-receipts'));
 const lessonReplayStorageIndexFile = path.join(dataDir, 'lesson-replay-storage-index.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
@@ -2762,7 +2769,9 @@ const readLessonReplayFile = (filePath, occurrenceKey) => {
   }
   const parsed = JSON.parse(raw.toString('utf8'));
   const replay = normalizeLessonReplay(parsed);
-  return replay.occurrence.key === occurrenceKey ? replay : null;
+  if (replay.occurrence.key !== occurrenceKey) return null;
+  lessonReplayEstimatedRawBytesByOccurrenceKey.set(occurrenceKey, raw.length);
+  return replay;
 };
 
 const readLessonReplay = (occurrenceKey) => {
@@ -2772,16 +2781,31 @@ const readLessonReplay = (occurrenceKey) => {
   if (cached) return cached;
   const filePath = getLessonReplayFilePath(normalizedKey);
   const backupPath = getLessonReplayBackupFilePath(normalizedKey);
+  let replay = null;
   for (const candidate of [filePath, backupPath]) {
     try {
       if (!fs.existsSync(candidate)) continue;
-      const replay = readLessonReplayFile(candidate, normalizedKey);
-      if (replay) return replay;
+      replay = readLessonReplayFile(candidate, normalizedKey);
+      if (replay) break;
     } catch (error) {
       console.warn('[lesson-replay] failed to read replay file:', path.basename(candidate), error?.message || error);
     }
   }
-  return null;
+  if (!replay) return null;
+  try {
+    const pendingEvents = lessonReplayEventLog.read(normalizedKey);
+    if (pendingEvents.length > 0) {
+      const recovered = appendLessonReplayEvents(replay, pendingEvents, {
+        normalizedReplay: true,
+        maxBytes: LESSON_REPLAY_MAX_FILE_BYTES,
+      });
+      replay = recovered.replay;
+      lessonReplayEstimatedRawBytesByOccurrenceKey.set(normalizedKey, recovered.bytes);
+    }
+  } catch (error) {
+    console.error('[lesson-replay] failed to recover the event journal:', error?.message || error);
+  }
+  return replay;
 };
 
 const getLessonReplayCompressedBytes = (occurrenceKey) => {
@@ -2902,6 +2926,14 @@ const persistLessonReplay = async (normalized) => {
       console.warn('[lesson-replay] failed to remove an old replay backup:', error?.message || error);
     }
   }
+  lessonReplayEstimatedRawBytesByOccurrenceKey.set(normalized.occurrence.key, rawBytes);
+  try {
+    await lessonReplayEventLog.clear(normalized.occurrence.key);
+  } catch (error) {
+    // The compact file already contains these IDs. Keeping the journal is
+    // safe because recovery deduplicates it, and a later checkpoint retries cleanup.
+    console.warn('[lesson-replay] failed to clear the compacted event journal:', error?.message || error);
+  }
   const occurrenceHash = getLessonReplayOccurrenceHash(normalized.occurrence.key);
   const existingStorage = lessonReplayStorageIndexByHash.get(occurrenceHash);
   const replayStorage = existingStorage
@@ -2991,9 +3023,13 @@ const writeLessonReplay = async (replay, options = {}) => {
     lessonReplayPersistFailureByOccurrenceKey.delete(occurrenceKey);
     return stored;
   } catch (error) {
-    // Do not let a retry mistake an uncommitted event for a saved snapshot.
-    if (previousReplay) lessonReplayCacheByOccurrenceKey.set(occurrenceKey, previousReplay);
-    else lessonReplayCacheByOccurrenceKey.delete(occurrenceKey);
+    // Journaled events have already crossed the durability boundary. Keep
+    // them in memory when compaction fails so another full write cannot clear
+    // the journal using an older cached replay.
+    if (options.journaled !== true) {
+      if (previousReplay) lessonReplayCacheByOccurrenceKey.set(occurrenceKey, previousReplay);
+      else lessonReplayCacheByOccurrenceKey.delete(occurrenceKey);
+    }
     if (pendingTimer && previousReplay) scheduleLessonReplayPersistence(occurrenceKey);
     throw error;
   }
@@ -32998,12 +33034,7 @@ app.post('/api/lesson-replay/audio/prepare', async (req, res) => {
   const previousReplay = readLessonReplay(session.occurrenceKey);
   if (!replayMatchesLessonReplayAccess(previousReplay, access)) return res.status(404).json({ error: 'Запись занятия не найдена' });
   if (previousReplay.events.some((event) => event.type === 'audio' && event.payload?.audioId === audioId)) {
-    try {
-      await withLessonReplayWriteLock(session.occurrenceKey, () => writeLessonReplay(readLessonReplay(session.occurrenceKey), { normalized: true }));
-      return res.json({ ok: true, completed: true, audioId });
-    } catch {
-      return res.status(503).json({ error: 'Не удалось подтвердить сохранение аудиофрагмента' });
-    }
+    return res.json({ ok: true, completed: true, audioId });
   }
   const pendingForSession = Array.from(lessonReplayAudioUploadTickets.values())
     .filter((ticket) => (
@@ -33224,7 +33255,18 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
         normalizedReplay: true,
         strictIncoming: true,
       });
-      const stored = await writeLessonReplay(appended.replay, { normalized: true });
+      if (appended.added !== 1) throw new Error('Audio event was rejected');
+      const audioEvent = appended.replay.events.find((event) => (
+        event.type === 'audio' && event.payload?.audioId === audioId
+      ));
+      if (!audioEvent) throw new Error('Audio event was not retained');
+      await lessonReplayEventLog.append(ticket.occurrenceKey, [audioEvent]);
+      lessonReplayEstimatedRawBytesByOccurrenceKey.set(ticket.occurrenceKey, appended.bytes);
+      const stored = await writeLessonReplay(appended.replay, {
+        normalized: true,
+        deferred: true,
+        journaled: true,
+      });
       return { added: appended.added, replay: stored.replay, compressedBytes: stored.compressedBytes };
     });
     if (result.added > 0) {
@@ -33569,6 +33611,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         notFoundError.statusCode = 404;
         throw notFoundError;
       }
+      const previousEventIds = new Set(replay.events.map((event) => event.id));
       const appended = appendLessonReplayEvents(replay, rawEvents, {
         actorRole: session.actorRole,
         actorId: session.actorId,
@@ -33576,8 +33619,9 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         nowMs,
         normalizedReplay: true,
         strictIncoming: true,
+        skipByteCompaction: true,
       });
-      const finalReplay = canDrainTelemost && !req.lessonReplayRecovery
+      let finalReplay = canDrainTelemost && !req.lessonReplayRecovery
         ? appendLessonReplayEvents(appended.replay, [{
           id: `${session.id}:end`,
           type: 'session',
@@ -33589,19 +33633,49 @@ app.post('/api/lesson-replay/events', async (req, res) => {
           actorName: session.actorName,
           nowMs,
           normalizedReplay: true,
+          skipByteCompaction: true,
         })
         : appended;
-      if (finalReplay.added > 0 || appended.added > 0 || req.body?.durable || req.lessonReplayRecovery) {
+
+      let acceptedEvents = finalReplay.replay.events.filter((event) => !previousEventIds.has(event.id));
+      const previousEstimatedBytes = lessonReplayEstimatedRawBytesByOccurrenceKey.get(session.occurrenceKey)
+        || Buffer.byteLength(JSON.stringify(replay), 'utf8');
+      let estimatedBytes = previousEstimatedBytes + acceptedEvents.reduce(
+        (total, event) => total + Buffer.byteLength(JSON.stringify(event), 'utf8') + 1,
+        0
+      );
+      let compactedForCapacity = false;
+      if (estimatedBytes >= LESSON_REPLAY_COMPACT_THRESHOLD_BYTES) {
+        finalReplay = appendLessonReplayEvents(finalReplay.replay, [], {
+          normalizedReplay: true,
+          maxBytes: LESSON_REPLAY_COMPACT_TARGET_BYTES,
+        });
+        estimatedBytes = finalReplay.bytes;
+        acceptedEvents = finalReplay.replay.events.filter((event) => !previousEventIds.has(event.id));
+        compactedForCapacity = true;
+      }
+      if (acceptedEvents.length > 0) {
+        await lessonReplayEventLog.append(session.occurrenceKey, acceptedEvents);
+        lessonReplayEstimatedRawBytesByOccurrenceKey.set(session.occurrenceKey, estimatedBytes);
         const stored = await writeLessonReplay(finalReplay.replay, {
-          deferred: !canDrainTelemost && !req.body?.durable && !req.lessonReplayRecovery,
+          deferred: !canDrainTelemost && !compactedForCapacity,
+          journaled: true,
           normalized: true,
         });
-        return { appended, replay: stored.replay, compressedBytes: stored.compressedBytes };
+        return {
+          appended,
+          replay: stored.replay,
+          compressedBytes: stored.compressedBytes,
+          journaled: true,
+          compacted: stored.deferred !== true,
+        };
       }
       return {
         appended,
-        replay: appended.replay,
-        compressedBytes: getLessonReplaySummary(session.occurrenceKey, appended.replay).bytes,
+        replay: finalReplay.replay,
+        compressedBytes: getLessonReplaySummary(session.occurrenceKey, finalReplay.replay).bytes,
+        journaled: false,
+        compacted: false,
       };
     });
     if (result?.closed) {
@@ -33617,6 +33691,8 @@ app.post('/api/lesson-replay/events', async (req, res) => {
       ok: true,
       added: result.appended.added,
       ended: canDrainTelemost && !req.lessonReplayRecovery,
+      journaled: result.journaled,
+      compacted: result.compacted,
       summary: summarizeLessonReplay(result.replay, result.compressedBytes, { normalized: true }),
     });
   } catch (error) {

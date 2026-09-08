@@ -1,6 +1,20 @@
 const DEFAULT_BOARD_PAYLOAD_MAX_BYTES = 256 * 1024;
 
-export const LESSON_REPLAY_BOARD_CHECKPOINT_MS = 750;
+export const LESSON_REPLAY_BOARD_CHECKPOINT_MS = 1500;
+
+const roundCoordinate = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric * 10) / 10 : value;
+};
+
+const compactPoint = (point) => ({
+  ...point,
+  x: roundCoordinate(point?.x),
+  y: roundCoordinate(point?.y),
+  ...(Number.isFinite(Number(point?.pressure))
+    ? { pressure: Math.round(Number(point.pressure) * 1000) / 1000 }
+    : {}),
+});
 
 export const compactLessonReplayBoardItems = (items, options = {}) => {
   const maxItems = Math.max(1, Math.round(Number(options.maxItems) || 2500));
@@ -12,13 +26,14 @@ export const compactLessonReplayBoardItems = (items, options = {}) => {
       delete safeImage.dataUrl;
       return safeImage.assetUrl ? safeImage : null;
     }
-    if (item.type === 'stroke' && Array.isArray(item.points) && item.points.length > maxStrokePoints) {
-      const points = [];
-      const step = (item.points.length - 1) / (maxStrokePoints - 1);
-      for (let index = 0; index < maxStrokePoints; index += 1) {
-        points.push(item.points[Math.min(item.points.length - 1, Math.round(index * step))]);
-      }
-      return { ...item, points };
+    if (item.type === 'stroke' && Array.isArray(item.points)) {
+      const sourcePoints = item.points.length > maxStrokePoints
+        ? Array.from({ length: maxStrokePoints }, (_, index) => {
+          const step = (item.points.length - 1) / (maxStrokePoints - 1);
+          return item.points[Math.min(item.points.length - 1, Math.round(index * step))];
+        })
+        : item.points;
+      return { ...item, points: sourcePoints.map(compactPoint) };
     }
     return item;
   }).filter(Boolean);

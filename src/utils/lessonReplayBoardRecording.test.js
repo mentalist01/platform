@@ -30,7 +30,18 @@ test('keeps every object from a full 2500-item board', () => {
 
   assert.equal(compacted.length, 2500);
   assert.equal(compacted.at(-1).id, 'stroke-2499');
-  assert.ok(LESSON_REPLAY_BOARD_CHECKPOINT_MS < 1000);
+  assert.ok(LESSON_REPLAY_BOARD_CHECKPOINT_MS >= 1000);
+  assert.ok(LESSON_REPLAY_BOARD_CHECKPOINT_MS <= 2000);
+});
+
+test('rounds stroke coordinates before storing repeated checkpoints', () => {
+  const [stroke] = compactLessonReplayBoardItems([{
+    id: 'stroke-rounded',
+    type: 'stroke',
+    points: [{ x: 12.34567, y: 89.98765, pressure: 0.45678 }],
+  }]);
+
+  assert.deepEqual(stroke.points, [{ x: 12.3, y: 90, pressure: 0.457 }]);
 });
 
 test('splits an oversized board keyframe without losing or reordering objects', () => {

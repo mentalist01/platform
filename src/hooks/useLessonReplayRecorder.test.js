@@ -32,7 +32,7 @@ const createHarness = async (configureApi = () => {}, { initialProps = {}, store
     || previous.length !== next.length || previous.some((value, index) => value !== next[index]);
   const api = {
     startLessonReplaySession: async () => ({ sessionId: 'session', serverNowMs: now }),
-    appendLessonReplayEvents: async (id, events) => { writes.push({ id, events }); return {}; },
+    appendLessonReplayEvents: async (id, events, options) => { writes.push({ id, events, options }); return {}; },
     finishLessonReplaySession: async (id, options) => { finishes.push({ id, options }); return {}; },
   };
   const window = {
@@ -158,6 +158,25 @@ test('immediate events advance a scheduled flush and subsequent events cannot po
   assert.equal(h.writes[0].events.length, 3);
 });
 
+test('a transient event upload failure retries before showing the recovery banner', async () => {
+  let attempt = 0;
+  const h = await createHarness((api) => {
+    const write = api.appendLessonReplayEvents;
+    api.appendLessonReplayEvents = (...args) => {
+      attempt += 1;
+      return attempt === 1 ? Promise.reject(new Error('temporary network error')) : write(...args);
+    };
+  });
+  h.hook.recordLessonReplayEvent('board', { mode: 'snapshot', items: [{ id: 'retry' }] });
+  await h.advance(8800);
+
+  assert.equal(attempt, 2);
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.writes[0].options.durable, true);
+  assert.equal(h.writes[0].options.recovery, undefined);
+  assert.equal(h.messages.some((message) => message.includes('ожидает сохранения')), false);
+});
+
 test('an overflowing offline queue keeps every board edit and saves them in order', async () => {
   const h = await createHarness();
   const write = h.api.appendLessonReplayEvents;
@@ -172,7 +191,7 @@ test('an overflowing offline queue keeps every board edit and saves them in orde
     assert.equal(h.hook.recordLessonReplayEvent('board', payload), true);
     if (index % 100 === 0) h.hook.recordLessonReplayEvent('viewport', { surface: 'board', x: index });
   }
-  await h.advance(8000);
+  await h.advance(11_200);
   assert.equal(h.writes.length, 0);
   assert.ok(h.messages.some((message) => message.includes('ожидает сохранения')));
   h.api.appendLessonReplayEvents = write;
@@ -242,7 +261,7 @@ test('reconnection triggers a retry even if the board has not changed again', as
   const write = h.api.appendLessonReplayEvents;
   h.api.appendLessonReplayEvents = async () => { throw new Error('offline'); };
   h.hook.recordLessonReplayEvent('board', { mode: 'snapshot', items: [{ id: 'offline' }] });
-  await h.advance(8000);
+  await h.advance(11_200);
   h.api.appendLessonReplayEvents = write;
   h.listeners.get('online')();
   await h.settle();
