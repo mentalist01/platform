@@ -194,6 +194,7 @@ const loadTeacherPanel = () => import('./components/TeacherPanel');
 const loadTeacherStudentChatsSection = () => import('./components/TeacherStudentChatsSection');
 
 const AdminPanel = React.lazy(loadAdminPanel);
+const BoardTabletHost = React.lazy(() => import('./components/BoardTabletHost.jsx'));
 const CallSection = React.lazy(loadCallSection);
 const Editor = React.lazy(loadEditor);
 const FinalReviewSection = React.lazy(loadFinalReviewSection);
@@ -11014,6 +11015,7 @@ const BoardSection = ({
   const [peerCount, setPeerCount] = useState(0);
   const [boardSnapshot, setBoardSnapshot] = useState({ revision: 0, itemCount: 0, estimatedBytes: 0 });
   const [remotePreviews, setRemotePreviews] = useState([]);
+  const [tabletPreview, setTabletPreview] = useState(null);
   const [remoteCursors, setRemoteCursors] = useState([]);
   const [remoteCursorClock, setRemoteCursorClock] = useState(() => Date.now());
   const [followingRemoteCursorId, setFollowingRemoteCursorId] = useState('');
@@ -14756,6 +14758,7 @@ const BoardSection = ({
       -(offsetRef.current.x || 0) * renderScale,
       -(offsetRef.current.y || 0) * renderScale
     );
+    if (tabletPreview) drawStroke(ctx, tabletPreview);
     if (remotePreviews.length > 0) {
       ctx.save();
       ctx.globalAlpha = 0.95;
@@ -14867,7 +14870,7 @@ const BoardSection = ({
 
   useEffect(() => {
     renderOverlay();
-  }, [zoom, offset, remotePreviews, tool, color, penWidth, shapeKind, displaySelectedImage, selectionBox]);
+  }, [zoom, offset, remotePreviews, tabletPreview, tool, color, penWidth, shapeKind, displaySelectedImage, selectionBox]);
 
   const scheduleBoardRender = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -17879,6 +17882,28 @@ const BoardSection = ({
 
         <div ref={boardBottomControlsRef} className="board-bottom-controls">
           <div className="board-bottom-controls__pill board-bottom-controls__session" aria-label="Состояние доски">
+            {!isSandbox && !boardReadOnly && roomId && (
+              <React.Suspense fallback={null}>
+                <BoardTabletHost key={roomId} roomId={roomId} authorId={userId}
+                  connected={status === 'connected'}
+                  getFrame={() => {
+                    renderBoard();
+                    return { canvas: canvasRef.current, ...boardSizeRef.current, ...offsetRef.current, zoom: zoomRef.current };
+                  }}
+                  onStroke={(item) => {
+                    if (!docRef.current || !yItemsRef.current || sandboxReadOnlyRef.current) throw new Error('Доска недоступна.');
+                    if (boardItemsRef.current.some((entry) => entry.id === item.id)) return;
+                    const capacity = ensureBoardCanAddItems([item]);
+                    if (!capacity.ok) throw new Error(capacity.error);
+                    undoManagerRef.current?.stopCapturing();
+                    docRef.current.transact(() => yItemsRef.current.push([item]), localOriginRef.current);
+                    undoManagerRef.current?.stopCapturing();
+                  }}
+                  onUndo={(id) => deleteItemsByIds([id])}
+                  onPreview={setTabletPreview}
+                />
+              </React.Suspense>
+            )}
             {!isSandbox && (!isGroupLesson || isTeacher) && (
               <button
                 type="button"

@@ -527,6 +527,19 @@ const requestLearningGroupJson = async (path, options = {}) => {
 };
 
 export const api = {
+  createBoardTablet: async (roomId) => {
+    const res = await apiFetch('/api/board-tablet', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  disconnectBoardTablet: async (id) => {
+    const res = await apiFetch(`/api/board-tablet/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getCurrentSession: async () => {
     const res = await apiFetch('/api/session');
     if (!res.ok) throw new Error(await parseApiError(res));

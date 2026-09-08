@@ -31,6 +31,7 @@
     "node-ical": "^0.26.0",
     "openseadragon": "^6.1.0",
     "prismjs": "^1.30.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "sharp": "^0.35.3",

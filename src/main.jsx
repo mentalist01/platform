@@ -1,7 +1,8 @@
-import { StrictMode } from 'react'
+import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+const BoardTabletPage = lazy(() => import('./components/BoardTabletPage.jsx'))
 import {
   cleanupOfflineServiceWorkerForDevelopment,
   registerOfflineServiceWorker,
@@ -10,7 +11,9 @@ import {
 const renderApp = () => {
   createRoot(document.getElementById('root')).render(
     <StrictMode>
-      <App />
+      {window.location.hash.startsWith('#tablet=')
+        ? <Suspense fallback={<div role="status">Подключаем планшет…</div>}><BoardTabletPage /></Suspense>
+        : <App />}
     </StrictMode>,
   )
 }

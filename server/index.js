@@ -14,6 +14,7 @@ import { Worker } from 'worker_threads';
 import { monitorEventLoopDelay } from 'perf_hooks';
 import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
+import { createBoardTabletService } from './boardTablet.js';
 import yWsUtils from 'y-websocket/bin/utils';
 import {
   GetObjectCommand,
@@ -21848,6 +21849,25 @@ app.post('/api/admin/xp-rebalance', (req, res) => {
   return res.json(runStudentXpFixes({ apply }));
 });
 
+const boardTabletService = createBoardTabletService({
+  authorize: (auth, roomId, authToken) => {
+    const session = getAuthSession(authToken);
+    if (!session?.user || session.user.id !== auth?.id || session.user.role !== auth?.role) return false;
+    if (!isTeacherRole(auth) && !isStudentRole(auth)) return false;
+    const access = authorizeLearningCollabUpgrade({
+      requestUrl: `/collab/${encodeURIComponent(roomId)}`,
+      auth: session.user,
+      sessions: LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [],
+      groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+      attendanceRecords: LEARNING_GROUPS_ENABLED ? readLearningAttendanceDb() : [],
+      students: readStudentsDb(),
+    });
+    return access.allowed && !access.readOnly;
+  },
+});
+app.post('/api/board-tablet', boardTabletService.create);
+app.delete('/api/board-tablet/:id', boardTabletService.remove);
+
 app.post('/api/board/reset', async (req, res) => {
   const requestedLessonId = typeof req.body?.lessonId === 'string'
     ? req.body.lessonId.trim()
@@ -40237,6 +40257,10 @@ if (typeof rtcClientSweepInterval.unref === 'function') {
 
 server.on('upgrade', (request, socket, head) => {
   const pathname = getUpgradePathname(request?.url);
+  if (pathname === boardTabletService.path) {
+    boardTabletService.upgrade(request, socket, head);
+    return;
+  }
   if (pathname === '/collab' || pathname.startsWith('/collab/')) {
     const token = getAuthTokenFromRequest(request);
     const session = getAuthSession(token);
