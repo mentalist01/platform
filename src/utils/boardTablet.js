@@ -32,6 +32,29 @@ export const tabletStrokeToBoard = (stroke, frame, authorId) => ({
   })),
 });
 
+export const tabletFrameState = (value) => {
+  if (!Number.isSafeInteger(value?.revision) || value.revision < 0
+    || !Number.isFinite(value.view?.x) || !Number.isFinite(value.view?.y)
+    || !Number.isFinite(value.view?.zoom) || value.view.zoom <= 0) return null;
+  return { revision: value.revision, view: { x: value.view.x, y: value.view.y, zoom: value.view.zoom } };
+};
+
+// An acknowledgement means the board accepted the stroke, not that the image
+// currently on the phone contains it. Keep local ink until that image is drawn.
+export const tabletInkForFrame = (entry, frame) => {
+  if (Number.isSafeInteger(entry.revision) && Number.isSafeInteger(frame.revision)
+    && frame.revision >= entry.revision) return null;
+  if (entry.stroke.frameId === frame.id) return entry.stroke;
+  if (!entry.frame.view || !frame.view) return null;
+  const source = entry.frame;
+  const target = frame;
+  return { ...entry.stroke, width: entry.stroke.width * target.view.zoom / source.view.zoom,
+    points: entry.stroke.points.map((point) => ({
+      x: (source.view.x + point.x * source.width / source.view.zoom - target.view.x) * target.view.zoom / target.width,
+      y: (source.view.y + point.y * source.height / source.view.zoom - target.view.y) * target.view.zoom / target.height,
+    })) };
+};
+
 export const tabletSocketUrl = (collabUrl) => {
   const url = new URL(collabUrl);
   url.pathname = `${url.pathname.replace(/\/+$/, '')}/tablet`;

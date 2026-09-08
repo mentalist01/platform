@@ -54,6 +54,9 @@ export default function BoardTabletHost({ roomId, connected, authorId, getFrame,
     let hasPen = false;
     let lastImage = '';
     let lastView = '';
+    let revision = 0;
+    let lastRevision = -1;
+    let captureTimer;
     let previewUntil = 0;
     const rememberResult = (id, result) => {
       results.set(id, result);
@@ -73,13 +76,18 @@ export default function BoardTabletHost({ roomId, connected, authorId, getFrame,
         ctx.drawImage(frame.canvas, 0, 0, canvas.width, canvas.height);
         const image = canvas.toDataURL('image/jpeg', 0.78);
         const view = JSON.stringify([frame.x, frame.y, frame.width, frame.height, frame.zoom]);
-        if (image === lastImage && view === lastView) return;
+        if (image === lastImage && view === lastView && revision === lastRevision) return;
         const id = tabletId();
-        if (!client.send({ type: 'frame', id, width: frame.width, height: frame.height, image })) return;
+        if (!client.send({ type: 'frame', id, width: frame.width, height: frame.height, image,
+          revision, view: { x: frame.x, y: frame.y, zoom: frame.zoom } })) return;
         frames.set(id, { x: frame.x, y: frame.y, width: frame.width, height: frame.height, zoom: frame.zoom });
         if (frames.size > 240) frames.delete(frames.keys().next().value);
-        lastImage = image; lastView = view;
+        lastImage = image; lastView = view; lastRevision = revision;
       } catch { setError('Не удалось показать доску на телефоне. Попробуйте подключить его заново.'); }
+    };
+    const scheduleCapture = () => {
+      if (captureTimer) return;
+      captureTimer = setTimeout(() => { captureTimer = null; capture(); }, 50);
     };
     const client = connectBoardTablet({
       url: tabletSocketUrl(getCollabWsUrl()),
@@ -112,8 +120,9 @@ export default function BoardTabletHost({ roomId, connected, authorId, getFrame,
               handlers.current.onStroke(item);
               ownStrokes.add(stroke.id);
               handlers.current.onPreview(null);
-              rememberResult(stroke.id, { type: 'ack', id: stroke.id, ok: true });
-              lastImage = '';
+              revision += 1;
+              rememberResult(stroke.id, { type: 'ack', id: stroke.id, ok: true, revision });
+              scheduleCapture();
             } catch (err) {
               handlers.current.onPreview(null);
               rememberResult(stroke.id, { type: 'ack', id: stroke.id, ok: false, error: err.message });
@@ -126,8 +135,9 @@ export default function BoardTabletHost({ roomId, connected, authorId, getFrame,
             if (!handlers.current.connected) throw new Error('Дождитесь подключения доски.');
             if (ownStrokes.has(message.strokeId)) handlers.current.onUndo(`tablet-${message.strokeId}`);
             ownStrokes.delete(message.strokeId);
-            rememberResult(message.id, { type: 'ack', id: message.id, ok: true });
-            lastImage = '';
+            revision += 1;
+            rememberResult(message.id, { type: 'ack', id: message.id, ok: true, revision });
+            scheduleCapture();
           } catch (err) { rememberResult(message.id, { type: 'ack', id: message.id, ok: false, error: err.message }); }
         }
       },
@@ -138,7 +148,7 @@ export default function BoardTabletHost({ roomId, connected, authorId, getFrame,
       if (previewUntil && Date.now() > previewUntil) { previewUntil = 0; handlers.current.onPreview(null); }
     }, 400);
     return () => {
-      clearInterval(timer);
+      clearInterval(timer); clearTimeout(captureTimer);
       client.send({ type: 'revoke' }); client.close(); clientRef.current = null;
       handlers.current.onPreview(null);
       api.disconnectBoardTablet(session.id).catch(() => {});

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import os from 'node:os';
 import { WebSocketServer } from 'ws';
-import { normalizeTabletStroke, TABLET_WS_PATH } from '../src/utils/boardTablet.js';
+import { normalizeTabletStroke, tabletFrameState, TABLET_WS_PATH } from '../src/utils/boardTablet.js';
 
 const key = () => crypto.randomBytes(24).toString('base64url');
 const send = (ws, value) => {
@@ -123,11 +123,14 @@ export const createBoardTabletService = ({ authorize, now = Date.now, pairingMs 
           && Number.isFinite(message.height) && message.height > 0 && message.height <= 10_000
           && typeof message.image === 'string' && message.image.length <= 1_000_000
           && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(message.image)) {
-          session.frame = { type: 'frame', id: message.id, width: message.width, height: message.height, image: message.image };
+          const frameState = tabletFrameState(message);
+          if (message.revision !== undefined && !frameState) return;
+          session.frame = { type: 'frame', id: message.id, width: message.width, height: message.height, image: message.image, ...frameState };
           return send(session.pen, session.frame);
         }
         if (message.type === 'ack' && /^[\w-]{1,80}$/.test(message.id || '')) {
           const result = { type: 'ack', id: message.id, ok: message.ok === true, error: String(message.error || '').slice(0, 200) };
+          if (Number.isSafeInteger(message.revision) && message.revision >= 0) result.revision = message.revision;
           boundedSet(session.results, message.id, result);
           return send(session.pen, result);
         }

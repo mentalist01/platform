@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Smartphone, Undo2, PenLine, Maximize, Wifi, WifiOff } from 'lucide-react';
+import { Smartphone, Undo2, PenLine, Maximize, Minimize, X, Wifi, WifiOff } from 'lucide-react';
 import { getCollabWsUrl } from '../utils/runtimeUrls.js';
-import { readTabletLink, tabletId, tabletSocketUrl, TABLET_COLORS, TABLET_MAX_POINTS } from '../utils/boardTablet.js';
+import { readTabletLink, tabletId, tabletSocketUrl, tabletFrameState, tabletInkForFrame, TABLET_COLORS, TABLET_MAX_POINTS } from '../utils/boardTablet.js';
 import { connectBoardTablet } from '../utils/boardTabletSocket.js';
 import './BoardTablet.css';
 
@@ -24,10 +24,48 @@ export default function BoardTabletPage() {
   const [penOnly, setPenOnly] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [canUndo, setCanUndo] = useState(false);
+  const [immersive, setImmersive] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const pageRef = useRef(null);
   const canvasRef = useRef(null);
   const settings = useRef({ color, width, penOnly });
   const undo = useRef(() => {});
   useEffect(() => { settings.current = { color, width, penOnly }; }, [color, width, penOnly]);
+
+  useEffect(() => {
+    const onFullscreen = () => {
+      setImmersive(Boolean(document.fullscreenElement || document.webkitFullscreenElement));
+      setToolsOpen(false);
+    };
+    const onKey = (event) => { if (event.key === 'Escape') { setImmersive(false); setToolsOpen(false); } };
+    document.addEventListener('fullscreenchange', onFullscreen);
+    document.addEventListener('webkitfullscreenchange', onFullscreen);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreen);
+      document.removeEventListener('webkitfullscreenchange', onFullscreen);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    setToolsOpen(false);
+    if (immersive) {
+      setImmersive(false);
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        try { await exit?.call(document); } catch { /* The normal controls remain available. */ }
+      }
+      return;
+    }
+    setImmersive(true);
+    const page = pageRef.current;
+    const enter = page.requestFullscreen || page.webkitRequestFullscreen;
+    try {
+      if (!enter) throw new Error('Fullscreen unavailable');
+      await enter.call(page, { navigationUI: 'hide' });
+    } catch { setError('Панели скрыты. Этот браузер не разрешил убрать адресную строку.'); }
+  };
 
   useEffect(() => {
     const link = readTabletLink(window.location.hash);
@@ -87,10 +125,13 @@ export default function BoardTabletPage() {
       if (!area) return;
       ctx.drawImage(current.bitmap, area.left, area.top, area.width, area.height);
       ctx.save(); ctx.beginPath(); ctx.rect(area.left, area.top, area.width, area.height); ctx.clip();
-      for (const entry of ink.values()) {
-        // Old unconfirmed strokes are retained for retry, but must not move
-        // with a new viewport while waiting for an acknowledgement.
-        if (entry.stroke.frameId === current.id) drawInk(entry.stroke, area);
+      for (const [id, entry] of ink) {
+        if (Number.isSafeInteger(entry.revision) && current.revision >= entry.revision) {
+          ink.delete(id);
+          continue;
+        }
+        const stroke = tabletInkForFrame(entry, current);
+        if (stroke) drawInk(stroke, area);
       }
       if (active) drawInk(active.stroke, area);
       ctx.restore();
@@ -115,13 +156,16 @@ export default function BoardTabletPage() {
         if (message.type === 'ended') setError(message.message);
         if (message.type === 'presence') { hostPresent = message.host; setHost(message.host); retryPending(); }
         if (message.type === 'frame') {
+          if (!tabletFrameState(message)) {
+            setError('Обновите страницу с доской на компьютере (Ctrl+F5) и создайте новый QR-код.');
+            return;
+          }
           const sequence = ++frameSequence;
           const bitmap = new Image();
           bitmap.onload = () => {
             if (disposed || sequence < appliedSequence) return;
             appliedSequence = sequence;
             latest = { ...message, bitmap };
-            for (const [id, entry] of ink) { if (entry.ackedAt && sequence > entry.ackedAt) ink.delete(id); }
             setHasFrame(true); repaint();
           };
           bitmap.src = message.image;
@@ -132,7 +176,7 @@ export default function BoardTabletPage() {
           pending.delete(message.id);
           if (operation.type === 'stroke') {
             const entry = ink.get(message.id);
-            if (message.ok) { if (entry) entry.ackedAt = frameSequence || 1; history.push(message.id); }
+            if (message.ok) { if (entry) entry.revision = message.revision; history.push(message.id); }
             else ink.delete(message.id);
           } else if (message.ok) {
             const index = history.indexOf(operation.strokeId);
@@ -157,7 +201,8 @@ export default function BoardTabletPage() {
       if (x < 0 || x > area.width || y < 0 || y > area.height) return;
       event.preventDefault();
       canvas.setPointerCapture(event.pointerId);
-      active = { pointerId: event.pointerId, stroke: { id: tabletId(), frameId: current.id,
+      active = { pointerId: event.pointerId, frame: { width: current.width, height: current.height, view: current.view },
+        stroke: { id: tabletId(), frameId: current.id,
         color: settings.current.color, width: settings.current.width, points: [pointAt(event, area)] } };
       setError(''); repaint();
     };
@@ -181,8 +226,8 @@ export default function BoardTabletPage() {
       if (!active || active.pointerId !== event.pointerId) return;
       if (event.type === 'pointerup') move(event);
       const stroke = active.stroke;
+      ink.set(stroke.id, { stroke, frame: active.frame, revision: null });
       active = null;
-      ink.set(stroke.id, { stroke, ackedAt: 0 });
       enqueue({ type: 'stroke', stroke });
       client.send({ type: 'preview-clear' });
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
@@ -210,7 +255,7 @@ export default function BoardTabletPage() {
 
   const ready = state === 'connected' && host;
   const invalid = !readTabletLink(window.location.hash);
-  return <main className="tablet-page">
+  return <main ref={pageRef} className={`tablet-page${immersive ? ' is-immersive' : ''}`}>
     <header className="tablet-page-header">
       <div className="tablet-page-title"><Smartphone size={19} /><strong>Планшет для доски</strong></div>
       <span className={`tablet-connection ${ready ? 'is-ready' : ''}`} role="status">
@@ -218,7 +263,7 @@ export default function BoardTabletPage() {
         {invalid ? 'Неверная ссылка' : state === 'ended' ? 'Отключён' : ready ? pendingCount ? `Передаём: ${pendingCount}` : 'Подключён' : 'Ждём компьютер…'}
       </span>
     </header>
-    <div className="tablet-tools" role="toolbar" aria-label="Инструменты рисования">
+    <div id="tablet-tools" className="tablet-tools" hidden={immersive && !toolsOpen} role="toolbar" aria-label="Инструменты рисования">
       <PenLine size={18} />
       <div className="tablet-colors">{TABLET_COLORS.map((value, i) => <button key={value} className="tablet-swatch" style={{ '--ink': value }}
         aria-label={['Фиолетовый', 'Чёрный', 'Красный', 'Зелёный', 'Синий'][i]} aria-pressed={color === value} onClick={() => setColor(value)} />)}</div>
@@ -226,12 +271,16 @@ export default function BoardTabletPage() {
         <option value={3}>Тонко</option><option value={5}>Средне</option><option value={9}>Толсто</option>
       </select>
       <button className="tablet-icon-button" disabled={!canUndo || !ready} aria-label="Отменить мой последний штрих" onClick={() => undo.current()}><Undo2 size={21} /></button>
-      <button className="tablet-icon-button tablet-fullscreen" aria-label="На весь экран" onClick={() => {
-        if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
-        else document.documentElement.requestFullscreen?.().catch(() => setError('Для большего поля поверните телефон горизонтально.'));
-      }}><Maximize size={19} /></button>
+      {!immersive && <button className="tablet-icon-button tablet-fullscreen" aria-label="На весь экран" onClick={toggleFullscreen}><Maximize size={19} /></button>}
       <label className="tablet-pen-only"><input type="checkbox" checked={penOnly} onChange={(event) => setPenOnly(event.target.checked)} /> Только стилус</label>
     </div>
+    {immersive && <div className="tablet-floating-tools">
+      <button className="tablet-icon-button" aria-label={toolsOpen ? 'Скрыть инструменты' : 'Показать инструменты'}
+        aria-expanded={toolsOpen} aria-controls="tablet-tools" onClick={() => setToolsOpen((open) => !open)}>
+        {toolsOpen ? <X size={20} /> : <PenLine size={20} />}
+      </button>
+      <button className="tablet-icon-button" aria-label="Выйти из полного экрана" onClick={toggleFullscreen}><Minimize size={20} /></button>
+    </div>}
     <div className="tablet-stage">
       <canvas ref={canvasRef} aria-label="Рисуйте здесь пальцем или стилусом" />
       {(!hasFrame || !ready) && <div className="tablet-stage-message">
@@ -243,5 +292,8 @@ export default function BoardTabletPage() {
     <footer className="tablet-page-footer">
       {error ? <span role="alert" className="tablet-error">{error}</span> : <span>Пишите на светлом поле. Поверните телефон горизонтально — места станет больше.</span>}
     </footer>
+    {immersive && (error || !ready || pendingCount > 0) && <div className={`tablet-floating-status${error ? ' tablet-error' : ''}`} role="status">
+      {error || (!ready ? 'Ждём соединения с доской…' : `Передаём: ${pendingCount}`)}
+    </div>}
   </main>;
 }

@@ -5,6 +5,13 @@
 .tablet-connection { font-size: 12px; color: #80744d; }
 .tablet-connection.is-ready, .tablet-status.is-ready { color: #16794b; }
 .tablet-tools { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; padding: 8px 12px; background: white; border-bottom: 1px solid #e5e7ef; }
+.tablet-tools[hidden] { display: none; }
+.tablet-page:fullscreen { width: 100%; height: 100%; }
+.tablet-page.is-immersive .tablet-page-header, .tablet-page.is-immersive .tablet-page-footer { display: none; }
+.tablet-page.is-immersive .tablet-tools { position: absolute; top: calc(60px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); left: calc(10px + env(safe-area-inset-left)); z-index: 3; width: fit-content; max-width: calc(100% - 20px); margin-left: auto; border: 1px solid #dce0e9; border-radius: 16px; box-shadow: 0 4px 20px #17203320; }
+.tablet-floating-tools { position: absolute; z-index: 4; top: calc(8px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); display: flex; gap: 6px; }
+.tablet-floating-tools .tablet-icon-button { width: 44px; height: 44px; background: #fffffff2; box-shadow: 0 2px 12px #17203320; }
+.tablet-floating-status { position: absolute; z-index: 3; bottom: calc(8px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px); border-radius: 12px; padding: 6px 12px; background: #fffffff2; font-size: 12px; text-align: center; pointer-events: none; }
 .tablet-colors { display: flex; gap: 5px; }
 .tablet-swatch { width: 34px; height: 34px; border: 3px solid white; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 1px #e0e3ed; cursor: pointer; }
 .tablet-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px #8247e5; }
@@ -37,4 +44,4 @@
 .tablet-network-select select { padding: 5px; border: 1px solid #e5e7ef; border-radius: 8px; background: white; color: #172033; }
 .tablet-error, .tablet-dialog .tablet-error { color: #b42318; }
 @media (orientation: landscape) and (max-height: 500px) { .tablet-page-header { padding: 5px 12px; } .tablet-tools { padding: 4px 10px; gap: 8px; } .tablet-swatch { width: 30px; height: 30px; } .tablet-icon-button { width: 34px; height: 34px; } .tablet-page-footer { padding: 3px 12px; min-height: 20px; } }
-@media (max-width: 420px) { .tablet-tools { gap: 7px; } .tablet-tools > svg { display: none; } .tablet-fullscreen { display: none; } .tablet-page-title { font-size: 12px; } .tablet-connection { font-size: 11px; } }
+@media (max-width: 420px) { .tablet-tools { gap: 7px; } .tablet-tools > svg { display: none; } .tablet-page-title { font-size: 12px; } .tablet-connection { font-size: 11px; } }

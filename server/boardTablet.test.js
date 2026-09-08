@@ -59,19 +59,24 @@ test('real sockets relay frame, ink and ack; retry after reconnect is idempotent
   const { connect } = await setup(t);
   const host = await connect('host'); await host.waitFor((m) => m.type === 'ready');
   let pen = await connect('pen'); await pen.waitFor((m) => m.type === 'ready');
-  const frame = { type: 'frame', id: 'frame-1', width: 1000, height: 500, image: 'data:image/jpeg;base64,YQ==' };
+  const frame = { type: 'frame', id: 'frame-1', width: 1000, height: 500, image: 'data:image/jpeg;base64,YQ==', revision: 0, view: { x: -100, y: 200, zoom: 2 } };
   host.send(frame); assert.deepEqual(await pen.waitFor((m) => m.type === 'frame'), frame);
   const stroke = { id: 'stroke-1', frameId: 'frame-1', color: '#8247e5', width: 3, points: [{ x: 0.1, y: 0.2 }, { x: 0.9, y: 0.8 }] };
   pen.send({ type: 'preview', stroke }); assert.deepEqual((await host.waitFor((m) => m.type === 'preview')).stroke, stroke);
   pen.send({ type: 'stroke', stroke }); await host.waitFor((m) => m.type === 'stroke');
-  host.send({ type: 'ack', id: stroke.id, ok: true }); await pen.waitFor((m) => m.type === 'ack');
+  host.send({ type: 'ack', id: stroke.id, ok: true, revision: 1 });
+  assert.equal((await pen.waitFor((m) => m.type === 'ack')).revision, 1);
   pen.ws.close(); await once(pen.ws, 'close');
   pen = await connect('pen'); await pen.waitFor((m) => m.type === 'ready');
   assert.deepEqual(await pen.waitFor((m) => m.type === 'frame'), frame);
-  pen.send({ type: 'stroke', stroke }); assert.equal((await pen.waitFor((m) => m.type === 'ack')).ok, true);
+  pen.send({ type: 'stroke', stroke });
+  const retried = await pen.waitFor((m) => m.type === 'ack');
+  assert.equal(retried.ok, true); assert.equal(retried.revision, 1);
   assert.equal(host.messages.filter((m) => m.type === 'stroke').length, 0);
   pen.send({ type: 'undo', id: 'undo-1', strokeId: stroke.id });
   assert.equal((await host.waitFor((m) => m.type === 'undo')).strokeId, stroke.id);
+  host.send({ ...frame, id: 'rendered-stroke', revision: 1 });
+  assert.equal((await pen.waitFor((m) => m.type === 'frame')).revision, 1);
 });
 
 test('expired QR, revoked account access and abandoned computer close access', async (t) => {
