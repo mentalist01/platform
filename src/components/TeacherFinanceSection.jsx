@@ -10,6 +10,7 @@ import {
   Clock3,
   LoaderCircle,
   Save,
+  Target,
   TrendingUp,
   Users,
   WalletCards,
@@ -17,6 +18,7 @@ import {
 import { api } from '../services/api';
 import {
   calculateTeacherCommissionPaybackSummary,
+  calculateTeacherIncomeGoals,
   calculateTeacherIncomeScenario,
   countCurrentTeacherStudents,
   getTeacherFinanceCurrentMonthKey,
@@ -516,6 +518,9 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
     .replace(/\s+\d{4}$/u, '')
     .trim();
   const calendarPlanTotalValue = `${calendarPlanUnpricedLessonCount > 0 ? 'от ' : ''}${formatMoney(calendarPlanTotal.revenue)}`;
+  const incomeGoals = calculateTeacherIncomeGoals({
+    currentMonthlyIncome: calendarPlanTotal.revenue,
+  });
   const currentCalendarMonthKey = getTeacherFinanceCurrentMonthKey();
   const isCurrentCalendarMonth = selectedMonth === currentCalendarMonthKey;
   const incomeScenario = calculateTeacherIncomeScenario({
@@ -940,6 +945,74 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
               ) : null}
             </div>
           ) : null}
+
+          <section className="teacher-finance-simple__income-goals mt-4 rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-50/80 via-white to-sky-50/75 p-4 sm:p-5" aria-labelledby="teacher-finance-income-goals-title">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="teacher-finance-simple__income-goals-icon grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-violet-200 bg-white text-violet-700 shadow-sm">
+                  <Target size={20} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Цели по доходу</div>
+                  <h4 id="teacher-finance-income-goals-title" className="mt-1 text-base font-black text-slate-950">
+                    Сколько учеников осталось набрать
+                  </h4>
+                  <p className="mt-1 text-[11px] font-semibold leading-relaxed text-slate-500">
+                    Считаем от плана на {calendarPlanMonthName || 'выбранный месяц'}: один новый ученик — 8 занятий и {formatMoney(incomeGoals.monthlyIncomePerStudent)} в месяц.
+                  </p>
+                </div>
+              </div>
+              <div className="teacher-finance-simple__income-goals-current shrink-0 rounded-2xl border border-white bg-white/85 px-3 py-2 shadow-sm">
+                <div className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Текущий план</div>
+                <div className="mt-0.5 text-lg font-black text-slate-950">{formatMoney(incomeGoals.currentMonthlyIncome)}</div>
+              </div>
+            </div>
+
+            <div className="teacher-finance-simple__income-goals-grid mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+              {incomeGoals.goals.map((goal) => (
+                <article
+                  key={goal.target}
+                  className={`teacher-finance-simple__income-goal rounded-2xl border p-3 ${
+                    goal.achieved
+                      ? 'is-achieved border-emerald-200 bg-emerald-50/85'
+                      : 'border-violet-200 bg-white/90'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">Цель</div>
+                      <div className="mt-0.5 text-lg font-black text-slate-950">{formatMoney(goal.target)}</div>
+                    </div>
+                    {goal.achieved ? (
+                      <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-600" size={18} aria-label="Цель достигнута" />
+                    ) : null}
+                  </div>
+
+                  <div className="teacher-finance-simple__income-goal-progress mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className={`h-full rounded-full ${goal.achieved ? 'bg-emerald-500' : 'bg-gradient-to-r from-violet-500 to-sky-500'}`}
+                      style={{ width: `${goal.progressPercent}%` }}
+                    />
+                  </div>
+
+                  {goal.achieved ? (
+                    <div className="mt-3 rounded-xl bg-emerald-100/80 px-2.5 py-2 text-center text-xs font-black text-emerald-700">
+                      Цель достигнута
+                    </div>
+                  ) : (
+                    <div className="mt-3">
+                      <div className="text-xl font-black text-violet-700">
+                        +{formatStudentCount(goal.studentsNeeded)}
+                      </div>
+                      <div className="mt-0.5 text-[10px] font-semibold text-slate-500">
+                        Не хватает {formatMoney(goal.remainingIncome)}
+                      </div>
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
 
           <p className="mt-4 text-[11px] font-medium leading-relaxed text-slate-500">
             Общий план — все неотменённые занятия месяца по их ставкам. В «Уже оплачено» входят все зелёные занятия, включая оплаченные заранее. Будущие занятия считаются только для текущих учеников; пробные и события без ученика не учитываются.

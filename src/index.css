@@ -605,6 +605,43 @@ html[data-theme='dark'] .teacher-finance-simple__calendar-plan-progress {
   background: rgba(51, 65, 85, 0.78) !important;
 }
 
+html[data-theme='dark'] .teacher-finance-simple__income-goals {
+  border-color: rgba(139, 92, 246, 0.4) !important;
+  background: linear-gradient(145deg, rgba(76, 29, 149, 0.22), rgba(15, 23, 42, 0.78), rgba(8, 47, 73, 0.38)) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__income-goals-icon,
+html[data-theme='dark'] .teacher-finance-simple__income-goals-current,
+html[data-theme='dark'] .teacher-finance-simple__income-goal {
+  border-color: rgba(100, 116, 139, 0.5) !important;
+  background: rgba(15, 23, 42, 0.75) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__income-goals-icon {
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__income-goal.is-achieved {
+  border-color: rgba(52, 211, 153, 0.4) !important;
+  background: rgba(6, 78, 59, 0.34) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__income-goals .text-violet-700 {
+  color: #c4b5fd !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__income-goals .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__income-goal.is-achieved .bg-emerald-100\/80 {
+  background: rgba(6, 95, 70, 0.34) !important;
+}
+
+html[data-theme='dark'] .teacher-finance-simple__income-goal-progress {
+  background: rgba(51, 65, 85, 0.78) !important;
+}
+
 html[data-theme='dark'] .teacher-finance-simple__calendar-plan .text-sky-700 {
   color: #7dd3fc !important;
 }
@@ -672,6 +709,7 @@ html[data-theme='dark'] .teacher-finance-simple__preset[aria-pressed='true'] {
 .teacher-finance-simple__students-overview-total,
 .teacher-finance-simple__student-week-row,
 .teacher-finance-simple__calculator-result,
+.teacher-finance-simple__income-goals,
 .teacher-finance-simple__input {
   font-variant-numeric: tabular-nums;
 }

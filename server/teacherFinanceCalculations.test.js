@@ -5,6 +5,7 @@ import {
   TEACHER_FINANCE_WEEKS_PER_MONTH,
   calculateCurrentMonthForecast,
   calculateTeacherCommissionPaybackSummary,
+  calculateTeacherIncomeGoals,
   calculateTeacherIncomeScenario,
   calculateTeacherStudentProfitability,
   countCurrentTeacherStudents,
@@ -109,6 +110,43 @@ test('commission payback preserves accrued income when it exceeds received payme
   assert.equal(result.remainingToPayback, 4_000);
   assert.equal(result.paybackPercent, 60);
   assert.equal(result.paybackLessonCount, 3);
+});
+
+test('income goals show how many eight-lesson students are needed from the calendar plan', () => {
+  const result = calculateTeacherIncomeGoals({ currentMonthlyIncome: 138_000 });
+
+  assert.equal(result.currentMonthlyIncome, 138_000);
+  assert.equal(result.monthlyIncomePerStudent, 16_000);
+  assert.deepEqual(result.goals.map((goal) => ({
+    target: goal.target,
+    remainingIncome: goal.remainingIncome,
+    studentsNeeded: goal.studentsNeeded,
+  })), [
+    { target: 200_000, remainingIncome: 62_000, studentsNeeded: 4 },
+    { target: 250_000, remainingIncome: 112_000, studentsNeeded: 7 },
+    { target: 300_000, remainingIncome: 162_000, studentsNeeded: 11 },
+    { target: 350_000, remainingIncome: 212_000, studentsNeeded: 14 },
+    { target: 400_000, remainingIncome: 262_000, studentsNeeded: 17 },
+  ]);
+});
+
+test('income goals mark reached targets and always round student counts up', () => {
+  const result = calculateTeacherIncomeGoals({
+    currentMonthlyIncome: 250_001,
+    targets: [300_000, 200_000, 250_000, 300_000],
+    monthlyIncomePerStudent: 16_000,
+  });
+
+  assert.deepEqual(result.goals.map((goal) => ({
+    target: goal.target,
+    achieved: goal.achieved,
+    studentsNeeded: goal.studentsNeeded,
+    remainingIncome: goal.remainingIncome,
+  })), [
+    { target: 200_000, achieved: true, studentsNeeded: 0, remainingIncome: 0 },
+    { target: 250_000, achieved: true, studentsNeeded: 0, remainingIncome: 0 },
+    { target: 300_000, achieved: false, studentsNeeded: 4, remainingIncome: 49_999 },
+  ]);
 });
 
 test('finance month navigation crosses year boundaries and rejects invalid values', () => {

@@ -1,6 +1,8 @@
 import { isCurrentStudent } from './studentStudyStatus.js';
 
 export const TEACHER_FINANCE_WEEKS_PER_MONTH = 52 / 12;
+export const TEACHER_FINANCE_GOAL_INCOME_PER_STUDENT = 16_000;
+export const TEACHER_FINANCE_INCOME_GOALS = [200_000, 250_000, 300_000, 350_000, 400_000];
 const MAX_STUDENT_COUNT = 9999;
 const MAX_HOURLY_RATE = 1_000_000;
 const MAX_LESSONS_PER_WEEK = 14;
@@ -147,6 +149,51 @@ const toNonNegativeNumber = (value) => {
 const toNonNegativeInteger = (value) => Math.floor(toNonNegativeNumber(value));
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export const calculateTeacherIncomeGoals = ({
+  currentMonthlyIncome = 0,
+  targets = TEACHER_FINANCE_INCOME_GOALS,
+  monthlyIncomePerStudent = TEACHER_FINANCE_GOAL_INCOME_PER_STUDENT,
+} = {}) => {
+  const normalizedCurrentIncome = roundToTwoDecimals(toNonNegativeNumber(currentMonthlyIncome));
+  const normalizedIncomePerStudent = roundToTwoDecimals(toNonNegativeNumber(monthlyIncomePerStudent));
+  const normalizedTargets = Array.from(new Set(
+    (Array.isArray(targets) ? targets : [])
+      .map((target) => roundToTwoDecimals(toNonNegativeNumber(target)))
+      .filter((target) => target > 0)
+  )).sort((left, right) => left - right);
+
+  return {
+    currentMonthlyIncome: normalizedCurrentIncome,
+    monthlyIncomePerStudent: normalizedIncomePerStudent,
+    goals: normalizedTargets.map((target) => {
+      const remainingIncome = roundToTwoDecimals(Math.max(0, target - normalizedCurrentIncome));
+      const achieved = remainingIncome <= 0;
+      const studentsNeeded = achieved
+        ? 0
+        : (normalizedIncomePerStudent > 0
+          ? Math.ceil(remainingIncome / normalizedIncomePerStudent)
+          : null);
+      const projectedIncome = studentsNeeded === null
+        ? normalizedCurrentIncome
+        : roundToTwoDecimals(
+          normalizedCurrentIncome + (studentsNeeded * normalizedIncomePerStudent)
+        );
+
+      return {
+        target,
+        achieved,
+        remainingIncome,
+        studentsNeeded,
+        projectedIncome,
+        progressPercent: Math.max(
+          0,
+          Math.min(100, Math.round((normalizedCurrentIncome / target) * 100))
+        ),
+      };
+    }),
+  };
+};
 
 export const normalizeTeacherFinanceMonthKey = (value) => {
   const match = String(value ?? '').trim().match(/^(\d{4})-(\d{2})$/);
