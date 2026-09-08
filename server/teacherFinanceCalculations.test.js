@@ -6,6 +6,7 @@ import {
   calculateCurrentMonthForecast,
   calculateTeacherCommissionPaybackSummary,
   calculateTeacherIncomeScenario,
+  calculateTeacherStudentProfitability,
   countCurrentTeacherStudents,
   getTeacherFinanceCurrentMonthKey,
   normalizeTeacherFinanceMonthKey,
@@ -58,6 +59,56 @@ test('commission payback summary adds remaining amounts only for current student
     studentCount: 3,
     remainingStudentCount: 2,
   });
+});
+
+test('commission payback includes a multi-lesson payment made in advance', () => {
+  const result = calculateTeacherStudentProfitability({
+    commissionAmount: 5_856,
+    lessonPrice: 2_000,
+    completedOccurrences: [
+      { lessonPrice: 2_000, paid: true },
+    ],
+    monthlyPaidAmounts: [16_000],
+    paymentAllocations: Array.from({ length: 8 }, (_, index) => ({
+      amount: 2_000,
+      status: index === 7 ? 'credit' : 'allocated',
+    })),
+    paidCalendarOccurrences: Array.from({ length: 8 }, () => ({ lessonPrice: 2_000 })),
+  });
+
+  assert.deepEqual(result, {
+    commissionAmount: 5_856,
+    lessonCount: 1,
+    paidLessonCount: 8,
+    paybackLessonCount: 8,
+    grossRevenue: 2_000,
+    receivedRevenue: 16_000,
+    paybackRevenue: 16_000,
+    netAfterCommission: 10_144,
+    remainingToPayback: 0,
+    paybackPercent: 100,
+    isPaidBack: true,
+    lessonsRemaining: 0,
+  });
+});
+
+test('commission payback preserves accrued income when it exceeds received payments', () => {
+  const result = calculateTeacherStudentProfitability({
+    commissionAmount: 10_000,
+    lessonPrice: 2_000,
+    completedOccurrences: Array.from({ length: 3 }, (_, index) => ({
+      lessonPrice: 2_000,
+      paid: index === 0,
+    })),
+    monthlyPaidAmounts: [2_000],
+  });
+
+  assert.equal(result.grossRevenue, 6_000);
+  assert.equal(result.receivedRevenue, 2_000);
+  assert.equal(result.paybackRevenue, 6_000);
+  assert.equal(result.remainingToPayback, 4_000);
+  assert.equal(result.paybackPercent, 60);
+  assert.equal(result.paybackLessonCount, 3);
 });
 
 test('finance month navigation crosses year boundaries and rejects invalid values', () => {

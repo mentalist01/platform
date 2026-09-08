@@ -240,6 +240,7 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
       body: {
         month,
         lessonPrice: 2000,
+        commissionAmount: 5856,
         completedLessons: 1,
         paidAmount: 4000,
       },
@@ -267,6 +268,12 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
     assert.equal(financeBefore.calendarPlan.actual.revenue, 4000);
     assert.equal(financeBefore.calendarPlan.remaining.lessonCount, 0);
     assert.equal(financeBefore.calendarPlan.completionPercent, 100);
+    const studentFinanceBefore = financeBefore.students.find((entry) => entry.id === studentId);
+    assert.equal(studentFinanceBefore.profitability.grossRevenue, 2000);
+    assert.equal(studentFinanceBefore.profitability.receivedRevenue, 4000);
+    assert.equal(studentFinanceBefore.profitability.paybackRevenue, 4000);
+    assert.equal(studentFinanceBefore.profitability.paybackLessonCount, 2);
+    assert.equal(studentFinanceBefore.profitability.remainingToPayback, 1856);
 
     const occurrence = {
       id: firstLessonId,

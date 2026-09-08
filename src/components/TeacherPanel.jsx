@@ -2912,25 +2912,35 @@ const TeacherPanel = ({
                 : {};
               const studentCommissionAmount = getStudentCommissionAmount(student.id);
               const studentProfitabilityLessonCount = Math.max(0, Math.floor(Number(studentProfitability.lessonCount) || 0));
+              const studentPaybackLessonCount = Math.max(
+                studentProfitabilityLessonCount,
+                Math.floor(Number(studentProfitability.paybackLessonCount) || 0)
+              );
               const studentGrossRevenue = Math.max(0, Number(studentProfitability.grossRevenue) || 0);
+              const studentReceivedRevenue = Math.max(0, Number(studentProfitability.receivedRevenue) || 0);
+              const studentPaybackRevenue = Math.max(
+                studentGrossRevenue,
+                studentReceivedRevenue,
+                Math.max(0, Number(studentProfitability.paybackRevenue) || 0)
+              );
               const studentNetAfterCommission = Number.isFinite(Number(studentProfitability.netAfterCommission))
                 ? Number(studentProfitability.netAfterCommission)
-                : studentGrossRevenue - studentCommissionAmount;
+                : studentPaybackRevenue - studentCommissionAmount;
               const studentRemainingToPayback = Math.max(
                 0,
                 Number.isFinite(Number(studentProfitability.remainingToPayback))
                   ? Number(studentProfitability.remainingToPayback)
-                  : studentCommissionAmount - studentGrossRevenue
+                  : studentCommissionAmount - studentPaybackRevenue
               );
               const studentCommissionPaidBack = studentCommissionAmount > 0
-                && (studentProfitability.isPaidBack === true || studentGrossRevenue >= studentCommissionAmount);
+                && (studentProfitability.isPaidBack === true || studentPaybackRevenue >= studentCommissionAmount);
               const studentPaybackPercent = Math.max(
                 0,
                 Math.min(
                   100,
                   Number.isFinite(Number(studentProfitability.paybackPercent))
                     ? Number(studentProfitability.paybackPercent)
-                    : (studentCommissionAmount > 0 ? (studentGrossRevenue / studentCommissionAmount) * 100 : 0)
+                    : (studentCommissionAmount > 0 ? (studentPaybackRevenue / studentCommissionAmount) * 100 : 0)
                 )
               );
               const studentPaymentSenderLinks = getStudentPaymentSenderLinks(student.id);
@@ -3285,7 +3295,7 @@ const TeacherPanel = ({
                                   Окупаемость комиссии
                                 </div>
                                 <div className="mt-0.5 text-xs font-semibold text-gray-700">
-                                  {`${formatLessonCount(studentProfitabilityLessonCount)} · ${formatFinanceMoney(studentGrossRevenue)} доход`}
+                                  {`${formatLessonCount(studentPaybackLessonCount)} · ${formatFinanceMoney(studentPaybackRevenue)} в окупаемость`}
                                 </div>
                               </div>
                               <span

@@ -22,11 +22,17 @@ export const calculateTeacherCommissionPaybackSummary = (students) => (
       if (commissionAmount <= 0) return summary;
       const reportedRemaining = Number(metrics?.remainingToPayback);
       const grossRevenue = Math.max(0, Number(metrics?.grossRevenue) || 0);
+      const receivedRevenue = Math.max(0, Number(metrics?.receivedRevenue) || 0);
+      const paybackRevenue = Math.max(
+        grossRevenue,
+        receivedRevenue,
+        Math.max(0, Number(metrics?.paybackRevenue) || 0)
+      );
       const remainingToPayback = Math.max(
         0,
         Number.isFinite(reportedRemaining)
           ? reportedRemaining
-          : commissionAmount - grossRevenue
+          : commissionAmount - paybackRevenue
       );
       const recoveredCommission = Math.max(0, commissionAmount - remainingToPayback);
       return {
@@ -50,6 +56,78 @@ const roundToTwoDecimals = (value) => {
   if (!Number.isFinite(number)) return 0;
   const rounded = Math.round((number + Number.EPSILON) * 100) / 100;
   return Number.isFinite(rounded) ? rounded : 0;
+};
+
+const sumMoney = (values) => roundToTwoDecimals(
+  (Array.isArray(values) ? values : [])
+    .reduce((total, value) => total + Math.max(0, Number(value) || 0), 0)
+);
+
+export const calculateTeacherStudentProfitability = ({
+  commissionAmount = 0,
+  lessonPrice = 0,
+  completedOccurrences = [],
+  monthlyPaidAmounts = [],
+  paymentAllocations = [],
+  paidCalendarOccurrences = [],
+} = {}) => {
+  const completed = Array.isArray(completedOccurrences) ? completedOccurrences : [];
+  const paidCalendar = Array.isArray(paidCalendarOccurrences) ? paidCalendarOccurrences : [];
+  const activeAllocations = (Array.isArray(paymentAllocations) ? paymentAllocations : [])
+    .filter((allocation) => ['allocated', 'credit'].includes(String(allocation?.status || '').trim()));
+  const normalizedCommission = roundToTwoDecimals(Math.max(0, Number(commissionAmount) || 0));
+  const normalizedLessonPrice = roundToTwoDecimals(Math.max(0, Number(lessonPrice) || 0));
+  const grossRevenue = sumMoney(completed.map((occurrence) => occurrence?.lessonPrice));
+  const ledgerReceivedRevenue = sumMoney(
+    completed.filter((occurrence) => occurrence?.paid).map((occurrence) => occurrence?.lessonPrice)
+  );
+  const recordedReceivedRevenue = sumMoney(monthlyPaidAmounts);
+  const allocatedReceivedRevenue = sumMoney(activeAllocations.map((allocation) => allocation?.amount));
+  const calendarReceivedRevenue = sumMoney(paidCalendar.map((occurrence) => occurrence?.lessonPrice));
+  const receivedRevenue = Math.max(
+    ledgerReceivedRevenue,
+    recordedReceivedRevenue,
+    allocatedReceivedRevenue,
+    calendarReceivedRevenue
+  );
+  const inferredPaidLessonCount = normalizedLessonPrice > 0
+    ? Math.floor((receivedRevenue + 0.001) / normalizedLessonPrice)
+    : 0;
+  const paidLessonCount = Math.max(
+    completed.filter((occurrence) => occurrence?.paid).length,
+    activeAllocations.length,
+    paidCalendar.length,
+    inferredPaidLessonCount
+  );
+  // Preserve accrued lesson income while also counting money received ahead
+  // of the calendar. Commission payback must never move backwards merely
+  // because a payment was allocated to a future lesson.
+  const paybackRevenue = Math.max(grossRevenue, receivedRevenue);
+  const paybackLessonCount = Math.max(completed.length, paidLessonCount);
+  const remainingToPayback = normalizedCommission > 0
+    ? roundToTwoDecimals(Math.max(0, normalizedCommission - paybackRevenue))
+    : 0;
+  const netAfterCommission = roundToTwoDecimals(paybackRevenue - normalizedCommission);
+  const paybackPercent = normalizedCommission > 0
+    ? Math.max(0, Math.min(100, Math.round((paybackRevenue / normalizedCommission) * 100)))
+    : 0;
+
+  return {
+    commissionAmount: normalizedCommission,
+    lessonCount: completed.length,
+    paidLessonCount,
+    paybackLessonCount,
+    grossRevenue,
+    receivedRevenue,
+    paybackRevenue,
+    netAfterCommission,
+    remainingToPayback,
+    paybackPercent,
+    isPaidBack: normalizedCommission > 0 && paybackRevenue >= normalizedCommission,
+    lessonsRemaining: normalizedCommission > 0 && normalizedLessonPrice > 0
+      ? Math.ceil(remainingToPayback / normalizedLessonPrice)
+      : null,
+  };
 };
 
 const toNumber = (value) => {

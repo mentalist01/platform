@@ -103,6 +103,7 @@ import {
   summarizeCurrentTeacherStudentsSchedule,
   summarizeTeacherFinanceCalendarPlan,
 } from './teacherFinanceCalendarPlan.js';
+import { calculateTeacherStudentProfitability } from '../src/utils/teacherFinanceCalculations.js';
 import {
   LESSON_NOTE_ACTIVITY_LIMIT,
   LESSON_NOTE_LEAD_MS,
@@ -16979,41 +16980,29 @@ const buildTeacherFinanceProfitability = async (
   const profitabilityByStudent = new Map();
   studentsById.forEach((student, studentId) => {
     const profile = normalizeTeacherFinanceProfile(currentEntry.studentProfiles?.[studentId]);
-    const commissionAmount = roundTeacherFinanceNumber(profile.commissionAmount);
     const studentOccurrences = ledgerByStudentId.get(studentId) || [];
-    const grossRevenue = studentOccurrences.reduce(
-      (total, occurrence) => roundTeacherFinanceNumber(total + roundTeacherFinanceNumber(occurrence.lessonPrice)),
-      0
-    );
-    const receivedRevenue = studentOccurrences.reduce((total, occurrence) => (
-      occurrence.paid
-        ? roundTeacherFinanceNumber(total + roundTeacherFinanceNumber(occurrence.lessonPrice))
-        : total
-    ), 0);
-    const remainingToPayback = commissionAmount > 0
-      ? roundTeacherFinanceNumber(Math.max(0, commissionAmount - grossRevenue))
-      : 0;
-    const netAfterCommission = roundTeacherFinanceNumber(grossRevenue - commissionAmount, { allowNegative: true });
-    const paybackPercent = commissionAmount > 0
-      ? Math.max(0, Math.min(100, Math.round((grossRevenue / commissionAmount) * 100)))
-      : 0;
     const currentLessonPrice = roundTeacherFinanceNumber(profile.lessonPrice);
+    const profitability = calculateTeacherStudentProfitability({
+      commissionAmount: profile.commissionAmount,
+      lessonPrice: currentLessonPrice,
+      completedOccurrences: studentOccurrences,
+      monthlyPaidAmounts: Object.values(currentEntry.months || {}).map((monthData) => (
+        normalizeTeacherFinanceStudentRecord(
+          monthData?.students?.[studentId],
+          profile
+        ).paidAmount
+      )),
+      paymentAllocations: Object.values(currentEntry.paymentAllocations || {})
+        .filter((allocation) => allocation?.studentId === studentId),
+      paidCalendarOccurrences: Array.from(calendarOccurrencesByKey.values())
+        .filter((occurrence) => occurrence.studentId === studentId && occurrence.paid && !occurrence.trial),
+    });
     profitabilityByStudent.set(studentId, {
-      commissionAmount,
-      lessonCount: studentOccurrences.length,
-      grossRevenue,
-      receivedRevenue,
-      netAfterCommission,
-      remainingToPayback,
-      paybackPercent,
-      isPaidBack: commissionAmount > 0 && grossRevenue >= commissionAmount,
-      lessonsRemaining: commissionAmount > 0 && currentLessonPrice > 0
-        ? Math.ceil(remainingToPayback / currentLessonPrice)
-        : null,
+      ...profitability,
       firstLessonAt: studentOccurrences[0]?.dayKey || '',
       lastLessonAt: studentOccurrences.at(-1)?.dayKey || '',
       calculatedFrom: numberToDayKey(studentStartNumberById.get(studentId)) || '',
-      needsLessonPrice: studentOccurrences.length > 0 && grossRevenue <= 0,
+      needsLessonPrice: studentOccurrences.length > 0 && profitability.grossRevenue <= 0,
     });
   });
   return {

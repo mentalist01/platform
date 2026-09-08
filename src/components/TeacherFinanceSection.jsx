@@ -269,20 +269,31 @@ const getStudentProfitability = (student, commissionDraft) => {
     : {};
   const commissionAmount = parseAmount(commissionDraft);
   const lessonCount = Math.max(0, Math.floor(Number(profitability.lessonCount) || 0));
+  const paybackLessonCount = Math.max(
+    lessonCount,
+    Math.floor(Number(profitability.paybackLessonCount) || 0)
+  );
   const grossRevenue = Math.max(0, Number(profitability.grossRevenue) || 0);
   const receivedRevenue = Math.max(0, Number(profitability.receivedRevenue) || 0);
+  const paybackRevenue = Math.max(
+    grossRevenue,
+    receivedRevenue,
+    Math.max(0, Number(profitability.paybackRevenue) || 0)
+  );
   const availableCredit = Math.max(0, Number(student?.availableCredit) || 0);
-  const netAfterCommission = Math.round((grossRevenue - commissionAmount) * 100) / 100;
-  const remainingToPayback = Math.max(0, Math.round((commissionAmount - grossRevenue) * 100) / 100);
+  const netAfterCommission = Math.round((paybackRevenue - commissionAmount) * 100) / 100;
+  const remainingToPayback = Math.max(0, Math.round((commissionAmount - paybackRevenue) * 100) / 100);
   const paybackPercent = commissionAmount > 0
-    ? Math.max(0, Math.min(100, Math.round((grossRevenue / commissionAmount) * 100)))
+    ? Math.max(0, Math.min(100, Math.round((paybackRevenue / commissionAmount) * 100)))
     : 0;
   const isPaidBack = commissionAmount > 0 && remainingToPayback <= 0;
   return {
     commissionAmount,
     lessonCount,
+    paybackLessonCount,
     grossRevenue,
     receivedRevenue,
+    paybackRevenue,
     availableCredit,
     netAfterCommission,
     remainingToPayback,
@@ -1264,7 +1275,10 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                         ) : null}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
-                        <span>{formatLessonCount(metrics.lessonCount)}</span>
+                        <span>{`${formatLessonCount(metrics.lessonCount)} проведено`}</span>
+                        {metrics.paybackLessonCount > metrics.lessonCount ? (
+                          <span>{`${formatLessonCount(metrics.paybackLessonCount)} оплачено`}</span>
+                        ) : null}
                         <span>{lessonPrice > 0 ? `${formatMoney(lessonPrice)} за занятие` : 'Стоимость занятия не указана'}</span>
                       </div>
                     </div>
