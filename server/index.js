@@ -33573,12 +33573,13 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     && expiredTelemost?.occurrence?.key === session.occurrenceKey
     && nowMs <= Number(expiredTelemost.autoFinishAtMs || 0) + TELEMOST_LESSON_DRAIN_MS
   );
+  const shouldFinishTelemostDrain = canDrainTelemost && !req.lessonReplayRecovery;
   if (!req.lessonReplayRecovery && !writable && !canDrainTelemost) {
     activeLessonReplaySessions.delete(sessionId);
     return res.status(410).json({ error: 'Запись этого урока уже завершена' });
   }
   const submittedEvents = Array.isArray(req.body?.events) ? req.body.events : [];
-  const rawEvents = canDrainTelemost && !req.lessonReplayRecovery
+  const rawEvents = shouldFinishTelemostDrain
     ? submittedEvents.filter((event) => {
       const occurredAtMs = Date.parse(String(event?.occurredAt || '').trim());
       return Number.isFinite(occurredAtMs) && occurredAtMs < Number(expiredTelemost.autoFinishAtMs || 0);
@@ -33621,7 +33622,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         strictIncoming: true,
         skipByteCompaction: true,
       });
-      let finalReplay = canDrainTelemost && !req.lessonReplayRecovery
+      let finalReplay = shouldFinishTelemostDrain
         ? appendLessonReplayEvents(appended.replay, [{
           id: `${session.id}:end`,
           type: 'session',
@@ -33658,7 +33659,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         await lessonReplayEventLog.append(session.occurrenceKey, acceptedEvents);
         lessonReplayEstimatedRawBytesByOccurrenceKey.set(session.occurrenceKey, estimatedBytes);
         const stored = await writeLessonReplay(finalReplay.replay, {
-          deferred: !canDrainTelemost && !compactedForCapacity,
+          deferred: !shouldFinishTelemostDrain && !compactedForCapacity,
           journaled: true,
           normalized: true,
         });
@@ -33681,7 +33682,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     if (result?.closed) {
       return res.status(410).json({ error: 'Запись этого урока уже завершена' });
     }
-    if (canDrainTelemost && !req.lessonReplayRecovery) activeLessonReplaySessions.delete(sessionId);
+    if (shouldFinishTelemostDrain) activeLessonReplaySessions.delete(sessionId);
     session.expiresAt = Date.now() + LESSON_REPLAY_SESSION_TTL_MS;
     if (access.scope === 'student') {
       const active = activeLessonReplayOccurrenceByStudentId.get(access.student.id);
@@ -33690,7 +33691,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     return res.json({
       ok: true,
       added: result.appended.added,
-      ended: canDrainTelemost && !req.lessonReplayRecovery,
+      ended: shouldFinishTelemostDrain,
       journaled: result.journaled,
       compacted: result.compacted,
       summary: summarizeLessonReplay(result.replay, result.compressedBytes, { normalized: true }),
