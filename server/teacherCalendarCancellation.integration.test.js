@@ -263,6 +263,10 @@ test('calendar cancellation updates linked schedule, homework and finance and ca
 
     const financeBefore = await jsonRequest(baseUrl, `/api/teacher-finance?month=${month}`, { token });
     assert.equal(financeBefore.calendarPlan.total.lessonCount, 2);
+    assert.equal(financeBefore.calendarPlan.actual.lessonCount, 2, 'future prepaid lessons must count as paid income');
+    assert.equal(financeBefore.calendarPlan.actual.revenue, 4000);
+    assert.equal(financeBefore.calendarPlan.remaining.lessonCount, 0);
+    assert.equal(financeBefore.calendarPlan.completionPercent, 100);
 
     const occurrence = {
       id: firstLessonId,

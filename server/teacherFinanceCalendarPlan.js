@@ -270,6 +270,8 @@ const getUnpricedLessonSubject = (occurrence) => String(
 export const summarizeTeacherFinanceCalendarPlan = ({
   monthKey,
   students = [],
+  paidOccurrences = null,
+  unpaidOccurrences = null,
   completedOccurrences = [],
   remainingOccurrences = [],
 } = {}) => {
@@ -290,13 +292,15 @@ export const summarizeTeacherFinanceCalendarPlan = ({
   let unpricedLessonCount = 0;
   let pricedLessonCount = 0;
 
-  const addOccurrence = (rawOccurrence, targetAccumulator, requireCurrentStudent, status) => {
+  const addOccurrence = (rawOccurrence, targetAccumulator, status, requireCurrentStudent = false) => {
     if (isTrial(rawOccurrence) || isCancelled(rawOccurrence) || isCancelled(rawOccurrence?.entry)) return;
     const occurrence = normalizeOccurrence(rawOccurrence);
     if (!occurrence || !month || !occurrence.dayKey.startsWith(`${month}-`)) return;
     if (seenOccurrenceKeys.has(occurrence.occurrenceKey)) return;
     const student = studentsById.get(occurrence.studentId);
-    if (requireCurrentStudent && !isCurrentStudent(student)) return;
+    // Keep historical earnings for former students, but do not project their
+    // future lessons into the current plan.
+    if ((requireCurrentStudent || rawOccurrence?.finished === false) && !isCurrentStudent(student)) return;
     seenOccurrenceKeys.add(occurrence.occurrenceKey);
     const lessonPrice = getOccurrencePrice(rawOccurrence, student);
     if (lessonPrice > 0) {
@@ -320,11 +324,15 @@ export const summarizeTeacherFinanceCalendarPlan = ({
     addToAccumulator(totalAccumulator, occurrence, lessonPrice);
   };
 
-  (Array.isArray(completedOccurrences) ? completedOccurrences : []).forEach((occurrence) => {
-    addOccurrence(occurrence, actualAccumulator, false, 'completed');
+  const usesPaidOccurrences = Array.isArray(paidOccurrences);
+  const usesUnpaidOccurrences = Array.isArray(unpaidOccurrences);
+  const actualOccurrences = usesPaidOccurrences ? paidOccurrences : completedOccurrences;
+  const outstandingOccurrences = usesUnpaidOccurrences ? unpaidOccurrences : remainingOccurrences;
+  (Array.isArray(actualOccurrences) ? actualOccurrences : []).forEach((occurrence) => {
+    addOccurrence(occurrence, actualAccumulator, usesPaidOccurrences ? 'paid' : 'completed');
   });
-  (Array.isArray(remainingOccurrences) ? remainingOccurrences : []).forEach((occurrence) => {
-    addOccurrence(occurrence, remainingAccumulator, true, 'remaining');
+  (Array.isArray(outstandingOccurrences) ? outstandingOccurrences : []).forEach((occurrence) => {
+    addOccurrence(occurrence, remainingAccumulator, usesUnpaidOccurrences ? 'unpaid' : 'remaining', !usesUnpaidOccurrences);
   });
 
   unpricedLessons.sort((left, right) => (

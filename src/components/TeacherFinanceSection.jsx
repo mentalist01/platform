@@ -743,13 +743,13 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
               <div className="teacher-finance-simple__calendar-plan-hero flex min-w-0 flex-col justify-between rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-600 via-blue-600 to-violet-600 p-5 text-white shadow-[0_16px_34px_rgba(37,99,235,0.2)]" aria-live="polite">
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-[0.14em] text-sky-100">
-                    Ожидаемые начисления к концу месяца
+                    Ожидаемый доход за месяц
                   </div>
                   <output className="mt-2 block text-3xl font-black tracking-tight sm:text-4xl">
                     {calendarPlanTotalValue}
                   </output>
                   <div className="mt-2 text-xs font-semibold text-sky-100/85">
-                    {formatMoney(calendarPlanActual.revenue)} начислено + {formatMoney(calendarPlanRemaining.revenue)} впереди
+                    {formatMoney(calendarPlanActual.revenue)} оплачено + {formatMoney(calendarPlanRemaining.revenue)} ещё не оплачено
                   </div>
                 </div>
                 <div className="mt-5 grid grid-cols-2 gap-2 text-xs font-semibold text-sky-50/90">
@@ -767,14 +767,14 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
               <div className="teacher-finance-simple__calendar-plan-details min-w-0 rounded-3xl border border-slate-200 bg-slate-50/75 p-4">
                 <div className="grid gap-2 sm:grid-cols-3">
                   <div className="teacher-finance-simple__calendar-plan-stat rounded-2xl border border-emerald-200 bg-emerald-50/80 p-3" data-tone="emerald">
-                    <div className="text-[9px] font-black uppercase tracking-[0.12em] text-emerald-700">Уже начислено</div>
+                    <div className="text-[9px] font-black uppercase tracking-[0.12em] text-emerald-700">Уже оплачено</div>
                     <div className="mt-1 text-lg font-black text-slate-950">{formatMoney(calendarPlanActual.revenue)}</div>
                     <div className="mt-1 text-[11px] font-semibold text-slate-500">
                       {formatLessonCount(calendarPlanActual.lessonCount)} · {formatDecimal(calendarPlanActual.hours)} ч
                     </div>
                   </div>
                   <div className="teacher-finance-simple__calendar-plan-stat rounded-2xl border border-sky-200 bg-sky-50/80 p-3" data-tone="sky">
-                    <div className="text-[9px] font-black uppercase tracking-[0.12em] text-sky-700">Осталось по плану</div>
+                    <div className="text-[9px] font-black uppercase tracking-[0.12em] text-sky-700">Ещё не оплачено</div>
                     <div className="mt-1 text-lg font-black text-slate-950">{formatMoney(calendarPlanRemaining.revenue)}</div>
                     <div className="mt-1 text-[11px] font-semibold text-slate-500">
                       {formatLessonCount(calendarPlanRemaining.lessonCount)} · {formatDecimal(calendarPlanRemaining.hours)} ч
@@ -791,7 +791,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
 
                 <div className="mt-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-slate-500">
-                    <span>Проведено {calendarPlanActual.lessonCount} из {calendarPlanTotal.lessonCount}</span>
+                    <span>Оплачено {calendarPlanActual.lessonCount} из {calendarPlanTotal.lessonCount}</span>
                     <span>{calendarPlanCompletionPercent}%</span>
                   </div>
                   <div className="teacher-finance-simple__calendar-plan-progress mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
@@ -802,7 +802,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-semibold text-slate-500">
                     <span>Участники месяца: {formatStudentCount(calendarPlanStudentCount)}</span>
-                    <span>{formatWorkingDayCount(calendarPlanRemaining.workingDayCount)} впереди</span>
+                    <span>{formatLessonCount(calendarPlanRemaining.lessonCount)} ещё не оплачено</span>
                   </div>
                 </div>
               </div>
@@ -864,9 +864,9 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                       <span className="text-[11px] font-black text-slate-900">{lessonTitle}</span>
                                       <span className={`text-[9px] font-black uppercase tracking-[0.08em] ${
-                                        lesson.status === 'completed' ? 'text-emerald-700' : 'text-sky-700'
+                                        lesson.status === 'paid' ? 'text-emerald-700' : 'text-sky-700'
                                       }`}>
-                                        {lesson.status === 'completed' ? 'Проведено' : 'По плану'}
+                                        {lesson.status === 'paid' ? 'Оплачено' : 'Не оплачено'}
                                       </span>
                                     </div>
                                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-semibold text-slate-500">
@@ -931,7 +931,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
           ) : null}
 
           <p className="mt-4 text-[11px] font-medium leading-relaxed text-slate-500">
-            Будущие занятия считаются только для текущих учеников. Пробные, отменённые и события без ученика не учитываются. Это план начислений; фактические оплаты отмечаются отдельно.
+            Общий план — все неотменённые занятия месяца по их ставкам. В «Уже оплачено» входят все зелёные занятия, включая оплаченные заранее. Будущие занятия считаются только для текущих учеников; пробные и события без ученика не учитываются.
           </p>
         </Card>
       ) : null}

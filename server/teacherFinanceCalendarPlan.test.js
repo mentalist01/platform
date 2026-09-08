@@ -244,6 +244,44 @@ test('summary removes trial, cancelled and duplicate occurrences with completed 
   assert.equal(result.pricedLessonCount, 1);
 });
 
+test('paid future lessons count as actual income while past unpaid lessons remain outstanding', () => {
+  const students = [
+    { id: 'active', grade: 11, lessonPrice: 2000 },
+    { id: 'former', grade: 11, studyStatus: 'inactive', lessonPrice: 3000 },
+  ];
+  const result = summarizeTeacherFinanceCalendarPlan({
+    monthKey: '2026-09',
+    students,
+    paidOccurrences: [
+      occurrence({ studentId: 'active', dayKey: '2026-09-01', finished: true }),
+      occurrence({ studentId: 'active', dayKey: '2026-09-21', finished: false }),
+      occurrence({ studentId: 'former', dayKey: '2026-09-22', finished: false }),
+    ],
+    unpaidOccurrences: [
+      occurrence({ studentId: 'active', dayKey: '2026-09-02', finished: true }),
+      occurrence({ studentId: 'active', dayKey: '2026-09-28', finished: false }),
+      occurrence({ studentId: 'former', dayKey: '2026-09-03', finished: true }),
+      occurrence({ studentId: 'former', dayKey: '2026-09-29', finished: false }),
+    ],
+  });
+
+  assert.deepEqual(result.actual, {
+    revenue: 4000,
+    lessonCount: 2,
+    hours: 2,
+    workingDayCount: 2,
+  });
+  assert.deepEqual(result.remaining, {
+    revenue: 7000,
+    lessonCount: 3,
+    hours: 3,
+    workingDayCount: 3,
+  });
+  assert.equal(result.total.revenue, 11000);
+  assert.equal(result.total.lessonCount, 5);
+  assert.equal(result.completionPercent, 40);
+});
+
 test('lesson price is flat per occurrence while durations determine hours and working days', () => {
   const result = summarizeTeacherFinanceCalendarPlan({
     monthKey: '2026-07',

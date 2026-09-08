@@ -16780,7 +16780,7 @@ const buildTeacherFinanceProfitability = async (
       numberToDayKey(dayNumber) || '',
     ])
   );
-  const remainingCalendarOccurrencesByKey = new Map();
+  const calendarOccurrencesByKey = new Map();
   expandTeacherFinanceMonthOccurrences({
     entries: scheduleEntries,
     monthKey: calendarPlanMonth,
@@ -16799,18 +16799,18 @@ const buildTeacherFinanceProfitability = async (
       teacherMarks,
       nowInfo,
     });
-    if (!paymentState || paymentState.finished || paymentState.cancelled) return;
+    if (!paymentState || paymentState.cancelled) return;
     const { lessonPrice } = getLessonPriceForPaymentOccurrence(
       currentEntry,
       studentId,
       occurrence
     );
-    const existing = remainingCalendarOccurrencesByKey.get(occurrence.occurrenceKey);
+    const existing = calendarOccurrencesByKey.get(occurrence.occurrenceKey);
     if (existing) {
       existing.trial = existing.trial || Boolean(paymentState.trial);
       return;
     }
-    remainingCalendarOccurrencesByKey.set(occurrence.occurrenceKey, {
+    calendarOccurrencesByKey.set(occurrence.occurrenceKey, {
       occurrenceKey: occurrence.occurrenceKey,
       studentId,
       dayKey: occurrence.dayKey,
@@ -16819,6 +16819,8 @@ const buildTeacherFinanceProfitability = async (
       subject: String(occurrence?.entry?.subject || '').trim(),
       lessonPrice: roundTeacherFinanceNumber(lessonPrice),
       trial: Boolean(paymentState.trial),
+      paid: Boolean(paymentState.paid),
+      finished: Boolean(paymentState.finished),
     });
   });
   const currentWeekStartDayKey = normalizeDayKey(nowInfo.weekStartKey);
@@ -16881,16 +16883,28 @@ const buildTeacherFinanceProfitability = async (
     entries: Array.from(currentWeekScheduleEntriesByKey.values()),
     weekStartDayKey: currentWeekStartDayKey,
   });
+  // The calendar is the source of the monthly plan. The ledger overlays past
+  // occurrences so their original price and payment remain stable even if the
+  // recurring schedule or current student rate later changes.
+  const monthlyPlanOccurrencesByKey = new Map(calendarOccurrencesByKey);
+  Object.entries(nextLedger).forEach(([occurrenceKey, entry]) => {
+    const existing = monthlyPlanOccurrencesByKey.get(occurrenceKey);
+    monthlyPlanOccurrencesByKey.set(occurrenceKey, {
+      ...(existing || {}),
+      ...entry,
+      occurrenceKey,
+      paid: Boolean(existing?.paid || entry.paid),
+      finished: true,
+      entry: scheduleEntriesBySourceId.get(entry.sourceEntryId) || existing?.entry || null,
+    });
+  });
+  const monthlyPlanOccurrences = Array.from(monthlyPlanOccurrencesByKey.values());
   const calendarPlan = {
     ...summarizeTeacherFinanceCalendarPlan({
       monthKey: calendarPlanMonth,
       students,
-      completedOccurrences: Object.entries(nextLedger).map(([occurrenceKey, entry]) => ({
-        ...entry,
-        occurrenceKey,
-        entry: scheduleEntriesBySourceId.get(entry.sourceEntryId) || null,
-      })),
-      remainingOccurrences: Array.from(remainingCalendarOccurrencesByKey.values()),
+      paidOccurrences: monthlyPlanOccurrences.filter((occurrence) => occurrence.paid),
+      unpaidOccurrences: monthlyPlanOccurrences.filter((occurrence) => !occurrence.paid),
     }),
     currentStudentsSummary,
     asOfDayKey: nowInfo.todayKey,
