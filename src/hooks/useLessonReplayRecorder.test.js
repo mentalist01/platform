@@ -240,6 +240,21 @@ test('failed final save remains available for a later retry', async () => {
   assert.equal(h.messages.at(-1), '');
 });
 
+test('discarding an obsolete blocked recording clears its banner and retry queue', async () => {
+  const h = await createHarness();
+  h.api.finishLessonReplaySession = async () => {
+    throw Object.assign(new Error('capacity'), { status: 413 });
+  };
+  h.hook.recordLessonReplayEvent('board', { mode: 'snapshot', items: [{ id: 'discard-me' }] });
+  await assert.rejects(h.hook.finishLessonReplayNow({ keepalive: true }));
+  await h.hook.discardBlockedLessonReplayBackup();
+  h.render();
+  assert.equal(h.hook.lessonReplayError, '');
+  const finishCount = h.finishes.length;
+  await h.hook.retryLessonReplaySave();
+  assert.equal(h.finishes.length, finishCount);
+});
+
 test('a full recording preserves its queue without continuously retrying the capacity error', async () => {
   const h = await createHarness();
   const write = h.api.appendLessonReplayEvents;

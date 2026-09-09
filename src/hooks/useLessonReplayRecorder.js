@@ -435,8 +435,14 @@ const useLessonReplayRecorder = ({
   }, [finishSession, flush, journal]);
 
   const discardBlockedLessonReplayBackup = useCallback(async () => {
+    capacityBlockedSessionRef.current = '';
+    failedFinishesRef.current.clear();
+    inFlightEventsRef.current = null;
+    queueRef.current.splice(0);
+    queueSessionRef.current = null;
     await journal.discardBlocked();
     setJournalError('');
+    setLessonReplayError('');
   }, [journal]);
 
   useEffect(() => {
