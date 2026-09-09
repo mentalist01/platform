@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildLessonAlarms, createDefaultAlarmBuffer, createLessonAlarmPlayer, LESSON_ALARM_LEAD_MS } from './lessonAlarm.js';
+import { buildLessonAlarms, createDefaultAlarmBuffer, createLessonAlarmPlayer, getRingingLessonAlarms, LESSON_ALARM_LEAD_MS } from './lessonAlarm.js';
 import { buildTeacherCalendarCancellationMarkKey } from './teacherCalendarCancellation.js';
 
 test('alarm fires five minutes before local lesson, not ten', () => {
@@ -22,6 +22,15 @@ test('recurring, excluded, cancelled, tomorrow and duplicate group events', () =
   assert.equal(buildLessonAlarms([{ ...entry, cancelled: true }], 't', {}, now).length, 0);
   assert.equal(buildLessonAlarms([entry, { ...entry, id: 'other', studentId: 'other' }], 't', {}, now).length, 1);
   assert.equal(buildLessonAlarms([{ ...entry, weekdayKey: 'tue', time: '10:00' }], 't', {}, now).length, 1);
+});
+test('every tab can identify and dismiss all alarms that are ringing now', () => {
+  const alarms = [
+    { id: 'first', dueMs: 100, startMs: 500 },
+    { id: 'second', dueMs: 200, startMs: 600 },
+    { id: 'later', dueMs: 700, startMs: 1000 },
+  ];
+  assert.deepEqual(getRingingLessonAlarms(alarms, 300).map((alarm) => alarm.id), ['first', 'second']);
+  assert.deepEqual(getRingingLessonAlarms(alarms, 600), []);
 });
 const fakeContext = () => {
   const nodes = [];

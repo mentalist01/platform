@@ -37,6 +37,10 @@ export function buildLessonAlarms(entries = [], teacherId, marks = {}, now = Dat
   return [...grouped.values()].sort((a, b) => a.startMs - b.startMs);
 }
 
+export const getRingingLessonAlarms = (alarms = [], now = Date.now()) => (
+  (Array.isArray(alarms) ? alarms : []).filter((alarm) => alarm.dueMs <= now && alarm.startMs > now)
+);
+
 // A repeating, softly enveloped chime is generated locally: no missing URL,
 // network request or codec dependency can silence the default alarm.
 export function createDefaultAlarmBuffer(context) {

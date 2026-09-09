@@ -9,7 +9,7 @@ export function LessonAlarmNotice({ alarm }) {
   return <div className="lesson-alarm-notice" role="status" data-ringing={Boolean(alarm.ringing)}>
     <Bell size={16} aria-hidden="true" />
     <span>{alarm.ringing
-      ? `Через несколько минут занятие: ${alarm.ringing.title} · ${new Date(alarm.ringing.startMs).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
+      ? `Через несколько минут занятие: ${alarm.ringing.title} · ${new Date(alarm.ringing.startMs).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}${alarm.ringing.simultaneousCount > 1 ? ` · сигналов: ${alarm.ringing.simultaneousCount}` : ''}`
       : blocked ? 'Будильник за 5 минут: включите звук в этой вкладке.' : alarm.error}</span>
     {blocked && <button type="button" onClick={alarm.test}><Volume2 size={14} />Включить и проверить звук</button>}
     {alarm.ringing && <button type="button" onClick={alarm.stop}><X size={14} />Остановить</button>}
