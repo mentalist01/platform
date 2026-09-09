@@ -56,6 +56,7 @@ import {
   getMockExamRequiredMode,
   normalizeMockExamMode,
 } from '../utils/mockExamMode';
+import { resolveMockExamForAttempt } from '../utils/mockExamVersioning';
 import {
   buildWeeklyTaskPracticeStats,
   getWeeklyTaskPracticeIndicator,
@@ -873,6 +874,7 @@ const ProgressSection = ({
 
     const examStats = (studentVisibleMockExams || []).map((exam) => {
       const attempt = mockAttemptsByExam?.[exam.id];
+      const attemptExam = resolveMockExamForAttempt(exam, attempt);
       const attemptMode = normalizeMockAttemptMode(attempt?.mode, getAssignedMockExamMode(exam, attempt));
       const isSubmitted = Boolean(
         String(attempt?.finishedAt || '').trim()
@@ -888,8 +890,8 @@ const ProgressSection = ({
       const storedSolvedMap = attempt?.solved && typeof attempt.solved === 'object' ? attempt.solved : {};
       const timerResultsVisible = attemptMode !== MOCK_ATTEMPT_MODE_TIMER || Boolean(String(attempt?.timerFinishedAt || '').trim());
       const solvedMap = timerResultsVisible ? storedSolvedMap : {};
-      const taskStats = getScopedMockExamTaskKeys(exam, attempt).map((taskKey) => {
-        const answerCount = getMockAnswerCountForTask(taskKey);
+      const taskStats = getScopedMockExamTaskKeys(attemptExam, attempt).map((taskKey) => {
+        const answerCount = getMockAnswerCountForTask(taskKey, attemptExam?.tasks?.[taskKey]);
         const attempted = hasMockAnswerValue(answersMap[taskKey], answerCount);
         const solved = Boolean(solvedMap[String(taskKey)]);
         return {
@@ -2537,6 +2539,7 @@ const ProgressSection = ({
     const cachedStats = cacheBelongsToStudent && exam?.id
       ? studentMockOverview?.examStatsById?.[exam.id] || null
       : null;
+    const cachedAttemptExam = resolveMockExamForAttempt(exam, cachedAttempt);
     const hasExplicitTargetTaskScope = Array.isArray(options?.targetTaskKeys)
       && options.targetTaskKeys.some((taskKey) => String(taskKey || '').trim());
     const requestedTargetTaskKeysSource = hasExplicitTargetTaskScope
@@ -2572,7 +2575,7 @@ const ProgressSection = ({
     mockAttemptRequestIdRef.current = requestId;
     setStartingMockExamId(exam.id);
     setActiveMockMode(resolvedMode);
-    setActiveMockExam(exam);
+    setActiveMockExam(cachedAttemptExam);
     setActiveMockInitialTask(options?.initialTaskNumber || null);
     setActiveMockTargetTaskKeys(hasExplicitTargetTaskScope
       ? requestedTargetTaskKeys
@@ -2655,8 +2658,10 @@ const ProgressSection = ({
           .map((taskKey) => String(taskKey || '').trim())
           .filter(Boolean)
       ));
+      const fetchedAttemptExam = resolveMockExamForAttempt(exam, fetchedAttempt);
+      const fetchedExamTaskKeySet = new Set(getMockExamTaskKeys(fetchedAttemptExam));
       const fetchedScopeUnavailable = fetchedTargetTaskKeys.length > 0
-        && !fetchedTargetTaskKeys.some((taskKey) => examTaskKeySet.has(taskKey));
+        && !fetchedTargetTaskKeys.some((taskKey) => fetchedExamTaskKeySet.has(taskKey));
       const shouldResumeTimer = role === 'student'
         && !fetchedScopeUnavailable
         && isMockTimerAttemptPaused(fetchedAttempt)
@@ -2665,6 +2670,7 @@ const ProgressSection = ({
         ? await api.resumeMockAttempt(mockAttemptStudentId, exam.id, { mode: MOCK_ATTEMPT_MODE_TIMER })
         : fetchedAttempt;
       if (mockAttemptRequestIdRef.current !== requestId) return;
+      setActiveMockExam(resolveMockExamForAttempt(exam, attempt));
       setActiveMockAttempt(attempt && typeof attempt === 'object' ? attempt : {});
       setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, resolvedMode));
       const attemptTargetTaskKeys = Array.from(new Set(
@@ -2779,6 +2785,11 @@ const ProgressSection = ({
           ? normalizedAttempt
           : current
       ));
+      setActiveMockExam((current) => (
+        String(current?.id || '') === String(examId || '')
+          ? resolveMockExamForAttempt(current, normalizedAttempt)
+          : current
+      ));
       setMockExamsError('');
     } catch (err) {
       alert(err?.message || 'Не удалось вернуть награды таймера.');
@@ -2809,6 +2820,11 @@ const ProgressSection = ({
       setActiveMockAttempt((current) => (
         String(activeMockExam?.id || '') === String(examId || '')
           ? normalizedAttempt
+          : current
+      ));
+      setActiveMockExam((current) => (
+        String(current?.id || '') === String(examId || '')
+          ? resolveMockExamForAttempt(current, normalizedAttempt)
           : current
       ));
       setActiveMockMode(MOCK_ATTEMPT_MODE_TIMER);
@@ -3161,20 +3177,28 @@ const ProgressSection = ({
     const cachedAttempt = mockAttemptsOwnerRef.current === attemptOwnerKey
       ? mockAttemptsByExam?.[exam.id]
       : null;
-    setMockAnalysisExam(exam);
-    const getAnalysisAttempt = (candidate) => {
-      if (!candidate || typeof candidate !== 'object') return null;
+    const getAnalysisState = (candidate) => {
+      if (!candidate || typeof candidate !== 'object') return { exam, attempt: null };
       const firstResult = Array.isArray(candidate.attemptHistory)
         ? candidate.attemptHistory[0]
         : (candidate.firstAttempt || null);
+      let analysisAttempt = candidate;
       if (firstResult && typeof firstResult === 'object') {
-        return firstResult.attemptSnapshot && typeof firstResult.attemptSnapshot === 'object'
+        analysisAttempt = firstResult.attemptSnapshot && typeof firstResult.attemptSnapshot === 'object'
           ? firstResult.attemptSnapshot
           : firstResult;
       }
-      return candidate;
+      const analysisExam = resolveMockExamForAttempt(exam, analysisAttempt, firstResult);
+      return {
+        exam: analysisExam,
+        attempt: analysisExam && analysisAttempt
+          ? { ...analysisAttempt, examSnapshot: analysisExam }
+          : analysisAttempt,
+      };
     };
-    setMockAnalysisAttempt(getAnalysisAttempt(cachedAttempt));
+    const cachedAnalysis = getAnalysisState(cachedAttempt);
+    setMockAnalysisExam(cachedAnalysis.exam);
+    setMockAnalysisAttempt(cachedAnalysis.attempt);
     if (cachedAttempt && typeof cachedAttempt === 'object') {
       setMockAnalysisLoading(false);
       return;
@@ -3184,7 +3208,9 @@ const ProgressSection = ({
       const attempt = await api.getMockAttempt(mockAttemptStudentId, exam.id);
       if (mockAnalysisRequestIdRef.current !== requestId) return;
       const normalizedAttempt = attempt && typeof attempt === 'object' ? attempt : {};
-      setMockAnalysisAttempt(getAnalysisAttempt(normalizedAttempt));
+      const analysis = getAnalysisState(normalizedAttempt);
+      setMockAnalysisExam(analysis.exam);
+      setMockAnalysisAttempt(analysis.attempt);
       const previousCacheOwner = mockAttemptsOwnerRef.current;
       mockAttemptsOwnerRef.current = attemptOwnerKey;
       setMockAttemptsByExam((previous) => ({
@@ -3235,6 +3261,11 @@ const ProgressSection = ({
     }));
     setActiveMockAttempt((current) => (
       String(activeMockExam?.id || '') === examId ? currentAttempt : current
+    ));
+    setActiveMockExam((current) => (
+      String(current?.id || '') === examId
+        ? resolveMockExamForAttempt(current, currentAttempt, response?.firstAttempt)
+        : current
     ));
     if (history.length > 0) {
       setStudentData((previous) => ({
@@ -5774,6 +5805,7 @@ const ProgressSection = ({
                   ? activeMockAttempt.solved
                   : {};
                 setActiveMockAttempt(attempt);
+                setActiveMockExam((current) => resolveMockExamForAttempt(current, attempt));
                 setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, activeMockMode));
                 const attemptOwnerKey = String(effectiveStudentId || '').trim();
                 const previousCacheOwner = mockAttemptsOwnerRef.current;
@@ -5852,6 +5884,7 @@ const ProgressSection = ({
                   });
                   if (mockAttemptRequestIdRef.current !== requestId) return null;
                   setActiveMockAttempt(attempt && typeof attempt === 'object' ? attempt : {});
+                  setActiveMockExam((current) => resolveMockExamForAttempt(current, attempt));
                   setActiveMockMode(normalizeMockAttemptMode(attempt?.mode, MOCK_ATTEMPT_MODE_TIMER));
                   const attemptOwnerKey = String(effectiveStudentId || '').trim();
                   const previousCacheOwner = mockAttemptsOwnerRef.current;

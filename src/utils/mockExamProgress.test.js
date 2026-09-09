@@ -240,6 +240,35 @@ test('invalid calendar dates are ignored instead of rolling into another month',
   assert.deepEqual(entries, []);
 });
 
+test('a completed current attempt keeps its original scope after the mock is edited', () => {
+  const entries = buildMockExamProgressEntries({
+    mockExams: [{
+      id: 'edited',
+      title: 'Новая редакция',
+      tasks: { 1: { answer: 'new' }, 2: { answer: 'added' } },
+    }],
+    mockAttemptsByExam: {
+      edited: {
+        attemptId: 'old-attempt',
+        mode: 'classic',
+        updatedAt: '2026-09-09T10:00:00.000Z',
+        answers: { 1: 'old' },
+        solved: { 1: true },
+        examSnapshot: {
+          id: 'edited',
+          title: 'Редакция ученика',
+          contentRevision: 1,
+          tasks: { 1: { answer: 'old' } },
+        },
+      },
+    },
+  });
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].title, 'Редакция ученика');
+  assert.equal(entries[0].score, 7);
+});
+
 test('mock progress summary reports first, latest, best, average and delta', () => {
   assert.deepEqual(
     summarizeMockExamProgress([{ score: 45 }, { score: 62 }, { score: 58 }]),

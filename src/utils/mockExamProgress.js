@@ -1,4 +1,5 @@
 import { getAcademicYearMeta } from './homeworkStats.js';
+import { resolveMockExamForAttempt } from './mockExamVersioning.js';
 
 const PRIMARY_TO_SECONDARY = {
   1: 7,
@@ -208,7 +209,7 @@ export const buildMockExamProgressEntries = ({
       const mode = normalizeText(attempt.mode).toLowerCase() || 'classic';
       const timerFinishedAt = normalizeText(attempt.timerFinishedAt);
       if (mode === 'timer' && !timerFinishedAt) return null;
-      const exam = examById[examId] || null;
+      const exam = resolveMockExamForAttempt(examById[examId] || null, attempt);
       const scope = getAttemptScope(exam, attempt);
       if (scope.isPartial) return null;
       if (mode !== 'timer') {

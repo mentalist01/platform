@@ -77,6 +77,12 @@ import {
   resolveMockExamAttemptMode,
 } from '../src/utils/mockExamMode.js';
 import {
+  areMockExamTasksEqual,
+  createMockExamSnapshot,
+  getMockExamContentRevision,
+  resolveMockExamForAttempt,
+} from '../src/utils/mockExamVersioning.js';
+import {
   QuestionTargetRemapConflictError,
   remapProgressQuestionTargets,
 } from './questionTargetRemap.js';
@@ -13712,6 +13718,10 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
   const homeworkIssuedAt = normalizeMockTimerTimestamp(meta?.homeworkIssuedAt);
   const targetTaskKeys = uniqueStrings(meta?.targetTaskKeys).slice(0, 200);
   const taskDurationsMs = normalizeMockTaskDurationsMs(exam, meta?.taskDurationsMs);
+  const examSnapshot = createMockExamSnapshot(meta?.examSnapshot);
+  const examRevision = examSnapshot
+    ? getMockExamContentRevision(examSnapshot)
+    : Math.max(0, Math.floor(Number(meta?.examRevision) || 0));
   return {
     answers,
     solved,
@@ -13749,6 +13759,7 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     ...(homeworkIssuedAt ? { homeworkIssuedAt } : {}),
     ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
     ...(Object.keys(taskDurationsMs).length > 0 ? { taskDurationsMs } : {}),
+    ...(examSnapshot ? { examSnapshot, examRevision } : (examRevision > 0 ? { examRevision } : {})),
   };
 };
 
@@ -18717,9 +18728,32 @@ const sanitizeMockExamForStudent = (exam) => {
   return safe;
 };
 
+const serializeMockAttemptForClient = (attempt, options = {}) => {
+  if (!attempt || typeof attempt !== 'object' || Array.isArray(attempt)) return attempt;
+  const visibleAttempt = hideUnfinishedMockTimerResults(attempt);
+  const snapshot = createMockExamSnapshot(visibleAttempt.examSnapshot);
+  if (!snapshot) return visibleAttempt;
+  return {
+    ...visibleAttempt,
+    examSnapshot: options.sanitizeForStudent ? sanitizeMockExamForStudent(snapshot) : snapshot,
+  };
+};
+
 const sanitizeStudentDataForClient = (studentData) => {
   if (!studentData || typeof studentData !== 'object' || Array.isArray(studentData)) return {};
   const safe = { ...studentData };
+  const attempts = studentData.mockAttempts && typeof studentData.mockAttempts === 'object'
+    && !Array.isArray(studentData.mockAttempts)
+    ? studentData.mockAttempts
+    : {};
+  safe.mockAttempts = Object.entries(attempts).reduce((result, [examId, attempt]) => {
+    if (!attempt || typeof attempt !== 'object' || Array.isArray(attempt)) return result;
+    const snapshot = createMockExamSnapshot(attempt.examSnapshot);
+    result[examId] = snapshot
+      ? { ...attempt, examSnapshot: sanitizeMockExamForStudent(snapshot) }
+      : attempt;
+    return result;
+  }, {});
   const queue = normalizeMockExamFollowupQueue(studentData.mockTestingQueue);
   const normalizedAttemptResults = normalizeMockExamFollowupHistory(studentData.mockAttemptResults);
   const markedAttemptExamIds = new Set(normalizedAttemptResults
@@ -28835,6 +28869,7 @@ app.post('/api/mock-exams/random', (req, res) => {
   const entry = {
     id: crypto.randomUUID(),
     title: `Персональный пробник №${generationNumber}`,
+    contentRevision: 1,
     createdAt,
     updatedAt: createdAt,
     source: PERSONAL_RANDOM_MOCK_SOURCE,
@@ -28886,6 +28921,7 @@ app.post('/api/mock-exams', (req, res) => {
   const entry = {
     id: crypto.randomUUID(),
     title: trimmed || `Пробник ${new Date().toLocaleDateString('ru-RU')}`,
+    contentRevision: 1,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     tasks: {},
@@ -28923,8 +28959,16 @@ app.get('/api/mock-exams/attempt', (req, res) => {
   const visibleAttempt = homeworkAssignment && !isMockAttemptForHomework(stored, homeworkAssignment)
     ? {}
     : stored;
-  const normalizedVisibleAttempt = normalizeMockAttemptPayload(exam, visibleAttempt.answers, visibleAttempt.updatedAt, {
+  const firstHistory = getFirstMockAttemptHistory(data.mockAttemptResults, exam.id);
+  const visibleAttemptId = String(visibleAttempt?.attemptId || '').trim();
+  const matchingResult = visibleAttemptId
+    ? firstHistory.find((entry) => String(entry?.attemptId || '').trim() === visibleAttemptId) || null
+    : null;
+  const attemptExam = resolveMockExamForAttempt(exam, visibleAttempt, matchingResult);
+  const shouldPinVisibleAttempt = Boolean(matchingResult || Object.keys(visibleAttempt).length > 0);
+  const normalizedVisibleAttempt = normalizeMockAttemptPayload(attemptExam, visibleAttempt.answers, visibleAttempt.updatedAt, {
       ...visibleAttempt,
+      ...(shouldPinVisibleAttempt ? { examSnapshot: createMockExamSnapshot(attemptExam) } : {}),
       requiredMode,
       ...(homeworkAssignment ? {
         homeworkId: homeworkAssignment.id,
@@ -28932,10 +28976,9 @@ app.get('/api/mock-exams/attempt', (req, res) => {
         targetTaskKeys: homeworkAssignment.targetTaskKeys,
       } : {}),
     });
-  const firstHistory = getFirstMockAttemptHistory(data.mockAttemptResults, exam.id);
   const isStaffViewer = isStaffRole(req.auth);
   res.json({
-    ...hideUnfinishedMockTimerResults(normalizedVisibleAttempt),
+    ...serializeMockAttemptForClient(normalizedVisibleAttempt, { sanitizeForStudent: isStudentRole(req.auth) }),
     requiredMode,
     ...(isStaffViewer ? {
       attemptHistory: firstHistory,
@@ -28965,14 +29008,22 @@ app.get('/api/mock-exams/attempt/history', (req, res) => {
     ? attempts[requestedExamId]
     : {};
   const history = getFirstMockAttemptHistory(data.mockAttemptResults, requestedExamId);
+  const currentAttemptId = String(currentAttempt?.attemptId || '').trim();
+  const matchingResult = currentAttemptId
+    ? history.find((entry) => String(entry?.attemptId || '').trim() === currentAttemptId) || null
+    : null;
+  const attemptExam = resolveMockExamForAttempt(exam, currentAttempt, matchingResult);
   return res.json({
     examId: requestedExamId,
     studentId: student.id,
-    currentAttempt: hideUnfinishedMockTimerResults(normalizeMockAttemptPayload(
-      exam,
+    currentAttempt: serializeMockAttemptForClient(normalizeMockAttemptPayload(
+      attemptExam,
       currentAttempt.answers,
       currentAttempt.updatedAt,
-      currentAttempt
+      {
+        ...currentAttempt,
+        ...(Object.keys(currentAttempt).length > 0 ? { examSnapshot: createMockExamSnapshot(attemptExam) } : {}),
+      }
     )),
     history,
     firstAttempt: history[0] || null,
@@ -29022,8 +29073,9 @@ app.patch('/api/mock-exams/attempt/task-result', (req, res) => {
   const targetAttempt = historyEntry?.attemptSnapshot && typeof historyEntry.attemptSnapshot === 'object'
     ? historyEntry.attemptSnapshot
     : (historyEntry || currentAttempt);
-  const targetTasks = historyEntry?.tasks && typeof historyEntry.tasks === 'object'
-    ? historyEntry.tasks
+  const targetExamSnapshot = resolveMockExamForAttempt(exam, targetAttempt, historyEntry);
+  const targetTasks = targetExamSnapshot?.tasks && typeof targetExamSnapshot.tasks === 'object'
+    ? targetExamSnapshot.tasks
     : (exam.tasks || {});
   const targetQuestion = targetTasks[requestedTaskKey];
   if (!targetQuestion || typeof targetQuestion !== 'object') {
@@ -29065,6 +29117,8 @@ app.patch('/api/mock-exams/attempt/task-result', (req, res) => {
         },
       },
       reviewedAt,
+      examSnapshot: createMockExamSnapshot(targetExamSnapshot),
+      examRevision: getMockExamContentRevision(targetExamSnapshot),
     };
   };
 
@@ -29119,8 +29173,8 @@ app.patch('/api/mock-exams/attempt/task-result', (req, res) => {
     examId: requestedExamId,
     taskKey: requestedTaskKey,
     attempt: responseAttempt,
-    currentAttempt: hideUnfinishedMockTimerResults(normalizeMockAttemptPayload(
-      exam,
+    currentAttempt: serializeMockAttemptForClient(normalizeMockAttemptPayload(
+      resolveMockExamForAttempt(exam, storedCurrentAttempt, storedResult),
       storedCurrentAttempt.answers,
       storedCurrentAttempt.updatedAt,
       storedCurrentAttempt
@@ -29216,16 +29270,24 @@ app.patch('/api/mock-exams/attempt/timer-rewards', (req, res) => {
     || normalizeMockTimerTimestamp(previousAttempt?.timerExpiresAt)
   );
   const hasDisabledTimerRewards = previousAttempt.timerRewardsDisabled === true;
+  const attemptExam = resolveMockExamForAttempt(exam, previousAttempt);
   if (!hasDisabledTimerRewards && previousAttemptMode !== MOCK_ATTEMPT_MODE_TIMER && !hasTimerAttemptMarkers) {
     return res.status(409).json({ error: 'Награды можно вернуть только для таймерного режима.' });
   }
   if (!hasDisabledTimerRewards) {
-    return res.json(normalizeMockAttemptPayload(exam, previousAttempt.answers, previousAttempt.updatedAt, previousAttempt));
+    return res.json(serializeMockAttemptForClient(normalizeMockAttemptPayload(
+      attemptExam,
+      previousAttempt.answers,
+      previousAttempt.updatedAt,
+      { ...previousAttempt, examSnapshot: createMockExamSnapshot(attemptExam) }
+    )));
   }
 
   const restoredAt = new Date().toISOString();
   const nextAttempt = {
     ...previousAttempt,
+    examSnapshot: createMockExamSnapshot(attemptExam),
+    examRevision: getMockExamContentRevision(attemptExam),
     timerRewardsRestoredAt: restoredAt,
     updatedAt: restoredAt,
   };
@@ -29239,7 +29301,12 @@ app.patch('/api/mock-exams/attempt/timer-rewards', (req, res) => {
     mockAttempts: attempts,
   });
   const stored = updated.mockAttempts?.[requestedExamId] || nextAttempt;
-  return res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, stored));
+  return res.json(serializeMockAttemptForClient(normalizeMockAttemptPayload(
+    attemptExam,
+    stored.answers,
+    stored.updatedAt,
+    { ...stored, examSnapshot: createMockExamSnapshot(attemptExam) }
+  )));
 });
 
 app.patch('/api/mock-exams/attempt/continue-timer', (req, res) => {
@@ -29276,6 +29343,7 @@ app.patch('/api/mock-exams/attempt/continue-timer', (req, res) => {
     });
   }
   const previousAttemptMode = normalizeMockAttemptMode(previousAttempt?.mode);
+  const attemptExam = resolveMockExamForAttempt(exam, previousAttempt);
   const previousTimerFinishedAt = normalizeMockTimerTimestamp(previousAttempt?.timerFinishedAt);
   if (previousAttemptMode !== MOCK_ATTEMPT_MODE_TIMER || !previousTimerFinishedAt) {
     return res.status(409).json({ error: 'Продолжить можно только завершённый таймерный экзамен.' });
@@ -29298,7 +29366,7 @@ app.patch('/api/mock-exams/attempt/continue-timer', (req, res) => {
     && !Array.isArray(previousAttempt.timerContinuedAnswersBackup)
     ? previousAttempt.timerContinuedAnswersBackup
     : null;
-  const continuedAnswers = hasMockAttemptStarted(exam, previousAttempt.answers)
+  const continuedAnswers = hasMockAttemptStarted(attemptExam, previousAttempt.answers)
     ? previousAttempt.answers
     : (previousAnswersBackup || previousAttempt.answers);
   const nextAttempt = {
@@ -29316,7 +29384,10 @@ app.patch('/api/mock-exams/attempt/continue-timer', (req, res) => {
   delete nextAttempt.timerPausedAt;
   delete nextAttempt.timerRemainingMs;
 
-  const normalizedAttempt = normalizeMockAttemptPayload(exam, nextAttempt.answers, continuedAt, nextAttempt);
+  const normalizedAttempt = normalizeMockAttemptPayload(attemptExam, nextAttempt.answers, continuedAt, {
+    ...nextAttempt,
+    examSnapshot: createMockExamSnapshot(attemptExam),
+  });
   attempts[requestedExamId] = normalizedAttempt;
   const updated = setStudentData(student.id, {
     ...data,
@@ -29324,7 +29395,12 @@ app.patch('/api/mock-exams/attempt/continue-timer', (req, res) => {
     monthlyMockCompletions: collectMonthlyMockCompletions(data, list),
   });
   const stored = updated.mockAttempts?.[requestedExamId] || normalizedAttempt;
-  return res.json(normalizeMockAttemptPayload(exam, stored.answers, stored.updatedAt, stored));
+  return res.json(serializeMockAttemptForClient(normalizeMockAttemptPayload(
+    attemptExam,
+    stored.answers,
+    stored.updatedAt,
+    stored
+  )));
 });
 
 app.put('/api/mock-exams/attempt', (req, res) => {
@@ -29364,18 +29440,25 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const storedAttempt = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
     ? attempts[String(examId)]
     : {};
+  const attemptHistory = getFirstMockAttemptHistory(data.mockAttemptResults, exam.id);
+  const storedAttemptId = String(storedAttempt?.attemptId || '').trim();
+  const storedAttemptResult = storedAttemptId
+    ? attemptHistory.find((entry) => String(entry?.attemptId || '').trim() === storedAttemptId) || null
+    : null;
+  const storedAttemptExam = resolveMockExamForAttempt(exam, storedAttempt, storedAttemptResult);
   const startsNewHomeworkAttempt = Boolean(
     homeworkAssignment && !isMockAttemptForHomework(storedAttempt, homeworkAssignment)
   );
   const previousAttempt = startsNewHomeworkAttempt ? {} : storedAttempt;
+  const previousAttemptExam = startsNewHomeworkAttempt ? exam : storedAttemptExam;
   const storedLifetimeSolved = storedAttempt.solvedEver
     && typeof storedAttempt.solvedEver === 'object'
     && !Array.isArray(storedAttempt.solvedEver)
     ? storedAttempt.solvedEver
     : (storedAttempt.solved && typeof storedAttempt.solved === 'object' && !Array.isArray(storedAttempt.solved)
         ? storedAttempt.solved
-        : recomputeMockSolvedMap(exam, normalizeMockAttemptAnswers(exam, storedAttempt.answers)));
-  const previousAttemptNormalized = normalizeMockAttemptPayload(exam, previousAttempt.answers, previousAttempt.updatedAt, {
+        : recomputeMockSolvedMap(storedAttemptExam, normalizeMockAttemptAnswers(storedAttemptExam, storedAttempt.answers)));
+  const previousAttemptNormalized = normalizeMockAttemptPayload(previousAttemptExam, previousAttempt.answers, previousAttempt.updatedAt, {
     ...previousAttempt,
     requiredMode,
   });
@@ -29399,7 +29482,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
         || (!previousAttemptWasUnfinishedTimer && previousAttemptNormalized.solvedEver && typeof previousAttemptNormalized.solvedEver === 'object'
           ? previousAttemptNormalized.solvedEver
           : previousSolved));
-  const previousAttemptStarted = hasMockAttemptStarted(exam, previousAttemptNormalized.answers);
+  const previousAttemptStarted = hasMockAttemptStarted(previousAttemptExam, previousAttemptNormalized.answers);
   const previousTimerStartedAt = normalizeMockTimerTimestamp(previousAttempt?.timerStartedAt);
   const previousTimerExpiresAt = normalizeMockTimerTimestamp(previousAttempt?.timerExpiresAt);
   const previousTimerPausedAt = normalizeMockTimerTimestamp(previousAttempt?.timerPausedAt);
@@ -29456,7 +29539,15 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   if (previousFinishedAt && !startOnly) {
     if (isAttemptFinishRequest) {
       return res.json({
-        ...normalizeMockAttemptPayload(exam, previousAttempt.answers, previousAttempt.updatedAt, previousAttempt),
+        ...serializeMockAttemptForClient(normalizeMockAttemptPayload(
+          previousAttemptExam,
+          previousAttempt.answers,
+          previousAttempt.updatedAt,
+          {
+            ...previousAttempt,
+            examSnapshot: createMockExamSnapshot(previousAttemptExam),
+          }
+        ), { sanitizeForStudent: isStudentRole(req.auth) }),
         requiredMode,
         finalized: true,
         idempotent: true,
@@ -29509,6 +29600,11 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     ? 1
     : (canRestartTimerAttempt ? previousAttemptNumber + 1 : previousAttemptNumber);
   const isFirstAttempt = attemptNumber === 1;
+  const startsNewAttemptVersion = Boolean(
+    startsNewHomeworkAttempt || canRestartTimerAttempt || !previousAttemptId
+  );
+  const attemptExam = startsNewAttemptVersion ? exam : previousAttemptExam;
+  const attemptExamSnapshot = createMockExamSnapshot(attemptExam);
   const timerRewardsRestoredAt = normalizeMockTimerTimestamp(previousAttempt?.timerRewardsRestoredAt);
   const canRestartWithRestoredTimerRewards = Boolean(canRestartTimerAttempt && timerRewardsRestoredAt);
   const timerRewardsDisabled = (
@@ -29558,16 +29654,16 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     return clientDayKey;
   })();
   const rawAnswersForSave = canRestartTimerAttempt
-    ? normalizeMockAttemptAnswers(exam, {})
+    ? normalizeMockAttemptAnswers(attemptExam, {})
     : (startOnly
         ? previousAttemptNormalized.answers
-        : mergeMockAttemptAnswers(exam, previousAttemptNormalized.answers, answers));
+        : mergeMockAttemptAnswers(attemptExam, previousAttemptNormalized.answers, answers));
   const scopedAnswersForSave = filterMockAttemptAnswersToTaskKeys(rawAnswersForSave, assignmentTargetTaskKeys);
   const previousTaskDurationsMs = canRestartTimerAttempt || startsNewHomeworkAttempt
     ? {}
     : previousAttempt?.taskDurationsMs;
   const mergedTaskDurationsMs = mergeMockTaskDurationsMs(
-    exam,
+    attemptExam,
     previousTaskDurationsMs,
     taskDurationsMs
   );
@@ -29575,8 +29671,10 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     mergedTaskDurationsMs,
     assignmentTargetTaskKeys
   );
-  const normalizedAttemptBase = normalizeMockAttemptPayload(exam, scopedAnswersForSave, savedAt, {
+  const normalizedAttemptBase = normalizeMockAttemptPayload(attemptExam, scopedAnswersForSave, savedAt, {
     ...previousAttempt,
+    examSnapshot: attemptExamSnapshot,
+    examRevision: getMockExamContentRevision(attemptExam),
     ...(startsNewHomeworkAttempt ? {
       solvedEver: storedLifetimeSolved,
       coinsAwardedMilestones: previousAwardedMilestones,
@@ -29628,7 +29726,10 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       monthlyMockCompletions: collectMonthlyMockCompletions(data, list),
     });
     return res.json({
-      ...hideUnfinishedMockTimerResults(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
+      ...serializeMockAttemptForClient(
+        updated.mockAttempts?.[String(examId)] || normalizedAttempt,
+        { sanitizeForStudent: isStudentRole(req.auth) }
+      ),
       requiredMode,
     });
   }
@@ -29689,7 +29790,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     const followup = finalizeMockExamFollowup({
       history: mockAttemptResults,
       queue: mockTestingQueue,
-      exam,
+      exam: attemptExam,
       attempt: normalizedAttempt,
       attemptId,
       finishedAt: savedAt,
@@ -29741,8 +29842,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const nextMockTimerChests = normalizeMockTimerChestQueue(data?.mockTimerChests);
   let artifactXpGained = 0;
   let artifactCoinsGained = 0;
-  const examTitle = typeof exam?.title === 'string' && exam.title.trim()
-    ? exam.title.trim()
+  const examTitle = typeof attemptExam?.title === 'string' && attemptExam.title.trim()
+    ? attemptExam.title.trim()
     : 'Пробник';
   const grantMockArtifactReward = (artifact, meta = {}) => {
     if (!artifact) return;
@@ -29918,7 +30019,10 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const xpGained = normalizeXpTotal(mockSolveXpGained + artifactXpGained);
   const timerChestCoinsGained = 0;
   res.json({
-    ...(updated.mockAttempts?.[String(examId)] || normalizedAttempt),
+    ...serializeMockAttemptForClient(
+      updated.mockAttempts?.[String(examId)] || normalizedAttempt,
+      { sanitizeForStudent: isStudentRole(req.auth) }
+    ),
     requiredMode,
     ...(isAttemptFinishRequest
       ? {
@@ -29960,6 +30064,8 @@ app.patch('/api/mock-exams/:id', (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'Пробник не найден' });
   const current = list[idx];
   const currentAccess = normalizeMockExamAccess(current.access, true);
+  const nextTasks = tasks && typeof tasks === 'object' ? tasks : current.tasks || {};
+  const tasksChanged = !areMockExamTasksEqual(current.tasks, nextTasks);
   const hasAccessPatch = Boolean(access && typeof access === 'object');
   const hasExplicitAccessMode = hasAccessPatch
     && Object.prototype.hasOwnProperty.call(access, 'mode');
@@ -29980,7 +30086,10 @@ app.patch('/api/mock-exams/:id', (req, res) => {
   const next = {
     ...current,
     title: trimmed || current.title,
-    tasks: tasks && typeof tasks === 'object' ? tasks : current.tasks || {},
+    tasks: nextTasks,
+    contentRevision: tasksChanged
+      ? getMockExamContentRevision(current) + 1
+      : getMockExamContentRevision(current),
     badges: badges !== undefined ? normalizeMockExamBadges(badges) : normalizeMockExamBadges(current.badges),
     access: nextAccess,
     updatedAt: new Date().toISOString(),

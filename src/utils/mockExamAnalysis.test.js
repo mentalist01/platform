@@ -201,3 +201,31 @@ test('analysis exposes every configured accepted answer variant', () => {
 
   assert.deepEqual(analysis.tasks[0].acceptedAnswerVariants, [['7657'], ['7656']]);
 });
+
+test('analysis uses the attempt revision instead of a later mock edit', () => {
+  const analysis = buildMockExamAnalysis({
+    exam: {
+      id: 'versioned', title: 'Новая редакция',
+      tasks: { 1: { question: 'Новый вопрос', answer: '43' }, 2: { answer: '7' } },
+    },
+    attempt: {
+      mode: 'classic',
+      answers: { 1: '42' },
+      solved: { 1: true },
+      examSnapshot: {
+        id: 'versioned', title: 'Редакция ученика', contentRevision: 1,
+        tasks: { 1: { question: 'Старый вопрос', answer: '42' } },
+      },
+    },
+    getAnswerCountForTask,
+    getExpectedAnswers,
+    getPrimaryScoreFromSolved,
+    getSecondaryScoreFromPrimary,
+  });
+
+  assert.equal(analysis.examTitle, 'Редакция ученика');
+  assert.equal(analysis.totalCount, 1);
+  assert.equal(analysis.tasks[0].question.question, 'Старый вопрос');
+  assert.deepEqual(analysis.tasks[0].expectedAnswers, ['42']);
+  assert.equal(analysis.primaryScore, 1);
+});

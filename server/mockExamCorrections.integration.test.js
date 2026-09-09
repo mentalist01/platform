@@ -118,6 +118,12 @@ test('mock exams accept answer variants and teacher corrections update the froze
       20: { id: 'game-20', sourceTaskNumber: 19, question: 'Два значения', answers: ['11', '12'] },
       21: { id: 'game-21', sourceTaskNumber: 19, question: 'Второй выигрыш', answer: '13' },
     },
+  }, {
+    id: 'exam-versioned', title: 'Version 1', contentRevision: 1, createdAt: now, updatedAt: now,
+    access: { all: true, students: [], mode: 'classic' },
+    tasks: {
+      1: { id: 'versioned-1', question: 'Old question', answer: 'old' },
+    },
   }]));
 
   const port = await getFreePort();
@@ -231,6 +237,53 @@ test('mock exams accept answer variants and teacher corrections update the froze
       .mockAttemptResults.find((entry) => entry.examId === 'exam-games');
     assert.equal(gameResult.primaryScore, 3);
     assert.equal(gameResult.secondaryScore, 20);
+
+    const startVersioned = await request('/api/mock-exams/attempt', studentAuthorization, 'PUT', {
+      examId: 'exam-versioned', mode: 'classic', startOnly: true,
+    });
+    await assertStatus(startVersioned, 200);
+    const startedVersionedAttempt = await startVersioned.json();
+    assert.equal(startedVersionedAttempt.examRevision, 1);
+    assert.equal(startedVersionedAttempt.examSnapshot.tasks['1'].question, 'Old question');
+    assert.equal(Object.hasOwn(startedVersionedAttempt.examSnapshot.tasks['1'], 'answer'), false);
+
+    const editVersioned = await request('/api/mock-exams/exam-versioned', teacherAuthorization, 'PATCH', {
+      title: 'Version 2',
+      tasks: {
+        1: { id: 'versioned-1', question: 'New question', answer: 'new' },
+        2: { id: 'versioned-2', question: 'Added question', answer: '2' },
+      },
+    });
+    await assertStatus(editVersioned, 200);
+    const editedVersionedExam = await editVersioned.json();
+    assert.equal(editedVersionedExam.contentRevision, 2);
+
+    const finishVersioned = await request('/api/mock-exams/attempt', studentAuthorization, 'PUT', {
+      examId: 'exam-versioned', mode: 'classic', finishAttempt: true, answers: { 1: 'old' },
+    });
+    await assertStatus(finishVersioned, 200);
+    const finishedVersionedAttempt = await finishVersioned.json();
+    assert.deepEqual(finishedVersionedAttempt.solved, { 1: true });
+    assert.equal(Object.hasOwn(finishedVersionedAttempt.answers, '2'), false);
+    assert.equal(finishedVersionedAttempt.examSnapshot.title, 'Version 1');
+
+    const studentVersionedResult = await request(
+      '/api/mock-exams/attempt?examId=exam-versioned',
+      studentAuthorization
+    );
+    await assertStatus(studentVersionedResult, 200);
+    const studentVersionedAttempt = await studentVersionedResult.json();
+    assert.equal(studentVersionedAttempt.examSnapshot.tasks['1'].question, 'Old question');
+    assert.equal(Object.hasOwn(studentVersionedAttempt.examSnapshot.tasks['1'], 'answer'), false);
+
+    const teacherVersionedResult = await request(
+      '/api/mock-exams/attempt?studentId=student-a&examId=exam-versioned',
+      teacherAuthorization
+    );
+    await assertStatus(teacherVersionedResult, 200);
+    const teacherVersionedAttempt = await teacherVersionedResult.json();
+    assert.equal(teacherVersionedAttempt.firstAttempt.examSnapshot.tasks['1'].answer, 'old');
+    assert.equal(teacherVersionedAttempt.firstAttempt.primaryScore, 1);
   } finally {
     await stopServer(child);
     const tempBase = `${path.resolve(os.tmpdir())}${path.sep}`;

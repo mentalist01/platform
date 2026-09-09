@@ -2,6 +2,7 @@ import {
   getAcceptedAnswerVariants,
   getAnswerVectorSignature,
 } from './answerVariants.js';
+import { resolveMockExamForAttempt } from './mockExamVersioning.js';
 
 const TIMER_MODE = 'timer';
 
@@ -123,7 +124,8 @@ export const buildMockExamAnalysis = ({
   getPrimaryScoreFromSolved = defaultPrimaryScore,
   getSecondaryScoreFromPrimary = defaultSecondaryScore,
 } = {}) => {
-  const examTasks = exam?.tasks && typeof exam.tasks === 'object' ? exam.tasks : {};
+  const resolvedExam = resolveMockExamForAttempt(exam, attempt);
+  const examTasks = resolvedExam?.tasks && typeof resolvedExam.tasks === 'object' ? resolvedExam.tasks : {};
   const availableTaskKeys = Object.keys(examTasks).map(normalizeText).filter(Boolean).sort(compareTaskKeys);
   const requestedTaskKeys = Array.isArray(targetTaskKeys)
     ? Array.from(new Set(targetTaskKeys.map(normalizeText).filter(Boolean)))
@@ -156,7 +158,7 @@ export const buildMockExamAnalysis = ({
   const analyticsByTask = taskAnalytics && typeof taskAnalytics === 'object' && !Array.isArray(taskAnalytics)
     ? taskAnalytics
     : {};
-  const mode = normalizeText(attempt?.mode || exam?.access?.mode).toLowerCase() || 'classic';
+  const mode = normalizeText(attempt?.mode || resolvedExam?.access?.mode).toLowerCase() || 'classic';
   const resultsVisible = mode !== TIMER_MODE || Boolean(normalizeText(attempt?.timerFinishedAt));
 
   const tasks = taskKeys.map((taskKey) => {
@@ -197,7 +199,7 @@ export const buildMockExamAnalysis = ({
     return {
       taskKey,
       taskNumber: Number.isFinite(Number(taskKey)) ? Number(taskKey) : taskKey,
-      title: normalizeText(exam?.taskTitleSnapshot?.[taskKey])
+      title: normalizeText(resolvedExam?.taskTitleSnapshot?.[taskKey])
         || titleByTaskKey[String(question?.sourceTaskNumber ?? taskKey)]
         || normalizeQuestionLabel(question?.label) || `Задание ${taskKey}`,
       question,
@@ -263,8 +265,8 @@ export const buildMockExamAnalysis = ({
     : null;
 
   return {
-    examId: normalizeText(exam?.id),
-    examTitle: normalizeText(exam?.title) || 'Пробник',
+    examId: normalizeText(resolvedExam?.id),
+    examTitle: normalizeText(resolvedExam?.title) || 'Пробник',
     mode,
     resultsVisible,
     hasStarted: answeredCount > 0 || Boolean(normalizeText(attempt?.modeLockedAt || attempt?.timerStartedAt)),
