@@ -49,7 +49,11 @@ import {
   updateLessonReplayBranchBoard,
   updateLessonReplayBranchCode,
 } from '../utils/lessonReplayTimeMachine';
-import { getActiveReplayScreenEvent } from '../utils/lessonReplaySurfaces';
+import {
+  findReplayScreenJumpEvent,
+  getActiveReplayScreenEvent,
+  getReplayScreenSnapshotEvents,
+} from '../utils/lessonReplaySurfaces';
 import { getLessonReplayInitialBoardViewport } from '../utils/lessonReplayBoardViewport';
 import { createLessonReplayFullscreenController } from '../utils/lessonReplayFullscreen';
 import './LessonReplayPlayer.css';
@@ -999,6 +1003,8 @@ const TimeMachineWorkspace = ({
   positionMs,
   renderLessonReplaySandbox,
   runEvent,
+  screenEvent,
+  screenOccurrence,
   showOriginal,
   surface,
 }) => (
@@ -1037,10 +1043,12 @@ const TimeMachineWorkspace = ({
     </div>
 
     {!branch ? (
-      <div className="lesson-replay-player__time-machine-preview is-lesson-copy" data-surface="code" role="group" aria-label="Копия урока в режиме воспроизведения">
-        {followSandboxElement
-          ? followSandboxElement
-          : <TimeMachineOriginalSurface surface="code" boardEvent={boardEvent} boardView={boardView} codeEvent={codeEvent} codeView={codeView} runEvent={runEvent} />}
+      <div className="lesson-replay-player__time-machine-preview is-lesson-copy" data-surface={screenEvent ? 'screen' : 'code'} role="group" aria-label="Копия урока в режиме воспроизведения">
+        {screenEvent
+          ? <ReplayScreen event={screenEvent} occurrence={screenOccurrence} />
+          : (followSandboxElement
+            ? followSandboxElement
+            : <TimeMachineOriginalSurface surface="code" boardEvent={boardEvent} boardView={boardView} codeEvent={codeEvent} codeView={codeView} runEvent={runEvent} />)}
         {!playing && <div className="lesson-replay-player__time-machine-paused"><Pause size={13} /> Пауза · {formatClock(positionMs)}</div>}
       </div>
     ) : (
@@ -1099,7 +1107,7 @@ const TimeMachineWorkspace = ({
   </div>
 );
 
-const ReplayScreen = ({ event, occurrence }) => {
+const ReplayScreen = ({ event, jumpEvent, occurrence, onJump }) => {
   const snapshotId = String(event?.payload?.snapshotId || '').trim();
   const [failedSnapshotId, setFailedSnapshotId] = useState('');
   const source = snapshotId && occurrence?.key
@@ -1112,7 +1120,20 @@ const ReplayScreen = ({ event, occurrence }) => {
     : (ownerRole === 'student' ? 'Экран ученика' : 'Демонстрация экрана');
 
   if (!source || failed) {
-    return <div className="lesson-replay-player__empty-surface"><MonitorUp size={25} /><span>{failed ? 'Этот снимок экрана уже недоступен' : 'На этом моменте нет снимка экрана'}</span></div>;
+    return (
+      <div className="lesson-replay-player__empty-surface">
+        <MonitorUp size={25} />
+        <strong>{failed ? 'Этот снимок экрана уже недоступен' : 'В этот момент экран не демонстрировался'}</strong>
+        {jumpEvent && !failed ? (
+          <>
+            <span>Запись демонстрации есть на отметке {formatClock(jumpEvent.offsetMs)}.</span>
+            <button type="button" onClick={onJump}>Перейти к демонстрации</button>
+          </>
+        ) : (
+          <span>{failed ? 'Продолжите воспроизведение: следующий сохранённый кадр откроется автоматически.' : 'В этой записи нет сохранённых кадров демонстрации.'}</span>
+        )}
+      </div>
+    );
   }
   return (
     <div className="lesson-replay-player__screen">
@@ -1224,6 +1245,9 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const loadingPhaseRef = useRef('Запись готова');
   const fullscreenControllerRef = useRef(null);
   const currentActivityRef = useRef(null);
+  const screenWasActiveRef = useRef(false);
+  const screenAutoSelectedRef = useRef(false);
+  const tabBeforeScreenRef = useRef('split');
   const isNativeFullscreen = fullscreenMode === 'native';
   const isFallbackFullscreen = fullscreenMode === 'fallback';
   const isFullscreen = isNativeFullscreen || isFallbackFullscreen;
@@ -1389,11 +1413,18 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
   const boardEvent = state.board;
   const codeEvent = state.code;
   const runEvent = state.run;
-  const freeScreenEvent = useMemo(
-    () => getActiveReplayScreenEvent(events, state.current?.offsetMs || 0, ''),
-    [events, state]
+  const screenSnapshotEvents = useMemo(
+    () => getReplayScreenSnapshotEvents(events),
+    [events]
   );
-  const screenEvent = freeScreenEvent;
+  const screenEvent = useMemo(
+    () => getActiveReplayScreenEvent(events, positionMs, ''),
+    [events, positionMs]
+  );
+  const screenJumpEvent = useMemo(
+    () => findReplayScreenJumpEvent(screenSnapshotEvents, positionMs),
+    [positionMs, screenSnapshotEvents]
+  );
   const boardView = (
     state.boardView?.payload
     || boardEvent?.payload?.viewport
@@ -1401,7 +1432,8 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     || initialBoardViewport
   );
   const codeView = state.codeView?.payload || codeEvent?.payload?.editor || codeEvent?.payload?.view;
-  const availableTabs = screenEvent ? ['split', 'board', 'code', 'screen'] : ['split', 'board', 'code'];
+  const hasScreenReplay = screenSnapshotEvents.length > 0;
+  const availableTabs = hasScreenReplay ? ['split', 'board', 'code', 'screen'] : ['split', 'board', 'code'];
   const resolvedActiveTab = availableTabs.includes(activeTab) ? activeTab : 'board';
   const hasVisualReplay = Boolean(boardEvent || codeEvent || screenEvent);
   const followSnapshotPositionMs = Math.max(
@@ -1493,6 +1525,28 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       });
     });
   }, [durationMs, setReplayLoadingProgress, startSeekTransition]);
+
+  useEffect(() => {
+    const screenIsActive = Boolean(screenEvent);
+    const screenWasActive = screenWasActiveRef.current;
+
+    if (screenIsActive && !screenWasActive) {
+      if (activeTab !== 'screen') {
+        tabBeforeScreenRef.current = activeTab;
+        screenAutoSelectedRef.current = true;
+        setActiveTab('screen');
+      } else {
+        screenAutoSelectedRef.current = false;
+      }
+    } else if (!screenIsActive && screenWasActive) {
+      if (screenAutoSelectedRef.current && activeTab === 'screen') {
+        setActiveTab(tabBeforeScreenRef.current);
+      }
+      screenAutoSelectedRef.current = false;
+    }
+
+    screenWasActiveRef.current = screenIsActive;
+  }, [activeTab, screenEvent]);
 
   const handleAudioEnded = useCallback((slot, entry, audio) => {
     const clock = audioClockRef.current;
@@ -1901,6 +1955,22 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     seekReplayFromControls(event?.offsetMs || 0);
   };
 
+  const jumpToScreenReplay = () => {
+    if (!screenJumpEvent) return;
+    screenAutoSelectedRef.current = false;
+    setActiveTab('screen');
+    seekReplayFromControls(screenJumpEvent.offsetMs);
+  };
+
+  const selectReplayTab = (tab) => {
+    if (tab === 'screen' && !screenEvent) {
+      jumpToScreenReplay();
+      return;
+    }
+    if (tab !== 'screen') screenAutoSelectedRef.current = false;
+    setActiveTab(tab);
+  };
+
   const toggleTimeMachineCompare = () => {
     if (timeMachineShowOriginal && playing) setPlaying(false);
     setTimeMachineShowOriginal((current) => !current);
@@ -2077,6 +2147,8 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
           positionMs={positionMs}
           renderLessonReplaySandbox={renderLessonReplaySandbox}
           runEvent={runEvent}
+          screenEvent={screenEvent}
+          screenOccurrence={replay?.occurrence}
           showOriginal={timeMachineShowOriginal}
           surface={timeMachineSurface}
         />
@@ -2093,11 +2165,11 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       <nav className="lesson-replay-player__tabs" aria-label="Материалы записи" role="tablist">
         {availableTabs.map((tab) => {
           const Icon = SURFACE_TABS[tab].icon;
-          const screenOwnerRole = getLessonReplayActorRole(screenEvent);
+          const screenOwnerRole = getLessonReplayActorRole(screenEvent || screenSnapshotEvents[0]);
           const label = tab === 'screen'
             ? (screenOwnerRole === 'teacher'
-              ? 'Экран учителя'
-              : (screenOwnerRole === 'student' ? 'Экран ученика' : 'Экран'))
+              ? 'Демонстрация учителя'
+              : (screenOwnerRole === 'student' ? 'Демонстрация ученика' : 'Демонстрация'))
             : SURFACE_TABS[tab].label;
           return (
             <button
@@ -2109,7 +2181,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
               aria-controls={`lesson-replay-surface-${tab}`}
               tabIndex={resolvedActiveTab === tab ? 0 : -1}
               className={resolvedActiveTab === tab ? 'is-active' : ''}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => selectReplayTab(tab)}
               onKeyDown={(event) => {
                 const currentIndex = availableTabs.indexOf(tab);
                 let nextIndex = currentIndex;
@@ -2120,7 +2192,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
                 else return;
                 event.preventDefault();
                 const nextTab = availableTabs[nextIndex];
-                setActiveTab(nextTab);
+                selectReplayTab(nextTab);
                 event.currentTarget.parentElement?.querySelector(`[data-replay-tab="${nextTab}"]`)?.focus();
               }}
             >
@@ -2160,7 +2232,12 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
       ) : (
         <div id={`lesson-replay-surface-${resolvedActiveTab}`} className="lesson-replay-player__stage" data-surface={resolvedActiveTab} role="tabpanel" aria-label={`Материал: ${SURFACE_TABS[resolvedActiveTab]?.label || resolvedActiveTab}`}>
           {resolvedActiveTab === 'screen' ? (
-            <ReplayScreen event={screenEvent} occurrence={replay?.occurrence} />
+            <ReplayScreen
+              event={screenEvent}
+              jumpEvent={screenJumpEvent}
+              occurrence={replay?.occurrence}
+              onJump={jumpToScreenReplay}
+            />
           ) : resolvedActiveTab === 'board' ? (
             <ReplayBoard items={boardEvent?.payload?.items} recordedView={boardView} freeNavigation />
           ) : (

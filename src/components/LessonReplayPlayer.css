@@ -280,9 +280,12 @@
 }
 
 .lesson-replay-player__screen img {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  max-height: 430px;
+  height: 100%;
+  max-height: none;
   object-fit: contain;
 }
 
@@ -375,6 +378,30 @@
   padding: 30px;
   color: #8b78a1;
   text-align: center;
+}
+
+.lesson-replay-player__empty-surface strong {
+  color: #4a365c;
+  font-size: 13px;
+}
+
+.lesson-replay-player__empty-surface button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(124, 58, 237, 0.24);
+  border-radius: 10px;
+  color: #6d28d9;
+  background: #fff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.lesson-replay-player__empty-surface button:hover,
+.lesson-replay-player__empty-surface button:focus-visible {
+  border-color: rgba(124, 58, 237, 0.46);
+  background: #f5f3ff;
 }
 
 .lesson-replay-player__code-layout {
@@ -599,6 +626,10 @@
   background-size: 24px 24px;
 }
 
+.lesson-replay-player__time-machine-preview[data-surface="screen"] {
+  background: #100d18;
+}
+
 .lesson-replay-player__time-machine-preview.is-lesson-copy {
   display: flex;
   min-height: 560px;
@@ -606,6 +637,12 @@
 }
 
 .lesson-replay-player__time-machine-preview > .lesson-replay-player__time-machine-sandbox {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.lesson-replay-player__time-machine-preview > .lesson-replay-player__screen {
+  width: 100%;
   min-height: 0;
   flex: 1 1 auto;
 }
@@ -1580,6 +1617,7 @@
 
   .lesson-replay-player:not(.is-fullscreen) .lesson-replay-player__stage .lesson-replay-player__board-wrap,
   .lesson-replay-player:not(.is-fullscreen) .lesson-replay-player__stage .lesson-replay-player__board,
+  .lesson-replay-player:not(.is-fullscreen) .lesson-replay-player__stage .lesson-replay-player__screen,
   .lesson-replay-player:not(.is-fullscreen) .lesson-replay-player__stage .lesson-replay-player__code-layout,
   .lesson-replay-player:not(.is-fullscreen) .lesson-replay-player__stage .lesson-replay-player__empty-surface {
     height: 100%;

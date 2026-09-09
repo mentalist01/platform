@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getActiveReplayScreenEvent } from './lessonReplaySurfaces.js';
+import {
+  findReplayScreenJumpEvent,
+  getActiveReplayScreenEvent,
+  getReplayScreenSnapshotEvents,
+} from './lessonReplaySurfaces.js';
 
 const events = [
   { id: 'student-first', type: 'screen', offsetMs: 1000, payload: { snapshotId: 'student-1', sharedByRole: 'student' } },
@@ -31,4 +35,23 @@ test('free viewing exposes the newest still-active screen from either participan
     'teacher-first',
     'stopping the student screen must not hide an active teacher screen'
   );
+});
+
+test('collects only playable screen snapshots in timeline order', () => {
+  const shuffled = [
+    events[3],
+    events[2],
+    { id: 'invalid', type: 'screen', offsetMs: 500, payload: { sharedByRole: 'teacher' } },
+    events[0],
+  ];
+  assert.deepEqual(
+    getReplayScreenSnapshotEvents(shuffled).map((event) => event.id),
+    ['student-first', 'student-second']
+  );
+});
+
+test('jumps to the next screen fragment and wraps to the first one after the last fragment', () => {
+  assert.equal(findReplayScreenJumpEvent(events, 1700)?.id, 'student-second');
+  assert.equal(findReplayScreenJumpEvent(events, 4000)?.id, 'student-first');
+  assert.equal(findReplayScreenJumpEvent([], 0), null);
 });

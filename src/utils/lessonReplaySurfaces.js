@@ -5,6 +5,26 @@ const getScreenOwnerRole = (event) => {
   return role === 'teacher' || role === 'student' ? role : '';
 };
 
+const isReplayScreenSnapshot = (event) => (
+  event?.type === 'screen'
+  && event?.payload?.active !== false
+  && Boolean(String(event?.payload?.snapshotId || '').trim())
+);
+
+export const getReplayScreenSnapshotEvents = (events) => (
+  (Array.isArray(events) ? events : [])
+    .filter(isReplayScreenSnapshot)
+    .sort((left, right) => normalizePositionMs(left?.offsetMs) - normalizePositionMs(right?.offsetMs))
+);
+
+export const findReplayScreenJumpEvent = (events, rawPositionMs) => {
+  const positionMs = normalizePositionMs(rawPositionMs);
+  const snapshots = getReplayScreenSnapshotEvents(events);
+  return snapshots.find((event) => normalizePositionMs(event.offsetMs) >= positionMs)
+    || snapshots[0]
+    || null;
+};
+
 export const getActiveReplayScreenEvent = (events, rawPositionMs, role = 'student') => {
   const targetRole = role === 'teacher' || role === 'student' ? role : '';
   const positionMs = normalizePositionMs(rawPositionMs);
