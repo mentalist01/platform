@@ -375,6 +375,29 @@ test('later board mutations cannot change an already recorded snapshot', async (
   assert.equal(h.writes[0].events[0].payload.items[0].text, 'original');
 });
 
+test('a delayed encoder result remains attached to the student who was recorded', async () => {
+  const prepared = [];
+  let sessionNumber = 0;
+  const h = await createHarness((api) => {
+    api.startLessonReplaySession = async () => ({ sessionId: `audio-session-${++sessionNumber}` });
+    api.prepareLessonReplayAudioSegment = async (id, _metadata, options) => {
+      prepared.push({ id, recovery: options.recovery }); return { storage: 'local', audioId: 'audio' };
+    };
+    api.uploadPreparedLessonReplayAudioSegment = async () => ({});
+    api.completeLessonReplayAudioSegment = async () => ({});
+  });
+  const firstLessonSink = h.hook.createLessonReplayAudioSink();
+  h.render({ studentId: 'next-student' });
+  await h.advance(0);
+  assert.equal((await firstLessonSink(new Blob(['last words']))).saved, true);
+  assert.equal(prepared[0].id, 'audio-session-1');
+  assert.equal(prepared[0].recovery, true);
+  const secondLessonSink = h.hook.createLessonReplayAudioSink();
+  await h.hook.finishLessonReplayNow();
+  assert.equal((await secondLessonSink(new Blob(['final words']))).saved, true);
+  assert.equal(prepared[1].id, 'audio-session-2');
+});
+
 test('the production recorder journals offline media and recovers it on the dashboard after remount', async () => {
   const sessions = new Map(), records = new Map();
   const store = {

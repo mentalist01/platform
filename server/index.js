@@ -349,7 +349,6 @@ const lessonReplayEstimatedRawBytesByOccurrenceKey = new Map();
 const lessonReplayPersistTimerByOccurrenceKey = new Map();
 const lessonReplayPersistFailureByOccurrenceKey = new Map();
 const lessonReplayCapacityBlockedOccurrenceKeys = new Set();
-let lessonReplayCapacityCircuitOpenUntilMs = 0;
 const lessonReplayAudioUploadTickets = new Map();
 const lessonReplayStorageSummaryCacheByOccurrenceKey = new Map();
 const lessonReplayStorageIndexByHash = new Map();
@@ -374,8 +373,6 @@ const LESSON_REPLAY_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
 const LESSON_REPLAY_PERSIST_INTERVAL_MS = 5 * 60 * 1000;
 const LESSON_REPLAY_PERSIST_MAX_RETRY_MS = 5 * 60 * 1000;
 const LESSON_REPLAY_COMPRESSION_TIMEOUT_MS = 30_000;
-const LESSON_REPLAY_COMPACT_THRESHOLD_BYTES = Math.floor(LESSON_REPLAY_MAX_FILE_BYTES * 0.9);
-const LESSON_REPLAY_COMPACT_TARGET_BYTES = Math.floor(LESSON_REPLAY_MAX_FILE_BYTES * 0.75);
 const LESSON_REPLAY_PLATFORM_DISCONNECT_GRACE_MS = 20 * 1000;
 const TELEMOST_LESSON_BUFFER_MS = 15 * 60 * 1000;
 const TELEMOST_LESSON_DRAIN_MS = 30 * 1000;
@@ -33334,6 +33331,11 @@ app.post('/api/lesson-replay/audio/complete', async (req, res) => {
         notFoundError.statusCode = 404;
         throw notFoundError;
       }
+      // Another completion may have finished while this request waited for the
+      // lock. Its durable event is the receipt; never reject an accepted upload.
+      if (replay.events.some((event) => event.type === 'audio' && event.payload?.audioId === audioId)) {
+        return { added: 0, replay, compressedBytes: getLessonReplayCompressedBytes(ticket.occurrenceKey) };
+      }
       const appended = appendLessonReplayEvents(replay, [{
         id: `${ticket.sessionId}:audio:${audioId}`,
         type: 'audio',
@@ -33690,10 +33692,7 @@ app.post('/api/lesson-replay/events', async (req, res) => {
   // serialized on every client retry. Keep the session in a fast-fail state
   // until it is closed; the browser journal still retains the unsaved events
   // for a later backup/recovery attempt.
-  if (
-    Date.now() < lessonReplayCapacityCircuitOpenUntilMs
-    || lessonReplayCapacityBlockedOccurrenceKeys.has(session.occurrenceKey)
-  ) {
+  if (lessonReplayCapacityBlockedOccurrenceKeys.has(session.occurrenceKey)) {
     return res.status(413).json({
       error: 'Запись достигла предельного размера. Сохранённые данные урока не изменены.',
       code: 'LESSON_REPLAY_CAPACITY',
@@ -33744,10 +33743,12 @@ app.post('/api/lesson-replay/events', async (req, res) => {
         0
       );
       let compactedForCapacity = false;
-      if (estimatedBytes >= LESSON_REPLAY_COMPACT_THRESHOLD_BYTES) {
+      // Required board/code/audio history cannot be compacted away. A lower
+      // soft target used to reject recordings that still fit the hard limit.
+      if (estimatedBytes > LESSON_REPLAY_MAX_FILE_BYTES) {
         finalReplay = appendLessonReplayEvents(finalReplay.replay, [], {
           normalizedReplay: true,
-          maxBytes: LESSON_REPLAY_COMPACT_TARGET_BYTES,
+          maxBytes: LESSON_REPLAY_MAX_FILE_BYTES,
         });
         estimatedBytes = finalReplay.bytes;
         acceptedEvents = finalReplay.replay.events.filter((event) => !previousEventIds.has(event.id));
@@ -33798,7 +33799,6 @@ app.post('/api/lesson-replay/events', async (req, res) => {
     if (error?.statusCode === 404) return res.status(404).json({ error: error.message });
     if (error?.statusCode === 413) {
       lessonReplayCapacityBlockedOccurrenceKeys.add(session.occurrenceKey);
-      lessonReplayCapacityCircuitOpenUntilMs = Date.now() + 30 * 60 * 1000;
       return res.status(413).json({ error: error.message, code: error.code });
     }
     console.error('[lesson-replay] failed to append events:', error);

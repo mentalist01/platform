@@ -1289,7 +1289,7 @@ const CallSection = ({
   onTeacherTelemostOpen,
   onLessonReplayEvent,
   onLessonReplayScreenSnapshot,
-  onLessonReplayAudioSegment,
+  createLessonReplayAudioSink,
   theme = 'light',
   autoStartToken = 0,
 }) => {
@@ -2234,7 +2234,7 @@ const CallSection = ({
     if (
       !isTeacher
       || status !== 'connected'
-      || typeof onLessonReplayAudioSegment !== 'function'
+      || typeof createLessonReplayAudioSink !== 'function'
       || typeof window === 'undefined'
       || typeof MediaRecorder === 'undefined'
     ) return undefined;
@@ -2294,7 +2294,7 @@ const CallSection = ({
           mimeType,
           audioBitsPerSecond: LESSON_REPLAY_AUDIO_BITRATE,
           segmentMs: LESSON_REPLAY_AUDIO_SEGMENT_MS,
-          onSegment: onLessonReplayAudioSegment,
+          onSegment: createLessonReplayAudioSink(),
         });
         void controller.captureStopped.finally(closeGraph);
       } catch {
@@ -2306,7 +2306,7 @@ const CallSection = ({
       if (controller) void controller.stop().finally(closeGraph);
       else closeGraph();
     };
-  }, [isTeacher, lessonReplayAudioTrackKey, onLessonReplayAudioSegment, status]);
+  }, [isTeacher, lessonReplayAudioTrackKey, createLessonReplayAudioSink, status]);
 
   const sendWs = useCallback((payload) => {
     const ws = wsRef.current;

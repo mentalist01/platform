@@ -9,7 +9,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import sharp from 'sharp';
-import { appendLessonReplayEvents, createLessonReplay } from './lessonReplay.js';
+import { appendLessonReplayEvents, createLessonReplay, LESSON_REPLAY_MAX_FILE_BYTES } from './lessonReplay.js';
 import { createLessonReplayEventLog } from './lessonReplayEventLog.js';
 import { createLessonReplayReceipts } from './lessonReplayReceipts.js';
 
@@ -23,7 +23,7 @@ const codeHash = (code) => {
   return `scrypt$${salt}$${crypto.scryptSync(code, salt, 64).toString('base64')}`;
 };
 
-test('durable recovery survives server restarts, response loss and a failed disk write', { timeout: 60_000 }, async () => {
+test('durable recovery survives server restarts, response loss and a failed disk write', { timeout: 60_000 }, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'replay-recovery-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(path.join(data, 'lesson-replays'), { recursive: true });
@@ -40,6 +40,20 @@ test('durable recovery survives server restarts, response loss and a failed disk
   const hash = crypto.createHash('sha256').update(occurrence.key).digest('hex');
   const replayFile = path.join(data, 'lesson-replays', `${hash}.json.gz`);
   fs.writeFileSync(replayFile, gzipSync(JSON.stringify(createLessonReplay(occurrence, capturedAt))));
+  const largeOccurrence = { ...occurrence, key: 'large-lesson' };
+  const largeSession = { ...session, id: crypto.randomUUID(), clientSessionId: crypto.randomUUID(), occurrenceKey: largeOccurrence.key };
+  receipts.save(largeSession);
+  const largeReplay = createLessonReplay(largeOccurrence, capturedAt);
+  largeReplay.events = Array.from({ length: 400 }, (_, index) => ({
+    id: `large-${index}`, type: 'code', actorRole: 'teacher', actorId: teacherId,
+    occurredAt: new Date(capturedAt + index * 1000).toISOString(), offsetMs: index * 1000,
+    payload: { code: `${index}\n${'x'.repeat(79_990)}`, language: 'python', action: 'edit' },
+  }));
+  const largeReplayBytes = JSON.stringify(largeReplay);
+  assert.ok(Buffer.byteLength(largeReplayBytes) > LESSON_REPLAY_MAX_FILE_BYTES * 0.9);
+  assert.ok(Buffer.byteLength(largeReplayBytes) < LESSON_REPLAY_MAX_FILE_BYTES);
+  const largeHash = crypto.createHash('sha256').update(largeOccurrence.key).digest('hex');
+  fs.writeFileSync(path.join(data, 'lesson-replays', `${largeHash}.json.gz`), gzipSync(largeReplayBytes));
   const eventLog = createLessonReplayEventLog(path.join(data, 'lesson-replay-event-log'));
   const readReplay = () => {
     const compact = JSON.parse(gunzipSync(fs.readFileSync(replayFile)));
@@ -120,7 +134,10 @@ test('durable recovery survives server restarts, response loss and a failed disk
     const upload = (body) => fetch(`${base}${prepared.uploadUrl}`, { method: 'PUT', headers: { Authorization: token, 'Content-Type': 'audio/webm' }, body });
     assert.equal((await upload('bad')).status, 400);
     assert.equal((await upload('voice')).status, 200);
-    await ok('lesson-replay/audio/complete', { audioId: prepared.audioId });
+    await t.test('concurrent completion acknowledges the same audio exactly once', async () => {
+      const completions = await Promise.all(Array.from({ length: 3 }, () => request('lesson-replay/audio/complete', { audioId: prepared.audioId })));
+      assert.ok(completions.every((result) => result.status === 200), JSON.stringify(completions));
+    });
     assert.equal(readReplay().events.filter((event) => event.type === 'audio').length, 1);
 
     // A directory where the backup file belongs makes replacement fail on
@@ -160,6 +177,20 @@ test('durable recovery survives server restarts, response loss and a failed disk
       events: [{ ...events[1], id: 'draft-before-first-server-request', payload: { code: 'print("draft recovered")' } }] });
     assert.ok(readReplay().events.some((event) => event.id === 'draft-before-first-server-request'));
     assert.equal((await request('lesson-replay/session', { ...lostStart, clientSessionId: crypto.randomUUID(), createdAt: capturedAt - 24 * 60 * 60 * 1000 })).status, 409);
+    await t.test('large lessons can use the full capacity and cannot block other lessons', async () => {
+      const largeBatch = { sessionId: largeSession.id, recovery: true, durable: true,
+        events: [{ ...events[1], id: 'below-hard-limit', payload: { code: 'print("still fits")' } }] };
+      await ok('lesson-replay/events', largeBatch);
+      const overflow = await request('lesson-replay/events', { ...largeBatch,
+        events: Array.from({ length: 48 }, (_, index) => ({ ...events[1], id: `overflow-${index}`,
+          payload: { code: `${index}\n${'y'.repeat(79_990)}` } })) });
+      assert.equal(overflow.status, 413);
+      const retainedEvents = eventLog.read(largeOccurrence.key);
+      assert.ok(retainedEvents.some((event) => event.id === 'below-hard-limit'));
+      assert.ok(retainedEvents.every((event) => !event.id.startsWith('overflow-')), 'a rejected batch cannot replace previously saved history');
+      await ok('lesson-replay/events', { ...batch,
+        events: [{ ...events[1], id: 'other-lesson-after-capacity', payload: { code: 'print("independent lesson")' } }] });
+    });
   } finally {
     await stop();
     fs.rmSync(root, { recursive: true, force: true });

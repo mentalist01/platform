@@ -47,8 +47,19 @@ export function createLessonReplayJournalStore(indexedDB = globalThis.indexedDB)
       const request = tx.objectStore('sessions').index('owner').getAll(owner);
       return () => request.result;
     }),
-    records: (sessionKey, { all = false } = {}) => transaction(['records'], 'readonly', (tx) => {
+    records: (sessionKey, { all = false, mediaOnly = false } = {}) => transaction(['records'], 'readonly', (tx) => {
       const index = tx.objectStore('records').index('session');
+      if (mediaOnly) {
+        const result = [];
+        const request = index.openCursor(sessionKey);
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          if (cursor.value.kind !== 'event') result.push(cursor.value);
+          if (all || result.length < 48) cursor.continue();
+        };
+        return result;
+      }
       const request = all ? index.getAll(sessionKey) : index.getAll(sessionKey, 48);
       return () => request.result;
     }),

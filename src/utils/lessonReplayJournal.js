@@ -109,8 +109,10 @@ export function createLessonReplayJournal({ owner, api, store = createLessonRepl
           continue;
         }
         try {
-          let records = await store.records(entry.key);
+          const readRecords = () => store.records(entry.key, { mediaOnly: active.has(entry.key) });
+          let records = await readRecords();
           if (!isCurrent()) return;
+          entry = descriptors.get(entry.key) || entry;
           if (!records.length) {
             if (!active.has(entry.key)) {
               if (entry.closed && entry.sessionId) await api.finishLessonReplaySession(entry.sessionId, { recovery: true, endedAt: adjustTime(entry.endedAt, entry) });
@@ -125,10 +127,10 @@ export function createLessonReplayJournal({ owner, api, store = createLessonRepl
             const response = await api.startLessonReplaySession(entry.studentId, {
               ...entry, clientSessionId: entry.pendingKey, recovery: true,
             });
-            entry = { ...entry, sessionId: response.sessionId, occurrenceKey: response.occurrenceKey,
+            entry = { ...entry, ...descriptors.get(entry.key), sessionId: response.sessionId, occurrenceKey: response.occurrenceKey,
               clockOffsetMs: Number.isFinite(Number(response.clockOffsetMs)) ? Number(response.clockOffsetMs) : entry.clockOffsetMs };
             descriptors.set(entry.key, entry);
-            await store.save(entry);
+            await enqueue(() => store.save(entry));
           }
           // Bound each session's turn to keep other lessons responsive.
           for (let batch = 0; batch < 12 && records.length && isCurrent(); batch++) {
@@ -147,9 +149,10 @@ export function createLessonReplayJournal({ owner, api, store = createLessonRepl
               if (!isCurrent()) return;
               await store.acknowledge([first.key]);
             }
-            records = await store.records(entry.key);
+            records = await readRecords();
           }
           if (!isCurrent()) return;
+          entry = descriptors.get(entry.key) || entry;
           if (!records.length && !active.has(entry.key)) {
             if (entry.closed) await api.finishLessonReplaySession(entry.sessionId, { recovery: true, endedAt: adjustTime(entry.endedAt, entry) });
             await store.removeEmptySession(entry.key);

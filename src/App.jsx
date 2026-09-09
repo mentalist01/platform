@@ -18646,7 +18646,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     downloadLessonReplayBackup,
     finishLessonReplayNow,
     uploadLessonReplayScreenSnapshot,
-    uploadLessonReplayAudioSegment,
+    createLessonReplayAudioSink,
   } = useLessonReplayRecorder({
     ownerId: `${user.role}:${user.id}`,
     active: callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive,
@@ -18807,7 +18807,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         mimeType,
         audioBitsPerSecond: TELEMOST_AUDIO_BITRATE,
         segmentMs: TELEMOST_AUDIO_SEGMENT_MS,
-        onSegment: uploadLessonReplayAudioSegment,
+        onSegment: createLessonReplayAudioSink(),
         onDisabled: () => {
           capture.blocked = true;
           setTelemostAudioCapture({
@@ -18844,7 +18844,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [
     isAnyTelemostLessonReplayActive,
     stopTelemostAudioCapture,
-    uploadLessonReplayAudioSegment,
+    createLessonReplayAudioSink,
   ]);
 
   useEffect(() => {
@@ -26225,7 +26225,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onTeacherTelemostOpen={handleOpenIndividualTelemost}
               onLessonReplayEvent={recordLessonReplayEvent}
               onLessonReplayScreenSnapshot={uploadLessonReplayScreenSnapshot}
-              onLessonReplayAudioSegment={uploadLessonReplayAudioSegment}
+              createLessonReplayAudioSink={createLessonReplayAudioSink}
               onRequestExpand={() => setCallPanelExpanded(true)}
               onRequestCollapse={() => setCallPanelExpanded(false)}
               onRequestOpenCall={() => navigateToView('call')}

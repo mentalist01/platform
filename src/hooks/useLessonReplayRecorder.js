@@ -862,16 +862,18 @@ const useLessonReplayRecorder = ({
     return { saved: false, disabled, error };
   }, [journal, ownerId]);
 
-  const uploadLessonReplayAudioSegment = useCallback((blob, metadata = {}) => {
-    const session = sessionRef.current || queueSessionRef.current;
-    if (ownerId && enabledRef.current && session && blob instanceof Blob && blob.size > 0) {
+  const uploadLessonReplayAudioSegment = useCallback((blob, metadata = {}, capturedSession = null) => {
+    const current = sessionRef.current || queueSessionRef.current;
+    const session = capturedSession && capturedSession.pendingKey !== current?.pendingKey ? capturedSession : current;
+    const acceptingAudio = Boolean(capturedSession || enabledRef.current);
+    if (ownerId && acceptingAudio && session && blob instanceof Blob && blob.size > 0) {
       return journal.saveMedia(session, 'audio', blob, metadata).then(() => {
         void journal.drain();
         return { saved: true, queued: true };
       }, (error) => ({ saved: false, disabled: true, error }));
     }
     if (
-      !enabledRef.current
+      !acceptingAudio
       || !session?.sessionId
       || !(blob instanceof Blob)
       || blob.size <= 0
@@ -907,7 +909,7 @@ const useLessonReplayRecorder = ({
         try {
           if (!prepared) {
             prepared = await runAudioUploadStage('prepare', (signal) => (
-              api.prepareLessonReplayAudioSegment(session.sessionId, normalizedMetadata, { signal })
+              api.prepareLessonReplayAudioSegment(session.sessionId, normalizedMetadata, { signal, recovery: Boolean(capturedSession) })
             ));
           }
           if (!uploaded) {
@@ -974,6 +976,15 @@ const useLessonReplayRecorder = ({
     return operation;
   }, [journal, ownerId]);
 
+  const createLessonReplayAudioSink = useCallback(() => {
+    // MediaRecorder delivers its final Blob asynchronously, sometimes after
+    // the next student has been selected or the session has already closed.
+    const session = sessionRef.current || queueSessionRef.current;
+    return (blob, metadata) => session
+      ? uploadLessonReplayAudioSegment(blob, metadata, session)
+      : Promise.resolve({ saved: false, disabled: true });
+  }, [uploadLessonReplayAudioSegment]);
+
   return {
     lessonReplayError: journalError || lessonReplayError,
     retryLessonReplaySave,
@@ -984,6 +995,7 @@ const useLessonReplayRecorder = ({
     finishLessonReplayNow,
     uploadLessonReplayScreenSnapshot,
     uploadLessonReplayAudioSegment,
+    createLessonReplayAudioSink,
   };
 };
 

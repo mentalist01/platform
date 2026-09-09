@@ -7,7 +7,7 @@ const memoryStore = () => {
   const records = new Map();
   return {
     sessions: async (owner) => [...sessions.values()].filter((session) => session.owner === owner).map((value) => structuredClone(value)),
-    records: async (key, { all = false } = {}) => [...records.values()].filter((record) => record.sessionKey === key).sort((a,b) => a.key.localeCompare(b.key)).slice(0, all ? undefined : 48).map((value) => structuredClone(value)),
+    records: async (key, { all = false, mediaOnly = false } = {}) => [...records.values()].filter((record) => record.sessionKey === key && (!mediaOnly || record.kind !== 'event')).sort((a,b) => a.key.localeCompare(b.key)).slice(0, all ? undefined : 48).map((value) => structuredClone(value)),
     save: async (session, record) => { sessions.set(session.key, structuredClone(session)); if (record) records.set(record.key, structuredClone(record)); },
     acknowledge: async (keys) => keys.forEach((key) => records.delete(key)),
     acknowledgeEvents: async (sessionKey, ids) => { for (const [key, record] of records) if (record.sessionKey === sessionKey && record.kind === 'event' && ids.includes(record.id)) records.delete(key); },
@@ -186,4 +186,37 @@ test('page protection remains active until the local transaction commits', async
   await Promise.resolve(); await Promise.resolve();
   await commit(); await saving; await Promise.resolve();
   assert.equal(live.needsPageProtection(), false);
+});
+
+test('live audio behind more than one batch of board events is still uploaded', async () => {
+  const h = harness(); const live = h.make(); await live.register(session);
+  for (let i = 0; i < 60; i++) await live.saveEvent(session, event(`queued-${i}`));
+  await live.saveMedia(session, 'audio', new Blob(['voice'], { type: 'audio/webm' }), { occurredAt: event('x').occurredAt, durationMs: 1000 });
+  await live.drain();
+  assert.equal(h.audio.length, 1);
+  assert.equal(h.writes.length, 0, 'the live recorder retains ownership of board events');
+});
+
+test('closing a draft while recovery starts it preserves its final confirmation', async () => {
+  const h = harness(); const live = h.make(); const draft = { ...session, sessionId: '' };
+  await live.register(draft);
+  await live.saveMedia(draft, 'audio', new Blob(['voice'], { type: 'audio/webm' }), { occurredAt: event('x').occurredAt, durationMs: 1000 });
+  h.api.startLessonReplaySession = async () => {
+    await live.detach({ ...draft, endedAt: '2026-09-06T13:00:00.000Z' });
+    return { sessionId: 'recovered-original', occurrenceKey: 'original-lesson', clockOffsetMs: 2000 };
+  };
+  await live.drain();
+  assert.equal(h.finishes.length, 1);
+  assert.equal(h.finishes[0].options.endedAt, '2026-09-06T13:00:02.000Z');
+});
+
+test('closing a live session during an empty outbox read still confirms its end', async () => {
+  const h = harness(); const live = h.make(); await live.register(session);
+  h.store.records = async () => {
+    await live.detach({ ...session, endedAt: '2026-09-06T13:00:00.000Z' });
+    return [];
+  };
+  await live.drain();
+  assert.equal(h.finishes.length, 1);
+  assert.equal(h.finishes[0].options.endedAt, '2026-09-06T13:00:02.000Z');
 });
