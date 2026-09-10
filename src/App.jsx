@@ -4893,6 +4893,15 @@ const CollabSection = ({
   }, []);
 
   const handleEditorMount = useCallback((editor, monaco) => {
+    try {
+      const model = editor?.getModel?.();
+      const lf = monaco?.editor?.EndOfLineSequence?.LF;
+      if (model && Number.isFinite(Number(lf)) && typeof model.setEOL === 'function') {
+        model.setEOL(lf);
+      }
+    } catch (error) {
+      void error;
+    }
     editorRef.current = editor;
     monacoRef.current = monaco;
     editor.updateOptions?.(getCollabEditorMetricOptions(editorFontSize));
