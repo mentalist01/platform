@@ -230,6 +230,102 @@ test('the current attempt is not duplicated when its attemptId is already frozen
   assert.deepEqual(entries.map((entry) => entry.id), ['online-result:frozen']);
 });
 
+test('frozen progress score is recalculated from its solved task map', () => {
+  const entries = buildMockExamProgressEntries({
+    studentData: {
+      mockAttemptResults: [{
+        resultId: 'stale-score',
+        attemptId: 'attempt-1',
+        examId: 'exam',
+        mode: 'timer',
+        finishedAt: '2026-09-08T12:00:00.000Z',
+        solved: {
+          1: true,
+          3: true,
+          4: true,
+          7: true,
+          19: true,
+          20: true,
+          21: true,
+        },
+        tasks: Object.fromEntries(Array.from({ length: 27 }, (_, index) => [String(index + 1), {}])),
+        secondaryScore: 27,
+      }],
+    },
+  });
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].score, 43);
+});
+
+test('a completed current attempt repairs a stale frozen solved map for the same attempt', () => {
+  const tasks = Object.fromEntries(Array.from({ length: 27 }, (_, index) => [String(index + 1), {}]));
+  const entries = buildMockExamProgressEntries({
+    studentData: {
+      mockAttemptResults: [{
+        resultId: 'stale-result',
+        attemptId: 'attempt-1',
+        examId: 'exam',
+        mode: 'timer',
+        finishedAt: '2026-09-08T12:00:00.000Z',
+        solved: { 1: true, 3: true, 4: true, 7: true },
+        tasks,
+        secondaryScore: 27,
+      }],
+    },
+    mockAttemptsByExam: {
+      exam: {
+        attemptId: 'attempt-1',
+        mode: 'timer',
+        timerFinishedAt: '2026-09-08T12:00:00.000Z',
+        solved: {
+          1: true,
+          3: true,
+          4: true,
+          7: true,
+          19: true,
+          20: true,
+          21: true,
+        },
+      },
+    },
+    mockExams: [{ id: 'exam', tasks }],
+  });
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].score, 43);
+});
+
+test('an active continuation does not overwrite the frozen first-attempt score', () => {
+  const tasks = { 1: {}, 2: {} };
+  const entries = buildMockExamProgressEntries({
+    studentData: {
+      mockAttemptResults: [{
+        resultId: 'first-result',
+        attemptId: 'attempt-1',
+        examId: 'exam',
+        mode: 'timer',
+        finishedAt: '2026-09-08T12:00:00.000Z',
+        solved: { 1: true, 2: false },
+        tasks,
+        secondaryScore: 7,
+      }],
+    },
+    mockAttemptsByExam: {
+      exam: {
+        attemptId: 'attempt-1',
+        mode: 'timer',
+        status: 'active',
+        solved: { 1: true, 2: true },
+      },
+    },
+    mockExams: [{ id: 'exam', tasks }],
+  });
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].score, 7);
+});
+
 test('invalid calendar dates are ignored instead of rolling into another month', () => {
   const entries = buildMockExamProgressEntries({
     studentData: {

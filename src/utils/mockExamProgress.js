@@ -127,6 +127,18 @@ const getAttemptScope = (exam, attempt) => {
   };
 };
 
+const hasSolvedMap = (attempt) => Boolean(
+  attempt?.solved
+  && typeof attempt.solved === 'object'
+  && !Array.isArray(attempt.solved)
+);
+
+const isFinishedAttempt = (attempt) => Boolean(
+  normalizeText(attempt?.finishedAt)
+  || normalizeText(attempt?.timerFinishedAt)
+  || normalizeText(attempt?.status).toLowerCase() === 'finished'
+);
+
 export const getMockPrimaryScoreFromSolved = (solvedMap) => {
   const solved = solvedMap && typeof solvedMap === 'object' ? solvedMap : {};
   return Array.from({ length: 27 }, (_, index) => index + 1).reduce((sum, taskNumber) => (
@@ -167,15 +179,28 @@ export const buildMockExamProgressEntries = ({
       const examId = normalizeText(result.examId);
       const finishedAtMs = parseDateMs(result.finishedAt);
       if (finishedAtMs == null) return null;
+      const currentAttempt = attemptByExamId[examId];
+      const currentMatchesResult = Boolean(
+        currentAttempt
+        && normalizeText(currentAttempt.attemptId)
+        && normalizeText(currentAttempt.attemptId) === normalizeText(result.attemptId)
+        && isFinishedAttempt(currentAttempt)
+      );
+      const scoreAttempt = currentMatchesResult && hasSolvedMap(currentAttempt)
+        ? currentAttempt
+        : result;
       const frozenTasks = getTaskMap(result.tasks);
       const exam = Object.keys(frozenTasks).length > 0
         ? { ...(examById[examId] || {}), tasks: frozenTasks }
         : (examById[examId] || null);
-      const scope = getAttemptScope(exam, result);
+      const scope = getAttemptScope(exam, scoreAttempt);
       if (scope.isPartial) return null;
       const resultId = normalizeText(result.resultId ?? result.id)
         || `${normalizeText(result.attemptId) || examId || 'result'}-${index}-${finishedAtMs}`;
       const storedSecondaryScore = clampScore(result.secondaryScore);
+      const calculatedSecondaryScore = hasSolvedMap(scoreAttempt)
+        ? getMockSecondaryScoreFromSolved(scope.solvedMap)
+        : null;
       return {
         id: `online-result:${resultId}`,
         examId,
@@ -192,7 +217,7 @@ export const buildMockExamProgressEntries = ({
           || normalizeText(exam?.title)
           || 'Онлайн-пробник',
         comment: '',
-        score: storedSecondaryScore ?? getMockSecondaryScoreFromSolved(scope.solvedMap),
+        score: calculatedSecondaryScore ?? storedSecondaryScore ?? 0,
         dateMs: finishedAtMs,
         date: new Date(finishedAtMs).toISOString(),
         academicYear: getAcademicYearMeta(finishedAtMs),
