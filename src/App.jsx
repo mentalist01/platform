@@ -3857,6 +3857,7 @@ const CollabSection = ({
     ? JSON.stringify(sandboxReadOnlyCodeState.viewport)
     : '';
   const [status, setStatus] = useState('disconnected');
+  const [documentSynced, setDocumentSynced] = useState(false);
   const [peerCount, setPeerCount] = useState(0);
   const [remoteParticipants, setRemoteParticipants] = useState([]);
   const [remoteEditorCursors, setRemoteEditorCursors] = useState([]);
@@ -3959,6 +3960,9 @@ const CollabSection = ({
     ? `collab-lesson-${learningLessonId}`
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
+  const collabDocumentReady = Boolean(
+    roomId && (isSandbox || (status === 'connected' && documentSynced))
+  );
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
     const targetId = isGroupLesson ? `group-lesson-${learningLessonId}` : effectiveStudentId;
@@ -4428,9 +4432,9 @@ const CollabSection = ({
     glyphMargin: false,
     lineNumbersMinChars: 2,
     lineDecorationsWidth: 6,
-    readOnly: !roomId || collabReadOnly,
+    readOnly: collabReadOnly || !collabDocumentReady,
     domReadOnly: false,
-  }), [roomId, collabReadOnly, editorFontSize, isCollabFullscreen]);
+  }), [collabDocumentReady, collabReadOnly, editorFontSize, isCollabFullscreen]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
   const compactCollabHeight = '100%';
   const editorHeight = isCollabFullscreen
@@ -5131,7 +5135,9 @@ const CollabSection = ({
 
   useEffect(() => {
     const waitingForEditor = Boolean(roomId && !editorReady);
-    const waitingForConnection = Boolean(roomId && editorReady && status === 'connecting');
+    const waitingForConnection = Boolean(
+      roomId && editorReady && !isSandbox && !collabDocumentReady
+    );
     if (!waitingForEditor && !waitingForConnection) {
       setEditorWaitTimedOut(false);
       return undefined;
@@ -5140,7 +5146,7 @@ const CollabSection = ({
     setEditorWaitTimedOut(false);
     const timeoutId = window.setTimeout(() => setEditorWaitTimedOut(true), 15_000);
     return () => window.clearTimeout(timeoutId);
-  }, [editorConnectionRetry, editorReady, roomId, status]);
+  }, [collabDocumentReady, editorConnectionRetry, editorReady, isSandbox, roomId]);
 
   const retryEditorConnection = useCallback(() => {
     setEditorWaitTimedOut(false);
@@ -6171,7 +6177,7 @@ const CollabSection = ({
   };
 
   const handleTestFileTextChange = useCallback((value) => {
-    if (collabReadOnly) return;
+    if (collabReadOnly || !collabDocumentReady) return;
     const normalized = normalizeCollabTextFileContent(value);
     setTestFileText((prev) => (prev === normalized ? prev : normalized));
     const ytext = collabTestFileRef.current;
@@ -6191,7 +6197,7 @@ const CollabSection = ({
       return;
     }
     applyChange();
-  }, [collabReadOnly]);
+  }, [collabDocumentReady, collabReadOnly]);
 
   const mountRuntimeFilesInPyodide = useCallback((pyodide, runtimeFiles = []) => {
     if (!pyodide?.FS) return;
@@ -7240,7 +7246,7 @@ const CollabSection = ({
   };
 
   const handleFormatCode = () => {
-    if (collabReadOnly) return;
+    if (collabReadOnly || !collabDocumentReady) return;
     const editor = editorRef.current;
     const model = editor?.getModel?.();
     if (!editor || !model) return;
@@ -7285,7 +7291,7 @@ const CollabSection = ({
   };
 
   const handleRunCode = async (mode = 'all', debug = false) => {
-    if (collabReadOnly || !roomId || !editorRef.current) return;
+    if (collabReadOnly || !collabDocumentReady || !editorRef.current) return;
     outputPanelDismissedRunTokenRef.current = null;
     setOutputPanelOpen(true);
     const requestedDebug = Boolean(debug);
@@ -7521,12 +7527,12 @@ const CollabSection = ({
       if (!isPlainF5 && !isCtrlEnter) return;
       event.preventDefault();
       event.stopPropagation();
-      if (event.repeat || collabReadOnly || runLoading || !roomId) return;
+      if (event.repeat || collabReadOnly || runLoading || !collabDocumentReady) return;
       void handleRunCodeRef.current?.('all');
     };
     window.addEventListener('keydown', handleRunHotkey, true);
     return () => window.removeEventListener('keydown', handleRunHotkey, true);
-  }, [collabReadOnly, roomId, runLoading]);
+  }, [collabDocumentReady, collabReadOnly, runLoading]);
 
   const handleStopRun = () => {
     if (collabReadOnly || !runLoading) return;
@@ -7693,6 +7699,7 @@ const CollabSection = ({
   useEffect(() => {
     taskFilesSyncReadyRef.current = false;
     sandboxReadyRef.current = false;
+    setDocumentSynced(false);
     if (!roomId || !editorReady || (!isSandbox && !wsUrl)) {
       setStatus('disconnected');
       setPeerCount(0);
@@ -7757,6 +7764,7 @@ const CollabSection = ({
       if (!model) return undefined;
 
       setStatus('connected');
+      setDocumentSynced(true);
       setPeerCount(0);
       setRemoteParticipants([]);
       setRemoteEditorCursors([]);
@@ -7898,7 +7906,35 @@ const CollabSection = ({
     }
 
     const ytext = doc.getText('monaco');
-    const binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
+    let binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
+    let editorConsistencyFrameId = null;
+    const repairEditorModelFromSharedText = () => {
+      editorConsistencyFrameId = null;
+      if (disposed || editorRef.current?.getModel?.() !== model) return;
+      const sharedValue = ytext.toString();
+      if (model.getValue() === sharedValue) return;
+
+      // A stale Monaco model must never become the source of truth during a
+      // reconnect. Rebind it from Y.Text without sending the stale value back.
+      binding.destroy();
+      try {
+        const lf = monacoRef.current?.editor?.EndOfLineSequence?.LF;
+        if (Number.isFinite(Number(lf)) && typeof model.setEOL === 'function') {
+          model.setEOL(lf);
+        }
+      } catch (error) {
+        void error;
+      }
+      model.setValue(sharedValue);
+      binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
+    };
+    const scheduleEditorConsistencyCheck = () => {
+      if (typeof window === 'undefined') return;
+      if (editorConsistencyFrameId !== null) window.cancelAnimationFrame(editorConsistencyFrameId);
+      editorConsistencyFrameId = window.requestAnimationFrame(repairEditorModelFromSharedText);
+    };
+    const handleEditorConsistencyChange = () => scheduleEditorConsistencyCheck();
+    ytext.observe(handleEditorConsistencyChange);
     const handleReplayCodeChange = (_event, transaction) => {
       // Yjs invokes observers for remote updates and our own initial/manual
       // sync calls. Only a genuinely local transaction is an authored edit.
@@ -7953,10 +7989,24 @@ const CollabSection = ({
     };
     testFileYText.observe(syncTestFileFromDoc);
     syncTestFileFromDoc();
-    const handleReplaySync = (isSynced) => {
-      if (!isSynced || !lessonReplayPreviousCodeActiveRef.current) return;
-      scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot' });
-      if (editorRef.current) scheduleLessonReplayCodeViewport(editorRef.current, 0);
+    const handleProviderSync = (isSynced) => {
+      const nextSynced = isSynced === true;
+      if (!nextSynced) {
+        setDocumentSynced(false);
+        editorRef.current?.updateOptions?.({ readOnly: true });
+        return;
+      }
+      if (editorConsistencyFrameId !== null) {
+        window.cancelAnimationFrame(editorConsistencyFrameId);
+        editorConsistencyFrameId = null;
+      }
+      repairEditorModelFromSharedText();
+      setDocumentSynced(true);
+      editorRef.current?.updateOptions?.({ readOnly: collabReadOnly });
+      if (lessonReplayPreviousCodeActiveRef.current) {
+        scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot' });
+        if (editorRef.current) scheduleLessonReplayCodeViewport(editorRef.current, 0);
+      }
     };
     const lessonReplayCodeHeartbeatId = window.setInterval(() => {
       if (!lessonReplayPreviousCodeActiveRef.current || provider.synced !== true) return;
@@ -7964,7 +8014,12 @@ const CollabSection = ({
     }, 30_000);
 
     const handleStatus = (event) => {
-      if (event?.status) setStatus(event.status);
+      if (!event?.status) return;
+      setStatus(event.status);
+      if (event.status !== 'connected') {
+        setDocumentSynced(false);
+        editorRef.current?.updateOptions?.({ readOnly: true });
+      }
     };
     const handleAwareness = () => {
       const states = provider.awareness.getStates();
@@ -8086,15 +8141,15 @@ const CollabSection = ({
     };
 
     provider.on('status', handleStatus);
-    provider.on('sync', handleReplaySync);
+    provider.on('sync', handleProviderSync);
     provider.awareness.on('change', handleAwareness);
     handleAwareness();
-    if (provider.synced) handleReplaySync(true);
+    if (provider.synced) handleProviderSync(true);
 
     return () => {
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
-      provider.off('sync', handleReplaySync);
+      provider.off('sync', handleProviderSync);
       if (COLLAB_EDITOR_CURSOR_ENABLED) {
         provider.awareness.setLocalStateField('editorCursor', null);
       }
@@ -8110,7 +8165,9 @@ const CollabSection = ({
         collabCursorClearTimerRef.current = null;
       }
       testFileYText.unobserve(syncTestFileFromDoc);
+      ytext.unobserve(handleEditorConsistencyChange);
       ytext.unobserve(handleReplayCodeChange);
+      if (editorConsistencyFrameId !== null) window.cancelAnimationFrame(editorConsistencyFrameId);
       window.clearInterval(lessonReplayCodeHeartbeatId);
       if (provider.synced === true) {
         scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot' });
@@ -8122,6 +8179,7 @@ const CollabSection = ({
       lessonReplayLastCodeViewportAtRef.current = 0;
       runMap.unobserve(handleRunMapChange);
       binding.destroy();
+      editorRef.current?.updateOptions?.({ readOnly: true });
       provider.destroy();
       doc.destroy();
       taskFilesSyncReadyRef.current = false;
@@ -8153,6 +8211,7 @@ const CollabSection = ({
     }).catch((error) => {
       if (disposed) return;
       console.error('[collab] failed to load collaborative editor runtime:', error);
+      setDocumentSynced(false);
       setStatus('disconnected');
     });
 
@@ -8335,12 +8394,15 @@ const CollabSection = ({
     sandboxReadOnlyViewportSignature,
   ]);
 
+  const collabConnectionState = !isSandbox && status === 'connected' && !documentSynced
+    ? 'connecting'
+    : status;
   const statusLabel = collabReadOnly && !isSandbox
     ? 'Архив · только просмотр'
     : isSandbox
     ? (sandboxReadOnly ? 'Запись урока' : 'Локальная копия')
     : status === 'connected'
-    ? 'Подключено'
+    ? (documentSynced ? 'Подключено' : 'Синхронизация...')
     : (status === 'connecting' ? 'Соединяемся...' : 'Не подключено');
   const SHOW_COLLAB_AUTOFORMAT = false;
   const isSplitCollabLayout = (isCollabFullscreen || isDesktopCollabCompact) && !isMobileViewport;
@@ -8351,7 +8413,7 @@ const CollabSection = ({
     useBoardGlassCodePanel
     && editorReady
     && roomId
-    && status === 'connected'
+    && collabDocumentReady
     && !String(editorModelValue).trim()
   );
   const remoteEditorCursorMarkers = useMemo(() => {
@@ -9095,7 +9157,9 @@ const CollabSection = ({
       </div>
     </div>
   );
-  const showEditorConnectionLoading = Boolean(roomId && (!editorReady || status === 'connecting'));
+  const showEditorConnectionLoading = Boolean(
+    roomId && (!editorReady || (!isSandbox && !collabDocumentReady))
+  );
 
   const editorPane = (
     <div className={`collab-editor-surface ${showEditorHeader ? '' : 'collab-editor-surface--flush'} relative flex flex-col overflow-hidden rounded-xl border ${isSplitCollabLayout ? 'h-full' : ''} ${
@@ -9432,7 +9496,7 @@ const CollabSection = ({
                   onScroll={syncCollabTestFileOverlayScroll}
                   rows={auxTextareaRows}
                   spellCheck={false}
-                  disabled={!roomId || collabReadOnly}
+                  disabled={collabReadOnly || !collabDocumentReady}
                   placeholder={roomId ? 'Введите содержимое test.txt.' : 'Выберите ученика, чтобы редактировать test.txt.'}
                   style={{
                     ...(testFileTextareaHeight ? { height: `${testFileTextareaHeight}px` } : {}),
@@ -10355,14 +10419,14 @@ const CollabSection = ({
         </button>
       )}
       <span
-        className={`collab-code-action-icon collab-code-status-icon ${status === 'connected' ? 'is-connected' : (status === 'connecting' ? 'is-connecting' : 'is-disconnected')}`}
+        className={`collab-code-action-icon collab-code-status-icon ${collabConnectionState === 'connected' ? 'is-connected' : (collabConnectionState === 'connecting' ? 'is-connecting' : 'is-disconnected')}`}
         role="status"
         title={statusLabel}
         aria-label={statusLabel}
       >
-        {status === 'connected'
+        {collabConnectionState === 'connected'
           ? <CheckCircle size={19} />
-          : (status === 'connecting' ? <RefreshCcw size={19} /> : <AlertCircle size={19} />)}
+          : (collabConnectionState === 'connecting' ? <RefreshCcw size={19} /> : <AlertCircle size={19} />)}
       </span>
       {roomId && !isSandbox && (
         <span
@@ -10508,7 +10572,7 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleFormatCode}
-                disabled={collabReadOnly || !roomId}
+                disabled={collabReadOnly || !collabDocumentReady}
                 className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
               >
                 Автоформат
@@ -10562,9 +10626,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all')}
-                disabled={collabReadOnly || runLoading || !roomId}
+                disabled={collabReadOnly || runLoading || !collabDocumentReady}
                 className={`${collabIconButtonBase} collab-code-pill-button is-run ${
-                  collabReadOnly || runLoading || !roomId ? collabIconButtonDisabled : collabIconButtonPrimary
+                  collabReadOnly || runLoading || !collabDocumentReady ? collabIconButtonDisabled : collabIconButtonPrimary
                 }`}
                 title="Запустить код"
                 aria-label="Запустить код"
@@ -10577,9 +10641,9 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={() => handleRunCode('all', true)}
-                  disabled={collabReadOnly || runLoading || !roomId}
+                  disabled={collabReadOnly || runLoading || !collabDocumentReady}
                   className={`${collabIconButtonBase} collab-code-pill-button is-debug ${
-                    collabReadOnly || runLoading || !roomId
+                    collabReadOnly || runLoading || !collabDocumentReady
                       ? collabIconButtonDisabled
                       : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
                   }`}
@@ -10647,9 +10711,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all')}
-                disabled={collabReadOnly || runLoading || !roomId}
+                disabled={collabReadOnly || runLoading || !collabDocumentReady}
                 className={`${collabIconButtonBase} ${
-                  collabReadOnly || runLoading || !roomId
+                  collabReadOnly || runLoading || !collabDocumentReady
                     ? collabIconButtonDisabled
                     : collabIconButtonPrimary
                 }`}
@@ -10661,9 +10725,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('selection')}
-                disabled={collabReadOnly || runLoading || !roomId}
+                disabled={collabReadOnly || runLoading || !collabDocumentReady}
                 className={`${collabIconButtonBase} ${
-                  collabReadOnly || runLoading || !roomId
+                  collabReadOnly || runLoading || !collabDocumentReady
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -10675,9 +10739,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all', true)}
-                disabled={collabReadOnly || runLoading || !roomId}
+                disabled={collabReadOnly || runLoading || !collabDocumentReady}
                 className={`${collabIconButtonBase} ${
-                  collabReadOnly || runLoading || !roomId
+                  collabReadOnly || runLoading || !collabDocumentReady
                     ? collabIconButtonDisabled
                     : (debugActive
                       ? collabIconButtonPrimary
@@ -10812,7 +10876,7 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={handleFormatCode}
-                disabled={collabReadOnly || !roomId}
+                disabled={collabReadOnly || !collabDocumentReady}
                 className={`inline-flex h-7 items-center rounded-lg border px-2 py-0 text-[10px] font-semibold transition disabled:opacity-50 ${
                   isCollabFullscreen
                     ? (isFullscreenDark
@@ -10858,7 +10922,7 @@ const CollabSection = ({
                 {useBoardGlassCodePanel && (
                   <div className="collab-editor-statusbar" aria-label="Состояние редактора">
                     <div className="collab-editor-statusbar__group">
-                      <span className={`collab-editor-statusbar__connection is-${status || 'idle'}`}>
+                      <span className={`collab-editor-statusbar__connection is-${collabConnectionState || 'idle'}`}>
                         <span aria-hidden="true" />
                         {statusLabel}
                       </span>
