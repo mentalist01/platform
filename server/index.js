@@ -31944,13 +31944,14 @@ const serializeLessonReplayForClient = (replay) => {
   };
 };
 
-const serializeStudentLessonHistoryEntry = (entry, replayStorage = null) => ({
+const serializeStudentLessonHistoryEntry = (entry, replayStorage = null, student = null) => ({
   key: entry.key,
   dayKey: entry.dayKey,
   time: entry.time,
   durationMinutes: entry.durationMinutes,
   startMs: entry.startMs,
   endMs: entry.endMs,
+  studentName: String(student?.name || '').trim(),
   subject: entry.subject,
   ...(entry.groupId ? {
     groupId: entry.groupId,
@@ -33943,7 +33944,7 @@ const getParentLessonPayment = (student, occurrence, financeContext) => {
 const serializeParentLessonHistoryEntry = (student, occurrence, financeContext) => {
   const replay = getLessonReplaySummary(getLessonHistoryReplayKey(occurrence));
   return {
-    ...serializeStudentLessonHistoryEntry(occurrence),
+    ...serializeStudentLessonHistoryEntry(occurrence, null, student),
     payment: getParentLessonPayment(student, occurrence, financeContext),
     replay: {
       available: Boolean(replay?.available),
@@ -34141,7 +34142,7 @@ app.get('/api/lesson-history/detail', async (req, res) => {
       return res.status(404).json({ error: 'Занятие не найдено' });
     }
     return res.json({
-      lesson: serializeStudentLessonHistoryEntry(occurrence),
+      lesson: serializeStudentLessonHistoryEntry(occurrence, null, student),
       materials: collectStudentLessonMaterials(student, occurrence),
       replay: serializeLessonReplayForClient(readLessonReplay(getLessonHistoryReplayKey(occurrence))),
     });
@@ -34180,7 +34181,8 @@ app.get('/api/lesson-history', async (req, res) => {
       ...page,
       items: page.items.map((entry) => serializeStudentLessonHistoryEntry(
         entry,
-        includeReplayStorage ? replayStorageByKey.get(entry.key) : null
+        includeReplayStorage ? replayStorageByKey.get(entry.key) : null,
+        student
       )),
       ...(includeReplayStorage ? {
         replayStorageTotalBytes: replayStoragePendingCount > 0 ? null : replayStorageTotalBytes,

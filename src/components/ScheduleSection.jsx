@@ -1909,6 +1909,14 @@ const ScheduleSection = ({
                     const topicSourceLabel = topic?.source === 'teacher'
                       ? 'Тема учителя'
                       : (topic ? 'По конспектам' : 'Тема');
+                    const historyStudentName = String(
+                      entry?.studentName || selectedStudent?.name || ''
+                    ).trim();
+                    const historyName = String(
+                      entry?.groupId
+                        ? (entry?.groupName || entry?.subject || '')
+                        : (historyStudentName || entry?.subject || '')
+                    ).trim();
                     return (
                       <li key={entry?.key || `${entry?.dayKey}-${entry?.time}-${index}`}>
                         <article
@@ -1931,7 +1939,7 @@ const ScheduleSection = ({
                           <div className="student-lesson-history__main">
                             <div className="student-lesson-history__heading">
                               <strong>{getLessonHistoryDateLabel(entry?.dayKey)}</strong>
-                              {entry?.subject && entry.subject !== DEFAULT_SCHEDULE_SUBJECT && <span>{entry.subject}</span>}
+                              {historyName && historyName !== DEFAULT_SCHEDULE_SUBJECT && <span>{historyName}</span>}
                             </div>
                             <div className="student-lesson-history__time">
                               <Clock3 size={14} />
