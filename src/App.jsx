@@ -3961,7 +3961,7 @@ const CollabSection = ({
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const collabDocumentReady = Boolean(
-    roomId && (isSandbox || (status === 'connected' && documentSynced))
+    roomId && (isSandbox || documentSynced)
   );
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
@@ -7991,11 +7991,7 @@ const CollabSection = ({
     syncTestFileFromDoc();
     const handleProviderSync = (isSynced) => {
       const nextSynced = isSynced === true;
-      if (!nextSynced) {
-        setDocumentSynced(false);
-        editorRef.current?.updateOptions?.({ readOnly: true });
-        return;
-      }
+      if (!nextSynced) return;
       if (editorConsistencyFrameId !== null) {
         window.cancelAnimationFrame(editorConsistencyFrameId);
         editorConsistencyFrameId = null;
@@ -8016,10 +8012,6 @@ const CollabSection = ({
     const handleStatus = (event) => {
       if (!event?.status) return;
       setStatus(event.status);
-      if (event.status !== 'connected') {
-        setDocumentSynced(false);
-        editorRef.current?.updateOptions?.({ readOnly: true });
-      }
     };
     const handleAwareness = () => {
       const states = provider.awareness.getStates();
