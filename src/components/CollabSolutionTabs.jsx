@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from 'react';
-import { Check, Columns2, Pencil, Plus, X } from 'lucide-react';
+import { Check, Columns2, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
+import { DEFAULT_COLLAB_SOLUTION_ID } from '../utils/collabSolutions';
 import './CollabSolutionTabs.css';
 
 const MAX_NAME_LENGTH = 48;
@@ -18,7 +19,12 @@ export default function CollabSolutionTabs({
   onSelect,
   onCreate,
   onRename,
+  onDelete,
   onCompare,
+  canPresent = false,
+  presenting = false,
+  followingName = '',
+  onPresent,
   compareId = null,
   disabled = false,
   readOnly = false,
@@ -53,11 +59,12 @@ export default function CollabSolutionTabs({
   const saveName = async (event) => {
     event.preventDefault();
     const trimmedName = name.trim();
-    if (!form || !trimmedName || !canEdit || saving) return;
+    if (!form || form.id !== activeId || (form.kind !== 'delete' && !trimmedName) || !canEdit || saving) return;
     setSaving(true);
     setError('');
     try {
-      if (form.kind === 'rename') await onRename?.(form.id, trimmedName);
+      if (form.kind === 'delete') await onDelete?.(form.id);
+      else if (form.kind === 'rename') await onRename?.(form.id, trimmedName);
       else await onCreate?.(trimmedName);
       setForm(null);
     } catch (cause) {
@@ -78,6 +85,7 @@ export default function CollabSolutionTabs({
     const next = solutions[nextIndex];
     if (!next || disabled) return;
     cancelForm();
+    setChoosingComparison(false);
     onSelect?.(next.id);
     tabsRef.current?.querySelectorAll('[role="tab"]')[nextIndex]?.focus();
   };
@@ -99,7 +107,7 @@ export default function CollabSolutionTabs({
                 tabIndex={selected ? 0 : -1}
                 className={`collab-solutions__tab${selected ? ' is-active' : ''}`}
                 disabled={disabled}
-                onClick={() => { cancelForm(); onSelect?.(solution.id); }}
+                onClick={() => { cancelForm(); setChoosingComparison(false); onSelect?.(solution.id); }}
                 onKeyDown={(event) => moveTabFocus(event, index)}
                 title={viewerNames ? `${solution.name} · Смотрят: ${viewerNames}` : solution.name}
               >
@@ -133,6 +141,19 @@ export default function CollabSolutionTabs({
               >
                 <Pencil size={14} />
               </button>
+              {activeSolution?.id !== DEFAULT_COLLAB_SOLUTION_ID && (
+                <button
+                  type="button"
+                  className="collab-solutions__icon-button collab-solutions__delete"
+                  onClick={() => openForm('delete')}
+                  disabled={!canEdit || !activeSolution || saving}
+                  title="Удалить текущую копию"
+                  aria-label="Удалить текущую копию"
+                  aria-expanded={form?.kind === 'delete'}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
               <button
                 type="button"
                 className="collab-solutions__button collab-solutions__create"
@@ -167,8 +188,16 @@ export default function CollabSolutionTabs({
         </div>
       </div>
 
-      {form && !readOnly && (
+      {form && form.id === activeId && !readOnly && solutions.some((item) => item.id === form.id) && (
         <form id={formId} className="collab-solutions__form" onSubmit={saveName}>
+          {form.kind === 'delete' ? (
+            <>
+              <span>Удалить «{solutions.find((item) => item.id === form.id)?.name}» у всех участников?</span>
+              <button type="submit" className="collab-solutions__button collab-solutions__delete" disabled={!canEdit || saving}>Удалить копию</button>
+              <button type="button" className="collab-solutions__button" onClick={cancelForm} disabled={saving}>Отмена</button>
+            </>
+          ) : (
+            <>
           <label htmlFor={inputId}>{form.kind === 'create' ? 'Название копии' : 'Название варианта'}</label>
           <input
             key={`${form.kind}-${form.id}`}
@@ -201,6 +230,8 @@ export default function CollabSolutionTabs({
           <button type="button" className="collab-solutions__icon-button" onClick={cancelForm} disabled={saving} aria-label="Отменить ввод названия" title="Отмена (Esc)">
             <X size={16} />
           </button>
+            </>
+          )}
           {error && <span role="alert" className="collab-solutions__error">{error}</span>}
         </form>
       )}
@@ -220,11 +251,20 @@ export default function CollabSolutionTabs({
             <option value="">Выберите вариант</option>
             {otherSolutions.map((solution) => <option key={solution.id} value={solution.id}>{solution.name}</option>)}
           </select>
+          {comparing && canPresent && (
+            <button type="button" className={`collab-solutions__button${presenting ? ' is-active' : ''}`} onClick={onPresent} disabled={disabled}>
+              <Presentation size={16} />
+              {presenting ? 'Завершить показ' : 'Показать ученику'}
+            </button>
+          )}
+          {comparing && <span className="collab-solutions__scope" role="status">
+            {followingName ? `${followingName} показывает сравнение` : presenting ? 'Совместный показ включён' : 'Видно только вам'}
+          </span>}
           <button
             type="button"
             className="collab-solutions__icon-button"
-            aria-label="Закрыть сравнение"
-            title="Закрыть сравнение"
+            aria-label={followingName ? 'Выйти из показа' : 'Закрыть сравнение'}
+            title={followingName ? 'Выйти из показа' : 'Закрыть сравнение'}
             onClick={() => {
               onCompare?.(null);
               setChoosingComparison(false);

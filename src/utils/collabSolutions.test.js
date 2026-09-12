@@ -9,6 +9,10 @@ import {
   getCollabSolutionChannels,
   listCollabSolutions,
   renameCollabSolution,
+  deleteCollabSolution,
+  restoreCollabSolution,
+  getCollabSolutionSnapshot,
+  getSharedCollabComparison,
 } from './collabSolutions.js';
 
 const copyDoc = (source) => {
@@ -53,7 +57,7 @@ test('main is virtual and preserves legacy text, input file, and run channels', 
   assert.equal(channels.codeText, doc.getText('monaco'));
   assert.equal(channels.testFileText, doc.getText('collab-test-file'));
   assert.equal(channels.runMap, doc.getMap('collabRun'));
-  assert.deepEqual(listCollabSolutions(doc), [{ id: 'main', name: 'Решение ученика', createdAt: 0 }]);
+  assert.deepEqual(listCollabSolutions(doc), [{ id: 'main', name: 'Основной код', createdAt: 0 }]);
   assert.equal(doc.getMap(COLLAB_SOLUTIONS_MAP_KEY).size, 0);
   assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
 });
@@ -235,4 +239,81 @@ test('all versions and renamed main survive binary persistence and reload', () =
     assert.equal(restored.testFileText.toString(), original.testFileText.toString());
     assert.deepEqual(restored.runMap.toJSON(), original.runMap.toJSON());
   }
+});
+
+test('deletion reaches both peers and reload, keeps main and saved code snapshots intact', () => {
+  const teacher = seedLegacyDocument();
+  createCollabSolution(teacher, { id: 'copy', name: 'Копия' });
+  const pupil = copyDoc(teacher);
+  const snapshot = getCollabSolutionSnapshot(teacher, 'copy');
+  deleteCollabSolution(teacher, 'copy');
+  syncDocs(teacher, pupil);
+  for (const doc of [teacher, pupil, copyDoc(teacher)]) {
+    assert.deepEqual(listCollabSolutions(doc).map((item) => item.id), ['main']);
+    assert.throws(() => getCollabSolutionSnapshot(doc, 'copy'), /не найдено/);
+    assert.throws(() => deleteCollabSolution(doc, 'main'), /Основную/);
+    assert.equal(getCollabSolutionChannels(doc, 'copy').codeText.toString(), snapshot.code);
+  }
+  restoreCollabSolution(pupil, 'copy');
+  syncDocs(teacher, pupil);
+  assert.equal(listCollabSolutions(teacher).length, 2);
+  assert.deepEqual(getCollabSolutionSnapshot(teacher, 'copy'), snapshot);
+});
+
+test('offline rename and edits cannot resurrect a deleted copy; undo retains the late edits', () => {
+  const teacher = seedLegacyDocument();
+  createCollabSolution(teacher, { id: 'copy', name: 'Копия' });
+  const pupil = copyDoc(teacher);
+  deleteCollabSolution(teacher, 'copy');
+  renameCollabSolution(pupil, 'copy', 'Изменённое имя');
+  getCollabSolutionChannels(pupil, 'copy').codeText.insert(0, '# offline\n');
+  syncDocs(teacher, pupil);
+  assert.equal(listCollabSolutions(teacher).length, 1);
+  assert.equal(listCollabSolutions(pupil).length, 1);
+  assert.throws(() => createCollabSolution(teacher, { sourceId: 'copy', name: 'Копия' }), /не найдено/);
+  assert.throws(() => createCollabSolution(teacher, { id: 'copy', name: 'Копия' }), /уже существует/);
+  restoreCollabSolution(teacher, 'copy');
+  syncDocs(teacher, pupil);
+  assert.equal(getCollabSolutionSnapshot(pupil, 'copy').name, 'Изменённое имя');
+  assert.match(getCollabSolutionSnapshot(pupil, 'copy').code, /^# offline\n/);
+});
+
+test('deleting frees a tab slot but restoration respects the limit', () => {
+  const doc = new Y.Doc();
+  for (let i = 1; i < MAX_COLLAB_SOLUTIONS; i += 1) createCollabSolution(doc, { id: `v${i}`, name: `v${i}` });
+  deleteCollabSolution(doc, 'v1');
+  createCollabSolution(doc, { id: 'new', name: 'Новый' });
+  assert.throws(() => restoreCollabSolution(doc, 'v1'), /не больше/);
+  deleteCollabSolution(doc, 'new');
+  restoreCollabSolution(doc, 'v1');
+  assert.equal(listCollabSolutions(doc).length, MAX_COLLAB_SOLUTIONS);
+});
+
+test('notes snapshot is precisely the selected version, fixed before asynchronous upload', () => {
+  const doc = new Y.Doc();
+  getCollabSolutionChannels(doc).codeText.insert(0, 'print("main")');
+  createCollabSolution(doc, { id: 'copy', name: 'Копия' });
+  const copy = getCollabSolutionChannels(doc, 'copy').codeText;
+  copy.delete(0, copy.length);
+  copy.insert(0, 'print("copy")');
+  const mainSaved = getCollabSolutionSnapshot(doc, 'main');
+  const copySaved = getCollabSolutionSnapshot(doc, 'copy');
+  copy.insert(0, '# changed while saving\n');
+  deleteCollabSolution(doc, 'copy');
+  assert.equal(mainSaved.code, 'print("main")');
+  assert.equal(copySaved.code, 'print("copy")');
+});
+
+test('comparison is a live teacher presentation with an existing distinct pair', () => {
+  const solutions = [{ id: 'main' }, { id: 'copy' }];
+  const pair = { id: 'show-1', activeId: 'copy', compareId: 'main' };
+  const teacher = { user: { role: 'teacher', name: 'Учитель' }, codeComparison: pair };
+  const states = new Map([[1, teacher], [2, { user: { role: 'student' }, codeComparison: pair }]]);
+  assert.deepEqual(getSharedCollabComparison(states, 2, solutions), { ...pair, id: '1:show-1', name: 'Учитель' });
+  assert.equal(getSharedCollabComparison(states, 1, solutions), null);
+  assert.equal(getSharedCollabComparison(states, 2, [{ id: 'main' }]), null);
+  states.set(1, { ...teacher, codeComparison: { ...pair, activeId: 'main' } });
+  assert.equal(getSharedCollabComparison(states, 2, solutions), null);
+  states.delete(1);
+  assert.equal(getSharedCollabComparison(states, 2, solutions), null);
 });

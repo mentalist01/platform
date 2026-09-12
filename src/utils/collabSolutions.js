@@ -1,8 +1,9 @@
 export const DEFAULT_COLLAB_SOLUTION_ID = 'main';
 export const COLLAB_SOLUTIONS_MAP_KEY = 'codeSolutions';
+export const COLLAB_SOLUTIONS_DELETED_KEY = 'codeSolutionsDeleted';
 export const MAX_COLLAB_SOLUTIONS = 20;
 
-const DEFAULT_SOLUTION_NAME = 'Решение ученика';
+export const DEFAULT_SOLUTION_NAME = 'Основной код';
 const MAX_SOLUTION_NAME_LENGTH = 80;
 
 const normalizeId = (id) => {
@@ -44,8 +45,10 @@ export const listCollabSolutions = (doc) => {
     createdAt: 0,
   };
   const others = [];
+  const deleted = doc.getMap(COLLAB_SOLUTIONS_DELETED_KEY);
   for (const [id, metadata] of solutions.entries()) {
     if (id === DEFAULT_COLLAB_SOLUTION_ID || !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) continue;
+    if (deleted.get(id) === true) continue;
     if (!metadata || typeof metadata.name !== 'string' || !metadata.name.trim()) continue;
     others.push({ id, name: metadata.name.trim(), createdAt: normalizeCreatedAt(metadata.createdAt) });
   }
@@ -127,4 +130,40 @@ export const renameCollabSolution = (doc, id, name) => {
   const metadata = { ...current, name: solutionName };
   doc.getMap(COLLAB_SOLUTIONS_MAP_KEY).set(solutionId, metadata);
   return metadata;
+};
+
+// A separate tombstone wins over a simultaneous rename from an offline peer.
+// Keep the channels intact so late edits merge safely and deletion can be undone.
+export const deleteCollabSolution = (doc, id) => {
+  const solutionId = requireSolution(doc, id);
+  if (solutionId === DEFAULT_COLLAB_SOLUTION_ID) throw new Error('Основную вкладку удалить нельзя.');
+  doc.getMap(COLLAB_SOLUTIONS_DELETED_KEY).set(solutionId, true);
+};
+
+export const restoreCollabSolution = (doc, id) => {
+  const solutionId = normalizeId(id);
+  if (!doc.getMap(COLLAB_SOLUTIONS_MAP_KEY).has(solutionId)) throw new Error('Вариант не найден.');
+  if (listCollabSolutions(doc).length >= MAX_COLLAB_SOLUTIONS) {
+    throw new Error(`Можно сохранить не больше ${MAX_COLLAB_SOLUTIONS} решений.`);
+  }
+  doc.getMap(COLLAB_SOLUTIONS_DELETED_KEY).set(solutionId, false);
+};
+
+export const getCollabSolutionSnapshot = (doc, id) => {
+  const solutionId = requireSolution(doc, id);
+  const solution = listCollabSolutions(doc).find((item) => item.id === solutionId);
+  return { ...solution, code: getCollabSolutionChannels(doc, solutionId).codeText.toString() };
+};
+
+export const getSharedCollabComparison = (states, localClientId, solutions) => {
+  const ids = new Set(solutions.map((item) => item.id));
+  for (const [clientId, state] of [...states.entries()].sort(([a], [b]) => a - b)) {
+    if (clientId === localClientId || state?.user?.role !== 'teacher') continue;
+    const pair = state?.codeComparison;
+    if (!pair || typeof pair.id !== 'string' || !pair.id || pair.activeId === pair.compareId) continue;
+    if (!ids.has(pair.activeId) || !ids.has(pair.compareId)) continue;
+    return { id: `${clientId}:${pair.id}`, activeId: pair.activeId, compareId: pair.compareId,
+      name: state.user.name || 'Учитель' };
+  }
+  return null;
 };

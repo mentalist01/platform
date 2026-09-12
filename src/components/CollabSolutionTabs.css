@@ -69,6 +69,11 @@
 .collab-solutions__comparison-label { max-width: 100%; overflow-wrap: anywhere; }
 .collab-solutions__comparison select { flex: 0 1 230px; text-overflow: ellipsis; }
 .collab-solutions__error { flex-basis: 100%; color: #dc2626; }
+.collab-solutions .collab-solutions__delete { color: #dc2626; }
+.collab-solutions__scope { font-size: 11px; }
+.collab-solutions__notice { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 8px 12px; font-size: 12px; color: #536079; background: #f0fdf4; }
+.collab-solutions__notice button { color: #7c3aed; font-weight: 600; text-decoration: underline; }
+.collab-solutions__notice button:disabled { opacity: .4; }
 
 .collab-solution-compare { display: flex; flex-direction: column; min-height: 260px; height: 100%; min-width: 0; background: #fff; color: #536079; }
 .collab-solution-compare--dark { background: #111b2b; color: #bcc8de; }

@@ -144,13 +144,19 @@ import { createSegmentedAudioRecorder } from './utils/segmentedAudioRecorder';
 import { loadCollaborativeEditorRuntime, loadYjsRuntime } from './utils/collaborationRuntime';
 import {
   DEFAULT_COLLAB_SOLUTION_ID,
+  DEFAULT_SOLUTION_NAME,
   COLLAB_SOLUTIONS_MAP_KEY,
+  COLLAB_SOLUTIONS_DELETED_KEY,
   getCollabSolutionChannels,
   listCollabSolutions,
   createCollabSolution,
   renameCollabSolution,
+  deleteCollabSolution,
+  restoreCollabSolution,
+  getCollabSolutionSnapshot,
 } from './utils/collabSolutions';
 import CollabSolutionTabs from './components/CollabSolutionTabs';
+import useCollabSolutionPresentation from './components/useCollabSolutionPresentation';
 const CollabSolutionCompare = React.lazy(() => import('./components/CollabSolutionCompare'));
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
 import LessonReplaySaveNotice from './components/LessonReplaySaveNotice';
@@ -3868,12 +3874,17 @@ const CollabSection = ({
     : '';
   const [status, setStatus] = useState('disconnected');
   const [documentSynced, setDocumentSynced] = useState(false);
-  const [codeSolutions, setCodeSolutions] = useState([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: 'Решение ученика' }]);
+  const [codeSolutions, setCodeSolutions] = useState([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: DEFAULT_SOLUTION_NAME }]);
   const [activeSolutionId, setActiveSolutionId] = useState(DEFAULT_COLLAB_SOLUTION_ID);
   const [compareSolutionId, setCompareSolutionId] = useState(null);
   const compareSolutionIdRef = useRef(null);
   compareSolutionIdRef.current = compareSolutionId;
   const [solutionError, setSolutionError] = useState('');
+  const [solutionNotice, setSolutionNotice] = useState('');
+  const [deletedSolution, setDeletedSolution] = useState(null);
+  const activeSolutionDeleted = !isSandbox && !codeSolutions.some((item) => item.id === activeSolutionId);
+  const activeSolutionDeletedRef = useRef(false);
+  activeSolutionDeletedRef.current = activeSolutionDeleted;
   const [solutionComparison, setSolutionComparison] = useState({ original: '', modified: '' });
   const activeSolutionIdRef = useRef(DEFAULT_COLLAB_SOLUTION_ID);
   const selectSolutionRef = useRef(null);
@@ -3988,9 +3999,11 @@ const CollabSection = ({
   useEffect(() => {
     activeSolutionIdRef.current = DEFAULT_COLLAB_SOLUTION_ID;
     setActiveSolutionId(DEFAULT_COLLAB_SOLUTION_ID);
-    setCodeSolutions([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: 'Решение ученика' }]);
+    setCodeSolutions([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: DEFAULT_SOLUTION_NAME }]);
     setCompareSolutionId(null);
     setSolutionError('');
+    setDeletedSolution(null);
+    setSolutionNotice('');
   }, [roomId]);
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
@@ -4467,9 +4480,9 @@ const CollabSection = ({
     glyphMargin: false,
     lineNumbersMinChars: 2,
     lineDecorationsWidth: 6,
-    readOnly: collabReadOnly || !collabDocumentReady || Boolean(compareSolutionId),
+    readOnly: collabReadOnly || !collabDocumentReady || Boolean(compareSolutionId) || activeSolutionDeleted,
     domReadOnly: false,
-  }), [collabDocumentReady, collabReadOnly, compareSolutionId, editorFontSize, isCollabFullscreen]);
+  }), [activeSolutionDeleted, collabDocumentReady, collabReadOnly, compareSolutionId, editorFontSize, isCollabFullscreen]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
   const compactCollabHeight = '100%';
   const editorHeight = isCollabFullscreen
@@ -6077,7 +6090,7 @@ const CollabSection = ({
       .join(' / ');
   };
 
-  const publishCollabCodeSaveNotice = (path) => {
+  const publishCollabCodeSaveNotice = (path, savedRunMap = runMapRef.current) => {
     const noticePath = String(path || '').trim();
     if (!noticePath) return;
     const notice = {
@@ -6086,7 +6099,7 @@ const CollabSection = ({
       author: localName,
       ts: Date.now(),
     };
-    const runMap = runMapRef.current;
+    const runMap = savedRunMap;
     const doc = collabDocRef.current;
     if (!runMap || !doc) {
       showCollabSaveNotice(notice);
@@ -6469,6 +6482,7 @@ const CollabSection = ({
   };
 
   const handleSaveToNotes = async () => {
+    if (saveBusy) return;
     setSaveError('');
     setSaveSuccess('');
     setSaveNameError(false);
@@ -6484,7 +6498,16 @@ const CollabSection = ({
       setSaveError('Выберите задание и категорию.');
       return;
     }
-    const code = editorRef.current?.getValue?.() ?? '';
+    let snapshot;
+    try {
+      if (!collabDocumentReady || !collabDocRef.current) throw new Error('Дождитесь подключения совместного кода.');
+      snapshot = getCollabSolutionSnapshot(collabDocRef.current, activeSolutionIdRef.current);
+    } catch (error) {
+      setSaveError(error?.message || 'Не удалось прочитать выбранный вариант.');
+      return;
+    }
+    const code = snapshot.code;
+    const savedRunMap = runMapRef.current;
     if (!code.trim()) {
       setSaveError('Код пустой.');
       return;
@@ -6545,7 +6568,7 @@ const CollabSection = ({
           ? `Сохранено в конспекты. Снимок доски не прикрепился: ${snapshotResult.error}`
           : (snapshotResult.attached ? 'Сохранено в конспекты со снимком доски.' : 'Сохранено в конспекты.'));
       }
-      publishCollabCodeSaveNotice(getSavedCodeNoticePath(safeName));
+      publishCollabCodeSaveNotice(getSavedCodeNoticePath(safeName), savedRunMap);
     } catch (err) {
       setSaveError(err?.message || err);
     } finally {
@@ -7341,7 +7364,7 @@ const CollabSection = ({
   };
 
   const handleRunCode = async (mode = 'all', debug = false) => {
-    if (collabReadOnly || !collabDocumentReady || !editorRef.current || compareSolutionId) return;
+    if (collabReadOnly || !collabDocumentReady || !editorRef.current || compareSolutionId || activeSolutionDeleted) return;
     outputPanelDismissedRunTokenRef.current = null;
     setOutputPanelOpen(true);
     const requestedDebug = Boolean(debug);
@@ -8000,7 +8023,7 @@ const CollabSection = ({
       scheduleLessonReplayCodeSnapshot(ytext, 1400, { action: 'edit' });
     };
     ytext.observe(handleReplayCodeChange);
-    provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+    provider.awareness.setLocalStateField('user', { name: localName, color: localColor, role });
     provider.awareness.setLocalStateField('solutionId', activeSolutionIdRef.current);
     provider.awareness.setLocalStateField('selection', null);
     provider.awareness.setLocalStateField('outputSelection', null);
@@ -8062,7 +8085,7 @@ const CollabSection = ({
       }
       repairEditorModelFromSharedText();
       setDocumentSynced(true);
-      editorRef.current?.updateOptions?.({ readOnly: collabReadOnly || Boolean(compareSolutionIdRef.current) });
+      editorRef.current?.updateOptions?.({ readOnly: collabReadOnly || Boolean(compareSolutionIdRef.current) || activeSolutionDeletedRef.current });
       if (lessonReplayPreviousCodeActiveRef.current) {
         scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot' });
         if (editorRef.current) scheduleLessonReplayCodeViewport(editorRef.current, 0);
@@ -8202,8 +8225,15 @@ const CollabSection = ({
     // shared string with snapshots would lose edits arriving for another tab.
     const solutionViews = new Map();
     const solutionCatalog = doc.getMap(COLLAB_SOLUTIONS_MAP_KEY);
-    const syncSolutionCatalog = () => setCodeSolutions(listCollabSolutions(doc));
+    const deletedSolutions = doc.getMap(COLLAB_SOLUTIONS_DELETED_KEY);
+    const syncSolutionCatalog = () => {
+      const solutions = listCollabSolutions(doc);
+      activeSolutionDeletedRef.current = !solutions.some((item) => item.id === activeSolutionIdRef.current);
+      if (activeSolutionDeletedRef.current) editorRef.current?.updateOptions?.({ readOnly: true });
+      setCodeSolutions(solutions);
+    };
     solutionCatalog.observe(syncSolutionCatalog);
+    deletedSolutions.observe(syncSolutionCatalog);
     syncSolutionCatalog();
     const switchSolution = (nextId) => {
       if (disposed || localRunBusyRef.current || !listCollabSolutions(doc).some((item) => item.id === nextId)) return false;
@@ -8266,6 +8296,7 @@ const CollabSection = ({
       taskFilesSyncReadyRef.current = true;
       setActiveSolutionId(nextId);
       setSolutionError('');
+      setSolutionNotice('');
       setCompareSolutionId(null);
       if (solutionViews.has(nextId)) editor?.restoreViewState?.(solutionViews.get(nextId));
       else editor?.setPosition?.({ lineNumber: 1, column: 1 });
@@ -8288,6 +8319,7 @@ const CollabSection = ({
     return () => {
       if (selectSolutionRef.current === switchSolution) selectSolutionRef.current = null;
       solutionCatalog.unobserve(syncSolutionCatalog);
+      deletedSolutions.unobserve(syncSolutionCatalog);
       runSessionRef.current += 1;
       localRunBusyRef.current = false;
       disposeRunWorkerRef.current?.('Комната кода закрыта.');
@@ -9096,6 +9128,9 @@ const CollabSection = ({
         <div className="pr-8">
           <div className="text-xs font-bold uppercase tracking-widest text-purple-500">Сохранение</div>
           <h3 className="mt-1 text-xl font-bold text-gray-900">Сохранить в конспекты</h3>
+          <p className="mt-2 text-sm font-semibold text-purple-600">
+            Код из вкладки «{codeSolutions.find((item) => item.id === activeSolutionId)?.name || 'Удалённый вариант'}»
+          </p>
           <p className="mt-1 text-xs text-gray-500">
             {isGroupLesson
               ? 'Файл сохранится один раз и появится в «Конспектах» всех участников этого занятия.'
@@ -9242,7 +9277,7 @@ const CollabSection = ({
           <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Отмена</Button>
           <Button
             onClick={handleSaveToNotes}
-            disabled={saveBusy || !canSaveToNotesTarget || !saveTaskNumber || !saveCategory}
+            disabled={saveBusy || activeSolutionDeleted || !collabDocumentReady || !canSaveToNotesTarget || !saveTaskNumber || !saveCategory}
             className="flex items-center justify-center gap-2"
           >
             <Save size={16} />
@@ -9320,9 +9355,29 @@ const CollabSection = ({
     return () => { original.unobserve(update); modified.unobserve(update); };
   }, [activeSolutionId, compareSolutionId, documentSynced, editorMountVersion, isSandbox, roomId]);
 
-  const solutionActionsBusy = runLoading || taskFileUploadBusy || saveBusy;
+  const solutionActionsBusy = runLoading || taskFileUploadBusy || saveBusy || saveModalOpen;
+  const presentation = useCollabSolutionPresentation({
+    awareness: collabAwarenessRef.current,
+    solutions: codeSolutions,
+    enabled: collabDocumentReady && !isSandbox,
+    isTeacher,
+    activeId: activeSolutionId,
+    compareId: compareSolutionId,
+    busy: solutionActionsBusy,
+    onSelect: (id) => selectSolutionRef.current?.(id),
+    onCompare: setCompareSolutionId,
+  });
+  useEffect(() => {
+    if (!collabDocumentReady || isSandbox) return;
+    if (compareSolutionId && !codeSolutions.some((item) => item.id === compareSolutionId)) setCompareSolutionId(null);
+    if (activeSolutionDeleted && !solutionActionsBusy && !localRunBusyRef.current) {
+      if (selectSolutionRef.current?.(DEFAULT_COLLAB_SOLUTION_ID)) setSolutionNotice('Вариант удалён. Открыт основной код.');
+    }
+  }, [activeSolutionDeleted, codeSolutions, collabDocumentReady, compareSolutionId, isSandbox, solutionActionsBusy]);
   const selectCodeSolution = (id) => {
     if (!collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) return;
+    presentation.leave(false);
+    setCompareSolutionId(null);
     if (!selectSolutionRef.current?.(id)) setSolutionError('Не удалось открыть вариант. Дождитесь подключения и повторите.');
   };
   const copyCodeSolution = (name) => {
@@ -9337,6 +9392,25 @@ const CollabSection = ({
   const renameCodeSolution = (id, name) => {
     if (collabReadOnly || !collabDocumentReady || !collabDocRef.current) throw new Error('Совместный код ещё не подключён.');
     renameCollabSolution(collabDocRef.current, id, name);
+  };
+  const deleteCodeSolution = (id) => {
+    if (collabReadOnly || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) throw new Error('Дождитесь завершения текущей операции.');
+    const solution = codeSolutions.find((item) => item.id === id);
+    deleteCollabSolution(collabDocRef.current, id);
+    setDeletedSolution(solution);
+  };
+  const undoSolutionDeletion = () => {
+    if (collabReadOnly || !collabDocumentReady || solutionActionsBusy) return;
+    try {
+      restoreCollabSolution(collabDocRef.current, deletedSolution.id);
+      setDeletedSolution(null);
+      setSolutionError('');
+      setSolutionNotice('');
+    } catch (error) { setSolutionError(error.message); }
+  };
+  const changeCodeComparison = (id) => {
+    presentation.leave(!id);
+    setCompareSolutionId(id);
   };
   const changeRunInput = (value) => {
     if (collabReadOnly || !collabDocumentReady) return;
@@ -11108,14 +11182,27 @@ const CollabSection = ({
             onSelect={selectCodeSolution}
             onCreate={copyCodeSolution}
             onRename={renameCodeSolution}
-            onCompare={setCompareSolutionId}
+            onDelete={deleteCodeSolution}
+            onCompare={changeCodeComparison}
+            canPresent={isTeacher && !collabReadOnly}
+            presenting={presentation.presenting}
+            followingName={presentation.following?.name || ''}
+            onPresent={presentation.toggle}
             compareId={compareSolutionId}
-            disabled={!collabDocumentReady || solutionActionsBusy}
+            disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted}
             readOnly={collabReadOnly}
             dark={isCollabDarkUi}
             peers={remoteParticipants}
           />
         )}
+        {deletedSolution && (
+          <div className="collab-solutions__notice" role="status">
+            Вариант «{deletedSolution.name}» удалён.
+            <button type="button" onClick={undoSolutionDeletion} disabled={!collabDocumentReady || solutionActionsBusy || collabReadOnly}>Восстановить</button>
+          </div>
+        )}
+        {activeSolutionDeleted && <div role="status" className="collab-solutions__notice">Этот вариант удалён. Завершите текущую операцию, чтобы перейти к основному коду.</div>}
+        {!deletedSolution && solutionNotice && <div role="status" className="collab-solutions__notice">{solutionNotice}</div>}
         {solutionError && <div role="alert" className="collab-solutions__error">{solutionError}</div>}
 
         {isSplitCollabLayout ? (
