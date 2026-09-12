@@ -1,4 +1,4 @@
-import MonacoEditor, { loader } from '@monaco-editor/react';
+import MonacoEditor, { DiffEditor, loader } from '@monaco-editor/react';
 
 // Keep the editor on the same origin as the platform. The default Monaco
 // loader points at jsDelivr, which makes the code workspace depend on a
@@ -21,3 +21,4 @@ void loader.init().catch(() => {
 });
 
 export default MonacoEditor;
+export { DiffEditor };

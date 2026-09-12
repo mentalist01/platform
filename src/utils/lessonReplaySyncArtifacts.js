@@ -259,6 +259,8 @@ const hasSameCodeSource = (left, right) => {
 
 const hasSameCodeState = (left, right) => (
   Boolean(left && right)
+  && (String(left.solutionId || '').trim() || 'main') === (String(right.solutionId || '').trim() || 'main')
+  && String(left.solutionName || '') === String(right.solutionName || '')
   && String(left.language || 'python') === String(right.language || 'python')
   && CODE_STATE_FIELDS.every((field) => String(left[field] || '') === String(right[field] || ''))
 );
@@ -314,6 +316,7 @@ export const removeLessonReplaySyncArtifacts = (events) => {
 
     if (
       isEmptyCodeSnapshot(event)
+      && !event.payload?.solutionId
       && isNavigationWarmup(event, navigationByActor, 'code')
     ) {
       const nextCodeEvent = findNextActorEvent(source, index, event, 'code', CODE_RESTORE_WINDOW_MS);
@@ -334,7 +337,10 @@ export const removeLessonReplaySyncArtifacts = (events) => {
       boardItems = nextBoardItems;
     } else if (event?.type === 'code') {
       const nextCodePayload = event.payload || {};
-      if (event.payload?.action !== 'run' && hasSameCodeState(codePayload, nextCodePayload)) return;
+      const mayDropDuplicate = nextCodePayload.action !== 'run'
+        && nextCodePayload.solutionSelected !== true
+        && (!nextCodePayload.solutionId || nextCodePayload.action === 'snapshot');
+      if (mayDropDuplicate && hasSameCodeState(codePayload, nextCodePayload)) return;
       codePayload = nextCodePayload;
     }
     repaired.push(event);

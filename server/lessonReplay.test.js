@@ -31,6 +31,68 @@ const eventContext = {
   nowMs: START_MS,
 };
 
+test('solution names survive saving and reloading code, runs and code viewports', () => {
+  const events = [
+    { type: 'code', payload: { code: 'print(43)', action: 'snapshot' } },
+    { type: 'run', payload: { output: '43', status: 'done' } },
+    { type: 'viewport', payload: { surface: 'code', cursorLine: 8, scrollTopRatio: 0.5 } },
+  ].map((event, index) => ({
+    ...event,
+    id: `solution-${index}`,
+    occurredAt: new Date(START_MS + index * 1000).toISOString(),
+    payload: { ...event.payload, solutionId: ' solution-2\0 ', solutionName: ' Мой вариант\0 ' },
+  }));
+  const saved = appendLessonReplayEvents(createLessonReplay(occurrence, START_MS), events, eventContext).replay;
+  const reloaded = normalizeLessonReplay(JSON.parse(JSON.stringify(saved)));
+  assert.equal(reloaded.events.length, 3);
+  for (const event of reloaded.events) {
+    assert.equal(event.payload.solutionId, 'solution-2');
+    assert.equal(event.payload.solutionName, 'Мой вариант');
+  }
+  assert.equal(reloaded.events[0].payload.code, 'print(43)');
+  assert.equal(reloaded.events[1].payload.output, '43');
+  assert.equal(reloaded.events[2].payload.cursorLine, 8);
+});
+
+test('switching between solutions with identical code is not deduplicated', () => {
+  const events = ['main', 'copy'].map((solutionId, index) => ({
+    id: `switch-${solutionId}`, type: 'code',
+    occurredAt: new Date(START_MS + index * 1000).toISOString(),
+    payload: { action: 'snapshot', code: 'print(1)', solutionId, solutionName: solutionId, solutionSelected: true },
+  }));
+  const saved = appendLessonReplayEvents(createLessonReplay(occurrence, START_MS), events, eventContext).replay;
+  assert.deepEqual(saved.events.map((event) => event.payload.solutionId), ['main', 'copy']);
+  const reloaded = normalizeLessonReplay(JSON.parse(JSON.stringify(saved)));
+  assert.equal(reloaded.events.every((event) => event.payload.solutionSelected === true), true);
+});
+
+test('only an explicit boolean solution selection survives code normalization', () => {
+  for (const solutionSelected of [false, undefined, 'true', 1]) {
+    const event = normalizeLessonReplayEvent({
+      type: 'code', payload: { code: 'print(1)', solutionId: 'copy', action: 'snapshot', solutionSelected },
+    }, eventContext);
+    assert.equal(Object.hasOwn(event.payload, 'solutionSelected'), false);
+  }
+});
+
+test('optional solution metadata does not change legacy payloads and is bounded', () => {
+  for (const type of ['code', 'run', 'viewport']) {
+    const base = { id: `legacy-${type}`, type, payload: { surface: 'code', code: 'print(1)', output: '1' } };
+    const legacy = normalizeLessonReplayEvent(base, eventContext);
+    const invalid = normalizeLessonReplayEvent({
+      ...base, payload: { ...base.payload, solutionId: {}, solutionName: '\0  ' },
+    }, eventContext);
+    assert.deepEqual(invalid.payload, legacy.payload);
+    assert.equal(Object.hasOwn(legacy.payload, 'solutionId'), false);
+    assert.equal(Object.hasOwn(legacy.payload, 'solutionName'), false);
+    const bounded = normalizeLessonReplayEvent({
+      ...base, payload: { ...base.payload, solutionId: 'i'.repeat(500), solutionName: 'я'.repeat(500) },
+    }, eventContext);
+    assert.equal(bounded.payload.solutionId.length, 160);
+    assert.equal(bounded.payload.solutionName.length, 120);
+  }
+});
+
 test('appending to a warm replay does not serialize historical board payloads again', () => {
   let visits = 0;
   const replay = createLessonReplay(occurrence, START_MS);

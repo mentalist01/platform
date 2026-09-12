@@ -142,6 +142,16 @@ import {
 import { getCollabWsUrl, getNotificationsWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
 import { createSegmentedAudioRecorder } from './utils/segmentedAudioRecorder';
 import { loadCollaborativeEditorRuntime, loadYjsRuntime } from './utils/collaborationRuntime';
+import {
+  DEFAULT_COLLAB_SOLUTION_ID,
+  COLLAB_SOLUTIONS_MAP_KEY,
+  getCollabSolutionChannels,
+  listCollabSolutions,
+  createCollabSolution,
+  renameCollabSolution,
+} from './utils/collabSolutions';
+import CollabSolutionTabs from './components/CollabSolutionTabs';
+const CollabSolutionCompare = React.lazy(() => import('./components/CollabSolutionCompare'));
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
 import LessonReplaySaveNotice from './components/LessonReplaySaveNotice';
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
@@ -3858,6 +3868,18 @@ const CollabSection = ({
     : '';
   const [status, setStatus] = useState('disconnected');
   const [documentSynced, setDocumentSynced] = useState(false);
+  const [codeSolutions, setCodeSolutions] = useState([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: 'Решение ученика' }]);
+  const [activeSolutionId, setActiveSolutionId] = useState(DEFAULT_COLLAB_SOLUTION_ID);
+  const [compareSolutionId, setCompareSolutionId] = useState(null);
+  const compareSolutionIdRef = useRef(null);
+  compareSolutionIdRef.current = compareSolutionId;
+  const [solutionError, setSolutionError] = useState('');
+  const [solutionComparison, setSolutionComparison] = useState({ original: '', modified: '' });
+  const activeSolutionIdRef = useRef(DEFAULT_COLLAB_SOLUTION_ID);
+  const selectSolutionRef = useRef(null);
+  const collabCodeTextRef = useRef(null);
+  const localRunBusyRef = useRef(false);
+  const disposeRunWorkerRef = useRef(null);
   const [peerCount, setPeerCount] = useState(0);
   const [remoteParticipants, setRemoteParticipants] = useState([]);
   const [remoteEditorCursors, setRemoteEditorCursors] = useState([]);
@@ -3963,6 +3985,13 @@ const CollabSection = ({
   const collabDocumentReady = Boolean(
     roomId && (isSandbox || documentSynced)
   );
+  useEffect(() => {
+    activeSolutionIdRef.current = DEFAULT_COLLAB_SOLUTION_ID;
+    setActiveSolutionId(DEFAULT_COLLAB_SOLUTION_ID);
+    setCodeSolutions([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: 'Решение ученика' }]);
+    setCompareSolutionId(null);
+    setSolutionError('');
+  }, [roomId]);
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
     const targetId = isGroupLesson ? `group-lesson-${learningLessonId}` : effectiveStudentId;
@@ -4117,7 +4146,7 @@ const CollabSection = ({
       : {};
     const seedCode = seed.code && typeof seed.code === 'object' ? seed.code : seed;
     const doc = collabDocRef.current;
-    const codeText = doc?.getText?.('monaco');
+    const codeText = collabCodeTextRef.current || doc?.getText?.('monaco');
     const testText = collabTestFileRef.current;
     sandboxStateChangeRef.current({
       id: sandboxId,
@@ -4167,6 +4196,9 @@ const CollabSection = ({
       : 'snapshot';
     lessonReplayPendingCodeRef.current = {
       language: 'python',
+      solutionId: activeSolutionIdRef.current,
+      solutionName: listCollabSolutions(ytext.doc).find((item) => item.id === activeSolutionIdRef.current)?.name || '',
+      solutionSelected: overrides.solutionSelected === true,
       action,
       // Only edits/runs are authored actions. Snapshot checkpoints are used
       // to restore the shared document and must remain neutral in the replay.
@@ -4210,6 +4242,9 @@ const CollabSection = ({
     const cursor = editor.getPosition?.() || null;
     lessonReplayPendingCodeViewportRef.current = {
       surface: 'code',
+      solutionId: activeSolutionIdRef.current,
+      solutionName: collabDocRef.current
+        ? listCollabSolutions(collabDocRef.current).find((item) => item.id === activeSolutionIdRef.current)?.name || '' : '',
       scrollTopRatio: Math.min(1, scrollTop / maxScrollTop),
       scrollLeftRatio: Math.min(1, scrollLeft / maxScrollLeft),
       firstVisibleLine: Math.max(1, Number(visibleRange?.startLineNumber) || 1),
@@ -4248,7 +4283,7 @@ const CollabSection = ({
       // provider's first sync can create a valid-looking empty checkpoint that
       // later clears code which was already present in the lesson.
       if (collabProviderRef.current?.synced !== true) return;
-      const codeText = collabDocRef.current?.getText?.('monaco');
+      const codeText = collabCodeTextRef.current;
       if (codeText) scheduleLessonReplayCodeSnapshot(codeText, 0);
       if (editorRef.current) scheduleLessonReplayCodeViewport(editorRef.current, 0);
     }, 0);
@@ -4432,9 +4467,9 @@ const CollabSection = ({
     glyphMargin: false,
     lineNumbersMinChars: 2,
     lineDecorationsWidth: 6,
-    readOnly: collabReadOnly || !collabDocumentReady,
+    readOnly: collabReadOnly || !collabDocumentReady || Boolean(compareSolutionId),
     domReadOnly: false,
-  }), [collabDocumentReady, collabReadOnly, editorFontSize, isCollabFullscreen]);
+  }), [collabDocumentReady, collabReadOnly, compareSolutionId, editorFontSize, isCollabFullscreen]);
   const isDesktopCollabCompact = !isMobileViewport && !isCollabFullscreen;
   const compactCollabHeight = '100%';
   const editorHeight = isCollabFullscreen
@@ -6591,7 +6626,7 @@ const CollabSection = ({
     setCollabTurtleWindowOpen(false);
   }, []);
 
-  const updateRunStateFromMap = (runMap) => {
+  const updateRunStateFromMap = (runMap, changedKeys) => {
     if (!runMap) {
       setRunOutput('');
       setRunError('');
@@ -6634,9 +6669,15 @@ const CollabSection = ({
       setCollabSaveNotice(null);
       return;
     }
+    // A local action may change several UI fields before their effects publish.
+    // Reading unrelated old fields back during the first publication would
+    // undo the remaining changes (for example, immediately close the files).
+    const hasChanged = (key) => runMap.has(key) && (!changedKeys || changedKeys.has(key));
     const hasSharedRunState = ['output', 'error', 'status', 'author', 'ts', 'input']
       .some((key) => runMap.has(key));
-    const cachedRunState = hasSharedRunState ? null : getCachedCollabRunState(roomId);
+    const runCacheKey = activeSolutionIdRef.current === DEFAULT_COLLAB_SOLUTION_ID
+      ? roomId : `${roomId}:solution:${activeSolutionIdRef.current}`;
+    const cachedRunState = hasSharedRunState ? null : getCachedCollabRunState(runCacheKey);
     const output = cachedRunState
       ? cachedRunState.output
       : (typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? ''));
@@ -6655,11 +6696,19 @@ const CollabSection = ({
     const tsRaw = cachedRunState ? cachedRunState.ts : runMap.get('ts');
     const ts = Number.isFinite(Number(tsRaw)) ? Number(tsRaw) : null;
     if (hasSharedRunState) {
-      cacheCollabRunState(roomId, { output, error, status, author, ts, input });
+      cacheCollabRunState(runCacheKey, { output, error, status, author, ts, input });
     }
     setRunOutput(output);
     setRunError(error);
     setRunStatus(status || 'idle');
+    runOutputRef.current = output;
+    runErrorRef.current = error;
+    runStatusRef.current = status || 'idle';
+    const inputDraft = String(runMap.get('stdinDraft') ?? input);
+    if (runInputRef.current !== inputDraft) {
+      runInputRef.current = inputDraft;
+      setRunInput(inputDraft);
+    }
     setRunAuthor(author);
     setRunTimestamp(ts);
     runTimestampRef.current = ts;
@@ -6702,7 +6751,7 @@ const CollabSection = ({
       setDebugBreakpoints(nextBreakpoints);
     }
 
-    if (runMap.has('auxPanelMode')) {
+    if (hasChanged('auxPanelMode')) {
       const nextAuxPanelMode = normalizeCollabAuxPanelMode(runMap.get('auxPanelMode'));
       if (collabAuxPanelModeRef.current !== nextAuxPanelMode) {
         suppressAuxPanelModeSyncRef.current = true;
@@ -6710,7 +6759,7 @@ const CollabSection = ({
         setCollabAuxPanelMode(nextAuxPanelMode);
       }
     }
-    if (runMap.has('testFileHeight')) {
+    if (hasChanged('testFileHeight')) {
       const nextTestFileHeight = normalizeCollabTestFileHeight(runMap.get('testFileHeight'));
       if (nextTestFileHeight && testFileTextareaHeightRef.current !== nextTestFileHeight) {
         suppressTestFileHeightSyncRef.current = true;
@@ -6720,7 +6769,7 @@ const CollabSection = ({
     }
 
     let shouldSuppressTaskFilesSync = false;
-    if (runMap.has('taskFilesPanelOpen')) {
+    if (hasChanged('taskFilesPanelOpen')) {
       const nextTaskFilesPanelOpen = Boolean(runMap.get('taskFilesPanelOpen'));
       if (taskFilesPanelOpenRef.current !== nextTaskFilesPanelOpen) {
         shouldSuppressTaskFilesSync = true;
@@ -6728,7 +6777,7 @@ const CollabSection = ({
         setTaskFilesPanelOpen(nextTaskFilesPanelOpen);
       }
     }
-    if (runMap.has('taskFilesTaskNumber')) {
+    if (hasChanged('taskFilesTaskNumber')) {
       const nextTaskNumber = typeof runMap.get('taskFilesTaskNumber') === 'string'
         ? runMap.get('taskFilesTaskNumber')
         : String(runMap.get('taskFilesTaskNumber') ?? '');
@@ -6738,7 +6787,7 @@ const CollabSection = ({
         setRunTaskNumber(nextTaskNumber);
       }
     }
-    if (runMap.has('taskFilesCategory')) {
+    if (hasChanged('taskFilesCategory')) {
       const rawCategory = typeof runMap.get('taskFilesCategory') === 'string'
         ? runMap.get('taskFilesCategory')
         : String(runMap.get('taskFilesCategory') ?? '');
@@ -6749,7 +6798,7 @@ const CollabSection = ({
         setRunTaskCategory(nextTaskCategory);
       }
     }
-    if (runMap.has('taskFilesSelectedIds')) {
+    if (hasChanged('taskFilesSelectedIds')) {
       const nextSelectedIds = normalizeSharedTaskFileIds(runMap.get('taskFilesSelectedIds'));
       if (!areStringArraysEqual(selectedTaskFileIdsRef.current, nextSelectedIds)) {
         shouldSuppressTaskFilesSync = true;
@@ -6761,25 +6810,25 @@ const CollabSection = ({
       suppressTaskFilesSyncRef.current = true;
     }
 
-    if (runMap.has('notesPdfOpen')) {
+    if (hasChanged('notesPdfOpen')) {
       setNotesPdfPanelOpen(Boolean(runMap.get('notesPdfOpen')));
     }
-    if (runMap.has('notesPanelMode')) {
+    if (hasChanged('notesPanelMode')) {
       setNotesPanelMode(normalizeCollabTopPaneMode(runMap.get('notesPanelMode')));
     }
-    if (runMap.has('notesPdfFolderKey')) {
+    if (hasChanged('notesPdfFolderKey')) {
       const nextFolderKey = typeof runMap.get('notesPdfFolderKey') === 'string'
         ? runMap.get('notesPdfFolderKey')
         : String(runMap.get('notesPdfFolderKey') ?? '');
       setNotesPdfFolderKey(nextFolderKey);
     }
-    if (runMap.has('notesPdfFileId')) {
+    if (hasChanged('notesPdfFileId')) {
       const nextFileId = typeof runMap.get('notesPdfFileId') === 'string'
         ? runMap.get('notesPdfFileId')
         : String(runMap.get('notesPdfFileId') ?? '');
       setNotesPdfFileId(nextFileId);
     }
-    if (runMap.has('saveNoticeId')) {
+    if (hasChanged('saveNoticeId')) {
       const noticeId = String(runMap.get('saveNoticeId') || '').trim();
       const noticePath = String(runMap.get('saveNoticePath') || '').trim();
       const noticeTsRaw = Number(runMap.get('saveNoticeTs'));
@@ -7033,6 +7082,7 @@ const CollabSection = ({
     runWorkerWarmupStartedRef.current = false;
     if (message) resolveRunPending(message);
   };
+  disposeRunWorkerRef.current = disposeRunWorker;
 
   const ensureRunWorker = () => {
     if (typeof Worker === 'undefined') return null;
@@ -7291,7 +7341,7 @@ const CollabSection = ({
   };
 
   const handleRunCode = async (mode = 'all', debug = false) => {
-    if (collabReadOnly || !collabDocumentReady || !editorRef.current) return;
+    if (collabReadOnly || !collabDocumentReady || !editorRef.current || compareSolutionId) return;
     outputPanelDismissedRunTokenRef.current = null;
     setOutputPanelOpen(true);
     const requestedDebug = Boolean(debug);
@@ -7308,7 +7358,8 @@ const CollabSection = ({
       setRunError(resolvedMode === 'selection' ? 'Сначала выделите код для запуска.' : 'Код пустой.');
       return;
     }
-    if (runLoading) return;
+    if (runLoading || localRunBusyRef.current) return;
+    localRunBusyRef.current = true;
     stopDebugPlayback();
     if (!isDebugRun) {
       clearDebugSession(false);
@@ -7363,6 +7414,7 @@ const CollabSection = ({
     } catch (err) {
       if (runSessionRef.current !== sessionId) return;
       const message = err?.message || '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u0438\u0442\u044c \u0444\u0430\u0439\u043b\u044b \u0437\u0430\u0434\u0430\u043d\u0438\u044f.';
+      localRunBusyRef.current = false;
       setRunLoading(false);
       setRunStatus('done');
       setRunOutput('');
@@ -7380,6 +7432,7 @@ const CollabSection = ({
       });
       return;
     }
+    if (runSessionRef.current !== sessionId) return;
     publishRunState({
       status: 'running',
       output: '',
@@ -7505,6 +7558,7 @@ const CollabSection = ({
       });
     } finally {
       if (runSessionRef.current === sessionId) {
+        localRunBusyRef.current = false;
         setRunLoading(false);
         setRunStatus('done');
       }
@@ -7527,7 +7581,7 @@ const CollabSection = ({
       if (!isPlainF5 && !isCtrlEnter) return;
       event.preventDefault();
       event.stopPropagation();
-      if (event.repeat || collabReadOnly || runLoading || !collabDocumentReady) return;
+      if (event.repeat || collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)) return;
       void handleRunCodeRef.current?.('all');
     };
     window.addEventListener('keydown', handleRunHotkey, true);
@@ -7538,6 +7592,7 @@ const CollabSection = ({
     if (collabReadOnly || !runLoading) return;
     stopDebugPlayback();
     runSessionRef.current += 1;
+    localRunBusyRef.current = false;
     if (runStreamTimerRef.current) {
       clearTimeout(runStreamTimerRef.current);
       runStreamTimerRef.current = null;
@@ -7778,6 +7833,7 @@ const CollabSection = ({
       collabProviderRef.current = null;
       collabAwarenessRef.current = null;
       const ytext = doc.getText('monaco');
+      collabCodeTextRef.current = ytext;
       const testFileYText = doc.getText(COLLAB_TEST_FILE_DOC_KEY);
       const runMap = doc.getMap('collabRun');
       doc.transact(() => {
@@ -7873,6 +7929,7 @@ const CollabSection = ({
         sandboxReadyRef.current = false;
         taskFilesSyncReadyRef.current = false;
         if (collabDocRef.current === doc) collabDocRef.current = null;
+        if (collabCodeTextRef.current === ytext) collabCodeTextRef.current = null;
         if (collabTestFileRef.current === testFileYText) collabTestFileRef.current = null;
         if (runMapRef.current === runMap) runMapRef.current = null;
         collabAwarenessRef.current = null;
@@ -7905,7 +7962,8 @@ const CollabSection = ({
       return;
     }
 
-    const ytext = doc.getText('monaco');
+    let { codeText: ytext, runMap, testFileText: testFileYText } = getCollabSolutionChannels(doc, activeSolutionIdRef.current);
+    collabCodeTextRef.current = ytext;
     let binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
     let editorConsistencyFrameId = null;
     const repairEditorModelFromSharedText = () => {
@@ -7943,6 +8001,7 @@ const CollabSection = ({
     };
     ytext.observe(handleReplayCodeChange);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
+    provider.awareness.setLocalStateField('solutionId', activeSolutionIdRef.current);
     provider.awareness.setLocalStateField('selection', null);
     provider.awareness.setLocalStateField('outputSelection', null);
     provider.awareness.setLocalStateField('testFileSelection', null);
@@ -7950,17 +8009,22 @@ const CollabSection = ({
       provider.awareness.setLocalStateField('editorCursor', null);
     }
 
-    const runMap = doc.getMap('collabRun');
     runMapRef.current = runMap;
     const handleRunMapChange = (_event, transaction) => {
-      updateRunStateFromMapRef.current?.(runMap);
+      updateRunStateFromMapRef.current?.(runMap, _event?.keysChanged);
       const replayRunPayload = {
+        solutionId: activeSolutionIdRef.current,
+        solutionName: listCollabSolutions(doc).find((item) => item.id === activeSolutionIdRef.current)?.name || '',
         status: typeof runMap.get('status') === 'string' ? runMap.get('status') : 'idle',
         input: typeof runMap.get('input') === 'string' ? runMap.get('input') : String(runMap.get('input') ?? ''),
         output: typeof runMap.get('output') === 'string' ? runMap.get('output') : String(runMap.get('output') ?? ''),
         error: typeof runMap.get('error') === 'string' ? runMap.get('error') : String(runMap.get('error') ?? ''),
       };
-      const shouldRecordReplay = transaction?.local === true && provider.synced === true;
+      const isRunChange = ['output', 'error', 'status', 'ts'].some((key) => _event?.keysChanged?.has(key));
+      const shouldRecordReplay = transaction?.local === true && provider.synced === true && isRunChange;
+      if (transaction?.local === true && provider.synced === true && _event?.keysChanged?.has('stdinDraft')) {
+        scheduleLessonReplayCodeSnapshot(ytext, 1400, { action: 'edit' });
+      }
       if (shouldRecordReplay) scheduleLessonReplayCodeSnapshot(ytext, 250, {
         ...replayRunPayload,
         action: 'run',
@@ -7978,10 +8042,10 @@ const CollabSection = ({
     handleRunMapChange();
     taskFilesSyncReadyRef.current = true;
 
-    const testFileYText = doc.getText(COLLAB_TEST_FILE_DOC_KEY);
     collabTestFileRef.current = testFileYText;
     const syncTestFileFromDoc = (_event, transaction) => {
       const next = normalizeCollabTextFileContent(testFileYText.toString());
+      testFileTextRef.current = next;
       setTestFileText((prev) => (prev === next ? prev : next));
       if (transaction?.local === true && provider.synced === true) {
         scheduleLessonReplayCodeSnapshot(ytext, 1400, { testFile: next, action: 'edit' });
@@ -7998,7 +8062,7 @@ const CollabSection = ({
       }
       repairEditorModelFromSharedText();
       setDocumentSynced(true);
-      editorRef.current?.updateOptions?.({ readOnly: collabReadOnly });
+      editorRef.current?.updateOptions?.({ readOnly: collabReadOnly || Boolean(compareSolutionIdRef.current) });
       if (lessonReplayPreviousCodeActiveRef.current) {
         scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot' });
         if (editorRef.current) scheduleLessonReplayCodeViewport(editorRef.current, 0);
@@ -8041,7 +8105,9 @@ const CollabSection = ({
           id: remoteClientId,
           name: remoteName,
           color: remoteColor,
+          solutionId: String(state?.solutionId || DEFAULT_COLLAB_SOLUTION_ID),
         });
+        if (String(state?.solutionId || DEFAULT_COLLAB_SOLUTION_ID) !== activeSolutionIdRef.current) return;
         const outputSelection = normalizeCollabOutputSelection(state?.outputSelection, outputLength);
         if (outputSelection) {
           outputSelections.push({
@@ -8132,6 +8198,87 @@ const CollabSection = ({
       setRemoteTestFileSelections(testFileSelections);
     };
 
+    // Keep the provider and all Y.Texts alive while switching. Replacing one
+    // shared string with snapshots would lose edits arriving for another tab.
+    const solutionViews = new Map();
+    const solutionCatalog = doc.getMap(COLLAB_SOLUTIONS_MAP_KEY);
+    const syncSolutionCatalog = () => setCodeSolutions(listCollabSolutions(doc));
+    solutionCatalog.observe(syncSolutionCatalog);
+    syncSolutionCatalog();
+    const switchSolution = (nextId) => {
+      if (disposed || localRunBusyRef.current || !listCollabSolutions(doc).some((item) => item.id === nextId)) return false;
+      if (nextId === activeSolutionIdRef.current) return true;
+      const editor = editorRef.current;
+      solutionViews.set(activeSolutionIdRef.current, editor?.saveViewState?.());
+      flushLessonReplayCodeSnapshot();
+      flushLessonReplayCodeViewport();
+      stopDebugPlayback();
+      if (editorConsistencyFrameId !== null) {
+        window.cancelAnimationFrame(editorConsistencyFrameId);
+        editorConsistencyFrameId = null;
+      }
+      ytext.unobserve(handleEditorConsistencyChange);
+      ytext.unobserve(handleReplayCodeChange);
+      runMap.unobserve(handleRunMapChange);
+      testFileYText.unobserve(syncTestFileFromDoc);
+      binding.destroy();
+      taskFilesSyncReadyRef.current = false;
+      clearDebugSession(false);
+      activeSolutionIdRef.current = nextId;
+      ({ codeText: ytext, runMap, testFileText: testFileYText } = getCollabSolutionChannels(doc, nextId));
+      collabCodeTextRef.current = ytext;
+      runMapRef.current = runMap;
+      collabTestFileRef.current = testFileYText;
+      outputSelectionRef.current = null;
+      testFileSelectionRef.current = null;
+      setLocalTestFileSelection(null);
+      remoteEditorCursorSeenRef.current.clear();
+      collabCursorPendingRef.current = null;
+      if (collabCursorSyncTimerRef.current) {
+        clearTimeout(collabCursorSyncTimerRef.current);
+        collabCursorSyncTimerRef.current = null;
+      }
+      provider.awareness.setLocalStateField('selection', null);
+      provider.awareness.setLocalStateField('editorCursor', null);
+      provider.awareness.setLocalStateField('outputSelection', null);
+      provider.awareness.setLocalStateField('testFileSelection', null);
+      provider.awareness.setLocalStateField('solutionId', nextId);
+      model.setValue(ytext.toString());
+      model.setEOL(monacoRef.current.editor.EndOfLineSequence.LF);
+      binding = new MonacoBinding(ytext, model, new Set([editor]));
+      ytext.observe(handleEditorConsistencyChange);
+      ytext.observe(handleReplayCodeChange);
+      runMap.observe(handleRunMapChange);
+      testFileYText.observe(syncTestFileFromDoc);
+      // Legacy rooms need defaults on read; do not seed competing copies of
+      // the first solution when teacher and student connect simultaneously.
+      const restoredRunMap = new Map([
+        ['status', 'idle'], ['output', ''], ['error', ''], ['input', ''],
+        ['taskFilesSelectedIds', []], ['taskFilesTaskNumber', ''],
+        ['taskFilesCategory', 'class'], ['taskFilesPanelOpen', false],
+        ['auxPanelMode', COLLAB_AUX_PANEL_MODE_INPUT],
+        ...runMap.entries(),
+      ]);
+      outputPanelDismissedRunTokenRef.current = null;
+      updateRunStateFromMapRef.current?.(restoredRunMap);
+      setOutputPanelOpen(Boolean(runMap.get('output') || runMap.get('error') || runMap.get('status') === 'running'));
+      syncTestFileFromDoc();
+      taskFilesSyncReadyRef.current = true;
+      setActiveSolutionId(nextId);
+      setSolutionError('');
+      setCompareSolutionId(null);
+      if (solutionViews.has(nextId)) editor?.restoreViewState?.(solutionViews.get(nextId));
+      else editor?.setPosition?.({ lineNumber: 1, column: 1 });
+      handleAwareness();
+      if (provider.synced) {
+        scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot', solutionSelected: true });
+        scheduleLessonReplayCodeViewport(editor, 0);
+      }
+      editor?.focus?.();
+      return true;
+    };
+    selectSolutionRef.current = switchSolution;
+
     provider.on('status', handleStatus);
     provider.on('sync', handleProviderSync);
     provider.awareness.on('change', handleAwareness);
@@ -8139,6 +8286,12 @@ const CollabSection = ({
     if (provider.synced) handleProviderSync(true);
 
     return () => {
+      if (selectSolutionRef.current === switchSolution) selectSolutionRef.current = null;
+      solutionCatalog.unobserve(syncSolutionCatalog);
+      runSessionRef.current += 1;
+      localRunBusyRef.current = false;
+      disposeRunWorkerRef.current?.('Комната кода закрыта.');
+      setRunLoading(false);
       provider.awareness.off('change', handleAwareness);
       provider.off('status', handleStatus);
       provider.off('sync', handleProviderSync);
@@ -8176,6 +8329,7 @@ const CollabSection = ({
       doc.destroy();
       taskFilesSyncReadyRef.current = false;
       runMapRef.current = null;
+      collabCodeTextRef.current = null;
       collabDocRef.current = null;
       if (collabProviderRef.current === provider) collabProviderRef.current = null;
       collabTestFileRef.current = null;
@@ -8231,6 +8385,7 @@ const CollabSection = ({
     flushLessonReplayCodeSnapshot,
     flushLessonReplayCodeViewport,
     emitSandboxState,
+    stopDebugPlayback,
     role,
   ]);
 
@@ -9153,6 +9308,43 @@ const CollabSection = ({
     roomId && (!editorReady || (!isSandbox && !collabDocumentReady))
   );
 
+  useEffect(() => {
+    const doc = collabDocRef.current;
+    if (!doc || !compareSolutionId || isSandbox || !documentSynced) return undefined;
+    const original = getCollabSolutionChannels(doc, compareSolutionId).codeText;
+    const modified = getCollabSolutionChannels(doc, activeSolutionId).codeText;
+    const update = () => setSolutionComparison({ original: original.toString(), modified: modified.toString() });
+    original.observe(update);
+    modified.observe(update);
+    update();
+    return () => { original.unobserve(update); modified.unobserve(update); };
+  }, [activeSolutionId, compareSolutionId, documentSynced, editorMountVersion, isSandbox, roomId]);
+
+  const solutionActionsBusy = runLoading || taskFileUploadBusy || saveBusy;
+  const selectCodeSolution = (id) => {
+    if (!collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) return;
+    if (!selectSolutionRef.current?.(id)) setSolutionError('Не удалось открыть вариант. Дождитесь подключения и повторите.');
+  };
+  const copyCodeSolution = (name) => {
+    if (collabReadOnly || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) {
+      throw new Error('Дождитесь завершения текущей операции.');
+    }
+    const doc = collabDocRef.current;
+    if (!doc) throw new Error('Совместный код ещё не подключён.');
+    const solution = createCollabSolution(doc, { sourceId: activeSolutionIdRef.current, name });
+    selectCodeSolution(solution.id);
+  };
+  const renameCodeSolution = (id, name) => {
+    if (collabReadOnly || !collabDocumentReady || !collabDocRef.current) throw new Error('Совместный код ещё не подключён.');
+    renameCollabSolution(collabDocRef.current, id, name);
+  };
+  const changeRunInput = (value) => {
+    if (collabReadOnly || !collabDocumentReady) return;
+    runInputRef.current = value;
+    setRunInput(value);
+    runMapRef.current?.set('stdinDraft', value);
+  };
+
   const editorPane = (
     <div className={`collab-editor-surface ${showEditorHeader ? '' : 'collab-editor-surface--flush'} relative flex flex-col overflow-hidden rounded-xl border ${isSplitCollabLayout ? 'h-full' : ''} ${
       isCollabFullscreen
@@ -9201,6 +9393,19 @@ const CollabSection = ({
           options={editorOptions}
           loading={editorLoadingState}
         />
+        {compareSolutionId && !isSandbox && (
+          <div className="collab-solutions-comparison-overlay">
+            <React.Suspense fallback={<div role="status">Загружаем сравнение…</div>}>
+              <CollabSolutionCompare
+                original={solutionComparison.original}
+                modified={solutionComparison.modified}
+                originalName={codeSolutions.find((item) => item.id === compareSolutionId)?.name || ''}
+                modifiedName={codeSolutions.find((item) => item.id === activeSolutionId)?.name || ''}
+                theme={resolveMonacoColorTheme(theme)}
+              />
+            </React.Suspense>
+          </div>
+        )}
         {showEditorEmptyState && (
           <div className="collab-editor-empty-state" aria-hidden="true">
             <span className="collab-editor-empty-state__icon">
@@ -9504,8 +9709,8 @@ const CollabSection = ({
             ) : (
               <textarea
                 value={runInput}
-                onChange={(e) => setRunInput(e.target.value)}
-                disabled={collabReadOnly}
+                onChange={(e) => changeRunInput(e.target.value)}
+                disabled={collabReadOnly || !collabDocumentReady}
                 rows={auxTextareaRows}
                 placeholder="Если нужен ввод, вставьте его сюда."
                 className={`w-full rounded-2xl border outline-none ${
@@ -10618,9 +10823,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all')}
-                disabled={collabReadOnly || runLoading || !collabDocumentReady}
+                disabled={collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)}
                 className={`${collabIconButtonBase} collab-code-pill-button is-run ${
-                  collabReadOnly || runLoading || !collabDocumentReady ? collabIconButtonDisabled : collabIconButtonPrimary
+                  collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId) ? collabIconButtonDisabled : collabIconButtonPrimary
                 }`}
                 title="Запустить код"
                 aria-label="Запустить код"
@@ -10633,9 +10838,9 @@ const CollabSection = ({
                 <button
                   type="button"
                   onClick={() => handleRunCode('all', true)}
-                  disabled={collabReadOnly || runLoading || !collabDocumentReady}
+                  disabled={collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)}
                   className={`${collabIconButtonBase} collab-code-pill-button is-debug ${
-                    collabReadOnly || runLoading || !collabDocumentReady
+                    collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)
                       ? collabIconButtonDisabled
                       : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
                   }`}
@@ -10703,9 +10908,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all')}
-                disabled={collabReadOnly || runLoading || !collabDocumentReady}
+                disabled={collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)}
                 className={`${collabIconButtonBase} ${
-                  collabReadOnly || runLoading || !collabDocumentReady
+                  collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)
                     ? collabIconButtonDisabled
                     : collabIconButtonPrimary
                 }`}
@@ -10717,9 +10922,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('selection')}
-                disabled={collabReadOnly || runLoading || !collabDocumentReady}
+                disabled={collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)}
                 className={`${collabIconButtonBase} ${
-                  collabReadOnly || runLoading || !collabDocumentReady
+                  collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -10731,9 +10936,9 @@ const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all', true)}
-                disabled={collabReadOnly || runLoading || !collabDocumentReady}
+                disabled={collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)}
                 className={`${collabIconButtonBase} ${
-                  collabReadOnly || runLoading || !collabDocumentReady
+                  collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId)
                     ? collabIconButtonDisabled
                     : (debugActive
                       ? collabIconButtonPrimary
@@ -10894,6 +11099,24 @@ const CollabSection = ({
         </div>
 
         {boardCodeAuxPopover}
+
+        {!isSandbox && roomId && (
+          <CollabSolutionTabs
+            key={roomId}
+            solutions={codeSolutions}
+            activeId={activeSolutionId}
+            onSelect={selectCodeSolution}
+            onCreate={copyCodeSolution}
+            onRename={renameCodeSolution}
+            onCompare={setCompareSolutionId}
+            compareId={compareSolutionId}
+            disabled={!collabDocumentReady || solutionActionsBusy}
+            readOnly={collabReadOnly}
+            dark={isCollabDarkUi}
+            peers={remoteParticipants}
+          />
+        )}
+        {solutionError && <div role="alert" className="collab-solutions__error">{solutionError}</div>}
 
         {isSplitCollabLayout ? (
           <div

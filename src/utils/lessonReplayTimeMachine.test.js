@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createLessonReplayFollowBranch, getLessonReplayCodeState } from './lessonReplayTimeMachine.js';
+import { createLessonReplayFollowBranch, getLessonReplayCodeState, getLessonReplayCodeViewport } from './lessonReplayTimeMachine.js';
 
 test('a successful or empty run clears previous errors and output', () => {
   const code = { offsetMs: 10, payload: { code: 'print(1)', error: 'old error', output: 'old output' } };
@@ -9,6 +9,142 @@ test('a successful or empty run clears previous errors and output', () => {
   assert.equal(getLessonReplayCodeState(code, success).output, '1');
   assert.equal(getLessonReplayCodeState(code, { offsetMs: 20, payload: {} }).output, '');
   assert.equal(getLessonReplayCodeState(code, { ...success, offsetMs: 5 }).error, 'old error');
+});
+
+test('a run from another solution cannot replace the recorded solution result', () => {
+  const code = { offsetMs: 10, payload: {
+    solutionId: 'copy', solutionName: 'Мой вариант', code: 'print(43)', input: '8', output: '43',
+  } };
+  for (const solutionId of ['main', undefined]) {
+    const run = { offsetMs: 20, payload: { solutionId, output: '27', error: 'other error' } };
+    const state = getLessonReplayCodeState(code, run);
+    assert.equal(state.output, '43');
+    assert.equal(state.error, '');
+    assert.equal(state.input, '8');
+    assert.equal(state.solutionName, 'Мой вариант');
+  }
+  const matchingRun = { offsetMs: 20, payload: { solutionId: 'copy', output: '44', status: 'done' } };
+  assert.equal(getLessonReplayCodeState(code, matchingRun).output, '44');
+  assert.equal(getLessonReplayCodeState(code, { ...matchingRun, offsetMs: 10 }).output, '43');
+  const legacyCode = { offsetMs: 10, payload: { code: 'print(1)' } };
+  assert.equal(getLessonReplayCodeState(legacyCode, {
+    offsetMs: 20, payload: { solutionId: 'main', output: '1' },
+  }).output, '1');
+});
+
+test('recorded views follow their solution and retain the embedded viewport on a mismatch', () => {
+  const embedded = { cursorLine: 4 };
+  const code = { payload: { solutionId: 'copy', viewport: embedded } };
+  const matching = { solutionId: 'copy', cursorLine: 8 };
+  const different = { solutionId: 'main', cursorLine: 100 };
+  assert.equal(getLessonReplayCodeViewport(code, different), embedded);
+  assert.equal(getLessonReplayCodeViewport(code, different, matching), matching);
+  assert.equal(getLessonReplayCodeViewport(code, { cursorLine: 100 }), embedded);
+  assert.equal(getLessonReplayCodeViewport({ payload: {} }, { cursorLine: 12 }).cursorLine, 12);
+  const branch = createLessonReplayFollowBranch({}, {
+    codeEvent: code, codeView: different, positionMs: 20,
+  });
+  assert.equal(branch.code.viewport, embedded);
+});
+
+test('lesson copies preserve a solution switch and ignore the previous solution viewport and run', () => {
+  const source = { events: [
+    { id: 'first', type: 'code', offsetMs: 0, payload: { solutionId: 'main', code: 'print(1)', output: '1' } },
+    { id: 'main-view', type: 'viewport', offsetMs: 1000, actor: { role: 'teacher' }, payload: {
+      surface: 'code', solutionId: 'main', cursorLine: 90,
+    } },
+    { id: 'copy', type: 'code', offsetMs: 2000, payload: {
+      solutionId: 'copy', solutionName: 'Мой вариант', code: 'print(1)', output: '1',
+    } },
+    { id: 'main-run', type: 'run', offsetMs: 3000, payload: { solutionId: 'main', output: '999' } },
+  ] };
+  const branch = createLessonReplayBranch(source, 2000, { actorRole: 'teacher' });
+  assert.equal(branch.code.solutionId, 'copy');
+  assert.equal(branch.code.solutionName, 'Мой вариант');
+  assert.equal(branch.code.output, '1');
+  assert.equal(branch.code.viewport, undefined);
+  const afterRun = createLessonReplayBranch(source, 3000, { actorRole: 'teacher' });
+  assert.equal(afterRun.code.solutionId, 'main');
+  assert.equal(afterRun.code.code, 'print(1)');
+  assert.equal(afterRun.code.output, '999');
+  assert.equal(afterRun.code.viewport.cursorLine, 90);
+});
+
+test('another solution run or scroll cannot discard the last matching result and viewport', () => {
+  const source = { events: [
+    { id: 'copy-code', type: 'code', offsetMs: 0, payload: {
+      solutionId: 'copy', code: 'print(43)', output: '',
+    } },
+    { id: 'copy-run', type: 'run', offsetMs: 10, payload: { solutionId: 'copy', output: '43', status: 'done' } },
+    { id: 'copy-view', type: 'viewport', offsetMs: 20, actor: { role: 'teacher' }, payload: {
+      surface: 'code', solutionId: 'copy', cursorLine: 8,
+    } },
+    { id: 'main-run', type: 'run', offsetMs: 30, payload: { solutionId: 'main', output: '27' } },
+    { id: 'main-view', type: 'viewport', offsetMs: 40, actor: { role: 'teacher' }, payload: {
+      surface: 'code', solutionId: 'main', cursorLine: 90,
+    } },
+  ] };
+  for (const positionMs of [20, 40, 30]) {
+    const branch = createLessonReplayBranch(source, positionMs, { actorRole: 'teacher' });
+    const inline = buildLessonReplayPlaybackState(source.events, positionMs);
+    const following = createLessonReplayFollowBranch(source, {
+      codeEvent: inline.code, runEvent: inline.run, codeView: inline.codeView?.payload, positionMs,
+    });
+    assert.equal(branch.code.output, '43');
+    assert.equal(branch.code.viewport.cursorLine, 8);
+    assert.deepEqual(following.code, branch.code);
+  }
+});
+
+test('time machine and inline replay agree through passive checkpoints and explicit tab selection', () => {
+  const snapshot = (id, offsetMs, solutionId, extra = {}) => ({
+    id, type: 'code', offsetMs, actor: { role: 'teacher' },
+    payload: { action: 'snapshot', code: `print("${solutionId}")`, solutionId, ...extra },
+  });
+  const source = { events: [
+    snapshot('main', 0, 'main'),
+    snapshot('copy-checkpoint', 10, 'copy'),
+    snapshot('copy-selected', 20, 'copy', { solutionSelected: true }),
+    snapshot('main-checkpoint', 30, 'main'),
+    snapshot('copy-checkpoint-again', 40, 'copy'),
+    { id: 'main-run', type: 'run', offsetMs: 50, payload: { solutionId: 'main', output: 'main', status: 'done' } },
+    snapshot('copy-edit', 60, 'copy', { action: 'edit', code: 'print(42)' }),
+    snapshot('main-checkpoint-again', 70, 'main'),
+    snapshot('main-selected', 80, 'main', { solutionSelected: true }),
+  ] };
+  for (const [positionMs, solutionId] of [[10, 'main'], [20, 'copy'], [40, 'copy'], [50, 'main'], [70, 'copy'], [80, 'main'], [40, 'copy']]) {
+    const branch = createLessonReplayBranch(source, positionMs);
+    const inline = buildLessonReplayPlaybackState(source.events, positionMs);
+    const following = createLessonReplayFollowBranch(source, {
+      codeEvent: inline.code, runEvent: inline.run, positionMs,
+    });
+    assert.equal(branch.code.solutionId, solutionId);
+    assert.deepEqual(branch.code, following.code);
+  }
+});
+
+test('actor-specific time machine copies preserve that actor tab and matching run', () => {
+  const source = { events: [
+    { id: 'teacher-main', type: 'code', offsetMs: 0, actor: { role: 'teacher' }, payload: {
+      solutionId: 'main', action: 'snapshot', code: 'print(1)', output: '1',
+    } },
+    { id: 'student-copy', type: 'code', offsetMs: 10, actor: { role: 'student' }, payload: {
+      solutionId: 'copy', action: 'snapshot', code: 'print(2)',
+    } },
+    { id: 'copy-run', type: 'run', offsetMs: 20, actor: { role: 'student' }, payload: {
+      solutionId: 'copy', output: '2', status: 'done',
+    } },
+    { id: 'teacher-heartbeat', type: 'code', offsetMs: 30, actor: { role: 'teacher' }, payload: {
+      solutionId: 'main', action: 'snapshot', code: 'print(1)', output: '1',
+    } },
+  ] };
+  const inline = buildLessonReplayPlaybackState(source.events, 30);
+  for (const [actorRole, solutionId, output] of [['teacher', 'main', '1'], ['student', 'copy', '2']]) {
+    const branch = createLessonReplayBranch(source, 30, { actorRole });
+    assert.equal(branch.code.solutionId, solutionId);
+    assert.equal(branch.code.output, output);
+    assert.equal(branch.code.code, inline.actors[actorRole].code.payload.code);
+  }
 });
 
 test('read-only following uses materialized items without reading history again', () => {

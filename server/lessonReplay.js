@@ -31,6 +31,15 @@ const isPlainObject = (value) => Boolean(value && typeof value === 'object' && !
 
 const clampText = (value, maxLength) => String(value ?? '').replace(/\0/g, '').slice(0, maxLength);
 
+const normalizeCodeSolution = (source) => {
+  const solutionId = typeof source.solutionId === 'string' ? clampText(source.solutionId, 160).trim() : '';
+  const solutionName = typeof source.solutionName === 'string' ? clampText(source.solutionName, 120).trim() : '';
+  return {
+    ...(solutionId ? { solutionId } : {}),
+    ...(solutionName ? { solutionName } : {}),
+  };
+};
+
 const clampNumber = (value, min, max, fallback = 0) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -310,6 +319,8 @@ const normalizePayload = (type, value) => {
   }
   if (type === 'code') {
     return {
+      ...normalizeCodeSolution(source),
+      ...(source.solutionSelected === true ? { solutionSelected: true } : {}),
       language: clampText(source.language || 'python', 40).trim() || 'python',
       action: ['edit', 'run', 'snapshot'].includes(source.action) ? source.action : 'edit',
       // A snapshot can be emitted while a participant is joining and only
@@ -347,6 +358,7 @@ const normalizePayload = (type, value) => {
   }
   if (type === 'run') {
     return {
+      ...normalizeCodeSolution(source),
       status: clampText(source.status, 40).trim(),
       output: clampText(source.output, MAX_OUTPUT_CHARS),
       error: clampText(source.error, MAX_OUTPUT_CHARS),
@@ -379,6 +391,7 @@ const normalizePayload = (type, value) => {
     const surface = source.surface === 'code' ? 'code' : 'board';
     if (surface === 'code') {
       return {
+        ...normalizeCodeSolution(source),
         surface,
         scrollTopRatio: clampNumber(source.scrollTopRatio, 0, 1, 0),
         scrollLeftRatio: clampNumber(source.scrollLeftRatio, 0, 1, 0),

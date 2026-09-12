@@ -8,6 +8,17 @@ import {
 const actor = (role) => ({ role, id: role });
 const item = (id) => ({ id, type: 'text', text: id });
 
+test('retains an explicit tab selection or authored edit after an identical passive checkpoint', () => {
+  const checkpoint = { type: 'code', payload: { action: 'snapshot', solutionId: 'copy', code: 'print(1)' } };
+  const events = [
+    { ...checkpoint, id: 'checkpoint', offsetMs: 0 },
+    { ...checkpoint, id: 'selection', offsetMs: 10, payload: { ...checkpoint.payload, solutionSelected: true } },
+    { ...checkpoint, id: 'duplicate', offsetMs: 20 },
+    { ...checkpoint, id: 'edit', offsetMs: 30, payload: { ...checkpoint.payload, action: 'edit' } },
+  ];
+  assert.deepEqual(removeLessonReplaySyncArtifacts(events).map((event) => event.id), ['checkpoint', 'selection', 'edit']);
+});
+
 test('removes a transient empty board checkpoint when navigation remounts the same board', () => {
   const events = [
     { id: 'board-full', type: 'board', offsetMs: 0, actor: actor('student'), payload: { mode: 'snapshot', items: [item('a'), item('b')] } },

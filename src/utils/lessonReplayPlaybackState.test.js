@@ -85,6 +85,41 @@ test('keeps shared board and code state visible to both followed actors', () => 
   assert.equal(state.actors.student.boardView, null);
 });
 
+test('interleaved solution runs and viewports retain each solution state across seeks', () => {
+  const code = (id, offsetMs, solutionId) => ({
+    id, type: 'code', offsetMs, payload: { solutionId, code: `print("${solutionId}")` },
+  });
+  const run = (id, offsetMs, solutionId) => ({
+    id, type: 'run', offsetMs, actor: { role: 'student' }, payload: { solutionId, output: id },
+  });
+  const view = (id, offsetMs, solutionId) => ({
+    id, type: 'viewport', offsetMs, actor: { role: 'teacher' },
+    payload: { surface: 'code', solutionId, cursorLine: offsetMs },
+  });
+  const source = [
+    code('copy-code', 0, 'copy'),
+    run('copy-run', 10, 'copy'),
+    view('copy-view', 20, 'copy'),
+    run('main-run', 30, 'main'),
+    view('main-view', 40, 'main'),
+    code('main-code', 50, 'main'),
+    code('copy-again', 60, 'copy'),
+  ];
+  const read = createLessonReplayPlaybackLookup(source);
+  const index = createLessonReplayPlaybackIndex(source);
+  for (const position of [40, 60, 50, 20, 40]) {
+    const expectedSolution = position === 50 ? 'main' : 'copy';
+    const state = read(position);
+    assert.equal(state.run.id, `${expectedSolution}-run`);
+    assert.equal(state.codeView.id, `${expectedSolution}-view`);
+    assert.equal(state.actors.teacher.codeView.id, `${expectedSolution}-view`);
+    assert.equal(state.actors.student.run.id, `${expectedSolution}-run`);
+    assert.deepEqual(state, buildLessonReplayPlaybackState(source, position, index));
+  }
+  assert.equal(read(20).codeRuns.has('main'), false, 'later runs must not mutate cached snapshots');
+  assert.equal(read(20).actors.teacher.codeViews.has('main'), false);
+});
+
 test('indexed playback produces the same state when seeking across a long lesson', () => {
   const longEvents = Array.from({ length: 520 }, (_, index) => ({
     id: `event-${index}`,
@@ -124,4 +159,81 @@ test('keeps passive code checkpoints neutral while retaining verified edits', ()
 
   assert.equal(getLessonReplayActorRole(passiveSnapshot), '');
   assert.equal(getLessonReplayActorRole(verifiedEdit), 'student');
+});
+
+test('independent tab heartbeats never steal selection, while switches edits and runs select their code', () => {
+  const snapshot = (id, offsetMs, solutionId, code, extra = {}) => ({
+    id, type: 'code', offsetMs, actor: { role: 'teacher' },
+    payload: { action: 'snapshot', solutionId, code, ...extra },
+  });
+  const source = [
+    snapshot('initial-main', 0, 'main', 'print(1)'),
+    snapshot('inactive-copy', 10, 'copy', 'print(2)'),
+    snapshot('select-copy', 20, 'copy', 'print(2)', { solutionSelected: true }),
+    snapshot('main-heartbeat', 30, 'main', 'print(3)'),
+    snapshot('copy-heartbeat', 40, 'copy', 'print(2)'),
+    { id: 'main-run', type: 'run', offsetMs: 50, payload: { solutionId: 'main', output: '3' } },
+    snapshot('copy-edit', 60, 'copy', 'print(4)', { action: 'edit', actorVerified: true }),
+    ...Array.from({ length: 40 }, (_, index) => snapshot(`heartbeat-${index}`, 70 + index, 'main', `print(${index})`)),
+    snapshot('select-main', 120, 'main', 'print(39)', { solutionSelected: true }),
+    { id: 'legacy-snapshot', type: 'code', offsetMs: 130, payload: { action: 'snapshot', code: 'legacy' } },
+  ];
+  const read = createLessonReplayPlaybackLookup(source);
+  const index = createLessonReplayPlaybackIndex(source, 16);
+  for (const [position, solutionId, code] of [
+    [10, 'main', 'print(1)'], [40, 'copy', 'print(2)'], [50, 'main', 'print(3)'],
+    [109, 'copy', 'print(4)'], [120, 'main', 'print(39)'], [20, 'copy', 'print(2)'],
+    [109, 'copy', 'print(4)'], [130, undefined, 'legacy'],
+  ]) {
+    const state = read(position);
+    assert.equal(state.code.payload.solutionId, solutionId);
+    assert.equal(state.code.payload.code, code);
+    assert.deepEqual(state, buildLessonReplayPlaybackState(source, position, index));
+    assert.deepEqual(state, buildLessonReplayPlaybackState(source, position));
+  }
+  assert.equal(read(10).codeSnapshots.get('main').payload.code, 'print(1)');
+  assert.equal(read(30).current.id, 'select-copy');
+  assert.equal(getLessonReplayActorRole(source[2]), 'teacher');
+});
+
+test('a versioned heartbeat cannot pull following away from the board', () => {
+  const source = [
+    { type: 'navigation', offsetMs: 0, actor: { role: 'teacher' }, payload: { view: 'board' } },
+    { type: 'code', offsetMs: 30, actor: { role: 'teacher' }, payload: {
+      solutionId: 'main', action: 'snapshot', actorVerified: true, code: 'print(1)',
+    } },
+  ];
+  assert.equal(getLessonReplayFollowSurface(source, 30, 'teacher'), 'board');
+  source.push({ ...source[1], offsetMs: 40, payload: { ...source[1].payload, solutionSelected: true } });
+  assert.equal(getLessonReplayFollowSurface(source, 40, 'teacher'), 'code');
+});
+
+test('followed actors keep independent selected tabs while receiving shared edits in the same tab', () => {
+  const code = (id, offsetMs, role, solutionId, extra = {}) => ({
+    id, type: 'code', offsetMs, actor: { role },
+    payload: { action: 'snapshot', solutionId, code: id, ...extra },
+  });
+  const source = [
+    code('teacher-main', 0, 'teacher', 'main'),
+    code('student-copy', 10, 'student', 'copy'),
+    code('student-edit-copy', 20, 'student', 'copy', { action: 'edit' }),
+    code('teacher-heartbeat', 30, 'teacher', 'main'),
+    code('teacher-edit-main', 40, 'teacher', 'main', { action: 'edit' }),
+    { id: 'copy-run', type: 'run', offsetMs: 50, actor: { role: 'student' }, payload: { solutionId: 'copy', output: 'copy' } },
+    { id: 'main-run', type: 'run', offsetMs: 60, actor: { role: 'teacher' }, payload: { solutionId: 'main', output: 'main' } },
+    code('teacher-selects-copy', 70, 'teacher', 'copy', { solutionSelected: true }),
+    code('shared-copy-edit', 80, 'student', 'copy', { action: 'edit' }),
+    code('stale-main-checkpoint', 90, 'teacher', 'main'),
+  ];
+  const read = createLessonReplayPlaybackLookup(source);
+  for (const position of [60, 20, 90, 30, 50, 80]) {
+    const state = read(position);
+    assert.deepEqual(state, buildLessonReplayPlaybackState(source, position));
+    assert.equal(state.actors.student.code.payload.solutionId, 'copy');
+    assert.equal(state.actors.teacher.code.payload.solutionId, position < 70 ? 'main' : 'copy');
+    if (position >= 80) assert.equal(state.actors.teacher.code.id, 'shared-copy-edit');
+  }
+  assert.equal(read(60).actors.teacher.run.id, 'main-run');
+  assert.equal(read(60).actors.student.run.id, 'copy-run');
+  assert.equal(read(60).actors.teacher.codeSnapshots.get('copy').id, 'student-edit-copy');
 });

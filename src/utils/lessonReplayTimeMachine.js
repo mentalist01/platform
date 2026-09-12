@@ -1,5 +1,6 @@
 import { sortLessonReplayEvents } from './lessonReplayEventOrder.js';
 import { getLessonReplayInitialBoardViewport } from './lessonReplayBoardViewport.js';
+import { buildLessonReplayPlaybackState, getLessonReplayCodeSolutionId } from './lessonReplayPlaybackState.js';
 import {
   removeLessonReplaySyncArtifacts,
   repairLessonReplayInitialBoardState,
@@ -62,9 +63,21 @@ const normalizeCodeState = (value = {}) => {
   };
 };
 
+const getCodeSolutionId = getLessonReplayCodeSolutionId;
+
+export const getLessonReplayCodeViewport = (codeEvent, ...recordedViews) => (
+  recordedViews.find((view) => view && getCodeSolutionId(view) === getCodeSolutionId(codeEvent?.payload))
+    || codeEvent?.payload?.viewport || codeEvent?.payload?.editor || codeEvent?.payload?.view || null
+);
+
 export const getLessonReplayCodeState = (codeEvent, runEvent) => {
   const code = normalizeCodeState(codeEvent?.payload);
-  if (runEvent && normalizeEventOffsetMs(runEvent) >= normalizeEventOffsetMs(codeEvent)) {
+  const runOffset = normalizeEventOffsetMs(runEvent);
+  const codeOffset = normalizeEventOffsetMs(codeEvent);
+  // Versioned snapshots already contain a consistent result. At an equal
+  // timestamp prefer that snapshot; only a later run of the same solution wins.
+  const newerRun = runOffset > codeOffset || (!code.solutionId && runOffset === codeOffset);
+  if (runEvent && newerRun && getCodeSolutionId(runEvent.payload) === getCodeSolutionId(code)) {
     const runPayload = runEvent.payload || {};
     code.status = String(runPayload.status || '');
     code.output = String(runPayload.output || '');
@@ -79,7 +92,8 @@ export const createLessonReplayFollowBranch = (replay, {
   boardEvent, boardView, codeEvent, codeView, runEvent, positionMs,
 }) => {
   const code = getLessonReplayCodeState(codeEvent, runEvent);
-  if (codeView) code.viewport = codeView;
+  const matchingCodeView = getLessonReplayCodeViewport(codeEvent, codeView);
+  if (matchingCodeView) code.viewport = matchingCodeView;
   return {
     branchId: 'lesson-replay-follow',
     metadata: {
@@ -175,35 +189,37 @@ export const getLessonReplayStateAt = (replay, rawPositionMs, options = {}) => {
   const events = getOrderedReplayEvents(replay);
   let boardItems = [];
   let boardEvent = null;
-  let codeEvent = null;
-  let runEvent = null;
+  const playbackState = buildLessonReplayPlaybackState(events, positionMs);
+  const selectedState = actorRole ? playbackState.actors[actorRole] : playbackState;
+  const codeEvent = selectedState.code;
   let boardViewport = null;
-  let codeViewport = null;
+  const codeViewports = new Map();
   let actorBoardViewport = null;
-  let actorCodeViewport = null;
+  const actorCodeViewports = new Map();
 
   for (const event of events) {
     if (normalizeEventOffsetMs(event) > positionMs) break;
     if (event.type === 'board') {
       boardItems = applyBoardReplayEvent(boardItems, event);
       boardEvent = event;
-    } else if (event.type === 'code') codeEvent = event;
-    else if (event.type === 'run') runEvent = event;
-    else if (event.type === 'board-view' || (event.type === 'viewport' && event?.payload?.surface === 'board')) {
+    } else if (event.type === 'board-view' || (event.type === 'viewport' && event?.payload?.surface === 'board')) {
       boardViewport = cloneValue(event.payload);
       if (actorRole && event?.actor?.role === actorRole) actorBoardViewport = cloneValue(event.payload);
     } else if (event.type === 'code-view' || (event.type === 'viewport' && event?.payload?.surface === 'code')) {
-      codeViewport = cloneValue(event.payload);
-      if (actorRole && event?.actor?.role === actorRole) actorCodeViewport = cloneValue(event.payload);
+      const solutionId = getCodeSolutionId(event.payload);
+      codeViewports.set(solutionId, event.payload);
+      if (actorRole && event?.actor?.role === actorRole) actorCodeViewports.set(solutionId, event.payload);
     }
   }
 
-  const code = getLessonReplayCodeState(codeEvent, runEvent);
+  const solutionId = getCodeSolutionId(codeEvent?.payload);
+  const code = getLessonReplayCodeState(codeEvent, selectedState.run);
   const resolvedBoardViewport = actorBoardViewport || boardViewport
     || boardEvent?.payload?.viewport || boardEvent?.payload?.view
     || getLessonReplayInitialBoardViewport(events);
-  const resolvedCodeViewport = actorCodeViewport || codeViewport
-    || codeEvent?.payload?.editor || codeEvent?.payload?.view;
+  const resolvedCodeViewport = getLessonReplayCodeViewport(
+    codeEvent, actorCodeViewports.get(solutionId), codeViewports.get(solutionId)
+  );
   if (resolvedCodeViewport) code.viewport = cloneValue(resolvedCodeViewport);
 
   return {

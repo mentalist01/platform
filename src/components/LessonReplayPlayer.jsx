@@ -46,6 +46,7 @@ import {
   createLessonReplayBranch,
   createLessonReplayFollowBranch,
   getLessonReplayCodeState,
+  getLessonReplayCodeViewport,
   updateLessonReplayBranchBoard,
   updateLessonReplayBranchCode,
 } from '../utils/lessonReplayTimeMachine';
@@ -111,6 +112,8 @@ const formatClock = (value) => {
 
 const getEventLabel = (event) => {
   if (!event) return 'Начало занятия';
+  const solutionName = String(event.payload?.solutionName || '').trim();
+  const solutionLabel = solutionName ? ` · ${solutionName}` : '';
   if (event.type === 'navigation') {
     return event.payload?.label || VIEW_LABELS[event.payload?.view] || 'Переход по платформе';
   }
@@ -129,11 +132,14 @@ const getEventLabel = (event) => {
   if (event.type === 'code') {
     const code = String(event.payload?.code || '');
     const lineCount = code ? code.split('\n').length : 0;
+    if (event.payload?.solutionSelected === true) return `Открыт вариант кода${solutionLabel} · ${lineCount} стр.`;
     return event.payload?.action === 'snapshot'
-      ? `Состояние совместного кода · ${lineCount} стр.`
-      : `Изменение совместного кода · ${lineCount} стр.`;
+      ? `Состояние совместного кода${solutionLabel} · ${lineCount} стр.`
+      : `Изменение совместного кода${solutionLabel} · ${lineCount} стр.`;
   }
-  if (event.type === 'code-view') return 'Перемещение по коду';
+  if (event.type === 'code-view' || (event.type === 'viewport' && event.payload?.surface === 'code')) {
+    return `Перемещение по коду${solutionLabel}`;
+  }
   if (event.type === 'board') {
     if (event.payload?.mode === 'delta') {
       const changed = Array.isArray(event.payload?.upserts) ? event.payload.upserts.length : 0;
@@ -146,7 +152,7 @@ const getEventLabel = (event) => {
     return `Состояние доски · объектов: ${itemCount}`;
   }
   if (event.type === 'board-view') return 'Перемещение по доске';
-  if (event.type === 'run') return 'Запуск программы';
+  if (event.type === 'run') return `Запуск программы${solutionLabel}`;
   if (event.type === 'screen') {
     if (event.payload?.active === false) return 'Демонстрация экрана завершена';
     const ownerRole = getLessonReplayActorRole(event);
@@ -595,7 +601,8 @@ const ReplayCode = React.memo(function ReplayCode({ event, runEvent, recordedVie
   const output = error || payload.output;
   const codeLines = String(payload.code || '# Код пока не появился').split('\n');
   const codeRef = useRef(null);
-  const view = recordedView || payload.editor || payload.view || {};
+  const view = getLessonReplayCodeViewport(event, recordedView) || {};
+  const solutionName = String(payload.solutionName || '').trim();
 
   useEffect(() => {
     const node = codeRef.current;
@@ -619,7 +626,15 @@ const ReplayCode = React.memo(function ReplayCode({ event, runEvent, recordedVie
   const cursorLine = Math.max(0, Number(view.cursorLine) || 0);
   return (
     <div className="lesson-replay-player__code-layout">
-      {cursorLine > 0 && !freeNavigation && <span className="lesson-replay-player__code-position">Строка {cursorLine}</span>}
+      {(solutionName || (cursorLine > 0 && !freeNavigation)) && (
+        <span
+          className="lesson-replay-player__code-position"
+          title={solutionName || undefined}
+          style={{ maxWidth: 'calc(100% - 24px)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {[solutionName, cursorLine > 0 && !freeNavigation ? `Строка ${cursorLine}` : ''].filter(Boolean).join(' · ')}
+        </span>
+      )}
       <pre ref={codeRef} className="lesson-replay-player__code"><code>{codeLines.map((line, index) => (
         <span key={`replay-code-line-${index}`} data-line-number={index + 1}>{line || ' '}</span>
       ))}</code></pre>
@@ -1431,7 +1446,7 @@ const LessonReplayPlayer = ({ replay, createPythonWorker = null, renderLessonRep
     || boardEvent?.payload?.view
     || initialBoardViewport
   );
-  const codeView = state.codeView?.payload || codeEvent?.payload?.editor || codeEvent?.payload?.view;
+  const codeView = getLessonReplayCodeViewport(codeEvent, state.codeView?.payload);
   const hasScreenReplay = screenSnapshotEvents.length > 0;
   const availableTabs = hasScreenReplay ? ['split', 'board', 'code', 'screen'] : ['split', 'board', 'code'];
   const resolvedActiveTab = availableTabs.includes(activeTab) ? activeTab : 'board';

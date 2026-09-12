@@ -3,11 +3,15 @@ const createRoleState = () => ({
   navigation: null,
   task: null,
   code: null,
+  codeSolutionId: null,
   codeView: null,
   board: null,
   boardView: null,
   run: null,
   screen: null,
+  codeSnapshots: new Map(),
+  codeRuns: new Map(),
+  codeViews: new Map(),
 });
 
 const createPlaybackState = () => ({
@@ -32,6 +36,7 @@ export const getLessonReplayActorRole = (event) => {
     event?.type === 'code'
     && event.payload?.action === 'snapshot'
     && event.payload?.actorVerified !== true
+    && event.payload?.solutionSelected !== true
   ) return '';
   const role = event?.type === 'screen'
     ? (event?.payload?.sharedByRole || event?.actor?.role)
@@ -43,14 +48,63 @@ export const isSharedLessonReplaySurfaceEvent = (event) => (
   ['code', 'board', 'run'].includes(event?.type)
 );
 
+export const getLessonReplayCodeSolutionId = (payload) => String(payload?.solutionId || '').trim() || 'main';
+
+export const isPassiveLessonReplayCodeSnapshot = (event) => (
+  event?.type === 'code'
+  && Boolean(String(event.payload?.solutionId || '').trim())
+  && event.payload?.action === 'snapshot'
+  && event.payload?.solutionSelected !== true
+);
+
+export const shouldSelectLessonReplayCodeEvent = (currentCode, event) => (
+  !currentCode
+  || !isPassiveLessonReplayCodeSnapshot(event)
+  || getLessonReplayCodeSolutionId(currentCode.payload) === getLessonReplayCodeSolutionId(event?.payload)
+);
+
 const applyEventToState = (state, event, options = {}) => {
-  if (options.updateCurrent !== false) state.current = event;
+  if (options.updateCurrent !== false && !isPassiveLessonReplayCodeSnapshot(event)) state.current = event;
+  const solutionId = getLessonReplayCodeSolutionId(event.payload);
+  const activeSolutionId = getLessonReplayCodeSolutionId(state.code?.payload);
+  const sourceRole = event.actor?.role;
+  const followsVersionedActor = options.followedRole
+    && ['teacher', 'student'].includes(sourceRole)
+    && (Boolean(event.payload?.solutionId) || state.codeSolutionId !== null);
+  if (followsVersionedActor && sourceRole === options.followedRole) {
+    if ((event.type === 'code' && (state.codeSolutionId === null || !isPassiveLessonReplayCodeSnapshot(event)))
+      || event.type === 'run') state.codeSolutionId = solutionId;
+  }
+  const maySelectSolution = !followsVersionedActor
+    || solutionId === (state.codeSolutionId || activeSolutionId)
+    || (!state.code && state.codeSolutionId === null);
   if (event.type === 'task') state.task = event.payload?.active === false ? null : event;
   else if (event.type === 'screen') state.screen = event.payload?.active === false ? null : event;
   else if (event.type === 'board-view') state.boardView = event;
-  else if (event.type === 'code-view') state.codeView = event;
   else if (event.type === 'viewport' && event.payload?.surface === 'board') state.boardView = event;
-  else if (event.type === 'viewport' && event.payload?.surface === 'code') state.codeView = event;
+  else if (event.type === 'code-view' || (event.type === 'viewport' && event.payload?.surface === 'code')) {
+    // Copy on write keeps earlier indexed playback snapshots immutable.
+    state.codeViews = new Map(state.codeViews).set(solutionId, event);
+    if (solutionId === activeSolutionId) state.codeView = event;
+  } else if (event.type === 'run') {
+    state.codeRuns = new Map(state.codeRuns).set(solutionId, event);
+    const matchingCode = state.codeSnapshots.get(solutionId);
+    if (matchingCode && maySelectSolution) {
+      state.code = matchingCode;
+      state.run = event;
+      state.codeView = state.codeViews.get(solutionId) || null;
+    } else if (solutionId === activeSolutionId) state.run = event;
+  } else if (event.type === 'code') {
+    state.codeSnapshots = new Map(state.codeSnapshots).set(solutionId, event);
+    // Both clients emit checkpoints while looking at independent tabs. Keep
+    // their content available without treating a heartbeat as a tab click.
+    if (maySelectSolution && (shouldSelectLessonReplayCodeEvent(state.code, event)
+      || (followsVersionedActor && state.codeSolutionId === solutionId))) {
+      state.code = event;
+      state.run = state.codeRuns.get(solutionId) || null;
+      state.codeView = state.codeViews.get(solutionId) || null;
+    }
+  }
   else if (Object.prototype.hasOwnProperty.call(state, event.type)) state[event.type] = event;
 };
 
@@ -59,8 +113,8 @@ const applyPlaybackEvent = (state, event) => {
   if (event.type === 'audio' && (event.payload?.url || event.payload?.playbackUrl)) state.audio = event;
   const role = getLessonReplayActorRole(event);
   if (isSharedLessonReplaySurfaceEvent(event)) {
-    applyEventToState(state.actors.teacher, event, { updateCurrent: role === 'teacher' || !role });
-    applyEventToState(state.actors.student, event, { updateCurrent: role === 'student' || !role });
+    applyEventToState(state.actors.teacher, event, { followedRole: 'teacher', updateCurrent: role === 'teacher' || !role });
+    applyEventToState(state.actors.student, event, { followedRole: 'student', updateCurrent: role === 'student' || !role });
   } else if (role) applyEventToState(state.actors[role], event);
 };
 
@@ -155,6 +209,7 @@ export const getLessonReplayFollowSurface = (events, rawPositionMs, role) => {
   for (let index = source.length - 1; index >= 0; index -= 1) {
     const event = source[index];
     if (Math.max(0, Number(event?.offsetMs) || 0) > positionMs) continue;
+    if (isPassiveLessonReplayCodeSnapshot(event)) continue;
     const eventRole = getLessonReplayActorRole(event);
     if (isSharedLessonReplaySurfaceEvent(event) && eventRole !== role) {
       if (!sharedFallback) sharedFallback = getSurfaceForEvent(event);
