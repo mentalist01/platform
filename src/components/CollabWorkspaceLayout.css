@@ -1,36 +1,4 @@
-.collab-workspace-viewbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  flex: 0 0 auto; min-height: 38px; padding: 3px 5px;
-  color: #536079; background: #faf9ff;
-}
-.collab-workspace-views { display: flex; gap: 3px; }
-.collab-workspace-viewbar button {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-height: 30px; padding: 5px 10px; border: 1px solid transparent;
-  border-radius: 8px; background: transparent; color: inherit;
-  font: 600 12px/1.3 Inter, system-ui, sans-serif; cursor: pointer; white-space: nowrap;
-}
-.collab-workspace-viewbar button:hover { background: #f0eaff; }
-.collab-workspace-viewbar button[aria-pressed='true'] { color: #6d28d9; background: #ede9fe; border-color: #d8c9fb; }
-.collab-workspace-viewbar .collab-workspace-expand { border-color: #ded8ef; background: #fff; }
-.collab-workspace-viewbar button:focus-visible { outline: 2px solid #8b5cf6; outline-offset: 1px; }
-html[data-theme='dark'] .collab-workspace-viewbar { background: #111b2b; color: #bcc8de; }
-html[data-theme='dark'] .collab-workspace-viewbar button:hover,
-html[data-theme='dark'] .collab-workspace-viewbar button[aria-pressed='true'] { background: #32254e; border-color: #64517e; color: #d7c3ff; }
-html[data-theme='dark'] .collab-workspace-viewbar .collab-workspace-expand { background: #182338; border-color: #35415a; }
-
-/* Keep both editors mounted: switching the view must not rebind collaboration. */
-html .collab-workspace-card--glass-board.collab-workspace-view--code .collab-top-pane-wrap,
-html .collab-workspace-card--glass-board.collab-workspace-view--code .collab-board-code-resizer,
-html .collab-workspace-card--glass-board.collab-workspace-view--board .collab-code-glass-layer,
-html .collab-workspace-card--glass-board.collab-workspace-view--board .collab-board-code-resizer { display: none !important; }
-html .collab-workspace-card--glass-board.collab-workspace-view--code .collab-code-glass-layer {
-  padding: 0 !important; margin: 0 !important;
-}
-html .collab-workspace-card--glass-board.collab-workspace-view--code .collab-board-aux-popover { right: 12px; width: min(520px, calc(100% - 24px)); }
-html .collab-workspace-card--glass-board.collab-workspace-view--board .collab-top-pane-wrap {
-  width: 100% !important; inset: 0 !important; transform: none !important;
-}
+.collab-workspace-expand-inline { margin-left: auto; }
 
 @media (min-width: 768px) {
   /* Low laptop screens cannot fit the previous 300px editor + 220px console minimums. */
@@ -49,12 +17,12 @@ html .collab-workspace-card--glass-board.collab-workspace-view--board .collab-to
 }
 
 /* Keep the two panes beside each other on small laptops, instead of stacking
-   a fixed-height board above the editor. Each can be expanded with the view bar. */
+   a fixed-height board above the editor. */
 @media (min-width: 768px) and (max-width: 1099px) {
-  html .collab-workspace-card--glass-board.collab-workspace-view--together .collab-top-pane-wrap {
+  html .collab-workspace-card--glass-board .collab-top-pane-wrap {
     inset: 0 0 0 auto !important; width: var(--collab-board-pane-width) !important;
   }
-  html .collab-workspace-card--glass-board.collab-workspace-view--together .collab-code-glass-layer {
+  html .collab-workspace-card--glass-board .collab-code-glass-layer {
     padding: 0 var(--collab-board-pane-width) 0 0 !important; margin: 0 !important;
   }
 }
@@ -74,7 +42,5 @@ html .collab-workspace-card--glass-board.collab-workspace-view--board .collab-to
 }
 
 @media (max-width: 767px) {
-  .collab-workspace-viewbar { flex-wrap: wrap; }
-  .collab-workspace-viewbar button { padding-inline: 7px; font-size: 11px; }
-  .collab-workspace-card--glass-board.collab-workspace-view--board { min-height: 65dvh; }
+  .collab-workspace-expand-inline span { display: none; }
 }

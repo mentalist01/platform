@@ -2,7 +2,7 @@
 import { createPortal } from 'react-dom';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle,
-  X, ChevronRight, Folder, FolderPlus, Upload, Layers,
+  X, ChevronRight, Folder, FolderPlus, Upload,
   ArrowLeft, ArrowRight, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
@@ -3956,7 +3956,6 @@ const CollabSection = ({
   const [debugSourceSnapshot, setDebugSourceSnapshot] = useState('');
   const [editorFontSize, setEditorFontSize] = useState(COLLAB_EDITOR_FONT_SIZE_DEFAULT);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
-  const [workspaceView, setWorkspaceView] = useState('together');
   const [boardCodeSplitWidth, setBoardCodeSplitWidth] = useState(() => {
     if (typeof window === 'undefined') return COLLAB_BOARD_CODE_SPLIT_DEFAULT;
     const raw = window.localStorage.getItem(`collab-board-code-split-${userId || role || 'anon'}`);
@@ -4530,7 +4529,7 @@ const CollabSection = ({
     : (isDesktopCollabCompact
       ? 'collab-workspace-card p-1 md:p-1.5 flex min-h-0 flex-1 flex-col overflow-hidden'
       : 'collab-workspace-card p-4 md:p-6');
-  const collabCardClass = `${collabCardBaseClass}${useBoardGlassCodePanel ? ` collab-workspace-card--glass-board collab-workspace-view--${workspaceView}` : ''}`;
+  const collabCardClass = `${collabCardBaseClass}${useBoardGlassCodePanel ? ' collab-workspace-card--glass-board' : ''}`;
   const normalizedBoardCodeSplitWidth = normalizeCollabBoardCodeSplit(boardCodeSplitWidth);
   const collabCardStyle = useBoardGlassCodePanel
     ? {
@@ -9372,11 +9371,6 @@ const CollabSection = ({
     onCompare: setCompareSolutionId,
   });
   useEffect(() => {
-    // A presented comparison needs the code pane, including when the pupil
-    // was using the board. The editor stays mounted when changing layout.
-    if (compareSolutionId) setWorkspaceView('code');
-  }, [compareSolutionId]);
-  useEffect(() => {
     if (!collabDocumentReady || isSandbox) return;
     if (compareSolutionId && !codeSolutions.some((item) => item.id === compareSolutionId)) setCompareSolutionId(null);
     if (activeSolutionDeleted && !solutionActionsBusy && !localRunBusyRef.current) {
@@ -10859,28 +10853,6 @@ const CollabSection = ({
         </div>
       )}
 
-      {useBoardGlassCodePanel && (
-        <div className="collab-workspace-viewbar">
-          <div role="group" aria-label="Вид рабочей области" className="collab-workspace-views">
-            {[
-              ['together', 'Вместе', <Layers key="together" size={14} />],
-              ['code', 'Код', <Code2 key="code" size={14} />],
-              ['board', 'Доска', <Brush key="board" size={14} />],
-            ].map(([value, label, icon]) => (
-              <button key={value} type="button" aria-pressed={workspaceView === value}
-                onClick={() => setWorkspaceView(value)} title={value === 'together' ? 'Код и доска рядом' : `${label} на всю рабочую область`}>
-                {icon}{label}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="collab-workspace-expand" onClick={toggleCollabFullscreen}
-            aria-label={isCollabFullscreen ? 'Свернуть урок' : 'Развернуть урок'}
-            title={isCollabFullscreen ? 'Вернуться к навигации' : 'Убрать навигацию и развернуть урок на весь экран'}>
-            {isCollabFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
-            <span>{isCollabFullscreen ? 'Свернуть' : 'Развернуть урок'}</span>
-          </button>
-        </div>
-      )}
       <Card className={collabCardClass} style={collabCardStyle}>
         {SHOW_COLLAB_AUTOFORMAT && !isCollabFullscreen && !isDesktopCollabCompact && (
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-end">
@@ -11007,6 +10979,15 @@ const CollabSection = ({
               {!outputPanelOpen && (
                 <button type="button" onClick={() => setOutputPanelOpen(true)} className={`${collabIconButtonBase} collab-code-pill-button is-menu collab-output-toggle`} title="Открыть последний результат выбранного варианта" aria-label="Открыть вывод">
                   <ChevronRight size={15} /><span>Вывод</span>
+                </button>
+              )}
+              {!isSandbox && (
+                <button type="button" onClick={toggleCollabFullscreen}
+                  className={`${collabIconButtonBase} collab-code-pill-button is-menu collab-workspace-expand-inline`}
+                  title={isCollabFullscreen ? 'Вернуться к навигации' : 'Убрать навигацию и развернуть урок на весь экран'}
+                  aria-label={isCollabFullscreen ? 'Свернуть урок' : 'Развернуть урок'}>
+                  {isCollabFullscreen ? <Minimize2 size={15} /> : <Expand size={15} />}
+                  <span>{isCollabFullscreen ? 'Свернуть' : 'Развернуть'}</span>
                 </button>
               )}
             </>
