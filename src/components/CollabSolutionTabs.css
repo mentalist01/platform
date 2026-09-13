@@ -29,8 +29,12 @@
 .collab-solutions__all { position: relative; display: inline-flex; align-items: center; }
 .collab-solutions__all select { appearance: none; width: 78px; min-height: 28px; padding: 4px 21px 4px 8px; border: 1px solid var(--solution-border); border-radius: 7px; background: var(--solution-surface); color: var(--solution-text); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
 .collab-solutions__all svg { position: absolute; right: 7px; pointer-events: none; }
-.collab-solutions__tabs-row { flex: 1 1 auto; padding: 0; min-width: 0; }
-.collab-solutions__tabs { display: flex; gap: 5px; min-width: 0; padding: 1px 2px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--solution-border) transparent; }
+.collab-solutions__tabs-row { position: relative; flex: 1 1 auto; padding: 0; min-width: 0; overflow: hidden; }
+.collab-solutions__tabs {
+  display: flex; gap: 5px; min-width: 0; padding: 1px 2px; overflow-x: auto;
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.collab-solutions__tabs::-webkit-scrollbar { display: none; }
 .collab-solutions__tab,
 .collab-solutions__button,
 .collab-solutions__icon-button {
@@ -60,7 +64,10 @@
 .collab-solutions input:focus-visible,
 .collab-solutions select:focus-visible { outline: 2px solid var(--solution-accent); outline-offset: 2px; }
 .collab-solutions button:disabled { opacity: .4; cursor: default; }
-.collab-solutions__actions { display: flex; gap: 3px; flex: 0 0 auto; align-items: center; }
+.collab-solutions__actions {
+  display: flex; gap: 3px; flex: 0 0 auto; align-items: center;
+  padding-left: 8px; border-left: 1px solid var(--solution-border);
+}
 .collab-solutions__actions > .collab-solutions__button,
 .collab-solutions__more > .collab-solutions__button { min-height: 30px; padding-block: 5px; }
 .collab-solutions__more { position: relative; }
@@ -108,7 +115,9 @@
   .collab-solution-compare__names > div { padding: 8px; }
   .collab-solution-compare__names span { display: none; }
 }
-@container solutionbar (max-width: 500px) {
+/* On a split code/board view, keep the action cluster compact so the tabs
+   remain useful instead of collapsing to just two or three visible items. */
+@container solutionbar (max-width: 900px) {
   .collab-solutions__row { gap: 3px; }
   .collab-solutions__all select { width: 65px; }
   .collab-solutions__actions .collab-solutions__button { min-width: 30px; padding-inline: 6px; }
