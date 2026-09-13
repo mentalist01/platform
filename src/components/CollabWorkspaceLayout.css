@@ -35,8 +35,6 @@
   }
   html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-pill-button.is-run { min-width: 106px !important; }
   html .collab-workspace-card--glass-board .collab-code-toolbar-cluster { height: 34px; padding: 1px; border-radius: 8px; }
-  .collab-solutions__row { padding-top: 2px; }
-  .collab-solutions__tabs-row { padding-top: 0; padding-bottom: 3px; }
   .collab-solutions__tab { min-height: 28px; padding-block: 4px; }
   html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-editor-statusbar { min-height: 24px; height: 24px; flex-basis: 24px; }
 }

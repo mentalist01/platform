@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Check, ChevronDown, Columns2, Layers3, MoreHorizontal, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
+import { Check, ChevronDown, Columns2, MoreHorizontal, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
 import { DEFAULT_COLLAB_SOLUTION_ID } from '../utils/collabSolutions';
 import './CollabSolutionTabs.css';
 
@@ -145,7 +145,6 @@ export default function CollabSolutionTabs({
     <div className={`collab-solutions${dark ? ' collab-solutions--dark' : ''}`}>
       <div className="collab-solutions__row">
         <div className="collab-solutions__heading">
-          <span className="collab-solutions__title"><Layers3 size={14} aria-hidden="true" />Варианты кода</span>
           {(solutions.length > 4 || tabsOverflow) && (
             <div className="collab-solutions__all">
               <select
@@ -160,6 +159,41 @@ export default function CollabSolutionTabs({
               <ChevronDown size={12} aria-hidden="true" />
             </div>
           )}
+        </div>
+        <div className="collab-solutions__tabs-row">
+          <div className="collab-solutions__tabs" role="tablist" aria-label="Варианты кода" ref={tabsRef}>
+            {solutions.map((solution, index) => {
+              const selected = solution.id === activeId;
+              const viewers = peers.filter((peer) => peer.solutionId === solution.id);
+              const viewerNames = viewers.map((peer) => peer.name || 'Участник').join(', ');
+              return (
+                <button
+                  key={solution.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  tabIndex={selected ? 0 : -1}
+                  className={`collab-solutions__tab${selected ? ' is-active' : ''}`}
+                  disabled={disabled}
+                  onClick={() => selectSolution(solution.id)}
+                  onKeyDown={(event) => moveTabFocus(event, index)}
+                  title={viewerNames ? `${solution.name} · Смотрят: ${viewerNames}` : solution.name}
+                >
+                  <span className="collab-solutions__name">{solution.name}</span>
+                  {viewers.length > 0 && (
+                    <span className="collab-solutions__peers" aria-label={`Смотрят: ${viewerNames}`}>
+                      {viewers.slice(0, 2).map((peer) => (
+                        <span className="collab-solutions__peer" key={peer.id} aria-hidden="true">
+                          {(peer.name || 'У')[0].toLocaleUpperCase('ru')}
+                        </span>
+                      ))}
+                      {viewers.length > 2 && <span className="collab-solutions__peer-more" aria-hidden="true">+{viewers.length - 2}</span>}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
         <div className="collab-solutions__actions">
           {!readOnly && (
@@ -189,6 +223,7 @@ export default function CollabSolutionTabs({
               } else setChoosingComparison(true);
             }}
             disabled={disabled || otherSolutions.length === 0}
+            aria-label="Сравнить варианты кода"
             aria-expanded={comparing || choosingComparison}
             title={otherSolutions.length ? 'Сравнить код двух вариантов' : 'Создайте ещё один вариант для сравнения'}
           >
@@ -203,6 +238,7 @@ export default function CollabSolutionTabs({
                 className={`collab-solutions__button${actionsOpen ? ' is-active' : ''}`}
                 onClick={() => { cancelForm(); setActionsOpen((open) => !open); }}
                 disabled={!canEdit || !activeSolution || saving}
+                aria-label="Действия с выбранным вариантом"
                 aria-controls={actionsOpen ? actionsId : undefined}
                 aria-expanded={actionsOpen}
                 title={`Действия с вариантом «${activeSolution?.name || ''}»`}
@@ -225,42 +261,6 @@ export default function CollabSolutionTabs({
               )}
             </div>
           )}
-        </div>
-      </div>
-
-      <div className="collab-solutions__tabs-row">
-        <div className="collab-solutions__tabs" role="tablist" aria-label="Варианты кода" ref={tabsRef}>
-          {solutions.map((solution, index) => {
-            const selected = solution.id === activeId;
-            const viewers = peers.filter((peer) => peer.solutionId === solution.id);
-            const viewerNames = viewers.map((peer) => peer.name || 'Участник').join(', ');
-            return (
-              <button
-                key={solution.id}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                tabIndex={selected ? 0 : -1}
-                className={`collab-solutions__tab${selected ? ' is-active' : ''}`}
-                disabled={disabled}
-                onClick={() => selectSolution(solution.id)}
-                onKeyDown={(event) => moveTabFocus(event, index)}
-                title={viewerNames ? `${solution.name} · Смотрят: ${viewerNames}` : solution.name}
-              >
-                <span className="collab-solutions__name">{solution.name}</span>
-                {viewers.length > 0 && (
-                  <span className="collab-solutions__peers" aria-label={`Смотрят: ${viewerNames}`}>
-                    {viewers.slice(0, 2).map((peer) => (
-                      <span className="collab-solutions__peer" key={peer.id} aria-hidden="true">
-                        {(peer.name || 'У')[0].toLocaleUpperCase('ru')}
-                      </span>
-                    ))}
-                    {viewers.length > 2 && <span className="collab-solutions__peer-more" aria-hidden="true">+{viewers.length - 2}</span>}
-                  </span>
-                )}
-              </button>
-            );
-          })}
         </div>
       </div>
 

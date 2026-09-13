@@ -24,15 +24,13 @@
   color-scheme: dark;
 }
 
-.collab-solutions__row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 5px 12px 0; min-width: 0; }
-.collab-solutions__heading { display: flex; align-items: center; gap: 10px; min-height: 30px; }
-.collab-solutions__title { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-.collab-solutions__title svg { color: var(--solution-accent); }
+.collab-solutions__row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; min-width: 0; }
+.collab-solutions__heading { display: flex; flex: 0 0 auto; align-items: center; }
 .collab-solutions__all { position: relative; display: inline-flex; align-items: center; }
 .collab-solutions__all select { appearance: none; width: 78px; min-height: 28px; padding: 4px 21px 4px 8px; border: 1px solid var(--solution-border); border-radius: 7px; background: var(--solution-surface); color: var(--solution-text); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
 .collab-solutions__all svg { position: absolute; right: 7px; pointer-events: none; }
-.collab-solutions__tabs-row { padding: 4px 12px 7px; min-width: 0; }
-.collab-solutions__tabs { display: flex; gap: 5px; min-width: 0; padding: 2px 2px 3px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--solution-border) transparent; }
+.collab-solutions__tabs-row { flex: 1 1 auto; padding: 0; min-width: 0; }
+.collab-solutions__tabs { display: flex; gap: 5px; min-width: 0; padding: 1px 2px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--solution-border) transparent; }
 .collab-solutions__tab,
 .collab-solutions__button,
 .collab-solutions__icon-button {
@@ -40,8 +38,8 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 32px;
-  padding: 6px 10px;
+  min-height: 30px;
+  padding: 5px 9px;
   border: 1px solid transparent;
   border-radius: 9px;
   color: var(--solution-text);
@@ -103,8 +101,7 @@
 .collab-solution-compare--dark .collab-solution-compare__names > div + div { border-color: #2b3750; }
 
 @media (max-width: 640px) {
-  .collab-solutions__row { gap: 4px; padding: 5px 7px 0; }
-  .collab-solutions__tabs-row { padding: 3px 7px 6px; }
+  .collab-solutions__row { gap: 3px; padding: 3px 5px; }
   .collab-solutions__actions { gap: 0; }
   .collab-solutions__tab { max-width: 165px; padding-inline: 8px; }
   .collab-solutions__button { padding-inline: 7px; }
@@ -112,11 +109,10 @@
   .collab-solution-compare__names span { display: none; }
 }
 @container solutionbar (max-width: 500px) {
-  .collab-solutions__row { gap: 0; }
-  .collab-solutions__heading { flex: 1 0 100%; justify-content: space-between; }
-  .collab-solutions__actions { flex: 1 1 auto; justify-content: flex-end; }
-  .collab-solutions__actions > .collab-solutions__create { margin-right: auto; }
-  .collab-solutions__button { padding-inline: 7px; }
+  .collab-solutions__row { gap: 3px; }
+  .collab-solutions__all select { width: 65px; }
+  .collab-solutions__actions .collab-solutions__button { min-width: 30px; padding-inline: 6px; }
+  .collab-solutions__actions .collab-solutions__button > span { display: none; }
   .collab-solutions__tab { max-width: 185px; }
 }
 .collab-solutions-comparison-overlay {
