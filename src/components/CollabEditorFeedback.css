@@ -31,14 +31,6 @@ html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .col
 .collab-output-clear-button:disabled { opacity: .4; cursor: default; }
 .collab-output-actions-reference { flex-shrink: 0; }
 .collab-code-toolbar .collab-output-toggle { margin-left: auto; }
-/* Keep the command bar on one line. Its parent already provides a hidden
-   horizontal scroller for narrow code panes, matching the original layout. */
-html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style {
-  flex-wrap: nowrap !important;
-  height: 36px !important;
-  min-height: 36px !important;
-  overflow: visible !important;
-}
 html[data-theme='dark'] .collab-run-error { background: #2e1e2c; border-color: #713044; color: #fecdd3; }
 html[data-theme='dark'] .collab-run-error__heading button,
 html[data-theme='dark'] .collab-run-error__details pre { background: #191b2a; border-color: #713044; color: #fecdd3; }

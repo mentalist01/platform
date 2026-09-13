@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Check, ChevronDown, Columns2, MoreHorizontal, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
+import { Check, Columns2, MoreHorizontal, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
 import { DEFAULT_COLLAB_SOLUTION_ID } from '../utils/collabSolutions';
 import './CollabSolutionTabs.css';
 
@@ -43,7 +43,6 @@ export default function CollabSolutionTabs({
   const [error, setError] = useState('');
   const [choosingComparison, setChoosingComparison] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [tabsOverflow, setTabsOverflow] = useState(false);
   const activeSolution = solutions.find((solution) => solution.id === activeId);
   const comparisonSolution = solutions.find((solution) => solution.id === compareId);
   const otherSolutions = solutions.filter((solution) => solution.id !== activeId);
@@ -54,7 +53,6 @@ export default function CollabSolutionTabs({
     const tabs = tabsRef.current;
     if (!tabs) return undefined;
     const updateTabs = () => {
-      setTabsOverflow(tabs.scrollWidth > tabs.clientWidth + 2);
       const selected = tabs.querySelector('[aria-selected="true"]');
       if (!selected) return;
       const viewport = tabs.getBoundingClientRect();
@@ -144,22 +142,6 @@ export default function CollabSolutionTabs({
   return (
     <div className={`collab-solutions${dark ? ' collab-solutions--dark' : ''}`}>
       <div className="collab-solutions__row">
-        <div className="collab-solutions__heading">
-          {(solutions.length > 4 || tabsOverflow) && (
-            <div className="collab-solutions__all">
-              <select
-                aria-label={`Все варианты кода (${solutions.length})`}
-                value=""
-                disabled={disabled}
-                onChange={(event) => selectSolution(event.target.value)}
-              >
-                <option value="" disabled>Все · {solutions.length}</option>
-                {solutions.map((solution) => <option key={solution.id} value={solution.id}>{solution.name}{solution.id === activeId ? ' (открыт)' : ''}</option>)}
-              </select>
-              <ChevronDown size={12} aria-hidden="true" />
-            </div>
-          )}
-        </div>
         <div className="collab-solutions__tabs-row">
           <div className="collab-solutions__tabs" role="tablist" aria-label="Варианты кода" ref={tabsRef}>
             {solutions.map((solution, index) => {
