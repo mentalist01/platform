@@ -1,5 +1,5 @@
-import { useId, useRef, useState } from 'react';
-import { Check, Columns2, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Check, ChevronDown, Columns2, Layers3, MoreHorizontal, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
 import { DEFAULT_COLLAB_SOLUTION_ID } from '../utils/collabSolutions';
 import './CollabSolutionTabs.css';
 
@@ -33,17 +33,61 @@ export default function CollabSolutionTabs({
 }) {
   const inputId = useId();
   const formId = useId();
+  const actionsId = useId();
   const tabsRef = useRef(null);
+  const actionsRef = useRef(null);
+  const actionsButtonRef = useRef(null);
   const [form, setForm] = useState(null);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [choosingComparison, setChoosingComparison] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [tabsOverflow, setTabsOverflow] = useState(false);
   const activeSolution = solutions.find((solution) => solution.id === activeId);
   const comparisonSolution = solutions.find((solution) => solution.id === compareId);
   const otherSolutions = solutions.filter((solution) => solution.id !== activeId);
   const canEdit = !disabled && !readOnly;
   const comparing = Boolean(compareId && comparisonSolution && compareId !== activeId);
+
+  useEffect(() => {
+    const tabs = tabsRef.current;
+    if (!tabs) return undefined;
+    const updateTabs = () => {
+      setTabsOverflow(tabs.scrollWidth > tabs.clientWidth + 2);
+      const selected = tabs.querySelector('[aria-selected="true"]');
+      if (!selected) return;
+      const viewport = tabs.getBoundingClientRect();
+      const selectedRect = selected.getBoundingClientRect();
+      if (selectedRect.left < viewport.left) {
+        tabs.scrollLeft += selectedRect.left - viewport.left - 4;
+      } else if (selectedRect.right > viewport.right) {
+        tabs.scrollLeft += selectedRect.right - viewport.right + 4;
+      }
+    };
+    updateTabs();
+    const observer = new ResizeObserver(updateTabs);
+    observer.observe(tabs);
+    return () => observer.disconnect();
+  }, [activeId, solutions]);
+
+  useEffect(() => {
+    if (!actionsOpen) return undefined;
+    const closeOutside = (event) => {
+      if (!actionsRef.current?.contains(event.target)) setActionsOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      setActionsOpen(false);
+      actionsButtonRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [actionsOpen]);
 
   const cancelForm = () => {
     setForm(null);
@@ -51,9 +95,18 @@ export default function CollabSolutionTabs({
   };
 
   const openForm = (kind) => {
+    setActionsOpen(false);
+    setChoosingComparison(false);
     setName(kind === 'rename' ? activeSolution?.name || '' : nextSolutionName(solutions));
     setForm({ kind, id: activeId });
     setError('');
+  };
+
+  const selectSolution = (id) => {
+    cancelForm();
+    setActionsOpen(false);
+    setChoosingComparison(false);
+    onSelect?.(id);
   };
 
   const saveName = async (event) => {
@@ -84,16 +137,99 @@ export default function CollabSolutionTabs({
     event.preventDefault();
     const next = solutions[nextIndex];
     if (!next || disabled) return;
-    cancelForm();
-    setChoosingComparison(false);
-    onSelect?.(next.id);
+    selectSolution(next.id);
     tabsRef.current?.querySelectorAll('[role="tab"]')[nextIndex]?.focus();
   };
 
   return (
     <div className={`collab-solutions${dark ? ' collab-solutions--dark' : ''}`}>
       <div className="collab-solutions__row">
-        <div className="collab-solutions__tabs" role="tablist" aria-label="Варианты решения" ref={tabsRef}>
+        <div className="collab-solutions__heading">
+          <span className="collab-solutions__title"><Layers3 size={14} aria-hidden="true" />Варианты кода</span>
+          {(solutions.length > 4 || tabsOverflow) && (
+            <div className="collab-solutions__all">
+              <select
+                aria-label={`Все варианты кода (${solutions.length})`}
+                value=""
+                disabled={disabled}
+                onChange={(event) => selectSolution(event.target.value)}
+              >
+                <option value="" disabled>Все · {solutions.length}</option>
+                {solutions.map((solution) => <option key={solution.id} value={solution.id}>{solution.name}{solution.id === activeId ? ' (открыт)' : ''}</option>)}
+              </select>
+              <ChevronDown size={12} aria-hidden="true" />
+            </div>
+          )}
+        </div>
+        <div className="collab-solutions__actions">
+          {!readOnly && (
+              <button
+                type="button"
+                className="collab-solutions__button collab-solutions__create"
+                onClick={() => openForm('create')}
+                disabled={!canEdit || !activeSolution || saving}
+                title="Создать копию текущего решения, ввода и результата"
+                aria-label="Создать копию текущего решения"
+                aria-controls={form?.kind === 'create' ? formId : undefined}
+                aria-expanded={form?.kind === 'create'}
+              >
+                <Plus size={16} />
+                <span>Создать копию</span>
+              </button>
+          )}
+          <button
+            type="button"
+            className={`collab-solutions__button${comparing || choosingComparison ? ' is-active' : ''}`}
+            onClick={() => {
+              cancelForm();
+              setActionsOpen(false);
+              if (comparing || choosingComparison) {
+                onCompare?.(null);
+                setChoosingComparison(false);
+              } else setChoosingComparison(true);
+            }}
+            disabled={disabled || otherSolutions.length === 0}
+            aria-expanded={comparing || choosingComparison}
+            title={otherSolutions.length ? 'Сравнить код двух вариантов' : 'Создайте ещё один вариант для сравнения'}
+          >
+            <Columns2 size={15} />
+            <span>Сравнить</span>
+          </button>
+          {!readOnly && (
+            <div className="collab-solutions__more" ref={actionsRef}>
+              <button
+                ref={actionsButtonRef}
+                type="button"
+                className={`collab-solutions__button${actionsOpen ? ' is-active' : ''}`}
+                onClick={() => { cancelForm(); setActionsOpen((open) => !open); }}
+                disabled={!canEdit || !activeSolution || saving}
+                aria-controls={actionsOpen ? actionsId : undefined}
+                aria-expanded={actionsOpen}
+                title={`Действия с вариантом «${activeSolution?.name || ''}»`}
+              >
+                <MoreHorizontal size={16} aria-hidden="true" />
+                <span>Ещё</span>
+              </button>
+              {actionsOpen && canEdit && activeSolution && (
+                <div id={actionsId} className="collab-solutions__menu">
+                  <span className="collab-solutions__menu-label" title={activeSolution.name}>{activeSolution.name}</span>
+                  <button type="button" className="collab-solutions__button" onClick={() => openForm('rename')}>
+                    <Pencil size={14} aria-hidden="true" />Переименовать
+                  </button>
+                  {activeSolution.id !== DEFAULT_COLLAB_SOLUTION_ID && (
+                    <button type="button" className="collab-solutions__button collab-solutions__delete" onClick={() => openForm('delete')}>
+                      <Trash2 size={14} aria-hidden="true" />Удалить копию
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="collab-solutions__tabs-row">
+        <div className="collab-solutions__tabs" role="tablist" aria-label="Варианты кода" ref={tabsRef}>
           {solutions.map((solution, index) => {
             const selected = solution.id === activeId;
             const viewers = peers.filter((peer) => peer.solutionId === solution.id);
@@ -107,7 +243,7 @@ export default function CollabSolutionTabs({
                 tabIndex={selected ? 0 : -1}
                 className={`collab-solutions__tab${selected ? ' is-active' : ''}`}
                 disabled={disabled}
-                onClick={() => { cancelForm(); setChoosingComparison(false); onSelect?.(solution.id); }}
+                onClick={() => selectSolution(solution.id)}
                 onKeyDown={(event) => moveTabFocus(event, index)}
                 title={viewerNames ? `${solution.name} · Смотрят: ${viewerNames}` : solution.name}
               >
@@ -125,66 +261,6 @@ export default function CollabSolutionTabs({
               </button>
             );
           })}
-        </div>
-        <div className="collab-solutions__actions">
-          {!readOnly && (
-            <>
-              <button
-                type="button"
-                className="collab-solutions__icon-button"
-                onClick={() => openForm('rename')}
-                disabled={!canEdit || !activeSolution || saving}
-                title="Переименовать текущий вариант"
-                aria-label="Переименовать текущий вариант"
-                aria-controls={form?.kind === 'rename' ? formId : undefined}
-                aria-expanded={form?.kind === 'rename'}
-              >
-                <Pencil size={14} />
-              </button>
-              {activeSolution?.id !== DEFAULT_COLLAB_SOLUTION_ID && (
-                <button
-                  type="button"
-                  className="collab-solutions__icon-button collab-solutions__delete"
-                  onClick={() => openForm('delete')}
-                  disabled={!canEdit || !activeSolution || saving}
-                  title="Удалить текущую копию"
-                  aria-label="Удалить текущую копию"
-                  aria-expanded={form?.kind === 'delete'}
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-              <button
-                type="button"
-                className="collab-solutions__button collab-solutions__create"
-                onClick={() => openForm('create')}
-                disabled={!canEdit || !activeSolution || saving}
-                title="Создать копию текущего решения, ввода и результата"
-                aria-label="Создать копию текущего решения"
-                aria-controls={form?.kind === 'create' ? formId : undefined}
-                aria-expanded={form?.kind === 'create'}
-              >
-                <Plus size={16} />
-                <span>Копия</span>
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            className={`collab-solutions__button${comparing || choosingComparison ? ' is-active' : ''}`}
-            onClick={() => {
-              if (comparing || choosingComparison) {
-                onCompare?.(null);
-                setChoosingComparison(false);
-              } else setChoosingComparison(true);
-            }}
-            disabled={disabled || otherSolutions.length === 0}
-            aria-expanded={comparing || choosingComparison}
-            title={otherSolutions.length ? 'Сравнить код двух вариантов' : 'Создайте ещё один вариант для сравнения'}
-          >
-            <Columns2 size={15} />
-            <span>Сравнить</span>
-          </button>
         </div>
       </div>
 

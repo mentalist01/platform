@@ -1,0 +1,49 @@
+.collab-run-error {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid #fecdd3;
+  border-radius: 11px;
+  background: #fff5f5;
+  color: #9f1239;
+  font: 12px/1.5 Inter, Manrope, system-ui, sans-serif;
+}
+.collab-run-error__heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.collab-run-error__heading > svg { flex-shrink: 0; }
+.collab-run-error__heading strong { font-size: 13px; font-weight: 700; }
+.collab-run-error__heading button { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; margin-left: auto; border: 1px solid #fecdd3; border-radius: 6px; background: #fff; color: #9f1239; font: inherit; cursor: pointer; }
+.collab-run-error__message { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.collab-run-error__details { margin-top: 8px; }
+.collab-run-error__details summary { cursor: pointer; font-size: 11px; width: fit-content; font-weight: 600; }
+.collab-run-error__details pre { margin: 8px 0 0; padding: 10px; max-height: 220px; overflow: auto; border-radius: 7px; background: #fff; color: #881337; font: 11px/1.55 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.collab-run-error button:focus-visible, .collab-run-error summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.collab-run-context { margin: 0 0 10px; font: 11px/1.45 Inter, Manrope, system-ui, sans-serif; color: var(--collab-code-muted, #94a3b8); }
+.collab-workspace-card--glass-board .collab-run-input > div { color: var(--collab-code-muted, #64748b); }
+.collab-workspace-card--glass-board .collab-run-input > pre { color: var(--collab-code-text, #334155); }
+.collab-output-identity { display: flex; align-items: center; gap: 8px; overflow: hidden; min-width: 0; }
+.collab-output-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 500; color: var(--collab-code-muted, #64748b); }
+.collab-output-run-state { font-size: 10px; font-weight: 600; white-space: nowrap; color: var(--collab-code-muted, #64748b); }
+.collab-output-run-state.is-success { color: #047857; }
+.collab-output-run-state.is-error { color: #be123c; }
+.collab-output-run-state.is-running { color: #a16207; }
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-output-actions-reference > .collab-output-clear-button {
+  width: auto; gap: 5px; padding: 3px 7px; white-space: nowrap; font-size: 11px; font-weight: 600;
+}
+.collab-output-clear-button:disabled { opacity: .4; cursor: default; }
+.collab-output-actions-reference { flex-shrink: 0; }
+.collab-code-toolbar .collab-output-toggle { margin-left: auto; }
+/* Keep every command reachable when the board leaves a narrow code pane. */
+html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style {
+  flex-wrap: wrap !important;
+  height: auto !important;
+  min-height: 50px !important;
+  overflow: visible !important;
+}
+html[data-theme='dark'] .collab-run-error { background: #2e1e2c; border-color: #713044; color: #fecdd3; }
+html[data-theme='dark'] .collab-run-error__heading button,
+html[data-theme='dark'] .collab-run-error__details pre { background: #191b2a; border-color: #713044; color: #fecdd3; }
+html[data-theme='dark'] .collab-output-run-state.is-success { color: #6ee7b7; }
+html[data-theme='dark'] .collab-output-run-state.is-error { color: #fda4af; }
+html[data-theme='dark'] .collab-output-run-state.is-running { color: #fcd34d; }
+@media (max-width: 640px) {
+  .collab-output-identity small, .collab-output-run-state { display: none; }
+}

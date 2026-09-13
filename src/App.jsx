@@ -2,7 +2,7 @@
 import { createPortal } from 'react-dom';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle,
-  X, ChevronRight, Folder, FolderPlus, Upload, 
+  X, ChevronRight, Folder, FolderPlus, Upload, Layers,
   ArrowLeft, ArrowRight, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
@@ -156,6 +156,8 @@ import {
   getCollabSolutionSnapshot,
 } from './utils/collabSolutions';
 import CollabSolutionTabs from './components/CollabSolutionTabs';
+import CollabRunError from './components/CollabRunError';
+import './components/CollabWorkspaceLayout.css';
 import useCollabSolutionPresentation from './components/useCollabSolutionPresentation';
 const CollabSolutionCompare = React.lazy(() => import('./components/CollabSolutionCompare'));
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
@@ -3954,6 +3956,7 @@ const CollabSection = ({
   const [debugSourceSnapshot, setDebugSourceSnapshot] = useState('');
   const [editorFontSize, setEditorFontSize] = useState(COLLAB_EDITOR_FONT_SIZE_DEFAULT);
   const [isCollabFullscreen, setIsCollabFullscreen] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState('together');
   const [boardCodeSplitWidth, setBoardCodeSplitWidth] = useState(() => {
     if (typeof window === 'undefined') return COLLAB_BOARD_CODE_SPLIT_DEFAULT;
     const raw = window.localStorage.getItem(`collab-board-code-split-${userId || role || 'anon'}`);
@@ -4527,7 +4530,7 @@ const CollabSection = ({
     : (isDesktopCollabCompact
       ? 'collab-workspace-card p-1 md:p-1.5 flex min-h-0 flex-1 flex-col overflow-hidden'
       : 'collab-workspace-card p-4 md:p-6');
-  const collabCardClass = `${collabCardBaseClass}${useBoardGlassCodePanel ? ' collab-workspace-card--glass-board' : ''}`;
+  const collabCardClass = `${collabCardBaseClass}${useBoardGlassCodePanel ? ` collab-workspace-card--glass-board collab-workspace-view--${workspaceView}` : ''}`;
   const normalizedBoardCodeSplitWidth = normalizeCollabBoardCodeSplit(boardCodeSplitWidth);
   const collabCardStyle = useBoardGlassCodePanel
     ? {
@@ -7729,7 +7732,7 @@ const CollabSection = ({
 
   const handleClearRun = () => {
     if (collabReadOnly) return;
-    setOutputPanelOpen(false);
+    setOutputPanelOpen(true);
     outputPanelDismissedRunTokenRef.current = null;
     clearDebugSession(false);
     publishRunState({
@@ -8594,6 +8597,7 @@ const CollabSection = ({
     && roomId
     && collabDocumentReady
     && !String(editorModelValue).trim()
+    && !compareSolutionId
   );
   const remoteEditorCursorMarkers = useMemo(() => {
     if (!COLLAB_EDITOR_CURSOR_ENABLED) return [];
@@ -9368,6 +9372,11 @@ const CollabSection = ({
     onCompare: setCompareSolutionId,
   });
   useEffect(() => {
+    // A presented comparison needs the code pane, including when the pupil
+    // was using the board. The editor stays mounted when changing layout.
+    if (compareSolutionId) setWorkspaceView('code');
+  }, [compareSolutionId]);
+  useEffect(() => {
     if (!collabDocumentReady || isSandbox) return;
     if (compareSolutionId && !codeSolutions.some((item) => item.id === compareSolutionId)) setCompareSolutionId(null);
     if (activeSolutionDeleted && !solutionActionsBusy && !localRunBusyRef.current) {
@@ -9485,9 +9494,9 @@ const CollabSection = ({
             <span className="collab-editor-empty-state__icon">
               <Code2 size={21} />
             </span>
-            <strong>Начните с первой строки</strong>
-            <span>{isSandbox ? 'Изменения остаются только в этой копии' : 'Код синхронизируется со всеми участниками урока'}</span>
-            <kbd>F5&nbsp;&nbsp;Запустить</kbd>
+            <strong>Здесь можно написать или вставить код</strong>
+            <span>{isSandbox ? 'Изменения остаются только в этой копии' : 'Учитель и ученик видят правки в этом варианте'}</span>
+            <kbd>Ctrl+V вставить · F5 запустить</kbd>
           </div>
         )}
         {showEditorConnectionLoading && (
@@ -10134,7 +10143,7 @@ const CollabSection = ({
       </div>
     </div>
   );
-  const collabBoardFullscreenButton = !isSandbox ? (
+  const collabBoardFullscreenButton = !isSandbox && !useBoardGlassCodePanel ? (
     <button
       type="button"
       onClick={toggleCollabFullscreen}
@@ -10426,9 +10435,21 @@ const CollabSection = ({
       : (isFullscreenDark ? 'border-slate-700/90' : 'border-gray-900')
   }`;
   const collabTurtleDisplayAuthor = collabTurtleAuthor || runAuthor;
+  const currentSolutionName = codeSolutions.find((item) => item.id === activeSolutionId)?.name || DEFAULT_SOLUTION_NAME;
+  const revealErrorLine = (lineNumber) => {
+    const editor = editorRef.current;
+    const line = Math.min(lineNumber, editor?.getModel?.()?.getLineCount?.() || 1);
+    editor?.setPosition?.({ lineNumber: line, column: 1 });
+    editor?.revealLineInCenter?.(line);
+    editor?.focus?.();
+  };
 
   const resultConsole = (
     <div className={resultConsoleClass}>
+      {!String(editorModelValue).trim() && (runOutput || runError) && runStatus !== 'running' && (
+        <p className="collab-run-context">Код в этой вкладке пуст. Ниже — сохранённый результат прошлого запуска.</p>
+      )}
+      {runError && <CollabRunError key={`${activeSolutionId}:${runTimestampRef.current}`} error={runError} onRevealLine={!compareSolutionId && String(editorModelValue).trim() ? revealErrorLine : undefined} />}
       {collabTurtleScene?.used && (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-2 text-[11px] text-emerald-100">
           <span>
@@ -10453,7 +10474,7 @@ const CollabSection = ({
         <div className="mb-2 text-[11px] text-rose-300">Остановлено пользователем</div>
       )}
       {lastRunInput && (
-        <div className="mb-3">
+        <div className="collab-run-input mb-3">
           <div className="text-[10px] uppercase tracking-widest text-slate-400">Ввод</div>
           <pre className="mt-1 whitespace-pre-wrap break-words text-slate-200">{lastRunInput}</pre>
         </div>
@@ -10500,9 +10521,6 @@ const CollabSection = ({
                 />
               </div>
             </div>
-          )}
-          {runError && (
-            <pre className="mt-2 whitespace-pre-wrap break-words text-rose-300">{runError}</pre>
           )}
         </>
       ) : (
@@ -10621,14 +10639,19 @@ const CollabSection = ({
           }`}>
             {useBoardGlassCodePanel && (
               <div className="collab-output-header-reference">
-                <div className="collab-output-title-reference">
-                  <ChevronRight size={15} />
-                  <span>Вывод</span>
+                <div className="collab-output-identity">
+                  <div className="collab-output-title-reference"><ChevronRight size={15} /><span>Вывод</span></div>
+                  <small title={currentSolutionName}>{currentSolutionName}</small>
+                  <span className={`collab-output-run-state ${runStatus === 'running' ? 'is-running' : runError ? 'is-error' : runStatus === 'done' ? 'is-success' : ''}`}>
+                    {runStatus === 'running' ? 'Выполняется' : runStatus === 'stopped' ? 'Остановлен' : runError ? 'Ошибка' : runStatus === 'done' ? 'Готово' : ''}
+                  </span>
                 </div>
                 <div className="collab-output-actions-reference">
-                  <span aria-hidden="true"><Expand size={14} /></span>
-                  <span aria-hidden="true"><Settings size={14} /></span>
-                  <span aria-hidden="true"><Lock size={14} /></span>
+                  <button type="button" className="collab-output-clear-button" onClick={handleClearRun}
+                    disabled={collabReadOnly || !collabDocumentReady || !canClearRunState || runLoading || runStatus === 'running' || activeSolutionDeleted}
+                    title="Очистить вывод и результат запуска текущего варианта" aria-label="Очистить вывод">
+                    <Eraser size={14} /><span>Очистить</span>
+                  </button>
                   <button
                     type="button"
                     className="collab-output-action-button collab-output-close-button"
@@ -10836,6 +10859,28 @@ const CollabSection = ({
         </div>
       )}
 
+      {useBoardGlassCodePanel && (
+        <div className="collab-workspace-viewbar">
+          <div role="group" aria-label="Вид рабочей области" className="collab-workspace-views">
+            {[
+              ['together', 'Вместе', <Layers key="together" size={14} />],
+              ['code', 'Код', <Code2 key="code" size={14} />],
+              ['board', 'Доска', <Brush key="board" size={14} />],
+            ].map(([value, label, icon]) => (
+              <button key={value} type="button" aria-pressed={workspaceView === value}
+                onClick={() => setWorkspaceView(value)} title={value === 'together' ? 'Код и доска рядом' : `${label} на всю рабочую область`}>
+                {icon}{label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="collab-workspace-expand" onClick={toggleCollabFullscreen}
+            aria-label={isCollabFullscreen ? 'Свернуть урок' : 'Развернуть урок'}
+            title={isCollabFullscreen ? 'Вернуться к навигации' : 'Убрать навигацию и развернуть урок на весь экран'}>
+            {isCollabFullscreen ? <Minimize2 size={14} /> : <Expand size={14} />}
+            <span>{isCollabFullscreen ? 'Свернуть' : 'Развернуть урок'}</span>
+          </button>
+        </div>
+      )}
       <Card className={collabCardClass} style={collabCardStyle}>
         {SHOW_COLLAB_AUTOFORMAT && !isCollabFullscreen && !isDesktopCollabCompact && (
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-end">
@@ -10871,11 +10916,6 @@ const CollabSection = ({
             tabIndex={0}
             title="Тяните влево или вправо, чтобы изменить ширину доски. Двойной клик - код слева / доска справа."
           >
-            <div className="collab-board-code-resizer__label" aria-hidden="true">
-              <span><Code2 size={11} />Код</span>
-              <i />
-              <span>Доска<Brush size={11} /></span>
-            </div>
             <div className="collab-board-code-resizer__track" />
             <div className="collab-board-code-resizer__thumb">
               <ChevronsLeft size={11} aria-hidden="true" />
@@ -10918,11 +10958,11 @@ const CollabSection = ({
                       ? collabIconButtonDisabled
                       : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
                   }`}
-                  title="Дебаг по точкам остановки"
+                  title="Пошаговое выполнение по точкам остановки"
                   aria-label="Дебаг"
                 >
                   <Bug size={15} />
-                  <span className="collab-code-pill-label">Дебаг</span>
+                  <span className="collab-code-pill-label">По шагам</span>
                 </button>
                 <button
                   type="button"
@@ -10938,25 +10978,13 @@ const CollabSection = ({
                 >
                   <Square size={13} fill="currentColor" />
                 </button>
-                <button
-                  type="button"
-                  onClick={handleClearRun}
-                  disabled={collabReadOnly || !canClearRunState}
-                  className={`${collabIconButtonBase} collab-code-pill-button is-restart is-icon-only ${
-                    !collabReadOnly && canClearRunState ? collabIconButtonNeutral : collabIconButtonDisabled
-                  }`}
-                  title="Очистить вывод и состояние запуска"
-                  aria-label="Очистить вывод и состояние запуска"
-                >
-                  <Trash2 size={15} />
-                </button>
               </div>
               <button
                 type="button"
                 onClick={handleToggleBoardAuxPopover}
                 className={`${collabIconButtonBase} collab-code-pill-button is-menu is-files ${isBoardCodeAuxOpen ? 'is-open' : ''}`}
-                title="Файлы задания и stdin"
-                aria-label="Файлы задания и stdin"
+                title="Данные для input() и файлы задания"
+                aria-label="Ввод и файлы"
                 aria-expanded={isBoardCodeAuxOpen}
               >
                 <FileText size={15} />
@@ -10974,6 +11002,11 @@ const CollabSection = ({
                 >
                   <Save size={15} />
                   <span>В конспекты</span>
+                </button>
+              )}
+              {!outputPanelOpen && (
+                <button type="button" onClick={() => setOutputPanelOpen(true)} className={`${collabIconButtonBase} collab-code-pill-button is-menu collab-output-toggle`} title="Открыть последний результат выбранного варианта" aria-label="Открыть вывод">
+                  <ChevronRight size={15} /><span>Вывод</span>
                 </button>
               )}
             </>
