@@ -10137,7 +10137,7 @@ const CollabSection = ({
       </div>
     </div>
   );
-  const collabBoardFullscreenButton = !isSandbox && !useBoardGlassCodePanel ? (
+  const collabBoardFullscreenButton = !isSandbox ? (
     <button
       type="button"
       onClick={toggleCollabFullscreen}
@@ -10979,15 +10979,6 @@ const CollabSection = ({
               {!outputPanelOpen && (
                 <button type="button" onClick={() => setOutputPanelOpen(true)} className={`${collabIconButtonBase} collab-code-pill-button is-menu collab-output-toggle`} title="Открыть последний результат выбранного варианта" aria-label="Открыть вывод">
                   <ChevronRight size={15} /><span>Вывод</span>
-                </button>
-              )}
-              {!isSandbox && (
-                <button type="button" onClick={toggleCollabFullscreen}
-                  className={`${collabIconButtonBase} collab-code-pill-button is-menu collab-workspace-expand-inline`}
-                  title={isCollabFullscreen ? 'Вернуться к навигации' : 'Убрать навигацию и развернуть урок на весь экран'}
-                  aria-label={isCollabFullscreen ? 'Свернуть урок' : 'Развернуть урок'}>
-                  {isCollabFullscreen ? <Minimize2 size={15} /> : <Expand size={15} />}
-                  <span>{isCollabFullscreen ? 'Свернуть' : 'Развернуть'}</span>
                 </button>
               )}
             </>

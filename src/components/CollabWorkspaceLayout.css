@@ -1,5 +1,3 @@
-.collab-workspace-expand-inline { margin-left: auto; }
-
 @media (min-width: 768px) {
   /* Low laptop screens cannot fit the previous 300px editor + 220px console minimums. */
   html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-output-stack__editor { min-height: 100px !important; }
@@ -37,8 +35,4 @@
   html .collab-workspace-card--glass-board .collab-code-toolbar-cluster { height: 34px; padding: 1px; border-radius: 8px; }
   .collab-solutions__tab { min-height: 28px; padding-block: 4px; }
   html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-editor-statusbar { min-height: 24px; height: 24px; flex-basis: 24px; }
-}
-
-@media (max-width: 767px) {
-  .collab-workspace-expand-inline span { display: none; }
 }
