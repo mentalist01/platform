@@ -31,6 +31,19 @@ html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .col
 .collab-output-clear-button:disabled { opacity: .4; cursor: default; }
 .collab-output-actions-reference { flex-shrink: 0; }
 .collab-code-toolbar .collab-output-toggle { margin-left: auto; }
+/* The output toggle is secondary chrome. On compact laptop panes it should
+   stay in the command row instead of forcing a second toolbar line. */
+@media (max-width: 1100px) {
+  .collab-code-toolbar .collab-output-toggle {
+    flex: 0 0 34px;
+    width: 34px;
+    min-width: 34px;
+    margin-left: 0;
+    padding-inline: 6px !important;
+    justify-content: center;
+  }
+  .collab-code-toolbar .collab-output-toggle > span { display: none; }
+}
 /* Keep every command reachable when the board leaves a narrow code pane. */
 html .collab-workspace-card--glass-board.collab-workspace-card--glass-board .collab-code-command-row--modern .collab-code-toolbar.collab-code-toolbar--board-style {
   flex-wrap: wrap !important;
