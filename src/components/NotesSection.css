@@ -6250,3 +6250,196 @@ html[data-theme='dark'] .notes-explorer-shell--workspace-v2 .notes-collection-de
     max-width: 56vw;
   }
 }
+/* The notes library mirrors the Python learning catalog without duplicating cards. */
+.notes-collection-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid rgba(196, 181, 253, 0.52);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.notes-collection-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.2rem;
+  padding: 0.45rem 0.82rem;
+  border: 0;
+  border-radius: 0.68rem;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.notes-collection-tab:hover {
+  color: #6d28d9;
+  background: rgba(245, 243, 255, 0.88);
+}
+
+.notes-collection-tab.is-active {
+  color: #6d28d9;
+  background: #fff;
+  box-shadow: 0 5px 14px rgba(109, 40, 217, 0.13);
+}
+
+.notes-python-sections {
+  display: grid;
+  gap: 1rem;
+}
+
+.notes-python-section {
+  padding: 0.9rem;
+  border: 1px solid rgba(196, 181, 253, 0.38);
+  border-radius: 1.15rem;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(250, 245, 255, 0.54));
+}
+
+.notes-python-section__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.15rem 0.35rem 0.55rem;
+}
+
+.notes-python-section__eyebrow {
+  margin: 0 0 0.2rem;
+  color: #8b5cf6;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.notes-python-section__header h3 {
+  margin: 0;
+  color: #1e293b;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.notes-python-section__header p:not(.notes-python-section__eyebrow) {
+  margin: 0.18rem 0 0;
+  color: #64748b;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.notes-python-section__header > span {
+  min-width: 1.8rem;
+  padding: 0.28rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(237, 233, 254, 0.92);
+  color: #6d28d9;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.notes-python-catalog-message {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: 0.85rem;
+  background: rgba(255, 251, 235, 0.88);
+  color: #92400e;
+  font-size: 0.76rem;
+}
+
+.notes-landing-card--python {
+  height: 9.85rem;
+  min-height: 9.85rem;
+  gap: 0.78rem;
+}
+
+.notes-landing-card--python .notes-landing-card__body {
+  align-items: flex-start !important;
+}
+
+.notes-python-topic-card__title {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0 0 0.18rem;
+  color: #1e293b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+html[data-theme='dark'] .notes-collection-tabs {
+  border-color: rgba(100, 116, 139, 0.55);
+  background: rgba(6, 12, 24, 0.48);
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+html[data-theme='dark'] .notes-collection-tab {
+  color: rgba(156, 173, 196, 0.94);
+}
+
+html[data-theme='dark'] .notes-collection-tab:hover {
+  color: #ddd6fe;
+  background: rgba(76, 29, 149, 0.22);
+}
+
+html[data-theme='dark'] .notes-collection-tab.is-active {
+  color: #ede9fe;
+  background: rgba(76, 29, 149, 0.48);
+  box-shadow: 0 6px 16px rgba(2, 6, 23, 0.3);
+}
+
+html[data-theme='dark'] .notes-python-section {
+  border-color: rgba(86, 106, 139, 0.58);
+  background: rgba(15, 23, 42, 0.78);
+}
+
+html[data-theme='dark'] .notes-python-section__header h3,
+html[data-theme='dark'] .notes-python-topic-card__title {
+  color: rgba(244, 247, 255, 0.96);
+}
+
+html[data-theme='dark'] .notes-python-section__header p:not(.notes-python-section__eyebrow) {
+  color: rgba(156, 173, 196, 0.94);
+}
+
+html[data-theme='dark'] .notes-python-section__header > span {
+  background: rgba(76, 29, 149, 0.36);
+  color: #ddd6fe;
+}
+
+html[data-theme='dark'] .notes-python-catalog-message {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(120, 53, 15, 0.22);
+  color: #fde68a;
+}
+
+@media (max-width: 640px) {
+  .notes-collection-tabs {
+    width: 100%;
+  }
+
+  .notes-collection-tab {
+    flex: 1 1 0;
+  }
+
+  .notes-python-section {
+    padding: 0.72rem;
+  }
+
+  .notes-python-section__header p:not(.notes-python-section__eyebrow) {
+    display: none;
+  }
+
+  .notes-landing-card--python {
+    height: 9.35rem;
+    min-height: 9.35rem;
+  }
+}

@@ -851,8 +851,8 @@ const TeacherHomeworkComposer = ({
           </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="block">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block min-w-0">
             <span className="mb-1 block text-[9px] font-black uppercase tracking-[0.1em] text-slate-500">Раздел</span>
           <select
             value={goal?.taskNumber || ''}
@@ -876,7 +876,7 @@ const TeacherHomeworkComposer = ({
               });
               setActiveGoal(index);
             }}
-            className="min-h-10 rounded-xl border border-slate-200 bg-[rgb(var(--surface))] px-3 text-sm font-semibold text-[rgb(var(--ink))] outline-none focus:border-purple-400"
+            className="min-h-10 w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-[rgb(var(--surface))] px-3 text-sm font-semibold text-[rgb(var(--ink))] outline-none focus:border-purple-400"
           >
             <option value="">Выберите раздел</option>
             {getClassicTask(goal?.taskNumber)?.archived && (
@@ -900,7 +900,7 @@ const TeacherHomeworkComposer = ({
             </optgroup>
           </select>
           </label>
-          <label className="block">
+          <label className="block min-w-0">
             <span className="mb-1 block text-[9px] font-black uppercase tracking-[0.1em] text-slate-500">Уровень задания</span>
           <select
             value={pythonGoal ? pythonLevelId : (goal?.levelId || 'basic')}
@@ -910,7 +910,7 @@ const TeacherHomeworkComposer = ({
               setActiveGoal(index);
             }}
             disabled={!goal?.taskNumber || pythonGoal}
-            className="min-h-10 rounded-xl border border-slate-200 bg-[rgb(var(--surface))] px-3 text-sm font-semibold text-[rgb(var(--ink))] outline-none focus:border-purple-400 disabled:opacity-55"
+            className="min-h-10 w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-[rgb(var(--surface))] px-3 text-sm font-semibold text-[rgb(var(--ink))] outline-none focus:border-purple-400 disabled:opacity-55"
           >
             {pythonGoal ? (
               <option value={pythonLevelId}>Python</option>

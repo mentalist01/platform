@@ -26689,6 +26689,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onLocationChange={handleNotesLocationChange}
               withStudentId={withStudentId}
               MOCK_TASKS={MOCK_TASKS}
+              PYTHON_TASKS={PYTHON_TASKS}
               normalizeTaskNumber={normalizeTaskNumber}
               GAME_THEORY_TASK={GAME_THEORY_TASK}
               getEntrySizeBytes={getEntrySizeBytes}

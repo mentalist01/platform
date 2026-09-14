@@ -1336,7 +1336,7 @@ const ScheduleSection = ({
 
   useEffect(() => {
     let cancelled = false;
-    api.getTests()
+    api.getTests(effectiveStudentId)
       .then((data) => {
         if (cancelled) return;
         setTestsDb(data && typeof data === 'object' ? data : {});
@@ -4208,7 +4208,7 @@ const ScheduleSection = ({
     const [homeworkResult, studentDataResult, testsResult, mockExamsResult, draftResult, scheduleResult] = await Promise.allSettled([
       api.getStudentNextLesson(requestStudentId),
       api.getStudentData(requestStudentId),
-      api.getTests(),
+      api.getTests(effectiveStudentId),
       api.getMockExams(requestStudentId),
       api.getStudentHomeworkDraft(effectiveStudentId),
       api.getStudentSchedule(requestStudentId),

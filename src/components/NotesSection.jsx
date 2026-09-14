@@ -32,6 +32,13 @@ import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../s
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { highlightPython } from '../utils/pythonHighlight';
+import {
+  PYTHON_TASK_SECTION_IDS,
+  PYTHON_TASK_SECTION_META,
+  PYTHON_TASKS_CATALOG_KEY,
+  normalizePythonTaskCatalog,
+  pythonTaskCatalogsEqual,
+} from '../utils/pythonTaskCatalog';
 import './NotesSection.css';
 import {
   WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD,
@@ -260,6 +267,7 @@ const NotesSection = ({
   onLocationChange,
   withStudentId,
   MOCK_TASKS,
+  PYTHON_TASKS,
   normalizeTaskNumber,
   GAME_THEORY_TASK,
   getEntrySizeBytes,
@@ -283,6 +291,15 @@ const NotesSection = ({
 }) => {
   const [currentTask, setCurrentTask] = useState(null);
   const [transitionTaskNumber, setTransitionTaskNumber] = useState(null);
+  const defaultPythonTaskList = useMemo(
+    () => normalizePythonTaskCatalog(PYTHON_TASKS, PYTHON_TASKS),
+    [PYTHON_TASKS]
+  );
+  const [notesCollection, setNotesCollection] = useState('ege');
+  const [pythonTaskCatalog, setPythonTaskCatalog] = useState(() => (
+    normalizePythonTaskCatalog(PYTHON_TASKS, PYTHON_TASKS)
+  ));
+  const [pythonCatalogError, setPythonCatalogError] = useState('');
   const monacoTheme = resolveMonacoColorTheme(theme);
   const [currentCategory, setCurrentCategory] = useState(null);
   const [files, setFiles] = useState([]);
@@ -553,7 +570,7 @@ const NotesSection = ({
     selectFolder(folderId || null);
   };
 
-  const taskOptions = MOCK_TASKS;
+  const taskOptions = notesCollection === 'python' ? pythonTaskCatalog : MOCK_TASKS;
   const normalizedCurrentTask = normalizeTaskNumber(currentTask);
   const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
   const getNotesTaskNumber = (value) => normalizeTaskNumber(value);
@@ -619,6 +636,7 @@ const NotesSection = ({
     folderRestoreTargetRef.current = null;
     skipNullSaveRef.current = true;
     setCurrentTask(nextTask);
+    setNotesCollection(nextTask && nextTask >= 100 ? 'python' : 'ege');
     setCurrentCategory(nextCategory);
     setCurrentFolderId(null);
     setFolders([]);
@@ -960,6 +978,34 @@ const NotesSection = ({
       });
     return () => { cancelled = true; };
   }, [effectiveStudentId, initialLocationKey]);
+
+  useEffect(() => {
+    if (!effectiveStudentId) {
+      setPythonTaskCatalog(defaultPythonTaskList);
+      setPythonCatalogError('');
+      return undefined;
+    }
+    let cancelled = false;
+    api.getTestsIndex(effectiveStudentId, { force: true })
+      .then((testsIndex) => {
+        if (cancelled) return;
+        const nextCatalog = normalizePythonTaskCatalog(
+          testsIndex?.[PYTHON_TASKS_CATALOG_KEY],
+          defaultPythonTaskList
+        );
+        setPythonTaskCatalog((current) => (
+          pythonTaskCatalogsEqual(current, nextCatalog) ? current : nextCatalog
+        ));
+        setPythonCatalogError('');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error(error);
+        setPythonTaskCatalog(defaultPythonTaskList);
+        setPythonCatalogError('Не удалось обновить список тем Python. Показан базовый список.');
+      });
+    return () => { cancelled = true; };
+  }, [defaultPythonTaskList, effectiveStudentId, initialLocationKey]);
 
   useEffect(() => {
     if (!Number.isFinite(normalizedCurrentTask) || !currentCategory || !effectiveStudentId) {
@@ -2718,7 +2764,9 @@ const NotesSection = ({
   };
 
   const tasksWithFilesCount = taskOptions.reduce((sum, task) => {
-    return sum + ((taskCounts.get(task.number) || 0) > 0 ? 1 : 0);
+    const filesCount = getNotesTaskNumbers(task.number)
+      .reduce((count, taskNumber) => count + (taskCounts.get(taskNumber) || 0), 0);
+    return sum + (filesCount > 0 ? 1 : 0);
   }, 0);
   const tasksCompletionRatio = taskOptions.length > 0
     ? Math.min(1, Math.max(0, tasksWithFilesCount / taskOptions.length))
@@ -2729,10 +2777,19 @@ const NotesSection = ({
     'файла',
     'файлов'
   )}`;
+  const pythonTaskSections = PYTHON_TASK_SECTION_IDS
+    .map((sectionId) => ({
+      id: sectionId,
+      meta: PYTHON_TASK_SECTION_META[sectionId],
+      tasks: pythonTaskCatalog.filter((task) => task.sectionId === sectionId),
+    }))
+    .filter((section) => section.tasks.length > 0);
 
   const openTaskExplorer = (taskNumber) => {
     const normalized = normalizeTaskNumber(taskNumber);
     if (!Number.isFinite(normalized)) return;
+    const opensPythonNotes = normalized >= 100
+      || pythonTaskCatalog.some((task) => Number(task.number) === normalized);
     if (transitionTaskNumber !== normalized) {
       flushSync(() => setTransitionTaskNumber(normalized));
     }
@@ -2740,6 +2797,7 @@ const NotesSection = ({
       pendingFolderIdRef.current = null;
       folderRestoreTargetRef.current = null;
       restoringRef.current = false;
+      setNotesCollection(opensPythonNotes ? 'python' : 'ege');
       setCurrentTask(normalized);
       setCurrentCategory(DEFAULT_NOTES_CATEGORY);
       setCurrentFolderId(null);
@@ -2765,6 +2823,96 @@ const NotesSection = ({
         ? null
         : document.querySelector(`[data-notes-task-number="${taskToRestore}"]`)
     ));
+  };
+
+  const renderNotesLandingCard = (task, taskIndex, options = {}) => {
+    const python = options.python === true;
+    const taskFilesCount = getNotesTaskNumbers(task.number)
+      .reduce((count, taskNumber) => count + (taskCounts.get(taskNumber) || 0), 0);
+    const hasFiles = taskFilesCount > 0;
+    const taskFilesLabel = `${taskFilesCount} ${formatRussianCountLabel(
+      taskFilesCount,
+      'файл',
+      'файла',
+      'файлов'
+    )}`;
+    const displayNumber = python
+      ? String(task.displayNumber || task.number)
+      : getTaskDisplayNumber(task);
+    const accessibleTitle = python
+      ? `Открыть конспект по теме «${task.title}»`
+      : `Открыть конспекты задания №${displayNumber}`;
+    return (
+      <Card
+        key={task.number}
+        data-notes-task-number={task.number}
+        onClick={() => openTaskExplorer(task.number)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          openTaskExplorer(task.number);
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label={accessibleTitle}
+        data-filled={hasFiles ? 'true' : 'false'}
+        style={{
+          '--notes-stagger-index': Math.min(taskIndex, 16),
+          viewTransitionName: transitionTaskNumber === task.number ? 'notes-active-task' : undefined,
+        }}
+        className={`notes-card notes-landing-card group p-3 sm:p-3.5 ${
+          python ? 'notes-landing-card--python ' : ''
+        }${
+          hasFiles
+            ? 'notes-card--filled notes-landing-card--filled'
+            : 'notes-card--empty notes-landing-card--empty'
+        }`}
+      >
+        <svg
+          className="notes-folder-shape"
+          viewBox="0 0 320 128"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <path
+            className="notes-folder-shape__fill"
+            d="M1 16C1 9 7 3 16 3H73C80.2 3 84.8 5.1 88.5 9.8L93.2 15.5C94.8 17.4 96.9 18.2 99.6 18.2H301C310.9 18.2 319 26.3 319 36.2V108C319 118.5 310.5 127 300 127H20C9.5 127 1 118.5 1 108V16Z"
+          />
+          <path
+            className="notes-folder-shape__stroke"
+            d="M1 16C1 9 7 3 16 3H73C80.2 3 84.8 5.1 88.5 9.8L93.2 15.5C94.8 17.4 96.9 18.2 99.6 18.2H301C310.9 18.2 319 26.3 319 36.2V108C319 118.5 310.5 127 300 127H20C9.5 127 1 118.5 1 108V16Z"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+        <div className="notes-landing-card__top flex items-center justify-between gap-2">
+          <span className={`notes-task-badge notes-landing-card__badge inline-flex items-center rounded-xl border px-2.5 py-1 text-[11px] font-bold md:text-xs ${
+            hasFiles ? 'notes-task-badge--filled' : ''
+          }`}>
+            {python ? displayNumber : `№${displayNumber}`}
+          </span>
+          <span className={`notes-summary-pill notes-landing-card__status text-[10px] md:text-[11px] ${
+            hasFiles ? 'notes-summary-pill--filled' : 'notes-summary-pill--empty'
+          }`}>
+            {hasFiles ? taskFilesLabel : 'Пусто'}
+          </span>
+        </div>
+        <div className="notes-landing-card__body flex items-center gap-3">
+          <span className={`notes-landing-card__icon inline-flex items-center justify-center rounded-2xl border ${
+            hasFiles ? 'is-filled' : ''
+          }`}>
+            {python
+              ? <PythonLogoIcon size={18} colored />
+              : (hasFiles ? <FolderOpen size={16} /> : <Folder size={16} />)}
+          </span>
+          <div className="min-w-0">
+            {python && <p className="notes-python-topic-card__title">{task.title}</p>}
+            <p className="notes-landing-card__text text-[11px] sm:text-xs">
+              {hasFiles ? 'Открыть' : 'Добавить материалы'}
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
   };
 
   const closeFolderCreator = () => {
@@ -2846,9 +2994,35 @@ const NotesSection = ({
           <div className="notes-landing-hero__header flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="notes-landing-title text-xl font-bold md:text-2xl">Конспекты</h2>
-              <p className="notes-landing-subtitle text-xs md:text-sm">Выберите задание, чтобы открыть материалы</p>
+              <p className="notes-landing-subtitle text-xs md:text-sm">
+                {notesCollection === 'python'
+                  ? 'Материалы по каждой теме курса Python'
+                  : 'Материалы по заданиям ЕГЭ'}
+              </p>
             </div>
             {renderStudentPicker()}
+          </div>
+          <div className="notes-collection-tabs" role="tablist" aria-label="Раздел конспектов">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={notesCollection === 'ege'}
+              className={`notes-collection-tab ${notesCollection === 'ege' ? 'is-active' : ''}`}
+              onClick={() => setNotesCollection('ege')}
+            >
+              <BookOpen size={16} />
+              Задания ЕГЭ
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={notesCollection === 'python'}
+              className={`notes-collection-tab ${notesCollection === 'python' ? 'is-active' : ''}`}
+              onClick={() => setNotesCollection('python')}
+            >
+              <PythonLogoIcon size={17} colored />
+              Python
+            </button>
           </div>
           <div className="notes-landing-stats flex flex-wrap gap-2 text-[11px] font-semibold md:text-xs">
             <span className="notes-summary-pill notes-summary-pill--total">
@@ -2856,7 +3030,9 @@ const NotesSection = ({
             </span>
             <span className="notes-summary-pill notes-summary-pill--filled">
               <span className="sm:hidden">{`Заполнено: ${tasksWithFilesCount}/${taskOptions.length}`}</span>
-              <span className="hidden sm:inline">{`Заполнено заданий: ${tasksWithFilesCount}/${taskOptions.length}`}</span>
+              <span className="hidden sm:inline">
+                {`${notesCollection === 'python' ? 'Заполнено тем' : 'Заполнено заданий'}: ${tasksWithFilesCount}/${taskOptions.length}`}
+              </span>
             </span>
           </div>
           <div className="notes-landing-progress" aria-hidden="true">
@@ -2871,86 +3047,36 @@ const NotesSection = ({
         </div>
       </div>
 
-      <div className="notes-landing-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-        {taskOptions.map((task, taskIndex) => {
-          const taskFilesCount = taskCounts.get(task.number) || 0;
-          const hasFiles = taskFilesCount > 0;
-          const taskFilesLabel = `${taskFilesCount} ${formatRussianCountLabel(
-            taskFilesCount,
-            'файл',
-            'файла',
-            'файлов'
-          )}`;
-          return (
-            <Card
-              key={task.number}
-              data-notes-task-number={task.number}
-              onClick={() => openTaskExplorer(task.number)}
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter' && event.key !== ' ') return;
-                event.preventDefault();
-                openTaskExplorer(task.number);
-              }}
-              role="button"
-              tabIndex={0}
-              aria-label={`Открыть конспекты задания №${getTaskDisplayNumber(task)}`}
-              data-filled={hasFiles ? 'true' : 'false'}
-              style={{
-                '--notes-stagger-index': Math.min(taskIndex, 16),
-                viewTransitionName: transitionTaskNumber === task.number ? 'notes-active-task' : undefined,
-              }}
-              className={`notes-card notes-landing-card group p-3 sm:p-3.5 ${
-                hasFiles
-                  ? 'notes-card--filled notes-landing-card--filled'
-                  : 'notes-card--empty notes-landing-card--empty'
-              }`}
-            >
-              <svg
-                className="notes-folder-shape"
-                viewBox="0 0 320 128"
-                preserveAspectRatio="none"
-                aria-hidden="true"
-              >
-                <path
-                  className="notes-folder-shape__fill"
-                  d="M1 16C1 9 7 3 16 3H73C80.2 3 84.8 5.1 88.5 9.8L93.2 15.5C94.8 17.4 96.9 18.2 99.6 18.2H301C310.9 18.2 319 26.3 319 36.2V108C319 118.5 310.5 127 300 127H20C9.5 127 1 118.5 1 108V16Z"
-                />
-                <path
-                  className="notes-folder-shape__stroke"
-                  d="M1 16C1 9 7 3 16 3H73C80.2 3 84.8 5.1 88.5 9.8L93.2 15.5C94.8 17.4 96.9 18.2 99.6 18.2H301C310.9 18.2 319 26.3 319 36.2V108C319 118.5 310.5 127 300 127H20C9.5 127 1 118.5 1 108V16Z"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </svg>
-              <div className="notes-landing-card__top flex items-center justify-between gap-2">
-                <span className={`notes-task-badge notes-landing-card__badge inline-flex items-center rounded-xl border px-2.5 py-1 text-[11px] font-bold md:text-xs ${
-                  hasFiles ? 'notes-task-badge--filled' : ''
-                }`}>
-                  №{getTaskDisplayNumber(task)}
-                </span>
-                <span
-                  className={`notes-summary-pill notes-landing-card__status text-[10px] md:text-[11px] ${
-                    hasFiles
-                      ? 'notes-summary-pill--filled'
-                      : 'notes-summary-pill--empty'
-                  }`}
-                >
-                  {hasFiles ? taskFilesLabel : 'Пусто'}
-                </span>
+      {notesCollection === 'ege' ? (
+        <div className="notes-landing-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+          {MOCK_TASKS.map((task, taskIndex) => renderNotesLandingCard(task, taskIndex))}
+        </div>
+      ) : (
+        <div className="notes-python-sections">
+          {pythonCatalogError && (
+            <div className="notes-python-catalog-message" role="status">{pythonCatalogError}</div>
+          )}
+          {pythonTaskSections.map((section, sectionIndex) => (
+            <section key={section.id} className="notes-python-section">
+              <div className="notes-python-section__header">
+                <div>
+                  <p className="notes-python-section__eyebrow">
+                    {section.id === 'topics' ? 'Курс Python' : 'Практика'}
+                  </p>
+                  <h3>{section.meta?.title || 'Раздел Python'}</h3>
+                  <p>{section.meta?.description || ''}</p>
+                </div>
+                <span>{section.tasks.length}</span>
               </div>
-              <div className="notes-landing-card__body flex items-center gap-3">
-                <span className={`notes-landing-card__icon inline-flex items-center justify-center rounded-2xl border ${
-                  hasFiles ? 'is-filled' : ''
-                }`}>
-                  {hasFiles ? <FolderOpen size={16} /> : <Folder size={16} />}
-                </span>
-                <p className="notes-landing-card__text text-[11px] sm:text-xs">
-                  {hasFiles ? 'Открыть' : 'Добавить'}
-                </p>
+              <div className="notes-landing-grid notes-python-topic-grid grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                {section.tasks.map((task, taskIndex) => (
+                  renderNotesLandingCard(task, (sectionIndex * 10) + taskIndex, { python: true })
+                ))}
               </div>
-            </Card>
-          );
-        })}
-      </div>
+            </section>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -3181,7 +3307,13 @@ const NotesSection = ({
   const pyIdleConsoleText = buildIdleConsoleText(pyRunInput, pyRunOutput, pyRunError);
   const pdfPreviewHeight = isMobileViewport ? '48vh' : '60vh';
   const imagePreviewMaxHeight = isMobileViewport ? '56vh' : '72vh';
-  const currentTaskLabel = formatTaskNumber(currentTask) || currentTask;
+  const currentPythonTask = pythonTaskCatalog.find((task) => (
+    Number(task.number) === Number(normalizedCurrentTask)
+  ));
+  const isPythonNotesTask = Boolean(currentPythonTask) || Number(normalizedCurrentTask) >= 100;
+  const currentTaskLabel = isPythonNotesTask
+    ? (currentPythonTask?.title || `Тема ${normalizedCurrentTask}`)
+    : (formatTaskNumber(currentTask) || currentTask);
   const uploadButtonLabel = isUploading
     ? 'Загрузка...'
     : (uploadBlockedByRole ? 'Только учитель' : 'Загрузить');
@@ -3243,12 +3375,16 @@ const NotesSection = ({
             </button>
             <div className="notes-task-hero__identity">
               <span className="notes-task-hero__icon" aria-hidden="true">
-                <BookOpen size={23} strokeWidth={2.1} />
+                {isPythonNotesTask
+                  ? <PythonLogoIcon size={23} colored />
+                  : <BookOpen size={23} strokeWidth={2.1} />}
               </span>
               <div className="min-w-0">
-                <span className="notes-task-hero__eyebrow">Материалы задания</span>
+                <span className="notes-task-hero__eyebrow">
+                  {isPythonNotesTask ? 'Конспект по Python' : 'Материалы задания'}
+                </span>
                 <h3 className="notes-explorer-title notes-task-hero__title">
-                  {`Задание ${currentTaskLabel}`}
+                  {isPythonNotesTask ? currentTaskLabel : `Задание ${currentTaskLabel}`}
                 </h3>
                 <p className="notes-explorer-toolbar-subtitle notes-task-hero__summary">
                   {explorerOverviewLabel}

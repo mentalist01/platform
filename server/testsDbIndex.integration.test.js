@@ -84,6 +84,10 @@ test('GET /api/tests?shape=index returns an id-only index after student personal
     deletedAt: null,
   }]));
   fs.writeFileSync(path.join(dataDir, 'tests.json'), JSON.stringify({
+    __pythonTaskCatalog: [
+      { id: 101, number: 101, title: 'Ввод и вывод данных', displayNumber: '1.0', sectionId: 'topics', internalNote: 'must-not-leak' },
+      { id: 112, number: 112, title: 'Словари', displayNumber: '10', sectionId: 'topics' },
+    ],
     _meta: {
       version: 7,
       levels: [{ id: 'must-not-leak' }],
@@ -168,6 +172,11 @@ test('GET /api/tests?shape=index returns an id-only index after student personal
     await assertStatus(teacherIndexResponse, 200);
     const teacherIndex = await teacherIndexResponse.json();
     assert.equal(Object.prototype.hasOwnProperty.call(teacherIndex, '_meta'), false);
+    assert.deepEqual(teacherIndex.__pythonTaskCatalog, [
+      { id: 101, number: 101, title: 'Ввод и вывод данных', displayNumber: '1.0', sectionId: 'topics' },
+      { id: 112, number: 112, title: 'Словари', displayNumber: '10', sectionId: 'topics' },
+    ]);
+    assert.equal(JSON.stringify(teacherIndex.__pythonTaskCatalog).includes('internalNote'), false);
     assert.deepEqual(teacherIndex['1'], {
       title: 'Task one',
       basic: [{ id: 'q-1' }, { id: 'followup-q' }, { id: '' }, { id: '' }],
@@ -185,6 +194,7 @@ test('GET /api/tests?shape=index returns an id-only index after student personal
     await assertStatus(studentIndexResponse, 200);
     const studentIndex = await studentIndexResponse.json();
     assert.deepEqual(studentIndex['1'], teacherIndex['1']);
+    assert.deepEqual(studentIndex.__pythonTaskCatalog, teacherIndex.__pythonTaskCatalog);
     assert.equal(JSON.stringify(studentIndex['1']).includes('answer'), false);
     assert.equal(JSON.stringify(studentIndex['1']).includes('question'), false);
     assert.equal(JSON.stringify(studentIndex['1']).includes('files'), false);

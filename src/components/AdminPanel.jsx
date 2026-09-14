@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Crown, Plus, RefreshCcw, Trash2 } from 'lucide-react';
+import { CheckCircle2, Plus, RefreshCcw, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
@@ -141,11 +141,11 @@ const AdminPanel = ({
     }
   };
 
-  const handleSetGlobalManager = async (teacher) => {
-    if (!teacher?.id || teacher.canManageGlobalTaskContent) return;
+  const handleToggleGlobalTaskPermission = async (teacher, enabled) => {
+    if (!teacher?.id) return;
     setGlobalManagerSavingId(teacher.id);
     try {
-      await api.setTeacherGlobalTaskManager(teacher.id);
+      await api.updateTeacherGlobalTaskPermission(teacher.id, enabled);
       onTeachersChanged?.();
     } catch (err) {
       alert(err?.message || err);
@@ -214,7 +214,7 @@ const AdminPanel = ({
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-gray-800">Учителя</h3>
-            <p className="text-xs text-gray-500">Всего: {teachers?.length || 0}. Главный учитель управляет общим банком заданий.</p>
+            <p className="text-xs text-gray-500">Всего: {teachers?.length || 0}. Доступ к общему банку задаётся отдельно для каждого учителя.</p>
           </div>
           {teachersError && <span className="text-xs text-red-500">{teachersError}</span>}
         </div>
@@ -278,13 +278,30 @@ const AdminPanel = ({
                         <p className="font-medium text-gray-800 truncate">{teacher.name}</p>
                         {teacher.canManageGlobalTaskContent && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
-                            <Crown size={12} /> Главный учитель
+                            <CheckCircle2 size={12} /> Общий банк разрешён
                           </span>
                         )}
                       </div>
                       <p className="text-xs text-gray-500">
                         Код: <span className="font-mono">{teacher.codeHint ? `****${teacher.codeHint}` : 'скрыт'}</span>
                       </p>
+                      <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-violet-200 bg-violet-50/70 px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(teacher.canManageGlobalTaskContent)}
+                          onChange={(event) => handleToggleGlobalTaskPermission(teacher, event.target.checked)}
+                          disabled={globalManagerSavingId === teacher.id}
+                          className="mt-0.5 h-4 w-4 shrink-0 accent-violet-600 disabled:opacity-50"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold text-violet-800">
+                            Изменять задания для всех преподавателей
+                          </span>
+                          <span className="mt-0.5 block text-[11px] leading-4 text-violet-600">
+                            Учитель сможет выбирать: изменить общий банк или только свой.
+                          </span>
+                        </span>
+                      </label>
                       <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 p-2.5">
                         <div className="flex flex-wrap items-end gap-2">
                           <label className="min-w-[140px] flex-1">
@@ -389,16 +406,6 @@ const AdminPanel = ({
                       >
                         Изменить
                       </button>
-                      {!teacher.canManageGlobalTaskContent && (
-                        <button
-                          onClick={() => handleSetGlobalManager(teacher)}
-                          className="px-3 py-1 rounded-lg border border-violet-200 text-xs text-violet-700 hover:bg-violet-50 disabled:opacity-50"
-                          disabled={globalManagerSavingId === teacher.id}
-                          type="button"
-                        >
-                          {globalManagerSavingId === teacher.id ? '...' : 'Сделать главным'}
-                        </button>
-                      )}
                       <button
                         onClick={() => handleResetTeacherCode(teacher)}
                         className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 disabled:opacity-50"

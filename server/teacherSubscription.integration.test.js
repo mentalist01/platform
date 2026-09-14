@@ -34,8 +34,8 @@ test('teacher subscription can be configured, paid, and enforced at login', { ti
   const write = (name, value) => fs.writeFileSync(path.join(dataDir, name), JSON.stringify(value));
   const now = new Date().toISOString();
   write('teachers.json', [
-    { id: 'teacher-one', name: 'Первый', codeHash: codeHash('teacher-one-code'), createdAt: now },
-    { id: 'teacher-two', name: 'Второй', codeHash: codeHash('teacher-two-code'), createdAt: now },
+    { id: 'teacher-one', name: 'Первый', codeHash: codeHash('teacher-one-code'), canManageGlobalTaskContent: true, createdAt: now },
+    { id: 'teacher-two', name: 'Второй', codeHash: codeHash('teacher-two-code'), canManageGlobalTaskContent: false, createdAt: now },
   ]);
   write('students.json', []);
   write('progress.json', {});
@@ -117,12 +117,19 @@ test('teacher subscription can be configured, paid, and enforced at login', { ti
       monthlyFee: 0,
       dueDay: 1,
     }, 200);
-    await request('/api/teachers/teacher-two/global-task-manager', adminToken, 'PATCH', {}, 200);
+    await request('/api/teachers/teacher-two/global-task-manager', adminToken, 'PATCH', { enabled: true }, 200);
     const teachersAfter = await request('/api/teachers', adminToken, 'GET', undefined, 200);
     assert.equal(teachersAfter.payload.find((teacher) => teacher.id === 'teacher-two').canManageGlobalTaskContent, true);
-    assert.equal(teachersAfter.payload.find((teacher) => teacher.id === 'teacher-one').canManageGlobalTaskContent, false);
+    assert.equal(teachersAfter.payload.find((teacher) => teacher.id === 'teacher-one').canManageGlobalTaskContent, true);
     await request('/api/task-catalog?scope=global', teacherTwoLogin.payload.token, 'GET', undefined, 200);
+    await request('/api/task-catalog?scope=global', teacherLogin.payload.token, 'GET', undefined, 200);
+
+    await request('/api/teachers/teacher-one/global-task-manager', adminToken, 'PATCH', { enabled: false }, 200);
+    const teachersAfterDisable = await request('/api/teachers', adminToken, 'GET', undefined, 200);
+    assert.equal(teachersAfterDisable.payload.find((teacher) => teacher.id === 'teacher-one').canManageGlobalTaskContent, false);
+    assert.equal(teachersAfterDisable.payload.find((teacher) => teacher.id === 'teacher-two').canManageGlobalTaskContent, true);
     await request('/api/task-catalog?scope=global', teacherLogin.payload.token, 'GET', undefined, 403);
+    await request('/api/task-catalog?scope=global', teacherTwoLogin.payload.token, 'GET', undefined, 200);
   } finally {
     await stop(child);
     fs.rmSync(root, { recursive: true, force: true });

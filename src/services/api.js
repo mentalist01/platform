@@ -1540,10 +1540,11 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  setTeacherGlobalTaskManager: async (id) => {
+  updateTeacherGlobalTaskPermission: async (id, enabled) => {
     const res = await apiFetch(`/api/teachers/${id}/global-task-manager`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: Boolean(enabled) }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();

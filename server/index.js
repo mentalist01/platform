@@ -678,7 +678,6 @@ const AUTH_SESSION_PERSIST_MIN_EXTENSION_MS = (() => {
 })();
 const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
 const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
-const PLATFORM_OWNER_TEACHER_ID = String(process.env.PLATFORM_OWNER_TEACHER_ID || '').trim();
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
 const TEACHER_NAME = process.env.TEACHER_NAME || '\u0423\u0447\u0438\u0442\u0435\u043b\u044c';
 const ACCESS_CODE_LOOKUP_SECRET = String(process.env.ACCESS_CODE_LOOKUP_SECRET || ADMIN_CODE).trim();
@@ -773,6 +772,7 @@ const SOFT_DELETE_TTL_MS = SOFT_DELETE_DAYS * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GAME_THEORY_TASK = 19;
 const PYTHON_LEVEL_ID = 'python';
+const PYTHON_TASKS_CATALOG_KEY = '__pythonTaskCatalog';
 const PYTHON_INFINITE_TRAINING_TASK_KEY = String(PYTHON_INFINITE_TRAINING_TASK_NUMBER);
 const PYTHON_COIN_MIN_REWARD = 4;
 const PYTHON_COIN_MAX_REWARD = 17;
@@ -8590,16 +8590,14 @@ const normalizeTeacherId = (value) => {
   return String(value || '').trim();
 };
 
-const getPlatformOwnerTeacherId = () => {
-  const teachers = readTeachersDb();
-  const explicitlyAssigned = teachers.find((teacher) => teacher?.canManageGlobalTaskContent === true);
-  return normalizeTeacherId(explicitlyAssigned?.id || PLATFORM_OWNER_TEACHER_ID || teachers[0]?.id);
+const canManageGlobalTaskContent = (auth) => {
+  if (isAdminRole(auth)) return true;
+  if (!isTeacherRole(auth)) return false;
+  const teacherId = normalizeTeacherId(auth.id);
+  if (!teacherId) return false;
+  const teacher = readTeachersDb().find((entry) => normalizeTeacherId(entry?.id) === teacherId);
+  return teacher?.canManageGlobalTaskContent === true;
 };
-
-const canManageGlobalTaskContent = (auth) => (
-  isAdminRole(auth)
-  || (isTeacherRole(auth) && normalizeTeacherId(auth.id) === getPlatformOwnerTeacherId())
-);
 
 const getTaskContentTeacherIdForAuth = (auth, requestedStudentId = '') => {
   if (isTeacherRole(auth)) return normalizeTeacherId(auth.id);
@@ -12446,7 +12444,7 @@ const LEADERBOARD_PROFILE_TASK_TITLES = {
 };
 
 const LEADERBOARD_PROFILE_TIME_ZONE = process.env.PLATFORM_TIME_ZONE || process.env.TZ || 'Europe/Moscow';
-const LEADERBOARD_PROFILE_PYTHON_TASK_CATALOG_KEY = '__pythonTaskCatalog';
+const LEADERBOARD_PROFILE_PYTHON_TASK_CATALOG_KEY = PYTHON_TASKS_CATALOG_KEY;
 const LEADERBOARD_PROFILE_DEFAULT_PYTHON_TASKS = [
   { number: 101, title: 'Ввод и вывод данных', displayNumber: '1.0', sectionId: 'topics' },
   { number: 102, title: 'Переменные', displayNumber: '1.1', sectionId: 'topics' },
@@ -18808,9 +18806,31 @@ const sanitizeTestsDbForStudent = (testsDb) => {
 const buildTestsDbIndex = (testsDb) => {
   if (!testsDb || typeof testsDb !== 'object' || Array.isArray(testsDb)) return {};
 
-  return Object.entries(testsDb).reduce((index, [taskKey, taskValue]) => {
+  const index = {};
+  if (Array.isArray(testsDb[PYTHON_TASKS_CATALOG_KEY])) {
+    index[PYTHON_TASKS_CATALOG_KEY] = testsDb[PYTHON_TASKS_CATALOG_KEY]
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+        const number = Math.floor(Number(entry.number ?? entry.id));
+        const title = String(entry.title || '').trim();
+        if (!Number.isFinite(number) || number < 100 || !title) return null;
+        const sectionId = String(entry.sectionId || '').trim() === 'exam-prep' ? 'exam-prep' : 'topics';
+        const next = {
+          id: number,
+          number,
+          title,
+          displayNumber: String(entry.displayNumber || '').trim() || String(number),
+          sectionId,
+        };
+        if (sectionId === 'topics' && entry.showInPath === false) next.showInPath = false;
+        return next;
+      })
+      .filter(Boolean);
+  }
+
+  return Object.entries(testsDb).reduce((result, [taskKey, taskValue]) => {
     if (!/^\d+$/.test(taskKey) || !taskValue || typeof taskValue !== 'object' || Array.isArray(taskValue)) {
-      return index;
+      return result;
     }
 
     const taskIndex = {};
@@ -18823,9 +18843,9 @@ const buildTestsDbIndex = (testsDb) => {
           : '',
       }));
     });
-    index[taskKey] = taskIndex;
-    return index;
-  }, {});
+    result[taskKey] = taskIndex;
+    return result;
+  }, index);
 };
 
 const sanitizeMockExamForStudent = (exam) => {
@@ -28218,20 +28238,21 @@ app.post('/api/teachers', (req, res) => {
 app.patch('/api/teachers/:id/global-task-manager', (req, res) => {
   if (!isAdminRole(req.auth)) return forbid(res);
   const id = String(req.params?.id || '').trim();
+  const enabled = req.body?.enabled !== false;
   const teachers = readTeachersDb();
   const targetIndex = teachers.findIndex((teacher) => String(teacher?.id || '').trim() === id);
   if (targetIndex === -1) return res.status(404).json({ error: 'Учитель не найден' });
   const updatedAt = new Date().toISOString();
-  const nextTeachers = teachers.map((teacher, index) => ({
-    ...teacher,
-    canManageGlobalTaskContent: index === targetIndex,
-    ...(index === targetIndex ? { updatedAt } : {}),
-  }));
+  const nextTeachers = teachers.map((teacher, index) => (
+    index === targetIndex
+      ? { ...teacher, canManageGlobalTaskContent: enabled, updatedAt }
+      : teacher
+  ));
   writeTeachersDb(nextTeachers);
   return res.json({
     ok: true,
     teacherId: id,
-    canManageGlobalTaskContent: true,
+    canManageGlobalTaskContent: enabled,
   });
 });
 

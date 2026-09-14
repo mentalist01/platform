@@ -73,11 +73,15 @@ const findQuestion = (questions, questionId, questionNumber) => {
   const list = Array.isArray(questions) ? questions : [];
   const normalizedId = normalizeKey(questionId);
   if (normalizedId) {
-    const byId = list.find((question) => normalizeKey(question?.id) === normalizedId);
-    if (byId) return byId;
+    const currentIndex = list.findIndex((question) => normalizeKey(question?.id) === normalizedId);
+    if (currentIndex >= 0) {
+      return { question: list[currentIndex], questionNumber: currentIndex + 1 };
+    }
   }
   const index = Math.max(0, Math.floor(Number(questionNumber) || 1) - 1);
-  return list[index] || null;
+  return list[index]
+    ? { question: list[index], questionNumber: index + 1 }
+    : { question: null, questionNumber: index + 1 };
 };
 
 const normalizeMockAnswers = (attempt, taskKey) => {
@@ -160,8 +164,10 @@ export const buildTeacherHomeworkReviewItems = ({
     const levelLabel = levels?.[levelId.toUpperCase()]?.label || levelId;
     targetStatus.forEach((target, targetIndex) => {
       const questionId = normalizeKey(target?.questionId);
-      const questionNumber = Math.max(1, Math.floor(Number(target?.num) || targetIndex + 1));
-      const question = findQuestion(questions, questionId, questionNumber);
+      const storedQuestionNumber = Math.max(1, Math.floor(Number(target?.num) || targetIndex + 1));
+      const questionMatch = findQuestion(questions, questionId, storedQuestionNumber);
+      const question = questionMatch.question;
+      const questionNumber = questionMatch.questionNumber;
       const resolvedQuestionId = normalizeKey(question?.id) || questionId;
       if (!resolvedQuestionId && !question) return;
       result.push({

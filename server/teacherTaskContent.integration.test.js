@@ -30,15 +30,15 @@ const stop = async (child) => {
   await exited;
 };
 
-test('teacher task banks stay private and only the platform owner can apply a global change', { timeout: 60000 }, async () => {
+test('teacher task banks stay private and only authorized teachers can apply a global change', { timeout: 60000 }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'platform-teacher-content-test-'));
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(dataDir);
   const write = (name, value) => fs.writeFileSync(path.join(dataDir, name), JSON.stringify(value));
   const now = new Date().toISOString();
   write('teachers.json', [
-    { id: 'teacher-owner', name: 'Владелец', codeHash: codeHash('owner-content-code'), createdAt: now },
-    { id: 'teacher-other', name: 'Другой преподаватель', codeHash: codeHash('other-content-code'), createdAt: now },
+    { id: 'teacher-owner', name: 'Владелец', codeHash: codeHash('owner-content-code'), canManageGlobalTaskContent: true, createdAt: now },
+    { id: 'teacher-other', name: 'Другой преподаватель', codeHash: codeHash('other-content-code'), canManageGlobalTaskContent: false, createdAt: now },
   ]);
   write('students.json', [
     { id: 'student-owner', name: 'Ученик владельца', teacherId: 'teacher-owner', code: 'owner-student-code', grade: 11, createdAt: now },
@@ -75,7 +75,6 @@ test('teacher task banks stay private and only the platform owner can apply a gl
         PLATFORM_DATA_DIR: dataDir,
         PLATFORM_UPLOADS_DIR: path.join(root, 'uploads'),
         PLATFORM_JSON_BACKUPS_DIR: path.join(root, 'backups'),
-        PLATFORM_OWNER_TEACHER_ID: 'teacher-owner',
         COLLAB_PERSISTENCE: '0',
         DISABLE_STARTUP_XP_REBALANCE: '1',
       },

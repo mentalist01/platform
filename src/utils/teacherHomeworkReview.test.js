@@ -47,6 +47,33 @@ test('buildTeacherHomeworkReviewItems keeps homework goal and target order', () 
   assert.equal(items[2].levelLabel, 'Сложный');
 });
 
+test('buildTeacherHomeworkReviewItems displays the current number of a stable question id', () => {
+  const items = buildTeacherHomeworkReviewItems({
+    goalViews: [{
+      type: 'task',
+      taskNumber: 18,
+      levelId: 'basic',
+      targetStatus: [
+        { num: 14, questionId: 'anna-question', solved: false },
+        { num: 15, questionId: 'next-question', solved: false },
+      ],
+    }],
+    testsDb: {
+      18: {
+        basic: Array.from({ length: 16 }, (_, index) => ({
+          id: index === 14 ? 'anna-question' : index === 15 ? 'next-question' : `q-${index + 1}`,
+          question: `Question ${index + 1}`,
+        })),
+      },
+    },
+    formatTaskNumber: String,
+  });
+
+  assert.deepEqual(items.map((item) => item.questionNumber), [15, 16]);
+  assert.deepEqual(items.map((item) => item.questionId), ['anna-question', 'next-question']);
+  assert.deepEqual(items.map((item) => item.question.question), ['Question 15', 'Question 16']);
+});
+
 test('buildTeacherHomeworkReviewItems marks an unfinished mock task with an answer as attempted', () => {
   const items = buildTeacherHomeworkReviewItems({
     goalViews: [{
