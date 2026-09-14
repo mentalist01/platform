@@ -1540,6 +1540,52 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
+  setTeacherGlobalTaskManager: async (id) => {
+    const res = await apiFetch(`/api/teachers/${id}/global-task-manager`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
+  getTeacherSubscription: async (teacherId = '') => {
+    const params = new URLSearchParams();
+    if (teacherId) params.set('teacherId', String(teacherId));
+    const query = params.toString();
+    const res = await apiFetch(query ? `/api/teacher-subscription?${query}` : '/api/teacher-subscription');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateTeacherSubscription: async (teacherId, monthlyFee, dueDay) => {
+    const res = await apiFetch('/api/teacher-subscription', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teacherId, monthlyFee, dueDay }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  markTeacherSubscriptionPaid: async (teacherId, month, amount) => {
+    const body = { teacherId };
+    if (month) body.month = String(month);
+    if (typeof amount !== 'undefined') body.amount = amount;
+    const res = await apiFetch('/api/teacher-subscription/payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  unmarkTeacherSubscriptionPaid: async (teacherId, month) => {
+    const params = new URLSearchParams({ teacherId: String(teacherId || '') });
+    if (month) params.set('month', String(month));
+    const res = await apiFetch(`/api/teacher-subscription/payment?${params.toString()}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   deleteTeacher: async (id) => {
     const res = await apiFetch(`/api/teachers/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await parseApiError(res));

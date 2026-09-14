@@ -33,6 +33,7 @@ import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfi
 import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
 import MockChestOpeningOverlay from './components/MockChestOpeningOverlay';
 import StudentPaymentReminder from './components/StudentPaymentReminder';
+import TeacherSubscriptionGate, { TeacherSubscriptionReminder } from './components/TeacherSubscriptionGate';
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
@@ -3538,6 +3539,23 @@ const sanitizeAuthUserPayload = (value) => {
     safe.studyStatus = normalizeStudentStudyStatus(value.studyStatus, safe.grade);
     const avatarDataUrl = typeof value.avatarDataUrl === 'string' ? value.avatarDataUrl.trim() : '';
     if (avatarDataUrl) safe.avatarDataUrl = avatarDataUrl;
+  }
+  if (role === 'teacher') {
+    safe.canManageGlobalTaskContent = value.canManageGlobalTaskContent === true;
+    const rawSubscription = value.subscription;
+    if (rawSubscription && typeof rawSubscription === 'object' && !Array.isArray(rawSubscription)) {
+      safe.subscription = {
+        monthlyFee: Math.max(0, Number(rawSubscription.monthlyFee) || 0),
+        dueDay: Math.max(1, Math.min(31, Math.round(Number(rawSubscription.dueDay) || 10))),
+        effectiveDueDay: Math.max(1, Math.min(31, Math.round(Number(rawSubscription.effectiveDueDay || rawSubscription.dueDay) || 10))),
+        month: typeof rawSubscription.month === 'string' ? rawSubscription.month : '',
+        paidAmount: Math.max(0, Number(rawSubscription.paidAmount) || 0),
+        remaining: Math.max(0, Number(rawSubscription.remaining) || 0),
+        status: typeof rawSubscription.status === 'string' ? rawSubscription.status : 'disabled',
+        accessAllowed: rawSubscription.accessAllowed !== false,
+        paidAt: typeof rawSubscription.paidAt === 'string' ? rawSubscription.paidAt : '',
+      };
+    }
   }
   if (role === 'parent') {
     const studentId = typeof value.studentId === 'string' ? value.studentId.trim() : '';
@@ -22559,7 +22577,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         if (cancelled) return;
         if (catalog && typeof catalog === 'object' && Array.isArray(catalog.tasks)) {
           syncTaskCatalogLookups(catalog);
-          setTaskCatalog((current) => current.revision === catalog.revision ? current : catalog);
+          setTaskCatalog((current) => (
+            current.revision === catalog.revision
+            && current.canManageGlobal === catalog.canManageGlobal
+            && current.teacherId === catalog.teacherId
+              ? current
+              : catalog
+          ));
         }
       })
       .catch(() => {
@@ -25588,6 +25612,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           onDiscard={discardBlockedLessonReplayBackup}
         />}
         {user.role === 'teacher' && <LessonAlarmNotice alarm={lessonAlarm} />}
+        {user.role === 'teacher' && <TeacherSubscriptionReminder subscription={user.subscription} />}
         <main
           ref={mainScrollRef}
           className={mainLayoutClass}
@@ -26753,7 +26778,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onToggleTeacherSignupNotify={handleToggleTeacherSignupNotify}
               initialTaskNumber={teacherTaskEditorRequest?.taskNumber}
               initialTaskEditorToken={teacherTaskEditorRequest?.token}
-              canManageGlobalTaskContent={taskCatalog?.canManageGlobal === true}
+              canManageGlobalTaskContent={user.role === 'admin' || user.canManageGlobalTaskContent === true}
             />
           )}
           {isTeacherCommsView && (
@@ -27372,6 +27397,8 @@ const MainApp = () => {
         && current.grade === normalized.grade
         && current.chatId === normalized.chatId
         && current.avatarDataUrl === normalized.avatarDataUrl
+        && current.canManageGlobalTaskContent === normalized.canManageGlobalTaskContent
+        && JSON.stringify(current.subscription || null) === JSON.stringify(normalized.subscription || null)
         && current.authToken === normalized.authToken
       ) {
         return current;
@@ -27403,6 +27430,8 @@ const MainApp = () => {
         && current.grade === next.grade
         && current.chatId === next.chatId
         && current.avatarDataUrl === next.avatarDataUrl
+        && current.canManageGlobalTaskContent === next.canManageGlobalTaskContent
+        && JSON.stringify(current.subscription || null) === JSON.stringify(next.subscription || null)
         && current.authToken === next.authToken
       ) {
         return current;
@@ -27656,6 +27685,23 @@ const MainApp = () => {
         </React.Suspense>
         <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} className="theme-toggle--desktop" />
       </>
+    );
+  }
+
+  if (user.role === 'teacher' && user.subscription?.accessAllowed === false) {
+    return (
+      <TeacherSubscriptionGate
+        subscription={user.subscription}
+        onRefresh={async () => {
+          try {
+            const session = await api.getCurrentSession();
+            handleUserUpdated(session);
+          } catch {
+            // The session endpoint remains available while access is paused.
+          }
+        }}
+        onLogout={handleLogout}
+      />
     );
   }
 

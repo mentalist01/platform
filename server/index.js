@@ -613,6 +613,7 @@ const lessonReplayStorageIndexFile = path.join(dataDir, 'lesson-replay-storage-i
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
 const paymentNotificationsFile = path.join(dataDir, 'payment-notifications.json');
 const paymentSenderLinksFile = path.join(dataDir, 'payment-sender-links.json');
+const teacherSubscriptionsFile = path.join(dataDir, 'teacher-subscriptions.json');
 const finalReviewVideosFile = path.join(dataDir, 'final-review-videos.json');
 const finalReviewNotesFile = path.join(dataDir, 'final-review-notes.json');
 const authFile = path.join(dataDir, 'auth.json');
@@ -3552,6 +3553,110 @@ const getCurrentTeacherFinanceMonthKey = () => {
   return normalizeTeacherFinanceMonthKey(String(calendarDayKey || '').slice(0, 7))
     || new Date().toISOString().slice(0, 7);
 };
+
+const TEACHER_SUBSCRIPTION_PAYMENTS_LIMIT = 36;
+const TEACHER_SUBSCRIPTION_DEFAULT_DUE_DAY = 10;
+
+const normalizeTeacherSubscriptionDueDay = (value, fallback = TEACHER_SUBSCRIPTION_DEFAULT_DUE_DAY) => {
+  const numeric = Math.round(Number(value));
+  if (Number.isFinite(numeric) && numeric >= 1 && numeric <= 31) return numeric;
+  return Math.max(1, Math.min(31, Math.round(Number(fallback) || TEACHER_SUBSCRIPTION_DEFAULT_DUE_DAY)));
+};
+
+const normalizeTeacherSubscriptionPayment = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const amount = roundTeacherFinanceNumber(source.amount);
+  if (amount <= 0) return null;
+  return {
+    amount,
+    paidAt: normalizeIsoTimestamp(source.paidAt || source.createdAt, ''),
+    note: normalizeTeacherFinanceText(source.note, 240),
+    updatedById: String(source.updatedById || '').trim(),
+    updatedByName: normalizeTeacherFinanceText(source.updatedByName, 120),
+  };
+};
+
+const normalizeTeacherSubscriptionEntry = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const paymentsSource = source.payments && typeof source.payments === 'object' && !Array.isArray(source.payments)
+    ? source.payments
+    : {};
+  const payments = {};
+  Object.entries(paymentsSource)
+    .sort(([left], [right]) => String(left).localeCompare(String(right)))
+    .slice(-TEACHER_SUBSCRIPTION_PAYMENTS_LIMIT)
+    .forEach(([month, rawPayment]) => {
+      const normalizedMonth = normalizeTeacherFinanceMonthKey(month);
+      const payment = normalizeTeacherSubscriptionPayment(rawPayment);
+      if (normalizedMonth && payment) payments[normalizedMonth] = payment;
+    });
+  return {
+    monthlyFee: roundTeacherFinanceNumber(source.monthlyFee),
+    dueDay: normalizeTeacherSubscriptionDueDay(source.dueDay),
+    payments,
+    updatedAt: normalizeIsoTimestamp(source.updatedAt, ''),
+  };
+};
+
+const normalizeTeacherSubscriptionsDb = (value) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  Object.entries(source).forEach(([teacherId, rawEntry]) => {
+    const id = String(teacherId || '').trim();
+    if (!id) return;
+    normalized[id] = normalizeTeacherSubscriptionEntry(rawEntry);
+  });
+  return normalized;
+};
+
+let teacherSubscriptionsDbCache = null;
+const readTeacherSubscriptionsDb = () => {
+  if (teacherSubscriptionsDbCache) return teacherSubscriptionsDbCache;
+  try {
+    teacherSubscriptionsDbCache = normalizeTeacherSubscriptionsDb(JSON.parse(fs.readFileSync(teacherSubscriptionsFile, 'utf8')));
+  } catch {
+    teacherSubscriptionsDbCache = {};
+  }
+  return teacherSubscriptionsDbCache;
+};
+
+const writeTeacherSubscriptionsDb = (data) => {
+  const normalized = normalizeTeacherSubscriptionsDb(data);
+  writeJsonFileAtomic(teacherSubscriptionsFile, normalized);
+  teacherSubscriptionsDbCache = normalized;
+};
+
+const getTeacherSubscriptionStatus = (teacherId, monthKey = getCurrentTeacherFinanceMonthKey(), now = new Date()) => {
+  const id = String(teacherId || '').trim();
+  const month = normalizeTeacherFinanceMonthKey(monthKey) || getCurrentTeacherFinanceMonthKey();
+  const entry = normalizeTeacherSubscriptionEntry(readTeacherSubscriptionsDb()[id]);
+  const monthlyFee = roundTeacherFinanceNumber(entry.monthlyFee);
+  const payment = entry.payments[month] || null;
+  const paidAmount = roundTeacherFinanceNumber(payment?.amount);
+  const remaining = roundTeacherFinanceNumber(Math.max(0, monthlyFee - paidAmount));
+  const dateParts = getDatePartsInCalendarTimeZone(now) || {};
+  const currentDay = Math.max(1, Math.min(31, Number(String(dateParts.dayKey || '').slice(-2)) || 1));
+  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+  const effectiveDueDay = Math.min(entry.dueDay, daysInMonth);
+  const status = monthlyFee <= 0
+    ? 'disabled'
+    : (remaining <= 0 ? 'paid' : (currentDay > effectiveDueDay ? 'overdue' : 'unpaid'));
+  return {
+    monthlyFee,
+    dueDay: entry.dueDay,
+    effectiveDueDay,
+    month,
+    paidAmount,
+    remaining,
+    status,
+    accessAllowed: status !== 'overdue',
+    paidAt: payment?.paidAt || '',
+  };
+};
+
+const isTeacherSubscriptionAccessAllowed = (auth) => (
+  !isTeacherRole(auth) || getTeacherSubscriptionStatus(auth.id).accessAllowed
+);
 
 const normalizeTeacherFinanceText = (value, maxLength) => {
   if (typeof value !== 'string') return '';
@@ -7330,6 +7435,10 @@ const buildSessionUser = (user) => {
   if (role === 'teacher') {
     const avatarDataUrl = normalizeTeacherAvatarDataUrl(user.avatarDataUrl);
     if (avatarDataUrl) payload.avatarDataUrl = avatarDataUrl;
+    payload.canManageGlobalTaskContent = Boolean(user.canManageGlobalTaskContent);
+    if (user.subscription && typeof user.subscription === 'object') {
+      payload.subscription = user.subscription;
+    }
   }
   if (role === 'parent') {
     const studentId = String(user.studentId || '').trim();
@@ -7425,6 +7534,8 @@ const resolveSessionUser = (sessionUser) => {
       name: teacher.name,
       role: 'teacher',
       avatarDataUrl: normalizeTeacherAvatarDataUrl(teacher.avatarDataUrl),
+      canManageGlobalTaskContent: canManageGlobalTaskContent({ role: 'teacher', id: teacher.id }),
+      subscription: getTeacherSubscriptionStatus(teacher.id),
     };
   }
   if (role === 'student') {
@@ -8476,9 +8587,9 @@ const normalizeTeacherId = (value) => {
 };
 
 const getPlatformOwnerTeacherId = () => {
-  if (PLATFORM_OWNER_TEACHER_ID) return PLATFORM_OWNER_TEACHER_ID;
   const teachers = readTeachersDb();
-  return normalizeTeacherId(teachers[0]?.id);
+  const explicitlyAssigned = teachers.find((teacher) => teacher?.canManageGlobalTaskContent === true);
+  return normalizeTeacherId(explicitlyAssigned?.id || PLATFORM_OWNER_TEACHER_ID || teachers[0]?.id);
 };
 
 const canManageGlobalTaskContent = (auth) => (
@@ -21041,6 +21152,14 @@ app.post('/api/login', async (req, res, next) => {
     normalizedCode
   );
   if (teacher) {
+    clearLoginFailures(clientKey);
+    const subscription = getTeacherSubscriptionStatus(teacher.id);
+    if (!subscription.accessAllowed) {
+      return res.status(402).json({
+        error: 'Доступ приостановлен: оплатите подписку и попросите администратора подтвердить платёж.',
+        subscription,
+      });
+    }
     if (String(teacher.codeLookupHash || '').trim() !== codeLookupHash) {
       const teacherIndex = teachers.findIndex((entry) => entry?.id === teacher.id);
       if (teacherIndex >= 0) {
@@ -21048,12 +21167,13 @@ app.post('/api/login', async (req, res, next) => {
         writeTeachersDb(teachers);
       }
     }
-    clearLoginFailures(clientKey);
     const session = createAuthSession({
       id: teacher.id,
       name: teacher.name,
       role: 'teacher',
       avatarDataUrl: normalizeTeacherAvatarDataUrl(teacher.avatarDataUrl),
+      canManageGlobalTaskContent: canManageGlobalTaskContent({ role: 'teacher', id: teacher.id }),
+      subscription,
     });
     return respondWithSession(res, session);
   }
@@ -21333,6 +21453,15 @@ app.use('/api', (req, res, next) => {
   req.auth = session.user;
   req.authToken = session.token;
   setAuthSessionCookie(res, session);
+  const subscriptionExempt = req.path === '/session'
+    || req.path === '/teacher-subscription'
+    || req.path === '/logout';
+  if (isTeacherRole(req.auth) && !subscriptionExempt && !isTeacherSubscriptionAccessAllowed(req.auth)) {
+    return res.status(402).json({
+      error: 'Доступ приостановлен: оплатите подписку и попросите администратора подтвердить платёж.',
+      subscription: getTeacherSubscriptionStatus(req.auth.id),
+    });
+  }
   if (isLeadRole(req.auth) && !isLeadAllowedApiRequest(req)) {
     return forbid(res);
   }
@@ -28051,6 +28180,8 @@ app.get('/api/teachers', (_req, res) => {
     delete rest.codeHash;
     delete rest.codeLookupHash;
     delete rest.readSolvedEventIds;
+    rest.canManageGlobalTaskContent = canManageGlobalTaskContent({ role: 'teacher', id: teacherEntry.id });
+    rest.subscription = getTeacherSubscriptionStatus(teacherEntry.id);
     return rest;
   });
   res.json(sanitized);
@@ -28072,11 +28203,100 @@ app.post('/api/teachers', (req, res) => {
     name: teacherName,
     ...buildAccessCodeCredentials(plainCode),
     readSolvedEventIds: [],
+    canManageGlobalTaskContent: false,
     createdAt: new Date().toISOString(),
   };
   teachers.unshift(entry);
   writeTeachersDb(teachers);
   res.json({ id: entry.id, name: entry.name, code: plainCode, codeHint: entry.codeHint, createdAt: entry.createdAt });
+});
+
+app.patch('/api/teachers/:id/global-task-manager', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
+  const id = String(req.params?.id || '').trim();
+  const teachers = readTeachersDb();
+  const targetIndex = teachers.findIndex((teacher) => String(teacher?.id || '').trim() === id);
+  if (targetIndex === -1) return res.status(404).json({ error: 'Учитель не найден' });
+  const updatedAt = new Date().toISOString();
+  const nextTeachers = teachers.map((teacher, index) => ({
+    ...teacher,
+    canManageGlobalTaskContent: index === targetIndex,
+    ...(index === targetIndex ? { updatedAt } : {}),
+  }));
+  writeTeachersDb(nextTeachers);
+  return res.json({
+    ok: true,
+    teacherId: id,
+    canManageGlobalTaskContent: true,
+  });
+});
+
+app.get('/api/teacher-subscription', (req, res) => {
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const requestedTeacherId = String(req.query?.teacherId || '').trim();
+  const teacherId = isTeacherRole(req.auth) ? req.auth.id : requestedTeacherId;
+  const teacher = ensureTeacherAccess(req, res, teacherId, { missingError: 'teacherId required' });
+  if (!teacher) return;
+  return res.json(getTeacherSubscriptionStatus(teacher.id));
+});
+
+app.patch('/api/teacher-subscription', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
+  const teacherId = String(req.body?.teacherId || '').trim();
+  if (!teacherId) return res.status(400).json({ error: 'teacherId required' });
+  if (!findTeacherById(teacherId)) return res.status(404).json({ error: 'Учитель не найден' });
+  const monthlyFee = roundTeacherFinanceNumber(req.body?.monthlyFee);
+  const dueDay = normalizeTeacherSubscriptionDueDay(req.body?.dueDay);
+  const db = readTeacherSubscriptionsDb();
+  const current = normalizeTeacherSubscriptionEntry(db[teacherId]);
+  db[teacherId] = {
+    ...current,
+    monthlyFee,
+    dueDay,
+    updatedAt: new Date().toISOString(),
+  };
+  writeTeacherSubscriptionsDb(db);
+  return res.json(getTeacherSubscriptionStatus(teacherId));
+});
+
+app.post('/api/teacher-subscription/payment', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
+  const teacherId = String(req.body?.teacherId || '').trim();
+  if (!teacherId) return res.status(400).json({ error: 'teacherId required' });
+  if (!findTeacherById(teacherId)) return res.status(404).json({ error: 'Учитель не найден' });
+  const month = normalizeTeacherFinanceMonthKey(req.body?.month) || getCurrentTeacherFinanceMonthKey();
+  const db = readTeacherSubscriptionsDb();
+  const current = normalizeTeacherSubscriptionEntry(db[teacherId]);
+  const amount = roundTeacherFinanceNumber(
+    typeof req.body?.amount === 'undefined' ? current.monthlyFee : req.body.amount
+  );
+  if (amount <= 0) return res.status(400).json({ error: 'Сначала задайте стоимость подписки' });
+  current.payments[month] = {
+    amount,
+    paidAt: new Date().toISOString(),
+    note: normalizeTeacherFinanceText(req.body?.note, 240),
+    updatedById: String(req.auth?.id || '').trim(),
+    updatedByName: normalizeTeacherFinanceText(req.auth?.name, 120),
+  };
+  current.updatedAt = new Date().toISOString();
+  db[teacherId] = current;
+  writeTeacherSubscriptionsDb(db);
+  return res.json(getTeacherSubscriptionStatus(teacherId, month));
+});
+
+app.delete('/api/teacher-subscription/payment', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
+  const teacherId = String(req.query?.teacherId || '').trim();
+  const month = normalizeTeacherFinanceMonthKey(req.query?.month) || getCurrentTeacherFinanceMonthKey();
+  if (!teacherId) return res.status(400).json({ error: 'teacherId required' });
+  if (!findTeacherById(teacherId)) return res.status(404).json({ error: 'Учитель не найден' });
+  const db = readTeacherSubscriptionsDb();
+  const current = normalizeTeacherSubscriptionEntry(db[teacherId]);
+  delete current.payments[month];
+  current.updatedAt = new Date().toISOString();
+  db[teacherId] = current;
+  writeTeacherSubscriptionsDb(db);
+  return res.json(getTeacherSubscriptionStatus(teacherId, month));
 });
 
 app.patch('/api/teachers/:id', (req, res) => {
@@ -28107,6 +28327,12 @@ app.delete('/api/teachers/:id', (req, res) => {
 
   const removed = teachers.splice(idx, 1)[0];
   writeTeachersDb(teachers);
+
+  const subscriptionDb = readTeacherSubscriptionsDb();
+  if (Object.prototype.hasOwnProperty.call(subscriptionDb, id)) {
+    delete subscriptionDb[id];
+    writeTeacherSubscriptionsDb(subscriptionDb);
+  }
 
   const students = readStudentsDb();
   const toRemove = students.filter((s) => s.teacherId === id);

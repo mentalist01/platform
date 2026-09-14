@@ -310,6 +310,11 @@ const TeacherPanel = ({
   const [signupMessageDeletingId, setSignupMessageDeletingId] = useState('');
   const signupMessagesRef = useRef(null);
 
+  useEffect(() => {
+    if (canManageGlobalTaskContent || taskContentScope !== 'global') return;
+    setTaskContentScope('teacher');
+  }, [canManageGlobalTaskContent, taskContentScope]);
+
   const getStudentFinanceRow = useCallback((studentId, snapshot = teacherFinanceSnapshot) => {
     const normalizedId = String(studentId || '').trim();
     if (!normalizedId) return null;
