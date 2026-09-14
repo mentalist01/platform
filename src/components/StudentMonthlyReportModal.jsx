@@ -49,6 +49,16 @@ const sanitizeFileName = (value) => String(value || 'ученик')
   .replace(/^-+|-+$/g, '')
   .slice(0, 80) || 'ученик';
 
+const formatTopicCount = (value) => {
+  const count = Math.max(0, Math.trunc(Number(value) || 0));
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  const label = mod100 >= 11 && mod100 <= 14
+    ? 'тем'
+    : (mod10 === 1 ? 'тема' : (mod10 >= 2 && mod10 <= 4 ? 'темы' : 'тем'));
+  return `${count} ${label}`;
+};
+
 const MetricCard = ({ icon, label, value, note, tone }) => (
   <div className="student-month-report__metric" data-tone={tone}>
     <span className="student-month-report__metric-icon">{React.createElement(icon, { size: 18 })}</span>
@@ -205,7 +215,9 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
                 tone="lessons"
                 label="Занятия"
                 value={lessons.count ?? 0}
-                note={lessons.count > 0 ? lessons.durationLabel : 'нет занятий'}
+                note={(lessons.topics?.length ?? 0) > 0
+                  ? formatTopicCount(lessons.topics.length)
+                  : (lessons.count > 0 ? 'по календарю' : 'нет занятий')}
               />
               <MetricCard
                 icon={BookOpenCheck}

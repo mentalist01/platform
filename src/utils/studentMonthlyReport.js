@@ -2,6 +2,51 @@ const REPORT_TIME_ZONE = 'Europe/Moscow';
 
 const normalizeText = (value) => String(value ?? '').trim();
 
+const toShortDashes = (value) => normalizeText(value).replace(/[\u2010-\u2015\u2212]/gu, '-');
+
+const lowerFirstLetter = (value) => {
+  const text = toShortDashes(value).replace(/[.!?]+$/u, '');
+  if (!text || !/^[А-ЯЁ]/u.test(text)) return text;
+  return `${text[0].toLocaleLowerCase('ru-RU')}${text.slice(1)}`;
+};
+
+const joinNaturalList = (values) => {
+  const items = values.map(lowerFirstLetter).filter(Boolean);
+  if (items.length <= 1) return items[0] || '';
+  if (items.length === 2) return `${items[0]} и ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')} и ${items.at(-1)}`;
+};
+
+const MALE_NAMES_ENDING_WITH_A_OR_YA = new Set([
+  'данила', 'илья', 'кузьма', 'лука', 'никита', 'савва', 'фома',
+]);
+
+const getStudentGrammar = (name) => {
+  const firstName = normalizeText(name).split(/\s+/u)[0].toLocaleLowerCase('ru-RU');
+  const isFemale = /[ая]$/u.test(firstName) && !MALE_NAMES_ENDING_WITH_A_OR_YA.has(firstName);
+  return {
+    studied: isFemale ? 'занималась' : 'занимался',
+    wrote: isFemale ? 'написала' : 'написал',
+    scored: isFemale ? 'набрала' : 'набрал',
+  };
+};
+
+const hashText = (value) => {
+  let hash = 2166136261;
+  for (const char of String(value || '')) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
+const createPhrasePicker = ({ student, month, nowMs }) => {
+  const stablePart = hashText(`${student?.id || ''}|${student?.name || ''}|${month || ''}`);
+  const changingPart = Math.abs(Math.trunc(Number(nowMs) || 0));
+  const baseIndex = (stablePart + changingPart) % 3;
+  return (phrases, offset = 0) => phrases[(baseIndex + offset) % phrases.length];
+};
+
 const pluralize = (value, one, few, many) => {
   const count = Math.abs(Math.trunc(Number(value) || 0));
   const mod100 = count % 100;
@@ -89,15 +134,14 @@ const getLessonTopicLabel = (entry) => {
     const label = normalizeText(topic.title || topic.name || topic.text || topic.label);
     if (label) return label;
   }
-  const subject = normalizeText(entry?.subject);
-  return subject && subject !== 'Занятие' ? subject : '';
+  return '';
 };
 
 const uniqueLabels = (values, limit = 6) => {
   const seen = new Set();
   const result = [];
   for (const value of values) {
-    const label = normalizeText(value).replace(/\s+/g, ' ');
+    const label = toShortDashes(value).replace(/\s+/g, ' ');
     const key = label.toLocaleLowerCase('ru-RU');
     if (!label || seen.has(key)) continue;
     seen.add(key);
@@ -107,41 +151,81 @@ const uniqueLabels = (values, limit = 6) => {
   return result;
 };
 
-const buildAutomaticConclusion = ({ homework, mocks, lessons }) => {
+const buildAutomaticConclusion = ({ homework, mocks, lessons, pickPhrase }) => {
   const sentences = [];
   if (homework.assignedCount > 0) {
     const evaluatedCount = Math.max(0, homework.assignedCount - homework.upcomingCount);
     const completeRate = evaluatedCount > 0 ? homework.completedCount / evaluatedCount : null;
     const onTimeRate = evaluatedCount > 0 ? homework.onTimeCount / evaluatedCount : null;
-    if (evaluatedCount === 0) {
-      sentences.push('Домашние задания текущего месяца ещё в работе, сроки их выполнения пока не наступили.');
-    } else if (completeRate >= 1 && onTimeRate >= 0.8) {
-      sentences.push('Домашняя работа выполняется стабильно — важно сохранить этот темп.');
+    if (evaluatedCount > 0 && completeRate >= 1 && onTimeRate >= 0.8) {
+      sentences.push(pickPhrase([
+        'По домашней работе всё стабильно, этот темп важно сохранить.',
+        'С домашней работой всё идёт хорошо, продолжаем в том же темпе.',
+        'По домашним заданиям всё стабильно: они выполняются регулярно и вовремя.',
+      ], 1));
     } else if (completeRate >= 0.7) {
-      sentences.push('Темп по домашней работе хороший, но стоит внимательнее следить за оставшимися заданиями и сроками.');
-    } else {
-      sentences.push('Основная зона роста сейчас — регулярность домашней работы: лучше выполнять её частями сразу после занятия.');
+      sentences.push(pickPhrase([
+        'Темп по домашней работе хороший, но отдельные задания стоит доводить до конца внимательнее.',
+        'В целом домашняя работа идёт хорошо. Следующий шаг - не оставлять незаконченные задания.',
+        'По домашним заданиям есть хороший темп, теперь нужно добавить немного больше регулярности.',
+      ], 1));
+    } else if (evaluatedCount > 0) {
+      sentences.push(pickPhrase([
+        'Сейчас основная задача - сделать домашнюю работу более регулярной и не откладывать её до последнего дня.',
+        'Нужно выровнять темп по домашним заданиям: лучше выполнять их небольшими частями после каждого урока.',
+        'В ближайшее время уделим больше внимания регулярности домашней работы и завершению заданий в срок.',
+      ], 1));
     }
     if (homework.withErrorsCount > 0) {
-      sentences.push('Полезно отдельно разобрать задания, в которых были ошибочные попытки.');
+      sentences.push(pickPhrase([
+        'На уроках отдельно разберём задания, в которых были ошибки.',
+        'Ошибочные задания ещё раз пройдём вместе, чтобы закрепить сложные моменты.',
+        'Отдельно вернёмся к заданиям с ошибками и разберём, где возникли трудности.',
+      ], 2));
     }
   }
   if (mocks.count > 0) {
     if (mocks.deltaFromPrevious != null && mocks.deltaFromPrevious > 0) {
-      sentences.push(`Результат пробника вырос на ${mocks.deltaFromPrevious} ${pluralize(mocks.deltaFromPrevious, 'балл', 'балла', 'баллов')} — прогресс уже виден.`);
+      sentences.push(pickPhrase([
+        `Результат пробника вырос на ${mocks.deltaFromPrevious} ${pluralize(mocks.deltaFromPrevious, 'балл', 'балла', 'баллов')} - прогресс уже виден.`,
+        `По сравнению с прошлым пробником прибавили ${mocks.deltaFromPrevious} ${pluralize(mocks.deltaFromPrevious, 'балл', 'балла', 'баллов')}. Продолжим закреплять то, что уже получается.`,
+        `Есть рост на ${mocks.deltaFromPrevious} ${pluralize(mocks.deltaFromPrevious, 'балл', 'балла', 'баллов')}. Теперь важно удержать результат и убрать оставшиеся ошибки.`,
+      ], 3));
     } else if (mocks.deltaFromPrevious != null && mocks.deltaFromPrevious < 0) {
-      sentences.push('Результат пробника временно снизился; разбор ошибок поможет вернуть и улучшить предыдущий уровень.');
+      sentences.push(pickPhrase([
+        'На следующих занятиях подробно разберём ошибки пробника и вернём потерянные баллы.',
+        'Ближайший план - понять, где потерялись баллы, и закрепить эти типы заданий.',
+        'Результат пока ниже предыдущего, поэтому начнём с разбора ошибок и самых слабых заданий.',
+      ], 3));
     } else if (mocks.latestScore >= 80) {
-      sentences.push('Результат пробника высокий; дальше стоит закреплять сложные задания и снижать число случайных ошибок.');
+      sentences.push(pickPhrase([
+        'Результат пробника высокий. Дальше будем закреплять сложные задания и убирать случайные ошибки.',
+        'Пробник написан уверенно, теперь работаем над стабильностью и самыми сложными заданиями.',
+        'Уровень уже высокий. Следующая цель - сохранить его и точечно разобрать оставшиеся ошибки.',
+      ], 3));
+    } else if (mocks.previousScore == null) {
+      sentences.push(pickPhrase([
+        'На следующих занятиях разберём пробник по ошибкам и определим задания, которые дадут самый быстрый рост.',
+        'Сначала разберём ошибки пробника, затем закрепим самые слабые типы заданий.',
+        'Ближайший план - пройти ошибки пробника и выбрать задания, на которых можно быстрее всего прибавить баллы.',
+      ], 3));
     } else {
-      sentences.push('Результат пробника зафиксирован; следующий шаг — разобрать ошибки и закрепить задания, где потеряны баллы.');
+      sentences.push(pickPhrase([
+        'Следующий шаг - разобрать ошибки пробника и закрепить задания, на которых потеряны баллы.',
+        'На ближайших занятиях пройдём пробник по ошибкам и отдельно поработаем над слабыми местами.',
+        'Дальше сосредоточимся на разборе пробника и заданиях, которые пока забирают больше всего баллов.',
+      ], 3));
     }
   }
   if (lessons.count > 0 && sentences.length === 0) {
-    sentences.push('Работа идёт по плану; продолжим закреплять изученные темы на следующих занятиях.');
+    sentences.push(pickPhrase([
+      'Работа идёт по плану, на следующих занятиях продолжим закреплять изученные темы.',
+      'Темп занятий хороший, продолжаем двигаться по плану и закреплять материал.',
+      'Продолжаем работать в текущем темпе и постепенно усложнять задания.',
+    ], 4));
   }
   if (sentences.length === 0) {
-    sentences.push('За выбранный месяц пока недостаточно данных для автоматической рекомендации.');
+    sentences.push('За этот месяц пока мало данных, поэтому содержательный вывод получится сделать после следующих занятий.');
   }
   return sentences.join(' ');
 };
@@ -158,6 +242,15 @@ export const buildStudentMonthlyReport = ({
   const currentMonth = getCurrentMonthKey(nowMs);
   const monthLabel = formatReportMonth(normalizedMonth);
   const studentName = normalizeText(student?.name) || 'Ученик';
+  const grammar = getStudentGrammar(studentName);
+  const pickPhrase = createPhrasePicker({ student, month: normalizedMonth, nowMs });
+  const [reportYear, reportMonthNumber] = normalizedMonth.split('-').map(Number);
+  const currentYear = Number(currentMonth.slice(0, 4));
+  const monthName = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: REPORT_TIME_ZONE,
+    month: 'long',
+  }).format(new Date(Date.UTC(reportYear, reportMonthNumber - 1, 15, 12)));
+  const messageMonthLabel = reportYear === currentYear ? monthName : `${monthName} ${reportYear} года`;
   const homeworks = (Array.isArray(homeworkEntries) ? homeworkEntries : [])
     .filter((entry) => getHomeworkMonthKey(entry) === normalizedMonth);
   const lessons = (Array.isArray(lessonEntries) ? lessonEntries : [])
@@ -227,51 +320,85 @@ export const buildStudentMonthlyReport = ({
     },
   };
 
-  const lines = [
-    `Здравствуйте! Отчёт по ученику: ${studentName}.`,
-    `Период: ${monthLabel}${normalizedMonth === currentMonth ? ` (по состоянию на ${formatReportDate(nowMs)})` : ''}.`,
-    '',
-    'Занятия',
-    metrics.lessons.count > 0
-      ? `Проведено: ${metrics.lessons.count} ${pluralize(metrics.lessons.count, 'занятие', 'занятия', 'занятий')}, ${metrics.lessons.durationLabel}.`
-      : 'Занятий в календаре за этот месяц пока нет.',
-  ];
-  if (lessonTopics.length > 0) lines.push(`Темы месяца: ${lessonTopics.join('; ')}.`);
+  const asOf = normalizedMonth === currentMonth ? `, по состоянию на ${formatReportDate(nowMs)}` : '';
+  const lines = [pickPhrase([
+    `Здравствуйте! Отчитываюсь за ${messageMonthLabel}. Ниже - как ${studentName} ${grammar.studied} в этом месяце${asOf}.`,
+    `Здравствуйте! Подвожу итоги за ${messageMonthLabel}. Рассказываю, как ${studentName} ${grammar.studied} в этом месяце${asOf}.`,
+    `Здравствуйте! Делюсь результатами за ${messageMonthLabel}. Коротко о том, как ${studentName} ${grammar.studied} в этом месяце${asOf}.`,
+  ])];
 
-  lines.push('', 'Домашние задания');
-  if (metrics.homework.assignedCount > 0) {
-    lines.push(`Выполнено полностью: ${metrics.homework.completedCount} из ${metrics.homework.assignedCount}.`);
-    lines.push(`Выполнено в срок: ${metrics.homework.onTimeCount} из ${metrics.homework.assignedCount}.`);
-    if (metrics.homework.incompleteCount > 0) {
-      lines.push(`Не завершено к сроку: ${metrics.homework.incompleteCount}.`);
-      if (incompleteLabels.length > 0) lines.push(...incompleteLabels.map((label) => `• ${label}`));
-    }
-    if (metrics.homework.upcomingCount > 0) {
-      lines.push(`Ещё в работе, срок не наступил: ${metrics.homework.upcomingCount}.`);
-    }
+  if (metrics.lessons.count > 0) {
+    const lessonCountLabel = `${metrics.lessons.count} ${pluralize(metrics.lessons.count, 'занятие', 'занятия', 'занятий')}`;
+    const topicsLabel = joinNaturalList(lessonTopics);
+    lines.push('', topicsLabel
+      ? pickPhrase([
+        `За это время мы провели ${lessonCountLabel}. На уроках разобрали: ${topicsLabel}.`,
+        `В этом месяце прошло ${lessonCountLabel}. Работали над темами: ${topicsLabel}.`,
+        `За месяц мы провели ${lessonCountLabel} и разобрали: ${topicsLabel}.`,
+      ], 1)
+      : pickPhrase([
+        `За это время мы провели ${lessonCountLabel}.`,
+        `В этом месяце прошло ${lessonCountLabel}.`,
+        `За месяц мы провели ${lessonCountLabel}.`,
+      ], 1));
   } else {
-    lines.push('Домашних заданий со сроком в этом месяце нет.');
+    lines.push('', 'В этом месяце занятий пока не было.');
   }
 
-  lines.push('', 'Пробники');
-  if (metrics.mocks.count === 0) {
-    lines.push('Результат пробника за этот месяц не зафиксирован.');
-  } else if (metrics.mocks.count === 1) {
-    lines.push(`${metrics.mocks.entries[0].title}: ${metrics.mocks.latestScore} ${pluralize(metrics.mocks.latestScore, 'балл', 'балла', 'баллов')}.`);
+  if (metrics.homework.assignedCount > 0) {
+    const completedLabel = metrics.homework.completedCount > 0
+      ? `полностью выполнено ${metrics.homework.completedCount} ${pluralize(metrics.homework.completedCount, 'задание', 'задания', 'заданий')} из ${metrics.homework.assignedCount}`
+      : `полностью пока не выполнено ни одного задания из ${metrics.homework.assignedCount}`;
+    const onTimeLabel = metrics.homework.onTimeCount > 0
+      ? `в срок сдано ${metrics.homework.onTimeCount} из ${metrics.homework.assignedCount}`
+      : 'в срок пока ничего не сдано';
+    lines.push('', pickPhrase([
+      `По домашней работе: ${completedLabel}, ${onTimeLabel}.`,
+      `С домашними заданиями сейчас так: ${completedLabel}, ${onTimeLabel}.`,
+      `По домашним заданиям за месяц: ${completedLabel}, ${onTimeLabel}.`,
+    ], 2));
+    if (metrics.homework.incompleteCount > 0) {
+      const overdueLabel = `${metrics.homework.incompleteCount} ${pluralize(metrics.homework.incompleteCount, 'просроченное задание', 'просроченных задания', 'просроченных заданий')}`;
+      lines.push(`Нужно закончить ${overdueLabel}${incompleteLabels.length > 0 ? `: ${joinNaturalList(incompleteLabels)}` : ''}.`);
+    }
   } else {
-    lines.push(`Написано пробников: ${metrics.mocks.count}. Последний результат — ${metrics.mocks.latestScore}, лучший — ${metrics.mocks.bestScore}, средний — ${metrics.mocks.averageScore} баллов.`);
+    lines.push('', 'Домашних заданий в этом месяце не было.');
+  }
+
+  if (metrics.mocks.count === 0) {
+    lines.push('', 'Пробника в этом месяце пока не было.');
+  } else if (metrics.mocks.count === 1) {
+    const scoreLabel = `${metrics.mocks.latestScore} ${pluralize(metrics.mocks.latestScore, 'балл', 'балла', 'баллов')}`;
+    if (metrics.mocks.previousScore == null) {
+      lines.push('', pickPhrase([
+        `В этом месяце ${studentName} ${grammar.wrote} первый пробник и ${grammar.scored} ${scoreLabel}. Это наша отправная точка, дальше будем отслеживать прогресс.`,
+        `${studentName} ${grammar.wrote} первый пробник на ${scoreLabel}. Теперь у нас есть начальный результат, от которого будем двигаться дальше.`,
+        `Первый пробник в этом месяце - ${scoreLabel}. Это стартовый результат ${studentName}, дальше будем смотреть на динамику.`,
+      ], 3));
+    } else {
+      lines.push('', `В этом месяце ${studentName} ${grammar.wrote} пробник на ${scoreLabel}.`);
+    }
+  } else {
+    lines.push('', `${studentName} ${grammar.wrote} ${metrics.mocks.count} ${pluralize(metrics.mocks.count, 'пробник', 'пробника', 'пробников')}. Последний результат - ${metrics.mocks.latestScore} ${pluralize(metrics.mocks.latestScore, 'балл', 'балла', 'баллов')}, лучший - ${metrics.mocks.bestScore} ${pluralize(metrics.mocks.bestScore, 'балл', 'балла', 'баллов')}.`);
   }
   if (metrics.mocks.deltaFromPrevious != null) {
-    const prefix = metrics.mocks.deltaFromPrevious > 0 ? '+' : '';
-    lines.push(`Изменение относительно предыдущего результата: ${prefix}${metrics.mocks.deltaFromPrevious} ${pluralize(metrics.mocks.deltaFromPrevious, 'балл', 'балла', 'баллов')}.`);
+    const delta = Math.abs(metrics.mocks.deltaFromPrevious);
+    if (metrics.mocks.deltaFromPrevious > 0) {
+      lines.push(`Это на ${delta} ${pluralize(delta, 'балл', 'балла', 'баллов')} выше предыдущего результата.`);
+    } else if (metrics.mocks.deltaFromPrevious < 0) {
+      lines.push(`Это на ${delta} ${pluralize(delta, 'балл', 'балла', 'баллов')} ниже предыдущего результата.`);
+    } else {
+      lines.push('Результат совпал с предыдущим.');
+    }
   }
 
   const automaticConclusion = buildAutomaticConclusion({
     homework: metrics.homework,
     mocks: metrics.mocks,
     lessons: metrics.lessons,
+    pickPhrase,
   });
-  lines.push('', 'Комментарий и рекомендации', automaticConclusion);
+  lines.push('', automaticConclusion);
 
   return {
     month: normalizedMonth,
@@ -281,6 +408,6 @@ export const buildStudentMonthlyReport = ({
     student: { id: normalizeText(student?.id), name: studentName },
     metrics,
     automaticConclusion,
-    text: lines.join('\n'),
+    text: toShortDashes(lines.join('\n')),
   };
 };

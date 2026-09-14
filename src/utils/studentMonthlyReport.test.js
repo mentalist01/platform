@@ -27,7 +27,7 @@ test('monthly report combines lessons, homework deadlines and mock progress', ()
   assert.equal(report.month, '2026-09');
   assert.equal(report.metrics.lessons.count, 2);
   assert.equal(report.metrics.lessons.minutes, 150);
-  assert.deepEqual(report.metrics.lessons.topics, ['Системы счисления', 'Python']);
+  assert.deepEqual(report.metrics.lessons.topics, ['Системы счисления']);
   assert.equal(report.metrics.homework.assignedCount, 3);
   assert.equal(report.metrics.homework.completedCount, 1);
   assert.equal(report.metrics.homework.onTimeCount, 1);
@@ -37,9 +37,10 @@ test('monthly report combines lessons, homework deadlines and mock progress', ()
   assert.equal(report.metrics.mocks.latestScore, 43);
   assert.equal(report.metrics.mocks.previousScore, 27);
   assert.equal(report.metrics.mocks.deltaFromPrevious, 16);
-  assert.match(report.text, /Выполнено в срок: 1 из 3/);
-  assert.match(report.text, /Сентябрьский пробник: 43 балла/);
-  assert.match(report.text, /\+16 баллов/);
+  assert.match(report.text, /в срок сдано 1 из 3/);
+  assert.match(report.text, /пробник на 43 балла/);
+  assert.match(report.text, /на 16 баллов выше предыдущего результата/);
+  assert.doesNotMatch(report.text, /Python|Сентябрьский пробник|Ещё в работе|2 ч 30 мин|[—–]/u);
 });
 
 test('monthly report handles an empty month without inventing results', () => {
@@ -50,7 +51,7 @@ test('monthly report handles an empty month without inventing results', () => {
   });
   assert.equal(report.metrics.homework.assignedCount, 0);
   assert.equal(report.metrics.mocks.latestScore, null);
-  assert.match(report.text, /недостаточно данных/);
+  assert.match(report.text, /пока мало данных/);
   assert.doesNotMatch(report.text, /undefined|null/);
 });
 
@@ -60,7 +61,7 @@ test('report month validation rejects malformed values', () => {
   assert.equal(normalizeStudentReportMonth('september'), '');
 });
 
-test('automatic conclusion does not treat homework with a future deadline as overdue', () => {
+test('automatic conclusion does not judge homework whose deadline has not arrived', () => {
   const report = buildStudentMonthlyReport({
     student: { name: 'Анна' },
     month: '2026-09',
@@ -69,6 +70,49 @@ test('automatic conclusion does not treat homework with a future deadline as ove
       { dueAt: '2026-09-25T18:00:00+03:00', percent: 0, goals: [] },
     ],
   });
-  assert.match(report.automaticConclusion, /сроки их выполнения пока не наступили/);
-  assert.doesNotMatch(report.automaticConclusion, /зона роста/i);
+  assert.doesNotMatch(report.automaticConclusion, /домаш|срок|регулярн|зона роста/i);
+  assert.doesNotMatch(report.text, /срок не наступил/i);
+});
+
+test('parent-facing copy uses only saved lesson topics and explains a first mock naturally', () => {
+  const nowMs = Date.parse('2026-09-14T18:00:00+03:00');
+  const report = buildStudentMonthlyReport({
+    student: { id: 'danil', name: 'Данил' },
+    month: '2026-09',
+    nowMs,
+    lessonEntries: [
+      { dayKey: '2026-09-02', durationMinutes: 60, subject: 'Данил', startMs: nowMs - 10_000 },
+      { dayKey: '2026-09-06', durationMinutes: 60, topic: { text: 'Задания №7, 4', source: 'notes' }, startMs: nowMs - 9_000 },
+      { dayKey: '2026-09-10', durationMinutes: 30, subject: 'Данил пробное', startMs: nowMs - 8_000 },
+    ],
+    homeworkEntries: [
+      { dueAt: '2026-09-05T18:00:00+03:00', percent: 100, completedOnTime: true },
+      { dueAt: '2026-09-12T18:00:00+03:00', percent: 100, completedOnTime: true },
+      { dueAt: '2026-09-20T18:00:00+03:00', percent: 0 },
+    ],
+    mockEntries: [
+      { id: 'mock-1', title: 'ВАРИАНТ ПРЕДСКАЗАНИЕ на ЕГЭ 2026', score: 27, dateMs: nowMs - 7_000 },
+    ],
+  });
+
+  assert.deepEqual(report.metrics.lessons.topics, ['Задания №7, 4']);
+  assert.match(report.text, /мы провели 3 занятия|прошло 3 занятия/u);
+  assert.match(report.text, /задания №7, 4/u);
+  assert.match(report.text, /Данил (?:написал первый пробник|написал первый пробник на)|Первый пробник/u);
+  assert.match(report.text, /27 баллов/u);
+  assert.doesNotMatch(report.text, /Данил пробное|ВАРИАНТ ПРЕДСКАЗАНИЕ|2 ч 30 мин|срок не наступил|[—–]/u);
+});
+
+test('a fresh generation changes wording while keeping the same facts', () => {
+  const base = {
+    student: { id: 'student-1', name: 'Анна' },
+    month: '2026-09',
+    lessonEntries: [
+      { dayKey: '2026-09-02', topic: { text: 'Системы счисления' }, startMs: 1 },
+    ],
+  };
+  const first = buildStudentMonthlyReport({ ...base, nowMs: Date.parse('2026-09-14T12:00:00.001+03:00') });
+  const second = buildStudentMonthlyReport({ ...base, nowMs: Date.parse('2026-09-14T12:00:00.002+03:00') });
+  assert.notEqual(first.text, second.text);
+  assert.deepEqual(first.metrics, second.metrics);
 });

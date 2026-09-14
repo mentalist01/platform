@@ -106,7 +106,7 @@ test('teacher can generate a monthly report only for an accessible student', { t
     assert.equal(report.month, month);
     assert.equal(report.metrics.lessons.count, 0);
     assert.equal(report.metrics.homework.assignedCount, 0);
-    assert.match(report.text, /Отчёт по ученику: Илья/);
+    assert.match(report.text, /как Илья занимался|Илья занимался/u);
 
     await request(
       `/api/student-month-report?studentId=student-one&month=${month}`,
