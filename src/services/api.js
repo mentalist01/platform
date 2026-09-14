@@ -2176,6 +2176,16 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getStudentMonthlyReport: async (studentId, month = '') => {
+    const params = new URLSearchParams({
+      studentId: String(studentId || '').trim(),
+      _ts: String(Date.now()),
+    });
+    if (month) params.set('month', String(month));
+    const res = await apiFetch(`/api/student-month-report?${params.toString()}`);
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getLessonTopics: async (studentId, options = {}) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', String(studentId));

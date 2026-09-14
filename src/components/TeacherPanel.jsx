@@ -16,6 +16,7 @@ import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
+import StudentMonthlyReportModal from './StudentMonthlyReportModal';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import {
   QUESTION_INSERT_MODE_CUSTOM,
@@ -239,6 +240,7 @@ const TeacherPanel = ({
   const [resettingStudentId, setResettingStudentId] = useState(null);
   const [resettingBoardStudentId, setResettingBoardStudentId] = useState(null);
   const [restoringStudentId, setRestoringStudentId] = useState(null);
+  const [monthlyReportStudent, setMonthlyReportStudent] = useState(null);
   const [teacherCodeForm, setTeacherCodeForm] = useState({ current: '', next: '', repeat: '' });
   const [teacherCodeVisibility, setTeacherCodeVisibility] = useState({ current: false, next: false, repeat: false });
   const [teacherCodeError, setTeacherCodeError] = useState('');
@@ -3368,6 +3370,15 @@ const TeacherPanel = ({
                           <span className="text-xs font-semibold text-purple-600">Активный</span>
                         )}
                         <button
+                          onClick={(e) => { e.stopPropagation(); setMonthlyReportStudent(student); }}
+                          className="teacher-student-card__report-button"
+                          title="Собрать отчёт за месяц для родителя"
+                          type="button"
+                        >
+                          <FileText size={15} />
+                          Отчёт
+                        </button>
+                        <button
                           onClick={(e) => { e.stopPropagation(); startEditStudent(student); }}
                           className="px-3 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
                           type="button"
@@ -3581,6 +3592,12 @@ const TeacherPanel = ({
             </span>
           </span>
         </label>
+      )}
+      {monthlyReportStudent && (
+        <StudentMonthlyReportModal
+          student={monthlyReportStudent}
+          onClose={() => setMonthlyReportStudent(null)}
+        />
       )}
 
       <div id="teacher-question-editor" className="teacher-test-builder-layout" style={selectedTaskAccentStyle}>

@@ -58,6 +58,10 @@ import {
   summarizeMockExamProgress,
 } from '../src/utils/mockExamProgress.js';
 import {
+  buildStudentMonthlyReport,
+  normalizeStudentReportMonth,
+} from '../src/utils/studentMonthlyReport.js';
+import {
   LEARNING_GROUP_NOTES_SCOPE,
   LESSON_SHARED_SCOPE,
   LESSON_SHARE_MODE_COMMON,
@@ -34333,6 +34337,66 @@ app.get('/api/parent/overview', async (req, res) => {
   } catch (error) {
     console.error('[parent] failed to build overview:', error);
     return res.status(500).json({ error: 'Не удалось загрузить данные ученика' });
+  }
+});
+
+app.get('/api/student-month-report', async (req, res) => {
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.query?.studentId, {
+    missingError: 'studentId required',
+  });
+  if (!student) return;
+  const currentMonth = getCurrentTeacherFinanceMonthKey();
+  const requestedMonth = req.query?.month === undefined
+    ? currentMonth
+    : normalizeStudentReportMonth(req.query.month);
+  if (!requestedMonth) return res.status(400).json({ error: 'Некорректный месяц отчёта' });
+  if (requestedMonth > currentMonth) {
+    return res.status(400).json({ error: 'Отчёт за будущий месяц пока недоступен' });
+  }
+
+  try {
+    const studentData = getStudentData(student.id);
+    const testsDb = getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
+    const mockExams = readMockExamsDb().filter((exam) => (
+      isMockExamVisibleToStudent(exam, student.id)
+    ));
+    const mockAttemptsByExam = studentData.mockAttempts && typeof studentData.mockAttempts === 'object'
+      ? studentData.mockAttempts
+      : {};
+    const homeworkEntries = buildHomeworkStatistics({
+      homeworks: studentData.homeworks,
+      studentData,
+      testsDb,
+      mockExams,
+      mockAttemptsByExam,
+    });
+    const mockEntries = buildMockExamProgressEntries({
+      studentData,
+      mockExams,
+      mockAttemptsByExam,
+    });
+    const lessonEntries = await buildResolvedStudentLessonHistory(student, req.auth, {
+      persist: false,
+    });
+    const report = buildStudentMonthlyReport({
+      student,
+      month: requestedMonth,
+      homeworkEntries,
+      mockEntries,
+      lessonEntries,
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      ...report,
+      coverage: {
+        homeworkReliableSince: PARENT_HOMEWORK_RELIABLE_SINCE_DAY_KEY,
+        homeworkFullyReliable: `${requestedMonth}-01` >= PARENT_HOMEWORK_RELIABLE_SINCE_DAY_KEY,
+      },
+    });
+  } catch (error) {
+    console.error('[student-month-report] failed to build report:', error);
+    return res.status(500).json({ error: 'Не удалось собрать отчёт по ученику' });
   }
 });
 
