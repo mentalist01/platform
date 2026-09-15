@@ -33,14 +33,15 @@ test('monthly report combines lessons, homework deadlines and mock progress', ()
   assert.equal(report.metrics.homework.onTimeCount, 1);
   assert.equal(report.metrics.homework.incompleteCount, 1);
   assert.equal(report.metrics.homework.upcomingCount, 1);
-  assert.deepEqual(report.metrics.homework.incompleteLabels, ['Задание 19']);
+  assert.equal(report.metrics.homework.evaluatedCount, 2);
+  assert.equal(report.metrics.homework.averagePercent, 70);
   assert.equal(report.metrics.mocks.latestScore, 43);
   assert.equal(report.metrics.mocks.previousScore, 27);
   assert.equal(report.metrics.mocks.deltaFromPrevious, 16);
-  assert.match(report.text, /в срок сдано 1 из 3/);
+  assert.match(report.text, /70%/);
   assert.match(report.text, /пробник на 43 балла/);
   assert.match(report.text, /на 16 баллов выше предыдущего результата/);
-  assert.doesNotMatch(report.text, /Python|Сентябрьский пробник|Ещё в работе|2 ч 30 мин|[—–]/u);
+  assert.doesNotMatch(report.text, /Python|Сентябрьский пробник|Ещё в работе|2 ч 30 мин|просроч|в срок|[—–]/u);
 });
 
 test('monthly report handles an empty month without inventing results', () => {
@@ -72,6 +73,24 @@ test('automatic conclusion does not judge homework whose deadline has not arrive
   });
   assert.doesNotMatch(report.automaticConclusion, /домаш|срок|регулярн|зона роста/i);
   assert.doesNotMatch(report.text, /срок не наступил/i);
+});
+
+test('homework progress uses a human percentage and never asks to finish overdue work', () => {
+  const report = buildStudentMonthlyReport({
+    student: { id: 'student-ivan', name: 'Иван' },
+    month: '2026-09',
+    nowMs: Date.parse('2026-09-20T12:00:00+03:00'),
+    homeworkEntries: [
+      { dueAt: '2026-09-05T18:00:00+03:00', percent: 73, completedOnTime: false },
+      { dueAt: '2026-09-27T18:00:00+03:00', percent: 0 },
+    ],
+  });
+
+  assert.equal(report.metrics.homework.evaluatedCount, 1);
+  assert.equal(report.metrics.homework.averagePercent, 73);
+  assert.match(report.text, /Иван/u);
+  assert.match(report.text, /более чем на 70%|73%/u);
+  assert.doesNotMatch(report.text, /просроч|закончить|из 2|в срок/ui);
 });
 
 test('parent-facing copy uses only saved lesson topics and explains a first mock naturally', () => {

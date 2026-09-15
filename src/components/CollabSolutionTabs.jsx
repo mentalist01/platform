@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Columns2, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
 import { DEFAULT_COLLAB_SOLUTION_ID } from '../utils/collabSolutions';
 import './CollabSolutionTabs.css';
@@ -351,13 +352,14 @@ export default function CollabSolutionTabs({
         </div>
       </div>
 
-      {contextMenu && canEdit && (
+      {contextMenu && canEdit && typeof document !== 'undefined' && createPortal((
         <div
           ref={contextMenuRef}
-          className="collab-solutions__context-menu"
+          className={`collab-solutions__context-menu${dark ? ' collab-solutions__context-menu--dark' : ''}`}
           role="menu"
           aria-label={`Действия с вариантом «${contextMenu.solution.name}»`}
           style={{ left: contextMenu.x, top: contextMenu.y }}
+          onContextMenu={(event) => event.preventDefault()}
         >
           <button type="button" role="menuitem" className="collab-solutions__button" onClick={() => openForm('rename', contextMenu.solution)}>
             <Pencil size={14} aria-hidden="true" />Переименовать
@@ -368,7 +370,7 @@ export default function CollabSolutionTabs({
             </button>
           )}
         </div>
-      )}
+      ), document.body)}
 
       {form && form.id === activeId && !readOnly && solutions.some((item) => item.id === form.id) && (
         <form id={formId} className="collab-solutions__form" onSubmit={saveName}>
