@@ -77435,6 +77435,104 @@ html[data-theme='dark'] .notes-motion-view--landing .notes-landing-card::before 
   margin-top: 0.28rem;
 }
 
+.student-lesson-history__topic-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+
+.student-lesson-history__topic-row .schedule-shell__student-lesson-topic {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.student-lesson-history__topic-edit {
+  display: inline-flex;
+  min-height: 26px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.28rem 0.48rem;
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  border-radius: 9px;
+  color: #6d28d9;
+  background: rgba(245, 243, 255, 0.88);
+  font-size: 0.65rem;
+  font-weight: 800;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.student-lesson-history__topic-edit:hover {
+  border-color: rgba(124, 58, 237, 0.72);
+  color: #5b21b6;
+  background: #ede9fe;
+}
+
+.student-lesson-history__topic-edit:focus-visible,
+.student-lesson-history__topic-editor input:focus-visible,
+.student-lesson-history__topic-editor button:focus-visible {
+  outline: 2px solid rgba(124, 58, 237, 0.7);
+  outline-offset: 2px;
+}
+
+.student-lesson-history__topic-editor {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid rgba(167, 139, 250, 0.52);
+  border-radius: 12px;
+  background: rgba(245, 243, 255, 0.88);
+}
+
+.student-lesson-history__topic-editor > label {
+  color: #6d28d9;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.student-lesson-history__topic-editor > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  gap: 0.3rem;
+}
+
+.student-lesson-history__topic-editor input {
+  min-width: 0;
+  height: 30px;
+  padding: 0 0.55rem;
+  border: 1px solid rgba(196, 181, 253, 0.9);
+  border-radius: 8px;
+  color: #334155;
+  background: #fff;
+  font-size: 0.72rem;
+}
+
+.student-lesson-history__topic-editor button {
+  display: grid;
+  height: 30px;
+  place-items: center;
+  border: 1px solid rgba(167, 139, 250, 0.52);
+  border-radius: 8px;
+  color: #6d28d9;
+  background: #fff;
+}
+
+.student-lesson-history__topic-editor button:hover:not(:disabled) {
+  color: #fff;
+  background: #7c3aed;
+}
+
+.student-lesson-history__topic-editor > span {
+  color: #dc2626;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
 .schedule-shell__student-lesson-detail-hint svg,
 .student-lesson-history__detail-hint svg {
   transition: transform 160ms ease;
@@ -78195,6 +78293,24 @@ html[data-theme='dark'] .student-lesson-capsule__summary > span {
 html[data-theme='dark'] .schedule-shell__student-lesson-detail-hint,
 html[data-theme='dark'] .student-lesson-history__detail-hint {
   color: #c4b5fd;
+}
+
+html[data-theme='dark'] .student-lesson-history__topic-edit,
+html[data-theme='dark'] .student-lesson-history__topic-editor {
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
+  background: rgba(76, 29, 149, 0.28);
+}
+
+html[data-theme='dark'] .student-lesson-history__topic-editor > label {
+  color: #c4b5fd;
+}
+
+html[data-theme='dark'] .student-lesson-history__topic-editor input,
+html[data-theme='dark'] .student-lesson-history__topic-editor button {
+  border-color: rgba(139, 92, 246, 0.42);
+  color: #e9d5ff;
+  background: rgba(15, 23, 42, 0.86);
 }
 
 html[data-theme='dark'] .schedule-shell__student-lesson-detail-hint {

@@ -283,10 +283,12 @@ export default function CollabSolutionTabs({
           selectTabEntry(entry);
           const menuWidth = entry.id === DEFAULT_COLLAB_SOLUTION_ID ? 190 : 210;
           const menuHeight = entry.id === DEFAULT_COLLAB_SOLUTION_ID ? 48 : 86;
+          const ownerDocument = event.currentTarget.ownerDocument || document;
           setContextMenu({
             solution: entry,
             x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
             y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
+            portalRoot: ownerDocument.fullscreenElement || ownerDocument.body,
           });
         }}
         title={`${viewerNames ? `${entry.name} · Смотрят: ${viewerNames}` : entry.name}${canReorder ? ' · Удерживайте, чтобы переместить' : ''}${canEdit && !isParticipant ? ' · Правая кнопка — действия' : ''}`}
@@ -370,7 +372,7 @@ export default function CollabSolutionTabs({
             </button>
           )}
         </div>
-      ), document.body)}
+      ), contextMenu.portalRoot?.isConnected ? contextMenu.portalRoot : document.body)}
 
       {form && form.id === activeId && !readOnly && solutions.some((item) => item.id === form.id) && (
         <form id={formId} className="collab-solutions__form" onSubmit={saveName}>

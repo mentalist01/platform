@@ -81,7 +81,7 @@
   --solution-text: #536079;
   --solution-border: #e5e3f1;
   --solution-accent: #7c3aed;
-  position: fixed; z-index: 250; display: flex; flex-direction: column; min-width: 190px; padding: 5px; border: 1px solid var(--solution-border); border-radius: 12px; color: var(--solution-text); background: var(--solution-surface); box-shadow: 0 12px 34px #17213a2e;
+  position: fixed; z-index: 10000; display: flex; flex-direction: column; min-width: 190px; padding: 5px; border: 1px solid var(--solution-border); border-radius: 12px; color: var(--solution-text); background: var(--solution-surface); box-shadow: 0 12px 34px #17213a2e;
 }
 .collab-solutions__context-menu--dark {
   --solution-surface: #111b2b;

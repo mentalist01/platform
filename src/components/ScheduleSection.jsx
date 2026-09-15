@@ -769,6 +769,9 @@ const ScheduleSection = ({
   const [lessonTopicsByOccurrence, setLessonTopicsByOccurrence] = useState({});
   const [lessonTopicsLoading, setLessonTopicsLoading] = useState(false);
   const [lessonTopicsRefreshKey, setLessonTopicsRefreshKey] = useState(0);
+  const [lessonTopicEditor, setLessonTopicEditor] = useState(null);
+  const [lessonTopicSaving, setLessonTopicSaving] = useState(false);
+  const [lessonTopicSaveError, setLessonTopicSaveError] = useState('');
   const [scheduleForm, setScheduleForm] = useState({ ...DEFAULT_SCHEDULE_FORM });
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
@@ -1634,6 +1637,56 @@ const ScheduleSection = ({
     setLessonDetailReloadKey((value) => value + 1);
   }, []);
 
+  const openLessonTopicEditor = useCallback((entry, topicText = '') => {
+    const occurrenceKey = String(entry?.key || getLessonTopicOccurrenceKey(effectiveStudentId, entry)).trim();
+    if (role !== 'teacher' || !occurrenceKey) return;
+    setLessonTopicEditor({
+      occurrenceKey,
+      entry,
+      text: String(topicText || '').trim(),
+    });
+    setLessonTopicSaveError('');
+  }, [effectiveStudentId, role]);
+
+  const closeLessonTopicEditor = useCallback(() => {
+    if (lessonTopicSaving) return;
+    setLessonTopicEditor(null);
+    setLessonTopicSaveError('');
+  }, [lessonTopicSaving]);
+
+  const saveLessonHistoryTopic = useCallback(async (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (role !== 'teacher' || !effectiveStudentId || !lessonTopicEditor || lessonTopicSaving) return;
+    const text = String(lessonTopicEditor.text || '').trim();
+    if (!text) {
+      setLessonTopicSaveError('Напишите тему занятия.');
+      return;
+    }
+    setLessonTopicSaving(true);
+    setLessonTopicSaveError('');
+    try {
+      const result = await api.updateLessonTopic(effectiveStudentId, lessonTopicEditor.entry, text);
+      const savedTopic = result?.topic || { text, source: 'teacher', taskNumbers: [] };
+      const occurrenceKey = String(result?.occurrenceKey || lessonTopicEditor.occurrenceKey).trim();
+      setLessonHistory((current) => current.map((entry) => (
+        String(entry?.key || '').trim() === occurrenceKey ? { ...entry, topic: savedTopic } : entry
+      )));
+      setLessonTopicsByOccurrence((current) => ({ ...current, [occurrenceKey]: savedTopic }));
+      setLessonTopicEditor(null);
+      setLessonTopicsRefreshKey((value) => value + 1);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('student-lesson-topic-updated', {
+          detail: { studentId: effectiveStudentId, occurrenceKey },
+        }));
+      }
+    } catch (saveError) {
+      setLessonTopicSaveError(saveError?.message || 'Не удалось сохранить тему. Попробуйте ещё раз.');
+    } finally {
+      setLessonTopicSaving(false);
+    }
+  }, [effectiveStudentId, lessonTopicEditor, lessonTopicSaving, role]);
+
   useEffect(() => {
     const occurrenceKey = String(openLessonKey || '').trim();
     if (role !== 'student' || !occurrenceKey) return;
@@ -1955,14 +2008,67 @@ const ScheduleSection = ({
                                 Запись: {formatLessonReplayStorageBytes(entry.replayStorage.totalBytes)}
                               </div>
                             )}
-                            <div
-                              className={`schedule-shell__student-lesson-topic${topic ? ` schedule-shell__student-lesson-topic--${topic.source}` : ' schedule-shell__student-lesson-topic--empty'}`}
-                              title={topicText || 'Тема не сохранилась'}
-                            >
-                              <BookOpen size={13} />
-                              <span>{topicSourceLabel}</span>
-                              <strong>{topicText || 'Тема не сохранилась'}</strong>
-                            </div>
+                            {role === 'teacher' && lessonTopicEditor?.occurrenceKey === String(entry?.key || '').trim() ? (
+                              <form
+                                className="student-lesson-history__topic-editor"
+                                onSubmit={saveLessonHistoryTopic}
+                                onClick={(event) => event.stopPropagation()}
+                                onKeyDown={(event) => event.stopPropagation()}
+                              >
+                                <label htmlFor={`lesson-topic-${index}`}>Тема занятия</label>
+                                <div>
+                                  <input
+                                    id={`lesson-topic-${index}`}
+                                    type="text"
+                                    value={lessonTopicEditor.text}
+                                    maxLength={320}
+                                    autoFocus
+                                    disabled={lessonTopicSaving}
+                                    onChange={(event) => setLessonTopicEditor((current) => (
+                                      current ? { ...current, text: event.target.value } : current
+                                    ))}
+                                    onKeyDown={(event) => {
+                                      event.stopPropagation();
+                                      if (event.key === 'Escape') closeLessonTopicEditor();
+                                    }}
+                                  />
+                                  <button type="submit" disabled={lessonTopicSaving} title="Сохранить тему" aria-label="Сохранить тему">
+                                    {lessonTopicSaving ? <RefreshCcw size={14} className="animate-spin" /> : <Save size={14} />}
+                                  </button>
+                                  <button type="button" disabled={lessonTopicSaving} onClick={closeLessonTopicEditor} title="Отмена" aria-label="Отменить редактирование">
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                                {lessonTopicSaveError && <span role="alert">{lessonTopicSaveError}</span>}
+                              </form>
+                            ) : (
+                              <div className="student-lesson-history__topic-row">
+                                <div
+                                  className={`schedule-shell__student-lesson-topic${topic ? ` schedule-shell__student-lesson-topic--${topic.source}` : ' schedule-shell__student-lesson-topic--empty'}`}
+                                  title={topicText || 'Тема не сохранилась'}
+                                >
+                                  <BookOpen size={13} />
+                                  <span>{topicSourceLabel}</span>
+                                  <strong>{topicText || 'Тема не сохранилась'}</strong>
+                                </div>
+                                {role === 'teacher' && (
+                                  <button
+                                    type="button"
+                                    className="student-lesson-history__topic-edit"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openLessonTopicEditor(entry, topicText);
+                                    }}
+                                    onKeyDown={(event) => event.stopPropagation()}
+                                    aria-label={topicText ? 'Изменить тему занятия' : 'Задать тему занятия'}
+                                    title={topicText ? 'Изменить тему' : 'Задать тему'}
+                                  >
+                                    <Pencil size={13} />
+                                    <span>{topicText ? 'Изменить' : 'Задать тему'}</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
                             <div className="student-lesson-history__detail-hint">
                               Открыть материалы <ChevronRight size={13} />
                             </div>
@@ -2433,6 +2539,9 @@ const ScheduleSection = ({
     setLessonDetailLoading(false);
     setLessonDetailError('');
     setLessonDetailReloadKey(0);
+    setLessonTopicEditor(null);
+    setLessonTopicSaving(false);
+    setLessonTopicSaveError('');
   }, [effectiveStudentId]);
 
   useEffect(() => {

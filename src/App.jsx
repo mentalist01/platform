@@ -170,7 +170,6 @@ import './components/CollabWorkspaceLayout.css';
 import useCollabSolutionPresentation from './components/useCollabSolutionPresentation';
 const CollabSolutionCompare = React.lazy(() => import('./components/CollabSolutionCompare'));
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
-import LessonReplaySaveNotice from './components/LessonReplaySaveNotice';
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
 import useWorkbookHelper from './hooks/useWorkbookHelper';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
@@ -215,7 +214,6 @@ const loadLearningGroupsSection = () => import('./components/LearningGroupsSecti
 const loadGroupTelemostSection = () => import('./components/GroupTelemostSection');
 const loadTeacherCalendarSection = () => import('./components/TeacherCalendarSection');
 const loadTeacherFinanceSection = () => import('./components/TeacherFinanceSection');
-const loadTeacherLessonEndPrompt = () => import('./components/TeacherLessonEndPrompt');
 const loadTeacherLessonStartPrompt = () => import('./components/TeacherLessonStartPrompt');
 const loadTeacherPanel = () => import('./components/TeacherPanel');
 const loadTeacherStudentChatsSection = () => import('./components/TeacherStudentChatsSection');
@@ -241,7 +239,6 @@ const LearningGroupsSection = React.lazy(loadLearningGroupsSection);
 const GroupTelemostSection = React.lazy(loadGroupTelemostSection);
 const TeacherCalendarSection = React.lazy(loadTeacherCalendarSection);
 const TeacherFinanceSection = React.lazy(loadTeacherFinanceSection);
-const TeacherLessonEndPrompt = React.lazy(loadTeacherLessonEndPrompt);
 const TeacherLessonStartPrompt = React.lazy(loadTeacherLessonStartPrompt);
 const TeacherPanel = React.lazy(loadTeacherPanel);
 const TeacherStudentChatsSection = React.lazy(loadTeacherStudentChatsSection);
@@ -11562,7 +11559,7 @@ const BoardSection = ({
   const [mobileRemoteCursorPeekId, setMobileRemoteCursorPeekId] = useState('');
   const [tool, setTool] = useState('select');
   const [color, setColor] = useState(BOARD_COLORS[0] || BOARD_DEFAULT_COLOR);
-  const [penWidth, setPenWidth] = useState(BOARD_STROKE_WIDTH);
+  const [penWidth, setPenWidth] = useState(() => (isTeacher ? 5 : BOARD_STROKE_WIDTH));
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
   const [pasteError, setPasteError] = useState('');
   const [zoom, setZoom] = useState(1);
@@ -19181,10 +19178,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, []);
   const {
     recordLessonReplayEvent,
-    lessonReplayError,
-    retryLessonReplaySave,
-    discardBlockedLessonReplayBackup,
-    downloadLessonReplayBackup,
     finishLessonReplayNow,
     uploadLessonReplayScreenSnapshot,
     createLessonReplayAudioSink,
@@ -25756,13 +25749,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </button>
           </div>
         </header>
-        {lessonQuickNavIds.includes(view) && <LessonReplaySaveNotice
-          role={user.role}
-          error={lessonReplayError}
-          onRetry={retryLessonReplaySave}
-          onDownload={downloadLessonReplayBackup}
-          onDiscard={discardBlockedLessonReplayBackup}
-        />}
         {user.role === 'teacher' && <LessonAlarmNotice alarm={lessonAlarm} />}
         {user.role === 'teacher' && <TeacherSubscriptionReminder subscription={user.subscription} />}
         <main
@@ -26780,21 +26766,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             />
           )}
           {user.role === 'teacher' && (
-            <>
-              <TeacherLessonStartPrompt
-                teacherId={user.id}
-                students={currentStudentsWithNicknames}
-                getStudentLabel={getStudentLabel}
-                onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
-                onOpenLearningGroupLesson={handleOpenLearningGroupLesson}
-                onOpenLearningGroupTelemost={handleOpenLearningGroupTelemost}
-              />
-              <TeacherLessonEndPrompt
-                teacherId={user.id}
-                students={currentStudentsWithNicknames}
-                getStudentLabel={getStudentLabel}
-              />
-            </>
+            <TeacherLessonStartPrompt
+              teacherId={user.id}
+              students={currentStudentsWithNicknames}
+              getStudentLabel={getStudentLabel}
+              onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
+              onOpenLearningGroupLesson={handleOpenLearningGroupLesson}
+              onOpenLearningGroupTelemost={handleOpenLearningGroupTelemost}
+            />
           )}
           {user.role === 'student' && (
             <StudentLessonJoinPrompt
