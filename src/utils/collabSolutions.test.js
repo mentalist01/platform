@@ -14,6 +14,8 @@ import {
   restoreCollabSolution,
   getCollabSolutionSnapshot,
   getSharedCollabComparison,
+  normalizeCollabCodeDocument,
+  normalizeCollabCodeText,
   reorderCollabSolutions,
 } from './collabSolutions.js';
 
@@ -74,6 +76,20 @@ test('channels can be selected before metadata arrives during first sync', () =>
   Y.applyUpdate(loading, Y.encodeStateAsUpdate(source));
   assert.equal(pendingChannels.codeText.toString(), 'print("привет 🐍")\nprint(42)\n');
   assert.equal(getCollabSolutionChannels(loading, 'saved-tab').codeText, pendingChannels.codeText);
+});
+
+test('normalizes Windows line endings in every collaborative code channel once', () => {
+  const doc = seedLegacyDocument();
+  createCollabSolution(doc, { id: 'windows-copy', name: 'Windows copy' });
+  const copy = getCollabSolutionChannels(doc, 'windows-copy').codeText;
+  copy.delete(0, copy.length);
+  copy.insert(0, 'x = 1\r\nprint(x)\r');
+
+  assert.equal(normalizeCollabCodeText('a\r\nb\rc\n'), 'a\nb\nc\n');
+  assert.deepEqual(normalizeCollabCodeDocument(doc), ['main', 'windows-copy']);
+  assert.equal(doc.getText('monaco').toString(), 'print("привет 🐍")\nprint(42)\n');
+  assert.equal(copy.toString(), 'x = 1\nprint(x)\n');
+  assert.deepEqual(normalizeCollabCodeDocument(doc), []);
 });
 
 test('cloning atomically copies code, selected files, last input and output with isolated state', () => {

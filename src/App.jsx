@@ -160,6 +160,7 @@ import {
   deleteCollabSolution,
   restoreCollabSolution,
   getCollabSolutionSnapshot,
+  normalizeCollabCodeText,
   reorderCollabSolutions,
 } from './utils/collabSolutions';
 import CollabSolutionTabs from './components/CollabSolutionTabs';
@@ -8112,11 +8113,9 @@ const CollabSection = ({
     let { codeText: ytext, runMap, testFileText: testFileYText } = getCollabSolutionChannels(doc, activeSolutionIdRef.current);
     collabCodeTextRef.current = ytext;
     let binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
-    let editorConsistencyFrameId = null;
     const repairEditorModelFromSharedText = () => {
-      editorConsistencyFrameId = null;
       if (disposed || editorRef.current?.getModel?.() !== model) return;
-      const sharedValue = ytext.toString();
+      const sharedValue = normalizeCollabCodeText(ytext.toString());
       if (model.getValue() === sharedValue) return;
 
       // A stale Monaco model must never become the source of truth during a
@@ -8133,13 +8132,6 @@ const CollabSection = ({
       model.setValue(sharedValue);
       binding = new MonacoBinding(ytext, model, new Set([editorRef.current]));
     };
-    const scheduleEditorConsistencyCheck = () => {
-      if (typeof window === 'undefined') return;
-      if (editorConsistencyFrameId !== null) window.cancelAnimationFrame(editorConsistencyFrameId);
-      editorConsistencyFrameId = window.requestAnimationFrame(repairEditorModelFromSharedText);
-    };
-    const handleEditorConsistencyChange = () => scheduleEditorConsistencyCheck();
-    ytext.observe(handleEditorConsistencyChange);
     const handleReplayCodeChange = (_event, transaction) => {
       // Yjs invokes observers for remote updates and our own initial/manual
       // sync calls. Only a genuinely local transaction is an authored edit.
@@ -8203,10 +8195,6 @@ const CollabSection = ({
     const handleProviderSync = (isSynced) => {
       const nextSynced = isSynced === true;
       if (!nextSynced) return;
-      if (editorConsistencyFrameId !== null) {
-        window.cancelAnimationFrame(editorConsistencyFrameId);
-        editorConsistencyFrameId = null;
-      }
       repairEditorModelFromSharedText();
       setDocumentSynced(true);
       editorRef.current?.updateOptions?.({ readOnly: collabReadOnly || Boolean(compareSolutionIdRef.current) || activeSolutionDeletedRef.current });
@@ -8373,11 +8361,6 @@ const CollabSection = ({
       flushLessonReplayCodeSnapshot();
       flushLessonReplayCodeViewport();
       stopDebugPlayback();
-      if (editorConsistencyFrameId !== null) {
-        window.cancelAnimationFrame(editorConsistencyFrameId);
-        editorConsistencyFrameId = null;
-      }
-      ytext.unobserve(handleEditorConsistencyChange);
       ytext.unobserve(handleReplayCodeChange);
       runMap.unobserve(handleRunMapChange);
       testFileYText.unobserve(syncTestFileFromDoc);
@@ -8403,10 +8386,9 @@ const CollabSection = ({
       provider.awareness.setLocalStateField('outputSelection', null);
       provider.awareness.setLocalStateField('testFileSelection', null);
       provider.awareness.setLocalStateField('solutionId', nextId);
-      model.setValue(ytext.toString());
+      model.setValue(normalizeCollabCodeText(ytext.toString()));
       model.setEOL(monacoRef.current.editor.EndOfLineSequence.LF);
       binding = new MonacoBinding(ytext, model, new Set([editor]));
-      ytext.observe(handleEditorConsistencyChange);
       ytext.observe(handleReplayCodeChange);
       runMap.observe(handleRunMapChange);
       testFileYText.observe(syncTestFileFromDoc);
@@ -8473,9 +8455,7 @@ const CollabSection = ({
         collabCursorClearTimerRef.current = null;
       }
       testFileYText.unobserve(syncTestFileFromDoc);
-      ytext.unobserve(handleEditorConsistencyChange);
       ytext.unobserve(handleReplayCodeChange);
-      if (editorConsistencyFrameId !== null) window.cancelAnimationFrame(editorConsistencyFrameId);
       window.clearInterval(lessonReplayCodeHeartbeatId);
       if (provider.synced === true) {
         scheduleLessonReplayCodeSnapshot(ytext, 0, { action: 'snapshot' });

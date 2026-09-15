@@ -6,6 +6,36 @@ export const MAX_COLLAB_SOLUTIONS = 20;
 
 export const DEFAULT_SOLUTION_NAME = 'Основной код';
 const MAX_SOLUTION_NAME_LENGTH = 80;
+export const COLLAB_CODE_EOL_NORMALIZATION_ORIGIN = 'collab-code:normalize-eol';
+
+export const normalizeCollabCodeText = (value) => String(value ?? '').replace(/\r\n?/g, '\n');
+
+// Monaco indexes line breaks as one character. Keeping CRLF inside Y.Text makes
+// every position after the first Windows line break drift by one character.
+// Run this on the server before a room is synchronized so there is one
+// authoritative migration instead of competing client-side replacements.
+export const normalizeCollabCodeDocument = (doc) => {
+  if (!doc?.getText || !doc?.getMap || !doc?.transact) return [];
+  const solutionIds = new Set([DEFAULT_COLLAB_SOLUTION_ID]);
+  for (const id of doc.getMap(COLLAB_SOLUTIONS_MAP_KEY).keys()) {
+    if (typeof id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id)) solutionIds.add(id);
+  }
+  const changes = [];
+  for (const id of solutionIds) {
+    const codeText = getCollabSolutionChannels(doc, id).codeText;
+    const current = codeText.toString();
+    const normalized = normalizeCollabCodeText(current);
+    if (current !== normalized) changes.push({ id, codeText, normalized });
+  }
+  if (!changes.length) return [];
+  doc.transact(() => {
+    changes.forEach(({ codeText, normalized }) => {
+      if (codeText.length) codeText.delete(0, codeText.length);
+      if (normalized) codeText.insert(0, normalized);
+    });
+  }, COLLAB_CODE_EOL_NORMALIZATION_ORIGIN);
+  return changes.map(({ id }) => id);
+};
 
 const normalizeId = (id) => {
   if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) {
@@ -119,7 +149,7 @@ export const createCollabSolution = (doc, {
   }
 
   const source = getCollabSolutionChannels(doc, sourceSolutionId);
-  const code = source.codeText.toString().replace(/\r\n?/g, '\n');
+  const code = normalizeCollabCodeText(source.codeText.toString());
   const testFile = source.testFileText.toString();
   // A copied run is a snapshot, not an instruction to continue a live worker.
   // Deep-copy JSON so arrays/objects in file selections cannot alias the source.

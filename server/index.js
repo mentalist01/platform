@@ -248,6 +248,7 @@ import {
   resolveGoogleCalendarLearningGroupMatch,
 } from './googleCalendarLearningGroups.js';
 import { installReadOnlyYWebsocketMessageFilter } from './collabReadOnly.js';
+import { normalizeCollabCodeDocument } from '../src/utils/collabSolutions.js';
 import {
   createLearningLessonAnswerMessage,
   filterLearningLessonAnswerMessages,
@@ -1341,6 +1342,7 @@ if (BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED) {
 const rawCollabPersistence = (LeveldbPersistence && isCollabPersistenceEnabled)
   ? new LeveldbPersistence(collabDir)
   : null;
+const collabDocReadyPromises = new WeakMap();
 const collabDocsPersistenceBypassUntil = new Map();
 const boardSnapshotWriteTimers = new Map();
 const boardSnapshotHashes = new Map();
@@ -1822,8 +1824,7 @@ const resetCollabDoc = async (docName, options = {}) => {
     clearedPersistence,
   };
 };
-const collabPersistence = (rawCollabPersistence || BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED) ? {
-  bindState: async (docName, ydoc) => {
+const bindCollabDocumentState = async (docName, ydoc) => {
     if (isBoardCollabDoc(docName)) {
       loadBoardDocSnapshot(docName, ydoc);
       const handleBoardUpdate = () => {
@@ -1838,7 +1839,11 @@ const collabPersistence = (rawCollabPersistence || BOARD_COLLAB_SNAPSHOT_PERSIST
       ydoc.on('destroy', handleBoardDestroy);
       return Promise.resolve();
     }
-    if (!rawCollabPersistence || !isPersistedCollabDoc(docName)) return Promise.resolve();
+    if (!isPersistedCollabDoc(docName)) return Promise.resolve();
+    if (!rawCollabPersistence) {
+      normalizeCollabCodeDocument(ydoc);
+      return Promise.resolve();
+    }
     try {
       const persistedYdoc = await rawCollabPersistence.getYDoc(docName);
       const localStateUpdate = Y.encodeStateAsUpdate(ydoc);
@@ -1851,11 +1856,21 @@ const collabPersistence = (rawCollabPersistence || BOARD_COLLAB_SNAPSHOT_PERSIST
           console.warn('[collab] storeUpdate failed:', error?.message || error);
         });
       });
+      const normalizedSolutionIds = normalizeCollabCodeDocument(ydoc);
+      if (normalizedSolutionIds.length) {
+        console.info(`[collab] normalized code line endings in ${docName}: ${normalizedSolutionIds.join(', ')}`);
+      }
       return Promise.resolve();
     } catch (error) {
       console.warn('[collab] bindState failed:', error?.message || error);
       return Promise.resolve();
     }
+};
+const collabPersistence = (rawCollabPersistence || BOARD_COLLAB_SNAPSHOT_PERSISTENCE_ENABLED) ? {
+  bindState: (docName, ydoc) => {
+    const readyPromise = bindCollabDocumentState(docName, ydoc);
+    collabDocReadyPromises.set(ydoc, readyPromise);
+    return readyPromise;
   },
   writeState: async (docName, ydoc) => {
     if (isBoardCollabDoc(docName)) {
@@ -1877,6 +1892,13 @@ const collabPersistence = (rawCollabPersistence || BOARD_COLLAB_SNAPSHOT_PERSIST
 if (collabPersistence && typeof yWsUtils?.setPersistence === 'function') {
   yWsUtils.setPersistence(collabPersistence);
 }
+const waitForCollabDocumentState = async (requestUrl) => {
+  const docName = String(requestUrl || '').slice(1).split('?')[0];
+  if (!docName) return;
+  const ydoc = yWsUtils.getYDoc(docName);
+  const readyPromise = collabDocReadyPromises.get(ydoc);
+  if (readyPromise) await readyPromise;
+};
 process.on('exit', flushLoadedBoardDocSnapshots);
 process.on('SIGINT', () => {
   flushPendingStudentUsage();
@@ -40948,8 +40970,14 @@ server.on('upgrade', (request, socket, head) => {
     }
     request.learningCollabAccess = access;
     request.learningCollabAuth = session.user;
-    collabWss.handleUpgrade(request, socket, head, (ws) => {
-      collabWss.emit('connection', ws, request);
+    void waitForCollabDocumentState(request.url).then(() => {
+      if (socket.destroyed) return;
+      collabWss.handleUpgrade(request, socket, head, (ws) => {
+        collabWss.emit('connection', ws, request);
+      });
+    }).catch((error) => {
+      console.warn('[collab] failed to prepare document before upgrade:', error?.message || error);
+      rejectUpgrade(socket, 503, 'Collaboration unavailable');
     });
     return;
   }
