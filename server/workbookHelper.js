@@ -148,6 +148,12 @@ export const normalizeWorkbookHelperSessions = (value, options = {}) => {
       const solutionFileId = normalizeText(entry.solutionFileId);
       const nameRequired = typeof entry.nameRequired === 'boolean' ? entry.nameRequired : false;
       const startsFresh = entry.startsFresh === true;
+      const actorRole = normalizeText(entry.actor?.role);
+      const actorId = normalizeText(entry.actor?.id);
+      const actorName = normalizeText(entry.actor?.name);
+      const actor = ['student', 'teacher', 'admin'].includes(actorRole) && actorId
+        ? { id: actorId, role: actorRole, name: actorName || actorRole }
+        : { id: studentId, role: 'student', name: 'Ученик' };
       const contentHash = normalizeWorkbookContentHash(entry.contentHash);
       const createdAtMs = Number(entry.createdAtMs);
       const lastUsedAtMs = Number(entry.lastUsedAtMs);
@@ -176,6 +182,7 @@ export const normalizeWorkbookHelperSessions = (value, options = {}) => {
         solutionFileId,
         nameRequired,
         startsFresh,
+        actor,
         revision,
         contentHash,
         createdAtMs: Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : nowMs,

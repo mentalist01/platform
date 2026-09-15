@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Check, Columns2, MoreHorizontal, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
+import { Check, Columns2, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
 import { DEFAULT_COLLAB_SOLUTION_ID } from '../utils/collabSolutions';
 import './CollabSolutionTabs.css';
 
@@ -39,10 +39,8 @@ export default function CollabSolutionTabs({
 }) {
   const inputId = useId();
   const formId = useId();
-  const actionsId = useId();
   const tabsRef = useRef(null);
-  const actionsRef = useRef(null);
-  const actionsButtonRef = useRef(null);
+  const contextMenuRef = useRef(null);
   const dragSessionRef = useRef(null);
   const suppressClickRef = useRef(false);
   const [form, setForm] = useState(null);
@@ -50,7 +48,7 @@ export default function CollabSolutionTabs({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [choosingComparison, setChoosingComparison] = useState(false);
-  const [actionsOpen, setActionsOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
   const [dragging, setDragging] = useState(null);
   const hasParticipantTabs = participants.length > 0;
   const visibleSolutionTabs = hasParticipantTabs
@@ -87,14 +85,13 @@ export default function CollabSolutionTabs({
   }, [activeId, solutions]);
 
   useEffect(() => {
-    if (!actionsOpen) return undefined;
+    if (!contextMenu) return undefined;
     const closeOutside = (event) => {
-      if (!actionsRef.current?.contains(event.target)) setActionsOpen(false);
+      if (!contextMenuRef.current?.contains(event.target)) setContextMenu(null);
     };
     const closeOnEscape = (event) => {
       if (event.key !== 'Escape') return;
-      setActionsOpen(false);
-      actionsButtonRef.current?.focus();
+      setContextMenu(null);
     };
     document.addEventListener('pointerdown', closeOutside);
     document.addEventListener('keydown', closeOnEscape);
@@ -102,7 +99,7 @@ export default function CollabSolutionTabs({
       document.removeEventListener('pointerdown', closeOutside);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [actionsOpen]);
+  }, [contextMenu]);
 
   useEffect(() => () => {
     const session = dragSessionRef.current;
@@ -114,17 +111,18 @@ export default function CollabSolutionTabs({
     setError('');
   };
 
-  const openForm = (kind) => {
-    setActionsOpen(false);
+  const openForm = (kind, target = activeSolution) => {
+    if (!target) return;
+    setContextMenu(null);
     setChoosingComparison(false);
-    setName(kind === 'rename' ? activeSolution?.name || '' : nextSolutionName(solutions));
-    setForm({ kind, id: activeId });
+    setName(kind === 'rename' ? target.name || '' : nextSolutionName(solutions));
+    setForm({ kind, id: target.id });
     setError('');
   };
 
   const selectSolution = (id) => {
     cancelForm();
-    setActionsOpen(false);
+    setContextMenu(null);
     setChoosingComparison(false);
     onSelect?.(id);
   };
@@ -278,8 +276,19 @@ export default function CollabSolutionTabs({
           selectTabEntry(entry);
         }}
         onKeyDown={(event) => moveTabFocus(event, index)}
-        onContextMenu={(event) => { if (canReorder) event.preventDefault(); }}
-        title={`${viewerNames ? `${entry.name} · Смотрят: ${viewerNames}` : entry.name}${canReorder ? ' · Удерживайте, чтобы переместить' : ''}`}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          if (!canEdit || isParticipant) return;
+          selectTabEntry(entry);
+          const menuWidth = entry.id === DEFAULT_COLLAB_SOLUTION_ID ? 190 : 210;
+          const menuHeight = entry.id === DEFAULT_COLLAB_SOLUTION_ID ? 48 : 86;
+          setContextMenu({
+            solution: entry,
+            x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+            y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
+          });
+        }}
+        title={`${viewerNames ? `${entry.name} · Смотрят: ${viewerNames}` : entry.name}${canReorder ? ' · Удерживайте, чтобы переместить' : ''}${canEdit && !isParticipant ? ' · Правая кнопка — действия' : ''}`}
       >
         <span className="collab-solutions__name">{entry.name}</span>
         {viewers.length > 0 && (
@@ -325,7 +334,7 @@ export default function CollabSolutionTabs({
             className={`collab-solutions__button${comparing || choosingComparison ? ' is-active' : ''}`}
             onClick={() => {
               cancelForm();
-              setActionsOpen(false);
+              setContextMenu(null);
               if (comparing || choosingComparison) {
                 onCompare?.(null);
                 setChoosingComparison(false);
@@ -339,41 +348,27 @@ export default function CollabSolutionTabs({
             <Columns2 size={15} />
             <span>Сравнить</span>
           </button>
-          {!readOnly && (!hasParticipantTabs || activeSolution?.id !== DEFAULT_COLLAB_SOLUTION_ID) && (
-            <div className="collab-solutions__more" ref={actionsRef}>
-              <button
-                ref={actionsButtonRef}
-                type="button"
-                className={`collab-solutions__button${actionsOpen ? ' is-active' : ''}`}
-                onClick={() => { cancelForm(); setActionsOpen((open) => !open); }}
-                disabled={!canEdit || !activeSolution || saving}
-                aria-label="Действия с выбранным вариантом"
-                aria-controls={actionsOpen ? actionsId : undefined}
-                aria-expanded={actionsOpen}
-                title={`Действия с вариантом «${activeSolution?.name || ''}»`}
-              >
-                <MoreHorizontal size={16} aria-hidden="true" />
-                <span>Ещё</span>
-              </button>
-              {actionsOpen && canEdit && activeSolution && (
-                <div id={actionsId} className="collab-solutions__menu">
-                  <span className="collab-solutions__menu-label" title={activeSolution.name}>{activeSolution.name}</span>
-                  {(!hasParticipantTabs || activeSolution.id !== DEFAULT_COLLAB_SOLUTION_ID) && (
-                    <button type="button" className="collab-solutions__button" onClick={() => openForm('rename')}>
-                      <Pencil size={14} aria-hidden="true" />Переименовать
-                    </button>
-                  )}
-                  {activeSolution.id !== DEFAULT_COLLAB_SOLUTION_ID && (
-                    <button type="button" className="collab-solutions__button collab-solutions__delete" onClick={() => openForm('delete')}>
-                      <Trash2 size={14} aria-hidden="true" />Удалить копию
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
+
+      {contextMenu && canEdit && (
+        <div
+          ref={contextMenuRef}
+          className="collab-solutions__context-menu"
+          role="menu"
+          aria-label={`Действия с вариантом «${contextMenu.solution.name}»`}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button type="button" role="menuitem" className="collab-solutions__button" onClick={() => openForm('rename', contextMenu.solution)}>
+            <Pencil size={14} aria-hidden="true" />Переименовать
+          </button>
+          {contextMenu.solution.id !== DEFAULT_COLLAB_SOLUTION_ID && (
+            <button type="button" role="menuitem" className="collab-solutions__button collab-solutions__delete" onClick={() => openForm('delete', contextMenu.solution)}>
+              <Trash2 size={14} aria-hidden="true" />Удалить
+            </button>
+          )}
+        </div>
+      )}
 
       {form && form.id === activeId && !readOnly && solutions.some((item) => item.id === form.id) && (
         <form id={formId} className="collab-solutions__form" onSubmit={saveName}>

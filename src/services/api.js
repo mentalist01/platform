@@ -2836,13 +2836,17 @@ export const api = {
     }
     return res.json();
   },
-  launchWorkbookHelper: async (fileId) => {
+  launchWorkbookHelper: async (fileId, studentId = '') => {
     const normalizedFileId = String(fileId || '').trim();
     if (!normalizedFileId) throw new Error('Не удалось определить таблицу');
+    const normalizedStudentId = String(studentId || '').trim();
     const res = await apiFetch('/api/workbook-helper/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: normalizedFileId }),
+      body: JSON.stringify({
+        fileId: normalizedFileId,
+        ...(normalizedStudentId ? { studentId: normalizedStudentId } : {}),
+      }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
@@ -2896,11 +2900,14 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },
-  moveFile: async (id, folderId) => {
+  moveFile: async (id, destination) => {
+    const payload = destination && typeof destination === 'object'
+      ? destination
+      : { folderId: destination };
     const res = await apiFetch(`/api/files/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ folderId }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();

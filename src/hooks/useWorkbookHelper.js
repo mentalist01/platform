@@ -30,7 +30,7 @@ const useWorkbookHelper = () => {
     protocolObservationCleanupRef.current = null;
   }, []);
 
-  const launchWorkbookHelper = useCallback(async ({ sourceFile, questionContext = null } = {}) => {
+  const launchWorkbookHelper = useCallback(async ({ sourceFile, questionContext = null, studentId = '' } = {}) => {
     const sourceFileId = String(sourceFile?.id || '').trim();
     const fileName = String(sourceFile?.name || '').trim();
     const launchMode = questionContext?.startFresh === true ? 'fresh' : 'continue';
@@ -53,7 +53,7 @@ const useWorkbookHelper = () => {
     try {
       const payload = questionContext
         ? await api.launchQuestionWorkbookHelper(questionContext)
-        : await api.launchWorkbookHelper(sourceFileId);
+        : await api.launchWorkbookHelper(sourceFileId, studentId);
       const ticket = String(payload?.ticket || '').trim();
       const origin = getExternalApiOrigin();
       if (!ticket || !origin) throw new Error('Сервер не выдал ссылку для помощника');

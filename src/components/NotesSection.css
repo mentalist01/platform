@@ -6443,3 +6443,51 @@ html[data-theme='dark'] .notes-python-catalog-message {
     min-height: 9.35rem;
   }
 }
+.notes-move-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(5px);
+}
+
+.notes-move-modal {
+  width: min(560px, 100%);
+  overflow: hidden;
+  border: 1px solid rgba(221, 214, 254, 0.9);
+  border-radius: 22px;
+  padding: 20px;
+  color: #172033;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 70px rgba(30, 41, 59, 0.28);
+}
+
+.notes-move-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.notes-move-modal__header h3 { margin: 2px 0 4px; font-size: 20px; font-weight: 850; }
+.notes-move-modal__header p:last-child { max-width: 430px; overflow: hidden; color: #64748b; text-overflow: ellipsis; white-space: nowrap; }
+.notes-move-modal__eyebrow { color: #7c3aed !important; font-size: 11px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.notes-move-modal__header button { display: grid; flex: 0 0 auto; height: 34px; width: 34px; place-items: center; border-radius: 10px; color: #64748b; }
+.notes-move-modal__header button:hover { color: #6d28d9; background: #f5f3ff; }
+.notes-move-modal__fields { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr); gap: 12px; margin-top: 20px; }
+.notes-move-modal__fields label { display: grid; gap: 6px; min-width: 0; }
+.notes-move-modal__fields label > span { color: #64748b; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.notes-move-modal__fields select { height: 44px; min-width: 0; width: 100%; border: 1px solid #ddd6fe; border-radius: 12px; padding: 0 34px 0 12px; color: #26324a; background: #fff; font-size: 14px; font-weight: 650; outline: none; }
+.notes-move-modal__fields select:focus { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139, 92, 246, .13); }
+.notes-move-modal__hint { margin-top: 12px; color: #64748b; font-size: 12px; line-height: 1.55; }
+.notes-move-modal__error { margin-top: 10px; color: #dc2626; font-size: 12px; font-weight: 700; }
+.notes-move-modal__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+@media (max-width: 520px) {
+  .notes-move-modal { padding: 16px; border-radius: 18px; }
+  .notes-move-modal__fields { grid-template-columns: 1fr; }
+  .notes-move-modal__actions > * { flex: 1; }
+}

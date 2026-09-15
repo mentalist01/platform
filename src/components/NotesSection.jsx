@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   FileText,
   Folder,
+  FolderInput,
   FolderOpen,
   FolderPlus,
   Image as ImageIcon,
@@ -325,6 +326,11 @@ const NotesSection = ({
   const [renameBase, setRenameBase] = useState('');
   const [renameExt, setRenameExt] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
+  const [movingFile, setMovingFile] = useState(null);
+  const [moveCollection, setMoveCollection] = useState('ege');
+  const [moveTaskNumber, setMoveTaskNumber] = useState('');
+  const [moveSaving, setMoveSaving] = useState(false);
+  const [moveError, setMoveError] = useState('');
   const [_draggingFileId, setDraggingFileId] = useState(null);
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
   const [selectedFileIds, setSelectedFileIds] = useState({});
@@ -665,6 +671,9 @@ const NotesSection = ({
     setPyDraftCode('');
     setPyDraftError('');
     setPyDraftSaving(false);
+    setMovingFile(null);
+    setMoveError('');
+    setMoveSaving(false);
     setShowMobileFolderTools(false);
   }, [effectiveStudentId, initialLocation, initialLocationKey, normalizeTaskNumber]);
   const taskCounts = useMemo(() => {
@@ -861,7 +870,10 @@ const NotesSection = ({
   const isCurrentFolderLessonShared = isFolderInLessonSharedTree(currentFolderId);
   const currentFolderParentId = normalizeParentFolderId(currentFolder?.parentFolderId);
   const canUploadToCurrentFolder = !(role === 'student' && isCurrentFolderLessonShared);
-  const canManageFile = (file) => !(role === 'student' && isLessonSharedFile(file));
+  const canManageFile = (file) => !(
+    role === 'student'
+    && (isLessonSharedFile(file) || isLearningGroupSharedFile(file))
+  );
   const activeUsageByNumber = isCurrentFolderLessonShared ? sharedTaskUsageByNumber : taskUsageByNumber;
   function getTaskLimitBytesForFolder(folderIdOverride) {
     const folderId = typeof folderIdOverride === 'undefined' ? currentFolderId : folderIdOverride;
@@ -1593,6 +1605,69 @@ const NotesSection = ({
     }
   };
 
+  const openMoveFile = (file) => {
+    if (!file?.id || !canManageFile(file)) return;
+    const fileTaskNumber = getNotesTaskNumber(file.taskNumber);
+    const collection = Number(fileTaskNumber) >= 100 ? 'python' : 'ege';
+    const options = collection === 'python' ? pythonTaskCatalog : MOCK_TASKS;
+    const firstDifferentTask = options.find((task) => Number(task.number) !== Number(fileTaskNumber));
+    setMovingFile(file);
+    setMoveCollection(collection);
+    setMoveTaskNumber(String(firstDifferentTask?.number ?? fileTaskNumber ?? ''));
+    setMoveError('');
+  };
+
+  const closeMoveFile = () => {
+    if (moveSaving) return;
+    setMovingFile(null);
+    setMoveError('');
+  };
+
+  const changeMoveCollection = (collection) => {
+    const nextCollection = collection === 'python' ? 'python' : 'ege';
+    const options = nextCollection === 'python' ? pythonTaskCatalog : MOCK_TASKS;
+    setMoveCollection(nextCollection);
+    setMoveTaskNumber(String(options[0]?.number ?? ''));
+    setMoveError('');
+  };
+
+  const submitMoveFile = async (event) => {
+    event.preventDefault();
+    if (!movingFile?.id || moveSaving) return;
+    const targetTaskNumber = Number(moveTaskNumber);
+    if (!Number.isInteger(targetTaskNumber) || targetTaskNumber <= 0) {
+      setMoveError('Выберите тему назначения.');
+      return;
+    }
+    if (targetTaskNumber === Number(movingFile.taskNumber)) {
+      setMoveError('Файл уже находится в этой теме.');
+      return;
+    }
+    setMoveSaving(true);
+    setMoveError('');
+    try {
+      const updated = await api.moveFile(movingFile.id, {
+        taskNumber: targetTaskNumber,
+        category: movingFile.category || currentCategory || DEFAULT_NOTES_CATEGORY,
+        folderId: null,
+      });
+      setFiles((prev) => prev.map((file) => (
+        file.id === updated.id ? { ...file, ...updated } : file
+      )));
+      setSelectedFileIds((prev) => {
+        if (!prev?.[movingFile.id]) return prev;
+        const next = { ...prev };
+        delete next[movingFile.id];
+        return next;
+      });
+      setMovingFile(null);
+    } catch (error) {
+      setMoveError(error?.message || 'Не удалось переместить файл.');
+    } finally {
+      setMoveSaving(false);
+    }
+  };
+
   const isPyFile = (name) => name?.toLowerCase().endsWith('.py');
   const isPdfFile = (name) => name?.toLowerCase().endsWith('.pdf');
   const isTextFile = (name) => /\.(txt|md|markdown|csv|tsv|json|jsonl|xml|html?|css|scss|js|jsx|ts|tsx|log|sql|ya?ml|toml|ini|cfg|ipynb|pyw|c|cpp|h|hpp|java|kt|go|rs|php|rb|sh|ps1|bat)$/i.test(String(name || ''));
@@ -1791,13 +1866,16 @@ const NotesSection = ({
   const handleLaunchWorkbookHelper = async (file) => {
     const fileId = String(file?.id || '').trim();
     if (
-      role !== 'student'
+      !['student', 'teacher'].includes(role)
       || !fileId
       || typeof onLaunchWorkbookHelper !== 'function'
       || workbookHelperState?.status === 'launching'
       || workbookHelperState?.status === 'opening'
     ) return;
-    await onLaunchWorkbookHelper({ sourceFile: file });
+    await onLaunchWorkbookHelper({
+      sourceFile: file,
+      studentId: effectiveStudentId,
+    });
   };
 
   const getPyFileSize = (code) => new Blob([code ?? ''], { type: 'text/x-python' }).size;
@@ -3081,6 +3159,8 @@ const NotesSection = ({
   );
 
   const effectiveCategory = currentCategory || DEFAULT_NOTES_CATEGORY;
+  const moveTaskOptions = moveCollection === 'python' ? pythonTaskCatalog : MOCK_TASKS;
+  const moveTargetTask = moveTaskOptions.find((task) => Number(task.number) === Number(moveTaskNumber));
   const taskFiles = files.filter((f) =>
     getNotesTaskNumber(f?.taskNumber) === normalizedCurrentTask &&
     f.category === effectiveCategory
@@ -3429,7 +3509,7 @@ const NotesSection = ({
           {foldersError && <p className="notes-task-hero__error">{foldersError}</p>}
         </header>
 
-        {role === 'student' && WORKBOOK_HELPER_TASK_NUMBERS.has(normalizedCurrentTask) && WORKBOOK_HELPER_INSTALL_URL && (
+        {['student', 'teacher'].includes(role) && WORKBOOK_HELPER_TASK_NUMBERS.has(normalizedCurrentTask) && WORKBOOK_HELPER_INSTALL_URL && (
           <aside className="notes-workbook-install-card mx-3 mt-3 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3 sm:items-center">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
@@ -3873,6 +3953,7 @@ const NotesSection = ({
                     const memorySnapshotUrl = hasBoardSnapshot ? getMemorySnapshotUrl(f) : '';
                     const isSharedFile = isLessonSharedFile(f);
                     const isLearningGroupShared = isLearningGroupSharedFile(f);
+                    const movable = manageable;
                     const isWorkbookAutoSyncActive = Boolean(
                       workbookAutoSyncState?.active
                       && String(workbookAutoSyncState?.sourceFileId || '') === String(f.id)
@@ -4344,9 +4425,9 @@ const NotesSection = ({
                                   <Download size={16} />
                                 </button>
                               )}
-                              {role === 'student' && (isExcelFile(f.name) || isTextToWorkbookSource) && (
+                              {['student', 'teacher'].includes(role) && (isExcelFile(f.name) || isTextToWorkbookSource) && (
                                 <div className="flex flex-wrap items-center justify-end gap-1.5">
-                                  {isExcelFile(f.name) && <button
+                                  {role === 'student' && isExcelFile(f.name) && <button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       void handleStartWorkbookAutoSync(f);
@@ -4381,6 +4462,20 @@ const NotesSection = ({
                                     <span>{isWorkbookHelperOpening ? 'Открываем…' : 'Excel / LibreOffice'}</span>
                                   </button>
                                 </div>
+                              )}
+                              {movable && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openMoveFile(f);
+                                  }}
+                                  className="notes-explorer-file-action-btn rounded-md p-1.5 text-slate-500 hover:bg-violet-50 hover:text-violet-700"
+                                  title="Переместить в другую тему"
+                                  aria-label={`Переместить «${f.name}» в другую тему`}
+                                  type="button"
+                                >
+                                  <FolderInput size={16} />
+                                </button>
                               )}
                               {manageable && (
                                 <button
@@ -5021,6 +5116,73 @@ const NotesSection = ({
         )}
       </div>
       </section>
+      {movingFile && typeof document !== 'undefined' && createPortal(
+        <div
+          className="notes-move-modal__backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeMoveFile();
+          }}
+        >
+          <form
+            className="notes-move-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="notes-move-modal-title"
+            onSubmit={submitMoveFile}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') closeMoveFile();
+            }}
+          >
+            <div className="notes-move-modal__header">
+              <div>
+                <p className="notes-move-modal__eyebrow">Перемещение материала</p>
+                <h3 id="notes-move-modal-title">Выберите новую тему</h3>
+                <p title={movingFile.name}>{movingFile.name}</p>
+              </div>
+              <button type="button" onClick={closeMoveFile} disabled={moveSaving} aria-label="Закрыть">
+                <X size={19} />
+              </button>
+            </div>
+            <div className="notes-move-modal__fields">
+              <label>
+                <span>Раздел</span>
+                <select value={moveCollection} onChange={(event) => changeMoveCollection(event.target.value)} disabled={moveSaving}>
+                  <option value="ege">Задания ЕГЭ</option>
+                  <option value="python">Python</option>
+                </select>
+              </label>
+              <label>
+                <span>Тема</span>
+                <select value={moveTaskNumber} onChange={(event) => { setMoveTaskNumber(event.target.value); setMoveError(''); }} disabled={moveSaving}>
+                  {moveTaskOptions.map((task) => (
+                    <option
+                      key={task.number}
+                      value={task.number}
+                      disabled={Number(task.number) === Number(movingFile.taskNumber)}
+                    >
+                      {moveCollection === 'python'
+                        ? `${task.displayNumber || task.number}. ${task.title}`
+                        : `Задание ${getTaskDisplayNumber(task)}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="notes-move-modal__hint">
+              Файл появится в корне темы «{moveTargetTask?.title || `Задание ${moveTaskNumber}`}».
+            </p>
+            {moveError && <p className="notes-move-modal__error" role="alert">{moveError}</p>}
+            <div className="notes-move-modal__actions">
+              <Button type="button" variant="secondary" onClick={closeMoveFile} disabled={moveSaving}>Отмена</Button>
+              <Button type="submit" disabled={moveSaving || !moveTaskNumber}>
+                {moveSaving ? 'Перемещаем…' : 'Переместить'}
+              </Button>
+            </div>
+          </form>
+        </div>,
+        document.body
+      )}
       {solutionHoverPreview && !expandedPyIds[solutionHoverPreview.fileId] && !collapsingSolutionIds[solutionHoverPreview.fileId] && typeof document !== 'undefined' && createPortal(
         <div
           className="notes-solution-hover-preview"
