@@ -352,6 +352,40 @@ test('materials use explicit group or lesson scope', () => {
   );
 });
 
+test('RuTube video material keeps an arbitrary mini-test', () => {
+  const video = createLearningMaterial(makeGroup(), {
+    kind: 'video',
+    title: 'Циклы for',
+    url: 'https://rutube.ru/video/abc123/',
+    quizQuestions: [
+      { id: 'q1', question: 'Что делает range?', answer: 'Создаёт последовательность' },
+      { id: 'q2', question: 'Сколько итераций?', answer: '5' },
+    ],
+    visibility: 'group',
+  }, { id: 'video-a', now: NOW });
+
+  assert.equal(video.kind, 'video');
+  assert.equal(video.quizQuestions.length, 2);
+  assert.equal(video.quizQuestions[1].answer, '5');
+  assert.throws(
+    () => createLearningMaterial(makeGroup(), {
+      kind: 'video',
+      title: 'Без теста',
+      url: 'https://rutube.ru/video/abc123/',
+    }, { id: 'bad-video' }),
+    (error) => error.code === 'video_quiz_required'
+  );
+  assert.throws(
+    () => createLearningMaterial(makeGroup(), {
+      kind: 'video',
+      title: 'Чужой сайт',
+      url: 'https://example.com/video',
+      quizQuestions: [{ question: 'Вопрос', answer: 'Ответ' }],
+    }, { id: 'foreign-video' }),
+    (error) => error.code === 'invalid_rutube_url'
+  );
+});
+
 test('shared board keeps a separate response for every lesson participant', () => {
   const active = startLearningGroup(add(add(makeGroup(), 'student-a'), 'student-b'), { now: NOW });
   const lesson = createLearningLessonSession(active, {

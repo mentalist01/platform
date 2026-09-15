@@ -7,6 +7,7 @@ const ASSIGNMENT_STATUSES = new Set(['draft', 'assigned', 'closed']);
 const SUBMISSION_STATUSES = new Set(['draft', 'submitted', 'reviewed', 'revision_requested']);
 const ATTENDANCE_STATUSES = new Set(['pending', 'present', 'partial', 'absent', 'excused']);
 const MATERIAL_VISIBILITIES = new Set(['group', 'lesson']);
+const MATERIAL_KINDS = new Set(['resource', 'video']);
 const SCHEDULE_WEEKDAYS = new Set([
   'monday',
   'tuesday',
@@ -90,6 +91,23 @@ const normalizeStringIds = (value, limit = 100) => {
   });
   return result;
 };
+
+const normalizeLearningVideoQuiz = (value) => (
+  (Array.isArray(value) ? value : [])
+    .slice(0, 50)
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const question = cleanText(entry.question ?? entry.prompt, 1000);
+      const answer = cleanText(entry.answer ?? entry.correctAnswer, 500);
+      if (!question || !answer) return null;
+      return {
+        id: cleanText(entry.id, 180) || `question-${index + 1}`,
+        question,
+        answer,
+      };
+    })
+    .filter(Boolean)
+);
 
 const normalizeLearningHomeworkGoals = (value) => (
   (Array.isArray(value) ? value : [])
@@ -906,6 +924,7 @@ export const normalizeLearningMaterial = (value) => {
   const teacherId = cleanText(value.teacherId, 180);
   if (!id || !groupId || !teacherId) return null;
   const visibility = MATERIAL_VISIBILITIES.has(value.visibility) ? value.visibility : 'group';
+  const kind = MATERIAL_KINDS.has(value.kind) ? value.kind : 'resource';
   const lessonId = visibility === 'lesson' ? cleanText(value.lessonId, 180) : '';
   if (visibility === 'lesson' && !lessonId) return null;
   const content = cleanText(value.content, 50000);
@@ -918,8 +937,10 @@ export const normalizeLearningMaterial = (value) => {
     groupId,
     teacherId,
     title: cleanText(value.title, 240) || 'Материал',
+    kind,
     content,
     url,
+    quizQuestions: kind === 'video' ? normalizeLearningVideoQuiz(value.quizQuestions ?? value.quiz) : [],
     fileId,
     storageName,
     originalName: cleanText(value.originalName, 500),
@@ -953,8 +974,10 @@ export const createLearningMaterial = (groupValue, payload = {}, options = {}) =
     groupId: group.id,
     teacherId: group.teacherId,
     title: payload.title,
+    kind: payload.kind,
     content: payload.content,
     url: payload.url,
+    quizQuestions: payload.quizQuestions ?? payload.quiz,
     fileId: payload.fileId,
     storageName: payload.storageName,
     originalName: payload.originalName,
@@ -966,6 +989,14 @@ export const createLearningMaterial = (groupValue, payload = {}, options = {}) =
     updatedAt: now,
   });
   if (!material) fail('Добавьте содержимое, ссылку или файл', 'material_content_required');
+  if (material.kind === 'video') {
+    if (!/^https:\/\/(?:www\.)?rutube\.ru\//iu.test(material.url)) {
+      fail('Укажите ссылку на видео с RuTube', 'invalid_rutube_url');
+    }
+    if (material.quizQuestions.length === 0) {
+      fail('Добавьте хотя бы один вопрос мини-теста', 'video_quiz_required');
+    }
+  }
   return material;
 };
 

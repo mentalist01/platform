@@ -2,10 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  getRutubeEmbedUrl,
   normalizeLearningGroup,
   normalizeLearningGroupAttendance,
   normalizeLearningGroupList,
 } from './learningGroups.js';
+
+test('builds a safe RuTube embed URL from video and shorts links', () => {
+  assert.equal(
+    getRutubeEmbedUrl('https://rutube.ru/video/abc-123/'),
+    'https://rutube.ru/play/embed/abc-123'
+  );
+  assert.equal(
+    getRutubeEmbedUrl('https://rutube.ru/shorts/xyz/'),
+    'https://rutube.ru/play/embed/xyz'
+  );
+  assert.equal(getRutubeEmbedUrl('https://example.com/video/abc'), '');
+});
 
 test('normalizes a teacher group without duplicating its shared schedule', () => {
   const group = normalizeLearningGroup({

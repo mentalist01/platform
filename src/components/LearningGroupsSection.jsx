@@ -42,6 +42,7 @@ import {
   LEARNING_GROUP_STATUS_FORMING,
   LEARNING_GROUP_STATUS_READY,
   getLearningGroupStatusMeta,
+  getRutubeEmbedUrl,
   normalizeLearningGroup,
   normalizeLearningGroupAssignment,
   normalizeLearningGroupAttendance,
@@ -119,6 +120,7 @@ const EMPTY_MATERIAL_FORM = {
   title: '',
   content: '',
   url: '',
+  quizQuestions: [{ id: 'question-1', question: '', answer: '' }],
   visibility: 'group',
   lessonId: '',
 };
@@ -789,6 +791,7 @@ const LearningGroupsSection = ({
       dayPlanWeekdays: [...DEFAULT_GROUP_HOMEWORK_PLAN_WEEKDAYS],
       dayPlanManualLayout: null,
       issuedAt: assignment?.publishedAt || '',
+      materialIds: uniqueStrings(assignment?.materialIds),
     };
   }, [
     GOAL_TYPE_MOCK,
@@ -932,8 +935,9 @@ const LearningGroupsSection = ({
       return;
     }
     const homeWork = cleanString(assignmentComposerForm.homeWork);
-    if (!homeWork && goals.length === 0) {
-      setAssignmentComposerError('Добавьте текст, задание или пробник.');
+    const materialIds = uniqueStrings(assignmentComposerForm.materialIds);
+    if (!homeWork && goals.length === 0 && materialIds.length === 0) {
+      setAssignmentComposerError('Добавьте текст, задание, пробник или видео.');
       return;
     }
     const matchingLesson = lessons.find((lesson) => Date.parse(getLessonStart(lesson)) === Date.parse(dueAt));
@@ -943,6 +947,7 @@ const LearningGroupsSection = ({
       dueAt,
       lessonId: getLessonId(matchingLesson) || cleanString(assignmentComposerEditing?.lessonId),
       status,
+      materialIds,
       homework: {
         homeWork,
         lessonLink: cleanString(assignmentComposerForm.lessonLink),
@@ -1181,6 +1186,7 @@ const LearningGroupsSection = ({
     event.preventDefault();
     if (!selectedGroup) return;
     const isFileUpload = materialMode === 'file';
+    const isVideo = materialMode === 'video';
     if (isFileUpload && !materialFile) {
       setError('Выберите файл материала.');
       return;
@@ -1197,6 +1203,16 @@ const LearningGroupsSection = ({
           title: cleanString(materialForm.title),
           content: cleanString(materialForm.content),
           url: cleanString(materialForm.url),
+          kind: isVideo ? 'video' : 'resource',
+          ...(isVideo ? {
+            quizQuestions: (Array.isArray(materialForm.quizQuestions) ? materialForm.quizQuestions : [])
+              .map((question, index) => ({
+                id: cleanString(question?.id) || `question-${index + 1}`,
+                question: cleanString(question?.question),
+                answer: cleanString(question?.answer),
+              }))
+              .filter((question) => question.question && question.answer),
+          } : {}),
           visibility: materialForm.visibility,
           ...(materialForm.visibility === 'lesson' ? { lessonId: materialForm.lessonId } : {}),
         }),
@@ -1623,9 +1639,7 @@ const LearningGroupsSection = ({
 
                 <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
                   <div className="flex min-w-max gap-1">
-                    {TAB_ITEMS
-                      .filter((item) => item.id !== 'materials' || !isTeacher)
-                      .map((item) => {
+                    {TAB_ITEMS.map((item) => {
                       const Icon = item.icon;
                       const isActive = tab === item.id;
                       return (
@@ -2176,8 +2190,8 @@ const LearningGroupsSection = ({
                 {tab === 'materials' && (
                   <div className="space-y-4">
                     {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                      <SectionCard title="Добавить материал" subtitle="Опубликуйте текст со ссылкой или загрузите файл до 64 МБ.">
-                        <div className="mb-4 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                      <SectionCard title="Добавить материал" subtitle="Опубликуйте текст, загрузите файл или добавьте видео RuTube с мини-тестом.">
+                        <div className="mb-4 flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-1">
                           <button
                             type="button"
                             onClick={() => setMaterialMode('content')}
@@ -2192,9 +2206,107 @@ const LearningGroupsSection = ({
                           >
                             <Upload size={14} /> Файл
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setMaterialMode('video')}
+                            className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition ${materialMode === 'video' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                          >
+                            <Video size={14} /> Видео + мини-тест
+                          </button>
                         </div>
                         <form onSubmit={handleCreateMaterial} className="space-y-3">
-                          {materialMode === 'content' ? (
+                          {materialMode === 'video' ? (
+                            <>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <Field label="Название видео">
+                                  <input
+                                    value={materialForm.title}
+                                    onChange={(event) => setMaterialForm((current) => ({ ...current, title: event.target.value }))}
+                                    className={inputClassName}
+                                    placeholder="Разбор циклов for"
+                                    required
+                                  />
+                                </Field>
+                                <Field label="Ссылка RuTube">
+                                  <input
+                                    type="url"
+                                    value={materialForm.url}
+                                    onChange={(event) => setMaterialForm((current) => ({ ...current, url: event.target.value }))}
+                                    className={inputClassName}
+                                    placeholder="https://rutube.ru/video/..."
+                                    required
+                                  />
+                                </Field>
+                              </div>
+                              <Field label="Что посмотреть" hint="необязательно">
+                                <textarea
+                                  value={materialForm.content}
+                                  onChange={(event) => setMaterialForm((current) => ({ ...current, content: event.target.value }))}
+                                  className={`${inputClassName} min-h-20 resize-y`}
+                                  placeholder="На что обратить внимание во время просмотра"
+                                />
+                              </Field>
+                              <section className="rounded-2xl border border-violet-200 bg-violet-50/60 p-3 sm:p-4">
+                                <div className="mb-3 flex items-center justify-between gap-3">
+                                  <div>
+                                    <div className="text-sm font-black text-slate-900">Мини-тест после видео</div>
+                                    <div className="mt-0.5 text-xs text-slate-500">Ответ проверяется без учителя. Регистр букв не учитывается.</div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setMaterialForm((current) => ({
+                                      ...current,
+                                      quizQuestions: [
+                                        ...(Array.isArray(current.quizQuestions) ? current.quizQuestions : []),
+                                        { id: `question-${Date.now()}`, question: '', answer: '' },
+                                      ],
+                                    }))}
+                                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-100"
+                                  >
+                                    <Plus size={14} /> Вопрос
+                                  </button>
+                                </div>
+                                <div className="space-y-2.5">
+                                  {(Array.isArray(materialForm.quizQuestions) ? materialForm.quizQuestions : []).map((question, questionIndex) => (
+                                    <div key={question.id || questionIndex} className="grid gap-2 rounded-xl border border-violet-100 bg-white p-3 md:grid-cols-[minmax(0,1.3fr)_minmax(180px,0.7fr)_34px]">
+                                      <input
+                                        value={question.question}
+                                        onChange={(event) => setMaterialForm((current) => ({
+                                          ...current,
+                                          quizQuestions: current.quizQuestions.map((item, index) => index === questionIndex ? { ...item, question: event.target.value } : item),
+                                        }))}
+                                        className={inputClassName}
+                                        placeholder={`Вопрос ${questionIndex + 1}`}
+                                        required
+                                      />
+                                      <input
+                                        value={question.answer}
+                                        onChange={(event) => setMaterialForm((current) => ({
+                                          ...current,
+                                          quizQuestions: current.quizQuestions.map((item, index) => index === questionIndex ? { ...item, answer: event.target.value } : item),
+                                        }))}
+                                        className={inputClassName}
+                                        placeholder="Правильный ответ"
+                                        required
+                                      />
+                                      <button
+                                        type="button"
+                                        disabled={materialForm.quizQuestions.length <= 1}
+                                        onClick={() => setMaterialForm((current) => ({
+                                          ...current,
+                                          quizQuestions: current.quizQuestions.filter((_, index) => index !== questionIndex),
+                                        }))}
+                                        className="grid h-10 w-9 place-items-center rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30"
+                                        aria-label={`Удалить вопрос ${questionIndex + 1}`}
+                                      >
+                                        <Trash2 size={15} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </section>
+                            </>
+                          ) : materialMode === 'content' ? (
                             <>
                               <div className="grid gap-3 md:grid-cols-2">
                                 <Field label="Название">
@@ -2301,16 +2413,21 @@ const LearningGroupsSection = ({
                               || busyKey === 'upload-material'
                               || (materialMode === 'file'
                                 ? !materialFile
-                                : (!cleanString(materialForm.content) && !cleanString(materialForm.url)))
+                                : (materialMode === 'video'
+                                  ? (!cleanString(materialForm.title)
+                                    || !getRutubeEmbedUrl(materialForm.url)
+                                    || !(Array.isArray(materialForm.quizQuestions)
+                                      && materialForm.quizQuestions.some((question) => cleanString(question?.question) && cleanString(question?.answer))))
+                                  : (!cleanString(materialForm.content) && !cleanString(materialForm.url))))
                             }
                             className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
                           >
                             <BusyButtonContent
                               busy={busyKey === 'create-material' || busyKey === 'upload-material'}
                               busyLabel={materialMode === 'file' ? 'Загружаем...' : 'Добавляем...'}
-                              icon={materialMode === 'file' ? Upload : Plus}
+                              icon={materialMode === 'file' ? Upload : (materialMode === 'video' ? Video : Plus)}
                             >
-                              {materialMode === 'file' ? 'Загрузить файл' : 'Добавить материал'}
+                              {materialMode === 'file' ? 'Загрузить файл' : (materialMode === 'video' ? 'Добавить видео с тестом' : 'Добавить материал')}
                             </BusyButtonContent>
                           </button>
                         </form>
@@ -2327,7 +2444,7 @@ const LearningGroupsSection = ({
                           return (
                             <article key={materialId} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                               <div className="flex items-start gap-3">
-                                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-violet-50 text-violet-600"><FileText size={19} /></span>
+                                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-violet-50 text-violet-600">{material.kind === 'video' ? <Video size={19} /> : <FileText size={19} />}</span>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-start justify-between gap-2">
                                     <h3 className="font-black text-slate-900">{material.title}</h3>
@@ -2350,7 +2467,24 @@ const LearningGroupsSection = ({
                                 </div>
                               </div>
                               {material.content && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{material.content}</p>}
-                              {getMaterialHref(material) && (
+                              {material.kind === 'video' && getRutubeEmbedUrl(material.url) && (
+                                <div className="mt-4 overflow-hidden rounded-2xl border border-violet-100 bg-slate-950 shadow-sm">
+                                  <iframe
+                                    src={getRutubeEmbedUrl(material.url)}
+                                    title={material.title}
+                                    className="aspect-video w-full"
+                                    allow="clipboard-write; autoplay"
+                                    allowFullScreen
+                                    loading="lazy"
+                                  />
+                                </div>
+                              )}
+                              {material.kind === 'video' && material.quizQuestions?.length > 0 && (
+                                <div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                                  <ClipboardCheck size={14} /> Мини-тест: {material.quizQuestions.length} {material.quizQuestions.length === 1 ? 'вопрос' : 'вопросов'}
+                                </div>
+                              )}
+                              {material.kind !== 'video' && getMaterialHref(material) && (
                                 <a
                                   href={getMaterialHref(material)}
                                   target="_blank"
@@ -2676,6 +2810,7 @@ const LearningGroupsSection = ({
           studentLabel={selectedGroup?.name || 'Мини-группа'}
           targetType="group"
           form={assignmentComposerForm}
+          groupMaterials={materials}
           carryoverSummary={null}
           taskOptions={Array.isArray(tasks) ? tasks : []}
           pythonTaskOptions={Array.isArray(PYTHON_TASKS) ? PYTHON_TASKS : []}

@@ -45,6 +45,7 @@ import {
 } from '../utils/mockExamMode';
 import { buildTeacherLessonBriefing } from '../utils/teacherLessonBriefing';
 import { buildTeacherHomeworkReviewItems } from '../utils/teacherHomeworkReview';
+import { getRutubeEmbedUrl } from '../utils/learningGroups';
 import {
   estimateHomeworkDuration,
   formatHomeworkDurationMinutes,
@@ -137,6 +138,10 @@ const buildNextLessonData = (latest, fallback = {}) => ({
   daysToComplete: Number(latest?.daysToComplete) || fallback.daysToComplete || 7,
   issuedAt: latest?.issuedAt || '',
   checklistItems: Array.isArray(latest?.checklistItems) ? latest.checklistItems : [],
+  learningMaterials: Array.isArray(latest?.learningMaterials) ? latest.learningMaterials : [],
+  videoQuizResults: latest?.videoQuizResults && typeof latest.videoQuizResults === 'object'
+    ? latest.videoQuizResults
+    : {},
   taskNumber: latest?.taskNumber ?? null,
   levelId: latest?.levelId ?? null,
   targetQuestions: Array.isArray(latest?.targetQuestions) ? latest.targetQuestions : [],
@@ -791,6 +796,9 @@ const ScheduleSection = ({
   const [lessonReminderSaving, setLessonReminderSaving] = useState(false);
   const [lessonReminderError, setLessonReminderError] = useState('');
   const [homeworkChecklistBusy, setHomeworkChecklistBusy] = useState({});
+  const [videoQuizDrafts, setVideoQuizDrafts] = useState({});
+  const [videoQuizBusy, setVideoQuizBusy] = useState({});
+  const [videoQuizErrors, setVideoQuizErrors] = useState({});
   const [homeworkDayPlanBusy, setHomeworkDayPlanBusy] = useState({});
   const [visibleHomeworkDayPlans, setVisibleHomeworkDayPlans] = useState({});
   const [homeworkRewardDialogEntryId, setHomeworkRewardDialogEntryId] = useState('');
@@ -3011,6 +3019,9 @@ const ScheduleSection = ({
   useEffect(() => {
     setVisibleHomeworkDayPlans({});
     setHomeworkDayPlanBusy({});
+    setVideoQuizDrafts({});
+    setVideoQuizBusy({});
+    setVideoQuizErrors({});
   }, [effectiveStudentId]);
 
   const handlePlanHomeworkByDay = async (entry) => {
@@ -3087,6 +3098,45 @@ const ScheduleSection = ({
     }
   };
 
+  const handleSubmitVideoQuiz = async (entry, material) => {
+    if (role !== 'student' || !entry?.id || !material?.id) return;
+    const quizKey = `${entry.id}:${material.id}`;
+    if (videoQuizBusy[quizKey]) return;
+    const previousResult = entry?.videoQuizResults?.[material.id];
+    const answers = {
+      ...(previousResult?.answers && typeof previousResult.answers === 'object' ? previousResult.answers : {}),
+      ...(videoQuizDrafts[quizKey] && typeof videoQuizDrafts[quizKey] === 'object' ? videoQuizDrafts[quizKey] : {}),
+    };
+    const unanswered = (Array.isArray(material.quizQuestions) ? material.quizQuestions : [])
+      .some((question) => !String(answers[question.id] || '').trim());
+    if (unanswered) {
+      setVideoQuizErrors((current) => ({ ...current, [quizKey]: 'Ответьте на все вопросы.' }));
+      return;
+    }
+    setVideoQuizBusy((current) => ({ ...current, [quizKey]: true }));
+    setVideoQuizErrors((current) => ({ ...current, [quizKey]: '' }));
+    try {
+      const response = await api.submitStudentHomeworkVideoQuiz(entry.id, material.id, answers);
+      if (response?.homework) {
+        setHomeworks((current) => current.map((homework) => (
+          String(homework?.id || '') === String(response.homework.id || '')
+            ? { ...homework, ...response.homework }
+            : homework
+        )));
+        if (String(homeworks?.[0]?.id || '') === String(response.homework.id || '')) {
+          setNextLesson(buildNextLessonData(response.homework));
+        }
+      }
+    } catch (quizError) {
+      setVideoQuizErrors((current) => ({
+        ...current,
+        [quizKey]: quizError?.message || 'Не удалось проверить ответы.',
+      }));
+    } finally {
+      setVideoQuizBusy((current) => ({ ...current, [quizKey]: false }));
+    }
+  };
+
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
     if (!entry) return null;
     const isNextSection = section === 'next';
@@ -3140,8 +3190,16 @@ const ScheduleSection = ({
     const visibleChecklistItems = scheduleCompactMode ? checklistItems.slice(0, 4) : checklistItems;
     const hiddenChecklistCount = Math.max(checklistItems.length - visibleChecklistItems.length, 0);
     const completedChecklistCount = checklistItems.filter((item) => Boolean(item.completedAt)).length;
+    const hasHomeworkProgress = goalsSummary.totalCount > 0 || checklistItems.length > 0;
+    const homeworkProgressPercent = goalsSummary.totalCount > 0
+      ? goalsSummary.progressPercent
+      : (checklistItems.length > 0
+        ? Math.round((completedChecklistCount / checklistItems.length) * 100)
+        : 0);
     const lessonUrl = normalizeHttpUrl(entry?.lessonLink);
     const boardUrl = normalizeHttpUrl(entry?.boardLink);
+    const learningVideoMaterials = (Array.isArray(entry?.learningMaterials) ? entry.learningMaterials : [])
+      .filter((material) => material?.kind === 'video' && getRutubeEmbedUrl(material?.url));
     const durationEstimate = role === 'teacher'
       ? estimateHomeworkDuration({
           goalViews,
@@ -3424,15 +3482,15 @@ const ScheduleSection = ({
             <div className="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end">
               <div
                 className="student-today-homework__progress grid h-[62px] w-[62px] place-items-center rounded-full p-[5px] shadow-[0_8px_20px_rgba(124,58,237,0.12)]"
-                style={{ '--student-homework-progress': `${goalsSummary.progressPercent}%` }}
+                style={{ '--student-homework-progress': `${homeworkProgressPercent}%` }}
                 role="progressbar"
-                aria-label={`Выполнено ${goalsSummary.progressPercent}%`}
+                aria-label={`Выполнено ${homeworkProgressPercent}%`}
                 aria-valuemin="0"
                 aria-valuemax="100"
-                aria-valuenow={goalsSummary.progressPercent}
+                aria-valuenow={homeworkProgressPercent}
               >
                 <span className="student-today-homework__progress-core grid h-full w-full place-items-center rounded-full bg-white text-sm font-black text-purple-700">
-                  {goalsSummary.totalCount > 0 ? `${goalsSummary.progressPercent}%` : '—'}
+                  {hasHomeworkProgress ? `${homeworkProgressPercent}%` : '—'}
                 </span>
               </div>
               {role === 'teacher' && (isLearningGroupHomework ? (
@@ -3464,6 +3522,91 @@ const ScheduleSection = ({
               ))}
             </div>
           </header>
+
+          {learningVideoMaterials.length > 0 && (
+            <section className="relative mt-4 space-y-4" aria-label="Видео к домашней работе">
+              {learningVideoMaterials.map((material, videoIndex) => {
+                const quizKey = `${entry.id}:${material.id}`;
+                const result = entry?.videoQuizResults?.[material.id] || null;
+                const draft = videoQuizDrafts[quizKey] || {};
+                const questions = Array.isArray(material.quizQuestions) ? material.quizQuestions : [];
+                const busy = Boolean(videoQuizBusy[quizKey]);
+                return (
+                  <article key={material.id} className="overflow-hidden rounded-[22px] border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 shadow-sm">
+                    <div className="grid lg:grid-cols-[minmax(320px,1.15fr)_minmax(300px,0.85fr)]">
+                      <div className="bg-slate-950">
+                        <iframe
+                          src={getRutubeEmbedUrl(material.url)}
+                          title={material.title || `Видео ${videoIndex + 1}`}
+                          className="aspect-video h-full min-h-[220px] w-full"
+                          allow="clipboard-write; autoplay"
+                          allowFullScreen
+                          loading="lazy"
+                        />
+                      </div>
+                      <div className="p-4 sm:p-5">
+                        <div className="flex items-start gap-3">
+                          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-violet-600 text-white"><Video size={18} /></span>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-black uppercase tracking-[0.15em] text-violet-600">Посмотреть и ответить</div>
+                            <h5 className="mt-1 text-lg font-black leading-tight text-slate-950">{material.title || 'Видео к уроку'}</h5>
+                          </div>
+                        </div>
+                        {material.content && <p className="mt-3 text-sm leading-relaxed text-slate-600">{material.content}</p>}
+                        <div className="mt-4 space-y-3">
+                          {questions.map((question, questionIndex) => {
+                            const savedAnswer = result?.answers?.[question.id] || '';
+                            const value = Object.prototype.hasOwnProperty.call(draft, question.id) ? draft[question.id] : savedAnswer;
+                            const correct = result?.correctQuestionIds?.includes(question.id);
+                            return (
+                              <label key={question.id} className="block">
+                                <span className="mb-1.5 block text-xs font-bold text-slate-700">{questionIndex + 1}. {question.question}</span>
+                                <input
+                                  type="text"
+                                  value={value}
+                                  disabled={role !== 'student' || busy}
+                                  onChange={(event) => setVideoQuizDrafts((current) => ({
+                                    ...current,
+                                    [quizKey]: { ...(current[quizKey] || {}), [question.id]: event.target.value },
+                                  }))}
+                                  className={`h-10 w-full rounded-xl border bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:ring-4 ${result
+                                    ? (correct ? 'border-emerald-300 focus:ring-emerald-100' : 'border-rose-300 focus:ring-rose-100')
+                                    : 'border-violet-200 focus:border-violet-400 focus:ring-violet-100'}`}
+                                  placeholder="Ваш ответ"
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {result && (
+                          <div className={`mt-4 rounded-xl border px-3 py-2 text-sm font-bold ${result.completed
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-amber-200 bg-amber-50 text-amber-800'}`}
+                          >
+                            {result.completed
+                              ? `Готово: ${result.score} из ${result.total}`
+                              : `Правильных ответов: ${result.score} из ${result.total}. Можно исправить и проверить ещё раз.`}
+                          </div>
+                        )}
+                        {videoQuizErrors[quizKey] && <div className="mt-3 text-xs font-bold text-rose-600" role="alert">{videoQuizErrors[quizKey]}</div>}
+                        {role === 'student' && (
+                          <button
+                            type="button"
+                            onClick={() => void handleSubmitVideoQuiz(entry, material)}
+                            disabled={busy}
+                            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+                          >
+                            {busy ? <RefreshCcw size={15} className="animate-spin" /> : <CheckCircle size={15} />}
+                            {busy ? 'Проверяем…' : (result ? 'Проверить ещё раз' : 'Проверить ответы')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+          )}
 
           {role === 'student' && rewardShouldShow && (
             <section

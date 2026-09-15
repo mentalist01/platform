@@ -22788,7 +22788,11 @@ const serializeLearningMaterialForAuth = (material, auth) => {
   };
   if (!isStudentRole(auth)) return serialized;
   const { storageName: _storageName, ...studentProjection } = serialized;
-  return studentProjection;
+  return {
+    ...studentProjection,
+    quizQuestions: (Array.isArray(studentProjection.quizQuestions) ? studentProjection.quizQuestions : [])
+      .map(({ answer: _answer, ...question }) => question),
+  };
 };
 
 const serializeLearningAssignmentForAuth = (assignment, auth) => ({
@@ -22809,6 +22813,10 @@ const getLearningGroupHomeworkEntryId = (assignmentId) => {
 const buildLearningGroupHomeworkText = (assignment) => (
   String(assignment?.content || '').trim()
   || String(assignment?.title || '').trim()
+);
+
+const buildLearningVideoChecklistText = (material) => (
+  `Посмотреть «${String(material?.title || 'видео').trim()}» и пройти мини-тест`
 );
 
 const buildNextLessonFromHomeworkEntry = (entry) => {
@@ -22850,6 +22858,10 @@ const buildNextLessonFromHomeworkEntry = (entry) => {
       learningAssignmentTitle: entry.learningAssignmentTitle || '',
       learningAssignmentStatus: entry.learningAssignmentStatus || '',
       learningAssignmentUpdatedAt: entry.learningAssignmentUpdatedAt || '',
+      learningMaterials: Array.isArray(entry.learningMaterials) ? entry.learningMaterials : [],
+      videoQuizResults: entry.videoQuizResults && typeof entry.videoQuizResults === 'object'
+        ? entry.videoQuizResults
+        : {},
     } : {}),
   };
 };
@@ -22900,8 +22912,6 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       dueAt,
       homeworkTemplate.daysToComplete || 7
     );
-    const homeWork = String(homeworkTemplate.homeWork || '').trim()
-      || buildLearningGroupHomeworkText(assignment);
     const testsDb = readTestsDbForTeacher(group.teacherId || assignment.teacherId);
     const goals = snapshotHomeworkGoalTargets({
       goals: normalizeGoals(homeworkTemplate.goals, testsDb),
@@ -22909,6 +22919,48 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       mockExams: readMockExamsDb(),
     });
     const primaryTaskGoal = goals.find((goal) => normalizeGoalType(goal) === GOAL_TYPE_TASK) || null;
+    const assignmentMaterialIds = new Set(Array.isArray(assignment.materialIds) ? assignment.materialIds : []);
+    const learningMaterials = readLearningMaterialsDb()
+      .filter((material) => (
+        assignmentMaterialIds.has(material.id)
+        && material.groupId === group.id
+        && !material.deletedAt
+      ))
+      .map((material) => {
+        const serialized = serializeLearningMaterialForAuth(material, { role: 'student' });
+        return {
+          id: serialized.id,
+          kind: serialized.kind,
+          title: serialized.title,
+          content: serialized.content,
+          url: serialized.url,
+          quizQuestions: serialized.quizQuestions,
+        };
+      });
+    const storedVideoQuizResults = existing?.videoQuizResults && typeof existing.videoQuizResults === 'object'
+      ? existing.videoQuizResults
+      : {};
+    const videoChecklistLines = learningMaterials
+      .filter((material) => material.kind === 'video')
+      .map(buildLearningVideoChecklistText);
+    const explicitHomeWork = String(homeworkTemplate.homeWork || '').trim();
+    const baseHomeWork = explicitHomeWork
+      || (goals.length > 0 ? buildLearningGroupHomeworkText(assignment) : '');
+    const homeWork = [baseHomeWork, ...videoChecklistLines]
+      .filter(Boolean)
+      .join('\n')
+      || buildLearningGroupHomeworkText(assignment);
+    const checklistItems = normalizeHomeworkChecklistItems(entryId, homeWork, existing?.checklistItems)
+      .map((item) => {
+        const videoMaterial = learningMaterials.find((material) => (
+          material.kind === 'video' && buildLearningVideoChecklistText(material) === item.text
+        ));
+        if (!videoMaterial || !storedVideoQuizResults[videoMaterial.id]?.completed) return item;
+        return {
+          ...item,
+          completedAt: item.completedAt || storedVideoQuizResults[videoMaterial.id].submittedAt || new Date().toISOString(),
+        };
+      });
     const nextEntry = {
       ...(existing && typeof existing === 'object' ? existing : {}),
       id: entryId,
@@ -22938,7 +22990,9 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       targetQuestions: Array.isArray(primaryTaskGoal?.targetQuestions) ? primaryTaskGoal.targetQuestions : [],
       targetQuestionIds: Array.isArray(primaryTaskGoal?.targetQuestionIds) ? primaryTaskGoal.targetQuestionIds : [],
       goals,
-      checklistItems: normalizeHomeworkChecklistItems(entryId, homeWork, existing?.checklistItems),
+      checklistItems,
+      learningMaterials,
+      videoQuizResults: storedVideoQuizResults,
     };
     if (existingIndex >= 0) nextHomeworks[existingIndex] = nextEntry;
     else {
@@ -23629,6 +23683,17 @@ app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearn
     const requestedIds = Array.isArray(assignmentPatch.recipientIds) ? assignmentPatch.recipientIds.map(String) : [];
     if (requestedIds.some((studentId) => !activeStudentIds.has(studentId))) {
       failLearningRequest('Получатель не является участником группы', 'invalid_assignment_recipient', 400);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(assignmentPatch, 'materialIds')) {
+    const requestedMaterialIds = Array.isArray(assignmentPatch.materialIds)
+      ? assignmentPatch.materialIds.map(String)
+      : [];
+    const groupMaterialIds = new Set(readLearningMaterialsDb()
+      .filter((material) => material.groupId === group.id && !material.deletedAt)
+      .map((material) => material.id));
+    if (requestedMaterialIds.some((materialId) => !groupMaterialIds.has(materialId))) {
+      failLearningRequest('Материал не найден', 'material_not_found', 404);
     }
   }
   const updated = updateLearningAssignment(assignment, assignmentPatch, { actorId: req.auth.id });
@@ -38026,6 +38091,96 @@ app.patch('/api/student-next-lesson/:id/checklist', (req, res) => {
     entryId: updatedEntry.id,
   });
   res.json({ homework: decorateHomeworkEntry(updatedEntry) });
+});
+
+app.patch('/api/student-next-lesson/:id/video-quiz', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const homeworkId = String(req.params?.id || '').trim();
+  const materialId = String(req.body?.materialId || '').trim();
+  const submittedAnswers = req.body?.answers && typeof req.body.answers === 'object' && !Array.isArray(req.body.answers)
+    ? req.body.answers
+    : {};
+  if (!homeworkId || !materialId) {
+    return res.status(400).json({ error: 'Некорректный мини-тест' });
+  }
+
+  const student = ensureStudentAccess(req, res, req.auth?.id);
+  if (!student) return;
+  const data = getStudentData(student.id);
+  const homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
+  const homeworkIndex = homeworks.findIndex((entry) => String(entry?.id || '') === homeworkId);
+  if (homeworkIndex < 0) return res.status(404).json({ error: 'Домашка не найдена' });
+  const existing = homeworks[homeworkIndex] || {};
+  if (String(existing.source || '').trim() !== LEARNING_GROUP_HOMEWORK_SOURCE) {
+    return res.status(400).json({ error: 'Мини-тест не относится к групповой домашке' });
+  }
+  const assignment = getLearningAssignmentById(existing.learningGroupId, existing.learningAssignmentId);
+  if (!assignment || assignment.status !== 'assigned' || !assignment.materialIds.includes(materialId)) {
+    return res.status(409).json({ error: 'Этот мини-тест уже недоступен' });
+  }
+  const material = readLearningMaterialsDb().find((entry) => (
+    entry.id === materialId
+    && entry.groupId === existing.learningGroupId
+    && entry.kind === 'video'
+    && !entry.deletedAt
+  ));
+  const questions = Array.isArray(material?.quizQuestions) ? material.quizQuestions : [];
+  if (!material || questions.length === 0) return res.status(404).json({ error: 'Мини-тест не найден' });
+
+  const normalizeQuizAnswer = (value) => String(value ?? '')
+    .trim()
+    .replace(/\s+/gu, ' ')
+    .toLocaleLowerCase('ru-RU');
+  const answers = {};
+  const correctQuestionIds = [];
+  questions.forEach((question) => {
+    const answer = String(submittedAnswers[question.id] ?? '').trim().slice(0, 500);
+    answers[question.id] = answer;
+    if (answer && normalizeQuizAnswer(answer) === normalizeQuizAnswer(question.answer)) {
+      correctQuestionIds.push(question.id);
+    }
+  });
+  const result = {
+    materialId,
+    answers,
+    correctQuestionIds,
+    score: correctQuestionIds.length,
+    total: questions.length,
+    completed: correctQuestionIds.length === questions.length,
+    submittedAt: new Date().toISOString(),
+  };
+  const videoQuizResults = {
+    ...(existing.videoQuizResults && typeof existing.videoQuizResults === 'object'
+      ? existing.videoQuizResults
+      : {}),
+    [materialId]: result,
+  };
+  const videoChecklistText = buildLearningVideoChecklistText(material);
+  const checklistItems = normalizeHomeworkChecklistItems(homeworkId, existing.homeWork, existing.checklistItems)
+    .map((item) => (
+      item.text === videoChecklistText && result.completed
+        ? { ...item, completedAt: item.completedAt || result.submittedAt }
+        : item
+    ));
+  const updatedEntry = { ...existing, videoQuizResults, checklistItems };
+  homeworks[homeworkIndex] = updatedEntry;
+  const nextLesson = homeworkIndex === 0
+    ? {
+        ...(data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : {}),
+        learningMaterials: updatedEntry.learningMaterials,
+        videoQuizResults,
+        checklistItems,
+      }
+    : data.nextLesson;
+  setStudentData(student.id, { ...data, nextLesson, homeworks });
+  notifyScheduleSyncUpdate({
+    scope: 'homework-progress',
+    action: 'video-quiz-updated',
+    teacherId: student.teacherId,
+    studentId: student.id,
+    entryId: updatedEntry.id,
+  });
+  return res.json({ homework: decorateHomeworkEntry(updatedEntry), result });
 });
 
 app.patch('/api/student-next-lesson/:id/day-plan', (req, res) => {

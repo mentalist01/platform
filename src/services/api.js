@@ -2186,6 +2186,15 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  submitStudentHomeworkVideoQuiz: async (homeworkId, materialId, answers = {}) => {
+    const res = await apiFetch(`/api/student-next-lesson/${encodeURIComponent(homeworkId)}/video-quiz`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ materialId, answers }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getStudentMonthlyReport: async (studentId, month = '') => {
     const params = new URLSearchParams({
       studentId: String(studentId || '').trim(),

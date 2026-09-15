@@ -121,7 +121,35 @@ export const normalizeLearningGroupMaterial = (value, index = 0) => {
     url: cleanString(source.url || source.fileUrl || source.downloadUrl),
     fileId: cleanString(source.fileId),
     lessonId: cleanString(source.lessonId),
+    kind: cleanString(source.kind) === 'video' ? 'video' : 'resource',
+    quizQuestions: asArray(source.quizQuestions || source.quiz).map((question, questionIndex) => ({
+      ...asObject(question),
+      id: cleanString(question?.id) || `question-${questionIndex + 1}`,
+      question: cleanString(question?.question || question?.prompt),
+      ...(cleanString(question?.answer || question?.correctAnswer)
+        ? { answer: cleanString(question?.answer || question?.correctAnswer) }
+        : {}),
+    })).filter((question) => question.question),
   };
+};
+
+export const getRutubeEmbedUrl = (value) => {
+  const raw = cleanString(value);
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    if (!/(^|\.)rutube\.ru$/iu.test(parsed.hostname)) return '';
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    if (parts[0] === 'play' && parts[1] === 'embed' && parts[2]) {
+      return `https://rutube.ru/play/embed/${encodeURIComponent(parts[2])}`;
+    }
+    if (['video', 'shorts'].includes(parts[0]) && parts[1]) {
+      return `https://rutube.ru/play/embed/${encodeURIComponent(parts[1])}`;
+    }
+  } catch {
+    return '';
+  }
+  return '';
 };
 
 export const normalizeLearningGroupLesson = (value, index = 0) => {

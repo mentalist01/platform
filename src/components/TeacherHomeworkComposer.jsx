@@ -21,6 +21,7 @@ import {
   Sparkles,
   Target,
   Trash2,
+  Video,
   X,
 } from 'lucide-react';
 
@@ -186,6 +187,7 @@ const TeacherHomeworkComposer = ({
   studentId = '',
   studentLabel = '',
   targetType = 'student',
+  groupMaterials = [],
   form,
   carryoverSummary = null,
   taskOptions = [],
@@ -1214,6 +1216,53 @@ const TeacherHomeworkComposer = ({
                     className="min-h-[112px] w-full resize-y rounded-2xl border border-slate-200 bg-[rgb(var(--surface))] px-4 py-3 text-sm font-medium leading-relaxed text-[rgb(var(--ink))] shadow-inner outline-none transition focus:border-purple-400 focus:ring-4 focus:ring-purple-100/70"
                   />
                 </label>
+
+                {isGroupTarget && groupMaterials.length > 0 && (
+                  <section>
+                    <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">
+                      <Video size={14} /> Материалы мини-группы
+                    </div>
+                    <p className="mb-2 text-[11px] text-[rgb(var(--ink-soft))]">Выбранное видео с мини-тестом появится прямо в домашке каждого ученика.</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {groupMaterials.map((material) => {
+                        const materialId = String(material?.id || material?.materialId || '').trim();
+                        const selectedIds = Array.isArray(form?.materialIds) ? form.materialIds : [];
+                        const selected = selectedIds.includes(materialId);
+                        return (
+                          <label
+                            key={materialId}
+                            className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition ${selected
+                              ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-100'
+                              : 'border-slate-200 bg-[rgb(var(--surface))] hover:border-violet-200'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={(event) => {
+                                const next = event.target.checked
+                                  ? [...selectedIds, materialId]
+                                  : selectedIds.filter((id) => id !== materialId);
+                                onChangeForm?.({ materialIds: Array.from(new Set(next)) });
+                              }}
+                              className="mt-1"
+                            />
+                            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${material?.kind === 'video' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
+                              {material?.kind === 'video' ? <Video size={16} /> : <FileText size={16} />}
+                            </span>
+                            <span className="min-w-0">
+                              <strong className="block truncate text-sm text-[rgb(var(--ink))]">{material?.title || 'Материал'}</strong>
+                              <small className="mt-0.5 block text-[10px] font-semibold text-[rgb(var(--ink-soft))]">
+                                {material?.kind === 'video'
+                                  ? `Видео · мини-тест из ${Array.isArray(material?.quizQuestions) ? material.quizQuestions.length : 0} вопр.`
+                                  : 'Материал группы'}
+                              </small>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
 
                 <section>
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
