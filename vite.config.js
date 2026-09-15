@@ -23,28 +23,28 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     proxy: {
-      '/api': 'http://localhost:5175',
-      '/uploads': 'http://localhost:5175',
+      '/api': 'http://127.0.0.1:5175',
+      '/uploads': 'http://127.0.0.1:5175',
       '/collab': {
-        target: 'http://localhost:5175',
+        target: 'http://127.0.0.1:5175',
         ws: true,
       },
       '/rtc': {
-        target: 'http://localhost:5175',
+        target: 'http://127.0.0.1:5175',
         ws: true,
       },
     },
   },
   preview: {
     proxy: {
-      '/api': 'http://localhost:5175',
-      '/uploads': 'http://localhost:5175',
+      '/api': 'http://127.0.0.1:5175',
+      '/uploads': 'http://127.0.0.1:5175',
       '/collab': {
-        target: 'http://localhost:5175',
+        target: 'http://127.0.0.1:5175',
         ws: true,
       },
       '/rtc': {
-        target: 'http://localhost:5175',
+        target: 'http://127.0.0.1:5175',
         ws: true,
       },
     },

@@ -1,6 +1,7 @@
 export const DEFAULT_COLLAB_SOLUTION_ID = 'main';
 export const COLLAB_SOLUTIONS_MAP_KEY = 'codeSolutions';
 export const COLLAB_SOLUTIONS_DELETED_KEY = 'codeSolutionsDeleted';
+export const COLLAB_SOLUTIONS_ORDER_KEY = 'codeSolutionsOrder';
 export const MAX_COLLAB_SOLUTIONS = 20;
 
 export const DEFAULT_SOLUTION_NAME = 'Основной код';
@@ -53,7 +54,43 @@ export const listCollabSolutions = (doc) => {
     others.push({ id, name: metadata.name.trim(), createdAt: normalizeCreatedAt(metadata.createdAt) });
   }
   others.sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return [main, ...others];
+  const available = [main, ...others];
+  const byId = new Map(available.map((solution) => [solution.id, solution]));
+  const ordered = [];
+  const seen = new Set();
+  for (const rawId of doc.getArray(COLLAB_SOLUTIONS_ORDER_KEY).toArray()) {
+    const id = typeof rawId === 'string' ? rawId : '';
+    const solution = byId.get(id);
+    if (!solution || seen.has(id)) continue;
+    seen.add(id);
+    ordered.push(solution);
+  }
+  for (const solution of available) {
+    if (seen.has(solution.id)) continue;
+    ordered.push(solution);
+  }
+  return ordered;
+};
+
+export const reorderCollabSolutions = (doc, orderedIds) => {
+  const current = listCollabSolutions(doc);
+  const currentIds = current.map((solution) => solution.id);
+  const requested = Array.isArray(orderedIds)
+    ? orderedIds.map((id) => normalizeId(id))
+    : [];
+  if (
+    requested.length !== currentIds.length
+    || new Set(requested).size !== requested.length
+    || requested.some((id) => !currentIds.includes(id))
+  ) {
+    throw new Error('Некорректный порядок вкладок.');
+  }
+  const order = doc.getArray(COLLAB_SOLUTIONS_ORDER_KEY);
+  doc.transact(() => {
+    if (order.length) order.delete(0, order.length);
+    if (requested.length) order.insert(0, requested);
+  }, 'collab-solutions:reorder');
+  return listCollabSolutions(doc);
 };
 
 const requireSolution = (doc, id) => {

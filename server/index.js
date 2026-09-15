@@ -249,6 +249,11 @@ import {
 } from './googleCalendarLearningGroups.js';
 import { installReadOnlyYWebsocketMessageFilter } from './collabReadOnly.js';
 import {
+  createLearningLessonAnswerMessage,
+  filterLearningLessonAnswerMessages,
+  normalizeLearningLessonAnswerMessages,
+} from './learningLessonAnswerChat.js';
+import {
   buildQuestionCheckRawValue,
   createQuestionAnswerRules,
 } from './questionAnswerCheck.js';
@@ -633,6 +638,7 @@ const learningSubmissionsFile = path.join(dataDir, 'learning-submissions.json');
 const learningAttendanceFile = path.join(dataDir, 'learning-attendance.json');
 const learningMaterialsFile = path.join(dataDir, 'learning-materials.json');
 const learningBoardResponsesFile = path.join(dataDir, 'learning-board-responses.json');
+const learningLessonAnswerChatFile = path.join(dataDir, 'learning-lesson-answer-chat.json');
 const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENABLED, false);
 const JSON_STORAGE_BACKUPS_ENABLED = parseEnabledEnv(process.env.JSON_STORAGE_BACKUPS_ENABLED, true);
@@ -3660,6 +3666,15 @@ const getTeacherSubscriptionStatus = (teacherId, monthKey = getCurrentTeacherFin
 
 const isTeacherSubscriptionAccessAllowed = (auth) => (
   !isTeacherRole(auth) || getTeacherSubscriptionStatus(auth.id).accessAllowed
+);
+const readLearningLessonAnswerChatDb = () => readLearningJsonStore(
+  learningLessonAnswerChatFile,
+  normalizeLearningLessonAnswerMessages
+);
+const writeLearningLessonAnswerChatDb = (value) => writeLearningJsonStore(
+  learningLessonAnswerChatFile,
+  value,
+  normalizeLearningLessonAnswerMessages
 );
 
 const normalizeTeacherFinanceText = (value, maxLength) => {
@@ -23892,6 +23907,62 @@ app.put('/api/learning-groups/:groupId/lessons/:lessonId/responses/:boardItemId'
   const next = existing ? replaceLearningStoreEntry(responses, response) : [response, ...responses];
   writeLearningBoardResponsesDb(next);
   return res.json({ response });
+}));
+
+app.get('/api/learning-groups/:groupId/lessons/:lessonId/answer-chat', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId);
+  if (!lesson) return;
+  const messages = filterLearningLessonAnswerMessages(
+    readLearningLessonAnswerChatDb().filter((message) => (
+      message.groupId === group.id && message.lessonId === lesson.id
+    )),
+    req.auth
+  ).slice(-1000);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ messages });
+}));
+
+app.post('/api/learning-groups/:groupId/lessons/:lessonId/answer-chat', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId);
+  if (!lesson) return;
+  const role = isStudentRole(req.auth) ? 'student' : (isTeacherRole(req.auth) || isAdminRole(req.auth) ? 'teacher' : '');
+  if (!role) return forbid(res);
+  const lessonStartMs = Date.parse(String(lesson.startAt || '').trim());
+  const durationMs = Math.max(15, Number(lesson.durationMinutes) || 60) * 60 * 1000;
+  const lessonEndMs = Number.isFinite(lessonStartMs) ? lessonStartMs + durationMs : NaN;
+  if (Number.isFinite(lessonStartMs) && lessonStartMs > Date.now()) {
+    failLearningRequest('Чат ответов откроется с началом занятия', 'lesson_not_started', 409);
+  }
+  if (
+    ['completed', 'cancelled'].includes(String(lesson.status || '').trim())
+    || (Number.isFinite(lessonEndMs) && lessonEndMs + LEARNING_LESSON_OVERRUN_GRACE_MS <= Date.now())
+  ) {
+    failLearningRequest('Чат завершённого занятия доступен только для просмотра', 'lesson_read_only', 409);
+  }
+  const student = role === 'student' ? findStudentById(req.auth.id, { allowDeleted: true }) : null;
+  const senderName = role === 'student'
+    ? String(student?.name || req.auth?.name || 'Ученик').trim()
+    : String(req.auth?.name || 'Учитель').trim();
+  let message;
+  try {
+    message = createLearningLessonAnswerMessage({
+      id: crypto.randomUUID(),
+      groupId: group.id,
+      lessonId: lesson.id,
+      senderId: req.auth.id,
+      senderRole: role,
+      senderName,
+      text: req.body?.text,
+    });
+  } catch (error) {
+    failLearningRequest(error?.message || 'Введите ответ', 'answer_chat_invalid_message', 400);
+  }
+  writeLearningLessonAnswerChatDb([...readLearningLessonAnswerChatDb(), message]);
+  return res.status(201).json({ message });
 }));
 
 app.get('/api/learning-groups/:groupId/progress', handleLearningRoute((req, res) => {

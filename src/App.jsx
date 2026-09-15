@@ -114,6 +114,10 @@ import {
 } from './utils/lessonTargets';
 import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
 import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
+import {
+  normalizePythonTaskCatalog,
+  PYTHON_TASKS_CATALOG_KEY,
+} from './utils/pythonTaskCatalog';
 import { prepareLessonReplayBoardSandboxItems } from './utils/lessonReplayBoardSandbox';
 import {
   compactLessonReplayBoardItems,
@@ -148,6 +152,7 @@ import {
   DEFAULT_SOLUTION_NAME,
   COLLAB_SOLUTIONS_MAP_KEY,
   COLLAB_SOLUTIONS_DELETED_KEY,
+  COLLAB_SOLUTIONS_ORDER_KEY,
   getCollabSolutionChannels,
   listCollabSolutions,
   createCollabSolution,
@@ -155,9 +160,11 @@ import {
   deleteCollabSolution,
   restoreCollabSolution,
   getCollabSolutionSnapshot,
+  reorderCollabSolutions,
 } from './utils/collabSolutions';
 import CollabSolutionTabs from './components/CollabSolutionTabs';
 import CollabRunError from './components/CollabRunError';
+import GroupAnswerChat from './components/GroupAnswerChat';
 import './components/CollabWorkspaceLayout.css';
 import useCollabSolutionPresentation from './components/useCollabSolutionPresentation';
 const CollabSolutionCompare = React.lazy(() => import('./components/CollabSolutionCompare'));
@@ -3879,6 +3886,68 @@ const CollabSection = ({
     : '';
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
   const collabReadOnly = sandboxReadOnly || Boolean(readOnly && isGroupLesson);
+  const groupParticipantRoster = useMemo(() => {
+    if (!isGroupLesson) return [];
+    const studentsById = new Map(
+      (Array.isArray(students) ? students : [])
+        .map((student) => [String(student?.id || '').trim(), student])
+        .filter(([id]) => Boolean(id))
+    );
+    return learningParticipantIds.map((id) => {
+      const student = studentsById.get(id);
+      const ownFallback = id === String(userId || '').trim() ? String(userName || '').trim() : '';
+      return {
+        id,
+        name: String(student?.name || ownFallback || 'Ученик').trim() || 'Ученик',
+      };
+    });
+  }, [isGroupLesson, learningParticipantIds, students, userId, userName]);
+  const [activeGroupParticipantId, setActiveGroupParticipantId] = useState('');
+  const [groupParticipantOrder, setGroupParticipantOrder] = useState([]);
+  useEffect(() => {
+    if (!isGroupLesson) {
+      setActiveGroupParticipantId('');
+      setGroupParticipantOrder([]);
+      return;
+    }
+    const availableIds = groupParticipantRoster.map((participant) => participant.id);
+    const allowed = new Set(availableIds);
+    let storedOrder = [];
+    if (isTeacher && typeof window !== 'undefined') {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(`collab-group-tab-order:${learningLessonId}`) || '[]');
+        if (Array.isArray(parsed)) storedOrder = parsed.map(String).filter((id) => allowed.has(id));
+      } catch { /* ignore an invalid local preference */ }
+    }
+    const nextOrder = [...new Set([...storedOrder, ...availableIds])].filter((id) => allowed.has(id));
+    setGroupParticipantOrder(nextOrder);
+    setActiveGroupParticipantId((current) => {
+      if (!isTeacher) return String(userId || '').trim();
+      return allowed.has(current) ? current : (nextOrder[0] || '');
+    });
+  }, [groupParticipantRoster, isGroupLesson, isTeacher, learningLessonId, userId]);
+  const orderedGroupParticipants = useMemo(() => {
+    const byId = new Map(groupParticipantRoster.map((participant) => [participant.id, participant]));
+    const ordered = [];
+    const seen = new Set();
+    for (const id of groupParticipantOrder) {
+      const participant = byId.get(id);
+      if (!participant || seen.has(id)) continue;
+      seen.add(id);
+      ordered.push(participant);
+    }
+    for (const participant of groupParticipantRoster) {
+      if (seen.has(participant.id)) continue;
+      ordered.push(participant);
+    }
+    return ordered;
+  }, [groupParticipantOrder, groupParticipantRoster]);
+  const effectiveGroupParticipantId = isGroupLesson
+    ? (isTeacher ? (activeGroupParticipantId || orderedGroupParticipants[0]?.id || '') : String(userId || '').trim())
+    : '';
+  const activeGroupParticipantName = isGroupLesson
+    ? (groupParticipantRoster.find((participant) => participant.id === effectiveGroupParticipantId)?.name || 'Ученик')
+    : '';
   const sandboxReadOnlyCodeState = isSandbox && sandboxReadOnly
     ? (sandbox?.code && typeof sandbox.code === 'object' ? sandbox.code : sandbox)
     : null;
@@ -3925,7 +3994,11 @@ const CollabSection = ({
   const editorRef = useRef(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
-  const saveTaskNumbers = useMemo(() => getNotesSaveTaskNumbers(taskOptions), [taskOptions]);
+  const [savePythonTaskCatalog, setSavePythonTaskCatalog] = useState(() => normalizePythonTaskCatalog(PYTHON_TASKS, PYTHON_TASKS));
+  const saveTaskNumbers = useMemo(
+    () => getNotesSaveTaskNumbers([...taskOptions, ...savePythonTaskCatalog]),
+    [savePythonTaskCatalog, taskOptions]
+  );
   const defaultSaveTaskNumber = saveTaskNumbers[0] || '';
   const [saveTaskNumber, setSaveTaskNumber] = useState(() => defaultSaveTaskNumber);
   const [saveCategory, setSaveCategory] = useState('class');
@@ -4010,7 +4083,9 @@ const CollabSection = ({
     ? Boolean(isTeacher && learningParticipantIds.length > 0)
     : Boolean(effectiveStudentId);
   const liveRoomId = isGroupLesson
-    ? `collab-lesson-${learningLessonId}`
+    ? (effectiveGroupParticipantId
+      ? `collab-lesson-${learningLessonId}~student~${effectiveGroupParticipantId}`
+      : null)
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const collabDocumentReady = Boolean(
@@ -4019,12 +4094,12 @@ const CollabSection = ({
   useEffect(() => {
     activeSolutionIdRef.current = DEFAULT_COLLAB_SOLUTION_ID;
     setActiveSolutionId(DEFAULT_COLLAB_SOLUTION_ID);
-    setCodeSolutions([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: DEFAULT_SOLUTION_NAME }]);
+    setCodeSolutions([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: activeGroupParticipantName || DEFAULT_SOLUTION_NAME }]);
     setCompareSolutionId(null);
     setSolutionError('');
     setDeletedSolution(null);
     setSolutionNotice('');
-  }, [roomId]);
+  }, [activeGroupParticipantName, roomId]);
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
     const targetId = isGroupLesson ? `group-lesson-${learningLessonId}` : effectiveStudentId;
@@ -4039,6 +4114,27 @@ const CollabSection = ({
     setSaveError('');
     setSaveSuccess('');
   }, [canSaveToNotesTarget, isTeacher, openSaveToNotesToken]);
+  useEffect(() => {
+    if (!saveModalOpen || isSandbox) return undefined;
+    const catalogStudentId = isGroupLesson ? effectiveGroupParticipantId : effectiveStudentId;
+    if (!catalogStudentId) {
+      setSavePythonTaskCatalog(normalizePythonTaskCatalog(PYTHON_TASKS, PYTHON_TASKS));
+      return undefined;
+    }
+    let cancelled = false;
+    api.getTestsIndex(catalogStudentId, { force: true })
+      .then((testsIndex) => {
+        if (cancelled) return;
+        setSavePythonTaskCatalog(normalizePythonTaskCatalog(
+          testsIndex?.[PYTHON_TASKS_CATALOG_KEY],
+          PYTHON_TASKS
+        ));
+      })
+      .catch(() => {
+        if (!cancelled) setSavePythonTaskCatalog(normalizePythonTaskCatalog(PYTHON_TASKS, PYTHON_TASKS));
+      });
+    return () => { cancelled = true; };
+  }, [effectiveGroupParticipantId, effectiveStudentId, isGroupLesson, isSandbox, saveModalOpen]);
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
   const wsParams = useMemo(() => {
     const authToken = getStoredAuthToken();
@@ -6059,6 +6155,14 @@ const CollabSection = ({
     setSaveFolderId('');
   };
 
+  const saveNotesCollection = Number(saveTaskNumber) >= 100 ? 'python' : 'ege';
+  const saveTargetOptions = saveNotesCollection === 'python' ? savePythonTaskCatalog : taskOptions;
+  const handleSaveNotesCollectionChange = (value) => {
+    const options = value === 'python' ? savePythonTaskCatalog : taskOptions;
+    setSaveTaskNumber(String(options[0]?.number || ''));
+    setSaveFolderId('');
+  };
+
   const handleSaveCategoryChange = (value) => {
     setSaveCategory(value);
     setSaveFolderId('');
@@ -6099,9 +6203,9 @@ const CollabSection = ({
   }, []);
 
   const getSavedCodeNoticePath = (safeName) => {
-    const selectedTask = taskOptions.find((task) => String(task?.number ?? task?.id) === String(saveTaskNumber));
+    const selectedTask = saveTargetOptions.find((task) => String(task?.number ?? task?.id) === String(saveTaskNumber));
     const taskLabel = selectedTask
-      ? `Задание ${getTaskDisplayNumber(selectedTask)}`
+      ? (saveNotesCollection === 'python' ? `Python / ${selectedTask.title}` : `Задание ${getTaskDisplayNumber(selectedTask)}`)
       : `Задание ${formatTaskNumber(saveTaskNumber) || saveTaskNumber}`;
     const selectedFolder = folders.find((folder) => String(folder?.id || '') === String(saveFolderId || ''));
     const folderLabel = String(selectedFolder?.name || '').trim();
@@ -8246,14 +8350,20 @@ const CollabSection = ({
     const solutionViews = new Map();
     const solutionCatalog = doc.getMap(COLLAB_SOLUTIONS_MAP_KEY);
     const deletedSolutions = doc.getMap(COLLAB_SOLUTIONS_DELETED_KEY);
+    const solutionOrder = doc.getArray(COLLAB_SOLUTIONS_ORDER_KEY);
     const syncSolutionCatalog = () => {
-      const solutions = listCollabSolutions(doc);
+      const solutions = listCollabSolutions(doc).map((solution) => (
+        isGroupLesson && solution.id === DEFAULT_COLLAB_SOLUTION_ID
+          ? { ...solution, name: activeGroupParticipantName || 'Ученик' }
+          : solution
+      ));
       activeSolutionDeletedRef.current = !solutions.some((item) => item.id === activeSolutionIdRef.current);
       if (activeSolutionDeletedRef.current) editorRef.current?.updateOptions?.({ readOnly: true });
       setCodeSolutions(solutions);
     };
     solutionCatalog.observe(syncSolutionCatalog);
     deletedSolutions.observe(syncSolutionCatalog);
+    solutionOrder.observe(syncSolutionCatalog);
     syncSolutionCatalog();
     const switchSolution = (nextId) => {
       if (disposed || localRunBusyRef.current || !listCollabSolutions(doc).some((item) => item.id === nextId)) return false;
@@ -8340,6 +8450,7 @@ const CollabSection = ({
       if (selectSolutionRef.current === switchSolution) selectSolutionRef.current = null;
       solutionCatalog.unobserve(syncSolutionCatalog);
       deletedSolutions.unobserve(syncSolutionCatalog);
+      solutionOrder.unobserve(syncSolutionCatalog);
       runSessionRef.current += 1;
       localRunBusyRef.current = false;
       disposeRunWorkerRef.current?.('Комната кода закрыта.');
@@ -8439,6 +8550,8 @@ const CollabSection = ({
     emitSandboxState,
     stopDebugPlayback,
     role,
+    isGroupLesson,
+    activeGroupParticipantName,
   ]);
 
   useEffect(() => {
@@ -9138,7 +9251,7 @@ const CollabSection = ({
 
   const saveModal = !isSandbox && saveModalOpen ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
-      <div className="surface-card modal-card rounded-3xl w-full max-w-3xl p-4 sm:p-5 md:p-6 shadow-2xl relative">
+      <div className="surface-card modal-card rounded-3xl w-full max-w-5xl p-4 sm:p-5 md:p-6 shadow-2xl relative">
         <button
           onClick={() => setSaveModalOpen(false)}
           className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
@@ -9159,17 +9272,30 @@ const CollabSection = ({
           </p>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Задание</label>
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Раздел</label>
+            <select
+              value={saveNotesCollection}
+              onChange={(e) => handleSaveNotesCollectionChange(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
+            >
+              <option value="ege">Задания ЕГЭ</option>
+              <option value="python">Python</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">{saveNotesCollection === 'python' ? 'Тема' : 'Задание'}</label>
             <select
               value={saveTaskNumber}
               onChange={(e) => handleSaveTaskNumberChange(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-purple-500"
             >
-              {taskOptions.map((task) => (
+              {saveTargetOptions.map((task) => (
                 <option key={task.id} value={task.number}>
-                  {`Задание ${getTaskDisplayNumber(task)}: ${task.title}`}
+                  {saveNotesCollection === 'python'
+                    ? `${task.displayNumber || ''} ${task.title}`.trim()
+                    : `Задание ${getTaskDisplayNumber(task)}: ${task.title}`}
                 </option>
               ))}
             </select>
@@ -9413,6 +9539,26 @@ const CollabSection = ({
   const renameCodeSolution = (id, name) => {
     if (collabReadOnly || !collabDocumentReady || !collabDocRef.current) throw new Error('Совместный код ещё не подключён.');
     renameCollabSolution(collabDocRef.current, id, name);
+  };
+  const reorderCodeSolutionTabs = (orderedIds) => {
+    if (!isTeacher || collabReadOnly || !collabDocumentReady || !collabDocRef.current) {
+      throw new Error('Изменять порядок вкладок может учитель после подключения к занятию.');
+    }
+    reorderCollabSolutions(collabDocRef.current, orderedIds);
+  };
+  const reorderGroupParticipantTabs = (orderedIds) => {
+    if (!isTeacher || !isGroupLesson) return;
+    const available = new Set(groupParticipantRoster.map((participant) => participant.id));
+    const normalized = Array.isArray(orderedIds) ? orderedIds.map(String) : [];
+    if (
+      normalized.length !== available.size
+      || new Set(normalized).size !== normalized.length
+      || normalized.some((id) => !available.has(id))
+    ) return;
+    setGroupParticipantOrder(normalized);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(`collab-group-tab-order:${learningLessonId}`, JSON.stringify(normalized));
+    }
   };
   const deleteCodeSolution = (id) => {
     if (collabReadOnly || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) throw new Error('Дождитесь завершения текущей операции.');
@@ -11206,6 +11352,21 @@ const CollabSection = ({
             onCreate={copyCodeSolution}
             onRename={renameCodeSolution}
             onDelete={deleteCodeSolution}
+            onReorder={reorderCodeSolutionTabs}
+            canReorder={isTeacher && !collabReadOnly}
+            participants={isGroupLesson ? (isTeacher
+              ? orderedGroupParticipants
+              : orderedGroupParticipants.filter((participant) => participant.id === effectiveGroupParticipantId)) : []}
+            activeParticipantId={effectiveGroupParticipantId}
+            onSelectParticipant={(participantId) => {
+              if (!isTeacher || participantId === effectiveGroupParticipantId) {
+                selectCodeSolution(DEFAULT_COLLAB_SOLUTION_ID);
+                return;
+              }
+              setCompareSolutionId(null);
+              setActiveGroupParticipantId(participantId);
+            }}
+            onReorderParticipants={reorderGroupParticipantTabs}
             onCompare={changeCodeComparison}
             canPresent={isTeacher && !collabReadOnly}
             presenting={presentation.presenting}
@@ -18276,6 +18437,17 @@ const BoardSection = ({
               className="board-minimap-canvas block"
             />
           </div>
+        )}
+
+        {isGroupLesson && !isSandbox && (
+          <GroupAnswerChat
+            groupId={learningGroupId}
+            lessonId={learningLessonId}
+            role={role}
+            userId={userId}
+            readOnly={boardReadOnly}
+            dark={isDarkTheme}
+          />
         )}
 
         <div ref={boardBottomControlsRef} className="board-bottom-controls">

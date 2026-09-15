@@ -6,6 +6,7 @@ const LESSON_ROOM_PREFIX = 'lesson:';
 const LESSON_RTC_ROOM_PREFIX = 'rtc:lesson:';
 const LESSON_BOARD_DOC_PREFIX = 'board-lesson-';
 const LESSON_COLLAB_DOC_PREFIX = 'collab-lesson-';
+const LESSON_PRIVATE_COLLAB_MARKER = '~student~';
 
 export const LEARNING_LESSON_EARLY_JOIN_MS = 5 * 60 * 1000;
 export const LEARNING_LESSON_OVERRUN_GRACE_MS = 30 * 60 * 1000;
@@ -113,6 +114,14 @@ export const buildLearningLessonCollabDocName = (sessionId) => {
   return normalizedSessionId ? `${LESSON_COLLAB_DOC_PREFIX}${normalizedSessionId}` : '';
 };
 
+export const buildLearningLessonPrivateCollabDocName = (sessionId, studentId) => {
+  const baseName = buildLearningLessonCollabDocName(sessionId);
+  const normalizedStudentId = normalizeRoomToken(studentId);
+  return baseName && normalizedStudentId
+    ? `${baseName}${LESSON_PRIVATE_COLLAB_MARKER}${normalizedStudentId}`
+    : '';
+};
+
 export const buildLearningLessonRoomNames = (sessionId) => {
   const normalizedSessionId = normalizeRoomToken(sessionId);
   if (!normalizedSessionId) return null;
@@ -128,6 +137,25 @@ export const buildLearningLessonRoomNames = (sessionId) => {
 export const parseLearningLessonRoomTarget = (value) => {
   const roomId = normalizeRoomId(value);
   if (!roomId) return null;
+
+  if (roomId.startsWith(LESSON_COLLAB_DOC_PREFIX) && roomId.includes(LESSON_PRIVATE_COLLAB_MARKER)) {
+    const markerIndex = roomId.lastIndexOf(LESSON_PRIVATE_COLLAB_MARKER);
+    const baseRoomId = roomId.slice(0, markerIndex);
+    const privateStudentId = normalizeRoomToken(roomId.slice(markerIndex + LESSON_PRIVATE_COLLAB_MARKER.length));
+    const sessionId = normalizeRoomToken(baseRoomId.slice(LESSON_COLLAB_DOC_PREFIX.length));
+    if (!sessionId || !privateStudentId) return null;
+    const expectedRoomId = buildLearningLessonPrivateCollabDocName(sessionId, privateStudentId);
+    if (expectedRoomId !== roomId) return null;
+    return {
+      targetType: 'lesson',
+      kind: 'collab-private',
+      sessionId,
+      privateStudentId,
+      roomId,
+      canonicalRoomId: buildLearningLessonRoomId(sessionId),
+      legacy: false,
+    };
+  }
 
   const prefixes = [
     { prefix: LESSON_RTC_ROOM_PREFIX, kind: 'rtc' },
@@ -410,9 +438,16 @@ export const authorizeLearningRealtimeRoom = ({
     return { allowed: false, reason: 'group-workspace-required', target };
   }
 
-  const allowed = target.targetType === 'lesson'
+  const baseAllowed = target.targetType === 'lesson'
     ? canAccessLearningLessonSession(auth, target.session, { groups, attendanceRecords })
     : canAccessLegacyLearningRoom(auth, target);
+  const role = normalizeText(auth.role, 40).toLowerCase();
+  const authId = normalizeText(auth.id);
+  const privateRoomAllowed = target.kind !== 'collab-private'
+    || role === 'admin'
+    || role === 'teacher'
+    || (role === 'student' && authId === normalizeText(target.privateStudentId));
+  const allowed = baseAllowed && privateRoomAllowed;
   return {
     allowed,
     reason: allowed ? '' : 'forbidden',
@@ -455,15 +490,20 @@ export const authorizeLearningCollabUpgrade = ({ requestUrl, ...options } = {}) 
   const access = authorizeLearningRealtimeRoom({
     ...options,
     roomId: docName,
-    allowedKinds: ['board', 'collab', 'python'],
+    allowedKinds: ['board', 'collab', 'collab-private', 'python'],
     allowedSessionStatuses: Array.isArray(options.allowedSessionStatuses)
       ? options.allowedSessionStatuses
       : ['scheduled', 'active', 'completed'],
   });
+  const role = normalizeText(options?.auth?.role, 40).toLowerCase();
   const readOnly = Boolean(
     access.allowed
     && access.target?.targetType === 'lesson'
-    && (access.readOnly || normalizeText(access.target?.session?.status, 40) === 'completed')
+    && (
+      access.readOnly
+      || normalizeText(access.target?.session?.status, 40) === 'completed'
+      || (access.target?.kind === 'collab' && role === 'student')
+    )
   );
   return { ...access, readOnly, docName };
 };

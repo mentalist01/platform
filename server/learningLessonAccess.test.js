@@ -9,6 +9,7 @@ import {
   buildLearningAttendanceKey,
   buildLearningLessonBoardDocName,
   buildLearningLessonCollabDocName,
+  buildLearningLessonPrivateCollabDocName,
   buildLearningLessonRoomId,
   buildLearningLessonRoomNames,
   buildLearningLessonRtcRoomId,
@@ -87,6 +88,30 @@ test('parses canonical, rtc, board and collab lesson targets without parsing leg
   });
   assert.equal(parseLearningLessonRoomTarget('board-teacher-a-student-a'), null);
   assert.equal(parseLearningLessonRoomTarget('collab-lesson-../../secret'), null);
+});
+
+test('private group code rooms expose one student only to that student and the lesson teacher', () => {
+  const privateRoom = buildLearningLessonPrivateCollabDocName(session.id, 'student-a');
+  assert.equal(privateRoom, `collab-lesson-${session.id}~student~student-a`);
+  assert.deepEqual(parseLearningLessonRoomTarget(privateRoom), {
+    targetType: 'lesson',
+    kind: 'collab-private',
+    sessionId: session.id,
+    privateStudentId: 'student-a',
+    roomId: privateRoom,
+    canonicalRoomId: `lesson:${session.id}`,
+    legacy: false,
+  });
+  const authorize = (auth) => authorizeLearningCollabUpgrade({
+    requestUrl: `/collab/${encodeURIComponent(privateRoom)}`,
+    auth,
+    sessions: [session],
+    groups: [group],
+  });
+  assert.equal(authorize({ role: 'teacher', id: 'teacher-a' }).allowed, true);
+  assert.equal(authorize({ role: 'student', id: 'student-a' }).allowed, true);
+  assert.equal(authorize({ role: 'student', id: 'student-b' }).allowed, false);
+  assert.equal(authorize({ role: 'teacher', id: 'teacher-b' }).allowed, false);
 });
 
 test('lesson ACL accepts admin, owner teacher, participant snapshot and active group member', () => {

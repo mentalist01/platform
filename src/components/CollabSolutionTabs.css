@@ -50,7 +50,17 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.collab-solutions__tab { flex: 0 0 auto; max-width: 235px; border-color: var(--solution-border); }
+.collab-solutions__tab { flex: 0 0 auto; max-width: 235px; border-color: var(--solution-border); touch-action: pan-x; user-select: none; }
+.collab-solutions__tab.is-participant { font-weight: 700; }
+.collab-solutions__tab.is-dragging {
+  opacity: .68;
+  cursor: grabbing;
+  touch-action: none;
+  transform: scale(.98);
+  box-shadow: 0 6px 18px #11182724;
+}
+.collab-solutions__tab.is-drop-before { box-shadow: -3px 0 0 var(--solution-accent); }
+.collab-solutions__tab.is-drop-after { box-shadow: 3px 0 0 var(--solution-accent); }
 .collab-solutions__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .collab-solutions__tab:hover,
 .collab-solutions__button:hover,

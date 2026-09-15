@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import {
   COLLAB_SOLUTIONS_MAP_KEY,
+  COLLAB_SOLUTIONS_ORDER_KEY,
   DEFAULT_COLLAB_SOLUTION_ID,
   MAX_COLLAB_SOLUTIONS,
   createCollabSolution,
@@ -13,6 +14,7 @@ import {
   restoreCollabSolution,
   getCollabSolutionSnapshot,
   getSharedCollabComparison,
+  reorderCollabSolutions,
 } from './collabSolutions.js';
 
 const copyDoc = (source) => {
@@ -177,6 +179,20 @@ test('limit counts the virtual main and rename retains ordering and document con
   assert.throws(() => renameCollabSolution(doc, 'copy-2', ' '), /Введите/);
   assert.throws(() => renameCollabSolution(doc, 'missing', 'Имя'), /не найдено/);
   assert.equal(getCollabSolutionChannels(doc).runMap.get('output'), 'привет 🐍\n42\n');
+});
+
+test('teacher order is shared, survives reload, and rejects partial or duplicate lists', () => {
+  const doc = seedLegacyDocument();
+  createCollabSolution(doc, { id: 'second', name: 'Второй', createdAt: 1 });
+  createCollabSolution(doc, { id: 'third', name: 'Третий', createdAt: 2 });
+  assert.deepEqual(
+    reorderCollabSolutions(doc, ['third', 'main', 'second']).map(({ id }) => id),
+    ['third', 'main', 'second']
+  );
+  assert.deepEqual(doc.getArray(COLLAB_SOLUTIONS_ORDER_KEY).toArray(), ['third', 'main', 'second']);
+  assert.deepEqual(listCollabSolutions(copyDoc(doc)).map(({ id }) => id), ['third', 'main', 'second']);
+  assert.throws(() => reorderCollabSolutions(doc, ['main', 'second']), /Некорректный порядок/);
+  assert.throws(() => reorderCollabSolutions(doc, ['main', 'second', 'second']), /Некорректный порядок/);
 });
 
 test('two disconnected clients clone main without duplicating legacy initialization', () => {

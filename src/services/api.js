@@ -1338,6 +1338,15 @@ export const api = {
       body: payload,
     })
   ),
+  getLearningGroupLessonAnswerChat: async (groupId, lessonId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'answer-chat'))
+  ),
+  sendLearningGroupLessonAnswerChat: async (groupId, lessonId, text) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'answer-chat'), {
+      method: 'POST',
+      body: { text },
+    })
+  ),
   getLearningGroupProgress: async (groupId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'progress'))
   ),
