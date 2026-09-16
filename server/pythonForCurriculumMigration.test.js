@@ -15,15 +15,16 @@ const sourceStore = () => ({
         105: {
           pythonSubsections: [
             { id: 'range-id', title: 'range() и шаг', order: 0 },
+            { id: 'accumulator-id', title: 'Накопители', order: 1 },
             { id: 'counter-id', title: 'Отбор и счётчики', order: 2 },
             { id: 'search-id', title: 'Делители и простые числа', order: 4 },
           ],
           python: [
-            { id: 1, title: 'Повторение — мать учения' },
-            { id: 2, title: 'Диапазон чисел' },
-            { id: 3, title: 'Сумма чисел' },
-            { id: 4, title: 'Подсчет буквы (Цикл по строке)' },
-            { id: 5, title: 'Анализ оценок (Ввод внутри цикла)' },
+            { id: 1, title: '', question: 'Повторение — мать учения' },
+            { id: 2, title: '', question: 'Диапазон чисел' },
+            { id: 3, title: '', question: 'Сумма чисел' },
+            { id: 4, title: '', question: 'Подсчет буквы' },
+            { id: 5, title: '', question: 'Анализ оценок' },
             { id: 6, title: 'Шаг назад' },
             { id: 7, title: 'Чётные на отрезке' },
           ],

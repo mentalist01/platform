@@ -16,10 +16,14 @@ const task = ({ id, subsectionId, subsectionTitle, title, question, starterCode,
 
 const test = (input, output) => ({ input, output });
 
-const findExistingId = (questions, titles, fallbackId) => {
+const findExistingId = (questions, titles, fallbackId, fallbackIndex = -1) => {
   const wanted = new Set(titles);
   const match = questions.find((question) => wanted.has(String(question?.title || '').trim()));
-  return match?.id ?? fallbackId;
+  if (match?.id !== null && typeof match?.id !== 'undefined') return match.id;
+  const indexed = Number.isInteger(fallbackIndex) && fallbackIndex >= 0
+    ? questions[fallbackIndex]
+    : null;
+  return indexed?.id ?? fallbackId;
 };
 
 const getSubsectionId = (entry, oldTitle, fallbackId) => {
@@ -52,7 +56,7 @@ const buildCurriculum = (entry, currentQuestions) => {
 
   const questions = [
     make('range', {
-      id: findExistingId(currentQuestions, ['Повторение — мать учения', 'Повторить сообщение'], 'python-for-repeat-message'),
+      id: findExistingId(currentQuestions, ['Повторение — мать учения', 'Повторить сообщение'], 'python-for-repeat-message', 0),
       title: 'Повторить сообщение',
       question: 'Считайте строку и целое число N. Выведите строку N раз, каждое повторение на новой строке. Используйте цикл for.\n\nФормат входных данных:\nВ первой строке текст, во второй строке целое число N (1 ≤ N ≤ 20).\n\nФормат выходных данных:\nN строк с исходным текстом.',
       starterCode: "text = input()\nn = int(input())\n\n# Повторите вывод n раз",
@@ -64,7 +68,7 @@ const buildCurriculum = (entry, currentQuestions) => {
       ],
     }),
     make('range', {
-      id: findExistingId(currentQuestions, ['Диапазон чисел', 'Диапазон включительно'], 'python-for-inclusive-range'),
+      id: findExistingId(currentQuestions, ['Диапазон чисел', 'Диапазон включительно'], 'python-for-inclusive-range', 1),
       title: 'Диапазон включительно',
       question: 'Даны два целых числа A и B, причём A не больше B. Выведите все числа от A до B включительно в одну строку через пробел. Используйте range().\n\nФормат входных данных:\nДва целых числа A и B, каждое на новой строке.\n\nФормат выходных данных:\nЧисла от A до B включительно.',
       starterCode: "a = int(input())\nb = int(input())\n\n# Правая граница range() не включается",
@@ -100,7 +104,7 @@ const buildCurriculum = (entry, currentQuestions) => {
       ],
     }),
     make('accumulators', {
-      id: findExistingId(currentQuestions, ['Сумма чисел', 'Сумма введённых чисел'], 'python-for-input-sum'),
+      id: findExistingId(currentQuestions, ['Сумма чисел', 'Сумма введённых чисел'], 'python-for-input-sum', 2),
       title: 'Сумма введённых чисел',
       question: 'Сначала вводится количество чисел N, затем N целых чисел, каждое на новой строке. Найдите их сумму. Значения нужно считывать внутри цикла.\n\nФормат входных данных:\nЦелое число N, затем N целых чисел.\n\nФормат выходных данных:\nСумма введённых чисел.',
       starterCode: "n = int(input())\ntotal = 0\n\n# Считайте n чисел и накапливайте сумму\n\nprint(total)",
@@ -136,7 +140,7 @@ const buildCurriculum = (entry, currentQuestions) => {
       ],
     }),
     make('counters', {
-      id: findExistingId(currentQuestions, ['Подсчет буквы (Цикл по строке)', 'Сколько раз встретился символ'], 'python-for-count-char'),
+      id: findExistingId(currentQuestions, ['Подсчет буквы (Цикл по строке)', 'Сколько раз встретился символ'], 'python-for-count-char', 3),
       title: 'Сколько раз встретился символ',
       question: 'Считайте строку и один символ. Посчитайте, сколько раз этот символ встречается в строке. Регистр имеет значение. Используйте цикл for по строке.\n\nФормат входных данных:\nСтрока, затем один символ.\n\nФормат выходных данных:\nКоличество совпадений.',
       starterCode: "text = input()\ntarget = input()\ncount = 0\n\n# Переберите символы строки\n\nprint(count)",
@@ -148,7 +152,7 @@ const buildCurriculum = (entry, currentQuestions) => {
       ],
     }),
     make('counters', {
-      id: findExistingId(currentQuestions, ['Анализ оценок (Ввод внутри цикла)', 'Сколько значений равны цели'], 'python-for-count-target'),
+      id: findExistingId(currentQuestions, ['Анализ оценок (Ввод внутри цикла)', 'Сколько значений равны цели'], 'python-for-count-target', 4),
       title: 'Сколько значений равны цели',
       question: 'Сначала вводятся количество значений N и искомое целое число X. Затем вводятся N целых чисел. Посчитайте, сколько из них равны X.\n\nФормат входных данных:\nВ первой строке N, во второй X, затем N целых чисел.\n\nФормат выходных данных:\nКоличество значений, равных X.',
       starterCode: "n = int(input())\ntarget = int(input())\ncount = 0\n\n# Считайте n значений и сравнивайте каждое с target\n\nprint(count)",
@@ -286,10 +290,15 @@ const isTargetEntry = (entry) => {
   if (Number(entry.pythonForCurriculumVersion) >= CURRICULUM_VERSION) return false;
   const questions = Array.isArray(entry[LEVEL_ID]) ? entry[LEVEL_ID] : [];
   const titles = new Set(questions.map((question) => String(question?.title || '').trim()));
-  return titles.has('Повторение — мать учения')
-    && titles.has('Диапазон чисел')
+  const subsectionTitles = new Set(
+    (Array.isArray(entry.pythonSubsections) ? entry.pythonSubsections : [])
+      .map((section) => String(section?.title || '').trim())
+  );
+  return questions.length >= 7
     && titles.has('Шаг назад')
-    && titles.has('Чётные на отрезке');
+    && titles.has('Чётные на отрезке')
+    && subsectionTitles.has('range() и шаг')
+    && subsectionTitles.has('Накопители');
 };
 
 export const migratePythonForCurriculumStore = (storeValue) => {
