@@ -69,6 +69,7 @@ const definitions = [
     taskNumber: '101',
     versionField: 'pythonIoCurriculumVersion',
     signatures: ['Вежливый бот', 'Следующее и предыдущее', 'Кастомный разделитель (sep)'],
+    legacyQuestionIds: ['1770015166176', '1770015217480', '1770015238939', '1770015261015', '1770015283587'],
     sections: [
       { key: 'print', id: 'python-io-print', title: 'Точный вывод' },
       { key: 'strings', id: 'python-io-strings', title: 'Ввод строк' },
@@ -171,6 +172,7 @@ const definitions = [
     taskNumber: '102',
     versionField: 'pythonVariablesCurriculumVersion',
     signatures: ['Электронная визитка', 'Стоимость покупки', 'Копилка (Обновление переменной)'],
+    legacyQuestionIds: ['1770016190396', '1770016267645', '1770016427954', '1770016459107', '1770016521794'],
     sections: [
       { key: 'names', id: 'python-vars-names', title: 'Хранение данных' },
       { key: 'types', id: 'python-vars-types', title: 'Типы и преобразования' },
@@ -273,6 +275,7 @@ const definitions = [
     taskNumber: '103',
     versionField: 'pythonConditionsCurriculumVersion',
     signatures: ['Фейсконтроль', 'Оценка за тест', 'Кто больше?'],
+    legacyQuestionIds: ['1770018871474', '1770018952837', '1770018967161', '1770018984967', '1770019002712'],
     sections: [
       { key: 'simple', id: 'python-if-simple', title: 'Простой выбор' },
       { key: 'elif', id: 'python-if-elif', title: 'Несколько вариантов' },
@@ -404,6 +407,7 @@ const definitions = [
     taskNumber: '104',
     versionField: 'pythonCalculationsCurriculumVersion',
     signatures: ['Обмен валют', 'Электронные часы', 'Дележ яблок'],
+    legacyQuestionIds: ['1770021915415', '1770021949229', '1770021983603', '1770022003909', '1770022028482'],
     sections: [
       { key: 'operators', id: 'python-calc-operators', title: 'Операции и типы' },
       { key: 'division', id: 'python-calc-division', title: 'Целочисленное деление' },
@@ -535,6 +539,11 @@ const definitions = [
     taskNumber: '106',
     versionField: 'pythonStringsCurriculumVersion',
     signatures: ['Первый и последний', 'Убираем границы (Срезы)', 'Имя файла'],
+    legacyQuestionIds: [
+      '1770023105189', '1770023125502', '1770023145792', '1770023165410', '1770023194207',
+      '1770023437347', '1770023450138', '1770023462846', '1770023492421', '1770023550156',
+      '1770023675183', '1770023686178', '1770023698740', '1770023713511', '1770023725399',
+    ],
     sections: [
       { key: 'access', id: 'python-strings-access', title: 'Индексы и срезы' },
       { key: 'methods', id: 'python-strings-methods', title: 'Методы строк' },
@@ -690,6 +699,7 @@ const definitions = [
     taskNumber: '107',
     versionField: 'pythonWhileCurriculumVersion',
     signatures: ['Эхо до стоп-слова', 'Сумма цифр числа', 'Упорный пароль'],
+    legacyQuestionIds: ['1770025770717', '1770025796116', '1770025807669', '1770025824471', '1770025836251'],
     sections: [
       { key: 'sentinel', id: 'python-while-sentinel', title: 'Цикл до сигнала' },
       { key: 'counter', id: 'python-while-counter', title: 'Счётчик цикла' },
@@ -821,6 +831,10 @@ const definitions = [
     taskNumber: '108',
     versionField: 'pythonListsCurriculumVersion',
     signatures: ['Границы списка', 'Статистика', 'Рокировка (Max и Min)'],
+    legacyQuestionIds: [
+      '1770026275072', '1770026294303', '1770026366928', '1770026385138', '1770026400748',
+      '1770026418188', '1770026428229', '1770026480067', '1770026498467', '1770026512389',
+    ],
     sections: [
       { key: 'basics', id: 'python-lists-basics', title: 'Создание и доступ' },
       { key: 'transform', id: 'python-lists-transform', title: 'Фильтрация и замена' },
@@ -976,7 +990,15 @@ const isTargetEntry = (entry, definition) => {
     (Array.isArray(entry[LEVEL_ID]) ? entry[LEVEL_ID] : [])
       .map((question) => String(question?.title || '').trim()),
   );
-  return definition.signatures.every((title) => titles.has(title));
+  if (definition.signatures.every((title) => titles.has(title))) return true;
+  const questionIds = new Set(
+    (Array.isArray(entry[LEVEL_ID]) ? entry[LEVEL_ID] : [])
+      .map((question) => String(question?.id ?? '').trim())
+      .filter(Boolean),
+  );
+  return Array.isArray(definition.legacyQuestionIds)
+    && definition.legacyQuestionIds.length > 0
+    && definition.legacyQuestionIds.every((id) => questionIds.has(String(id)));
 };
 
 export const migratePythonCoreCurriculaTestsDb = (testsDbValue) => {

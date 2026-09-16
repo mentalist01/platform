@@ -111,3 +111,29 @@ test('migrates the shared tests database as well as teacher-specific banks', () 
   assert.equal(repeated.changed, false);
   assert.deepEqual(repeated.testsDb, migrated.testsDb);
 });
+
+test('recognizes production legacy banks by stable ids when titles use an old encoding', () => {
+  const source = sourceStore().teachers.teacher1.tests;
+  const productionIds = {
+    101: ['1770015166176', '1770015217480', '1770015238939', '1770015261015', '1770015283587'],
+    102: ['1770016190396', '1770016267645', '1770016427954', '1770016459107', '1770016521794'],
+    103: ['1770018871474', '1770018952837', '1770018967161', '1770018984967', '1770019002712'],
+    104: ['1770021915415', '1770021949229', '1770021983603', '1770022003909', '1770022028482'],
+    106: ['1770023105189', '1770023125502', '1770023145792', '1770023165410', '1770023194207', '1770023437347', '1770023450138', '1770023462846', '1770023492421', '1770023550156', '1770023675183', '1770023686178', '1770023698740', '1770023713511', '1770023725399'],
+    107: ['1770025770717', '1770025796116', '1770025807669', '1770025824471', '1770025836251'],
+    108: ['1770026275072', '1770026294303', '1770026366928', '1770026385138', '1770026400748', '1770026418188', '1770026428229', '1770026480067', '1770026498467', '1770026512389'],
+  };
+  Object.entries(productionIds).forEach(([taskNumber, ids]) => {
+    source[taskNumber].python.forEach((question, index) => {
+      question.id = ids[index];
+      question.title = `legacy-title-${taskNumber}-${index}`;
+    });
+  });
+
+  const migrated = migratePythonCoreCurriculaTestsDb(source);
+
+  assert.equal(migrated.changed, true);
+  Object.entries(PYTHON_CORE_CURRICULUM_TASK_COUNTS).forEach(([taskNumber, expectedCount]) => {
+    assert.equal(migrated.testsDb[taskNumber].python.length, expectedCount);
+  });
+});
