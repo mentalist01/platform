@@ -352,6 +352,24 @@ test('materials use explicit group or lesson scope', () => {
   );
 });
 
+test('teacher library material is not tied to one learning group', () => {
+  const material = createLearningMaterial(null, {
+    kind: 'video',
+    title: 'Общая теория',
+    url: 'https://rutube.ru/video/library-video/',
+    quizQuestions: [{ question: 'Проверка', answer: 'Да' }],
+  }, {
+    id: 'library-video',
+    teacherId,
+    libraryScope: 'teacher',
+    now: NOW,
+  });
+
+  assert.equal(material.scope, 'teacher');
+  assert.equal(material.groupId, '');
+  assert.equal(material.teacherId, teacherId);
+});
+
 test('RuTube video material keeps an arbitrary mini-test', () => {
   const video = createLearningMaterial(makeGroup(), {
     kind: 'video',

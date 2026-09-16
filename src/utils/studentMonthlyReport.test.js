@@ -114,9 +114,9 @@ test('parent-facing copy uses only saved lesson topics and explains a first mock
     ],
   });
 
-  assert.deepEqual(report.metrics.lessons.topics, ['Задания №7, 4']);
+  assert.deepEqual(report.metrics.lessons.topics, ['Задания №7 и 4']);
   assert.match(report.text, /мы провели 3 занятия|прошло 3 занятия/u);
-  assert.match(report.text, /задания №7, 4/u);
+  assert.match(report.text, /задания №7 и 4/u);
   assert.match(report.text, /Данил (?:написал первый пробник|написал первый пробник на)|Первый пробник/u);
   assert.match(report.text, /27 баллов/u);
   assert.doesNotMatch(report.text, /Данил пробное|ВАРИАНТ ПРЕДСКАЗАНИЕ|2 ч 30 мин|срок не наступил|[—–]/u);
@@ -134,4 +134,39 @@ test('a fresh generation changes wording while keeping the same facts', () => {
   const second = buildStudentMonthlyReport({ ...base, nowMs: Date.parse('2026-09-14T12:00:00.002+03:00') });
   assert.notEqual(first.text, second.text);
   assert.deepEqual(first.metrics, second.metrics);
+});
+
+test('lesson task topics merge repeated task numbers from differently worded topics', () => {
+  const nowMs = Date.parse('2026-09-16T12:00:00+03:00');
+  const report = buildStudentMonthlyReport({
+    student: { id: 'roman', name: 'Роман' },
+    month: '2026-09',
+    nowMs,
+    lessonEntries: [
+      { dayKey: '2026-09-01', topic: { text: 'Задания №18, 9' }, startMs: nowMs - 4_000 },
+      { dayKey: '2026-09-05', topic: { text: 'Задание №18, 11' }, startMs: nowMs - 3_000 },
+      { dayKey: '2026-09-10', topic: { text: 'Задание №11' }, startMs: nowMs - 2_000 },
+      { dayKey: '2026-09-15', topic: { text: 'Задание №7' }, startMs: nowMs - 1_000 },
+    ],
+  });
+
+  assert.deepEqual(report.metrics.lessons.topics, ['Задания №18, 9, 11 и 7']);
+  assert.match(report.text, /задания №18, 9, 11 и 7/u);
+  assert.doesNotMatch(report.text, /№18.*№18|№11.*№11/u);
+});
+
+test('very low homework completion is evaluated honestly and calls for finding the cause', () => {
+  const report = buildStudentMonthlyReport({
+    student: { id: 'student-low', name: 'Иван' },
+    month: '2026-09',
+    nowMs: Date.parse('2026-09-16T12:00:00+03:00'),
+    homeworkEntries: [
+      { dueAt: '2026-09-05T18:00:00+03:00', percent: 0 },
+      { dueAt: '2026-09-12T18:00:00+03:00', percent: 20 },
+    ],
+  });
+
+  assert.equal(report.metrics.homework.averagePercent, 10);
+  assert.match(report.text, /очень плохо|очень слабый|очень мало/u);
+  assert.match(report.text, /причин|почему/u);
 });

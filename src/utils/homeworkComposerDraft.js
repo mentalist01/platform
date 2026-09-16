@@ -138,6 +138,7 @@ export const normalizeHomeworkComposerDraftForm = (value) => {
     dayPlanWeekdays: dayPlanWeekdays.length > 0 ? dayPlanWeekdays : [1, 2, 3, 4, 5, 6, 7],
     dayPlanManualLayout: normalizeDraftDayPlanManualLayout(value.dayPlanManualLayout),
     issuedAt: trimString(value.issuedAt, 100),
+    materialIds: normalizeStringList(value.materialIds, 100, 180),
   };
 };
 

@@ -140,6 +140,35 @@ const uniqueLabels = (values, limit = 6) => {
   return result;
 };
 
+const TASK_TOPIC_PATTERN = /^задани(?:е|я)\s*(?:№\s*)?([\d\s,№и]+)$/iu;
+
+const normalizeLessonTopicLabels = (values, limit = 6) => {
+  const regularTopics = [];
+  const taskNumbers = [];
+  const seenTaskNumbers = new Set();
+
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const label = toShortDashes(value).replace(/\s+/g, ' ').trim();
+    if (!label) return;
+    const taskMatch = TASK_TOPIC_PATTERN.exec(label);
+    if (!taskMatch) {
+      regularTopics.push(label);
+      return;
+    }
+    (taskMatch[1].match(/\d+/g) || []).forEach((number) => {
+      const normalized = String(Number(number));
+      if (!normalized || normalized === 'NaN' || seenTaskNumbers.has(normalized)) return;
+      seenTaskNumbers.add(normalized);
+      taskNumbers.push(normalized);
+    });
+  });
+
+  const taskTopic = taskNumbers.length > 0
+    ? `Задания №${joinNaturalList(taskNumbers)}`
+    : '';
+  return uniqueLabels([...(taskTopic ? [taskTopic] : []), ...regularTopics], limit);
+};
+
 const getHumanPercentLabel = (value) => {
   const percent = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
   if (percent === 100) return 'полностью';
@@ -178,10 +207,17 @@ const buildHomeworkProgressText = ({ studentName, averagePercent, pickPhrase }) 
       `${studentName} выполняет домашнюю работу примерно на ${averagePercent}%. Будем постепенно повышать этот показатель.`,
     ], 2);
   }
+  if (averagePercent > 20) {
+    return pickPhrase([
+      `С домашней работой пока плохо: средний результат ${averagePercent}%. Нужно понять, что мешает ${studentName} заниматься регулярно, и исправить это.`,
+      `${studentName} выполняет в среднем только ${averagePercent}% домашней работы. Это слабый результат, и в следующем месяце его нужно заметно улучшить.`,
+      `Средний результат по домашней работе - ${averagePercent}%. Сейчас этого недостаточно: разберёмся в причинах и выстроим более регулярную работу.`,
+    ], 2);
+  }
   return pickPhrase([
-    `Пока средний результат по домашней работе - ${averagePercent}%. В следующем месяце уделим больше внимания регулярной практике.`,
-    `Сейчас ${studentName} выполняет в среднем ${averagePercent}% домашней работы. Будем выстраивать более ровный темп.`,
-    `Домашняя работа пока выполняется примерно на ${averagePercent}%. Наша следующая задача - сделать занятия между уроками регулярнее.`,
+    `С домашней работой сейчас очень плохо: средний результат всего ${averagePercent}%. Нужно понять, почему так происходит, и вместе исправить ситуацию.`,
+    `${studentName} выполняет в среднем только ${averagePercent}% домашней работы. Это очень слабый результат: разберёмся в причинах и изменим подход.`,
+    `Средний результат по домашней работе - ${averagePercent}%. Это очень мало, поэтому в первую очередь нужно наладить регулярную работу между уроками.`,
   ], 2);
 };
 
@@ -200,11 +236,17 @@ const buildAutomaticConclusion = ({ homework, mocks, lessons, pickPhrase }) => {
         'В следующем месяце постараемся удержать темп и понемногу повысить средний результат.',
         'Продолжим работать регулярно, чтобы средний результат стал ещё выше.',
       ], 1));
+    } else if (homework.averagePercent > 20) {
+      sentences.push(pickPhrase([
+        'В следующем месяце нужно заметно повысить объём самостоятельной работы и сделать её регулярной.',
+        'Разберёмся, что мешает выполнять домашнюю работу, и выстроим понятный ритм занятий.',
+        'Следующая цель - убрать большие пропуски и заметно поднять средний результат.',
+      ], 1));
     } else {
       sentences.push(pickPhrase([
-        'В следующем месяце уделим больше внимания регулярной практике между уроками.',
-        'Постараемся выстроить более ровный ритм домашней работы.',
-        'Следующая цель - сделать работу между занятиями более регулярной.',
+        'В первую очередь разберёмся, почему домашняя работа почти не выполняется, и составим понятный план исправления ситуации.',
+        'Такой объём домашней работы недостаточен, поэтому сначала найдём причину и наладим регулярную практику.',
+        'Нужно серьёзно изменить работу между уроками: выясним, что мешает, и начнём с небольшого, но обязательного объёма.',
       ], 1));
     }
     if (homework.withErrorsCount > 0) {
@@ -302,7 +344,7 @@ export const buildStudentMonthlyReport = ({
   });
   const overdueHomeworks = incompleteHomeworks.filter((entry) => !upcomingHomeworks.includes(entry));
   const evaluatedHomeworks = homeworks.filter((entry) => !upcomingHomeworks.includes(entry));
-  const lessonTopics = uniqueLabels(lessons.map(getLessonTopicLabel));
+  const lessonTopics = normalizeLessonTopicLabels(lessons.map(getLessonTopicLabel));
   const lessonMinutes = lessons.reduce((sum, entry) => sum + Math.max(0, Number(entry?.durationMinutes) || 0), 0);
   const latestMock = mocksInMonth[mocksInMonth.length - 1] || null;
   const comparisonMock = mocksInMonth.length > 1

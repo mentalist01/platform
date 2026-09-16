@@ -922,7 +922,8 @@ export const normalizeLearningMaterial = (value) => {
   const id = cleanText(value.id, 180);
   const groupId = cleanText(value.groupId, 180);
   const teacherId = cleanText(value.teacherId, 180);
-  if (!id || !groupId || !teacherId) return null;
+  const scope = value.scope === 'teacher' || !groupId ? 'teacher' : 'group';
+  if (!id || !teacherId || (scope === 'group' && !groupId)) return null;
   const visibility = MATERIAL_VISIBILITIES.has(value.visibility) ? value.visibility : 'group';
   const kind = MATERIAL_KINDS.has(value.kind) ? value.kind : 'resource';
   const lessonId = visibility === 'lesson' ? cleanText(value.lessonId, 180) : '';
@@ -936,6 +937,7 @@ export const normalizeLearningMaterial = (value) => {
     id,
     groupId,
     teacherId,
+    scope,
     title: cleanText(value.title, 240) || 'Материал',
     kind,
     content,
@@ -960,8 +962,11 @@ export const normalizeLearningMaterialsStore = (value) => (
 
 export const createLearningMaterial = (groupValue, payload = {}, options = {}) => {
   const group = normalizeLearningGroup(groupValue);
-  if (!group || group.deletedAt) fail('Группа не найдена', 'group_not_found', 404);
-  if (group.status === LEARNING_GROUP_STATUS_COMPLETED) {
+  const teacherLibrary = options.libraryScope === 'teacher';
+  const teacherId = cleanText(options.teacherId || group?.teacherId, 180);
+  if ((!group || group.deletedAt) && !teacherLibrary) fail('Группа не найдена', 'group_not_found', 404);
+  if (!teacherId) fail('Преподаватель не найден', 'teacher_not_found', 404);
+  if (!teacherLibrary && group.status === LEARNING_GROUP_STATUS_COMPLETED) {
     fail('В завершённую группу нельзя добавлять материалы', 'group_completed', 409);
   }
   const visibility = cleanText(payload.visibility || 'group', 30);
@@ -971,8 +976,9 @@ export const createLearningMaterial = (groupValue, payload = {}, options = {}) =
   const now = getNowIso(options.now);
   const material = normalizeLearningMaterial({
     id: options.id || payload.id,
-    groupId: group.id,
-    teacherId: group.teacherId,
+    groupId: teacherLibrary ? '' : group.id,
+    teacherId,
+    scope: teacherLibrary ? 'teacher' : 'group',
     title: payload.title,
     kind: payload.kind,
     content: payload.content,

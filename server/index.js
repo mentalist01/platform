@@ -22778,7 +22778,9 @@ const getLearningMaterialStorage = (material) => {
 const serializeLearningMaterialForAuth = (material, auth) => {
   const storage = getLearningMaterialStorage(material);
   const downloadUrl = storage.storageName
-    ? `/api/learning-groups/${encodeURIComponent(material.groupId)}/materials/${encodeURIComponent(material.id)}/download`
+    ? (material.scope === 'teacher' || !material.groupId
+        ? `/api/learning-materials/${encodeURIComponent(material.id)}/download`
+        : `/api/learning-groups/${encodeURIComponent(material.groupId)}/materials/${encodeURIComponent(material.id)}/download`)
     : '';
   const serialized = {
     ...material,
@@ -22819,6 +22821,68 @@ const buildLearningVideoChecklistText = (material) => (
   `Посмотреть «${String(material?.title || 'видео').trim()}» и пройти мини-тест`
 );
 
+const normalizeHomeworkMaterialIds = (value) => Array.from(new Set(
+  (Array.isArray(value) ? value : [])
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean)
+)).slice(0, 100);
+
+const canReuseLearningMaterialInGroup = (material, group) => Boolean(
+  material
+  && group
+  && material.teacherId === group.teacherId
+  && !material.deletedAt
+  && (
+    !material.groupId
+    || material.groupId === group.id
+    || material.kind === 'video'
+  )
+);
+
+const getHomeworkLearningMaterials = (teacherIdValue, materialIdsValue) => {
+  const teacherId = String(teacherIdValue || '').trim();
+  const materialIds = new Set(normalizeHomeworkMaterialIds(materialIdsValue));
+  if (!teacherId || materialIds.size === 0) return [];
+  return readLearningMaterialsDb()
+    .filter((material) => (
+      materialIds.has(material.id)
+      && material.teacherId === teacherId
+      && !material.deletedAt
+    ))
+    .map((material) => {
+      const serialized = serializeLearningMaterialForAuth(material, { role: 'student' });
+      return {
+        id: serialized.id,
+        kind: serialized.kind,
+        title: serialized.title,
+        content: serialized.content,
+        url: serialized.url,
+        quizQuestions: serialized.quizQuestions,
+      };
+    });
+};
+
+const appendVideoChecklistLines = (homeWorkValue, materialsValue) => {
+  const base = String(homeWorkValue || '').trim();
+  const existingLines = new Set(base.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean));
+  const videoLines = (Array.isArray(materialsValue) ? materialsValue : [])
+    .filter((material) => material.kind === 'video')
+    .map(buildLearningVideoChecklistText)
+    .filter((line) => !existingLines.has(line));
+  return [base, ...videoLines].filter(Boolean).join('\n');
+};
+
+const stripVideoChecklistLines = (homeWorkValue, materialsValue) => {
+  const videoLines = new Set((Array.isArray(materialsValue) ? materialsValue : [])
+    .filter((material) => material.kind === 'video')
+    .map(buildLearningVideoChecklistText));
+  return String(homeWorkValue || '')
+    .split(/\r?\n/u)
+    .filter((line) => !videoLines.has(line.trim()))
+    .join('\n')
+    .trim();
+};
+
 const buildNextLessonFromHomeworkEntry = (entry) => {
   if (!entry || typeof entry !== 'object') {
     return {
@@ -22849,6 +22913,11 @@ const buildNextLessonFromHomeworkEntry = (entry) => {
     targetQuestionIds: Array.isArray(entry.targetQuestionIds) ? entry.targetQuestionIds : [],
     goals: Array.isArray(entry.goals) ? entry.goals : [],
     checklistItems: Array.isArray(entry.checklistItems) ? entry.checklistItems : [],
+    materialIds: Array.isArray(entry.materialIds) ? entry.materialIds : [],
+    learningMaterials: Array.isArray(entry.learningMaterials) ? entry.learningMaterials : [],
+    videoQuizResults: entry.videoQuizResults && typeof entry.videoQuizResults === 'object'
+      ? entry.videoQuizResults
+      : {},
     ...(entry.dayPlan ? { dayPlan: entry.dayPlan } : {}),
     ...(entry.learningGroupId ? {
       source: LEARNING_GROUP_HOMEWORK_SOURCE,
@@ -22858,10 +22927,6 @@ const buildNextLessonFromHomeworkEntry = (entry) => {
       learningAssignmentTitle: entry.learningAssignmentTitle || '',
       learningAssignmentStatus: entry.learningAssignmentStatus || '',
       learningAssignmentUpdatedAt: entry.learningAssignmentUpdatedAt || '',
-      learningMaterials: Array.isArray(entry.learningMaterials) ? entry.learningMaterials : [],
-      videoQuizResults: entry.videoQuizResults && typeof entry.videoQuizResults === 'object'
-        ? entry.videoQuizResults
-        : {},
     } : {}),
   };
 };
@@ -22923,8 +22988,7 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
     const learningMaterials = readLearningMaterialsDb()
       .filter((material) => (
         assignmentMaterialIds.has(material.id)
-        && material.groupId === group.id
-        && !material.deletedAt
+        && canReuseLearningMaterialInGroup(material, group)
       ))
       .map((material) => {
         const serialized = serializeLearningMaterialForAuth(material, { role: 'student' });
@@ -23624,7 +23688,8 @@ app.post('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, 
   }
   const materialIds = Array.isArray(req.body?.materialIds) ? req.body.materialIds.map(String) : [];
   const foreignMaterial = materialIds.find((id) => !readLearningMaterialsDb().some((material) => (
-    material.id === id && material.groupId === group.id && !material.deletedAt
+    material.id === id
+    && canReuseLearningMaterialInGroup(material, group)
   )));
   if (foreignMaterial) failLearningRequest('Материал не найден', 'material_not_found', 404);
   const assignment = createLearningAssignment(group, req.body || {}, {
@@ -23690,7 +23755,9 @@ app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearn
       ? assignmentPatch.materialIds.map(String)
       : [];
     const groupMaterialIds = new Set(readLearningMaterialsDb()
-      .filter((material) => material.groupId === group.id && !material.deletedAt)
+      .filter((material) => (
+        canReuseLearningMaterialInGroup(material, group)
+      ))
       .map((material) => material.id));
     if (requestedMaterialIds.some((materialId) => !groupMaterialIds.has(materialId))) {
       failLearningRequest('Материал не найден', 'material_not_found', 404);
@@ -24014,6 +24081,70 @@ app.put('/api/learning-groups/:groupId/lessons/:lessonId/responses/:boardItemId'
   const next = existing ? replaceLearningStoreEntry(responses, response) : [response, ...responses];
   writeLearningBoardResponsesDb(next);
   return res.json({ response });
+}));
+
+const getLearningMaterialLibraryTeacherId = (req) => {
+  if (isTeacherRole(req.auth)) return String(req.auth.id || '').trim();
+  if (isAdminRole(req.auth)) return String(req.query?.teacherId || req.body?.teacherId || '').trim();
+  return '';
+};
+
+app.get('/api/learning-materials', handleLearningRoute((req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const teacherId = getLearningMaterialLibraryTeacherId(req);
+  if (!teacherId) failLearningRequest('Преподаватель не найден', 'teacher_not_found', 404);
+  const materials = readLearningMaterialsDb()
+    .filter((material) => (
+      material.teacherId === teacherId
+      && !material.deletedAt
+      && (!material.groupId || material.scope === 'teacher' || material.kind === 'video')
+    ))
+    .sort((left, right) => Date.parse(right.updatedAt || right.createdAt || 0) - Date.parse(left.updatedAt || left.createdAt || 0));
+  return res.json({
+    materials: materials.map((material) => serializeLearningMaterialForAuth(material, req.auth)),
+  });
+}));
+
+app.post('/api/learning-materials', handleLearningRoute((req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const teacherId = getLearningMaterialLibraryTeacherId(req);
+  if (!teacherId) failLearningRequest('Преподаватель не найден', 'teacher_not_found', 404);
+  const material = createLearningMaterial(null, { ...(req.body || {}), storageName: '' }, {
+    id: crypto.randomUUID(),
+    actorId: req.auth.id,
+    teacherId,
+    libraryScope: 'teacher',
+  });
+  writeLearningMaterialsDb([material, ...readLearningMaterialsDb()]);
+  return res.status(201).json({ material: serializeLearningMaterialForAuth(material, req.auth) });
+}));
+
+app.delete('/api/learning-materials/:materialId', handleLearningRoute((req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const teacherId = getLearningMaterialLibraryTeacherId(req);
+  const materials = readLearningMaterialsDb();
+  const material = materials.find((entry) => (
+    entry.id === req.params.materialId && entry.teacherId === teacherId && !entry.deletedAt
+  ));
+  if (!material) failLearningRequest('Материал не найден', 'material_not_found', 404);
+  const now = new Date().toISOString();
+  const deleted = { ...material, deletedAt: now, updatedAt: now };
+  writeLearningMaterialsDb(replaceLearningStoreEntry(materials, deleted));
+  return res.json({ ok: true, material: serializeLearningMaterialForAuth(deleted, req.auth) });
+}));
+
+app.get('/api/learning-materials/:materialId/download', handleLearningRoute((req, res) => {
+  if (!isStaffRole(req.auth)) return forbid(res);
+  const teacherId = getLearningMaterialLibraryTeacherId(req);
+  const material = readLearningMaterialsDb().find((entry) => (
+    entry.id === req.params.materialId && entry.teacherId === teacherId && !entry.deletedAt
+  ));
+  if (!material) failLearningRequest('Материал не найден', 'material_not_found', 404);
+  const storage = getLearningMaterialStorage(material);
+  const filePath = storage.storageName ? path.join(uploadsDir, storage.storageName) : '';
+  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'Файл материала не найден' });
+  if (storage.mimeType) res.type(storage.mimeType);
+  return res.download(filePath, normalizeFileName(storage.originalName || material.title || 'Материал'));
 }));
 
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/answer-chat', handleLearningRoute((req, res) => {
@@ -37582,11 +37713,19 @@ app.get('/api/student-next-lesson', async (req, res) => {
 
 app.patch('/api/student-next-lesson', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, calendarOffsetMinutes } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, calendarOffsetMinutes, materialIds } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
-  const payloadHomeWork = typeof homeWork === 'string' ? homeWork.trim() : '';
+  const normalizedMaterialIds = normalizeHomeworkMaterialIds(materialIds);
+  const learningMaterials = getHomeworkLearningMaterials(student.teacherId, normalizedMaterialIds);
+  if (learningMaterials.length !== normalizedMaterialIds.length) {
+    return res.status(404).json({ error: 'Один из выбранных материалов не найден' });
+  }
+  const payloadHomeWork = appendVideoChecklistLines(
+    typeof homeWork === 'string' ? homeWork.trim() : '',
+    learningMaterials
+  );
   const payloadLessonLink = typeof lessonLink === 'string' ? lessonLink.trim() : '';
   const payloadBoardLink = typeof boardLink === 'string' ? boardLink.trim() : '';
   const issuedAt = new Date().toISOString();
@@ -37717,6 +37856,9 @@ app.patch('/api/student-next-lesson', (req, res) => {
     targetQuestions: normalizedTargets,
     goals: normalizedGoals,
     checklistItems,
+    materialIds: normalizedMaterialIds,
+    learningMaterials,
+    videoQuizResults: {},
   };
   const newEntry = { ...newEntryBase };
   const updatedHomeworks = [newEntry, ...existingHomeworks];
@@ -37735,6 +37877,9 @@ app.patch('/api/student-next-lesson', (req, res) => {
     targetQuestions: newEntry.targetQuestions,
     goals: newEntry.goals,
     checklistItems: newEntry.checklistItems,
+    materialIds: newEntry.materialIds,
+    learningMaterials: newEntry.learningMaterials,
+    videoQuizResults: newEntry.videoQuizResults,
     ...(newEntry.dayPlan ? { dayPlan: newEntry.dayPlan } : {}),
   };
   const updated = setStudentData(student.id, { ...data, nextLesson, homeworks: updatedHomeworks });
@@ -37760,7 +37905,7 @@ app.patch('/api/student-next-lesson', (req, res) => {
 app.patch('/api/student-next-lesson/:id', (req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
   const { id } = req.params;
-  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, calendarOffsetMinutes } = req.body || {};
+  const { studentId, homeWork, lessonLink, boardLink, dueAt, dueAtMode, daysToComplete, taskNumber, levelId, targetQuestions, goals, calendarOffsetMinutes, materialIds } = req.body || {};
   const student = ensureStudentAccess(req, res, studentId);
   if (!student) return;
   const data = getStudentData(student.id);
@@ -37816,7 +37961,18 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
       code: 'learning_group_homework_managed_by_group',
     });
   }
-  const payloadHomeWork = typeof homeWork === 'string' ? homeWork.trim() : (existing.homeWork || '');
+  const normalizedMaterialIds = Object.prototype.hasOwnProperty.call(req.body || {}, 'materialIds')
+    ? normalizeHomeworkMaterialIds(materialIds)
+    : normalizeHomeworkMaterialIds(existing.materialIds);
+  const learningMaterials = getHomeworkLearningMaterials(student.teacherId, normalizedMaterialIds);
+  if (learningMaterials.length !== normalizedMaterialIds.length) {
+    return res.status(404).json({ error: 'Один из выбранных материалов не найден' });
+  }
+  const baseHomeWork = stripVideoChecklistLines(
+    typeof homeWork === 'string' ? homeWork.trim() : (existing.homeWork || ''),
+    existing.learningMaterials
+  );
+  const payloadHomeWork = appendVideoChecklistLines(baseHomeWork, learningMaterials);
   const payloadLessonLink = typeof lessonLink === 'string' ? lessonLink.trim() : (existing.lessonLink || '');
   const payloadBoardLink = typeof boardLink === 'string' ? boardLink.trim() : (existing.boardLink || '');
   const hasDaysField = typeof daysToComplete !== 'undefined';
@@ -37941,6 +38097,12 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
     targetQuestions: normalizedTargets,
     goals: normalizedGoals,
     checklistItems: updatedChecklistItems,
+    materialIds: normalizedMaterialIds,
+    learningMaterials,
+    videoQuizResults: existing.videoQuizResults && typeof existing.videoQuizResults === 'object'
+      ? Object.fromEntries(Object.entries(existing.videoQuizResults)
+          .filter(([materialId]) => normalizedMaterialIds.includes(materialId)))
+      : {},
   };
   const hasPlanSourceUpdate = [
     'homeWork',
@@ -37987,6 +38149,11 @@ app.patch('/api/student-next-lesson/:id', (req, res) => {
         targetQuestions: Array.isArray(latestEntry.targetQuestions) ? latestEntry.targetQuestions : [],
         goals: Array.isArray(latestEntry.goals) ? latestEntry.goals : normalizeGoalsFromLegacy(latestEntry),
         checklistItems: normalizeHomeworkChecklistItems(latestEntry.id, latestEntry.homeWork, latestEntry.checklistItems),
+        materialIds: Array.isArray(latestEntry.materialIds) ? latestEntry.materialIds : [],
+        learningMaterials: Array.isArray(latestEntry.learningMaterials) ? latestEntry.learningMaterials : [],
+        videoQuizResults: latestEntry.videoQuizResults && typeof latestEntry.videoQuizResults === 'object'
+          ? latestEntry.videoQuizResults
+          : {},
         homeworkChestId: String(latestEntry.homeworkChestId || '').trim(),
         homeworkChestGrantedAt: normalizeMockTimerTimestamp(latestEntry.homeworkChestGrantedAt),
         ...(latestEntry.dayPlan ? { dayPlan: latestEntry.dayPlan } : {}),
@@ -38111,16 +38278,24 @@ app.patch('/api/student-next-lesson/:id/video-quiz', (req, res) => {
   const homeworkIndex = homeworks.findIndex((entry) => String(entry?.id || '') === homeworkId);
   if (homeworkIndex < 0) return res.status(404).json({ error: 'Домашка не найдена' });
   const existing = homeworks[homeworkIndex] || {};
-  if (String(existing.source || '').trim() !== LEARNING_GROUP_HOMEWORK_SOURCE) {
-    return res.status(400).json({ error: 'Мини-тест не относится к групповой домашке' });
-  }
-  const assignment = getLearningAssignmentById(existing.learningGroupId, existing.learningAssignmentId);
-  if (!assignment || assignment.status !== 'assigned' || !assignment.materialIds.includes(materialId)) {
+  const isGroupHomework = String(existing.source || '').trim() === LEARNING_GROUP_HOMEWORK_SOURCE;
+  if (isGroupHomework) {
+    const assignment = getLearningAssignmentById(existing.learningGroupId, existing.learningAssignmentId);
+    if (!assignment || assignment.status !== 'assigned' || !assignment.materialIds.includes(materialId)) {
+      return res.status(409).json({ error: 'Этот мини-тест уже недоступен' });
+    }
+  } else if (!normalizeHomeworkMaterialIds(existing.materialIds).includes(materialId)) {
     return res.status(409).json({ error: 'Этот мини-тест уже недоступен' });
   }
   const material = readLearningMaterialsDb().find((entry) => (
     entry.id === materialId
-    && entry.groupId === existing.learningGroupId
+    && entry.teacherId === student.teacherId
+    && (
+      !isGroupHomework
+      || !entry.groupId
+      || entry.groupId === existing.learningGroupId
+      || entry.kind === 'video'
+    )
     && entry.kind === 'video'
     && !entry.deletedAt
   ));

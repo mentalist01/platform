@@ -41,6 +41,7 @@ test('homework composer draft keeps incomplete form values and carryover metadat
         ],
         pinnedItemKeys: ['task:2:advanced:q-1'],
       },
+      materialIds: ['video-1', 'video-1', 'video-2'],
     },
     carryoverSummary: {
       hasSourceHomework: true,
@@ -69,6 +70,7 @@ test('homework composer draft keeps incomplete form values and carryover metadat
     ],
     pinnedItemKeys: ['task:2:advanced:q-1'],
   });
+  assert.deepEqual(draft.form.materialIds, ['video-1', 'video-2']);
   assert.equal(draft.carryoverSummary.pendingQuestionCount, 12);
   assert.equal(draft.baseHomeworkId, 'homework-old');
   assert.equal(draft.updatedAt, '2026-07-29T10:00:00.000Z');

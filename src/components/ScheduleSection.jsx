@@ -138,6 +138,7 @@ const buildNextLessonData = (latest, fallback = {}) => ({
   daysToComplete: Number(latest?.daysToComplete) || fallback.daysToComplete || 7,
   issuedAt: latest?.issuedAt || '',
   checklistItems: Array.isArray(latest?.checklistItems) ? latest.checklistItems : [],
+  materialIds: Array.isArray(latest?.materialIds) ? latest.materialIds : [],
   learningMaterials: Array.isArray(latest?.learningMaterials) ? latest.learningMaterials : [],
   videoQuizResults: latest?.videoQuizResults && typeof latest.videoQuizResults === 'object'
     ? latest.videoQuizResults
@@ -706,6 +707,7 @@ const ScheduleSection = ({
     type: type === GOAL_TYPE_MOCK ? GOAL_TYPE_MOCK : GOAL_TYPE_TASK,
   });
   const [homeworks, setHomeworks] = useState([]);
+  const [homeworkMaterials, setHomeworkMaterials] = useState([]);
   const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL, daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], targetQuestionIds: [], goals: [], dayPlan: null });
   const [form, setForm] = useState({
     homeWork: DEFAULT_HOMEWORK,
@@ -720,6 +722,7 @@ const ScheduleSection = ({
     dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
     dayPlanManualLayout: null,
     issuedAt: '',
+    materialIds: [],
   });
   const [studentProgress, setStudentProgress] = useState({});
   const [loading, setLoading] = useState(false);
@@ -1056,6 +1059,22 @@ const ScheduleSection = ({
   useEffect(() => {
     loadNextLesson();
   }, [loadNextLesson]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (role !== 'teacher' || typeof api.getLearningMaterials !== 'function') {
+      setHomeworkMaterials([]);
+      return undefined;
+    }
+    api.getLearningMaterials()
+      .then((payload) => {
+        if (!cancelled) setHomeworkMaterials(Array.isArray(payload?.materials) ? payload.materials : []);
+      })
+      .catch(() => {
+        if (!cancelled) setHomeworkMaterials([]);
+      });
+    return () => { cancelled = true; };
+  }, [role]);
 
   useEffect(() => {
     loadHomeworkDraft();
@@ -4293,6 +4312,7 @@ const ScheduleSection = ({
       dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
       dayPlanManualLayout: null,
       issuedAt: '',
+      materialIds: [],
     });
     setEditingId(null);
   };
@@ -4455,6 +4475,7 @@ const ScheduleSection = ({
       dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
       dayPlanManualLayout: null,
       issuedAt: '',
+      materialIds: [],
     });
 
     const [homeworkResult, studentDataResult, testsResult, mockExamsResult, draftResult, scheduleResult] = await Promise.allSettled([
@@ -4722,6 +4743,7 @@ const ScheduleSection = ({
           dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
           dayPlanManualLayout: null,
           issuedAt: '',
+          materialIds: [],
         });
     setHomeworkCarryoverSummary(carryoverSummary);
     if (restoredDraftForm && normalizedPrefill?.mockExamId) {
@@ -4795,6 +4817,7 @@ const ScheduleSection = ({
         ? storedDayPlan.selectedWeekdays
         : [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
       dayPlanManualLayout: storedDayPlan?.manualLayout || null,
+      materialIds: Array.isArray(entry.materialIds) ? entry.materialIds : [],
       goals: goals.length
         ? goals.map((goal) => {
             if (goal.type === GOAL_TYPE_MOCK) {
@@ -4941,6 +4964,7 @@ const ScheduleSection = ({
         calendarOffsetMinutes,
         daysToComplete: form.daysToComplete,
         goals: goalsPayload,
+        materialIds: Array.isArray(form.materialIds) ? form.materialIds : [],
       };
       const updated = editingId
         ? await api.updateStudentHomework(effectiveStudentId, editingId, payload)
@@ -5824,6 +5848,7 @@ const ScheduleSection = ({
           draftRestoredAt={editingId ? '' : homeworkDraft?.updatedAt}
           studentId={requestStudentId}
           studentLabel={selectedStudent ? getStudentLabel(selectedStudent) : ''}
+          groupMaterials={homeworkMaterials}
           form={form}
           carryoverSummary={homeworkCarryoverSummary}
           taskOptions={taskOptions}

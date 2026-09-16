@@ -1318,6 +1318,28 @@ export const api = {
   deleteLearningGroupMaterial: async (groupId, materialId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'materials', materialId), { method: 'DELETE' })
   ),
+  getLearningMaterials: async (options = {}) => {
+    const params = new URLSearchParams();
+    if (options?.teacherId) params.set('teacherId', String(options.teacherId));
+    const query = params.toString();
+    const res = await apiFetch(query ? `/api/learning-materials?${query}` : '/api/learning-materials');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  createLearningMaterial: async (payload = {}) => {
+    const res = await apiFetch('/api/learning-materials', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  deleteLearningMaterial: async (materialId) => {
+    const res = await apiFetch(`/api/learning-materials/${encodeURIComponent(materialId)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getLearningGroupLessonResponses: async (groupId, lessonId, options = {}) => {
     const params = new URLSearchParams();
     if (options?.studentId) params.set('studentId', String(options.studentId));

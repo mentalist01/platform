@@ -619,7 +619,9 @@ const LearningGroupsSection = ({
         api.getLearningGroup(normalizedGroupId),
         api.getLearningGroupLessons(normalizedGroupId),
         api.getLearningGroupAssignments(normalizedGroupId),
-        api.getLearningGroupMaterials(normalizedGroupId),
+        isTeacher && typeof api.getLearningMaterials === 'function'
+          ? api.getLearningMaterials()
+          : api.getLearningGroupMaterials(normalizedGroupId),
         api.getLearningGroupProgress(normalizedGroupId),
       ]);
       const successfulValue = (index) => results[index].status === 'fulfilled' ? results[index].value : null;
@@ -648,7 +650,7 @@ const LearningGroupsSection = ({
     } finally {
       setDetailLoading(false);
     }
-  }, [students]);
+  }, [isTeacher, students]);
 
   useEffect(() => {
     if (!selectedGroupId) return;
@@ -1199,7 +1201,7 @@ const LearningGroupsSection = ({
           visibility: materialForm.visibility,
           ...(materialForm.visibility === 'lesson' ? { lessonId: materialForm.lessonId } : {}),
         })
-        : api.createLearningGroupMaterial(selectedGroup.id, {
+        : api.createLearningMaterial({
           title: cleanString(materialForm.title),
           content: cleanString(materialForm.content),
           url: cleanString(materialForm.url),
@@ -1213,10 +1215,9 @@ const LearningGroupsSection = ({
               }))
               .filter((question) => question.question && question.answer),
           } : {}),
-          visibility: materialForm.visibility,
-          ...(materialForm.visibility === 'lesson' ? { lessonId: materialForm.lessonId } : {}),
+          visibility: 'group',
         }),
-      isFileUpload ? 'Файл загружен.' : 'Материал добавлен.'
+      isFileUpload ? 'Файл загружен.' : 'Материал добавлен в общую библиотеку.'
     );
     if (result) {
       setMaterialForm(EMPTY_MATERIAL_FORM);
@@ -1246,11 +1247,13 @@ const LearningGroupsSection = ({
   };
 
   const handleDeleteMaterial = async (material) => {
-    if (!selectedGroup || typeof api.deleteLearningGroupMaterial !== 'function') return;
+    if (!selectedGroup) return;
     if (!window.confirm(`Удалить материал «${material.title}»?`)) return;
     await runAction(
       `delete-material:${getMaterialId(material)}`,
-      () => api.deleteLearningGroupMaterial(selectedGroup.id, getMaterialId(material)),
+      () => (isTeacher && typeof api.deleteLearningMaterial === 'function'
+        ? api.deleteLearningMaterial(getMaterialId(material))
+        : api.deleteLearningGroupMaterial(selectedGroup.id, getMaterialId(material))),
       'Материал удалён.'
     );
   };
@@ -2190,7 +2193,7 @@ const LearningGroupsSection = ({
                 {tab === 'materials' && (
                   <div className="space-y-4">
                     {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                      <SectionCard title="Добавить материал" subtitle="Опубликуйте текст, загрузите файл или добавьте видео RuTube с мини-тестом.">
+                      <SectionCard title="Общая библиотека материалов" subtitle="Видео и материалы из этой библиотеки можно прикреплять к домашке любой группы или отдельного ученика.">
                         <div className="mb-4 flex flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-1">
                           <button
                             type="button"
@@ -2377,7 +2380,7 @@ const LearningGroupsSection = ({
                               )}
                             </div>
                           )}
-                          <div className="grid gap-3 md:grid-cols-2">
+                          {materialMode === 'file' && <div className="grid gap-3 md:grid-cols-2">
                             <Field label="Доступ">
                               <select
                                 value={materialForm.visibility}
@@ -2405,7 +2408,7 @@ const LearningGroupsSection = ({
                                 </select>
                               </Field>
                             )}
-                          </div>
+                          </div>}
                           <button
                             type="submit"
                             disabled={
@@ -2435,7 +2438,7 @@ const LearningGroupsSection = ({
                     )}
 
                     {materials.length === 0 ? (
-                      <EmptyState icon={BookOpen} title="Материалов пока нет" text="Полезные ссылки и конспекты появятся здесь." />
+                      <EmptyState icon={BookOpen} title="Библиотека пока пуста" text="Добавьте видео один раз, затем прикрепляйте его к домашкам разных групп и учеников." />
                     ) : (
                       <div className="grid gap-3 xl:grid-cols-2">
                         {materials.map((material) => {

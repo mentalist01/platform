@@ -3848,7 +3848,7 @@ const CallSection = ({
       if (preferredIceTransportPolicy === 'relay' && RTC_ICE_TRANSPORT_POLICY === 'relay') {
         effectiveIceTransportPolicyRef.current = 'relay';
       }
-      if (Boolean(control?.restartConnection)) {
+      if (control?.restartConnection) {
         detachPeer(fromId, { closeConnection: true });
         const recreatedPeerState = createPeerState(fromId, payload?.peer || {});
         if (!recreatedPeerState) return;
@@ -4023,8 +4023,13 @@ const CallSection = ({
         if (!peerId || peerId === nextSelfId) return;
         createPeerState(peerId, peer);
         sendLocalMediaStateToPeer(peerId);
-        // Give already-connected clients time to send their legacy offer first.
-        schedulePeerNegotiation(peerId, { initialDelayMs: 1000, retryDelayMs: 250 });
+        // A peer that is already sharing initiates first so its active tracks are
+        // included in the very first offer received after this client rejoins.
+        const remoteHasActiveVideo = Boolean(peer?.isScreenSharing || peer?.isCameraEnabled);
+        schedulePeerNegotiation(peerId, {
+          initialDelayMs: remoteHasActiveVideo ? 1400 : 350,
+          retryDelayMs: 250,
+        });
       });
       syncRemotePeers();
       return;
@@ -4036,8 +4041,16 @@ const CallSection = ({
       void playAlertSound('peerJoined');
       createPeerState(peerId, payload.peer);
       sendLocalMediaStateToPeer(peerId);
-      // Existing peers stay passive longer; the new peer should initiate first.
-      schedulePeerNegotiation(peerId, { initialDelayMs: 2500, retryDelayMs: 250 });
+      const localHasActiveVideo = Boolean(
+        localScreenTrackRef.current?.readyState === 'live'
+        || localCameraTrackRef.current?.readyState === 'live'
+      );
+      // When this participant is already sharing, negotiate immediately. This
+      // makes the current screen/camera visible to somebody who just rejoined.
+      schedulePeerNegotiation(peerId, {
+        initialDelayMs: localHasActiveVideo ? 50 : 1100,
+        retryDelayMs: 250,
+      });
       syncRemotePeers();
       return;
     }

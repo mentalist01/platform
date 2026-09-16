@@ -18747,7 +18747,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const STUDENT_CALL_SECTION_ENABLED = true;
   const TEACHER_COMMS_VIEW = 'teacher-comms';
   const TEACHER_COMMS_TABS = PLATFORM_CHATS_ENABLED ? ['signup-chats', 'student-chats', 'notifications'] : [];
-  const studentCanSeeReview = String(user?.grade || '').trim().toLowerCase() === 'graduate';
+  const studentCanSeeReview = false;
   const resolveTeacherCommsTab = (value) => {
     const normalized = String(value || '').trim();
     return TEACHER_COMMS_TABS.includes(normalized) ? normalized : 'signup-chats';
@@ -18768,7 +18768,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'teacher-calendar',
         'finance',
         'progress',
-        'review',
         'python',
         'rating',
         'collab',
@@ -18794,7 +18793,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const isCallViewAvailable = allowedViews.includes('call');
   const defaultView = user.role === 'teacher'
     ? 'teacher'
-    : (user.role === 'admin' ? 'admin' : (studentCanSeeReview ? 'review' : 'schedule'));
+    : (user.role === 'admin' ? 'admin' : 'schedule');
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
   const urlParams = typeof window !== 'undefined'
@@ -18819,7 +18818,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         || (storedView === 'python' ? fallbackPythonOpenTask : null))
     : null;
   const storedActiveStudentId = normalizeTeacherStudentId(storedLocation?.activeStudentId);
-  const shouldPreferReviewHome = user.role === 'student' && studentCanSeeReview && !normalizedUrlRequestedView && !restoredOpenTask;
+  const shouldPreferReviewHome = false;
   const initialView = (normalizedUrlRequestedView && allowedViews.includes(normalizedUrlRequestedView))
     ? normalizedUrlRequestedView
     : (restoredOpenTask?.section && allowedViews.includes(restoredOpenTask.section))
@@ -20169,7 +20168,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'teacher-calendar', label: 'Общий календарь', icon: Users },
         { id: 'finance', label: 'Финансы', icon: Wallet },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
-        { id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true },
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
         { id: 'collab', label: 'Совместный код', icon: Code2 },
@@ -26439,19 +26437,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 ? (studentId) => handleOpenTeacherLessonWorkspace('call-connect', studentId)
                 : null}
               onOpenLearningGroupLesson={handleOpenLearningGroupLesson}
-            />
-          )}
-          {view === 'review' && (user.role !== 'student' || studentCanSeeReview) && (
-            <FinalReviewSection
-              key={user.id}
-              userId={user.id}
-              role={user.role}
-              theme={theme}
-              activeStudentId={activeStudentId}
-              students={studentsWithNicknames}
-              onSelectStudent={handleSelectStudent}
-              getStudentLabel={getStudentLabel}
-              onOpenTask={handleOpenTask}
             />
           )}
           {view === 'teacher-calendar' && user.role === 'teacher' && (

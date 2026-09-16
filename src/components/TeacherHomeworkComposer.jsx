@@ -221,6 +221,7 @@ const TeacherHomeworkComposer = ({
   const [previewIndex, setPreviewIndex] = useState(0);
   const [expandedImage, setExpandedImage] = useState(null);
   const [mobilePane, setMobilePane] = useState('compose');
+  const [materialSearch, setMaterialSearch] = useState('');
   const [manualPlanDate, setManualPlanDate] = useState('');
   const [solvedQuestionIds, setSolvedQuestionIds] = useState(() => new Set());
   const [questionTimingIndex, setQuestionTimingIndex] = useState({});
@@ -1217,23 +1218,56 @@ const TeacherHomeworkComposer = ({
                   />
                 </label>
 
-                {isGroupTarget && groupMaterials.length > 0 && (
+                {groupMaterials.length > 0 && (
                   <section>
                     <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">
-                      <Video size={14} /> Материалы мини-группы
+                      <Video size={14} /> Видео и материалы
                     </div>
-                    <p className="mb-2 text-[11px] text-[rgb(var(--ink-soft))]">Выбранное видео с мини-тестом появится прямо в домашке каждого ученика.</p>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {groupMaterials.map((material) => {
+                    <p className="mb-2 text-[11px] text-[rgb(var(--ink-soft))]">Найдите материал в общей библиотеке. Выбранное видео с мини-тестом появится прямо в домашке.</p>
+                    <input
+                      type="search"
+                      value={materialSearch}
+                      onChange={(event) => setMaterialSearch(event.target.value)}
+                      placeholder="Найти видео по названию…"
+                      className="mb-2 min-h-10 w-full rounded-xl border border-slate-200 bg-[rgb(var(--surface))] px-3 text-sm font-semibold text-[rgb(var(--ink))] outline-none focus:border-violet-400"
+                    />
+                    {Array.isArray(form?.materialIds) && form.materialIds.length > 0 && (
+                      <div className="mb-2 flex flex-wrap gap-1.5">
+                        {form.materialIds.map((selectedId) => {
+                          const selectedMaterial = groupMaterials.find((material) => String(material?.id || material?.materialId || '').trim() === selectedId);
+                          if (!selectedMaterial) return null;
+                          return (
+                            <button
+                              key={selectedId}
+                              type="button"
+                              onClick={() => onChangeForm?.({ materialIds: form.materialIds.filter((id) => id !== selectedId) })}
+                              className="inline-flex max-w-full items-center gap-1 rounded-lg bg-violet-100 px-2.5 py-1.5 text-xs font-bold text-violet-700"
+                              title="Убрать из домашки"
+                            >
+                              <span className="truncate">{selectedMaterial.title || 'Материал'}</span><X size={12} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="max-h-52 space-y-1 overflow-y-auto rounded-2xl border border-slate-200 bg-[rgb(var(--surface))] p-1.5">
+                      {groupMaterials
+                        .filter((material) => {
+                          const query = materialSearch.trim().toLocaleLowerCase('ru-RU');
+                          if (!query) return true;
+                          return `${material?.title || ''} ${material?.content || ''}`.toLocaleLowerCase('ru-RU').includes(query);
+                        })
+                        .slice(0, 40)
+                        .map((material) => {
                         const materialId = String(material?.id || material?.materialId || '').trim();
                         const selectedIds = Array.isArray(form?.materialIds) ? form.materialIds : [];
                         const selected = selectedIds.includes(materialId);
                         return (
                           <label
                             key={materialId}
-                            className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition ${selected
-                              ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-100'
-                              : 'border-slate-200 bg-[rgb(var(--surface))] hover:border-violet-200'}`}
+                            className={`flex cursor-pointer items-center gap-2 rounded-xl px-2.5 py-2 transition ${selected
+                              ? 'bg-violet-50 text-violet-800'
+                              : 'hover:bg-slate-50'}`}
                           >
                             <input
                               type="checkbox"
@@ -1244,22 +1278,33 @@ const TeacherHomeworkComposer = ({
                                   : selectedIds.filter((id) => id !== materialId);
                                 onChangeForm?.({ materialIds: Array.from(new Set(next)) });
                               }}
-                              className="mt-1"
+                              className="shrink-0"
                             />
-                            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${material?.kind === 'video' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
-                              {material?.kind === 'video' ? <Video size={16} /> : <FileText size={16} />}
-                            </span>
-                            <span className="min-w-0">
-                              <strong className="block truncate text-sm text-[rgb(var(--ink))]">{material?.title || 'Материал'}</strong>
-                              <small className="mt-0.5 block text-[10px] font-semibold text-[rgb(var(--ink-soft))]">
+                            <span className="min-w-0 flex-1">
+                              <strong className="block truncate text-sm">{material?.title || 'Материал'}</strong>
+                              <small className="block text-[10px] font-semibold text-[rgb(var(--ink-soft))]">
                                 {material?.kind === 'video'
                                   ? `Видео · мини-тест из ${Array.isArray(material?.quizQuestions) ? material.quizQuestions.length : 0} вопр.`
-                                  : 'Материал группы'}
+                                  : 'Материал'}
                               </small>
                             </span>
                           </label>
                         );
                       })}
+                      {groupMaterials.filter((material) => {
+                        const query = materialSearch.trim().toLocaleLowerCase('ru-RU');
+                        return !query || `${material?.title || ''} ${material?.content || ''}`.toLocaleLowerCase('ru-RU').includes(query);
+                      }).length === 0 && (
+                        <div className="px-3 py-5 text-center text-xs font-semibold text-slate-400">Ничего не найдено</div>
+                      )}
+                      {groupMaterials.filter((material) => {
+                        const query = materialSearch.trim().toLocaleLowerCase('ru-RU');
+                        return !query || `${material?.title || ''} ${material?.content || ''}`.toLocaleLowerCase('ru-RU').includes(query);
+                      }).length > 40 && (
+                        <div className="px-3 py-2 text-center text-[11px] font-semibold text-slate-400">
+                          Показаны первые 40 материалов — уточните поиск.
+                        </div>
+                      )}
                     </div>
                   </section>
                 )}
@@ -1307,8 +1352,8 @@ const TeacherHomeworkComposer = ({
                   </div>
                 </section>
 
-                <section className="grid gap-3 sm:grid-cols-3">
-                  <div className="sm:col-span-1">
+                <section>
+                  <div className="max-w-sm">
                     <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">
                       <Clock3 size={12} /> Сдать до
                     </span>
@@ -1340,26 +1385,6 @@ const TeacherHomeworkComposer = ({
                       </div>
                     )}
                   </div>
-                  <label>
-                    <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">Ссылка на занятие</span>
-                    <input
-                      type="url"
-                      value={form?.lessonLink || ''}
-                      onChange={(event) => onChangeForm?.({ lessonLink: event.target.value })}
-                      placeholder="https://…"
-                      className="min-h-11 w-full rounded-xl border border-slate-200 bg-[rgb(var(--surface))] px-3 text-sm font-semibold text-[rgb(var(--ink))] outline-none focus:border-purple-400"
-                    />
-                  </label>
-                  <label>
-                    <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">Ссылка на доску</span>
-                    <input
-                      type="url"
-                      value={form?.boardLink || ''}
-                      onChange={(event) => onChangeForm?.({ boardLink: event.target.value })}
-                      placeholder="https://…"
-                      className="min-h-11 w-full rounded-xl border border-slate-200 bg-[rgb(var(--surface))] px-3 text-sm font-semibold text-[rgb(var(--ink))] outline-none focus:border-purple-400"
-                    />
-                  </label>
                 </section>
 
                 <section hidden aria-hidden="true" className={`rounded-2xl border p-4 transition ${
