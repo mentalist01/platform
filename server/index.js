@@ -290,6 +290,7 @@ import {
   normalizeTeacherTaskContentStore,
   serializeTaskCatalogForStore,
 } from './teacherTaskContent.js';
+import { migratePythonForCurriculumStore } from './pythonForCurriculumMigration.js';
 import {
   isOptionalHomeworkGoal,
   normalizeHomeworkAssignmentTier,
@@ -2104,7 +2105,12 @@ const readTeacherTaskContentStore = () => {
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
-  teacherTaskContentStoreCache = normalizeTeacherTaskContentStore(stored);
+  const normalized = normalizeTeacherTaskContentStore(stored);
+  const curriculumMigration = migratePythonForCurriculumStore(normalized);
+  teacherTaskContentStoreCache = curriculumMigration.store;
+  if (curriculumMigration.changed) {
+    writeJsonFileAtomic(teacherTaskContentFile, teacherTaskContentStoreCache);
+  }
   return teacherTaskContentStoreCache;
 };
 

@@ -25,6 +25,7 @@ import {
   THEORY_RECORDING_TYPE,
 } from '../utils/theoryRecording';
 import { deleteTheoryRecordingDraftSnapshot } from '../utils/theoryRecordingDraftStore';
+import { buildCurrentPythonProgressMap } from '../utils/pythonProgress';
 import {
   PYTHON_TASK_SECTION_IDS,
   PYTHON_TASK_SECTION_META,
@@ -674,11 +675,18 @@ const PythonSection = ({
     return undefined;
   }, [role, pathTaskList.length]);
 
-  const progressMap = useMemo(() => (
-    role === 'teacher'
+  const progressMap = useMemo(() => {
+    const storedProgress = role === 'teacher'
       ? (studentData.progress || {})
-      : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}))
-  ), [role, progress, studentData.progress]);
+      : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}));
+    return buildCurrentPythonProgressMap({
+      taskList,
+      testsDb,
+      studentData,
+      storedProgress,
+      levelId: PYTHON_LEVEL_ID,
+    });
+  }, [PYTHON_LEVEL_ID, progress, role, studentData, taskList, testsDb]);
   const activeTaskSection = useMemo(
     () => sectionTabs.find((section) => section.id === activeTaskSectionId) || sectionTabs[0] || null,
     [sectionTabs, activeTaskSectionId]
