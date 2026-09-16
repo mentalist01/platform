@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   migratePythonCoreCurriculaStore,
+  migratePythonCoreCurriculaTestsDb,
   PYTHON_CORE_CURRICULUM_TASK_COUNTS,
   PYTHON_CORE_CURRICULUM_VERSION,
 } from './pythonCoreCurriculaMigration.js';
@@ -94,4 +95,19 @@ test('core curricula migration is idempotent and skips a customized bank without
   const skipped = migratePythonCoreCurriculaStore(unrelated);
   assert.equal(skipped.store.teachers.teacher1.tests[104].python[0].title, 'Моя задача');
   assert.equal(skipped.store.teachers.teacher1.tests[104].pythonCalculationsCurriculumVersion, undefined);
+});
+
+test('migrates the shared tests database as well as teacher-specific banks', () => {
+  const source = structuredClone(sourceStore().teachers.teacher1.tests);
+  const migrated = migratePythonCoreCurriculaTestsDb(source);
+
+  assert.equal(migrated.changed, true);
+  Object.entries(PYTHON_CORE_CURRICULUM_TASK_COUNTS).forEach(([taskNumber, expectedCount]) => {
+    assert.equal(migrated.testsDb[taskNumber].python.length, expectedCount);
+    assert.ok(migrated.testsDb[taskNumber].pythonSubsections.length > 0);
+  });
+
+  const repeated = migratePythonCoreCurriculaTestsDb(migrated.testsDb);
+  assert.equal(repeated.changed, false);
+  assert.deepEqual(repeated.testsDb, migrated.testsDb);
 });

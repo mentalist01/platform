@@ -979,23 +979,33 @@ const isTargetEntry = (entry, definition) => {
   return definition.signatures.every((title) => titles.has(title));
 };
 
+export const migratePythonCoreCurriculaTestsDb = (testsDbValue) => {
+  const testsDb = clone(testsDbValue || {});
+  let changed = false;
+  definitions.forEach((definition) => {
+    const entry = testsDb?.[definition.taskNumber];
+    if (!isTargetEntry(entry, definition)) return;
+    const curriculum = buildCurriculum(entry, definition);
+    testsDb[definition.taskNumber] = {
+      ...entry,
+      [LEVEL_ID]: curriculum.questions,
+      pythonSubsections: curriculum.sections,
+      [definition.versionField]: CURRICULUM_VERSION,
+    };
+    changed = true;
+  });
+  return { testsDb, changed };
+};
+
 export const migratePythonCoreCurriculaStore = (storeValue) => {
   const store = clone(storeValue || {});
   const teachers = store?.teachers && typeof store.teachers === 'object' ? store.teachers : {};
   let changed = false;
   Object.values(teachers).forEach((teacherEntry) => {
-    definitions.forEach((definition) => {
-      const entry = teacherEntry?.tests?.[definition.taskNumber];
-      if (!isTargetEntry(entry, definition)) return;
-      const curriculum = buildCurriculum(entry, definition);
-      teacherEntry.tests[definition.taskNumber] = {
-        ...entry,
-        [LEVEL_ID]: curriculum.questions,
-        pythonSubsections: curriculum.sections,
-        [definition.versionField]: CURRICULUM_VERSION,
-      };
-      changed = true;
-    });
+    const migration = migratePythonCoreCurriculaTestsDb(teacherEntry?.tests);
+    if (!migration.changed) return;
+    teacherEntry.tests = migration.testsDb;
+    changed = true;
   });
   return { store, changed };
 };

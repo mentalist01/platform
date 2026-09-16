@@ -291,7 +291,10 @@ import {
   serializeTaskCatalogForStore,
 } from './teacherTaskContent.js';
 import { migratePythonForCurriculumStore } from './pythonForCurriculumMigration.js';
-import { migratePythonCoreCurriculaStore } from './pythonCoreCurriculaMigration.js';
+import {
+  migratePythonCoreCurriculaStore,
+  migratePythonCoreCurriculaTestsDb,
+} from './pythonCoreCurriculaMigration.js';
 import {
   isOptionalHomeworkGoal,
   normalizeHomeworkAssignmentTier,
@@ -4996,10 +4999,17 @@ const getJsonFileSignature = (filePath) => {
 
 const readTestsDb = () => {
   try {
-    const signature = getJsonFileSignature(testsFile);
+    let signature = getJsonFileSignature(testsFile);
     if (testsDbCache && testsDbCacheSignature === signature) return testsDbCache;
     const raw = fs.readFileSync(testsFile, 'utf8');
-    const data = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    const source = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    const migration = migratePythonCoreCurriculaTestsDb(source);
+    const data = migration.testsDb;
+    if (migration.changed) {
+      writeJsonFileAtomic(testsFile, data);
+      signature = getJsonFileSignature(testsFile);
+    }
     testsDbCache = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
     testsDbCacheSignature = signature;
     return testsDbCache;
