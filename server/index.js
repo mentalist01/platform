@@ -291,6 +291,7 @@ import {
   serializeTaskCatalogForStore,
 } from './teacherTaskContent.js';
 import { migratePythonForCurriculumStore } from './pythonForCurriculumMigration.js';
+import { migratePythonCoreCurriculaStore } from './pythonCoreCurriculaMigration.js';
 import {
   isOptionalHomeworkGoal,
   normalizeHomeworkAssignmentTier,
@@ -2106,9 +2107,10 @@ const readTeacherTaskContentStore = () => {
     if (error.code !== 'ENOENT') throw error;
   }
   const normalized = normalizeTeacherTaskContentStore(stored);
-  const curriculumMigration = migratePythonForCurriculumStore(normalized);
-  teacherTaskContentStoreCache = curriculumMigration.store;
-  if (curriculumMigration.changed) {
+  const forCurriculumMigration = migratePythonForCurriculumStore(normalized);
+  const coreCurriculaMigration = migratePythonCoreCurriculaStore(forCurriculumMigration.store);
+  teacherTaskContentStoreCache = coreCurriculaMigration.store;
+  if (forCurriculumMigration.changed || coreCurriculaMigration.changed) {
     writeJsonFileAtomic(teacherTaskContentFile, teacherTaskContentStoreCache);
   }
   return teacherTaskContentStoreCache;
@@ -34734,6 +34736,47 @@ app.get('/api/student-month-report', async (req, res) => {
     console.error('[student-month-report] failed to build report:', error);
     return res.status(500).json({ error: 'Не удалось собрать отчёт по ученику' });
   }
+});
+
+app.patch('/api/student-month-report/status', (req, res) => {
+  if (!isAdminRole(req.auth) && !isTeacherRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.body?.studentId, {
+    missingError: 'studentId required',
+  });
+  if (!student) return;
+  const month = normalizeStudentReportMonth(req.body?.month);
+  if (!month) return res.status(400).json({ error: 'Некорректный месяц отчёта' });
+  const currentMonth = getCurrentTeacherFinanceMonthKey();
+  if (month > currentMonth) {
+    return res.status(400).json({ error: 'Нельзя отметить отчёт за будущий месяц' });
+  }
+
+  const students = readStudentsDb();
+  const index = students.findIndex((entry) => entry?.id === student.id);
+  if (index < 0) return res.status(404).json({ error: 'Ученик не найден' });
+  const existing = students[index]?.monthlyReportSentMonths;
+  const monthlyReportSentMonths = existing && typeof existing === 'object' && !Array.isArray(existing)
+    ? Object.fromEntries(Object.entries(existing).filter(([key, value]) => (
+      Boolean(normalizeStudentReportMonth(key)) && typeof value === 'string' && Boolean(value.trim())
+    )))
+    : {};
+  if (req.body?.sent === true) monthlyReportSentMonths[month] = new Date().toISOString();
+  else delete monthlyReportSentMonths[month];
+
+  students[index] = {
+    ...students[index],
+    monthlyReportSentMonths,
+  };
+  writeStudentsDb(students);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({
+    ok: true,
+    studentId: student.id,
+    month,
+    sent: Boolean(monthlyReportSentMonths[month]),
+    sentAt: monthlyReportSentMonths[month] || null,
+    monthlyReportSentMonths,
+  });
 });
 
 app.get('/api/parent/lessons', async (req, res) => {

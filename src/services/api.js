@@ -2227,6 +2227,19 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  updateStudentMonthlyReportStatus: async (studentId, month, sent) => {
+    const res = await apiFetch('/api/student-month-report/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId: String(studentId || '').trim(),
+        month: String(month || '').trim(),
+        sent: Boolean(sent),
+      }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getLessonTopics: async (studentId, options = {}) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', String(studentId));

@@ -82,6 +82,14 @@ const getMonthKeyFromTimestamp = (value) => {
 
 const getCurrentMonthKey = (nowMs) => getMonthKeyFromTimestamp(nowMs) || new Date(nowMs).toISOString().slice(0, 7);
 
+const getPreviousMonthKey = (month) => {
+  const normalized = normalizeStudentReportMonth(month);
+  if (!normalized) return '';
+  const [year, monthNumber] = normalized.split('-').map(Number);
+  const previous = new Date(Date.UTC(year, monthNumber - 2, 15, 12));
+  return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}`;
+};
+
 const formatReportMonth = (month) => {
   const normalized = normalizeStudentReportMonth(month);
   if (!normalized) return '';
@@ -168,6 +176,14 @@ const normalizeLessonTopicLabels = (values, limit = 6) => {
     : '';
   return uniqueLabels([...(taskTopic ? [taskTopic] : []), ...regularTopics], limit);
 };
+
+const countLessonTopicLabels = (labels) => (Array.isArray(labels) ? labels : [])
+  .reduce((count, value) => {
+    const label = toShortDashes(value).replace(/\s+/g, ' ').trim();
+    const taskMatch = TASK_TOPIC_PATTERN.exec(label);
+    if (!taskMatch) return count + (label ? 1 : 0);
+    return count + new Set((taskMatch[1].match(/\d+/g) || []).map((number) => String(Number(number)))).size;
+  }, 0);
 
 const getHumanPercentLabel = (value) => {
   const percent = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
@@ -303,6 +319,136 @@ const buildAutomaticConclusion = ({ homework, mocks, lessons, pickPhrase }) => {
   return sentences.join(' ');
 };
 
+const buildStudentHomeworkText = ({ averagePercent, deltaFromPreviousMonth, pickPhrase }) => {
+  const percent = Math.max(0, Math.min(100, Math.round(Number(averagePercent) || 0)));
+  const change = Number(deltaFromPreviousMonth);
+  const progress = Number.isFinite(change) && change >= 5
+    ? ` Рост по сравнению с прошлым месяцем - ${change} ${pluralize(change, 'процентный пункт', 'процентных пункта', 'процентных пунктов')}. Это заметный прогресс.`
+    : '';
+  if (percent >= 95) {
+    return `${pickPhrase([
+      `Домашнюю работу ты выполняешь на ${percent}%. Отличный результат - видно, что ты работаешь регулярно.`,
+      `По домашней работе у тебя ${percent}%. Это очень сильный результат, так держать!`,
+      `С домашней работой всё отлично: среднее выполнение ${percent}%. Молодец!`,
+    ], 5)}${progress}`;
+  }
+  if (percent >= 75) {
+    return `${pickPhrase([
+      `Домашнюю работу ты выполняешь в среднем на ${percent}%. Это хороший результат, продолжай в том же темпе.`,
+      `По домашней работе у тебя ${percent}%. Ты хорошо справляешься, осталось сделать работу ещё немного стабильнее.`,
+      `Среднее выполнение домашней работы - ${percent}%. Хорошая работа, но запас для роста ещё есть.`,
+    ], 5)}${progress}`;
+  }
+  if (percent >= 60) {
+    return `${pickPhrase([
+      `Домашнюю работу ты выполняешь в среднем на ${percent}%. Это неплохая основа, но ты точно можешь лучше.`,
+      `По домашней работе сейчас ${percent}%. Большую часть ты делаешь, однако нужно меньше пропускать.`,
+      `Среднее выполнение домашней работы - ${percent}%. Результат нормальный, но в следующем месяце постарайся поднять его выше.`,
+    ], 5)}${progress}`;
+  }
+  if (percent >= 40) {
+    return `${pickPhrase([
+      `Домашнюю работу ты выполняешь только на ${percent}%. Этого мало: без регулярной самостоятельной практики прогресс будет медленным.`,
+      `По домашней работе сейчас ${percent}%. Результат слабый, поэтому нужно серьёзнее относиться к работе между занятиями.`,
+      `Среднее выполнение домашней работы - ${percent}%. Ты можешь заметно лучше, но для этого задания нужно делать регулярно.`,
+    ], 5)}${progress}`;
+  }
+  if (percent > 20) {
+    return `${pickPhrase([
+      `Домашнюю работу ты выполняешь всего на ${percent}%. Это плохой результат. Нужно честно понять, что тебе мешает, и начать работать регулярно.`,
+      `По домашней работе только ${percent}%. Такого объёма недостаточно: на следующем месяце жду от тебя заметно более серьёзной работы.`,
+      `Среднее выполнение домашней работы - ${percent}%. Сейчас ты теряешь слишком много практики, и это нужно исправить.`,
+    ], 5)}${progress}`;
+  }
+  return `${pickPhrase([
+    `Домашнюю работу ты выполняешь всего на ${percent}%. Это очень плохо. Нужно перестать откладывать задания и начать делать хотя бы обязательную часть после каждого урока.`,
+    `По домашней работе только ${percent}%. Это очень слабый результат. Давай разберёмся, что мешает, но дальше задания придётся выполнять регулярно.`,
+    `Среднее выполнение домашней работы - ${percent}%. Так продолжать нельзя: без самостоятельной работы твой результат не вырастет. Начинаем исправлять это сейчас.`,
+  ], 5)}${progress}`;
+};
+
+const buildStudentFacingText = ({
+  studentName,
+  messageMonthLabel,
+  normalizedMonth,
+  currentMonth,
+  nowMs,
+  metrics,
+  lessonTopics,
+  pickPhrase,
+}) => {
+  const firstName = normalizeText(studentName).split(/\s+/u)[0] || 'Ученик';
+  const asOf = normalizedMonth === currentMonth ? ` по состоянию на ${formatReportDate(nowMs)}` : '';
+  const lines = [pickPhrase([
+    `${firstName}, подвожу твои итоги за ${messageMonthLabel}${asOf}. Посмотри, что уже получается хорошо и над чем нужно поработать дальше.`,
+    `${firstName}, вот твои результаты за ${messageMonthLabel}${asOf}. Отмечу сильные стороны и то, что важно улучшить.`,
+    `${firstName}, давай посмотрим на твой месяц: что получилось и где нужно добавить усилий. Итоги за ${messageMonthLabel}${asOf}.`,
+  ], 4)];
+
+  if (metrics.lessons.count > 0) {
+    const lessonCountLabel = `${metrics.lessons.count} ${pluralize(metrics.lessons.count, 'занятие', 'занятия', 'занятий')}`;
+    const topicsLabel = joinNaturalList(lessonTopics);
+    lines.push('', topicsLabel
+      ? `Мы провели ${lessonCountLabel}. На уроках разобрали: ${topicsLabel}.`
+      : `Мы провели ${lessonCountLabel}.`);
+  } else {
+    lines.push('', 'В этом месяце у нас пока не было занятий.');
+  }
+
+  if (metrics.homework.assignedCount > 0) {
+    lines.push('', metrics.homework.averagePercent == null
+      ? 'По домашней работе пока нет результата, который можно оценить.'
+      : buildStudentHomeworkText({
+        averagePercent: metrics.homework.averagePercent,
+        deltaFromPreviousMonth: metrics.homework.deltaFromPreviousMonth,
+        pickPhrase,
+      }));
+  } else {
+    lines.push('', 'Домашних заданий в этом месяце не было.');
+  }
+
+  if (metrics.mocks.count > 0) {
+    const scoreLabel = `${metrics.mocks.latestScore} ${pluralize(metrics.mocks.latestScore, 'балл', 'балла', 'баллов')}`;
+    lines.push('', metrics.mocks.count === 1
+      ? `Результат твоего пробника - ${scoreLabel}.`
+      : `В этом месяце у тебя было ${metrics.mocks.count} ${pluralize(metrics.mocks.count, 'пробник', 'пробника', 'пробников')}. Последний результат - ${scoreLabel}, лучший - ${metrics.mocks.bestScore}.`);
+    if (metrics.mocks.deltaFromPrevious > 0) {
+      const delta = metrics.mocks.deltaFromPrevious;
+      lines.push(`Результат вырос на ${delta} ${pluralize(delta, 'балл', 'балла', 'баллов')} - молодец, прогресс уже виден!`);
+    } else if (metrics.mocks.deltaFromPrevious < 0) {
+      const delta = Math.abs(metrics.mocks.deltaFromPrevious);
+      lines.push(`Это на ${delta} ${pluralize(delta, 'балл', 'балла', 'баллов')} ниже прошлого результата. Не опускай руки: разберём ошибки и вернём потерянные баллы.`);
+    } else if (metrics.mocks.previousScore == null) {
+      lines.push('Это твоя отправная точка. Теперь будем шаг за шагом поднимать результат.');
+    }
+  } else {
+    lines.push('', 'Пробника в этом месяце пока не было.');
+  }
+
+  const goals = [];
+  if (metrics.homework.evaluatedCount > 0 && metrics.homework.averagePercent < 60) {
+    goals.push('Твоя главная цель - выполнять обязательную часть домашней работы после каждого занятия, не откладывая её на последний день.');
+  } else if (metrics.homework.evaluatedCount > 0 && metrics.homework.averagePercent < 90) {
+    goals.push('Следующая цель - сделать домашнюю работу ещё стабильнее и поднять средний процент выполнения.');
+  } else if (metrics.homework.evaluatedCount > 0) {
+    goals.push('Сохрани этот темп: регулярная домашняя работа уже даёт результат.');
+  }
+  if (metrics.homework.withErrorsCount > 0) {
+    goals.push('Ошибки - это рабочая часть обучения: мы их разберём, а тебе важно повторить эти задания самостоятельно.');
+  }
+  if (metrics.mocks.count > 0) {
+    goals.push('По пробнику разберём потерянные баллы и закрепим самые слабые типы заданий.');
+  }
+  if (goals.length === 0 && metrics.lessons.count > 0) {
+    goals.push('Продолжай работать в таком же ритме и обязательно задавай вопросы, если что-то осталось непонятным.');
+  }
+  if (goals.length === 0) {
+    goals.push('Пока данных мало. На следующем занятии определим первую конкретную цель и начнём двигаться к ней.');
+  }
+  lines.push('', goals.join(' '));
+  return toShortDashes(lines.join('\n'));
+};
+
 export const buildStudentMonthlyReport = ({
   student = {},
   month,
@@ -326,6 +472,9 @@ export const buildStudentMonthlyReport = ({
   const messageMonthLabel = reportYear === currentYear ? monthName : `${monthName} ${reportYear} года`;
   const homeworks = (Array.isArray(homeworkEntries) ? homeworkEntries : [])
     .filter((entry) => getHomeworkMonthKey(entry) === normalizedMonth);
+  const previousMonthKey = getPreviousMonthKey(normalizedMonth);
+  const previousMonthHomeworks = (Array.isArray(homeworkEntries) ? homeworkEntries : [])
+    .filter((entry) => getHomeworkMonthKey(entry) === previousMonthKey);
   const lessons = (Array.isArray(lessonEntries) ? lessonEntries : [])
     .filter((entry) => normalizeText(entry?.dayKey).slice(0, 7) === normalizedMonth)
     .filter((entry) => !Number.isFinite(Number(entry?.startMs)) || Number(entry.startMs) <= Number(nowMs));
@@ -345,6 +494,7 @@ export const buildStudentMonthlyReport = ({
   const overdueHomeworks = incompleteHomeworks.filter((entry) => !upcomingHomeworks.includes(entry));
   const evaluatedHomeworks = homeworks.filter((entry) => !upcomingHomeworks.includes(entry));
   const lessonTopics = normalizeLessonTopicLabels(lessons.map(getLessonTopicLabel));
+  const lessonTopicCount = countLessonTopicLabels(lessonTopics);
   const lessonMinutes = lessons.reduce((sum, entry) => sum + Math.max(0, Number(entry?.durationMinutes) || 0), 0);
   const latestMock = mocksInMonth[mocksInMonth.length - 1] || null;
   const comparisonMock = mocksInMonth.length > 1
@@ -356,6 +506,11 @@ export const buildStudentMonthlyReport = ({
       sum + Math.max(0, Math.min(100, Number(entry?.percent) || 0))
     ), 0) / evaluatedHomeworks.length)
     : null;
+  const previousAveragePercent = previousMonthHomeworks.length > 0
+    ? Math.round(previousMonthHomeworks.reduce((sum, entry) => (
+      sum + Math.max(0, Math.min(100, Number(entry?.percent) || 0))
+    ), 0) / previousMonthHomeworks.length)
+    : null;
 
   const metrics = {
     lessons: {
@@ -363,6 +518,7 @@ export const buildStudentMonthlyReport = ({
       minutes: lessonMinutes,
       durationLabel: formatDuration(lessonMinutes),
       topics: lessonTopics,
+      topicCount: lessonTopicCount,
     },
     homework: {
       assignedCount: homeworks.length,
@@ -374,6 +530,10 @@ export const buildStudentMonthlyReport = ({
       incompleteCount: overdueHomeworks.length,
       withErrorsCount: evaluatedHomeworks.filter((entry) => Number(entry?.withErrorsCount) > 0 || Number(entry?.wrongCount) > 0).length,
       averagePercent,
+      previousAveragePercent,
+      deltaFromPreviousMonth: averagePercent != null && previousAveragePercent != null
+        ? averagePercent - previousAveragePercent
+        : null,
     },
     mocks: {
       count: mocksInMonth.length,
@@ -463,6 +623,18 @@ export const buildStudentMonthlyReport = ({
   });
   lines.push('', automaticConclusion);
 
+  const parentText = toShortDashes(lines.join('\n'));
+  const studentText = buildStudentFacingText({
+    studentName,
+    messageMonthLabel,
+    normalizedMonth,
+    currentMonth,
+    nowMs,
+    metrics,
+    lessonTopics,
+    pickPhrase,
+  });
+
   return {
     month: normalizedMonth,
     monthLabel,
@@ -471,6 +643,12 @@ export const buildStudentMonthlyReport = ({
     student: { id: normalizeText(student?.id), name: studentName },
     metrics,
     automaticConclusion,
-    text: toShortDashes(lines.join('\n')),
+    text: parentText,
+    parentText,
+    studentText,
+    texts: {
+      parent: parentText,
+      student: studentText,
+    },
   };
 };

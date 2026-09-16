@@ -51,9 +51,17 @@ test('teacher can generate a monthly report only for an accessible student', { t
   const baseUrl = `http://127.0.0.1:${port}`;
   let child;
   let logs = '';
-  const request = async (route, token, expected = 200) => {
+  const request = async (route, token, expected = 200, options = {}) => {
     const response = await fetch(`${baseUrl}${route}`, {
+      ...options,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      ...(options?.body ? {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+      } : {}),
     });
     const payload = await response.json();
     assert.equal(response.status, expected, JSON.stringify(payload));
@@ -107,6 +115,31 @@ test('teacher can generate a monthly report only for an accessible student', { t
     assert.equal(report.metrics.lessons.count, 0);
     assert.equal(report.metrics.homework.assignedCount, 0);
     assert.match(report.text, /как Илья занимался|Илья занимался/u);
+    assert.match(report.studentText, /^Илья,/u);
+
+    const sentStatus = await request(
+      '/api/student-month-report/status',
+      teacherOneToken,
+      200,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ studentId: 'student-one', month, sent: true }),
+      }
+    );
+    assert.equal(sentStatus.sent, true);
+    assert.ok(sentStatus.monthlyReportSentMonths[month]);
+    const studentsResponse = await request('/api/students', teacherOneToken);
+    assert.ok(studentsResponse[0].monthlyReportSentMonths[month]);
+
+    await request(
+      '/api/student-month-report/status',
+      teacherTwoToken,
+      403,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ studentId: 'student-one', month, sent: true }),
+      }
+    );
 
     await request(
       `/api/student-month-report?studentId=student-one&month=${month}`,

@@ -292,8 +292,7 @@ const PythonTestModal = ({
   const isMobileViewport = viewportWidth < 700;
   const [showTheory, setShowTheory] = useState(false);
   const [isTheoryMinimized, setIsTheoryMinimized] = useState(false);
-  const [isQuestionExpanded, setIsQuestionExpanded] = useState(false);
-  const [questionScrollState, setQuestionScrollState] = useState({ hasOverflow: false, atEnd: true });
+  const [isQuestionExpanded, setIsQuestionExpanded] = useState(true);
   const [activeTheoryType, setActiveTheoryType] = useState('');
   const [editorReady, setEditorReady] = useState(false);
   const [editorMountVersion, setEditorMountVersion] = useState(0);
@@ -332,7 +331,8 @@ const PythonTestModal = ({
   const pendingSaveQuestionIdRef = useRef('');
   const saveTimerRef = useRef(null);
   const workspaceGridRef = useRef(null);
-  const questionScrollBodyRef = useRef(null);
+  const initialQuestionIndexRef = useRef(initialQuestionIndex);
+  const initialSubsectionIdRef = useRef(initialSubsectionId);
   const workspaceResizePointerIdRef = useRef(null);
   const runnerWarmupTimeoutMs = Math.max(PYODIDE_RUN_TIMEOUT_MS * 2, 20000);
 
@@ -387,26 +387,7 @@ const PythonTestModal = ({
       });
     return () => { cancelled = true; };
   }, [task?.number, PYTHON_LEVEL_ID]);
-  const currentQuestionScrollText = typeof questions[currentIndex]?.question === 'string'
-    ? questions[currentIndex].question
-    : '';
   const activeQuestionCodeLoaded = Boolean(questionCodeById?.[activeQuestionId]?.loaded);
-  const refreshQuestionScrollState = useCallback(() => {
-    const node = questionScrollBodyRef.current;
-    if (!node) {
-      setQuestionScrollState((prev) => (
-        prev.hasOverflow || !prev.atEnd ? { hasOverflow: false, atEnd: true } : prev
-      ));
-      return;
-    }
-    const hasOverflow = node.scrollHeight - node.clientHeight > 8;
-    const atEnd = !hasOverflow || node.scrollTop + node.clientHeight >= node.scrollHeight - 10;
-    setQuestionScrollState((prev) => (
-      prev.hasOverflow === hasOverflow && prev.atEnd === atEnd
-        ? prev
-        : { hasOverflow, atEnd }
-    ));
-  }, []);
   const collabRoomId = useMemo(() => {
     if (!collabBaseRoomId || !task?.number || !activeQuestionId) return '';
     return `py-collab:${collabBaseRoomId}:${task.number}:${PYTHON_LEVEL_ID}:${activeQuestionId}`;
@@ -425,7 +406,7 @@ const PythonTestModal = ({
   useEffect(() => {
     setShowTheory(false);
     setIsTheoryMinimized(false);
-    setIsQuestionExpanded(false);
+    setIsQuestionExpanded(true);
   }, [task?.number, selectedSubsectionId]);
 
   useEffect(() => {
@@ -485,35 +466,8 @@ const PythonTestModal = ({
   }, [showTheory]);
 
   useEffect(() => {
-    setIsQuestionExpanded(false);
+    setIsQuestionExpanded(true);
   }, [currentIndex]);
-
-  useEffect(() => {
-    refreshQuestionScrollState();
-    const node = questionScrollBodyRef.current;
-    if (!node) return undefined;
-    const frameId = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
-      ? window.requestAnimationFrame(refreshQuestionScrollState)
-      : null;
-    let resizeObserver = null;
-    if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(refreshQuestionScrollState);
-      resizeObserver.observe(node);
-    }
-    return () => {
-      if (frameId !== null && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
-        window.cancelAnimationFrame(frameId);
-      }
-      resizeObserver?.disconnect();
-    };
-  }, [
-    currentQuestionScrollText,
-    currentIndex,
-    refreshQuestionScrollState,
-    viewportHeight,
-    viewportWidth,
-    workspaceSplitRatio,
-  ]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -952,15 +906,17 @@ const PythonTestModal = ({
 
   useEffect(() => {
     const list = Array.isArray(subsectionModel.questions) ? subsectionModel.questions : [];
-    const parsedInitialQuestionIndex = Number(initialQuestionIndex);
-    let rawIndex = initialQuestionIndex !== null
-      && typeof initialQuestionIndex !== 'undefined'
-      && String(initialQuestionIndex).trim() !== ''
+    const seededQuestionIndex = initialQuestionIndexRef.current;
+    const seededSubsectionId = initialSubsectionIdRef.current;
+    const parsedInitialQuestionIndex = Number(seededQuestionIndex);
+    let rawIndex = seededQuestionIndex !== null
+      && typeof seededQuestionIndex !== 'undefined'
+      && String(seededQuestionIndex).trim() !== ''
       && Number.isFinite(parsedInitialQuestionIndex)
       ? parsedInitialQuestionIndex
       : Number.NaN;
-    const requestedSubsectionId = String(initialSubsectionId || '').trim()
-      ? normalizeTheorySubsectionId(initialSubsectionId)
+    const requestedSubsectionId = String(seededSubsectionId || '').trim()
+      ? normalizeTheorySubsectionId(seededSubsectionId)
       : '';
     if (!Number.isFinite(rawIndex) && requestedSubsectionId) {
       const subsectionQuestionIndex = list.findIndex((_, index) => (
@@ -1038,7 +994,7 @@ const PythonTestModal = ({
     } else {
       setAnswerHistoryLoading(false);
     }
-  }, [task?.number, subsectionModel, studentId, initialQuestionIndex, initialSubsectionId]);
+  }, [task?.number, subsectionModel, studentId]);
 
   useEffect(() => {
     if (!questions.length) return;
@@ -1995,8 +1951,8 @@ const PythonTestModal = ({
     ? denseQuestionNavClass
     : `flex min-w-0 max-w-[calc(100vw-1.5rem)] flex-nowrap ${isCompactRuntimeViewport ? 'gap-1 pb-1 pr-6' : 'gap-1 pb-1.5 pr-10'} overflow-x-auto overflow-y-visible [scrollbar-width:thin]`;
   const subsectionChipSizeClass = isCompactRuntimeViewport
-    ? 'min-w-[178px] px-2.5 py-1.5'
-    : 'min-w-[220px] px-3 py-2';
+    ? 'min-w-[188px] px-3 py-2'
+    : 'min-w-[232px] px-3.5 py-2.5';
   const workspaceGridRowTemplate = isQuestionExpanded
     ? 'minmax(300px, 76fr) minmax(120px, 24fr)'
     : (hasSupportSidebarContent
@@ -2110,18 +2066,25 @@ const PythonTestModal = ({
             </div>
           </div>
 
-          <div className="python-runtime-task-navigation grid gap-1">
+          <div className="python-runtime-task-navigation python-runtime-navigation-stack grid gap-1">
             {showSubsectionNav && (
               <div className={`python-runtime-subsection-strip rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
-                <div className="flex min-w-0 items-center gap-2">
-                  <div className={`shrink-0 text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>Подраздел</div>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="python-runtime-subsection-heading shrink-0">
+                    <span className="python-runtime-subsection-heading-icon"><BookOpen size={14} /></span>
+                    <span>
+                      <span className="python-runtime-subsection-heading-overline">Маршрут</span>
+                      <strong>Подразделы</strong>
+                    </span>
+                  </div>
                   <div className={`python-runtime-scrollbar flex min-w-0 flex-1 flex-nowrap ${isCompactRuntimeViewport ? 'gap-1.5 pb-0.5' : 'gap-2 pb-1'} overflow-x-auto pr-1 [scrollbar-width:thin]`} onWheel={handleHorizontalWheelScroll}>
-                  {visibleSubsections.map((section) => (
+                  {visibleSubsections.map((section, sectionIndex) => (
                     <button
                       key={`py-subsection-${section.id}`}
                       type="button"
                       onClick={() => handleSelectSubsection(section.id)}
-                      className={`python-runtime-chip ${subsectionChipSizeClass} shrink-0 rounded-[16px] border text-left text-[11px] font-semibold transition-all ${
+                      data-current={section.id === activeSubsection?.id ? 'true' : 'false'}
+                      className={`python-runtime-chip python-runtime-subsection-chip ${subsectionChipSizeClass} shrink-0 rounded-[16px] border text-left text-[11px] font-semibold transition-all ${
                         section.id === activeSubsection?.id
                           ? (isDarkTheme
                               ? 'border-violet-400/40 bg-violet-500/14 text-white shadow-[0_14px_28px_rgba(76,29,149,0.28)]'
@@ -2129,8 +2092,11 @@ const PythonTestModal = ({
                           : `${softCardClass} ${secondaryTextClass} hover:-translate-y-0.5 hover:border-violet-300 hover:text-violet-700`
                       }`}
                     >
-                      <div className="whitespace-nowrap">{section.title}</div>
-                      <div className={`${isCompactRuntimeViewport ? 'mt-0' : 'mt-0.5'} text-[10px] opacity-75`}>{`${section.count} задач`}</div>
+                      <span className="python-runtime-subsection-number">{String(sectionIndex + 1).padStart(2, '0')}</span>
+                      <span className="python-runtime-subsection-copy">
+                        <span className="python-runtime-subsection-title">{section.title}</span>
+                        <span className="python-runtime-subsection-count">{`${section.count} задач`}</span>
+                      </span>
                     </button>
                   ))}
                   </div>
@@ -2138,7 +2104,14 @@ const PythonTestModal = ({
               </div>
             )}
 
-              <div data-dense={isDenseQuestionNav ? 'true' : 'false'} className={`python-runtime-task-strip rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
+              <div data-dense={isDenseQuestionNav ? 'true' : 'false'} data-nested={showSubsectionNav ? 'true' : 'false'} className={`python-runtime-task-strip rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
+              {showSubsectionNav && (
+                <div className="python-runtime-task-context">
+                  <ChevronRight size={14} />
+                  <span>Задачи внутри</span>
+                  <strong>{activeSubsection?.title}</strong>
+                </div>
+              )}
               <div className="hidden">
                 <div className={`text-[11px] font-bold uppercase tracking-[0.24em] ${mutedTextClass}`}>
                   {activeSubsection ? `Раздел: ${activeSubsection.title}` : 'Раздел'}
@@ -2306,8 +2279,6 @@ const PythonTestModal = ({
             {currentQuestion?.question ? (
               <div className="python-runtime-question-copy relative mt-2.5 min-h-0 flex-1 overflow-hidden rounded-[14px] border">
                 <div
-                  ref={questionScrollBodyRef}
-                  onScroll={refreshQuestionScrollState}
                   className={`python-runtime-scrollbar h-full min-h-0 overflow-y-auto whitespace-pre-wrap px-3.5 pb-10 pt-3 pr-3 text-[14px] font-medium leading-6 md:text-[15px] md:leading-6 ${primaryTextClass}`}
                 >
                   {buildDecoratedQuestionLines(currentQuestion.question).map((line, lineIndex) => (
@@ -2323,30 +2294,27 @@ const PythonTestModal = ({
                     )
                   ))}
                 </div>
-                {(isQuestionExpanded || (questionScrollState.hasOverflow && !questionScrollState.atEnd)) && (
-                  <div
-                    className={`python-runtime-question-fade pointer-events-none absolute inset-x-0 bottom-0 flex justify-end pb-2 pr-2 pt-9 ${
-                      isDarkTheme
-                        ? 'bg-gradient-to-t from-slate-900/95 via-slate-900/76 to-transparent'
-                        : 'bg-gradient-to-t from-white/96 via-white/74 to-transparent'
-                    }`}
-                    aria-hidden="true"
+                <div
+                  className={`python-runtime-question-fade pointer-events-none absolute inset-x-0 bottom-0 flex justify-end pb-2 pr-2 pt-9 ${
+                    isDarkTheme
+                      ? 'bg-gradient-to-t from-slate-900/95 via-slate-900/76 to-transparent'
+                      : 'bg-gradient-to-t from-white/96 via-white/74 to-transparent'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setIsQuestionExpanded((prev) => !prev)}
+                    aria-expanded={isQuestionExpanded}
+                    className={`python-runtime-question-more pointer-events-auto inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition ${
+                    isDarkTheme
+                      ? 'border-cyan-300/45 bg-cyan-300/14 text-cyan-100 shadow-cyan-950/35'
+                      : 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-cyan-100/70'
+                  }`}
                   >
-                    <button
-                      type="button"
-                      onClick={() => setIsQuestionExpanded((prev) => !prev)}
-                      aria-expanded={isQuestionExpanded}
-                      className={`python-runtime-question-more pointer-events-auto inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition ${
-                      isDarkTheme
-                        ? 'border-cyan-300/45 bg-cyan-300/14 text-cyan-100 shadow-cyan-950/35'
-                        : 'border-cyan-300 bg-cyan-50 text-cyan-800 shadow-cyan-100/70'
-                    }`}
-                    >
-                      {isQuestionExpanded ? 'Свернуть' : 'Читать полностью'}
-                      {isQuestionExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                    </button>
-                  </div>
-                )}
+                    {isQuestionExpanded ? 'Посмотреть тесты' : 'Показать условие'}
+                    {isQuestionExpanded ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className={`mt-4 text-sm ${mutedTextClass}`}>Условие задачи пока пустое.</div>

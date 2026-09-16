@@ -101,7 +101,7 @@ const wrapCanvasText = (context, value, maxWidth) => {
   return result;
 };
 
-const downloadReportImage = async ({ report, text, studentName, month }) => {
+const downloadReportImage = async ({ report, text, studentName, month, audience = 'parent' }) => {
   if (!String(text || '').trim()) return;
   try { await document.fonts?.ready; } catch { /* system fonts are enough */ }
 
@@ -181,7 +181,7 @@ const downloadReportImage = async ({ report, text, studentName, month }) => {
     {
       label: 'ЗАНЯТИЯ',
       value: String(report?.metrics?.lessons?.count ?? 0),
-      note: formatTopicCount(report?.metrics?.lessons?.topics?.length ?? 0),
+      note: formatTopicCount(report?.metrics?.lessons?.topicCount ?? report?.metrics?.lessons?.topics?.length ?? 0),
       color: '#0284c7',
       fill: '#f0f9ff',
     },
@@ -221,7 +221,7 @@ const downloadReportImage = async ({ report, text, studentName, month }) => {
 
   context.fillStyle = '#111827';
   context.font = '800 27px Inter, Arial, sans-serif';
-  context.fillText('Как прошёл месяц', contentX, 455);
+  context.fillText(audience === 'student' ? 'Твои итоги' : 'Как прошёл месяц', contentX, 455);
   context.fillStyle = '#7c3aed';
   addRoundedRect(context, contentX, 474, 86, 5, 3);
   context.fill();
@@ -247,7 +247,7 @@ const downloadReportImage = async ({ report, text, studentName, month }) => {
   context.stroke();
   context.fillStyle = '#94a3b8';
   context.font = '500 17px Inter, Arial, sans-serif';
-  context.fillText(`Персональный отчёт за ${String(report?.monthLabel || month || '').toLocaleLowerCase('ru-RU')}`, contentX, footerY);
+  context.fillText(`${audience === 'student' ? 'Твои итоги' : 'Персональный отчёт'} за ${String(report?.monthLabel || month || '').toLocaleLowerCase('ru-RU')}`, contentX, footerY);
 
   const blob = await new Promise((resolve, reject) => {
     canvas.toBlob((nextBlob) => (nextBlob ? resolve(nextBlob) : reject(new Error('image export failed'))), 'image/png');
@@ -255,7 +255,7 @@ const downloadReportImage = async ({ report, text, studentName, month }) => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `Отчёт-${sanitizeFileName(studentName)}-${month}.png`;
+  anchor.download = `${audience === 'student' ? 'Отчёт-для-ученика' : 'Отчёт'}-${sanitizeFileName(studentName)}-${month}.png`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -277,7 +277,8 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
   const currentMonth = useMemo(getCurrentMoscowMonth, []);
   const [month, setMonth] = useState(currentMonth);
   const [report, setReport] = useState(null);
-  const [text, setText] = useState('');
+  const [audience, setAudience] = useState('parent');
+  const [drafts, setDrafts] = useState({ parent: '', student: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copyState, setCopyState] = useState('idle');
@@ -296,7 +297,10 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
     try {
       const next = await api.getStudentMonthlyReport(studentId, month);
       setReport(next);
-      setText(String(next?.text || ''));
+      setDrafts({
+        parent: String(next?.texts?.parent || next?.parentText || next?.text || ''),
+        student: String(next?.texts?.student || next?.studentText || ''),
+      });
     } catch (loadError) {
       setError(loadError?.message || 'Не удалось собрать отчёт.');
     } finally {
@@ -304,9 +308,21 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
     }
   }, [month, student?.id]);
 
+  const text = drafts[audience] || '';
+  const automaticText = audience === 'student'
+    ? String(report?.texts?.student || report?.studentText || '')
+    : String(report?.texts?.parent || report?.parentText || report?.text || '');
+  const updateText = (value) => setDrafts((current) => ({ ...current, [audience]: value }));
+
   useEffect(() => {
     loadReport();
   }, [loadReport]);
+
+  useEffect(() => {
+    setCopyState('idle');
+    setShareState('idle');
+    setImageState('idle');
+  }, [audience]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -359,7 +375,7 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `Отчёт-${sanitizeFileName(student?.name)}-${month}.txt`;
+    anchor.download = `${audience === 'student' ? 'Отчёт-для-ученика' : 'Отчёт'}-${sanitizeFileName(student?.name)}-${month}.txt`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -375,6 +391,7 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
         text,
         studentName: String(student?.name || report?.student?.name || 'Ученик'),
         month,
+        audience,
       });
       setImageState('done');
       window.setTimeout(() => setImageState('idle'), 2200);
@@ -414,6 +431,14 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
             <RefreshCcw size={15} className={loading ? 'is-spinning' : ''} />
             Обновить данные
           </button>
+          <div className="student-month-report__audience" role="group" aria-label="Получатель отчёта">
+            <button type="button" data-active={audience === 'parent' ? 'true' : 'false'} onClick={() => setAudience('parent')}>
+              Для родителя
+            </button>
+            <button type="button" data-active={audience === 'student' ? 'true' : 'false'} onClick={() => setAudience('student')}>
+              Для ученика
+            </button>
+          </div>
           {report?.generatedAt && <small>Собран по актуальным данным платформы</small>}
         </div>
 
@@ -437,8 +462,8 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
                 tone="lessons"
                 label="Занятия"
                 value={lessons.count ?? 0}
-                note={(lessons.topics?.length ?? 0) > 0
-                  ? formatTopicCount(lessons.topics.length)
+                note={(lessons.topicCount ?? lessons.topics?.length ?? 0) > 0
+                  ? formatTopicCount(lessons.topicCount ?? lessons.topics.length)
                   : (lessons.count > 0 ? 'по календарю' : 'нет занятий')}
               />
               <MetricCard
@@ -469,19 +494,21 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
 
             <div className="student-month-report__editor-head">
               <div>
-                <strong>Текст для родителя</strong>
-                <span>Можно изменить любую формулировку перед отправкой.</span>
+                <strong>{audience === 'student' ? 'Текст для ученика' : 'Текст для родителя'}</strong>
+                <span>{audience === 'student'
+                  ? 'Обращение напрямую к ученику с оценкой прогресса и конкретной целью.'
+                  : 'Можно изменить любую формулировку перед отправкой.'}</span>
               </div>
-              {text !== String(report?.text || '') && (
-                <button type="button" onClick={() => setText(String(report?.text || ''))}>Вернуть автотекст</button>
+              {text !== automaticText && (
+                <button type="button" onClick={() => updateText(automaticText)}>Вернуть автотекст</button>
               )}
             </div>
             <textarea
               className="student-month-report__editor"
               value={text}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => updateText(event.target.value)}
               spellCheck="true"
-              aria-label="Текст отчёта для родителя"
+              aria-label={audience === 'student' ? 'Текст отчёта для ученика' : 'Текст отчёта для родителя'}
             />
 
             <footer className="student-month-report__footer">

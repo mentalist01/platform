@@ -44,6 +44,28 @@ const STUDENT_STUDY_STATUS_OPTIONS = [
   { value: STUDENT_STUDY_STATUS_INACTIVE, label: 'Не учится' },
 ];
 
+const getCurrentMoscowMonth = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date()).reduce((result, part) => {
+    if (part.type !== 'literal') result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}-${parts.month}`;
+};
+
+const formatReportMonthShort = (month) => {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(month || ''));
+  if (!match) return '';
+  const label = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    month: 'long',
+  }).format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 15, 12)));
+  return label ? `${label[0].toLocaleUpperCase('ru-RU')}${label.slice(1)}` : '';
+};
+
 const QUESTION_LABEL_COLOR_PRESETS = [
   '#7c3aed',
   '#2563eb',
@@ -241,6 +263,8 @@ const TeacherPanel = ({
   const [resettingBoardStudentId, setResettingBoardStudentId] = useState(null);
   const [restoringStudentId, setRestoringStudentId] = useState(null);
   const [monthlyReportStudent, setMonthlyReportStudent] = useState(null);
+  const [monthlyReportStatusMonth] = useState(getCurrentMoscowMonth);
+  const [monthlyReportStatusSavingId, setMonthlyReportStatusSavingId] = useState('');
   const [teacherCodeForm, setTeacherCodeForm] = useState({ current: '', next: '', repeat: '' });
   const [teacherCodeVisibility, setTeacherCodeVisibility] = useState({ current: false, next: false, repeat: false });
   const [teacherCodeError, setTeacherCodeError] = useState('');
@@ -2185,6 +2209,27 @@ const TeacherPanel = ({
     }
   };
 
+  const handleMonthlyReportSentToggle = async (student, sent) => {
+    if (!student?.id || monthlyReportStatusSavingId) return;
+    setMonthlyReportStatusSavingId(student.id);
+    setStudentActionError('');
+    try {
+      const result = await api.updateStudentMonthlyReportStatus(
+        student.id,
+        monthlyReportStatusMonth,
+        sent
+      );
+      onStudentUpdated?.({
+        ...student,
+        monthlyReportSentMonths: result?.monthlyReportSentMonths || {},
+      });
+    } catch (err) {
+      setStudentActionError(err?.message || String(err));
+    } finally {
+      setMonthlyReportStatusSavingId('');
+    }
+  };
+
   const handleRestoreStudent = async (student) => {
     if (!student?.id) return;
     if (!confirm(`Восстановить ученика "${student.name}"?`)) return;
@@ -2907,6 +2952,7 @@ const TeacherPanel = ({
           ) : (
             visibleStudentsList.map((student) => {
               const studentIsCurrent = isCurrentStudent(student);
+              const monthlyReportSent = Boolean(student?.monthlyReportSentMonths?.[monthlyReportStatusMonth]);
               const studentXpTotal = normalizeXpTotal(student?.xpTotal);
               const studentCoinsTotal = Math.max(0, Math.floor(Number(student?.coinsTotal) || 0));
               const studentNotesUsageBytes = normalizeStorageBytes(student?.notesUsageBytes);
@@ -3345,7 +3391,7 @@ const TeacherPanel = ({
                       </>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                     {editingStudentId === student.id ? (
                       <>
                         <button
@@ -3369,10 +3415,25 @@ const TeacherPanel = ({
                         {studentIsCurrent && activeStudentId === student.id && (
                           <span className="text-xs font-semibold text-purple-600">Активный</span>
                         )}
+                        <label
+                          className="teacher-student-card__report-status"
+                          data-checked={monthlyReportSent ? 'true' : 'false'}
+                          title={`Отчёт за ${formatReportMonthShort(monthlyReportStatusMonth)} отправлен`}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={monthlyReportSent}
+                            disabled={monthlyReportStatusSavingId === student.id}
+                            onChange={(event) => handleMonthlyReportSentToggle(student, event.target.checked)}
+                          />
+                          <CheckCircle2 size={14} />
+                          <span>{formatReportMonthShort(monthlyReportStatusMonth)}</span>
+                        </label>
                         <button
                           onClick={(e) => { e.stopPropagation(); setMonthlyReportStudent(student); }}
                           className="teacher-student-card__report-button"
-                          title="Собрать отчёт за месяц для родителя"
+                          title="Собрать отчёт за месяц для родителя или ученика"
                           type="button"
                         >
                           <FileText size={15} />

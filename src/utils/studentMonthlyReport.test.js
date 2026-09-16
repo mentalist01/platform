@@ -28,6 +28,7 @@ test('monthly report combines lessons, homework deadlines and mock progress', ()
   assert.equal(report.metrics.lessons.count, 2);
   assert.equal(report.metrics.lessons.minutes, 150);
   assert.deepEqual(report.metrics.lessons.topics, ['Системы счисления']);
+  assert.equal(report.metrics.lessons.topicCount, 1);
   assert.equal(report.metrics.homework.assignedCount, 3);
   assert.equal(report.metrics.homework.completedCount, 1);
   assert.equal(report.metrics.homework.onTimeCount, 1);
@@ -151,6 +152,7 @@ test('lesson task topics merge repeated task numbers from differently worded top
   });
 
   assert.deepEqual(report.metrics.lessons.topics, ['Задания №18, 9, 11 и 7']);
+  assert.equal(report.metrics.lessons.topicCount, 4);
   assert.match(report.text, /задания №18, 9, 11 и 7/u);
   assert.doesNotMatch(report.text, /№18.*№18|№11.*№11/u);
 });
@@ -169,4 +171,48 @@ test('very low homework completion is evaluated honestly and calls for finding t
   assert.equal(report.metrics.homework.averagePercent, 10);
   assert.match(report.text, /очень плохо|очень слабый|очень мало/u);
   assert.match(report.text, /причин|почему/u);
+});
+
+test('student-facing report addresses the student directly, praises growth and sets a clear goal', () => {
+  const report = buildStudentMonthlyReport({
+    student: { id: 'student-direct', name: 'Анна' },
+    month: '2026-09',
+    nowMs: Date.parse('2026-09-20T12:00:00+03:00'),
+    lessonEntries: [
+      { dayKey: '2026-09-10', topic: { text: 'Задание №7' }, startMs: Date.parse('2026-09-10T12:00:00+03:00') },
+    ],
+    homeworkEntries: [
+      { dueAt: '2026-08-10T18:00:00+03:00', percent: 30 },
+      { dueAt: '2026-09-10T18:00:00+03:00', percent: 45, withErrorsCount: 1 },
+    ],
+    mockEntries: [
+      { id: 'm0', score: 20, dateMs: Date.parse('2026-08-20T12:00:00+03:00') },
+      { id: 'm1', score: 31, dateMs: Date.parse('2026-09-18T12:00:00+03:00') },
+    ],
+  });
+
+  assert.equal(report.metrics.homework.previousAveragePercent, 30);
+  assert.equal(report.metrics.homework.deltaFromPreviousMonth, 15);
+  assert.equal(report.parentText, report.text);
+  assert.equal(report.texts.student, report.studentText);
+  assert.match(report.studentText, /^Анна,/u);
+  assert.match(report.studentText, /ты|тво/u);
+  assert.match(report.studentText, /вырос на 11 балл|прогресс/u);
+  assert.match(report.studentText, /мало|слаб|лучше|регуляр/u);
+  assert.doesNotMatch(report.studentText, /Здравствуйте/u);
+});
+
+test('student-facing report is direct about very low homework completion', () => {
+  const report = buildStudentMonthlyReport({
+    student: { id: 'student-direct-low', name: 'Илья' },
+    month: '2026-09',
+    nowMs: Date.parse('2026-09-20T12:00:00+03:00'),
+    homeworkEntries: [
+      { dueAt: '2026-09-05T18:00:00+03:00', percent: 0 },
+      { dueAt: '2026-09-12T18:00:00+03:00', percent: 20 },
+    ],
+  });
+
+  assert.match(report.studentText, /очень плохо|очень слабый|так продолжать нельзя/iu);
+  assert.match(report.studentText, /исправ|регуляр|обязательн/u);
 });

@@ -69356,6 +69356,205 @@ body:has(.python-runtime-modal-shell--solve) .theme-toggle--desktop {
   }
 }
 
+/* Python learning route: subsections are the parent level, tasks are nested below. */
+.python-runtime-modal-shell--solve .python-runtime-navigation-stack {
+  position: relative;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-strip {
+  border-color: color-mix(in srgb, var(--rt-purple) 32%, var(--rt-border)) !important;
+  background:
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--rt-purple) 12%, transparent), transparent 34%),
+    color-mix(in srgb, var(--rt-purple-soft) 48%, var(--rt-card)) !important;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--rt-purple) 10%, transparent) !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-heading {
+  display: inline-flex;
+  min-width: 116px;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0 0.45rem;
+  color: var(--rt-text);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-heading-icon {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6842dc, #9a5cf6);
+  box-shadow: 0 5px 12px rgba(104, 66, 220, 0.22);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-heading-overline,
+.python-runtime-modal-shell--solve .python-runtime-subsection-heading strong {
+  display: block;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-heading-overline {
+  margin-bottom: 0.05rem;
+  color: var(--rt-purple);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-heading strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-chip {
+  position: relative;
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 0.65rem;
+  border-color: color-mix(in srgb, var(--rt-purple) 16%, var(--rt-border)) !important;
+  border-radius: 13px !important;
+  color: var(--rt-secondary) !important;
+  background: color-mix(in srgb, var(--rt-card) 94%, var(--rt-purple-soft)) !important;
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--rt-shadow) 60%, transparent) !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-chip:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--rt-purple) 42%, var(--rt-border)) !important;
+  color: var(--rt-purple-dark) !important;
+  box-shadow: 0 7px 15px color-mix(in srgb, var(--rt-purple) 12%, transparent) !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-number {
+  display: inline-flex;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--rt-purple) 25%, var(--rt-border));
+  border-radius: 9px;
+  color: var(--rt-purple-dark);
+  background: var(--rt-purple-soft);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-copy,
+.python-runtime-modal-shell--solve .python-runtime-subsection-title,
+.python-runtime-modal-shell--solve .python-runtime-subsection-count {
+  display: block;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-copy {
+  min-width: 0;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-title {
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-count {
+  margin-top: 0.12rem;
+  color: var(--rt-muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-chip[data-current='true'] {
+  border-color: #6b43de !important;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #6842dc, #9254ef) !important;
+  box-shadow: 0 8px 18px rgba(104, 66, 220, 0.25) !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-chip[data-current='true'] .python-runtime-subsection-number {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #6842dc;
+  background: #ffffff;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-subsection-chip[data-current='true'] .python-runtime-subsection-count {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-strip[data-nested='true'] {
+  position: relative;
+  margin-left: 34px;
+  max-width: calc(100% - 34px);
+  padding-left: 0.65rem !important;
+  border-left: 2px solid color-mix(in srgb, var(--rt-purple) 34%, var(--rt-border)) !important;
+  border-radius: 0 13px 13px 0 !important;
+  background: color-mix(in srgb, var(--rt-card) 92%, var(--rt-soft)) !important;
+  box-shadow: none !important;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-strip[data-nested='true']::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: -2px;
+  width: 20px;
+  height: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--rt-purple) 34%, var(--rt-border));
+  border-bottom: 2px solid color-mix(in srgb, var(--rt-purple) 34%, var(--rt-border));
+  border-radius: 0 0 0 8px;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-context {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.3rem 0.28rem;
+  color: var(--rt-muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-task-context strong {
+  overflow: hidden;
+  color: var(--rt-purple-dark);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-question-more {
+  text-transform: none !important;
+  letter-spacing: 0.02em !important;
+}
+
+@media (max-width: 699px) {
+  .python-runtime-modal-shell--solve .python-runtime-subsection-heading {
+    min-width: 38px;
+    padding-inline: 0.2rem;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-subsection-heading > span:last-child {
+    display: none;
+  }
+
+  .python-runtime-modal-shell--solve .python-runtime-task-strip[data-nested='true'] {
+    margin-left: 18px;
+    max-width: calc(100% - 18px);
+  }
+}
+
 /* Final priority guard for the task-notes workspace. Kept last intentionally. */
 
 /* Compact task-notes pass: denser rhythm and explicit open affordances. */
@@ -86687,6 +86886,40 @@ html[data-theme='light'] .python-task-builder__step-card--card .text-purple-100 
   transform: translateY(-1px);
 }
 
+.teacher-student-card__report-status {
+  display: inline-flex;
+  min-height: 30px;
+  cursor: pointer;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid #dbe3ee;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.teacher-student-card__report-status input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #10b981;
+}
+
+.teacher-student-card__report-status[data-checked='true'] {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.teacher-student-card__report-status:has(input:disabled) {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .student-month-report {
   position: fixed;
   inset: 0;
@@ -86857,6 +87090,38 @@ html[data-theme='light'] .python-task-builder__step-card--card .text-purple-100 
   margin: 0 0 11px auto;
   color: #94a3b8;
   font-size: 11px;
+}
+
+.student-month-report__audience {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 39px;
+  padding: 3px;
+  border: 1px solid #ddd6fe;
+  border-radius: 12px;
+  background: #f5f3ff;
+}
+
+.student-month-report__audience button {
+  min-height: 31px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #64748b;
+  box-shadow: none;
+}
+
+.student-month-report__audience button[data-active='true'] {
+  background: #ffffff;
+  color: #6d28d9;
+  box-shadow: 0 3px 10px rgba(76, 29, 149, 0.13);
+}
+
+.student-month-report__audience button:hover {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .student-month-report__metrics {
@@ -87099,6 +87364,18 @@ html[data-theme='dark'] .teacher-student-card__report-button {
   color: #c4b5fd;
 }
 
+html[data-theme='dark'] .teacher-student-card__report-status {
+  border-color: #334155;
+  background: #1e293b;
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .teacher-student-card__report-status[data-checked='true'] {
+  border-color: rgba(52, 211, 153, 0.4);
+  background: rgba(6, 95, 70, 0.22);
+  color: #6ee7b7;
+}
+
 html[data-theme='dark'] .student-month-report__dialog {
   border-color: rgba(139, 92, 246, 0.35);
   background:
@@ -87130,6 +87407,16 @@ html[data-theme='dark'] .student-month-report__footer button {
 
 html[data-theme='dark'] .student-month-report__toolbar input {
   color-scheme: dark;
+}
+
+html[data-theme='dark'] .student-month-report__audience {
+  border-color: #4c1d95;
+  background: rgba(76, 29, 149, 0.2);
+}
+
+html[data-theme='dark'] .student-month-report__audience button[data-active='true'] {
+  background: #312e81;
+  color: #ede9fe;
 }
 
 html[data-theme='dark'] .student-month-report__metric[data-tone] {
@@ -87200,6 +87487,19 @@ html[data-theme='dark'] .student-month-report__error {
 
   .student-month-report__metrics {
     grid-template-columns: 1fr;
+  }
+
+  .student-month-report__toolbar {
+    flex-wrap: wrap;
+  }
+
+  .student-month-report__audience {
+    order: 3;
+    width: 100%;
+  }
+
+  .student-month-report__audience button {
+    flex: 1 1 0;
   }
 
   .student-month-report__metric {
