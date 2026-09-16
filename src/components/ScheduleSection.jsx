@@ -50,6 +50,10 @@ import {
   estimateHomeworkDuration,
   formatHomeworkDurationMinutes,
 } from '../utils/homeworkDurationEstimate';
+import {
+  getPythonHomeworkTheoryDetails,
+  getPythonHomeworkTheorySelection,
+} from '../utils/pythonTheoryHomework';
 
 const AUTO_REFRESH_INTERVAL_MS = 60_000;
 const SHOW_SCHEDULE_SKILL_TREE = false;
@@ -2402,7 +2406,13 @@ const ScheduleSection = ({
             levelId: isPythonGoal ? PYTHON_LEVEL_ID : (goal?.levelId || 'basic'),
             targetQuestions: Array.isArray(goal?.targetQuestions) ? goal.targetQuestions : [],
             targetQuestionIds: Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [],
-            includeAll: Boolean(goal?.includeAll)
+            includeAll: Boolean(goal?.includeAll),
+            ...(isPythonGoal && getPythonHomeworkTheorySelection(goal)
+              ? {
+                  pythonTheorySubsectionId: goal.pythonTheorySubsectionId,
+                  pythonTheoryType: goal.pythonTheoryType,
+                }
+              : {}),
           };
         })
         .filter((goal) => (
@@ -2867,6 +2877,9 @@ const ScheduleSection = ({
       totalCount: targetStatus.length,
       solvedCount,
       progressPercent,
+      pythonTheory: isPythonGoal
+        ? getPythonHomeworkTheoryDetails(testsDb?.[String(taskNumber)], goal, PYTHON_LEVEL_ID)
+        : null,
     };
   };
 
@@ -3248,6 +3261,15 @@ const ScheduleSection = ({
       onOpenTask?.(goalView.taskNumber, goalView.levelId, goalView.targetNumbers);
     };
 
+    const openPythonTheory = (goalView) => {
+      if (!goalView?.pythonTheory || !onOpenTask) return;
+      onOpenTask(goalView.taskNumber, goalView.levelId, goalView.targetNumbers, {
+        subsectionId: goalView.pythonTheory.subsectionId,
+        openTheory: true,
+        theoryType: goalView.pythonTheory.type,
+      });
+    };
+
     if (isNextSection) {
       const requiredGoalViews = goalViews.filter((goalView) => !isOptionalHomeworkGoal(goalView));
       const optionalGoalViews = goalViews.filter((goalView) => isOptionalHomeworkGoal(goalView));
@@ -3324,6 +3346,40 @@ const ScheduleSection = ({
           <div
             className={`student-today-homework__goal-segment ${goalIndex > 0 && !showTierHeading ? 'student-today-homework__next-goal mt-5 border-t border-purple-100 pt-5' : showTierHeading && goalIndex > 0 ? 'mt-3' : ''}`}
           >
+            {goalView.pythonTheory && (
+              <div className="mb-4 overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 shadow-[0_10px_24px_rgba(124,58,237,0.08)]">
+                <div className="flex flex-col gap-3 p-3.5 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-sm font-black text-white shadow-sm">1</span>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-black uppercase tracking-[0.13em] text-violet-600">Сначала изучи теорию</div>
+                      <strong className="mt-1 block text-sm font-black leading-tight text-slate-900">
+                        {goalView.pythonTheory.subsectionTitle}
+                      </strong>
+                      <span className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                        {goalView.pythonTheory.type === 'recording' ? <Video size={13} /> : <BookOpen size={13} />}
+                        {goalView.pythonTheory.typeLabel}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openPythonTheory(goalView)}
+                    disabled={!goalView.pythonTheory.available || !onOpenTask}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-black text-violet-700 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <BookOpen size={15} />
+                    {goalView.pythonTheory.available ? 'Изучить теорию' : 'Теория недоступна'}
+                  </button>
+                </div>
+                <div className="flex items-center gap-3 border-t border-violet-100 bg-white/70 px-3.5 py-2.5">
+                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-fuchsia-100 text-xs font-black text-fuchsia-700">2</span>
+                  <span className="text-xs font-bold text-slate-700">
+                    Затем реши {targetItems.length > 0 ? `задания №${formatHomeworkQuestionRanges(targetItems.map((item) => item.num))}` : 'выбранные задания'} из этого раздела.
+                  </span>
+                </div>
+              </div>
+            )}
             <div className="flex items-start gap-3">
               <span className={`student-today-homework__goal-step inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-black ${isCompleted ? 'student-today-homework__goal-step--complete' : ''}`}>
                 {isCompleted ? <CheckCircle size={17} /> : goalIndex + 1}
@@ -4842,6 +4898,12 @@ const ScheduleSection = ({
               targetInput: goal.includeAll ? '' : formatTargetInput(resolvedTargets.targetQuestions),
               targetQuestionIds: resolvedTargets.targetQuestionIds,
               targetSelectionDirty: false,
+              ...(getPythonHomeworkTheorySelection(goal)
+                ? {
+                    pythonTheorySubsectionId: goal.pythonTheorySubsectionId,
+                    pythonTheoryType: goal.pythonTheoryType,
+                  }
+                : {}),
             };
           })
         : [createDefaultGoal()]
@@ -4942,6 +5004,12 @@ const ScheduleSection = ({
             includeAll,
             targetQuestions,
             ...(targetQuestionIds.length > 0 ? { targetQuestionIds } : {}),
+            ...(isPythonTaskNumber(normalizedTaskNumber) && getPythonHomeworkTheorySelection(goal)
+              ? {
+                  pythonTheorySubsectionId: goal.pythonTheorySubsectionId,
+                  pythonTheoryType: goal.pythonTheoryType,
+                }
+              : {}),
           };
         })
         .filter(Boolean);

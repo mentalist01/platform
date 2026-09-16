@@ -1,5 +1,6 @@
 import { normalizeHomeworkDueAtMode } from './homeworkDueAt.js';
 import { normalizeHomeworkAssignmentTier } from './homeworkAssignmentTier.js';
+import { getPythonHomeworkTheorySelection } from './pythonTheoryHomework.js';
 
 export const HOMEWORK_COMPOSER_DRAFT_VERSION = 1;
 
@@ -89,6 +90,7 @@ const normalizeDraftGoal = (value) => {
   const origin = String(value.origin || '').trim().toLowerCase() === 'carryover'
     ? 'carryover'
     : 'new';
+  const pythonTheory = getPythonHomeworkTheorySelection(value);
 
   return {
     type,
@@ -106,6 +108,12 @@ const normalizeDraftGoal = (value) => {
     continuationOfHomeworkId: trimString(value.continuationOfHomeworkId, 240),
     origin,
     carryover: normalizeDraftCarryover(value.carryover),
+    ...(pythonTheory
+      ? {
+          pythonTheorySubsectionId: trimString(pythonTheory.subsectionId, 240),
+          pythonTheoryType: pythonTheory.type,
+        }
+      : {}),
   };
 };
 

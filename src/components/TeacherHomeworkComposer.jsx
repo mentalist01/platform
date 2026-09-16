@@ -40,6 +40,10 @@ import {
   HOMEWORK_DUE_AT_MODE_MANUAL,
   HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
 } from '../utils/homeworkDueAt';
+import {
+  getPythonHomeworkTheoryChoices,
+  getPythonHomeworkTheorySelection,
+} from '../utils/pythonTheoryHomework';
 
 const EMPTY_GOALS = [];
 const QUESTION_SELECTION_CLICK_SUPPRESS_MS = 450;
@@ -449,6 +453,12 @@ const TeacherHomeworkComposer = ({
       includeAll: false,
       targetQuestions: resolvedNumbers,
       targetQuestionIds: resolvedIds,
+      ...(isPythonGoal && getPythonHomeworkTheorySelection(goal)
+        ? {
+            pythonTheorySubsectionId: goal.pythonTheorySubsectionId,
+            pythonTheoryType: goal.pythonTheoryType,
+          }
+        : {}),
     };
   }).filter(Boolean);
   const homeworkDurationEstimate = buildHomeworkDurationEstimate({
@@ -800,6 +810,16 @@ const TeacherHomeworkComposer = ({
       ? questionCount
       : asPositiveIntegers(parseTargetInput?.(goal?.targetInput, questionCount) || []).length;
     const taskInfo = pythonGoal ? getPythonTaskInfo?.(taskNumber) : null;
+    const theoryChoices = pythonGoal
+      ? getPythonHomeworkTheoryChoices(testsDb?.[String(taskNumber)], pythonLevelId)
+      : [];
+    const theorySelection = getPythonHomeworkTheorySelection(goal);
+    const selectedTheoryChoice = theorySelection
+      ? theoryChoices.find((choice) => (
+          choice.subsectionId === theorySelection.subsectionId
+          && choice.type === theorySelection.type
+        ))
+      : null;
     const taskLabel = pythonGoal
       ? `Python ${taskInfo?.displayNumber || taskNumber}`
       : (Number.isFinite(taskNumber) ? `Задание ${formatTaskNumber?.(taskNumber) || taskNumber}` : 'Новое задание');
@@ -875,6 +895,8 @@ const TeacherHomeworkComposer = ({
                 targetInput: '',
                 targetQuestionIds: [],
                 targetSelectionDirty: true,
+                pythonTheorySubsectionId: '',
+                pythonTheoryType: '',
                 ...(taskChanged ? { origin: 'new', carryover: null } : {}),
               });
               setActiveGoal(index);
@@ -945,6 +967,62 @@ const TeacherHomeworkComposer = ({
             Все номера
           </label>
         </div>
+        {pythonGoal && (
+          <div className="mt-3 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.12em] text-violet-700">
+                  <BookOpen size={13} /> Теория перед заданиями
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                  Необязательно. Ученик сначала откроет выбранную теорию, затем перейдёт к номерам ниже.
+                </p>
+              </div>
+              {selectedTheoryChoice && (
+                <span className="rounded-full border border-violet-200 bg-white px-2 py-1 text-[9px] font-black text-violet-700">
+                  Шаг 1 из 2
+                </span>
+              )}
+            </div>
+            {theoryChoices.length > 0 ? (
+              <select
+                value={selectedTheoryChoice?.key || ''}
+                onFocus={() => setActiveGoal(index)}
+                onChange={(event) => {
+                  const choice = theoryChoices.find((item) => item.key === event.target.value);
+                  onUpdateGoal?.(index, choice
+                    ? {
+                        pythonTheorySubsectionId: choice.subsectionId,
+                        pythonTheoryType: choice.type,
+                      }
+                    : {
+                        pythonTheorySubsectionId: '',
+                        pythonTheoryType: '',
+                      });
+                  setActiveGoal(index);
+                }}
+                className="mt-2 min-h-10 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-violet-400"
+              >
+                <option value="">Без теории - только задания</option>
+                {theoryChoices.map((choice) => (
+                  <option key={choice.key} value={choice.key}>
+                    {`${choice.subsectionTitle} · ${choice.typeLabel}`}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="mt-2 rounded-xl border border-dashed border-slate-300 bg-white/80 px-3 py-2.5 text-xs font-semibold text-slate-500">
+                В этой теме пока нет сохранённой текстовой, Google Docs или видео-теории.
+              </div>
+            )}
+            {selectedTheoryChoice && (
+              <div className="mt-2 flex items-center gap-2 text-xs font-bold text-violet-700">
+                <CheckCircle2 size={14} />
+                {`Сначала: ${selectedTheoryChoice.typeLabel.toLowerCase()} «${selectedTheoryChoice.subsectionTitle}», затем выбранные задания.`}
+              </div>
+            )}
+          </div>
+        )}
         {renderAssignmentTierControl(goal, index)}
       </article>
     );

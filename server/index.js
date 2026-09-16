@@ -306,6 +306,7 @@ import {
 } from '../src/utils/homeworkDueAt.js';
 import { synchronizeHomeworkDueAtWithSchedule } from '../src/utils/homeworkScheduleSync.js';
 import { snapshotHomeworkGoalTargets } from '../src/utils/homeworkStats.js';
+import { getPythonHomeworkTheorySelection } from '../src/utils/pythonTheoryHomework.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 import { applyTeacherBaseNotes } from './teacherBaseNotes.js';
 import {
@@ -15022,6 +15023,7 @@ const normalizeGoals = (goals, testsDb = null) => {
     const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
     const targets = filterTargetsByCount(targetsRaw, totalCount);
     const targetQuestionIds = normalizeTargetQuestionIdSnapshot(goal.targetQuestionIds);
+    const pythonTheory = isPython ? getPythonHomeworkTheorySelection(goal) : null;
     result.push({
       type: GOAL_TYPE_TASK,
       assignmentTier: normalizeHomeworkAssignmentTier(goal.assignmentTier),
@@ -15030,6 +15032,12 @@ const normalizeGoals = (goals, testsDb = null) => {
       includeAll,
       targetQuestions: targets,
       ...(targetQuestionIds.length > 0 ? { targetQuestionIds } : {}),
+      ...(pythonTheory
+        ? {
+            pythonTheorySubsectionId: pythonTheory.subsectionId.slice(0, 240),
+            pythonTheoryType: pythonTheory.type,
+          }
+        : {}),
     });
   });
   return result;
@@ -15056,6 +15064,7 @@ const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
   const totalCount = getQuestionsCountForLevel(testsDb, taskNum, levelId);
   const targets = filterTargetsByCount(targetsRaw, totalCount);
   const targetQuestionIds = normalizeTargetQuestionIdSnapshot(entry.targetQuestionIds);
+  const pythonTheory = isPython ? getPythonHomeworkTheorySelection(entry) : null;
   return [{
     type: GOAL_TYPE_TASK,
     assignmentTier: normalizeHomeworkAssignmentTier(entry.assignmentTier),
@@ -15064,6 +15073,12 @@ const normalizeGoalsFromLegacy = (entry, testsDb = null) => {
     includeAll,
     targetQuestions: targets,
     ...(targetQuestionIds.length > 0 ? { targetQuestionIds } : {}),
+    ...(pythonTheory
+      ? {
+          pythonTheorySubsectionId: pythonTheory.subsectionId.slice(0, 240),
+          pythonTheoryType: pythonTheory.type,
+        }
+      : {}),
   }];
 };
 

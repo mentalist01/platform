@@ -2463,6 +2463,9 @@ const normalizeStoredOpenTask = (entry) => {
   const rawIndex = Number(entry.questionIndex);
   const questionIndex = Number.isFinite(rawIndex) && rawIndex >= 0 ? Math.floor(rawIndex) : null;
   const subsectionId = String(entry.subsectionId || '').trim() || null;
+  const theoryType = ['recording', 'text', 'gdoc'].includes(String(entry.theoryType || '').trim())
+    ? String(entry.theoryType).trim()
+    : null;
   return {
     taskNumber: normalizedTaskNumber,
     levelId: pythonTask ? PYTHON_LEVEL_ID : entry.levelId,
@@ -2470,6 +2473,8 @@ const normalizeStoredOpenTask = (entry) => {
     section,
     questionIndex,
     subsectionId,
+    openTheory: pythonTask && entry.openTheory === true,
+    theoryType: pythonTask ? theoryType : null,
   };
 };
 
@@ -23475,6 +23480,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         ? Math.max(0, Math.trunc(Number(options.questionIndex)))
         : null,
       subsectionId: String(options?.subsectionId || '').trim() || null,
+      openTheory: pythonTask && options?.openTheory === true,
+      theoryType: pythonTask && ['recording', 'text', 'gdoc'].includes(String(options?.theoryType || '').trim())
+        ? String(options.theoryType).trim()
+        : null,
       quickHomework: options?.quickHomework === true,
     };
     setPendingOpenTask(nextTask);

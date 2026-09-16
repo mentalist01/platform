@@ -202,6 +202,12 @@ const buildPendingTaskGoal = ({ goal, goalIndex, homework, studentData, testsDb 
     targetInput: formatHomeworkQuestionRanges(targetQuestions),
     targetQuestions,
     targetQuestionIds,
+    ...(String(goal?.pythonTheorySubsectionId || '').trim() && String(goal?.pythonTheoryType || '').trim()
+      ? {
+          pythonTheorySubsectionId: String(goal.pythonTheorySubsectionId).trim(),
+          pythonTheoryType: String(goal.pythonTheoryType).trim(),
+        }
+      : {}),
     mockExamId: '',
     origin: 'carryover',
     carryover: {

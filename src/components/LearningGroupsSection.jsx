@@ -57,6 +57,7 @@ import {
   HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
 } from '../utils/homeworkDueAt';
 import { normalizeAssignedMockExamMode } from '../utils/mockExamMode';
+import { getPythonHomeworkTheorySelection } from '../utils/pythonTheoryHomework';
 import { parseTelemostUrl } from '../utils/telemost';
 import {
   LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS,
@@ -773,6 +774,12 @@ const LearningGroupsSection = ({
         targetInput: goal?.includeAll ? '' : formatHomeworkQuestionRanges(goal?.targetQuestions),
         targetQuestionIds: Array.isArray(goal?.targetQuestionIds) ? goal.targetQuestionIds : [],
         targetSelectionDirty: false,
+        ...(getPythonHomeworkTheorySelection(goal)
+          ? {
+              pythonTheorySubsectionId: goal.pythonTheorySubsectionId,
+              pythonTheoryType: goal.pythonTheoryType,
+            }
+          : {}),
       };
     }).filter((goal) => (
       goal.type === GOAL_TYPE_MOCK ? Boolean(goal.mockExamId) : Boolean(goal.taskNumber)
@@ -929,6 +936,12 @@ const LearningGroupsSection = ({
           includeAll,
           targetQuestions,
           ...(targetQuestionIds.length > 0 ? { targetQuestionIds } : {}),
+          ...(isPythonTaskNumber(taskNumber) && getPythonHomeworkTheorySelection(goal)
+            ? {
+                pythonTheorySubsectionId: goal.pythonTheorySubsectionId,
+                pythonTheoryType: goal.pythonTheoryType,
+              }
+            : {}),
         };
       })
       .filter(Boolean);

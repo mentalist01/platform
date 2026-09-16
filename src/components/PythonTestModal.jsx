@@ -243,6 +243,8 @@ const PythonTestModal = ({
   testDb,
   initialQuestionIndex,
   initialSubsectionId,
+  initialShowTheory = false,
+  initialTheoryType = '',
   onQuestionChange,
   onSubsectionChange,
   onStreakSaved,
@@ -290,10 +292,10 @@ const PythonTestModal = ({
   const [workspaceSplitRatio, setWorkspaceSplitRatio] = useState(0.4);
   const [isResizingWorkspace, setIsResizingWorkspace] = useState(false);
   const isMobileViewport = viewportWidth < 700;
-  const [showTheory, setShowTheory] = useState(false);
+  const [showTheory, setShowTheory] = useState(Boolean(initialShowTheory));
   const [isTheoryMinimized, setIsTheoryMinimized] = useState(false);
   const [isQuestionExpanded, setIsQuestionExpanded] = useState(true);
-  const [activeTheoryType, setActiveTheoryType] = useState('');
+  const [activeTheoryType, setActiveTheoryType] = useState(String(initialTheoryType || '').trim());
   const [editorReady, setEditorReady] = useState(false);
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const [realtimeStatus, setRealtimeStatus] = useState('disconnected');
@@ -333,6 +335,8 @@ const PythonTestModal = ({
   const workspaceGridRef = useRef(null);
   const initialQuestionIndexRef = useRef(initialQuestionIndex);
   const initialSubsectionIdRef = useRef(initialSubsectionId);
+  const initialShowTheoryRef = useRef(Boolean(initialShowTheory));
+  const initialTheoryTypeRef = useRef(String(initialTheoryType || '').trim());
   const workspaceResizePointerIdRef = useRef(null);
   const runnerWarmupTimeoutMs = Math.max(PYODIDE_RUN_TIMEOUT_MS * 2, 20000);
 
@@ -398,7 +402,10 @@ const PythonTestModal = ({
   );
   useEffect(() => {
     setActiveTheoryType((prevType) => {
-      const nextType = pickTheoryVariantType(theoryVariantsForVisibility, prevType);
+      const preferredType = initialShowTheoryRef.current
+        ? initialTheoryTypeRef.current
+        : prevType;
+      const nextType = pickTheoryVariantType(theoryVariantsForVisibility, preferredType);
       return nextType === prevType ? prevType : nextType;
     });
   }, [task?.number, selectedSubsectionId, theoryVariantsForVisibility]);
@@ -408,6 +415,26 @@ const PythonTestModal = ({
     setIsTheoryMinimized(false);
     setIsQuestionExpanded(true);
   }, [task?.number, selectedSubsectionId]);
+
+  useEffect(() => {
+    if (!initialShowTheoryRef.current) return;
+    const requestedSubsectionId = String(initialSubsectionIdRef.current || '').trim();
+    if (
+      requestedSubsectionId
+      && normalizeTheorySubsectionId(selectedSubsectionId) !== normalizeTheorySubsectionId(requestedSubsectionId)
+    ) {
+      return;
+    }
+    const theoryType = pickTheoryVariantType(
+      theoryVariantsForVisibility,
+      initialTheoryTypeRef.current,
+    );
+    if (!theoryType) return;
+    initialShowTheoryRef.current = false;
+    setActiveTheoryType(theoryType);
+    setShowTheory(true);
+    setIsTheoryMinimized(false);
+  }, [selectedSubsectionId, theoryVariantsForVisibility]);
 
   useEffect(() => {
     if (!showTheory || typeof document === 'undefined') return undefined;
