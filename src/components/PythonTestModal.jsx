@@ -43,6 +43,7 @@ import {
   THEORY_RECORDING_TYPE,
 } from '../utils/theoryRecording';
 import { getCollabWsUrl } from '../utils/runtimeUrls';
+import { getRutubeEmbedUrl } from '../utils/learningGroups';
 import { QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE } from '../utils/questionDifficulty';
 import { getLatestUnsolvedDurationMs } from '../utils/questionSolveTimer';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
@@ -140,7 +141,7 @@ const buildDecoratedQuestionLines = (value) => String(value || '')
     return { label: match[1], text: match[2] };
   });
 
-const THEORY_VARIANT_ORDER = [THEORY_RECORDING_TYPE, 'text', 'gdoc'];
+const THEORY_VARIANT_ORDER = [THEORY_RECORDING_TYPE, 'rutube', 'text', 'gdoc'];
 
 const normalizeTheoryItem = (value, fallbackType = '') => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -149,9 +150,11 @@ const normalizeTheoryItem = (value, fallbackType = '') => {
     const recording = normalizeTheoryRecording(value.content);
     return recording ? { type: THEORY_RECORDING_TYPE, content: recording } : null;
   }
-  if (detectedType === 'gdoc') {
+  if (detectedType === 'gdoc' || detectedType === 'rutube') {
     const content = String(value.content || '').trim();
-    return content ? { type: 'gdoc', content } : null;
+    if (!content) return null;
+    if (detectedType === 'rutube' && !getRutubeEmbedUrl(content)) return null;
+    return { type: detectedType, content };
   }
   const content = String(value.content || '').trim();
   return content ? { type: 'text', content } : null;
@@ -213,12 +216,14 @@ const getTheoryVariantList = (variants) => (
 
 const getTheoryTypeLabel = (type) => {
   if (type === THEORY_RECORDING_TYPE) return 'Видеоразбор';
+  if (type === 'rutube') return 'Видео с Rutube';
   if (type === 'gdoc') return 'Google Docs';
   return 'Текст';
 };
 
 const getTheoryLauncherLabel = (type) => {
   if (type === THEORY_RECORDING_TYPE) return 'Видео';
+  if (type === 'rutube') return 'Rutube';
   if (type === 'gdoc') return 'Google Docs';
   return 'Текст';
 };
@@ -1817,6 +1822,7 @@ const PythonTestModal = ({
   const theoryType = pickTheoryVariantType(theoryVariants, activeTheoryType);
   const theory = theoryType ? theoryVariants[theoryType] : null;
   const theoryFullUrl = theoryType === 'gdoc' ? buildGoogleDocFullUrl(theory?.content) : '';
+  const theoryRutubeUrl = theoryType === 'rutube' ? getRutubeEmbedUrl(theory?.content) : '';
   const theoryRecording = theoryType === THEORY_RECORDING_TYPE
     ? normalizeTheoryRecording(theory?.content)
     : null;
@@ -2444,6 +2450,20 @@ const PythonTestModal = ({
                       compact
                     />
                   </div>
+                ) : theoryType === 'rutube' ? (
+                  theoryRutubeUrl ? (
+                    <div className="python-runtime-theory-body mt-3 aspect-video overflow-hidden rounded-2xl border border-purple-100 bg-black">
+                      <iframe
+                        title={`rutube-theory-${task.number}`}
+                        src={theoryRutubeUrl}
+                        className="h-full w-full"
+                        allow="clipboard-write; autoplay"
+                        allowFullScreen
+                      />
+                    </div>
+                  ) : (
+                    <div className="python-runtime-theory-body mt-3 text-sm text-red-500">Видео Rutube недоступно.</div>
+                  )
                 ) : theoryType === 'gdoc' ? (
                   isGoogleDocEmbedUrl(theory.content) ? (
                     <div className={`python-runtime-theory-body mt-3 overflow-hidden rounded-2xl border ${isDarkTheme ? 'border-slate-700/70 bg-slate-800/50' : 'border-purple-100 bg-white'}`}>
@@ -2864,6 +2884,22 @@ const PythonTestModal = ({
                   experience="study"
                   title={currentQuestion?.title || `Задача ${currentQuestionDisplayIndex}`}
                 />
+              ) : theoryType === 'rutube' ? (
+                theoryRutubeUrl ? (
+                  <div className="flex h-full items-center justify-center">
+                    <div className="aspect-video w-full overflow-hidden rounded-[24px] border border-slate-700 bg-black">
+                      <iframe
+                        title={`rutube-theory-${task.number}`}
+                        src={theoryRutubeUrl}
+                        className="h-full w-full"
+                        allow="clipboard-write; autoplay"
+                        allowFullScreen
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm text-red-600">Видео Rutube недоступно.</div>
+                )
               ) : theoryType === 'gdoc' ? (
                 isGoogleDocEmbedUrl(theory.content) ? (
                   <iframe

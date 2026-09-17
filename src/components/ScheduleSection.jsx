@@ -7,6 +7,7 @@ import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
+import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
 import TeacherHomeworkReviewModal from './TeacherHomeworkReviewModal';
 import HomeworkDayPlan from './HomeworkDayPlan';
@@ -753,6 +754,7 @@ const ScheduleSection = ({
   const [homeworkDraftError, setHomeworkDraftError] = useState('');
   const [homeworkDraftNotice, setHomeworkDraftNotice] = useState('');
   const [teacherHomeworkReviewOpen, setTeacherHomeworkReviewOpen] = useState(false);
+  const [homeworkTheoryPreview, setHomeworkTheoryPreview] = useState(null);
   const homeworkReviewOpenStudentIdRef = React.useRef('');
   const [questionDifficultyIndex, setQuestionDifficultyIndex] = useState({});
   const [mockTaskAnalyticsByExam, setMockTaskAnalyticsByExam] = useState({});
@@ -789,6 +791,20 @@ const ScheduleSection = ({
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleEditingId, setScheduleEditingId] = useState(null);
   const [scheduleDeletingId, setScheduleDeletingId] = useState(null);
+
+  useEffect(() => {
+    if (!homeworkTheoryPreview || typeof document === 'undefined') return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setHomeworkTheoryPreview(null);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [homeworkTheoryPreview]);
   const [scheduleError, setScheduleError] = useState('');
   const [googleScheduleSyncing, setGoogleScheduleSyncing] = useState(false);
   const [googleScheduleSyncMessage, setGoogleScheduleSyncMessage] = useState('');
@@ -2878,7 +2894,9 @@ const ScheduleSection = ({
       solvedCount,
       progressPercent,
       pythonTheory: isPythonGoal
-        ? getPythonHomeworkTheoryDetails(testsDb?.[String(taskNumber)], goal, PYTHON_LEVEL_ID)
+        ? getPythonHomeworkTheoryDetails(testsDb?.[String(taskNumber)], goal, PYTHON_LEVEL_ID, {
+            defaultSectionTitle: String(pythonTask?.title || '').trim() || `Тема Python ${taskDisplay}`,
+          })
         : null,
     };
   };
@@ -3262,11 +3280,11 @@ const ScheduleSection = ({
     };
 
     const openPythonTheory = (goalView) => {
-      if (!goalView?.pythonTheory || !onOpenTask) return;
-      onOpenTask(goalView.taskNumber, goalView.levelId, goalView.targetNumbers, {
-        subsectionId: goalView.pythonTheory.subsectionId,
-        openTheory: true,
-        theoryType: goalView.pythonTheory.type,
+      if (!goalView?.pythonTheory?.available) return;
+      setHomeworkTheoryPreview({
+        ...goalView.pythonTheory,
+        taskNumber: goalView.taskNumber,
+        taskTitle: goalView.heading,
       });
     };
 
@@ -3357,7 +3375,9 @@ const ScheduleSection = ({
                         {goalView.pythonTheory.subsectionTitle}
                       </strong>
                       <span className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
-                        {goalView.pythonTheory.type === 'recording' ? <Video size={13} /> : <BookOpen size={13} />}
+                        {goalView.pythonTheory.type === 'recording' || goalView.pythonTheory.type === 'rutube'
+                          ? <Video size={13} />
+                          : <BookOpen size={13} />}
                         {goalView.pythonTheory.typeLabel}
                       </span>
                     </div>
@@ -3365,7 +3385,7 @@ const ScheduleSection = ({
                   <button
                     type="button"
                     onClick={() => openPythonTheory(goalView)}
-                    disabled={!goalView.pythonTheory.available || !onOpenTask}
+                    disabled={!goalView.pythonTheory.available}
                     className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-black text-violet-700 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <BookOpen size={15} />
@@ -5956,6 +5976,80 @@ const ScheduleSection = ({
           onSaveDraft={saveHomeworkComposerDraft}
           onSave={handleSave}
         />
+      )}
+
+      {homeworkTheoryPreview && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="homework-python-theory-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            onClick={() => setHomeworkTheoryPreview(null)}
+            aria-label="Закрыть теорию"
+          />
+          <section className="relative z-10 flex h-[min(88vh,900px)] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] border border-violet-200 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.35)]">
+            <header className="flex shrink-0 items-start justify-between gap-4 border-b border-violet-100 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 px-4 py-4 sm:px-6">
+              <div className="min-w-0">
+                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-violet-600">
+                  {homeworkTheoryPreview.typeLabel}
+                </div>
+                <h2 id="homework-python-theory-title" className="mt-1 truncate text-lg font-black text-slate-900 sm:text-xl">
+                  {homeworkTheoryPreview.subsectionTitle}
+                </h2>
+                <p className="mt-1 truncate text-xs font-semibold text-slate-500">{homeworkTheoryPreview.taskTitle}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHomeworkTheoryPreview(null)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-violet-300 hover:text-violet-700"
+                aria-label="Закрыть теорию"
+              >
+                <X size={19} />
+              </button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-hidden bg-slate-50 p-3 sm:p-5">
+              {homeworkTheoryPreview.type === 'recording' ? (
+                <TheoryRecordingPlayer
+                  recording={homeworkTheoryPreview.content}
+                  experience="study"
+                  title={homeworkTheoryPreview.subsectionTitle}
+                  className="h-full"
+                />
+              ) : homeworkTheoryPreview.type === 'rutube' ? (
+                getRutubeEmbedUrl(homeworkTheoryPreview.content) ? (
+                  <div className="flex h-full items-center justify-center">
+                    <div className="aspect-video w-full overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm">
+                      <iframe
+                        title={homeworkTheoryPreview.subsectionTitle}
+                        src={getRutubeEmbedUrl(homeworkTheoryPreview.content)}
+                        className="h-full w-full"
+                        allow="clipboard-write; autoplay"
+                        allowFullScreen
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">Видео Rutube недоступно.</div>
+                )
+              ) : homeworkTheoryPreview.type === 'gdoc' ? (
+                <iframe
+                  title={homeworkTheoryPreview.subsectionTitle}
+                  src={homeworkTheoryPreview.content}
+                  className="h-full w-full rounded-2xl border border-slate-200 bg-white"
+                />
+              ) : (
+                <div className="h-full overflow-y-auto whitespace-pre-wrap rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-7 text-slate-700 sm:p-7 sm:text-base">
+                  {homeworkTheoryPreview.content}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>,
+        document.body
       )}
 
       <StudentLessonDetailModal

@@ -2463,7 +2463,7 @@ const normalizeStoredOpenTask = (entry) => {
   const rawIndex = Number(entry.questionIndex);
   const questionIndex = Number.isFinite(rawIndex) && rawIndex >= 0 ? Math.floor(rawIndex) : null;
   const subsectionId = String(entry.subsectionId || '').trim() || null;
-  const theoryType = ['recording', 'text', 'gdoc'].includes(String(entry.theoryType || '').trim())
+  const theoryType = ['recording', 'rutube', 'text', 'gdoc'].includes(String(entry.theoryType || '').trim())
     ? String(entry.theoryType).trim()
     : null;
   return {
@@ -23481,7 +23481,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         : null,
       subsectionId: String(options?.subsectionId || '').trim() || null,
       openTheory: pythonTask && options?.openTheory === true,
-      theoryType: pythonTask && ['recording', 'text', 'gdoc'].includes(String(options?.theoryType || '').trim())
+      theoryType: pythonTask && ['recording', 'rutube', 'text', 'gdoc'].includes(String(options?.theoryType || '').trim())
         ? String(options.theoryType).trim()
         : null,
       quickHomework: options?.quickHomework === true,

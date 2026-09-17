@@ -17,6 +17,7 @@ const taskEntry = {
     basics: {
       text: { type: 'text', content: 'Текст теории' },
       gdoc: { type: 'gdoc', content: 'https://docs.google.com/document/d/example/edit' },
+      rutube: { type: 'rutube', content: 'https://rutube.ru/video/example/' },
       recording: { type: 'recording', content: { id: 'recording-1' } },
     },
   },
@@ -28,6 +29,7 @@ test('python homework theory exposes every saved format for a subsection', () =>
     choices.map(({ subsectionId, subsectionTitle, type }) => ({ subsectionId, subsectionTitle, type })),
     [
       { subsectionId: 'basics', subsectionTitle: 'Основы цикла for', type: 'recording' },
+      { subsectionId: 'basics', subsectionTitle: 'Основы цикла for', type: 'rutube' },
       { subsectionId: 'basics', subsectionTitle: 'Основы цикла for', type: 'text' },
       { subsectionId: 'basics', subsectionTitle: 'Основы цикла for', type: 'gdoc' },
     ],
@@ -49,6 +51,20 @@ test('python homework theory selection resolves to a student-facing description'
     subsectionTitle: 'Основы цикла for',
     type: 'gdoc',
     typeLabel: 'Теория в Google Docs',
+    content: 'https://docs.google.com/document/d/example/edit',
     available: true,
   });
+});
+
+test('default theory uses the Python topic title instead of a technical subsection label', () => {
+  const entry = {
+    python: [{ id: 'q-1', prompt: 'Задача 1' }],
+    pythonTheoryBySubsection: {
+      __default__: { text: { type: 'text', content: 'Общая теория' } },
+    },
+  };
+  const [choice] = getPythonHomeworkTheoryChoices(entry, 'python', {
+    defaultSectionTitle: 'Цикл for',
+  });
+  assert.equal(choice.subsectionTitle, 'Цикл for');
 });

@@ -811,7 +811,9 @@ const TeacherHomeworkComposer = ({
       : asPositiveIntegers(parseTargetInput?.(goal?.targetInput, questionCount) || []).length;
     const taskInfo = pythonGoal ? getPythonTaskInfo?.(taskNumber) : null;
     const theoryChoices = pythonGoal
-      ? getPythonHomeworkTheoryChoices(testsDb?.[String(taskNumber)], pythonLevelId)
+      ? getPythonHomeworkTheoryChoices(testsDb?.[String(taskNumber)], pythonLevelId, {
+          defaultSectionTitle: String(taskInfo?.title || '').trim() || `Python ${taskInfo?.displayNumber || taskNumber}`,
+        })
       : [];
     const theorySelection = getPythonHomeworkTheorySelection(goal);
     const selectedTheoryChoice = theorySelection

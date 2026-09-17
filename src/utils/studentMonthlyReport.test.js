@@ -39,9 +39,13 @@ test('monthly report combines lessons, homework deadlines and mock progress', ()
   assert.equal(report.metrics.mocks.latestScore, 43);
   assert.equal(report.metrics.mocks.previousScore, 27);
   assert.equal(report.metrics.mocks.deltaFromPrevious, 16);
+  assert.equal(report.metrics.mocks.firstScore, 27);
+  assert.equal(report.metrics.mocks.previousMonthScore, 27);
+  assert.equal(report.metrics.mocks.deltaFromStart, 16);
+  assert.equal(report.metrics.mocks.deltaFromPreviousMonth, 16);
   assert.match(report.text, /70%/);
   assert.match(report.text, /пробник на 43 балла/);
-  assert.match(report.text, /на 16 баллов выше предыдущего результата/);
+  assert.match(report.text, /16 баллов/);
   assert.doesNotMatch(report.text, /Python|Сентябрьский пробник|Ещё в работе|2 ч 30 мин|просроч|в срок|[—–]/u);
 });
 
@@ -215,4 +219,53 @@ test('student-facing report is direct about very low homework completion', () =>
 
   assert.match(report.studentText, /очень плохо|очень слабый|так продолжать нельзя/iu);
   assert.match(report.studentText, /исправ|регуляр|обязательн/u);
+});
+
+test('mock report remembers the first result and compares it with the previous month', () => {
+  const report = buildStudentMonthlyReport({
+    student: { id: 'student-journey', name: 'Данил' },
+    month: '2026-09',
+    nowMs: Date.parse('2026-09-20T12:00:00+03:00'),
+    mockEntries: [
+      { id: 'start', score: 0, dateMs: Date.parse('2026-05-10T12:00:00+03:00') },
+      { id: 'august', score: 50, dateMs: Date.parse('2026-08-20T12:00:00+03:00') },
+      { id: 'september', score: 64, dateMs: Date.parse('2026-09-18T12:00:00+03:00') },
+    ],
+  });
+
+  assert.equal(report.metrics.mocks.historyCount, 3);
+  assert.equal(report.metrics.mocks.firstScore, 0);
+  assert.equal(report.metrics.mocks.previousMonthScore, 50);
+  assert.equal(report.metrics.mocks.latestScore, 64);
+  assert.equal(report.metrics.mocks.deltaFromStart, 64);
+  assert.equal(report.metrics.mocks.deltaFromPreviousMonth, 14);
+  assert.match(report.parentText, /64 балла/u);
+  assert.match(report.parentText, /14 баллов/u);
+  assert.match(report.parentText, /0 баллов|перв/u);
+  assert.match(report.studentText, /64 балла/u);
+  assert.match(report.studentText, /14 баллов/u);
+  assert.match(report.studentText, /0 баллов|перв|со старта[^\n]*64 балла/u);
+});
+
+test('mock journey wording changes while preserving all comparison facts', () => {
+  const base = {
+    student: { id: 'student-journey-variants', name: 'Анна' },
+    month: '2026-09',
+    mockEntries: [
+      { id: 'start', score: 10, dateMs: Date.parse('2026-06-10T12:00:00+03:00') },
+      { id: 'previous', score: 45, dateMs: Date.parse('2026-08-20T12:00:00+03:00') },
+      { id: 'current', score: 60, dateMs: Date.parse('2026-09-15T12:00:00+03:00') },
+    ],
+  };
+  const first = buildStudentMonthlyReport({ ...base, nowMs: Date.parse('2026-09-20T12:00:00.001+03:00') });
+  const second = buildStudentMonthlyReport({ ...base, nowMs: Date.parse('2026-09-20T12:00:00.002+03:00') });
+
+  assert.notEqual(first.parentText, second.parentText);
+  [first, second].forEach((report) => {
+    assert.equal(report.metrics.mocks.deltaFromStart, 50);
+    assert.equal(report.metrics.mocks.deltaFromPreviousMonth, 15);
+    assert.match(report.parentText, /60 баллов/u);
+    assert.match(report.parentText, /50 баллов|10 баллов/u);
+    assert.match(report.parentText, /15 баллов|45 баллов/u);
+  });
 });

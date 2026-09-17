@@ -25,6 +25,7 @@ import {
   THEORY_RECORDING_TYPE,
 } from '../utils/theoryRecording';
 import { deleteTheoryRecordingDraftSnapshot } from '../utils/theoryRecordingDraftStore';
+import { getRutubeEmbedUrl } from '../utils/learningGroups';
 import { buildCurrentPythonProgressMap } from '../utils/pythonProgress';
 import {
   PYTHON_TASK_SECTION_IDS,
@@ -266,7 +267,7 @@ const normalizeTheorySubsectionId = (value) => {
   return id || PYTHON_DEFAULT_SUBSECTION_ID;
 };
 
-const THEORY_VARIANT_ORDER = [THEORY_RECORDING_TYPE, 'text', 'gdoc'];
+const THEORY_VARIANT_ORDER = [THEORY_RECORDING_TYPE, 'rutube', 'text', 'gdoc'];
 
 const normalizeTheoryItem = (value, fallbackType = '') => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -275,9 +276,11 @@ const normalizeTheoryItem = (value, fallbackType = '') => {
     const recording = normalizeTheoryRecording(value.content);
     return recording ? { type: THEORY_RECORDING_TYPE, content: recording } : null;
   }
-  if (detectedType === 'gdoc') {
+  if (detectedType === 'gdoc' || detectedType === 'rutube') {
     const content = String(value.content || '').trim();
-    return content ? { type: 'gdoc', content } : null;
+    if (!content) return null;
+    if (detectedType === 'rutube' && !getRutubeEmbedUrl(content)) return null;
+    return { type: detectedType, content };
   }
   const content = String(value.content || '').trim();
   return content ? { type: 'text', content } : null;
@@ -704,6 +707,10 @@ const PythonSection = ({
     () => getPythonTaskEntry(testsDb, manageTaskNumber),
     [testsDb, manageTaskNumber]
   );
+  const manageTaskTitle = useMemo(() => {
+    const task = taskList.find((item) => Number(item?.number) === Number(manageTaskNumber));
+    return String(task?.title || '').trim() || `Тема Python ${manageTaskNumber}`;
+  }, [manageTaskNumber, taskList]);
   const selectedManageTheoryVariants = useMemo(
     () => {
       const safeTheorySubsectionId = normalizeTheorySubsectionId(theorySubsectionId);
@@ -727,7 +734,7 @@ const PythonSection = ({
   useEffect(() => {
     const theory = selectedManageTheory;
     setTheoryText(theoryType === 'text' ? String(theory?.content || '') : '');
-    setTheoryUrl(theoryType === 'gdoc' ? String(theory?.content || '') : '');
+    setTheoryUrl(theoryType === 'gdoc' || theoryType === 'rutube' ? String(theory?.content || '') : '');
     setTheoryRecordingDraft(
       theoryType === THEORY_RECORDING_TYPE
         ? normalizeTheoryRecording(theory?.content)
@@ -738,9 +745,9 @@ const PythonSection = ({
   const manageSubsectionModel = useMemo(
     () => buildPythonSubsectionModel(manageTaskEntry, PYTHON_LEVEL_ID, {
       includeEmptySections: true,
-      defaultSectionTitle: 'Без подраздела',
+      defaultSectionTitle: manageTaskTitle,
     }),
-    [manageTaskEntry, PYTHON_LEVEL_ID]
+    [manageTaskEntry, PYTHON_LEVEL_ID, manageTaskTitle]
   );
   const manageSubsections = useMemo(
     () => manageSubsectionModel.subsections.filter((section) => !section.isDefault),
@@ -1353,9 +1360,9 @@ const PythonSection = ({
       };
       nextTheory = { type: THEORY_RECORDING_TYPE, content: persistedRecording };
     } else {
-      const raw = theoryType === 'gdoc' ? theoryUrl.trim() : theoryText.trim();
+      const raw = theoryType === 'gdoc' || theoryType === 'rutube' ? theoryUrl.trim() : theoryText.trim();
       if (!raw) {
-        setTheoryError('Добавьте текст теории или ссылку на Google Docs.');
+        setTheoryError('Добавьте текст теории или ссылку на Google Docs / Rutube.');
         return;
       }
       let content = raw;
@@ -1363,6 +1370,14 @@ const PythonSection = ({
         const embedUrl = buildGoogleDocEmbedUrl(raw);
         if (!embedUrl) {
           setTheoryError('Нужна ссылка на Google Docs (поддерживаются ссылки на документ или iframe).');
+          return;
+        }
+        content = embedUrl;
+        setTheoryUrl(embedUrl);
+      } else if (theoryType === 'rutube') {
+        const embedUrl = getRutubeEmbedUrl(raw);
+        if (!embedUrl) {
+          setTheoryError('Нужна ссылка на видео Rutube.');
           return;
         }
         content = embedUrl;
@@ -1460,7 +1475,7 @@ const PythonSection = ({
         api.deleteTestFile(storageName).catch(() => {});
       });
       if (theoryType === 'text') setTheoryText('');
-      if (theoryType === 'gdoc') setTheoryUrl('');
+      if (theoryType === 'gdoc' || theoryType === 'rutube') setTheoryUrl('');
       if (theoryType === THEORY_RECORDING_TYPE) {
         setTheoryRecordingDraft(null);
         await deleteTheoryRecordingDraftSnapshot(buildTheoryRecordingDraftStorageKey(manageTaskNumber, safeTheorySubsectionId));
@@ -2730,7 +2745,7 @@ const PythonSection = ({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold text-gray-800">Теория темы</h3>
-              <p className="text-xs text-gray-500">Текст, Google Docs или видеоразбор с записью голоса и действий в редакторе</p>
+              <p className="text-xs text-gray-500">Текст, Google Docs, видео с Rutube или видеоразбор с записью голоса и действий в редакторе</p>
             </div>
           </div>
 
@@ -2746,7 +2761,7 @@ const PythonSection = ({
             >
               {manageTheorySubsections.map((section) => (
                 <option key={`theory-subsection-${section.id}`} value={section.id}>
-                  {section.isDefault ? 'Без подраздела (общая теория)' : section.title}
+                  {section.isDefault ? manageTaskTitle : section.title}
                 </option>
               ))}
             </select>
@@ -2756,6 +2771,7 @@ const PythonSection = ({
             {[
               { id: 'text', label: 'Текст' },
               { id: 'gdoc', label: 'Google Docs' },
+              { id: 'rutube', label: 'Видео с Rutube' },
               { id: THEORY_RECORDING_TYPE, label: 'Видеоразбор' },
             ].map((item) => (
               <button
@@ -2799,6 +2815,28 @@ const PythonSection = ({
                 <p className="text-[11px] text-gray-400">
                   Подойдут и обычные ссылки на документ (view/edit) — они встроятся через preview. Для оглавления используйте «Открыть полностью».
                 </p>
+              </div>
+            ) : theoryType === 'rutube' ? (
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  value={theoryUrl}
+                  onChange={(e) => setTheoryUrl(e.target.value)}
+                  placeholder="Вставьте ссылку на видео Rutube"
+                  className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
+                />
+                {getRutubeEmbedUrl(theoryUrl) && (
+                  <div className="aspect-video overflow-hidden rounded-2xl border border-purple-100 bg-slate-950">
+                    <iframe
+                      title={`rutube-theory-preview-${manageTaskNumber}`}
+                      src={getRutubeEmbedUrl(theoryUrl)}
+                      className="h-full w-full"
+                      allow="clipboard-write; autoplay"
+                      allowFullScreen
+                    />
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400">Видео будет открываться прямо в теории темы и в домашнем задании ученика.</p>
               </div>
             ) : (
               <TheoryRecordingEditor

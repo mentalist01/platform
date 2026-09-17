@@ -3,7 +3,7 @@ import {
   PYTHON_DEFAULT_SUBSECTION_ID,
 } from './pythonSubsections.js';
 
-export const PYTHON_HOMEWORK_THEORY_TYPES = ['recording', 'text', 'gdoc'];
+export const PYTHON_HOMEWORK_THEORY_TYPES = ['recording', 'rutube', 'text', 'gdoc'];
 
 const normalizeText = (value) => String(value ?? '').trim();
 
@@ -14,6 +14,7 @@ export const normalizePythonHomeworkTheoryType = (value) => {
 
 export const getPythonHomeworkTheoryTypeLabel = (type) => {
   if (type === 'recording') return 'Видео-теория';
+  if (type === 'rutube') return 'Видео с Rutube';
   if (type === 'gdoc') return 'Теория в Google Docs';
   return 'Текстовая теория';
 };
@@ -64,9 +65,13 @@ const getTheoryBySubsection = (taskEntry) => {
   }, {});
 };
 
-export const getPythonHomeworkTheoryChoices = (taskEntry, levelId = 'python') => {
+export const getPythonHomeworkTheoryChoices = (taskEntry, levelId = 'python', options = {}) => {
   if (!taskEntry || typeof taskEntry !== 'object' || Array.isArray(taskEntry)) return [];
-  const subsectionModel = buildPythonSubsectionModel(taskEntry, levelId, { includeEmptySections: true });
+  const defaultSectionTitle = normalizeText(options?.defaultSectionTitle) || 'Вся тема';
+  const subsectionModel = buildPythonSubsectionModel(taskEntry, levelId, {
+    includeEmptySections: true,
+    defaultSectionTitle,
+  });
   const titleById = new Map(
     subsectionModel.subsections.map((subsection) => [subsection.id, subsection.title]),
   );
@@ -77,7 +82,7 @@ export const getPythonHomeworkTheoryChoices = (taskEntry, levelId = 'python') =>
   }
   return Object.entries(variantsBySubsection).flatMap(([subsectionId, variants]) => {
     const subsectionTitle = titleById.get(subsectionId)
-      || (subsectionId === PYTHON_DEFAULT_SUBSECTION_ID ? 'Вся тема' : 'Подраздел');
+      || (subsectionId === PYTHON_DEFAULT_SUBSECTION_ID ? defaultSectionTitle : 'Подраздел');
     return PYTHON_HOMEWORK_THEORY_TYPES
       .filter((type) => Boolean(variants?.[type]))
       .map((type) => ({
@@ -96,19 +101,29 @@ export const getPythonHomeworkTheorySelection = (goal) => {
   return subsectionId && type ? { subsectionId, type } : null;
 };
 
-export const getPythonHomeworkTheoryDetails = (taskEntry, goal, levelId = 'python') => {
+export const getPythonHomeworkTheoryDetails = (taskEntry, goal, levelId = 'python', options = {}) => {
   const selection = getPythonHomeworkTheorySelection(goal);
   if (!selection) return null;
-  const matchingChoice = getPythonHomeworkTheoryChoices(taskEntry, levelId)
+  const matchingChoice = getPythonHomeworkTheoryChoices(taskEntry, levelId, options)
     .find((choice) => choice.subsectionId === selection.subsectionId && choice.type === selection.type);
-  if (matchingChoice) return { ...matchingChoice, available: true };
-  const subsectionModel = buildPythonSubsectionModel(taskEntry, levelId, { includeEmptySections: true });
+  const variantsBySubsection = getTheoryBySubsection(taskEntry);
+  const legacyVariants = normalizeTheoryVariants(taskEntry?.pythonTheory);
+  const selectedTheory = variantsBySubsection?.[selection.subsectionId]?.[selection.type]
+    || (selection.subsectionId === PYTHON_DEFAULT_SUBSECTION_ID ? legacyVariants?.[selection.type] : null);
+  if (matchingChoice && selectedTheory) {
+    return { ...matchingChoice, content: selectedTheory.content, available: true };
+  }
+  const defaultSectionTitle = normalizeText(options?.defaultSectionTitle) || 'Вся тема';
+  const subsectionModel = buildPythonSubsectionModel(taskEntry, levelId, {
+    includeEmptySections: true,
+    defaultSectionTitle,
+  });
   const subsection = subsectionModel.subsections.find((item) => item.id === selection.subsectionId);
   return {
     key: `${encodeURIComponent(selection.subsectionId)}::${selection.type}`,
     ...selection,
     subsectionTitle: subsection?.title
-      || (selection.subsectionId === PYTHON_DEFAULT_SUBSECTION_ID ? 'Вся тема' : 'Подраздел'),
+      || (selection.subsectionId === PYTHON_DEFAULT_SUBSECTION_ID ? defaultSectionTitle : 'Подраздел'),
     typeLabel: getPythonHomeworkTheoryTypeLabel(selection.type),
     available: false,
   };
