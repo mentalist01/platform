@@ -1307,6 +1307,7 @@ export const api = {
     const lessonId = String(payload?.lessonId || '').trim();
     if (title) form.append('title', title);
     form.append('visibility', visibility);
+    form.append('sharedTeacherIds', JSON.stringify(payload?.sharedTeacherIds || []));
     if (visibility === 'lesson' && lessonId) form.append('lessonId', lessonId);
     const res = await apiFetch(getLearningGroupApiPath(groupId, 'materials', 'upload'), {
       method: 'POST',
@@ -1323,6 +1324,20 @@ export const api = {
     if (options?.teacherId) params.set('teacherId', String(options.teacherId));
     const query = params.toString();
     const res = await apiFetch(query ? `/api/learning-materials?${query}` : '/api/learning-materials');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  getLearningMaterialTeachers: async () => {
+    const res = await apiFetch('/api/learning-materials/teachers');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  updateLearningMaterialSharing: async (materialId, sharedTeacherIds) => {
+    const res = await apiFetch(`/api/learning-materials/${encodeURIComponent(materialId)}/sharing`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sharedTeacherIds }),
+    });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },

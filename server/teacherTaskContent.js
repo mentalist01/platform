@@ -1,6 +1,10 @@
 const isPlainObject = (value) => Boolean(
   value && typeof value === 'object' && !Array.isArray(value)
 );
+const PYTHON_TASK_CATALOG_KEY = '__pythonTaskCatalog';
+const isTeacherTestEntry = (key, value) => (
+  isPlainObject(value) || (key === PYTHON_TASK_CATALOG_KEY && Array.isArray(value))
+);
 
 const isSafeKey = (value) => {
   const key = String(value || '').trim();
@@ -15,7 +19,7 @@ const normalizeTeacherEntry = (value) => {
   const source = isPlainObject(value) ? value : {};
   const tests = {};
   Object.entries(isPlainObject(source.tests) ? source.tests : {}).forEach(([taskNumber, bank]) => {
-    if (!isSafeKey(taskNumber) || !isPlainObject(bank)) return;
+    if (!isSafeKey(taskNumber) || !isTeacherTestEntry(taskNumber, bank)) return;
     tests[String(taskNumber)] = structuredClone(bank);
   });
   return {
@@ -64,7 +68,7 @@ export const applyTeacherTestsUpdate = (storeValue, teacherId, globalTestsDb, su
   const changedTaskKeys = getChangedTestTaskKeys(previousMerged, submitted);
   const nextTests = { ...previousEntry.tests };
   changedTaskKeys.forEach((key) => {
-    if (Object.hasOwn(submitted, key) && isPlainObject(submitted[key])) {
+    if (Object.hasOwn(submitted, key) && isTeacherTestEntry(key, submitted[key])) {
       if (Object.hasOwn(globalTestsDb, key) && jsonEqual(submitted[key], globalTestsDb[key])) {
         delete nextTests[key];
       } else {

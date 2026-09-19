@@ -938,6 +938,9 @@ export const normalizeLearningMaterial = (value) => {
     groupId,
     teacherId,
     scope,
+    sharedTeacherIds: Array.from(new Set((Array.isArray(value.sharedTeacherIds) ? value.sharedTeacherIds : [])
+      .map((entry) => cleanText(entry, 180))
+      .filter((entry) => entry && entry !== teacherId))).slice(0, 100),
     title: cleanText(value.title, 240) || 'Материал',
     kind,
     content,
@@ -979,6 +982,7 @@ export const createLearningMaterial = (groupValue, payload = {}, options = {}) =
     groupId: teacherLibrary ? '' : group.id,
     teacherId,
     scope: teacherLibrary ? 'teacher' : 'group',
+    sharedTeacherIds: payload.sharedTeacherIds,
     title: payload.title,
     kind: payload.kind,
     content: payload.content,

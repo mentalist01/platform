@@ -22812,6 +22812,7 @@ const serializeLearningMaterialForAuth = (material, auth) => {
   const storage = getLearningMaterialStorage(material);
   const downloadUrl = storage.storageName
     ? (material.scope === 'teacher' || !material.groupId
+        || (isTeacherRole(auth) && auth.id !== material.teacherId && material.sharedTeacherIds?.includes(auth.id))
         ? `/api/learning-materials/${encodeURIComponent(material.id)}/download`
         : `/api/learning-groups/${encodeURIComponent(material.groupId)}/materials/${encodeURIComponent(material.id)}/download`)
     : '';
@@ -22863,13 +22864,8 @@ const normalizeHomeworkMaterialIds = (value) => Array.from(new Set(
 const canReuseLearningMaterialInGroup = (material, group) => Boolean(
   material
   && group
-  && material.teacherId === group.teacherId
+  && (material.teacherId === group.teacherId || material.sharedTeacherIds?.includes(group.teacherId))
   && !material.deletedAt
-  && (
-    !material.groupId
-    || material.groupId === group.id
-    || material.kind === 'video'
-  )
 );
 
 const getHomeworkLearningMaterials = (teacherIdValue, materialIdsValue) => {
@@ -22879,7 +22875,7 @@ const getHomeworkLearningMaterials = (teacherIdValue, materialIdsValue) => {
   return readLearningMaterialsDb()
     .filter((material) => (
       materialIds.has(material.id)
-      && material.teacherId === teacherId
+      && (material.teacherId === teacherId || material.sharedTeacherIds?.includes(teacherId))
       && !material.deletedAt
     ))
     .map((material) => {
@@ -23958,6 +23954,7 @@ app.post(
       }
       const material = createLearningMaterial(group, {
         title: req.body?.title || req.file.originalname,
+        sharedTeacherIds: getValidMaterialShares(req.body?.sharedTeacherIds, group.teacherId),
         visibility,
         lessonId,
         storageName: req.file.filename,
@@ -24122,15 +24119,33 @@ const getLearningMaterialLibraryTeacherId = (req) => {
   return '';
 };
 
+const getValidMaterialShares = (value, ownerTeacherId) => {
+  let requested = value;
+  if (typeof requested === 'string') {
+    try { requested = JSON.parse(requested); } catch { requested = []; }
+  }
+  const available = new Set(readTeachersDb().map((teacher) => String(teacher.id)));
+  return Array.from(new Set((Array.isArray(requested) ? requested : [])
+    .map((id) => String(id || '').trim())
+    .filter((id) => id && id !== ownerTeacherId && available.has(id))));
+};
+
+app.get('/api/learning-materials/teachers', handleLearningRoute((req, res) => {
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  return res.json({ teachers: readTeachersDb()
+    .filter((teacher) => teacher.id !== req.auth.id)
+    .map((teacher) => ({ id: teacher.id, name: teacher.name })) });
+}));
+
 app.get('/api/learning-materials', handleLearningRoute((req, res) => {
   if (!isStaffRole(req.auth)) return forbid(res);
   const teacherId = getLearningMaterialLibraryTeacherId(req);
   if (!teacherId) failLearningRequest('Преподаватель не найден', 'teacher_not_found', 404);
   const materials = readLearningMaterialsDb()
     .filter((material) => (
-      material.teacherId === teacherId
+      (material.teacherId === teacherId || material.sharedTeacherIds?.includes(teacherId))
       && !material.deletedAt
-      && (!material.groupId || material.scope === 'teacher' || material.kind === 'video')
+      && (!material.groupId || material.scope === 'teacher' || material.kind === 'video' || material.sharedTeacherIds?.includes(teacherId))
     ))
     .sort((left, right) => Date.parse(right.updatedAt || right.createdAt || 0) - Date.parse(left.updatedAt || left.createdAt || 0));
   return res.json({
@@ -24142,7 +24157,10 @@ app.post('/api/learning-materials', handleLearningRoute((req, res) => {
   if (!ensureStaffWriteAccess(req, res)) return;
   const teacherId = getLearningMaterialLibraryTeacherId(req);
   if (!teacherId) failLearningRequest('Преподаватель не найден', 'teacher_not_found', 404);
-  const material = createLearningMaterial(null, { ...(req.body || {}), storageName: '' }, {
+  const material = createLearningMaterial(null, {
+    ...(req.body || {}), storageName: '',
+    sharedTeacherIds: getValidMaterialShares(req.body?.sharedTeacherIds, teacherId),
+  }, {
     id: crypto.randomUUID(),
     actorId: req.auth.id,
     teacherId,
@@ -24150,6 +24168,22 @@ app.post('/api/learning-materials', handleLearningRoute((req, res) => {
   });
   writeLearningMaterialsDb([material, ...readLearningMaterialsDb()]);
   return res.status(201).json({ material: serializeLearningMaterialForAuth(material, req.auth) });
+}));
+
+app.patch('/api/learning-materials/:materialId/sharing', handleLearningRoute((req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const teacherId = getLearningMaterialLibraryTeacherId(req);
+  const materials = readLearningMaterialsDb();
+  const material = materials.find((entry) => entry.id === req.params.materialId
+    && entry.teacherId === teacherId && !entry.deletedAt);
+  if (!material) failLearningRequest('Материал не найден', 'material_not_found', 404);
+  const updated = {
+    ...material,
+    sharedTeacherIds: getValidMaterialShares(req.body?.sharedTeacherIds, teacherId),
+    updatedAt: new Date().toISOString(),
+  };
+  writeLearningMaterialsDb(replaceLearningStoreEntry(materials, updated));
+  return res.json({ material: serializeLearningMaterialForAuth(updated, req.auth) });
 }));
 
 app.delete('/api/learning-materials/:materialId', handleLearningRoute((req, res) => {
@@ -24170,7 +24204,9 @@ app.get('/api/learning-materials/:materialId/download', handleLearningRoute((req
   if (!isStaffRole(req.auth)) return forbid(res);
   const teacherId = getLearningMaterialLibraryTeacherId(req);
   const material = readLearningMaterialsDb().find((entry) => (
-    entry.id === req.params.materialId && entry.teacherId === teacherId && !entry.deletedAt
+    entry.id === req.params.materialId
+      && (entry.teacherId === teacherId || entry.sharedTeacherIds?.includes(teacherId))
+      && !entry.deletedAt
   ));
   if (!material) failLearningRequest('Материал не найден', 'material_not_found', 404);
   const storage = getLearningMaterialStorage(material);

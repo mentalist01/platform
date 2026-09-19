@@ -39,7 +39,7 @@ import {
 } from '../utils/theoryRecording';
 import { getCollabWsUrl } from '../utils/runtimeUrls';
 import { getHomeworkLessonBasketItemKey } from '../utils/homeworkLessonBasket';
-import { getRutubeEmbedUrl } from '../utils/learningGroups';
+import { getRutubeEmbedUrl, getRutubeWatchUrl } from '../utils/learningGroups';
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
 const COLLAB_SEED_DELAY_MS = 450;
@@ -1855,14 +1855,11 @@ const PythonReviewModal = ({
                   <div className="python-runtime-theory-body"><TheoryRecordingPlayer recording={theoryRecording} theme={theme} /></div>
                 ) : theoryType === 'rutube' ? (
                   theoryRutubeUrl ? (
-                    <div className="python-runtime-theory-body mt-3 aspect-video overflow-hidden rounded-xl border border-purple-100 bg-black">
-                      <iframe
-                        title={`rutube-theory-review-${task.number}`}
-                        src={theoryRutubeUrl}
-                        className="h-full w-full"
-                        allow="clipboard-write; autoplay"
-                        allowFullScreen
-                      />
+                    <div className="python-runtime-theory-body mt-3">
+                      <div className="aspect-video overflow-hidden rounded-xl border border-purple-100 bg-black">
+                        <iframe title={`rutube-theory-review-${task.number}`} src={theoryRutubeUrl} className="h-full w-full" allow="clipboard-write; autoplay" allowFullScreen />
+                      </div>
+                      <a href={getRutubeWatchUrl(theory?.content)} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-600 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                     </div>
                   ) : (
                     <div className="python-runtime-theory-body mt-3 text-sm text-red-500">Видео Rutube недоступно.</div>
@@ -2660,7 +2657,7 @@ const PythonReviewModal = ({
                 />
               ) : theoryType === 'rutube' ? (
                 theoryRutubeUrl ? (
-                  <div className="flex h-full items-center justify-center">
+                  <div className="flex h-full flex-col items-center justify-center gap-2">
                     <div className="aspect-video w-full overflow-hidden rounded-[24px] border border-slate-700 bg-black">
                       <iframe
                         title={`rutube-theory-review-${task.number}`}
@@ -2670,6 +2667,7 @@ const PythonReviewModal = ({
                         allowFullScreen
                       />
                     </div>
+                    <a href={getRutubeWatchUrl(theory?.content)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-violet-500 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm text-red-600">Видео Rutube недоступно.</div>

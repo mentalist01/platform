@@ -370,6 +370,17 @@ test('teacher library material is not tied to one learning group', () => {
   assert.equal(material.teacherId, teacherId);
 });
 
+test('teacher material sharing keeps only explicit teacher ids', () => {
+  const material = createLearningMaterial(null, {
+    title: 'Shared note',
+    content: 'Only selected teachers can use it',
+    sharedTeacherIds: ['teacher-b', 'teacher-b', '', 'teacher-a'],
+  }, {
+    id: 'shared-library-note', teacherId: 'teacher-a', libraryScope: 'teacher', now: NOW,
+  });
+  assert.deepEqual(material.sharedTeacherIds, ['teacher-b']);
+});
+
 test('RuTube video material keeps an arbitrary mini-test', () => {
   const video = createLearningMaterial(makeGroup(), {
     kind: 'video',

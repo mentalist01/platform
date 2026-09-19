@@ -43,7 +43,7 @@ import {
   THEORY_RECORDING_TYPE,
 } from '../utils/theoryRecording';
 import { getCollabWsUrl } from '../utils/runtimeUrls';
-import { getRutubeEmbedUrl } from '../utils/learningGroups';
+import { getRutubeEmbedUrl, getRutubeWatchUrl } from '../utils/learningGroups';
 import { QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE } from '../utils/questionDifficulty';
 import { getLatestUnsolvedDurationMs } from '../utils/questionSolveTimer';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
@@ -2316,9 +2316,9 @@ const PythonTestModal = ({
                 >
                   {buildDecoratedQuestionLines(currentQuestion.question).map((line, lineIndex) => (
                     line.label ? (
-                      <div className="python-runtime-question-copy-line python-runtime-question-copy-line--labeled" key={`question-line-${lineIndex}`}>
-                        <span className="python-runtime-question-copy-label">{line.label}</span>
-                        <span className="python-runtime-question-copy-text">{line.text || '—'}</span>
+                      <div className={`python-runtime-question-copy-line python-runtime-question-copy-line--labeled ${line.text ? '' : 'python-runtime-question-copy-line--standalone'} ${/^Пример/i.test(line.label) ? 'python-runtime-question-copy-line--example' : ''}`} key={`question-line-${lineIndex}`}>
+                        <span className="python-runtime-question-copy-label">{line.label === 'Ввод' ? 'Входные данные' : line.label === 'Вывод' ? 'Выходные данные' : line.label}</span>
+                        {line.text && <span className="python-runtime-question-copy-text">{line.text}</span>}
                       </div>
                     ) : (
                       <div className={`python-runtime-question-copy-line ${line.text ? '' : 'python-runtime-question-copy-line--spacer'}`} key={`question-line-${lineIndex}`}>
@@ -2452,14 +2452,11 @@ const PythonTestModal = ({
                   </div>
                 ) : theoryType === 'rutube' ? (
                   theoryRutubeUrl ? (
-                    <div className="python-runtime-theory-body mt-3 aspect-video overflow-hidden rounded-2xl border border-purple-100 bg-black">
-                      <iframe
-                        title={`rutube-theory-${task.number}`}
-                        src={theoryRutubeUrl}
-                        className="h-full w-full"
-                        allow="clipboard-write; autoplay"
-                        allowFullScreen
-                      />
+                    <div className="python-runtime-theory-body mt-3">
+                      <div className="aspect-video overflow-hidden rounded-2xl border border-purple-100 bg-black">
+                        <iframe title={`rutube-theory-${task.number}`} src={theoryRutubeUrl} className="h-full w-full" allow="clipboard-write; autoplay" allowFullScreen />
+                      </div>
+                      <a href={getRutubeWatchUrl(theory?.content)} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-600 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                     </div>
                   ) : (
                     <div className="python-runtime-theory-body mt-3 text-sm text-red-500">Видео Rutube недоступно.</div>
@@ -2886,7 +2883,7 @@ const PythonTestModal = ({
                 />
               ) : theoryType === 'rutube' ? (
                 theoryRutubeUrl ? (
-                  <div className="flex h-full items-center justify-center">
+                  <div className="flex h-full flex-col items-center justify-center gap-2">
                     <div className="aspect-video w-full overflow-hidden rounded-[24px] border border-slate-700 bg-black">
                       <iframe
                         title={`rutube-theory-${task.number}`}
@@ -2896,6 +2893,7 @@ const PythonTestModal = ({
                         allowFullScreen
                       />
                     </div>
+                    <a href={getRutubeWatchUrl(theory?.content)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-violet-500 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm text-red-600">Видео Rutube недоступно.</div>

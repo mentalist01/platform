@@ -576,7 +576,11 @@ const NotesSection = ({
     selectFolder(folderId || null);
   };
 
-  const taskOptions = notesCollection === 'python' ? pythonTaskCatalog : MOCK_TASKS;
+  const taskOptions = notesCollection === 'python'
+    ? pythonTaskCatalog
+    : [...MOCK_TASKS].sort((left, right) => (
+        Number(left?.slotNumber ?? left?.number) - Number(right?.slotNumber ?? right?.number)
+      ));
   const normalizedCurrentTask = normalizeTaskNumber(currentTask);
   const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
   const getNotesTaskNumber = (value) => normalizeTaskNumber(value);
@@ -2916,7 +2920,9 @@ const NotesSection = ({
     )}`;
     const displayNumber = python
       ? String(task.displayNumber || task.number)
-      : getTaskDisplayNumber(task);
+      : (Number(task.slotNumber ?? task.number) === GAME_THEORY_TASK
+        ? '19-21'
+        : String(task.slotNumber ?? task.number));
     const accessibleTitle = python
       ? `Открыть конспект по теме «${task.title}»`
       : `Открыть конспекты задания №${displayNumber}`;
@@ -3127,7 +3133,7 @@ const NotesSection = ({
 
       {notesCollection === 'ege' ? (
         <div className="notes-landing-grid grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {MOCK_TASKS.map((task, taskIndex) => renderNotesLandingCard(task, taskIndex))}
+          {taskOptions.map((task, taskIndex) => renderNotesLandingCard(task, taskIndex))}
         </div>
       ) : (
         <div className="notes-python-sections">

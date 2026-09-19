@@ -43,6 +43,7 @@ import {
   LEARNING_GROUP_STATUS_READY,
   getLearningGroupStatusMeta,
   getRutubeEmbedUrl,
+  getRutubeWatchUrl,
   normalizeLearningGroup,
   normalizeLearningGroupAssignment,
   normalizeLearningGroupAttendance,
@@ -124,6 +125,8 @@ const EMPTY_MATERIAL_FORM = {
   quizQuestions: [{ id: 'question-1', question: '', answer: '' }],
   visibility: 'group',
   lessonId: '',
+  sharedTeacherIds: [],
+  shareEnabled: false,
 };
 
 const DEFAULT_GROUP_HOMEWORK_PLAN_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
@@ -482,9 +485,18 @@ const LearningGroupsSection = ({
   const [editingLessonId, setEditingLessonId] = useState('');
   const [lessonEditForm, setLessonEditForm] = useState(EMPTY_LESSON_FORM);
   const [materialForm, setMaterialForm] = useState(EMPTY_MATERIAL_FORM);
+  const [materialTeachers, setMaterialTeachers] = useState([]);
   const [materialMode, setMaterialMode] = useState('content');
   const [materialFile, setMaterialFile] = useState(null);
   const materialFileInputRef = useRef(null);
+  useEffect(() => {
+    if (!isTeacher) return undefined;
+    let cancelled = false;
+    api.getLearningMaterialTeachers?.().then((result) => {
+      if (!cancelled) setMaterialTeachers(Array.isArray(result?.teachers) ? result.teachers : []);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [isTeacher]);
   const [assignmentComposerOpen, setAssignmentComposerOpen] = useState(false);
   const [assignmentComposerEditing, setAssignmentComposerEditing] = useState(null);
   const [assignmentComposerSaving, setAssignmentComposerSaving] = useState(false);
@@ -1212,6 +1224,7 @@ const LearningGroupsSection = ({
         ? api.uploadLearningGroupMaterial(selectedGroup.id, materialFile, {
           title: cleanString(materialForm.title) || materialFile.name,
           visibility: materialForm.visibility,
+          sharedTeacherIds: materialForm.sharedTeacherIds,
           ...(materialForm.visibility === 'lesson' ? { lessonId: materialForm.lessonId } : {}),
         })
         : api.createLearningMaterial({
@@ -1229,6 +1242,7 @@ const LearningGroupsSection = ({
               .filter((question) => question.question && question.answer),
           } : {}),
           visibility: 'group',
+          sharedTeacherIds: materialForm.sharedTeacherIds,
         }),
       isFileUpload ? 'Файл загружен.' : 'Материал добавлен в общую библиотеку.'
     );
@@ -1269,6 +1283,16 @@ const LearningGroupsSection = ({
         : api.deleteLearningGroupMaterial(selectedGroup.id, getMaterialId(material))),
       'Материал удалён.'
     );
+  };
+
+  const handleMaterialSharing = async (material, teacherIds) => {
+    const materialId = getMaterialId(material);
+    const result = await runAction(
+      `share-material:${materialId}`,
+      () => api.updateLearningMaterialSharing(materialId, teacherIds),
+      'Доступ к материалу обновлён.'
+    );
+    if (result && selectedGroupId) await loadGroupDetails(selectedGroupId);
   };
 
   const handleAssignmentStatus = async (assignment, status) => {
@@ -2254,6 +2278,7 @@ const LearningGroupsSection = ({
                                   />
                                 </Field>
                               </div>
+                              <p className="text-xs text-slate-500">Для видео «только по ссылке» вставьте полную ссылку из Rutube вместе с ключом ?p=. Не удаляйте часть после знака вопроса.</p>
                               <Field label="Что посмотреть" hint="необязательно">
                                 <textarea
                                   value={materialForm.content}
@@ -2422,6 +2447,32 @@ const LearningGroupsSection = ({
                               </Field>
                             )}
                           </div>}
+                          {materialTeachers.length > 0 && (
+                            <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-3">
+                              <label className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                                <input type="checkbox" checked={materialForm.shareEnabled}
+                                  onChange={(event) => setMaterialForm((current) => ({ ...current,
+                                    shareEnabled: event.target.checked,
+                                    sharedTeacherIds: event.target.checked ? current.sharedTeacherIds : [],
+                                  }))} />
+                                Делиться моим материалом с другими учителями
+                              </label>
+                              {materialForm.shareEnabled && <div className="mt-2 flex flex-wrap gap-3">
+                                {materialTeachers.map((teacher) => (
+                                  <label key={teacher.id} className="flex items-center gap-1.5 text-xs text-slate-700">
+                                    <input type="checkbox" checked={materialForm.sharedTeacherIds.includes(teacher.id)}
+                                      onChange={(event) => setMaterialForm((current) => ({ ...current,
+                                        sharedTeacherIds: event.target.checked
+                                          ? [...current.sharedTeacherIds, teacher.id]
+                                          : current.sharedTeacherIds.filter((id) => id !== teacher.id),
+                                      }))} />
+                                    {teacher.name}
+                                  </label>
+                                ))}
+                              </div>}
+                              <p className="mt-2 text-xs text-slate-500">Доступ получат только отмеченные учителя. Новые учителя не добавляются автоматически.</p>
+                            </div>
+                          )}
                           <button
                             type="submit"
                             disabled={
@@ -2464,7 +2515,7 @@ const LearningGroupsSection = ({
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-start justify-between gap-2">
                                     <h3 className="font-black text-slate-900">{material.title}</h3>
-                                    {isTeacher && typeof api.deleteLearningGroupMaterial === 'function' && (
+                                    {isTeacher && material.teacherId === cleanString(teacherId || userId) && typeof api.deleteLearningGroupMaterial === 'function' && (
                                       <button
                                         type="button"
                                         onClick={() => void handleDeleteMaterial(material)}
@@ -2482,17 +2533,30 @@ const LearningGroupsSection = ({
                                   </div>
                                 </div>
                               </div>
+                              {isTeacher && material.teacherId === cleanString(teacherId || userId) && materialTeachers.length > 0 && (
+                                <details className="mt-3 rounded-xl border border-violet-100 bg-violet-50/50 p-3">
+                                  <summary className="cursor-pointer text-xs font-bold text-violet-700">Делиться с учителями ({material.sharedTeacherIds?.length || 0})</summary>
+                                  <div className="mt-2 flex flex-wrap gap-3">
+                                    {materialTeachers.map((teacher) => (
+                                      <label key={teacher.id} className="flex items-center gap-1.5 text-xs text-slate-700">
+                                        <input type="checkbox" disabled={busyKey === `share-material:${materialId}`}
+                                          checked={material.sharedTeacherIds?.includes(teacher.id) || false}
+                                          onChange={(event) => void handleMaterialSharing(material, event.target.checked
+                                            ? [...(material.sharedTeacherIds || []), teacher.id]
+                                            : (material.sharedTeacherIds || []).filter((id) => id !== teacher.id))} />
+                                        {teacher.name}
+                                      </label>
+                                    ))}
+                                  </div>
+                                </details>
+                              )}
                               {material.content && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{material.content}</p>}
                               {material.kind === 'video' && getRutubeEmbedUrl(material.url) && (
-                                <div className="mt-4 overflow-hidden rounded-2xl border border-violet-100 bg-slate-950 shadow-sm">
-                                  <iframe
-                                    src={getRutubeEmbedUrl(material.url)}
-                                    title={material.title}
-                                    className="aspect-video w-full"
-                                    allow="clipboard-write; autoplay"
-                                    allowFullScreen
-                                    loading="lazy"
-                                  />
+                                <div className="mt-4">
+                                  <div className="overflow-hidden rounded-2xl border border-violet-100 bg-slate-950 shadow-sm">
+                                    <iframe src={getRutubeEmbedUrl(material.url)} title={material.title} className="aspect-video w-full" allow="clipboard-write; autoplay" allowFullScreen loading="lazy" />
+                                  </div>
+                                  <a href={getRutubeWatchUrl(material.url)} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-700 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                                 </div>
                               )}
                               {material.kind === 'video' && material.quizQuestions?.length > 0 && (

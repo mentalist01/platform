@@ -2521,7 +2521,10 @@ const PYTHON_TASKS = [
 
 const PYTHON_TASK_MAP = new Map(PYTHON_TASKS.map((task) => [Number(task.number), task]));
 
-const isPythonTaskNumber = (value) => PYTHON_TASK_MAP.has(Number(value));
+const isPythonTaskNumber = (value) => {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 100;
+};
 
 const getPythonTaskInfo = (value) => PYTHON_TASK_MAP.get(Number(value)) || null;
 
@@ -3220,6 +3223,7 @@ const createPyodideWorker = () => {
       let debugTrace = [];
       let debugTraceTruncated = false;
       let turtleScene = null;
+      let needsInput = false;
 
       const appendStdout = (value) => {
         const safe = toText(value);
@@ -3285,6 +3289,22 @@ const createPyodideWorker = () => {
         '    return builtins.__collab_print_original(*args, **kwargs)',
         'builtins.print = _collab_print',
         '_input = ' + JSON.stringify(safeInput),
+        'class _CollabInputNeeded(Exception):',
+        '    pass',
+        '__collab_needs_input = False',
+        '_original_input = builtins.input',
+        'def _collab_input(prompt=""):',
+        '    global __collab_needs_input',
+        '    sys.stdout.write(str(prompt))',
+        '    sys.stdout.flush()',
+        '    line = sys.stdin.readline()',
+        '    if line == "":',
+        '        __collab_needs_input = True',
+        '        raise _CollabInputNeeded()',
+        '    sys.stdout.write(line if line.endswith("\\\\n") else line + "\\\\n")',
+        '    sys.stdout.flush()',
+        '    return line.rstrip("\\\\n").rstrip("\\\\r")',
+        'builtins.input = _collab_input',
         '_debug_mode = ' + (useDebugMode ? 'True' : 'False'),
         '_source_text = ' + JSON.stringify(safeSource),
         '_source_lines = _source_text.splitlines()',
@@ -3334,6 +3354,8 @@ const createPyodideWorker = () => {
         '        sys.settrace(_debug_trace)',
         '    _compiled = compile(_source_text, "<collab>", "exec")',
         '    exec(_compiled, _globals, _globals)',
+        'except _CollabInputNeeded:',
+        '    pass',
         'except Exception:',
         '    traceback.print_exc()',
         '    if _debug_mode:',
@@ -3360,6 +3382,7 @@ const createPyodideWorker = () => {
         'finally:',
         '    sys.settrace(None)',
         '    builtins.print = builtins.__collab_print_original',
+        '    builtins.input = _original_input',
         'try:',
         '    __turtle_scene_json = _turtle_export_scene_json()',
         'except Exception:',
@@ -3370,6 +3393,11 @@ const createPyodideWorker = () => {
       ].join('\\n');
       try {
         await pyodide.runPythonAsync(wrapped);
+        try {
+          const waiting = pyodide.globals.get('__collab_needs_input');
+          needsInput = Boolean(waiting && typeof waiting.toJs === 'function' ? waiting.toJs() : waiting);
+          waiting?.destroy?.();
+        } catch { /* no-op */ }
         if (useDebugMode) {
           let parsedFromJson = false;
           try {
@@ -3434,6 +3462,7 @@ const createPyodideWorker = () => {
           pyodide.globals.delete('__collab_debug_events');
           pyodide.globals.delete('__collab_debug_events_json');
           pyodide.globals.delete('__collab_debug_truncated');
+          pyodide.globals.delete('__collab_needs_input');
           pyodide.globals.delete('__turtle_scene_json');
         } catch { /* no-op */ }
         try {
@@ -3447,6 +3476,7 @@ const createPyodideWorker = () => {
         output,
         error,
         turtleScene,
+        needsInput,
         debug: useDebugMode
           ? {
             trace: Array.isArray(debugTrace) ? debugTrace : [],
@@ -3496,6 +3526,7 @@ const createPyodideWorker = () => {
           output: result.output,
           error: result.error,
           turtleScene: result.turtleScene,
+          needsInput: result.needsInput,
         });
       } catch (err) {
         const message = err && err.message ? err.message : String(err);
@@ -4041,6 +4072,8 @@ const CollabSection = ({
     return normalizeCollabOutputPanelHeight(raw);
   });
   const [runLoading, setRunLoading] = useState(false);
+  const [pendingConsoleInput, setPendingConsoleInput] = useState(null);
+  const [consoleInputDraft, setConsoleInputDraft] = useState('');
   const [debugActive, setDebugActive] = useState(false);
   const [debugTrace, setDebugTrace] = useState([]);
   const [debugStepIndex, setDebugStepIndex] = useState(-1);
@@ -7300,7 +7333,8 @@ const CollabSection = ({
         if (typeof pending.onProgress === 'function') {
           pending.onProgress({ output, error, turtleScene, done: true });
         }
-        pending.resolve({ output, error, turtleScene, debugTrace, debugTraceTruncated });
+        pending.resolve({ output, error, turtleScene, debugTrace, debugTraceTruncated,
+          needsInput: data.needsInput === true });
       };
       worker.onerror = () => disposeRunWorker('Ошибка выполнения Python.');
       worker.onmessageerror = () => disposeRunWorker('Ошибка выполнения Python.');
@@ -7490,7 +7524,7 @@ const CollabSection = ({
     return { code: fullCode, mode: 'all' };
   };
 
-  const handleRunCode = async (mode = 'all', debug = false) => {
+  const handleRunCode = async (mode = 'all', debug = false, resume = null) => {
     if (collabReadOnly || !collabDocumentReady || !editorRef.current || compareSolutionId || activeSolutionDeleted) return;
     outputPanelDismissedRunTokenRef.current = null;
     setOutputPanelOpen(true);
@@ -7502,13 +7536,16 @@ const CollabSection = ({
       .map((line) => Number(line))
       .filter((line) => Number.isInteger(line) && line > 0))];
     const isDebugRun = requestedDebug && activeBreakpoints.length > 0;
-    const { code, mode: resolvedMode } = resolveRunnableCode(mode);
+    const { code, mode: resolvedMode } = resume?.code != null
+      ? { code: resume.code, mode: 'all' }
+      : resolveRunnableCode(mode);
     if (!code.trim()) {
       setRunOutput('');
       setRunError(resolvedMode === 'selection' ? 'Сначала выделите код для запуска.' : 'Код пустой.');
       return;
     }
     if (runLoading || localRunBusyRef.current) return;
+    setPendingConsoleInput(null);
     localRunBusyRef.current = true;
     stopDebugPlayback();
     if (!isDebugRun) {
@@ -7552,7 +7589,12 @@ const CollabSection = ({
         debugSource: code,
       });
     }
-    const inputSnapshot = runInputRef.current || '';
+    const inputSnapshot = resume?.input ?? runInputRef.current ?? '';
+    if (resume) {
+      runInputRef.current = inputSnapshot;
+      setRunInput(inputSnapshot);
+    }
+    let waitingForInput = false;
     publishRunStateRef.current?.({
       turtleSceneJson: '',
       turtleSceneRunId: '',
@@ -7611,6 +7653,22 @@ const CollabSection = ({
         });
       }, { debug: isDebugRun, files: runtimeFilesPayload });
       if (runSessionRef.current !== sessionId) return;
+      if (result?.needsInput) {
+        if (runStreamTimerRef.current) {
+          clearTimeout(runStreamTimerRef.current);
+          runStreamTimerRef.current = null;
+        }
+        runStreamPendingRef.current = null;
+        waitingForInput = true;
+        setPendingConsoleInput({ code, input: inputSnapshot });
+        setConsoleInputDraft('');
+        publishRunState({
+          status: 'waiting-input', output: normalizeRunText(result.output || ''),
+          error: normalizeRunText(result.error || ''), author: localName,
+          ts: Date.now(), input: inputSnapshot,
+        });
+        return;
+      }
       if (runStreamTimerRef.current) {
         clearTimeout(runStreamTimerRef.current);
         runStreamTimerRef.current = null;
@@ -7710,9 +7768,15 @@ const CollabSection = ({
       if (runSessionRef.current === sessionId) {
         localRunBusyRef.current = false;
         setRunLoading(false);
-        setRunStatus('done');
+        setRunStatus(waitingForInput ? 'waiting-input' : 'done');
       }
     }
+  };
+  const submitConsoleInput = (event) => {
+    event.preventDefault();
+    if (!pendingConsoleInput || runLoading) return;
+    const nextInput = `${pendingConsoleInput.input}${consoleInputDraft}\n`;
+    void handleRunCode('all', false, { code: pendingConsoleInput.code, input: nextInput });
   };
   handleRunCodeRef.current = handleRunCode;
 
@@ -7741,6 +7805,7 @@ const CollabSection = ({
   const handleStopRun = () => {
     if (collabReadOnly || !runLoading) return;
     stopDebugPlayback();
+    setPendingConsoleInput(null);
     runSessionRef.current += 1;
     localRunBusyRef.current = false;
     if (runStreamTimerRef.current) {
@@ -7856,6 +7921,8 @@ const CollabSection = ({
 
   const handleClearRun = () => {
     if (collabReadOnly) return;
+    setPendingConsoleInput(null);
+    setConsoleInputDraft('');
     setOutputPanelOpen(true);
     outputPanelDismissedRunTokenRef.current = null;
     clearDebugSession(false);
@@ -10613,6 +10680,9 @@ const CollabSection = ({
       {runStatus === 'stopped' && (
         <div className="mb-2 text-[11px] text-rose-300">Остановлено пользователем</div>
       )}
+      {runStatus === 'waiting-input' && (
+        <div className="mb-2 text-[11px] text-amber-300">Программа ожидает ввод с клавиатуры</div>
+      )}
       {lastRunInput && (
         <div className="collab-run-input mb-3">
           <div className="text-[10px] uppercase tracking-widest text-slate-400">Ввод</div>
@@ -10667,6 +10737,15 @@ const CollabSection = ({
         <div className="collab-result-empty text-slate-400">
           {collabTurtleScene?.used ? 'Программа завершила построение рисунка.' : 'Здесь появится вывод программы.'}
         </div>
+      )}
+      {pendingConsoleInput && runStatus === 'waiting-input' && !collabReadOnly && (
+        <form onSubmit={submitConsoleInput} className="mt-3 flex items-center gap-2 rounded-lg border border-violet-400/45 bg-slate-900 px-2 py-1.5">
+          <span className="text-violet-300">›</span>
+          <input autoFocus value={consoleInputDraft} onChange={(event) => setConsoleInputDraft(event.target.value)}
+            aria-label="Ввод программы" placeholder="Введите значение и нажмите Enter"
+            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500" />
+          <button type="submit" className="rounded-md bg-violet-600 px-2 py-1 text-xs font-semibold text-white">Enter</button>
+        </form>
       )}
     </div>
   );
@@ -10782,8 +10861,8 @@ const CollabSection = ({
                 <div className="collab-output-identity">
                   <div className="collab-output-title-reference"><ChevronRight size={15} /><span>Вывод</span></div>
                   <small title={currentSolutionName}>{currentSolutionName}</small>
-                  <span className={`collab-output-run-state ${runStatus === 'running' ? 'is-running' : runError ? 'is-error' : runStatus === 'done' ? 'is-success' : ''}`}>
-                    {runStatus === 'running' ? 'Выполняется' : runStatus === 'stopped' ? 'Остановлен' : runError ? 'Ошибка' : runStatus === 'done' ? 'Готово' : ''}
+                  <span className={`collab-output-run-state ${runStatus === 'running' || runStatus === 'waiting-input' ? 'is-running' : runError ? 'is-error' : runStatus === 'done' ? 'is-success' : ''}`}>
+                    {runStatus === 'running' ? 'Выполняется' : runStatus === 'waiting-input' ? 'Ждёт ввод' : runStatus === 'stopped' ? 'Остановлен' : runError ? 'Ошибка' : runStatus === 'done' ? 'Готово' : ''}
                   </span>
                 </div>
                 <div className="collab-output-actions-reference">
@@ -24141,7 +24220,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : null;
     return {
       ...item,
-      isPython: Boolean(pythonTask),
+      isPython: isPythonTaskNumber(item.taskNumber),
       taskDisplay: pythonTask?.displayNumber || formatTaskNumber(item.taskNumber) || item.taskNumber,
       taskTitle: item.taskTitle || pythonTask?.title || '',
     };

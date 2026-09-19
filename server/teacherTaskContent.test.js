@@ -27,6 +27,17 @@ test('teacher test changes stay private and inherit untouched global tasks', () 
   assert.deepEqual(reverted.store.teachers['teacher-a'].tests, {});
 });
 
+test('teacher Python card catalog survives saving and normalization', () => {
+  const catalog = [{ number: 112, title: 'Новая тема', displayNumber: '10', sectionId: 'topics' }];
+  const saved = applyTeacherTestsUpdate({}, 'teacher-a', {}, {
+    __pythonTaskCatalog: catalog,
+    112: { python: [] },
+  });
+  const reread = normalizeTeacherTaskContentStore(saved.store);
+  assert.deepEqual(mergeTeacherTestsDb({}, reread.teachers['teacher-a']).__pythonTaskCatalog, catalog);
+  assert.deepEqual(reread.teachers['teacher-a'].tests['112'], { python: [] });
+});
+
 test('global test changes replace the same topic override for every teacher only', () => {
   const store = normalizeTeacherTaskContentStore({
     teachers: {

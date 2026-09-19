@@ -105,20 +105,21 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
   if (!String(text || '').trim()) return;
   try { await document.fonts?.ready; } catch { /* system fonts are enough */ }
 
-  const width = 1440;
-  const cardX = 48;
+  // A portrait image stays readable when a parent opens it in a phone messenger.
+  const width = 760;
+  const cardX = 24;
   const cardWidth = width - cardX * 2;
-  const contentX = cardX + 58;
-  const contentWidth = cardWidth - 116;
+  const contentX = cardX + 38;
+  const contentWidth = cardWidth - 76;
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
   if (!context) throw new Error('canvas unavailable');
 
-  context.font = '500 28px Inter, Arial, sans-serif';
+  context.font = '500 26px Inter, Arial, sans-serif';
   const lines = wrapCanvasText(context, text, contentWidth);
-  const lineHeight = 43;
-  const bodyHeight = lines.reduce((height, line) => height + (line ? lineHeight : 25), 0);
-  const height = Math.max(1120, 610 + bodyHeight + 150);
+  const lineHeight = 39;
+  const bodyHeight = lines.reduce((height, line) => height + (line ? lineHeight : 22), 0);
+  const height = Math.max(1120, 650 + bodyHeight + 130);
   canvas.width = width;
   canvas.height = height;
 
@@ -145,38 +146,38 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
   context.shadowColor = 'rgba(30, 41, 59, 0.14)';
   context.shadowBlur = 42;
   context.shadowOffsetY = 16;
-  addRoundedRect(context, cardX, 46, cardWidth, height - 92, 34);
+  addRoundedRect(context, cardX, 26, cardWidth, height - 52, 28);
   context.fillStyle = '#ffffff';
   context.fill();
   context.restore();
 
-  const accent = context.createLinearGradient(contentX, 92, contentX + 260, 190);
+  const accent = context.createLinearGradient(contentX, 68, contentX + 180, 150);
   accent.addColorStop(0, '#7c3aed');
   accent.addColorStop(1, '#9333ea');
-  addRoundedRect(context, contentX, 92, 76, 76, 22);
+  addRoundedRect(context, contentX, 68, 68, 68, 20);
   context.fillStyle = accent;
   context.fill();
   context.fillStyle = '#ffffff';
-  context.font = '800 36px Arial, sans-serif';
+  context.font = '800 32px Arial, sans-serif';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText('✦', contentX + 38, 132);
+  context.fillText('✦', contentX + 34, 102);
   context.textAlign = 'left';
   context.textBaseline = 'alphabetic';
 
   context.fillStyle = '#7c3aed';
-  context.font = '800 18px Inter, Arial, sans-serif';
-  context.fillText('ИТОГИ МЕСЯЦА', contentX + 100, 112);
+  context.font = '800 16px Inter, Arial, sans-serif';
+  context.fillText('ИТОГИ МЕСЯЦА', contentX + 86, 88);
   context.fillStyle = '#111827';
-  context.font = '800 44px Inter, Arial, sans-serif';
-  context.fillText(studentName || 'Ученик', contentX + 100, 157);
+  context.font = '800 38px Inter, Arial, sans-serif';
+  context.fillText(studentName || 'Ученик', contentX + 86, 126, contentWidth - 92);
   context.fillStyle = '#64748b';
-  context.font = '500 22px Inter, Arial, sans-serif';
-  context.fillText(capitalizeFirst(report?.monthLabel || month), contentX + 100, 190);
+  context.font = '500 20px Inter, Arial, sans-serif';
+  context.fillText(capitalizeFirst(report?.monthLabel || month), contentX + 86, 158);
 
-  const metricTop = 235;
-  const metricGap = 20;
-  const metricWidth = (contentWidth - metricGap * 2) / 3;
+  const metricTop = 192;
+  const metricGap = 12;
+  const metricWidth = contentWidth;
   const metricData = [
     {
       label: 'ЗАНЯТИЯ',
@@ -201,44 +202,47 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
     },
   ];
   metricData.forEach((metric, index) => {
-    const x = contentX + index * (metricWidth + metricGap);
-    addRoundedRect(context, x, metricTop, metricWidth, 154, 23);
+    const x = contentX;
+    const y = metricTop + index * (104 + metricGap);
+    addRoundedRect(context, x, y, metricWidth, 104, 20);
     context.fillStyle = metric.fill;
     context.fill();
     context.strokeStyle = `${metric.color}38`;
     context.lineWidth = 2;
     context.stroke();
     context.fillStyle = metric.color;
-    context.font = '800 17px Inter, Arial, sans-serif';
-    context.fillText(metric.label, x + 28, metricTop + 37);
+    context.font = '800 16px Inter, Arial, sans-serif';
+    context.fillText(metric.label, x + 22, y + 33);
     context.fillStyle = '#111827';
-    context.font = '800 45px Inter, Arial, sans-serif';
-    context.fillText(metric.value, x + 28, metricTop + 91);
+    context.font = '800 43px Inter, Arial, sans-serif';
+    context.textAlign = 'right';
+    context.fillText(metric.value, x + metricWidth - 22, y + 72, 170);
+    context.textAlign = 'left';
     context.fillStyle = '#64748b';
     context.font = '500 18px Inter, Arial, sans-serif';
-    context.fillText(metric.note, x + 28, metricTop + 124);
+    context.fillText(metric.note, x + 22, y + 72, metricWidth - 215);
   });
 
   context.fillStyle = '#111827';
   context.font = '800 27px Inter, Arial, sans-serif';
-  context.fillText(audience === 'student' ? 'Твои итоги' : 'Как прошёл месяц', contentX, 455);
+  context.fillText(audience === 'student' ? 'Твои итоги' : 'Как прошёл месяц', contentX, 577);
   context.fillStyle = '#7c3aed';
-  addRoundedRect(context, contentX, 474, 86, 5, 3);
+  addRoundedRect(context, contentX, 595, 86, 5, 3);
   context.fill();
 
   context.fillStyle = '#334155';
-  context.font = '500 28px Inter, Arial, sans-serif';
-  let y = 532;
+  context.font = '500 26px Inter, Arial, sans-serif';
+  let y = 650;
   lines.forEach((line) => {
     if (!line) {
-      y += 25;
+      y += 22;
       return;
     }
     context.fillText(line, contentX, y);
     y += lineHeight;
   });
 
-  const footerY = height - 92;
+  const footerY = height - 78;
   context.strokeStyle = '#ede9fe';
   context.lineWidth = 2;
   context.beginPath();
@@ -246,7 +250,7 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
   context.lineTo(contentX + contentWidth, footerY - 30);
   context.stroke();
   context.fillStyle = '#94a3b8';
-  context.font = '500 17px Inter, Arial, sans-serif';
+  context.font = '500 16px Inter, Arial, sans-serif';
   context.fillText(`${audience === 'student' ? 'Твои итоги' : 'Персональный отчёт'} за ${String(report?.monthLabel || month || '').toLocaleLowerCase('ru-RU')}`, contentX, footerY);
 
   const blob = await new Promise((resolve, reject) => {

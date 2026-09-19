@@ -691,6 +691,34 @@ test('learning groups keep shared work isolated while legacy student schedules r
       }
     );
 
+    const privateLibrary = await jsonRequest(baseUrl, '/api/learning-materials', {
+      token: teacher.token, method: 'POST', status: 201,
+      body: { title: 'Private theory', content: 'For my students' },
+    });
+    const privateForeignView = await jsonRequest(baseUrl, '/api/learning-materials', {
+      token: foreignTeacher.token,
+    });
+    assert.equal(privateForeignView.materials.some((item) => item.id === privateLibrary.material.id), false);
+    const shared = await jsonRequest(baseUrl, `/api/learning-materials/${privateLibrary.material.id}/sharing`, {
+      token: teacher.token, method: 'PATCH',
+      body: { sharedTeacherIds: ['teacher-foreign', 'new-teacher-that-does-not-exist'] },
+    });
+    assert.deepEqual(shared.material.sharedTeacherIds, ['teacher-foreign']);
+    const sharedForeignView = await jsonRequest(baseUrl, '/api/learning-materials', {
+      token: foreignTeacher.token,
+    });
+    assert.equal(sharedForeignView.materials.some((item) => item.id === privateLibrary.material.id), true);
+    await jsonRequest(baseUrl, `/api/learning-materials/${privateLibrary.material.id}`, {
+      token: foreignTeacher.token, method: 'DELETE', status: 404,
+    });
+    await jsonRequest(baseUrl, `/api/learning-materials/${privateLibrary.material.id}/sharing`, {
+      token: teacher.token, method: 'PATCH', body: { sharedTeacherIds: [] },
+    });
+    const revokedView = await jsonRequest(baseUrl, '/api/learning-materials', {
+      token: foreignTeacher.token,
+    });
+    assert.equal(revokedView.materials.some((item) => item.id === privateLibrary.material.id), false);
+
     const uploadedBytes = Buffer.from('private group upload bytes');
     const uploadBody = new FormData();
     uploadBody.append('file', new Blob([uploadedBytes], { type: 'text/plain' }), 'group-notes.txt');

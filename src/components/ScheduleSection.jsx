@@ -46,7 +46,7 @@ import {
 } from '../utils/mockExamMode';
 import { buildTeacherLessonBriefing } from '../utils/teacherLessonBriefing';
 import { buildTeacherHomeworkReviewItems } from '../utils/teacherHomeworkReview';
-import { getRutubeEmbedUrl } from '../utils/learningGroups';
+import { getRutubeEmbedUrl, getRutubeWatchUrl } from '../utils/learningGroups';
 import {
   estimateHomeworkDuration,
   formatHomeworkDurationMinutes,
@@ -3392,6 +3392,21 @@ const ScheduleSection = ({
                     {goalView.pythonTheory.available ? 'Изучить теорию' : 'Теория недоступна'}
                   </button>
                 </div>
+                {goalView.pythonTheory.type === 'rutube' && getRutubeEmbedUrl(goalView.pythonTheory.content) && (
+                  <div className="border-t border-violet-100 bg-white p-3.5">
+                    <div className="aspect-video w-full overflow-hidden rounded-2xl bg-slate-950 shadow-sm">
+                      <iframe
+                        title={`Видео-теория: ${goalView.pythonTheory.subsectionTitle}`}
+                        src={getRutubeEmbedUrl(goalView.pythonTheory.content)}
+                        className="h-full w-full"
+                        allow="clipboard-write; autoplay"
+                        allowFullScreen
+                        loading="lazy"
+                      />
+                    </div>
+                    <a href={getRutubeWatchUrl(goalView.pythonTheory.content)} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-700 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
+                  </div>
+                )}
                 <div className="flex items-center gap-3 border-t border-violet-100 bg-white/70 px-3.5 py-2.5">
                   <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-fuchsia-100 text-xs font-black text-fuchsia-700">2</span>
                   <span className="text-xs font-bold text-slate-700">
@@ -3633,11 +3648,12 @@ const ScheduleSection = ({
                         <iframe
                           src={getRutubeEmbedUrl(material.url)}
                           title={material.title || `Видео ${videoIndex + 1}`}
-                          className="aspect-video h-full min-h-[220px] w-full"
+                          className="aspect-video min-h-[220px] w-full"
                           allow="clipboard-write; autoplay"
                           allowFullScreen
                           loading="lazy"
                         />
+                        <a href={getRutubeWatchUrl(material.url)} target="_blank" rel="noreferrer" className="block px-3 py-2 text-xs font-semibold text-white underline underline-offset-2">Открыть на Rutube, если плеер не работает</a>
                       </div>
                       <div className="p-4 sm:p-5">
                         <div className="flex items-start gap-3">
@@ -6021,7 +6037,7 @@ const ScheduleSection = ({
                 />
               ) : homeworkTheoryPreview.type === 'rutube' ? (
                 getRutubeEmbedUrl(homeworkTheoryPreview.content) ? (
-                  <div className="flex h-full items-center justify-center">
+                  <div className="flex h-full flex-col items-center justify-center">
                     <div className="aspect-video w-full overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm">
                       <iframe
                         title={homeworkTheoryPreview.subsectionTitle}
@@ -6031,6 +6047,7 @@ const ScheduleSection = ({
                         allowFullScreen
                       />
                     </div>
+                    <a href={getRutubeWatchUrl(homeworkTheoryPreview.content)} target="_blank" rel="noreferrer" className="mt-2 text-xs font-semibold text-violet-700 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">Видео Rutube недоступно.</div>

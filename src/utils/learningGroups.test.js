@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   getRutubeEmbedUrl,
+  getRutubeWatchUrl,
   normalizeLearningGroup,
   normalizeLearningGroupAttendance,
   normalizeLearningGroupList,
@@ -18,6 +19,15 @@ test('builds a safe RuTube embed URL from video and shorts links', () => {
     'https://rutube.ru/play/embed/xyz'
   );
   assert.equal(getRutubeEmbedUrl('https://example.com/video/abc'), '');
+});
+
+test('keeps the access key for a private RuTube video and accepts its embed code', () => {
+  const privateLink = 'https://rutube.ru/video/private/caafe83ff1c6ed38d394635b83ece578/?p=IBgzQQrKH4qB1bqm_91x7Q';
+  const embedLink = 'https://rutube.ru/play/embed/caafe83ff1c6ed38d394635b83ece578/?p=IBgzQQrKH4qB1bqm_91x7Q';
+  assert.equal(getRutubeEmbedUrl(privateLink), embedLink);
+  assert.equal(getRutubeEmbedUrl(`<iframe src="${embedLink}" allowfullscreen></iframe>`), embedLink);
+  assert.equal(getRutubeWatchUrl(embedLink), privateLink);
+  assert.equal(getRutubeWatchUrl('https://rutube.ru/video/abc-123/'), 'https://rutube.ru/video/abc-123/');
 });
 
 test('normalizes a teacher group without duplicating its shared schedule', () => {

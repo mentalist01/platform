@@ -134,22 +134,36 @@ export const normalizeLearningGroupMaterial = (value, index = 0) => {
 };
 
 export const getRutubeEmbedUrl = (value) => {
-  const raw = cleanString(value);
+  const supplied = cleanString(value);
+  const raw = supplied.startsWith('<iframe')
+    ? (supplied.match(/\bsrc\s*=\s*["']([^"']+)["']/iu)?.[1] || '')
+    : supplied;
   if (!raw) return '';
   try {
     const parsed = new URL(raw);
     if (!/(^|\.)rutube\.ru$/iu.test(parsed.hostname)) return '';
     const parts = parsed.pathname.split('/').filter(Boolean);
-    if (parts[0] === 'play' && parts[1] === 'embed' && parts[2]) {
-      return `https://rutube.ru/play/embed/${encodeURIComponent(parts[2])}`;
-    }
-    if (['video', 'shorts'].includes(parts[0]) && parts[1]) {
-      return `https://rutube.ru/play/embed/${encodeURIComponent(parts[1])}`;
-    }
+    const videoId = parts[0] === 'play' && parts[1] === 'embed'
+      ? parts[2]
+      : (parts[0] === 'video' && parts[1] === 'private'
+          ? parts[2]
+          : (['video', 'shorts'].includes(parts[0]) ? parts[1] : ''));
+    if (!videoId || !/^[a-z0-9-]+$/iu.test(videoId)) return '';
+    const accessKey = parsed.searchParams.get('p') || '';
+    if (accessKey && !/^[a-z0-9_-]+$/iu.test(accessKey)) return '';
+    return `https://rutube.ru/play/embed/${videoId}${accessKey ? `/?p=${encodeURIComponent(accessKey)}` : ''}`;
   } catch {
     return '';
   }
-  return '';
+};
+
+export const getRutubeWatchUrl = (value) => {
+  const embedUrl = getRutubeEmbedUrl(value);
+  if (!embedUrl) return '';
+  const parsed = new URL(embedUrl);
+  const videoId = parsed.pathname.split('/').filter(Boolean)[2];
+  const accessKey = parsed.searchParams.get('p');
+  return `https://rutube.ru/video/${accessKey ? 'private/' : ''}${videoId}/${accessKey ? `?p=${encodeURIComponent(accessKey)}` : ''}`;
 };
 
 export const normalizeLearningGroupLesson = (value, index = 0) => {
