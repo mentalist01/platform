@@ -527,6 +527,13 @@ const requestLearningGroupJson = async (path, options = {}) => {
 };
 
 export const api = {
+  desktopRecording: async (action = 'settings', body, method = body === undefined ? 'GET' : 'POST') => {
+    const res = await apiFetch(`/api/desktop-recording/${action}`, {
+      method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.json();
+  },
   createBoardTablet: async (roomId) => {
     const res = await apiFetch('/api/board-tablet', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

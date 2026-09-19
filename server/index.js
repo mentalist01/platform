@@ -1,5 +1,6 @@
 ﻿import express from 'express';
 import multer from 'multer';
+import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -618,6 +619,7 @@ const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json
 const teacherCalendarGoogleFile = path.join(dataDir, 'teacher-calendar-google.json');
 const lessonTopicsFile = path.join(dataDir, 'lesson-topics.json');
 const lessonHistoryFile = path.join(dataDir, 'lesson-history.json');
+const desktopRecordings = createDesktopRecordingStore(path.join(dataDir, 'desktop-recordings.json'));
 const lessonReplaysDir = path.join(dataDir, 'lesson-replays');
 const lessonReplaySnapshotsDir = path.join(dataDir, 'lesson-replay-snapshots');
 const lessonReplayAudioDir = path.join(dataDir, 'lesson-replay-audio');
@@ -3085,6 +3087,8 @@ const writeLessonReplay = async (replay, options = {}) => {
 };
 
 const getLessonReplaySummary = (occurrenceKey, replayOverride = null) => {
+  const desktop = desktopRecordings.replay(occurrenceKey);
+  if (desktop) return { ...desktop, bytes: 0 };
   const replay = replayOverride || readLessonReplay(occurrenceKey);
   if (!replay) return { available: false, eventCount: 0, durationMs: 0, eventTypes: [], bytes: 0, updatedAt: '' };
   let compressedBytes = 0;
@@ -21548,6 +21552,14 @@ app.post('/api/payment-notifications/macrodroid', async (req, res) => {
   }
 });
 
+registerDesktopDeviceRoutes(app, desktopRecordings, {
+  isEnded: (job) => {
+    if (!job.occurrence.lessonId) return false;
+    const context = getLearningGroupReplayContext(job.occurrence.lessonId);
+    return !context || ['completed', 'cancelled'].includes(context.lesson.status);
+  },
+});
+
 app.use('/api', (req, res, next) => {
   const token = getAuthTokenFromRequest(req);
   const session = getAuthSession(token);
@@ -21574,6 +21586,31 @@ app.use('/api', (req, res, next) => {
     return forbid(res);
   }
   return next();
+});
+
+registerDesktopRecordingRoutes(app, desktopRecordings, {
+  teacherFor: (auth) => findStudentById(isParentRole(auth) ? auth.studentId : auth.id)?.teacherId,
+  resolveLesson: async (req, res) => {
+    let occurrence; let cutoffAt;
+    if (req.body?.learningLessonId) {
+      const context = ensureLearningGroupReplayAccess(req, res, req.body.learningLessonId);
+      if (!context) return null;
+      if (context.lesson.status !== 'active') { res.status(409).json({ error: 'Сначала начните занятие' }); return null; }
+      occurrence = buildLearningGroupReplayOccurrence(context);
+      cutoffAt = occurrence.endMs + LEARNING_LESSON_OVERRUN_GRACE_MS;
+    } else {
+      const student = ensureStudentAccess(req, res, req.body?.studentId);
+      if (!student) return null;
+      const activity = getTelemostLessonReplayEntry(student.id);
+      if (activity) { occurrence = activity.occurrence; cutoffAt = activity.autoFinishAtMs; }
+      else if (hasActivePlatformLessonCall(student)) {
+        occurrence = await resolveCurrentLessonReplayOccurrence(student, req.auth, Date.now(), { preferActive: true, allowFallback: true });
+        cutoffAt = occurrence?.endMs + TELEMOST_LESSON_BUFFER_MS;
+      }
+    }
+    if (!occurrence) { res.status(409).json({ error: 'Сначала начните занятие' }); return null; }
+    return { occurrence, cutoffAt };
+  },
 });
 
 app.get('/api/session', (req, res) => {
@@ -33388,6 +33425,7 @@ const finishTelemostLessonReplay = async (studentId, options = {}) => {
   if (!normalizedStudentId) return { finishedSessions: 0 };
   const entry = activeTelemostLessonReplayByStudentId.get(normalizedStudentId);
   const occurrenceKey = String(options.occurrenceKey || entry?.occurrence?.key || '').trim();
+  if (occurrenceKey) desktopRecordings.stop(occurrenceKey);
   if (!occurrenceKey) {
     activeTelemostLessonReplayByStudentId.delete(normalizedStudentId);
     return { finishedSessions: 0 };
@@ -34058,6 +34096,9 @@ app.post('/api/lesson-replay/session', async (req, res) => {
   } else {
     student = ensureStudentAccess(req, res, req.body?.studentId);
     if (!student) return;
+  }
+  if (!req.body?.recovery && desktopRecordings.enabled(learningContext?.group?.teacherId || student?.teacherId)) {
+    return res.status(409).json({ error: 'Для этого учителя включена запись через OBS', code: 'DESKTOP_RECORDING_ENABLED' });
   }
   try {
     const nowMs = Date.now();
@@ -34874,7 +34915,8 @@ app.get('/api/lesson-history/detail', async (req, res) => {
     return res.json({
       lesson: serializeStudentLessonHistoryEntry(occurrence, null, student),
       materials: collectStudentLessonMaterials(student, occurrence),
-      replay: serializeLessonReplayForClient(readLessonReplay(getLessonHistoryReplayKey(occurrence))),
+      replay: desktopRecordings.replay(getLessonHistoryReplayKey(occurrence))
+        || serializeLessonReplayForClient(readLessonReplay(getLessonHistoryReplayKey(occurrence))),
     });
   } catch (error) {
     console.error('[lesson-history] failed to build lesson detail:', error);

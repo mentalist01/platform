@@ -3,6 +3,7 @@ import { BookOpen, CalendarDays, Clock3, Code2, ExternalLink, FileText, Image as
 import { createPortal } from 'react-dom';
 import { authenticatedUploadsFetch, resolveAuthenticatedUploadsUrl } from '../services/api';
 import LessonReplayPlayer from './LessonReplayPlayer';
+import RutubeLessonRecording from './RutubeLessonRecording';
 
 const isPythonFile = (file) => /\.py$/i.test(String(file?.name || '').trim());
 const isImageFile = (file) => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(file?.name || '').trim());
@@ -259,7 +260,7 @@ const StudentLessonDetailModal = ({
     || isImageFile(file)
     || Boolean(file?.memory?.boardSnapshot?.url)
   )).length;
-  const hasReplay = hasMeaningfulReplay;
+  const hasReplay = hasMeaningfulReplay || Boolean(replay?.provider === 'rutube' && replay.available);
   const hasTopic = Boolean(String(topicText || '').trim());
 
   const content = (
@@ -317,7 +318,8 @@ const StudentLessonDetailModal = ({
             <strong>{topicText || 'Тема не сохранилась'}</strong>
           </section>
 
-          {!loading && !error && hasMeaningfulReplay && (
+          {!loading && !error && replay?.provider === 'rutube' && <RutubeLessonRecording replay={replay} />}
+          {!loading && !error && replay?.provider !== 'rutube' && hasMeaningfulReplay && (
             <LessonReplayPlayer
               key={replay?.occurrence?.key || 'lesson-replay'}
               replay={replay}

@@ -170,6 +170,8 @@ import './components/CollabWorkspaceLayout.css';
 import useCollabSolutionPresentation from './components/useCollabSolutionPresentation';
 const CollabSolutionCompare = React.lazy(() => import('./components/CollabSolutionCompare'));
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
+import useDesktopRecording from './hooks/useDesktopRecording';
+import DesktopRecordingControl from './components/DesktopRecordingControl';
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
 import useWorkbookHelper from './hooks/useWorkbookHelper';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
@@ -19237,7 +19239,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? 'telemost'
     : (callSessionStatus === 'connected'
     ? 'platform'
-    : (isTelemostLessonReplayActive ? 'telemost' : ''));
+      : (isTelemostLessonReplayActive ? 'telemost' : ''));
+  const desktopRecorder = useDesktopRecording({
+    user, active: callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive,
+    studentId: lessonReplayStudentId,
+    learningLessonId: isGroupLessonReplayActive ? activeLearningLesson.lessonId : '',
+  });
   const applyTelemostLessonReplay = useCallback((payload = {}) => {
     const activity = payload?.activity || payload?.request?.activity || payload;
     const studentId = String(
@@ -19266,7 +19273,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     createLessonReplayAudioSink,
   } = useLessonReplayRecorder({
     ownerId: `${user.role}:${user.id}`,
-    active: callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive,
+    active: Boolean(desktopRecorder.settings) && !desktopRecorder.enabled && (callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive),
     studentId: lessonReplayStudentId,
     mode: lessonReplayMode || 'platform',
     occurrenceKey: isTelemostLessonReplayActive ? telemostLessonReplay?.occurrenceKey : '',
@@ -19300,6 +19307,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, []);
 
   const startTelemostAudioCapture = useCallback(async ({ force = false, lessonId = '' } = {}) => {
+    if (desktopRecorder.enabled) return;
     if (
       (!isAnyTelemostLessonReplayActive && !force)
       || telemostAudioCaptureRef.current
@@ -19460,6 +19468,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   }, [
     isAnyTelemostLessonReplayActive,
+    desktopRecorder.enabled,
     stopTelemostAudioCapture,
     createLessonReplayAudioSink,
   ]);
@@ -19687,7 +19696,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     void (async () => {
       try {
         await capturePromise;
-        if (!telemostAudioCaptureRef.current) {
+        if (!desktopRecorder.enabled && !telemostAudioCaptureRef.current) {
           throw new Error('Запись звука не запустилась. Разрешите захват вкладки Телемоста и аудио.');
         }
         const result = await api.activateTelemostLesson(normalizedStudentId);
@@ -19705,6 +19714,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return true;
   }, [
     applyTelemostLessonReplay,
+    desktopRecorder.enabled,
     isGroupLessonReplayActive,
     isTelemostLessonReplayActive,
     startTelemostAudioCapture,
@@ -19825,7 +19835,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         // active on the server.  A denied/closed share must not leave a
         // phantom «занятие идёт» state behind.
         await capturePromise;
-        if (!telemostAudioCaptureRef.current) {
+        if (!desktopRecorder.enabled && !telemostAudioCaptureRef.current) {
           throw new Error('Запись звука не запустилась. Разрешите захват вкладки Телемоста и аудио.');
         }
         if (sourceStatus !== 'active') {
@@ -19860,6 +19870,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return true;
   }, [
     activeLearningLesson,
+    desktopRecorder.enabled,
     isCallSessionActive,
     isCallViewAvailable,
     isGroupLessonReplayActive,
@@ -19884,7 +19895,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const isTeacherIndividualReplay = user.role === 'teacher'
       && isTelemostLessonReplayActive
       && studentId;
-    if (!isTeacherGroupReplay && !isTeacherIndividualReplay) {
+    if (desktopRecorder.enabled || (!isTeacherGroupReplay && !isTeacherIndividualReplay)) {
       telemostCaptureLossLessonKeyRef.current = '';
       if (telemostCaptureLossTimerRef.current) {
         window.clearTimeout(telemostCaptureLossTimerRef.current);
@@ -19931,6 +19942,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     activeLearningLesson?.groupId,
     activeLearningLesson?.lessonId,
     handleFinishTelemostLesson,
+    desktopRecorder.enabled,
     isGroupLessonReplayActive,
     isTelemostLessonReplayActive,
     telemostAudioCapture.status,
@@ -24841,6 +24853,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
+      {user.role === 'teacher' && <DesktopRecordingControl recorder={desktopRecorder} />}
       {user.role === 'teacher' && isAnyTelemostLessonReplayActive && (
         <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1350] flex max-w-[calc(100vw-1.5rem)] items-center gap-3 rounded-2xl border border-violet-200/90 bg-white/95 px-3 py-2.5 shadow-[0_16px_42px_rgba(91,33,182,0.22)] backdrop-blur-xl md:bottom-5 md:right-5">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white shadow-md shadow-violet-200/70">
@@ -24853,14 +24866,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <p className={`truncate text-[10px] font-semibold ${telemostLessonFinishError || telemostAudioCapture.status === 'error'
               ? 'text-rose-600'
               : 'text-slate-500'}`}>
-              {telemostLessonFinishError || (groupLessonIsOvertime
+              {telemostLessonFinishError || (desktopRecorder.enabled ? 'Запись управляется пультом на компьютере' : '') || (groupLessonIsOvertime
                 ? `Время по календарю вышло · автостоп в ${telemostLessonAutoFinishLabel}`
                 : telemostAudioCapture.message) || (telemostLessonAutoFinishLabel
                 ? `Доска и код пишутся до ${telemostLessonAutoFinishLabel}`
                 : 'Доска и код продолжают записываться')}
             </p>
           </div>
-          {!isGroupLessonReplayActive && <button
+          {!desktopRecorder.enabled && !isGroupLessonReplayActive && <button
             type="button"
             onClick={telemostAudioCapture.status === 'recording'
               ? stopTelemostAudioCapture
