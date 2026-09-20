@@ -36,12 +36,12 @@ export class RutubeUploader {
     return this.context;
   }
   async login() {
-    await this.browser(); await this.page.goto('https://studio.rutube.ru/videos'); await this.page.bringToFront();
+    await this.browser(); await this.page.goto('https://studio.rutube.ru/videos', { waitUntil: 'domcontentloaded', timeout: 60000 }); await this.page.bringToFront();
   }
   async upload(job, persist) {
     await this.browser();
     const page = this.page;
-    await page.goto('https://studio.rutube.ru/videos');
+    await page.goto('https://studio.rutube.ru/videos', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.getByTestId('header-add-button').waitFor({ timeout: 30000 }).catch(() => {
       throw new Error('Войдите в Rutube в окне помощника, затем нажмите «Продолжить загрузку»');
     });
@@ -73,9 +73,11 @@ export class RutubeUploader {
     const access = editor.getByRole('combobox', { name: 'Доступ', exact: true });
     if ((await access.innerText()).trim() !== 'Только по ссылке') {
       await access.click();
-      // The new-upload editor does not consistently give the dropdown a list role.
-      // Match its visible choice directly and verify the selected access below.
-      await page.getByText('Только по ссылке', { exact: true }).filter({ visible: true }).click();
+      // Video cards behind the editor also carry this label. Prefer the open
+      // access menu; older layouts without a list role must have one unique choice.
+      const menuOption = page.getByRole('listbox').getByText('Только по ссылке', { exact: true }).filter({ visible: true });
+      if (await menuOption.count() === 1) await menuOption.click();
+      else await page.getByText('Только по ссылке', { exact: true }).filter({ visible: true }).click();
     }
     if ((await access.innerText()).trim() !== 'Только по ссылке') throw new Error('Не удалось установить доступ «только по ссылке». Проверьте окно Rutube.');
     const link = editor.locator('a[href*="rutube.ru/video/private/"]');
