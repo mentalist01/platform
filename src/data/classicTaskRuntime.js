@@ -15,7 +15,7 @@ export const setClassicTaskRuntimeCatalog = (catalog) => {
     slotNumber: task.lastSlotNumber,
     archived: true,
   }));
-  allTasks = new Map([...activeTasks, ...archived].map((task) => [Number(task.number), task]));
+  allTasks = new Map([...archived, ...activeTasks].map((task) => [Number(task.number), task]));
 };
 
 export const getClassicTask = (number) => allTasks.get(Number(number));

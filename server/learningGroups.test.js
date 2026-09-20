@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  LearningGroupDomainError,
   addLearningGroupMember,
   completeLearningGroup,
   createLearningAssignment,
@@ -37,15 +36,22 @@ const add = (group, id, options = {}) => addLearningGroupMember(group, student(i
   ...options,
 });
 
-test('new groups are forming and capacity is constrained to 2..5', () => {
+test('group size is chosen by the teacher and legacy capacity does not truncate lessons or homework', () => {
   const group = makeGroup();
   assert.equal(group.status, 'forming');
-  assert.equal(group.maxStudents, 5);
+  assert.equal(group.maxStudents, undefined);
   assert.equal(group.admissionsOpen, true);
-  assert.throws(
-    () => makeGroup({ maxStudents: 6 }),
-    (error) => error instanceof LearningGroupDomainError && error.code === 'invalid_group_capacity'
-  );
+  let larger = makeGroup({ maxStudents: 2 });
+  for (let index = 0; index < 8; index++) larger = add(larger, `student-${index}`);
+  assert.equal(getActiveLearningGroupMembers(larger).length, 8);
+  larger = startLearningGroup(larger, { now: NOW });
+  const lesson = createLearningLessonSession(larger, { startAt: NOW }, { id: 'large-lesson', now: NOW });
+  assert.equal(lesson.participantIds.length, 8);
+  const recipientIds = larger.members.map((member) => member.studentId);
+  const assignment = createLearningAssignment(larger, { title: 'Для всех', recipientIds }, { id: 'large-homework', now: NOW });
+  assert.deepEqual(assignment.recipientIds, recipientIds);
+  const updated = updateLearningAssignment(assignment, { recipientIds }, { now: NOW });
+  assert.deepEqual(updated.recipientIds, recipientIds);
 });
 
 test('group stores one validated permanent Telemost link', () => {

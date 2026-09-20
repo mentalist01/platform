@@ -23,8 +23,6 @@ export const LEARNING_GROUP_STATUS_READY = 'ready';
 export const LEARNING_GROUP_STATUS_ACTIVE = 'active';
 export const LEARNING_GROUP_STATUS_COMPLETED = 'completed';
 export const LEARNING_GROUP_MIN_STUDENTS = 1;
-export const LEARNING_GROUP_MIN_CAPACITY = 2;
-export const LEARNING_GROUP_MAX_STUDENTS = 5;
 // Group lessons have their own per-student rate.  It must not silently inherit
 // the student's individual lesson price (a common source of wrong payments).
 export const LEARNING_GROUP_DEFAULT_LESSON_PRICE = 1000;
@@ -255,10 +253,6 @@ export const normalizeLearningGroup = (value) => {
   const teacherId = cleanText(value.teacherId, 180);
   const name = cleanText(value.name, 160);
   if (!id || !teacherId || !name) return null;
-  const rawMaxStudents = Math.round(Number(value.maxStudents));
-  const maxStudents = Number.isFinite(rawMaxStudents)
-    ? Math.min(LEARNING_GROUP_MAX_STUDENTS, Math.max(LEARNING_GROUP_MIN_CAPACITY, rawMaxStudents))
-    : LEARNING_GROUP_MAX_STUDENTS;
   const members = [];
   const memberIndex = new Map();
   (Array.isArray(value.members) ? value.members : []).forEach((entry) => {
@@ -279,7 +273,6 @@ export const normalizeLearningGroup = (value) => {
     name,
     telemostUrl: normalizeTelemostUrl(value.telemostUrl),
     plannedStartDate: normalizeDayKey(value.plannedStartDate || value.startDate),
-    maxStudents,
     pricePerLesson: normalizeLessonPrice(value.pricePerLesson ?? value.lessonPrice),
     admissionsOpen: !startedAt && !completedAt && value.admissionsOpen !== false,
     members,
@@ -309,12 +302,8 @@ export const createLearningGroup = (payload = {}, options = {}) => {
   const id = cleanText(options.id || payload.id, 180);
   const teacherId = cleanText(options.teacherId || payload.teacherId, 180);
   const name = cleanText(payload.name, 160);
-  const maxStudents = Math.round(Number(payload.maxStudents ?? LEARNING_GROUP_MAX_STUDENTS));
   if (!id || !teacherId) fail('Не удалось определить группу и преподавателя');
   if (!name) fail('Введите название группы', 'group_name_required');
-  if (!Number.isInteger(maxStudents) || maxStudents < LEARNING_GROUP_MIN_CAPACITY || maxStudents > LEARNING_GROUP_MAX_STUDENTS) {
-    fail('Максимальное количество учеников должно быть от 2 до 5', 'invalid_group_capacity');
-  }
   const rawPlannedStart = cleanText(payload.plannedStartDate || payload.startDate, 20);
   const plannedStartDate = rawPlannedStart ? normalizeDayKey(rawPlannedStart) : '';
   if (rawPlannedStart && !plannedStartDate) fail('Некорректная дата старта', 'invalid_start_date');
@@ -327,7 +316,6 @@ export const createLearningGroup = (payload = {}, options = {}) => {
     name,
     telemostUrl: telemost.url,
     plannedStartDate,
-    maxStudents,
     pricePerLesson: normalizeLessonPrice(payload.pricePerLesson ?? payload.lessonPrice),
     admissionsOpen: true,
     members: [],
@@ -362,16 +350,6 @@ export const updateLearningGroup = (groupValue, patch = {}, options = {}) => {
     if (raw && !plannedStartDate) fail('Некорректная дата старта', 'invalid_start_date');
     next.plannedStartDate = plannedStartDate;
   }
-  if (Object.prototype.hasOwnProperty.call(patch, 'maxStudents')) {
-    const maxStudents = Math.round(Number(patch.maxStudents));
-    if (!Number.isInteger(maxStudents) || maxStudents < LEARNING_GROUP_MIN_CAPACITY || maxStudents > LEARNING_GROUP_MAX_STUDENTS) {
-      fail('Максимальное количество учеников должно быть от 2 до 5', 'invalid_group_capacity');
-    }
-    if (getActiveLearningGroupMembers(group).length > maxStudents) {
-      fail('Сначала удалите лишних учеников из группы', 'group_capacity_below_members', 409);
-    }
-    next.maxStudents = maxStudents;
-  }
   if (Object.prototype.hasOwnProperty.call(patch, 'pricePerLesson') || Object.prototype.hasOwnProperty.call(patch, 'lessonPrice')) {
     const pricePerLesson = normalizeLessonPrice(patch.pricePerLesson ?? patch.lessonPrice, -1);
     if (pricePerLesson < 0) fail('Стоимость занятия группы должна быть неотрицательной', 'invalid_group_price');
@@ -401,9 +379,6 @@ export const addLearningGroupMember = (groupValue, studentValue, options = {}) =
   }
   if (getActiveLearningGroupMembers(group).some((member) => member.studentId === studentId)) {
     fail('Ученик уже состоит в группе', 'member_already_active', 409);
-  }
-  if (getActiveLearningGroupMembers(group).length >= group.maxStudents) {
-    fail('В группе уже достигнуто максимальное количество учеников', 'group_capacity_reached', 409);
   }
   const isLateAdd = group.status === LEARNING_GROUP_STATUS_ACTIVE;
   const overrideReason = cleanText(options.overrideReason || options.lateAddReason, 1000);
@@ -497,7 +472,7 @@ export const normalizeLearningLessonSession = (value) => {
   const teacherId = cleanText(value.teacherId, 180);
   const startAt = normalizeIsoTimestamp(value.startAt);
   if (!id || !groupId || !teacherId || !startAt) return null;
-  const participantIds = normalizeStringIds(value.participantIds || value.participantIdsSnapshot, 5);
+  const participantIds = normalizeStringIds(value.participantIds || value.participantIdsSnapshot, Infinity);
   const status = LESSON_STATUSES.has(value.status) ? value.status : 'scheduled';
   return {
     id,
@@ -637,7 +612,7 @@ export const normalizeLearningAssignment = (value) => {
     dueAt: normalizeIsoTimestamp(value.dueAt),
     homework: normalizeLearningHomeworkTemplate(value.homework || value.homeworkTemplate),
     materialIds: normalizeStringIds(value.materialIds, 100),
-    recipientIds: normalizeStringIds(value.recipientIds, 5),
+    recipientIds: normalizeStringIds(value.recipientIds, Infinity),
     status,
     publishedAt: normalizeIsoTimestamp(value.publishedAt),
     createdAt: normalizeIsoTimestamp(value.createdAt),
@@ -698,7 +673,7 @@ export const updateLearningAssignment = (assignmentValue, patch = {}, options = 
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'materialIds')) next.materialIds = normalizeStringIds(patch.materialIds, 100);
   if (Object.prototype.hasOwnProperty.call(patch, 'recipientIds')) {
-    next.recipientIds = normalizeStringIds(patch.recipientIds, LEARNING_GROUP_MAX_STUDENTS);
+    next.recipientIds = normalizeStringIds(patch.recipientIds, Infinity);
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'homework') || Object.prototype.hasOwnProperty.call(patch, 'homeworkTemplate')) {
     next.homework = normalizeLearningHomeworkTemplate(patch.homework || patch.homeworkTemplate);

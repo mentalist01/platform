@@ -582,6 +582,12 @@ const NotesSection = ({
         Number(left?.slotNumber ?? left?.number) - Number(right?.slotNumber ?? right?.number)
       ));
   const normalizedCurrentTask = normalizeTaskNumber(currentTask);
+  const formatNotesTaskNumber = (value) => {
+    const task = MOCK_TASKS.find((entry) => Number(entry.number) === Number(value));
+    if (!task) return formatTaskNumber(value) || value;
+    const slot = Number(task.slotNumber ?? task.number);
+    return slot === GAME_THEORY_TASK ? '19-21' : String(slot);
+  };
   const LESSON_SHARED_FOLDER_NAME = 'файлы к уроку';
   const getNotesTaskNumber = (value) => normalizeTaskNumber(value);
   const getNotesTaskNumbers = (value) => {
@@ -3399,7 +3405,7 @@ const NotesSection = ({
   const isPythonNotesTask = Boolean(currentPythonTask) || Number(normalizedCurrentTask) >= 100;
   const currentTaskLabel = isPythonNotesTask
     ? (currentPythonTask?.title || `Тема ${normalizedCurrentTask}`)
-    : (formatTaskNumber(currentTask) || currentTask);
+    : formatNotesTaskNumber(currentTask);
   const uploadButtonLabel = isUploading
     ? 'Загрузка...'
     : (uploadBlockedByRole ? 'Только учитель' : 'Загрузить');
@@ -3986,7 +3992,7 @@ const NotesSection = ({
                     const isPreviewPresent = isExpanded;
                     const isPreviewVisuallyOpen = isExpanded && !isCollapsingPreview;
                     const solutionTaskNumber = memory?.taskNumber ?? f?.taskNumber;
-                    const solutionTaskDisplay = formatTaskNumber(solutionTaskNumber) || solutionTaskNumber;
+                    const solutionTaskDisplay = formatNotesTaskNumber(solutionTaskNumber);
                     const solutionTitle = getSavedSolutionTitle(f, memory);
                     const solutionTaskLabel = solutionTaskDisplay ? `Задание ${solutionTaskDisplay}` : 'Задание';
                     const solutionActionTitle = isCheatsheet

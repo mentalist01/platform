@@ -215,10 +215,6 @@ export const normalizeLearningGroup = (value, index = 0) => {
   const memberCount = Number.isFinite(reportedMemberCount) && reportedMemberCount >= 0
     ? Math.floor(reportedMemberCount)
     : members.length;
-  const rawMaximum = Number(source.maxStudents ?? source.maxMembers ?? source.capacity);
-  const maxStudents = Number.isFinite(rawMaximum)
-    ? Math.max(2, Math.min(5, Math.round(rawMaximum)))
-    : 5;
   const schedule = getFirstArray(source.schedule, source.weeklySchedule, source.scheduleEntries, workspace.schedule)
     .map(normalizeLearningGroupScheduleEntry)
     .sort((left, right) => (left.weekdayOrder - right.weekdayOrder) || left.time.localeCompare(right.time, 'ru'));
@@ -239,7 +235,6 @@ export const normalizeLearningGroup = (value, index = 0) => {
     plannedStartDate: cleanString(
       source.plannedStartDate || source.plannedStart || source.startDate
     ),
-    maxStudents,
     memberCount,
     members,
     participantIds: members.map((member) => member.studentId),

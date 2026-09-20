@@ -48,7 +48,7 @@ const GroupTelemostSection = ({
 
   // The lesson card can stay mounted while the clock crosses the start time.
   // Refreshing the whole group is unnecessary: wake the card at the exact
-  // moment when the permanent Telemost link becomes usable.
+  // moment when the lesson workspace becomes usable.
   useEffect(() => {
     if (status === 'active' || !Number.isFinite(startMs) || startMs <= clockMs) return undefined;
     const delay = Math.max(250, Math.min(startMs - clockMs, 2_147_000_000));
@@ -113,7 +113,12 @@ const GroupTelemostSection = ({
               материалов, заданий и личных ответов.
             </p>
 
-            {!effectiveReadOnly && !effectiveNotStarted && meetingUrl ? (
+            {meetingUrl && !isTeacher ? (
+              <a href={meetingUrl} target="_blank" rel="noopener noreferrer"
+                className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-rose-600 px-5 py-3.5 text-base font-black text-white shadow-lg shadow-rose-200 transition hover:bg-rose-700">
+                <ExternalLink size={19} /> Войти в Телемост группы
+              </a>
+            ) : !effectiveReadOnly && !effectiveNotStarted && meetingUrl ? (
               <button
                 type="button"
                 onClick={() => onOpenTelemost?.(meetingUrl)}
@@ -121,21 +126,18 @@ const GroupTelemostSection = ({
               >
                 <ExternalLink size={19} /> Войти в Телемост
               </button>
-            ) : effectiveNotStarted ? (
+            ) : !meetingUrl ? (
+              <div className="mt-6 text-sm text-slate-600">Преподаватель ещё не добавил ссылку Телемоста.</div>
+            ) : null}
+            {effectiveNotStarted ? (
               <div className="mt-6 w-full rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold text-amber-900">
-                Занятие ещё не началось. Ссылка на Телемост станет доступна в момент начала.
+                Занятие ещё не началось. Доска и код откроются для работы во время урока.
               </div>
             ) : effectiveReadOnly ? (
               <div className="mt-6 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-700">
                 Занятие завершено. Его общая доска и код сохранены и доступны только для просмотра.
               </div>
-            ) : (
-              <div className="mt-6 w-full rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold text-amber-900">
-                {isTeacher
-                  ? 'Ссылка ещё не указана. Добавьте её в карточке занятия в разделе мини-группы.'
-                  : 'Преподаватель ещё не добавил ссылку Телемоста. Она появится здесь перед занятием.'}
-              </div>
-            )}
+            ) : null}
             {!effectiveReadOnly && !effectiveNotStarted && meetingUrl && isTeacher && (
               <div className={`mt-4 flex max-w-xl items-start gap-2 rounded-2xl border px-4 py-3 text-left text-xs font-semibold ${
                 audioCaptureStatus === 'recording'

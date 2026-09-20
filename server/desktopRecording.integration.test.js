@@ -13,15 +13,16 @@ test('real platform routes isolate devices and expose one group recording to its
   const data = path.join(root, 'data'); fs.mkdirSync(data);
   const write = (name, value) => fs.writeFileSync(path.join(data, `${name}.json`), JSON.stringify(value));
   const now = Date.now(); const old = new Date(now - 86400000).toISOString();
+  const participants = Array.from({ length: 8 }, (_, index) => `s${index + 1}`);
   write('teachers', [{ id: 't1', name: 'Test teacher' }, { id: 't2', name: 'Other teacher' }]);
-  write('students', ['s1', 's2', 'outside'].map(id => ({ id, name: id, teacherId: 't1', createdAt: old })));
-  write('auth-sessions', ['t1', 't2', 's1', 's2', 'outside'].map(id => ({
+  write('students', [...participants, 'outside'].map(id => ({ id, name: id, teacherId: 't1', createdAt: old })));
+  write('auth-sessions', ['t1', 't2', ...participants, 'outside'].map(id => ({
     token: `fixture-${id}`, user: { id, name: id, role: id.startsWith('t') ? 'teacher' : 'student', teacherId: 't1' },
     createdAtMs: now, expiresAtMs: now + 3600000,
   })));
   write('learning-groups', [{ id: 'g1', name: 'Test group', teacherId: 't1', startedAt: old, createdAt: old,
-    members: ['s1', 's2'].map(studentId => ({ studentId, joinedAt: old, status: 'active' })) }]);
-  write('learning-lesson-sessions', [{ id: 'lesson1', groupId: 'g1', teacherId: 't1', participantIds: ['s1', 's2'],
+    members: participants.map(studentId => ({ studentId, joinedAt: old, status: 'active' })) }]);
+  write('learning-lesson-sessions', [{ id: 'lesson1', groupId: 'g1', teacherId: 't1', participantIds: participants,
     startAt: new Date(now - 61 * 60000).toISOString(), durationMinutes: 60, status: 'active', createdAt: old }]);
   const reserve = net.createServer(); reserve.listen(0, '127.0.0.1'); await once(reserve, 'listening');
   const port = reserve.address().port; await new Promise(resolve => reserve.close(resolve));
@@ -65,7 +66,7 @@ test('real platform routes isolate devices and expose one group recording to its
   await request(`/desktop-recorder/jobs/${job.id}`, { token, body: { status: 'saved' } });
   const url = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Fixture_Key';
   await request(`/desktop-recorder/jobs/${job.id}`, { token, body: { status: 'ready', url } });
-  for (const actor of ['s1', 's2']) {
+  for (const actor of ['s1', 's8']) {
     const history = await request(`/lesson-history?studentId=${actor}`, { actor });
     const lesson = history.items.find(item => item.lessonId === 'lesson1');
     assert.ok(lesson, `Missing group lesson for ${actor}: ${JSON.stringify(history)}`);

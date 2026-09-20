@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
+import PythonVideoHomeworkPicker from './PythonVideoHomeworkPicker';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
 import {
   HOMEWORK_ASSIGNMENT_TIER_OPTIONAL,
@@ -192,6 +193,7 @@ const TeacherHomeworkComposer = ({
   studentLabel = '',
   targetType = 'student',
   groupMaterials = [],
+  onMaterialCreated,
   form,
   carryoverSummary = null,
   taskOptions = [],
@@ -226,6 +228,9 @@ const TeacherHomeworkComposer = ({
   const [expandedImage, setExpandedImage] = useState(null);
   const [mobilePane, setMobilePane] = useState('compose');
   const [materialSearch, setMaterialSearch] = useState('');
+  const [createdMaterials, setCreatedMaterials] = useState([]);
+  const [materialCreating, setMaterialCreating] = useState(false);
+  const availableMaterials = [...new Map([...groupMaterials, ...createdMaterials].map((material) => [material.id || material.materialId, material])).values()];
   const [manualPlanDate, setManualPlanDate] = useState('');
   const [solvedQuestionIds, setSolvedQuestionIds] = useState(() => new Set());
   const [questionTimingIndex, setQuestionTimingIndex] = useState({});
@@ -234,7 +239,7 @@ const TeacherHomeworkComposer = ({
   const questionSelectionDragRef = useRef(null);
   const suppressQuestionSelectionClickRef = useRef(false);
   const suppressQuestionSelectionClickTimerRef = useRef(null);
-  const composerBusy = saving || draftSaving || discarding;
+  const composerBusy = saving || draftSaving || discarding || materialCreating;
   const restoredDraftDate = draftRestoredAt ? new Date(draftRestoredAt) : null;
   const restoredDraftLabel = restoredDraftDate && !Number.isNaN(restoredDraftDate.getTime())
     ? restoredDraftDate.toLocaleString('ru-RU', {
@@ -251,6 +256,7 @@ const TeacherHomeworkComposer = ({
     document.body.style.overflow = 'hidden';
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
+        if (composerBusy) return;
         if (expandedImage) setExpandedImage(null);
         else onClose?.();
       }
@@ -260,7 +266,7 @@ const TeacherHomeworkComposer = ({
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [expandedImage, onClose, open]);
+  }, [composerBusy, expandedImage, onClose, open]);
 
   useEffect(() => {
     if (!open || typeof window === 'undefined') return undefined;
@@ -1298,7 +1304,14 @@ const TeacherHomeworkComposer = ({
                   />
                 </label>
 
-                {groupMaterials.length > 0 && (
+                <PythonVideoHomeworkPicker tasks={pythonTaskOptions} testsDb={testsDb} levelId={pythonLevelId}
+                  disabled={saving || draftSaving || discarding || preparing} onBusyChange={setMaterialCreating}
+                  onCreated={(material) => {
+                    setCreatedMaterials((current) => [...current, material]);
+                    onMaterialCreated?.(material);
+                    onChangeForm?.({ materialIds: [...new Set([...(form?.materialIds || []), material.id])] });
+                  }} />
+                {availableMaterials.length > 0 && (
                   <section>
                     <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">
                       <Video size={14} /> Видео и материалы
@@ -1314,7 +1327,7 @@ const TeacherHomeworkComposer = ({
                     {Array.isArray(form?.materialIds) && form.materialIds.length > 0 && (
                       <div className="mb-2 flex flex-wrap gap-1.5">
                         {form.materialIds.map((selectedId) => {
-                          const selectedMaterial = groupMaterials.find((material) => String(material?.id || material?.materialId || '').trim() === selectedId);
+                          const selectedMaterial = availableMaterials.find((material) => String(material?.id || material?.materialId || '').trim() === selectedId);
                           if (!selectedMaterial) return null;
                           return (
                             <button
@@ -1331,7 +1344,7 @@ const TeacherHomeworkComposer = ({
                       </div>
                     )}
                     <div className="max-h-52 space-y-1 overflow-y-auto rounded-2xl border border-slate-200 bg-[rgb(var(--surface))] p-1.5">
-                      {groupMaterials
+                      {availableMaterials
                         .filter((material) => {
                           const query = materialSearch.trim().toLocaleLowerCase('ru-RU');
                           if (!query) return true;
@@ -1371,13 +1384,13 @@ const TeacherHomeworkComposer = ({
                           </label>
                         );
                       })}
-                      {groupMaterials.filter((material) => {
+                      {availableMaterials.filter((material) => {
                         const query = materialSearch.trim().toLocaleLowerCase('ru-RU');
                         return !query || `${material?.title || ''} ${material?.content || ''}`.toLocaleLowerCase('ru-RU').includes(query);
                       }).length === 0 && (
                         <div className="px-3 py-5 text-center text-xs font-semibold text-slate-400">Ничего не найдено</div>
                       )}
-                      {groupMaterials.filter((material) => {
+                      {availableMaterials.filter((material) => {
                         const query = materialSearch.trim().toLocaleLowerCase('ru-RU');
                         return !query || `${material?.title || ''} ${material?.content || ''}`.toLocaleLowerCase('ru-RU').includes(query);
                       }).length > 40 && (

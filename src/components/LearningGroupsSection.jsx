@@ -106,7 +106,6 @@ const TAB_ITEMS = [
 const EMPTY_GROUP_FORM = {
   name: '',
   plannedStartDate: '',
-  maxStudents: 5,
   telemostUrl: '',
 };
 
@@ -685,7 +684,6 @@ const LearningGroupsSection = ({
     setEditForm({
       name: selectedGroup.name,
       plannedStartDate: selectedGroup.plannedStartDate || '',
-      maxStudents: selectedGroup.maxStudents || 5,
       telemostUrl: parseTelemostUrl(selectedGroup.telemostUrl).url,
     });
     setAddStudentId('');
@@ -1032,7 +1030,6 @@ const LearningGroupsSection = ({
       () => api.createLearningGroup({
         name: cleanString(createForm.name),
         plannedStartDate: createForm.plannedStartDate,
-        maxStudents: Number(createForm.maxStudents),
         telemostUrl: parsedTelemost.url,
       }),
       'Мини-группа создана.',
@@ -1062,7 +1059,6 @@ const LearningGroupsSection = ({
       } : {
         name: cleanString(editForm.name),
         plannedStartDate: editForm.plannedStartDate,
-        maxStudents: Number(editForm.maxStudents),
         telemostUrl: parsedTelemost.url,
       }),
       'Настройки группы сохранены.'
@@ -1486,8 +1482,8 @@ const LearningGroupsSection = ({
       )}
 
       {showCreateForm && isTeacher && (
-        <SectionCard title="Новая мини-группа" subtitle="После создания добавьте хотя бы одного ученика и настройте расписание. Позже состав можно увеличить до пяти.">
-          <form onSubmit={handleCreateGroup} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_140px_auto] md:items-end">
+        <SectionCard title="Новая мини-группа" subtitle="Добавьте учеников и настройте расписание. Состав и размер группы определяете вы.">
+          <form onSubmit={handleCreateGroup} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto] md:items-end">
             <Field label="Название">
               <input
                 value={createForm.name}
@@ -1506,15 +1502,6 @@ const LearningGroupsSection = ({
                 className={inputClassName}
               />
             </Field>
-            <Field label="Вместимость">
-              <select
-                value={createForm.maxStudents}
-                onChange={(event) => setCreateForm((current) => ({ ...current, maxStudents: Number(event.target.value) }))}
-                className={inputClassName}
-              >
-                {[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} учеников</option>)}
-              </select>
-            </Field>
             <button
               type="submit"
               disabled={busyKey === 'create-group'}
@@ -1522,7 +1509,7 @@ const LearningGroupsSection = ({
             >
               <BusyButtonContent busy={busyKey === 'create-group'} busyLabel="Создаём..." icon={Plus}>Создать</BusyButtonContent>
             </button>
-            <div className="md:col-span-4">
+            <div className="md:col-span-3">
               <Field label="Постоянная ссылка Телемоста" hint="можно добавить позже">
                 <input
                   value={createForm.telemostUrl}
@@ -1593,7 +1580,7 @@ const LearningGroupsSection = ({
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <GroupStatusPill status={group.status} />
                       <span className="text-[11px] font-semibold text-slate-500">
-                        {group.memberCount}/{group.maxStudents}
+                        Участников: {group.memberCount}
                       </span>
                     </div>
                     {group.nextLesson && (
@@ -1622,7 +1609,7 @@ const LearningGroupsSection = ({
                         {detailLoading && <Loader2 size={16} className="animate-spin text-violet-600" />}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
-                        <span className="inline-flex items-center gap-1.5"><Users size={15} /> {selectedGroup.memberCount} из {selectedGroup.maxStudents}</span>
+                        <span className="inline-flex items-center gap-1.5"><Users size={15} /> Участников: {selectedGroup.memberCount}</span>
                         {selectedGroup.plannedStartDate && (
                           <span className="inline-flex items-center gap-1.5"><CalendarDays size={15} /> Старт {formatDate(selectedGroup.plannedStartDate)}</span>
                         )}
@@ -1705,7 +1692,7 @@ const LearningGroupsSection = ({
                         title="Настройки группы"
                         subtitle={selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED
                           ? 'В архиве можно исправить название и дату старта. Состав и параметры обучения остаются зафиксированными.'
-                          : 'Название и вместимость можно менять до завершения обучения.'}
+                          : 'Название, дату старта и ссылку можно менять до завершения обучения.'}
                       >
                         <form onSubmit={handleUpdateGroup} className="space-y-3">
                           <Field label="Название">
@@ -1716,7 +1703,7 @@ const LearningGroupsSection = ({
                               required
                             />
                           </Field>
-                          <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="grid gap-3">
                             <Field label="Дата старта">
                               <input
                                 type="date"
@@ -1724,16 +1711,6 @@ const LearningGroupsSection = ({
                                 onChange={(event) => setEditForm((current) => ({ ...current, plannedStartDate: event.target.value }))}
                                 className={inputClassName}
                               />
-                            </Field>
-                            <Field label="Вместимость">
-                              <select
-                                value={editForm.maxStudents}
-                                onChange={(event) => setEditForm((current) => ({ ...current, maxStudents: Number(event.target.value) }))}
-                                className={inputClassName}
-                                disabled={selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
-                              >
-                                {[2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} учеников</option>)}
-                              </select>
                             </Field>
                           </div>
                           <Field label="Постоянная ссылка Телемоста" hint="используется во всех занятиях группы">
@@ -1760,7 +1737,7 @@ const LearningGroupsSection = ({
 
                     <SectionCard
                       title="Участники"
-                      subtitle={`${selectedGroup.memberCount} из ${selectedGroup.maxStudents} мест занято`}
+                      subtitle={`Участников: ${selectedGroup.memberCount}`}
                       className={!isTeacher ? 'xl:col-span-2' : ''}
                     >
                       <div className="space-y-2">
@@ -1796,7 +1773,7 @@ const LearningGroupsSection = ({
                         ))}
                       </div>
 
-                      {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && selectedGroup.memberCount < selectedGroup.maxStudents && (
+                      {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
                         <form onSubmit={handleAddMember} className="mt-4 space-y-3 rounded-2xl border border-violet-100 bg-violet-50/60 p-3">
                           <Field label="Добавить ученика">
                             <select
@@ -2891,6 +2868,9 @@ const LearningGroupsSection = ({
           targetType="group"
           form={assignmentComposerForm}
           groupMaterials={materials}
+          onMaterialCreated={(material) => setGroups((current) => current.map((group) => (
+            group.id === selectedGroupId ? { ...group, materials: [material, ...(group.materials || [])] } : group
+          )))}
           carryoverSummary={null}
           taskOptions={Array.isArray(tasks) ? tasks : []}
           pythonTaskOptions={Array.isArray(PYTHON_TASKS) ? PYTHON_TASKS : []}

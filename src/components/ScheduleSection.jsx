@@ -5953,6 +5953,7 @@ const ScheduleSection = ({
           studentId={requestStudentId}
           studentLabel={selectedStudent ? getStudentLabel(selectedStudent) : ''}
           groupMaterials={homeworkMaterials}
+          onMaterialCreated={(material) => setHomeworkMaterials((current) => [material, ...current])}
           form={form}
           carryoverSummary={homeworkCarryoverSummary}
           taskOptions={taskOptions}

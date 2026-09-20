@@ -24855,10 +24855,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     <div className="app-min-h app-shell flex font-sans text-slate-900">
       {user.role === 'teacher' && <DesktopRecordingControl recorder={desktopRecorder} />}
       {user.role === 'teacher' && isAnyTelemostLessonReplayActive && (
-        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1350] flex max-w-[calc(100vw-1.5rem)] items-center gap-3 rounded-2xl border border-violet-200/90 bg-white/95 px-3 py-2.5 shadow-[0_16px_42px_rgba(91,33,182,0.22)] backdrop-blur-xl md:bottom-5 md:right-5">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white shadow-md shadow-violet-200/70">
-            <Video size={18} />
-          </span>
+        <details className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1350] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-violet-200/90 bg-white/95 shadow-lg backdrop-blur-xl md:bottom-20 md:right-5">
+          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-3 py-2 text-xs font-bold text-violet-700" title="Управление уроком: запись и завершение">
+            <Video size={16} /> {telemostLessonFinishError || telemostAudioCapture.status === 'error' ? 'Урок · нужна проверка' : 'Урок'}
+          </summary>
+          <div className="flex max-w-md flex-wrap items-center gap-3 border-t border-violet-100 p-3">
           <div className="min-w-0">
             <p className="truncate text-xs font-black text-slate-800">
               {isGroupLessonReplayActive ? 'Группа занимается в Телемосте' : 'Урок идёт в Телемосте'}
@@ -24905,7 +24906,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           >
             {telemostLessonFinishBusy ? 'Завершаю…' : 'Завершить урок'}
           </button>
-        </div>
+          </div>
+        </details>
       )}
       {user.role === 'student' && workbookAutoSyncState?.status !== 'idle' && (
         <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1340] flex max-w-[calc(100vw-1.5rem)] items-center gap-3 rounded-2xl border bg-white/95 px-3 py-2.5 shadow-[0_16px_42px_rgba(91,33,182,0.18)] backdrop-blur-xl md:bottom-5 md:right-5 ${
@@ -26905,7 +26907,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               initialLocationKey={notesLocationRequestKey}
               onLocationChange={handleNotesLocationChange}
               withStudentId={withStudentId}
-              MOCK_TASKS={MOCK_TASKS}
+              MOCK_TASKS={tasksWithTitles}
               PYTHON_TASKS={PYTHON_TASKS}
               normalizeTaskNumber={normalizeTaskNumber}
               GAME_THEORY_TASK={GAME_THEORY_TASK}

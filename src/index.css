@@ -87503,7 +87503,16 @@ html[data-theme='dark'] .student-month-report__error {
   }
 
   .student-month-report__metrics {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .student-month-report__metric-icon {
+    display: none;
+  }
+
+  .student-month-report__metric small {
+    white-space: normal;
   }
 
   .student-month-report__toolbar {

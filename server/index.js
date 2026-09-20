@@ -10917,19 +10917,18 @@ const getLearningGroupNotesParticipantIds = (entry) => Array.from(new Set(
   .filter(Boolean)
 ));
 
-// Group notes are stored once with the lesson participant snapshot.  An
-// active participant can read the shared file; a former participant keeps
-// only files created no later than the moment they left the group.
+// Group notes belong to the whole group, including students who join later.
+// Former members keep only the archive created before they left.
 const canReadLearningGroupNotesFileForStudent = (entry, studentId) => {
   const normalizedStudentId = String(studentId || '').trim();
-  if (!normalizedStudentId || !getLearningGroupNotesParticipantIds(entry).includes(normalizedStudentId)) return false;
+  if (!normalizedStudentId) return false;
   const groupId = String(entry?.groupId || '').trim();
   const group = groupId
     ? readLearningGroupsDb().find((candidate) => candidate.id === groupId && !candidate.deletedAt)
     : null;
   // Keep legacy files readable when their originating group was removed from
   // storage; the participant snapshot is the only durable ACL in that case.
-  if (!group) return true;
+  if (!group) return getLearningGroupNotesParticipantIds(entry).includes(normalizedStudentId);
   return canStudentReadLearningGroupRecord(
     group,
     normalizedStudentId,
@@ -10946,7 +10945,9 @@ const canReadLearningGroupNotesFile = (auth, entry) => {
   const participantIds = getLearningGroupNotesParticipantIds(entry);
   if (isStudentRole(auth)) return canReadLearningGroupNotesFileForStudent(entry, auth.id);
   if (isParentRole(auth)) {
-    return participantIds.some((studentId) => {
+    const group = readLearningGroupsDb().find((candidate) => candidate.id === entry.groupId && !candidate.deletedAt);
+    const studentIds = new Set([...participantIds, ...(group?.members || []).map((member) => member.studentId)]);
+    return [...studentIds].some((studentId) => {
       const student = findStudentById(studentId, { allowDeleted: true });
       return Boolean(
         student
@@ -21047,7 +21048,7 @@ const handleUploadRequest = (req, res) => {
     if (!student) return res.status(404).send('Ученик не найден');
     if (!canAccessStudentByRole(req.auth, student)) return res.status(403).send('Недостаточно прав');
     if (ownerIsLearningGroupShared) {
-      if (!getLearningGroupNotesParticipantIds(ownedFile).includes(queryStudentId)) {
+      if (!canReadLearningGroupNotesFileForStudent(ownedFile, queryStudentId)) {
         return res.status(400).send('Некорректный studentId');
       }
     } else if (ownerIsLessonShared) {
@@ -22776,9 +22777,7 @@ const getLearningGroupNextLesson = (group, now = new Date(), auth = null) => {
     .map((entry) => buildLearningScheduleOccurrence(group, entry, now))
     .filter(Boolean)
     .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))[0] || null;
-  const occurrenceStarted = occurrence
-    && Date.parse(occurrence.startAt) - LEARNING_LESSON_EARLY_JOIN_MS <= now.getTime();
-  return occurrence && (!canUseTelemost || (isStudentRole(auth) && !occurrenceStarted))
+  return occurrence && !canUseTelemost
     ? { ...occurrence, telemostUrl: '', usesGroupTelemostUrl: false }
     : occurrence;
 };
@@ -22814,9 +22813,7 @@ const serializeLearningLessonForAuth = (lesson, auth = null, groupValue = null) 
     : readLearningGroupsDb().find((entry) => entry.id === lesson?.groupId) || null;
   const currentStudentMember = isStudentRole(auth) && group?.status !== 'completed' && getActiveLearningGroupMembers(group)
     .some((member) => member.studentId === auth?.id);
-  const lessonStarted = lesson?.status !== 'scheduled'
-    || Date.parse(String(lesson?.startAt || '')) - LEARNING_LESSON_EARLY_JOIN_MS <= Date.now();
-  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || (currentStudentMember && lessonStarted);
+  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || currentStudentMember;
   const telemostUrlOverride = canUseTelemost ? normalizeTelemostUrl(lesson?.telemostUrl) : '';
   const groupTelemostUrl = canUseTelemost ? normalizeTelemostUrl(group?.telemostUrl) : '';
   return {
@@ -32507,7 +32504,7 @@ const buildLearningGroupReplayOccurrence = (context) => {
     (Array.isArray(context.lesson.participantIds) ? context.lesson.participantIds : [])
       .map((entry) => String(entry || '').trim())
       .filter(Boolean)
-  )).slice(0, 5);
+  ));
   return {
     key: buildLearningGroupLessonReplayKey(context.lesson.id),
     studentId: '',
@@ -39680,7 +39677,7 @@ app.patch('/api/files/:id', (req, res) => {
     : normalizeTeacherId(ownerStudent?.teacherId);
 
   if (isCurrentLearningGroupShared && (hasLessonSharedField || hasLessonShareModeField)) {
-    return res.status(400).json({ error: 'Доступ к групповому конспекту определяется участниками занятия' });
+    return res.status(400).json({ error: 'Доступ к групповому конспекту определяется составом группы' });
   }
 
   let updated = { ...current };

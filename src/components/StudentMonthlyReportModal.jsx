@@ -119,7 +119,8 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
   const lines = wrapCanvasText(context, text, contentWidth);
   const lineHeight = 39;
   const bodyHeight = lines.reduce((height, line) => height + (line ? lineHeight : 22), 0);
-  const height = Math.max(1120, 650 + bodyHeight + 130);
+  const bodyTop = 434;
+  const height = Math.max(960, bodyTop + bodyHeight + 130);
   canvas.width = width;
   canvas.height = height;
 
@@ -177,7 +178,7 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
 
   const metricTop = 192;
   const metricGap = 12;
-  const metricWidth = contentWidth;
+  const metricWidth = (contentWidth - metricGap * 2) / 3;
   const metricData = [
     {
       label: 'ЗАНЯТИЯ',
@@ -187,7 +188,7 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
       fill: '#f0f9ff',
     },
     {
-      label: 'ДОМАШНЯЯ РАБОТА',
+      label: 'ДОМАШКА',
       value: report?.metrics?.homework?.averagePercent == null ? '—' : `${report.metrics.homework.averagePercent}%`,
       note: report?.metrics?.homework?.averagePercent == null ? 'пока нет результата' : 'среднее выполнение',
       color: '#059669',
@@ -202,9 +203,9 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
     },
   ];
   metricData.forEach((metric, index) => {
-    const x = contentX;
-    const y = metricTop + index * (104 + metricGap);
-    addRoundedRect(context, x, y, metricWidth, 104, 20);
+    const x = contentX + index * (metricWidth + metricGap);
+    const y = metricTop;
+    addRoundedRect(context, x, y, metricWidth, 134, 20);
     context.fillStyle = metric.fill;
     context.fill();
     context.strokeStyle = `${metric.color}38`;
@@ -212,27 +213,27 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
     context.stroke();
     context.fillStyle = metric.color;
     context.font = '800 16px Inter, Arial, sans-serif';
-    context.fillText(metric.label, x + 22, y + 33);
+    context.fillText(metric.label, x + 16, y + 29);
     context.fillStyle = '#111827';
     context.font = '800 43px Inter, Arial, sans-serif';
-    context.textAlign = 'right';
-    context.fillText(metric.value, x + metricWidth - 22, y + 72, 170);
-    context.textAlign = 'left';
+    context.fillText(metric.value, x + 16, y + 78, metricWidth - 32);
     context.fillStyle = '#64748b';
-    context.font = '500 18px Inter, Arial, sans-serif';
-    context.fillText(metric.note, x + 22, y + 72, metricWidth - 215);
+    context.font = '500 15px Inter, Arial, sans-serif';
+    wrapCanvasText(context, metric.note, metricWidth - 32).forEach((line, lineIndex) => {
+      context.fillText(line, x + 16, y + 102 + lineIndex * 18);
+    });
   });
 
   context.fillStyle = '#111827';
   context.font = '800 27px Inter, Arial, sans-serif';
-  context.fillText(audience === 'student' ? 'Твои итоги' : 'Как прошёл месяц', contentX, 577);
+  context.fillText(audience === 'student' ? 'Твои итоги' : 'Как прошёл месяц', contentX, 374);
   context.fillStyle = '#7c3aed';
-  addRoundedRect(context, contentX, 595, 86, 5, 3);
+  addRoundedRect(context, contentX, 390, 86, 5, 3);
   context.fill();
 
   context.fillStyle = '#334155';
   context.font = '500 26px Inter, Arial, sans-serif';
-  let y = 650;
+  let y = bodyTop;
   lines.forEach((line) => {
     if (!line) {
       y += 22;

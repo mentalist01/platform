@@ -655,7 +655,7 @@ export const normalizeLessonReplay = (value) => {
     (Array.isArray(occurrence.participantIds) ? occurrence.participantIds : [])
       .map((entry) => clampText(entry, 160).trim())
       .filter(Boolean)
-  )).slice(0, 5);
+  ));
   const normalizedOccurrenceStartMs = Number.isFinite(startMs) ? startMs : 0;
   const minimumTimelineStartMs = normalizedOccurrenceStartMs > 0
     ? normalizedOccurrenceStartMs - (30 * 60 * 1000)

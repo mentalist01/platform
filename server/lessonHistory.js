@@ -115,7 +115,7 @@ export const normalizeLessonHistoryRecord = (value, { timeZone = 'Europe/Moscow'
     (Array.isArray(value.participantIds) ? value.participantIds : [])
       .map((entry) => String(entry || '').trim().slice(0, 160))
       .filter(Boolean)
-  )).slice(0, 5);
+  ));
   const replayKey = String(value.replayKey || '').trim().slice(0, 760);
   return {
     key,
