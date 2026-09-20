@@ -11,7 +11,7 @@ import { RecorderEngine } from './engine.mjs';
 import { RutubeUploader, privateVideo, videoReady } from './rutube.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const directory = process.env.IVAN100_RECORDER_HOME || path.join(process.env.LOCALAPPDATA || os.homedir(), 'Ivan100Recorder');
+const directory = process.env.IVAN100_RECORDER_HOME || path.join(os.homedir(), 'Ivan100Recorder');
 const recordDirectory = path.join(os.homedir(), 'Videos', 'Ivan100 Lessons');
 fs.mkdirSync(directory, { recursive: true });
 const file = path.join(directory, 'state.json');

@@ -1,7 +1,8 @@
 ﻿param([switch]$NoStartup)
 $ErrorActionPreference = 'Stop'
 $sourceDirectory = $PSScriptRoot
-$installDirectory = Join-Path $env:LOCALAPPDATA 'Ivan100Recorder\app'
+$recorderDirectory = Join-Path $env:USERPROFILE 'Ivan100Recorder'
+$installDirectory = Join-Path $recorderDirectory 'app'
 $nodePath = (Get-Command node -ErrorAction Stop).Source
 $recorderPage = $null
 try { $recorderPage = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18765/' -TimeoutSec 2 } catch { }
@@ -14,7 +15,17 @@ if ($recorderPage) {
   Start-Sleep -Seconds 2
 }
 New-Item -ItemType Directory -Force $installDirectory | Out-Null
-$files = @('app.mjs','obs.mjs','engine.mjs','storage.mjs','rutube.mjs','panel.html','hotkeys.ps1','README.md','package.json','package-lock.json')
+# AppData writes can be virtualized by an MSIX host. Keep the standalone helper
+# outside AppData so Task Scheduler and Explorer see the same files.
+$legacyDirectory = Join-Path $env:LOCALAPPDATA 'Ivan100Recorder'
+foreach ($dataName in @('state.json', 'rutube-browser')) {
+  $oldData = Join-Path $legacyDirectory $dataName
+  $newData = Join-Path $recorderDirectory $dataName
+  if ((Test-Path -LiteralPath $oldData) -and -not (Test-Path -LiteralPath $newData)) {
+    Copy-Item -LiteralPath $oldData -Destination $newData -Recurse
+  }
+}
+$files = @('app.mjs','obs.mjs','engine.mjs','storage.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
 foreach ($fileName in $files) { Copy-Item -LiteralPath (Join-Path $sourceDirectory $fileName) -Destination (Join-Path $installDirectory $fileName) -Force }
 Copy-Item -LiteralPath $nodePath -Destination (Join-Path $installDirectory 'node.exe') -Force
 Push-Location $installDirectory
@@ -55,6 +66,15 @@ if (-not $NoStartup) {
   $startupShortcut.Arguments = $desktopShortcut.Arguments + ' background'
   $startupShortcut.WorkingDirectory = $installDirectory
   $startupShortcut.Save()
+  try {
+    $recorderUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $recorderTaskAction = New-ScheduledTaskAction -Execute (Join-Path $env:WINDIR 'System32\wscript.exe') -Argument ('"' + (Join-Path $installDirectory 'background.vbs') + '"')
+    $recorderTaskTrigger = New-ScheduledTaskTrigger -AtLogOn -User $recorderUser
+    $recorderTaskPrincipal = New-ScheduledTaskPrincipal -UserId $recorderUser -LogonType Interactive -RunLevel Limited
+    $recorderTaskSettings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+    Register-ScheduledTask -TaskName 'IVAN100 Lesson Recorder' -Action $recorderTaskAction -Trigger $recorderTaskTrigger -Principal $recorderTaskPrincipal -Settings $recorderTaskSettings -Description 'Local OBS lesson recorder for ivan100.ru' -Force | Out-Null
+    Start-ScheduledTask -TaskName 'IVAN100 Lesson Recorder'
+  } catch { Write-Warning 'Запуск через планировщик недоступен. Ярлык в автозагрузке сохранён.' }
 }
 Write-Output "Установлено: $installDirectory"
 Write-Output 'Ярлык: IVAN100 - Запись уроков. Пульт: http://127.0.0.1:18765/'

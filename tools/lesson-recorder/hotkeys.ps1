@@ -3,7 +3,7 @@ Add-Type -AssemblyName System.Windows.Forms
 $widgetMutex = New-Object System.Threading.Mutex($false, 'Local\Ivan100RecorderHotkeys')
 if (-not $widgetMutex.WaitOne(0)) { exit }
 Add-Type -AssemblyName System.Drawing
-Add-Type @'
+Add-Type -ReferencedAssemblies @('System.Windows.Forms', 'System.Drawing') -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;

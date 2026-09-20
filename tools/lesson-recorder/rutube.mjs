@@ -73,7 +73,9 @@ export class RutubeUploader {
     const access = editor.getByRole('combobox', { name: 'Доступ', exact: true });
     if ((await access.innerText()).trim() !== 'Только по ссылке') {
       await access.click();
-      await page.getByRole('list').getByText('Только по ссылке', { exact: true }).click();
+      // The new-upload editor does not consistently give the dropdown a list role.
+      // Match its visible choice directly and verify the selected access below.
+      await page.getByText('Только по ссылке', { exact: true }).filter({ visible: true }).click();
     }
     if ((await access.innerText()).trim() !== 'Только по ссылке') throw new Error('Не удалось установить доступ «только по ссылке». Проверьте окно Rutube.');
     const link = editor.locator('a[href*="rutube.ru/video/private/"]');
