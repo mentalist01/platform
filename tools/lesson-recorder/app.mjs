@@ -12,10 +12,10 @@ import { RutubeUploader, privateVideo, videoReady } from './rutube.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const directory = process.env.IVAN100_RECORDER_HOME || path.join(os.homedir(), 'Ivan100Recorder');
-const recordDirectory = path.join(os.homedir(), 'Videos', 'Ivan100 Lessons');
 fs.mkdirSync(directory, { recursive: true });
 const file = path.join(directory, 'state.json');
 const state = readJson(file, { config: { platformUrl: 'https://ivan100.ru', autoUpload: false, configured: false }, jobs: {} });
+const recordDirectory = path.resolve(state.config.recordDirectory || path.join(os.homedir(), 'Videos', 'Ivan100 Lessons'));
 const save = () => atomicJson(file, state);
 for (const job of Object.values(state.jobs)) {
   if (job.status === 'uploading') {

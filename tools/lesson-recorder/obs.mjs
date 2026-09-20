@@ -79,7 +79,7 @@ export class ObsClient {
     const profile = await this.call('GetProfileList');
     if (profile.currentProfileName !== COLLECTION) throw new Error('В OBS выбран другой профиль. Нажмите «Настроить OBS».');
   }
-  async prepare(config) {
+  async prepare(config, recordDirectory) {
     await this.launch();
     const recording = await this.call('GetRecordStatus');
     const stream = await this.call('GetStreamStatus');
@@ -90,6 +90,7 @@ export class ObsClient {
     if (profiles.currentProfileName !== COLLECTION) await this.call('SetCurrentProfile', { profileName: COLLECTION });
     if (collections.currentSceneCollectionName !== COLLECTION) await this.call('SetCurrentSceneCollection', { sceneCollectionName: COLLECTION });
     await delay(400);
+    await this.setRecordDirectory(recordDirectory);
     const choices = await this.choices();
     for (const [key, label] of [['platform', 'платформы'], ['telemost', 'Телемоста'], ['mic', 'микрофона']]) {
       if (!choices[key].some((item) => item.itemEnabled && item.itemValue === config[key])) {
@@ -97,6 +98,15 @@ export class ObsClient {
       }
     }
     await this.configure(config);
+  }
+  async setRecordDirectory(recordDirectory) {
+    await this.assertCollection();
+    if (!recordDirectory || !path.isAbsolute(recordDirectory)) throw new Error('Выберите абсолютный путь к папке записей');
+    // Never fall back to another drive if the configured drive is unavailable.
+    fs.mkdirSync(recordDirectory, { recursive: true });
+    for (const [parameterCategory, parameterName] of [['SimpleOutput', 'FilePath'], ['AdvOut', 'RecFilePath']]) {
+      await this.call('SetProfileParameter', { parameterCategory, parameterName, parameterValue: recordDirectory });
+    }
   }
   async setup(recordDirectory) {
     await this.launch();
@@ -123,9 +133,9 @@ export class ObsClient {
     }
     await this.assertCollection();
     await this.call('SetVideoSettings', { baseWidth: 1920, baseHeight: 1080, outputWidth: 1920, outputHeight: 1080, fpsNumerator: 30, fpsDenominator: 1 });
-    fs.mkdirSync(recordDirectory, { recursive: true });
+    await this.setRecordDirectory(recordDirectory);
     for (const [category, parameterName, parameterValue] of [
-      ['Output', 'Mode', 'Simple'], ['SimpleOutput', 'FilePath', recordDirectory], ['SimpleOutput', 'RecFormat2', 'mkv'],
+      ['Output', 'Mode', 'Simple'], ['SimpleOutput', 'RecFormat2', 'mkv'],
       ['SimpleOutput', 'RecEncoder', 'x264'], ['SimpleOutput', 'RecQuality', 'Small'], ['SimpleOutput', 'ABitrate', '160'],
       ['Output', 'FilenameFormatting', '%CCYY-%MM-%DD %hh-%mm-%ss'],
     ]) await this.call('SetProfileParameter', { parameterCategory: category, parameterName, parameterValue });

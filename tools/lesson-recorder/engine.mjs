@@ -21,7 +21,7 @@ export class RecorderEngine {
   async start(job) {
     if (this.active()) throw new Error('Сначала завершите текущую запись');
     await this.obs.launch();
-    if (this.obs.prepare) await this.obs.prepare(this.state.config);
+    if (this.obs.prepare) await this.obs.prepare(this.state.config, this.recordDirectory);
     else if ((await this.obs.status()).outputActive) throw new Error('В OBS уже идёт запись. Сначала завершите её.');
     // Persist the intent first: a crash after StartRecord must not create a second recording.
     const local = { ...job, status: 'starting', error: '', createdAt: this.now() };

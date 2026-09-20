@@ -73,3 +73,14 @@ test('unavailable capture sources do not start an empty recording', async (t) =>
   await assert.rejects(f.engine.start(f.job), /source unavailable/);
   assert.deepEqual(f.counts(), [0, 0]); assert.equal(f.engine.active(), undefined);
 });
+
+test('selected recording directory is applied before starting OBS', async (t) => {
+  const f = fixture(t);
+  f.obs.prepare = async (_config, directory) => {
+    assert.equal(directory, f.root);
+    assert.deepEqual(f.counts(), [0, 0]);
+  };
+  await f.engine.start(f.job);
+  await f.engine.stop(f.state.jobs.one);
+  assert.equal(path.dirname(f.state.jobs.one.file), f.root);
+});
