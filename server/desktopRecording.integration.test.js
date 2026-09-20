@@ -15,14 +15,16 @@ test('real platform routes isolate devices and expose one group recording to its
   const now = Date.now(); const old = new Date(now - 86400000).toISOString();
   const participants = Array.from({ length: 8 }, (_, index) => `s${index + 1}`);
   write('teachers', [{ id: 't1', name: 'Test teacher' }, { id: 't2', name: 'Other teacher' }]);
-  write('students', [...participants, 'outside'].map(id => ({ id, name: id, teacherId: 't1', createdAt: old })));
-  write('auth-sessions', ['t1', 't2', ...participants, 'outside'].map(id => ({
+  write('students', [...participants, 'outside', 'late'].map(id => ({ id, name: id, teacherId: 't1', createdAt: id === 'late' ? new Date(now).toISOString() : old })));
+  write('auth-sessions', ['t1', 't2', ...participants, 'outside', 'late'].map(id => ({
     token: `fixture-${id}`, user: { id, name: id, role: id.startsWith('t') ? 'teacher' : 'student', teacherId: 't1' },
     createdAtMs: now, expiresAtMs: now + 3600000,
   })));
   write('learning-groups', [{ id: 'g1', name: 'Test group', teacherId: 't1', startedAt: old, createdAt: old,
     members: participants.map(studentId => ({ studentId, joinedAt: old, status: 'active' })) }]);
-  write('learning-lesson-sessions', [{ id: 'lesson1', groupId: 'g1', teacherId: 't1', participantIds: participants,
+  write('learning-lesson-sessions', [{ id: 'legacy', groupId: 'g1', teacherId: 't1', participantIds: participants,
+    startAt: new Date(now - 121 * 60000).toISOString(), durationMinutes: 120, status: 'active', createdAt: old },
+    { id: 'lesson1', groupId: 'g1', teacherId: 't1', participantIds: participants,
     startAt: new Date(now - 61 * 60000).toISOString(), durationMinutes: 60, status: 'active', createdAt: old }]);
   const reserve = net.createServer(); reserve.listen(0, '127.0.0.1'); await once(reserve, 'listening');
   const port = reserve.address().port; await new Promise(resolve => reserve.close(resolve));
@@ -49,6 +51,11 @@ test('real platform routes isolate devices and expose one group recording to its
     try { await request('/session'); started = true; break; } catch { await delay(200); }
   }
   assert.ok(started, `Fixture server did not start: ${logs}`);
+  const legacySession = await request('/lesson-replay/session', { body: { learningLessonId: 'legacy', via: 'telemost' } });
+  await request('/lesson-replay/finish', { body: { sessionId: legacySession.sessionId, events: [{
+    id: 'legacy-code', type: 'code', occurredAt: new Date(now).toISOString(), payload: { code: 'print(42)', language: 'python' },
+  }] } });
+  await request('/learning-groups/g1/lessons/legacy', { method: 'PATCH', body: { status: 'completed' } });
   await request('/desktop-recording/pair', { actor: 's1', body: {}, status: 403 });
   const { code } = await request('/desktop-recording/pair', { body: {} });
   const { token } = await request('/desktop-recorder/pair', { body: { code, name: 'Fixture PC' } });
@@ -75,4 +82,23 @@ test('real platform routes isolate devices and expose one group recording to its
     assert.equal(detail.replay.video.url, url);
     await request(`/lesson-history/detail?studentId=${actor}&occurrenceKey=${encodeURIComponent(lesson.key)}`, { actor: 'outside', status: 404 });
   }
+  assert.equal((await request('/lesson-history?studentId=late', { actor: 'late' })).items.length, 0);
+  await request('/learning-groups/g1/members', { body: { studentId: 'late', lateAddReason: 'Joined after these lessons' } });
+  const lateHistory = await request('/lesson-history?studentId=late', { actor: 'late' });
+  for (const lessonId of ['lesson1', 'legacy']) {
+    const lesson = lateHistory.items.find(item => item.lessonId === lessonId);
+    assert.ok(lesson, `New member must receive ${lessonId}`);
+    const detail = await request(`/lesson-history/detail?studentId=late&occurrenceKey=${encodeURIComponent(lesson.key)}`, { actor: 'late' });
+    if (lessonId === 'lesson1') assert.equal(detail.replay.video.url, url);
+    else assert.ok(detail.replay.events.some(event => event.type === 'code' && event.payload.code === 'print(42)'));
+    const savedLesson = JSON.parse(fs.readFileSync(path.join(data, 'learning-lesson-sessions.json'), 'utf8')).find(item => item.id === lessonId);
+    assert.ok(!savedLesson.participantIds.includes('late'), 'Do not rewrite historical attendance');
+  }
+  const mediaRoute = `/lesson-replay/snapshot/00000000-0000-4000-8000-000000000001?occurrenceKey=${encodeURIComponent(legacySession.occurrenceKey)}`;
+  await request(mediaRoute, { actor: 'late', status: 404 }); // Authorized, but this snapshot does not exist.
+  await request(mediaRoute, { actor: 'outside', status: 403 });
+  assert.equal((await request('/lesson-history?studentId=outside', { actor: 'outside' })).items.length, 0);
+  await request('/learning-groups/g1/members/late', { method: 'DELETE' });
+  assert.equal((await request('/lesson-history?studentId=late', { actor: 'late' })).items.length, 0, 'Cached shared archives must be revoked after leaving');
+  await request(mediaRoute, { actor: 'late', status: 403 });
 });

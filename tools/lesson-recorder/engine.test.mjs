@@ -31,6 +31,23 @@ test('repeated server polls start exactly once and explicit finish stops once', 
   f.job.desired = 'stop'; await f.engine.tick(); await f.engine.tick();
   assert.deepEqual(f.counts(), [1, 1]); assert.equal(f.state.jobs.one.status, 'saved');
 });
+
+test('back-to-back lessons switch files in one poll while the saved file waits for upload', async (t) => {
+  const f = fixture(t); await f.engine.start(f.job);
+  const next = { ...f.job, id: 'two', audioMode: 'platform' };
+  f.remote({ enabled: true, jobs: [next, { ...f.job, desired: 'stop' }] });
+  await f.engine.tick();
+  assert.equal(f.state.jobs.one.status, 'saved');
+  assert.equal(f.state.jobs.two.status, 'recording');
+  assert.deepEqual(f.counts(), [2, 1]);
+});
+
+test('the lesson call mode reaches audio source selection', async (t) => {
+  const f = fixture(t); let mode;
+  f.obs.prepare = async (_config, _directory, audioMode) => { mode = audioMode; };
+  await f.engine.start({ ...f.job, audioMode: 'platform' });
+  assert.equal(mode, 'platform');
+});
 test('local cutoff stops capture during a platform network outage', async (t) => {
   const f = fixture(t); await f.engine.start(f.job); f.offline(); f.advance(1001);
   await assert.rejects(f.engine.tick(), /offline/);
@@ -83,4 +100,22 @@ test('selected recording directory is applied before starting OBS', async (t) =>
   await f.engine.start(f.job);
   await f.engine.stop(f.state.jobs.one);
   assert.equal(path.dirname(f.state.jobs.one.file), f.root);
+});
+
+test('manual continuation keeps recording despite an old stop and publishes to its original lesson', async (t) => {
+  const f = fixture(t); const sent = [];
+  f.engine.api = async (route, body) => {
+    if (route === '/poll') return { enabled: true, jobs: [{ ...f.job, id: 'original', desired: 'stop' }] };
+    sent.push({ route, body }); return {};
+  };
+  await f.engine.start({ ...f.job, manual: true, remoteJobId: 'original' });
+  await f.engine.tick();
+  assert.deepEqual(f.counts(), [1, 0]);
+  assert.deepEqual(sent, []);
+  await f.engine.stop(f.state.jobs.one);
+  assert.equal(sent[0].route, '/jobs/original');
+  assert.equal(sent[0].body.status, 'saved');
+  await f.engine.report(f.state.jobs.one, 'ready', { url: 'private-video' });
+  assert.equal(sent[1].route, '/jobs/original');
+  assert.equal(sent[1].body.url, 'private-video');
 });

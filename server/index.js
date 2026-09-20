@@ -21554,6 +21554,11 @@ app.post('/api/payment-notifications/macrodroid', async (req, res) => {
 });
 
 registerDesktopDeviceRoutes(app, desktopRecordings, {
+  isActive: (job) => {
+    if (job.occurrence.lessonId) return getLearningGroupReplayContext(job.occurrence.lessonId)?.lesson.status === 'active';
+    const student = findStudentById(job.occurrence.studentId);
+    return Boolean(student && (hasActivePlatformLessonCall(student) || getTelemostLessonReplayEntry(student.id)));
+  },
   isEnded: (job) => {
     if (!job.occurrence.lessonId) return false;
     const context = getLearningGroupReplayContext(job.occurrence.lessonId);
@@ -21592,7 +21597,7 @@ app.use('/api', (req, res, next) => {
 registerDesktopRecordingRoutes(app, desktopRecordings, {
   teacherFor: (auth) => findStudentById(isParentRole(auth) ? auth.studentId : auth.id)?.teacherId,
   resolveLesson: async (req, res) => {
-    let occurrence; let cutoffAt;
+    let occurrence; let cutoffAt; let audioMode = 'telemost';
     if (req.body?.learningLessonId) {
       const context = ensureLearningGroupReplayAccess(req, res, req.body.learningLessonId);
       if (!context) return null;
@@ -21602,15 +21607,27 @@ registerDesktopRecordingRoutes(app, desktopRecordings, {
     } else {
       const student = ensureStudentAccess(req, res, req.body?.studentId);
       if (!student) return null;
+      if (hasActivePlatformLessonCall(student)) audioMode = 'platform';
       const activity = getTelemostLessonReplayEntry(student.id);
       if (activity) { occurrence = activity.occurrence; cutoffAt = activity.autoFinishAtMs; }
       else if (hasActivePlatformLessonCall(student)) {
+        audioMode = 'platform';
         occurrence = await resolveCurrentLessonReplayOccurrence(student, req.auth, Date.now(), { preferActive: true, allowFallback: true });
         cutoffAt = occurrence?.endMs + TELEMOST_LESSON_BUFFER_MS;
       }
     }
     if (!occurrence) { res.status(409).json({ error: 'Сначала начните занятие' }); return null; }
-    return { occurrence, cutoffAt };
+    // A new call can start before the old tab sends its final stop request.
+    // Close only inactive preceding lessons so the device can switch files.
+    for (const previous of desktopRecordings.settings(req.auth.id).jobs) {
+      if (previous.desired !== 'record' || previous.occurrence.key === occurrence.key) continue;
+      const previousStudent = findStudentById(previous.occurrence.studentId);
+      const stillActive = previous.occurrence.lessonId
+        ? getLearningGroupReplayContext(previous.occurrence.lessonId)?.lesson.status === 'active'
+        : previousStudent && (hasActivePlatformLessonCall(previousStudent) || getTelemostLessonReplayEntry(previousStudent.id));
+      if (!stillActive) desktopRecordings.stop(previous.occurrence.key);
+    }
+    return { occurrence, cutoffAt, audioMode };
   },
 });
 
@@ -32055,7 +32072,6 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
   const groupLessonSchedule = readLearningLessonSessionsDb()
     .filter((lesson) => (
       Array.isArray(lesson?.participantIds)
-      && lesson.participantIds.includes(studentId)
       && String(lesson?.status || '').trim() !== 'cancelled'
       // Keep the ordinary student's history aligned with the room ACL: a
       // removed member may retain a finished snapshot, but must not receive a
@@ -32127,7 +32143,8 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
   const manualTopics = Object.values(topicStore.topics || {})
     .filter((entry) => String(entry?.studentId || '').trim() === studentId);
   const storedOccurrences = Object.values(historyStore.occurrences || {})
-    .filter((entry) => String(entry?.studentId || '').trim() === studentId);
+    .filter((entry) => String(entry?.studentId || '').trim() === studentId)
+    .filter((entry) => !entry.lessonId || groupLessonSchedule.some((lesson) => lesson.lessonId === entry.lessonId));
   const currentTombstones = collectLessonHistoryTombstones({
     studentId,
     schedule: rawSchedule,
@@ -32156,7 +32173,8 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
     activities: topicStore.activities,
     files: readFilesDb(),
   });
-  const history = occurrences.map((occurrence) => ({
+  const history = occurrences.filter((occurrence) => !occurrence.lessonId
+    || groupLessonSchedule.some((lesson) => lesson.lessonId === occurrence.lessonId)).map((occurrence) => ({
     ...occurrence,
     topic: resolvedTopics[occurrence.key] || occurrence.topic || null,
   }));
@@ -32465,7 +32483,6 @@ const canReadLearningGroupReplay = (auth, context, participantIds = null) => {
   const snapshot = Array.isArray(participantIds)
     ? participantIds
     : context.lesson.participantIds;
-  if (!snapshot.includes(effectiveStudentId)) return false;
   const lessonSnapshot = Array.isArray(participantIds)
     ? { ...context.lesson, participantIds: snapshot }
     : context.lesson;

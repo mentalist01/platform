@@ -10,6 +10,18 @@ import {
 
 const NOW_MS = Date.parse('2026-07-19T17:30:00.000Z'); // 20:30 in Moscow.
 
+test('shared group archives can predate a new student account without inventing individual lessons', () => {
+  const history = buildStudentLessonHistory({
+    studentId: 'new-student', studentCreatedAt: '2026-07-19T09:00:00Z', nowMs: NOW_MS,
+    schedule: [
+      { id: 'shared', source: 'learning-group-session', groupId: 'group', lessonId: 'old-lesson', date: '2026-07-01', time: '12:00', participantIds: ['original-student'] },
+      { id: 'individual', date: '2026-07-02', time: '12:00' },
+    ],
+  });
+  assert.equal(history.length, 1); assert.equal(history[0].lessonId, 'old-lesson');
+  assert.deepEqual(history[0].participantIds, ['original-student']);
+});
+
 test('keeps only completed lessons and sorts the newest first', () => {
   const history = buildStudentLessonHistory({
     studentId: 'student-a',

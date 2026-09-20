@@ -366,7 +366,9 @@ export const buildStudentLessonHistory = ({
     const fromNumber = explicitDayKey ? dayKeyToNumber(explicitDayKey) : seriesStartNumber;
     const toNumber = explicitDayKey ? fromNumber : todayNumber;
     if (!Number.isFinite(fromNumber) || !Number.isFinite(toNumber) || toNumber < fromNumber) return;
-    if (explicitDayKey && Number.isFinite(studentStartNumber) && fromNumber < studentStartNumber) return;
+    // Authorized shared group archives can predate a new member's account.
+    const sharedGroupLesson = entry.source === 'learning-group-session' && entry.groupId && entry.lessonId;
+    if (explicitDayKey && !sharedGroupLesson && Number.isFinite(studentStartNumber) && fromNumber < studentStartNumber) return;
 
     for (let dayNumber = fromNumber; dayNumber <= toNumber; dayNumber += 1) {
       const dayKey = numberToDayKey(dayNumber);

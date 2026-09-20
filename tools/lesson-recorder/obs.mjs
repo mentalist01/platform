@@ -79,7 +79,7 @@ export class ObsClient {
     const profile = await this.call('GetProfileList');
     if (profile.currentProfileName !== COLLECTION) throw new Error('В OBS выбран другой профиль. Нажмите «Настроить OBS».');
   }
-  async prepare(config, recordDirectory) {
+  async prepare(config, recordDirectory, audioMode) {
     await this.launch();
     const recording = await this.call('GetRecordStatus');
     const stream = await this.call('GetStreamStatus');
@@ -92,7 +92,13 @@ export class ObsClient {
     await delay(400);
     await this.setRecordDirectory(recordDirectory);
     const choices = await this.choices();
-    for (const [key, label] of [['platform', 'платформы'], ['telemost', 'Телемоста'], ['mic', 'микрофона']]) {
+    config = { ...config };
+    if (audioMode === 'platform') config.telemost = config.platform;
+    if (audioMode === 'telemost') {
+      const call = choices.telemost.find((item) => item.itemEnabled && /телемост/i.test(item.itemName));
+      if (call) config.telemost = call.itemValue;
+    }
+    for (const [key, label] of [['platform', 'платформы'], ['telemost', 'звука разговора'], ['mic', 'микрофона']]) {
       if (!choices[key].some((item) => item.itemEnabled && item.itemValue === config[key])) {
         throw new Error(`Не найден источник ${label}. Откройте нужное окно и проверьте выбор в пульте.`);
       }
@@ -180,6 +186,7 @@ export class ObsClient {
       if (value) await this.call('SetInputSettings', { inputName: INPUTS[key], inputSettings: { [property]: value }, overlay: true });
     }
     await this.fit('platform'); await this.fit('screen');
+    this.audioWindow = telemost;
   }
   async fit(mode) {
     const sceneName = SCENES[mode]; const sourceName = INPUTS[mode];

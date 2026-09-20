@@ -36,7 +36,7 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
     id: job.id, occurrence: job.occurrence, title: job.title, status: job.status,
     desired: job.desired, cutoffAt: job.cutoffAt, startedAt: job.startedAt,
     stoppedAt: job.stoppedAt || '', updatedAt: job.updatedAt, video: job.video || null,
-    error: job.error || '', deviceId: job.deviceId || '',
+    error: job.error || '', deviceId: job.deviceId || '', audioMode: job.audioMode || '',
   });
   const settings = (teacherId) => ({
     enabled: enabled(teacherId),
@@ -54,6 +54,12 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
   };
   return {
     enabled, settings, stop,
+    requestStop(occurrenceKey) {
+      for (const job of Object.values(db.jobs)) {
+        if (job.occurrence.key !== occurrenceKey || job.desired !== 'record') continue;
+        job.stopRequestedAt ||= now(); save();
+      }
+    },
     pair(teacherId) {
       for (const [key, value] of pairs) if (value.expiresAt < now() || value.teacherId === teacherId) pairs.delete(key);
       const code = token();
@@ -89,21 +95,35 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
       db.teachers[teacherId] = { enabled: false };
       jobs(teacherId).forEach((job) => stop(job.occurrence.key)); save();
     },
-    start(teacherId, occurrence, title, cutoffAt) {
+    start(teacherId, occurrence, title, cutoffAt, { audioMode = '' } = {}) {
       if (!enabled(teacherId)) fail('Запись на компьютере не включена', 409);
       if (!occurrence?.key || !Number.isFinite(cutoffAt) || cutoffAt <= now()) fail('Занятие уже завершено', 409);
       const previous = jobs(teacherId).find((job) => job.occurrence.key === occurrence.key);
-      if (previous) return publicJob(previous);
+      if (previous) {
+        // A disconnected browser may have stopped a job before OBS ever
+        // received it. The route verifies that the lesson is active again.
+        if (previous.desired === 'stop' && previous.status === 'waiting' && !previous.deviceId
+          && !jobs(teacherId).some((job) => job.id !== previous.id && job.desired === 'record' && job.cutoffAt > now())) {
+          previous.desired = 'record'; previous.stoppedAt = ''; previous.stopRequestedAt = 0;
+          previous.audioMode = audioMode;
+          previous.cutoffAt = Math.min(cutoffAt, now() + 5 * 3600_000); previous.updatedAt = now(); save();
+        }
+        return publicJob(previous);
+      }
       if (jobs(teacherId).some((job) => job.desired === 'record' && job.cutoffAt > now())) fail('Сначала завершите предыдущий урок', 409);
       const id = crypto.randomUUID();
       db.jobs[id] = { id, teacherId, occurrence, title: String(title || 'Запись урока').slice(0, 150),
-        status: 'waiting', desired: 'record', cutoffAt: Math.min(cutoffAt, now() + 5 * 3600_000), startedAt: now(), updatedAt: now() };
+        status: 'waiting', desired: 'record', audioMode, cutoffAt: Math.min(cutoffAt, now() + 5 * 3600_000), startedAt: now(), updatedAt: now() };
       save(); return publicJob(db.jobs[id]);
     },
-    poll(device, ready, isEnded = () => false) {
+    poll(device, ready, isEnded = () => false, isActive = null) {
       device.lastSeenAt = now(); device.ready = ready === true;
       for (const job of jobs(device.teacherId)) {
         if (job.desired === 'record' && (job.cutoffAt <= now() || isEnded(job))) stop(job.occurrence.key);
+        if (job.desired !== 'record') continue;
+        if (isActive?.(job)) { job.lastActiveAt = now(); job.stopRequestedAt = 0; }
+        else if ((job.stopRequestedAt && now() - job.stopRequestedAt >= 15000)
+          || (isActive && job.lastActiveAt && now() - job.lastActiveAt >= 30000)) stop(job.occurrence.key);
       }
       save();
       return { enabled: enabled(device.teacherId), serverNow: now(), jobs: jobs(device.teacherId).filter((job) => job.status !== 'ready').map(publicJob) };
@@ -137,7 +157,7 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
   };
 }
 
-export function registerDesktopDeviceRoutes(app, store, { isEnded } = {}) {
+export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive } = {}) {
   const handle = (fn) => (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось сохранить состояние записи' }); }
@@ -148,7 +168,7 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded } = {}) {
     if (!device) return res.status(401).json({ error: 'Подключите компьютер заново' });
     req.recorderDevice = device; next();
   });
-  app.post('/api/desktop-recorder/poll', handle((req, res) => res.json(store.poll(req.recorderDevice, req.body?.ready, isEnded))));
+  app.post('/api/desktop-recorder/poll', handle((req, res) => res.json(store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive))));
   app.post('/api/desktop-recorder/jobs/:id', handle((req, res) => res.json(store.report(req.recorderDevice, req.params.id, req.body))));
   // Device credentials never reach the normal platform routes.
   app.use('/api/desktop-recorder', (_req, res) => res.status(404).json({ error: 'Not found' }));
@@ -168,12 +188,12 @@ export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolve
   app.post('/api/desktop-recording/start', handle(async (req, res) => {
     const result = await resolveLesson(req, res);
     if (!result) return;
-    const { occurrence, cutoffAt } = result;
-    res.json(store.start(req.auth.id, occurrence, `Урок ${occurrence.dayKey} ${occurrence.time}`, cutoffAt));
+    const { occurrence, cutoffAt, audioMode } = result;
+    res.json(store.start(req.auth.id, occurrence, `Урок ${occurrence.dayKey} ${occurrence.time}`, cutoffAt, { audioMode }));
   }));
   app.post('/api/desktop-recording/stop', handle((req, res) => {
     const job = store.settings(req.auth.id).jobs.find((item) => item.id === req.body?.id);
     if (!job) return res.status(404).json({ error: 'Запись не найдена' });
-    store.stop(job.occurrence.key); res.json({ ok: true });
+    store.requestStop(job.occurrence.key); res.json({ ok: true });
   }));
 }

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { ObsClient } from './obs.mjs';
 import { atomicJson, readJson } from './storage.mjs';
 import { RecorderEngine } from './engine.mjs';
+import { importRecoveredRecordings } from './recovery-inbox.mjs';
 import { RutubeUploader, privateVideo, videoReady } from './rutube.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -81,6 +82,7 @@ async function upload(job) {
 async function queue() {
   if (queueBusy) return; queueBusy = true;
   try {
+    importRecoveredRecordings({ directory, recordDirectory, state, save });
     for (const job of Object.values(state.jobs)) {
       if (job.status === 'saved') {
         try { await prepare(job); }
@@ -131,7 +133,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST') return json(res, 404, { error: 'Not found' });
     const payload = await body(req);
     if (req.url === '/shutdown') {
-      if (engine.active() || uploadingId || queueBusy) throw new Error('Сначала дождитесь окончания записи и загрузки');
+      if (engine.active() || uploadingId || queueBusy || (obs.connected && (await obs.status()).outputActive)) throw new Error('Сначала дождитесь окончания записи и загрузки');
       await uploader.context?.close(); save();
       json(res, 200, { ok: true });
       server.close(() => process.exit(0)); return;
@@ -169,8 +171,11 @@ const server = http.createServer(async (req, res) => {
       } else if (req.url === '/auto-upload') {
         state.config.autoUpload = payload.enabled === true; save();
       } else if (req.url === '/test-start') {
-        if (!ready()) throw new Error('Сначала выберите окно платформы, Телемост и микрофон');
+        if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
         await engine.start({ id: crypto.randomUUID(), title: 'Проверка записи', local: true, cutoffAt: Date.now() + 60000 });
+      } else if (req.url === '/manual-start') {
+        if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
+        await engine.start({ id: crypto.randomUUID(), title: `Запись урока ${new Date().toLocaleString('ru-RU')}`, local: true, manual: true, cutoffAt: Date.now() + 5 * 3600000 });
       } else if (req.url === '/stop') {
         const job = engine.active(); if (!job) throw new Error('Сейчас запись не идёт');
         await engine.stop(job);
@@ -204,8 +209,9 @@ setInterval(() => {
       if (ready() && Date.now() - lastSourceCheck > 10000) {
         const choices = await obs.choices();
         sourceWarnings = [];
-        for (const [key, label] of [['platform', 'Окно платформы'], ['telemost', 'Телемост'], ['mic', 'Микрофон']]) {
-          if (!choices[key].some((item) => item.itemEnabled && item.itemValue === state.config[key])) sourceWarnings.push(`${label}: источник недоступен. Откройте его и проверьте выбор в настройках.`);
+        for (const [key, label] of [['platform', 'Окно платформы'], ['telemost', 'Звук разговора'], ['mic', 'Микрофон']]) {
+          const selected = key === 'telemost' ? (obs.audioWindow || state.config[key]) : state.config[key];
+          if (!choices[key].some((item) => item.itemEnabled && item.itemValue === selected)) sourceWarnings.push(`${label}: источник недоступен. Откройте его и проверьте выбор в настройках.`);
         }
         lastSourceCheck = Date.now();
       }

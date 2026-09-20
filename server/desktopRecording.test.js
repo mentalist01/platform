@@ -38,15 +38,37 @@ test('pairing is single use, expires, hashes credentials and scopes jobs to teac
   assert.throws(() => f.store.report(second.device, job.id, { status: 'recording' }));
   assert.equal(f.store.report(first.device, job.id, { status: 'recording' }).status, 'recording');
 });
-test('lesson starts are idempotent, concurrent lessons rejected, no reopening after stop', (t) => {
+test('lesson starts are idempotent, concurrent lessons rejected, no reopening a captured lesson', (t) => {
   const f = fixture(t); const { device } = f.connect('teacher');
   const occurrence = { key: 'lesson' };
   const job = f.store.start('teacher', occurrence, 'Урок', f.now() + 60000);
   assert.equal(f.store.start('teacher', occurrence, 'Урок', f.now() + 60000).id, job.id);
   assert.throws(() => f.store.start('teacher', { key: 'another' }, 'Урок', f.now() + 60000));
+  f.store.report(device, job.id, { status: 'recording' });
   f.store.stop('lesson');
   assert.equal(f.store.start('teacher', occurrence, 'Урок', f.now() + 60000).desired, 'stop');
   assert.throws(() => f.store.report(device, job.id, { status: 'recording' }));
+});
+
+test('a lesson that never reached OBS can start again when its call resumes', (t) => {
+  const f = fixture(t); f.connect('teacher');
+  const job = f.store.start('teacher', { key: 'lesson' }, 'Урок', f.now() + 60000);
+  f.store.stop('lesson');
+  const resumed = f.store.start('teacher', { key: 'lesson' }, 'Урок', f.now() + 60000, { audioMode: 'platform' });
+  assert.equal(resumed.id, job.id); assert.equal(resumed.desired, 'record');
+  assert.equal(resumed.audioMode, 'platform');
+});
+
+test('a transient disconnected tab cannot stop a live call, but an ended call stops automatically', (t) => {
+  const f = fixture(t); const { device } = f.connect('teacher');
+  f.store.start('teacher', { key: 'lesson' }, 'Урок', f.now() + 60000);
+  f.store.poll(device, true, undefined, () => true);
+  f.store.requestStop('lesson'); f.advance(16000);
+  assert.equal(f.store.poll(device, true, undefined, () => true).jobs[0].desired, 'record');
+  f.advance(29000);
+  assert.equal(f.store.poll(device, true, undefined, () => false).jobs[0].desired, 'record');
+  f.advance(1000);
+  assert.equal(f.store.poll(device, true, undefined, () => false).jobs[0].desired, 'stop');
 });
 test('saved recording stops desired capture, ready is durable and cannot regress', (t) => {
   const f = fixture(t); const { device } = f.connect('teacher');

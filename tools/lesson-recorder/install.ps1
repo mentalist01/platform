@@ -9,6 +9,8 @@ try { $recorderPage = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18765
 if ($recorderPage) {
   $recorderKey = [regex]::Match($recorderPage.Content, "const key='([^']+)'").Groups[1].Value
   if (-not $recorderKey) { throw 'Порт 18765 занят другой программой' }
+  $recorderStatus = Invoke-RestMethod 'http://127.0.0.1:18765/state' -Headers @{'X-Recorder-Key'=$recorderKey} -TimeoutSec 5
+  if ($recorderStatus.obs.outputActive) { throw 'OBS ещё записывает урок. Обновление возможно только после окончания записи.' }
   try {
     Invoke-RestMethod 'http://127.0.0.1:18765/shutdown' -Method Post -Headers @{'X-Recorder-Key'=$recorderKey} -ContentType 'application/json' -Body '{}' | Out-Null
   } catch { throw 'Пульт занят записью или загрузкой. Дождитесь окончания перед обновлением.' }
@@ -25,7 +27,7 @@ foreach ($dataName in @('state.json', 'rutube-browser')) {
     Copy-Item -LiteralPath $oldData -Destination $newData -Recurse
   }
 }
-$files = @('app.mjs','obs.mjs','engine.mjs','storage.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
+$files = @('app.mjs','obs.mjs','engine.mjs','storage.mjs','recovery-inbox.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
 foreach ($fileName in $files) { Copy-Item -LiteralPath (Join-Path $sourceDirectory $fileName) -Destination (Join-Path $installDirectory $fileName) -Force }
 Copy-Item -LiteralPath $nodePath -Destination (Join-Path $installDirectory 'node.exe') -Force
 Push-Location $installDirectory
