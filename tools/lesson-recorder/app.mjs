@@ -69,7 +69,7 @@ async function upload(job) {
   uploadingId = job.id;
   try {
     await prepare(job);
-    job.status = 'uploading'; job.error = ''; save();
+    job.status = 'uploading'; job.uploadPhase = ''; job.error = ''; save();
     await engine.report(job, 'uploading');
     await uploader.upload(job, save);
     await engine.report(job, 'processing');

@@ -20,6 +20,24 @@ export async function videoReady(value) {
   return Boolean(payload.video_balancer && Object.values(payload.video_balancer).some((entry) => typeof entry === 'string' && entry.startsWith('https://')));
 }
 
+export async function completePrivateVideo(editor, job, persist) {
+  const access = editor.getByRole('combobox', { name: 'Доступ', exact: true });
+  if ((await access.innerText()).trim() !== 'Только по ссылке') throw new Error('Не удалось установить доступ «только по ссылке». Проверьте окно Rutube.');
+  const link = editor.locator('a[href*="rutube.ru/video/private/"]');
+  await link.waitFor({ timeout: 60000 });
+  const video = privateVideo(await link.getAttribute('href'));
+  if (!video) throw new Error('Rutube не выдал закрытую ссылку. Файл сохранён, проверьте окно загрузки.');
+  job.candidateUrl = video.url; job.uploadPhase = 'publishing'; persist();
+  // A fresh upload uses Publish after moderation; editing an existing video
+  // uses Save. One live locator follows either label during processing.
+  const submit = editor.getByRole('button', { name: /^(?:Сохранить|Опубликовать)$/ });
+  await submit.waitFor({ state: 'visible', timeout: 60000 });
+  await submit.click({ timeout: 4 * 3600_000 });
+  await editor.waitFor({ state: 'hidden', timeout: 60000 });
+  job.url = video.url; job.status = 'processing'; job.uploadPhase = ''; job.error = ''; persist();
+  return video.url;
+}
+
 // Uses a separate browser profile. No passwords or browser cookies are copied from other apps.
 // On uncertain upload outcomes the queue stops for review instead of uploading a second copy.
 export class RutubeUploader {
@@ -79,15 +97,6 @@ export class RutubeUploader {
       if (await menuOption.count() === 1) await menuOption.click();
       else await page.getByText('Только по ссылке', { exact: true }).filter({ visible: true }).click();
     }
-    if ((await access.innerText()).trim() !== 'Только по ссылке') throw new Error('Не удалось установить доступ «только по ссылке». Проверьте окно Rutube.');
-    const link = editor.locator('a[href*="rutube.ru/video/private/"]');
-    await link.waitFor({ timeout: 60000 });
-    const video = privateVideo(await link.getAttribute('href'));
-    if (!video) throw new Error('Rutube не выдал закрытую ссылку. Файл сохранён, проверьте окно загрузки.');
-    job.candidateUrl = video.url; persist();
-    await editor.getByRole('button', { name: 'Сохранить', exact: true }).click({ timeout: 4 * 3600_000 });
-    await editor.waitFor({ state: 'hidden', timeout: 60000 });
-    job.url = video.url; job.status = 'processing'; job.error = ''; persist();
-    return video.url;
+    return completePrivateVideo(editor, job, persist);
   }
 }
