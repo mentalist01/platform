@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { recorderPackage } from './recorderPackage.js';
 
 const hash = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -183,6 +184,11 @@ export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolve
   app.get('/api/desktop-recording/settings', handle((req, res) => res.json(req.auth.role === 'teacher'
     ? store.settings(req.auth.id) : { enabled: store.enabled(teacherFor(req.auth)) }), false));
   app.post('/api/desktop-recording/pair', handle((req, res) => res.json(store.pair(req.auth.id))));
+  app.get('/api/desktop-recording/download', handle((req, res) => {
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="IVAN100-Recorder-Windows.zip"');
+    res.send(recorderPackage());
+  }));
   app.put('/api/desktop-recording/settings', handle((req, res) => res.json(store.configure(req.auth.id, req.body?.enabled))));
   app.delete('/api/desktop-recording/device', handle((req, res) => { store.revoke(req.auth.id); res.json({ ok: true }); }));
   app.post('/api/desktop-recording/start', handle(async (req, res) => {

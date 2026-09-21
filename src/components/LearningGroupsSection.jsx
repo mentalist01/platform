@@ -1,3 +1,4 @@
+import RutubeViewingHelp from './RutubeViewingHelp';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
@@ -2534,6 +2535,7 @@ const LearningGroupsSection = ({
                                     <iframe src={getRutubeEmbedUrl(material.url)} title={material.title} className="aspect-video w-full" allow="clipboard-write; autoplay" allowFullScreen loading="lazy" />
                                   </div>
                                   <a href={getRutubeWatchUrl(material.url)} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-700 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
+                                  <RutubeViewingHelp />
                                 </div>
                               )}
                               {material.kind === 'video' && material.quizQuestions?.length > 0 && (

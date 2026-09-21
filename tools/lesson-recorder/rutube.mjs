@@ -56,6 +56,11 @@ export class RutubeUploader {
   async login() {
     await this.browser(); await this.page.goto('https://studio.rutube.ru/videos', { waitUntil: 'domcontentloaded', timeout: 60000 }); await this.page.bringToFront();
   }
+  async signedIn() {
+    if (!this.page || this.page.isClosed()) return false;
+    if (!this.page.url().startsWith('https://studio.rutube.ru/')) return false;
+    return this.page.getByTestId('header-add-button').isVisible();
+  }
   async upload(job, persist) {
     await this.browser();
     const page = this.page;

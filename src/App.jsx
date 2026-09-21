@@ -171,7 +171,7 @@ import useCollabSolutionPresentation from './components/useCollabSolutionPresent
 const CollabSolutionCompare = React.lazy(() => import('./components/CollabSolutionCompare'));
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
 import useDesktopRecording from './hooks/useDesktopRecording';
-import DesktopRecordingControl from './components/DesktopRecordingControl';
+import LessonRecordingSection from './components/LessonRecordingSection';
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
 import useWorkbookHelper from './hooks/useWorkbookHelper';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
@@ -18851,6 +18851,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ? [
         'schedule',
         'groups',
+        'recording',
         'teacher-calendar',
         'finance',
         'progress',
@@ -20261,6 +20262,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ? [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'groups', label: 'Мини-группы', icon: Users },
+        { id: 'recording', label: 'Запись уроков', icon: Video },
         { id: 'teacher-calendar', label: 'Общий календарь', icon: Users },
         { id: 'finance', label: 'Финансы', icon: Wallet },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
@@ -24853,7 +24855,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
-      {user.role === 'teacher' && <DesktopRecordingControl recorder={desktopRecorder} />}
       {user.role === 'teacher' && isAnyTelemostLessonReplayActive && (
         <details className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1350] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-violet-200/90 bg-white/95 shadow-lg backdrop-blur-xl md:bottom-20 md:right-5">
           <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-3 py-2 text-xs font-bold text-violet-700" title="Управление уроком: запись и завершение">
@@ -26406,6 +26407,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               )}
             </div>
           )}
+          {view === 'recording' && user.role === 'teacher' && <LessonRecordingSection recorder={desktopRecorder} />}
           {view === 'groups' && user.role === 'teacher' && (
             <LearningGroupsSection
               role={user.role}

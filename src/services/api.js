@@ -527,6 +527,11 @@ const requestLearningGroupJson = async (path, options = {}) => {
 };
 
 export const api = {
+  downloadDesktopRecorder: async () => {
+    const res = await apiFetch('/api/desktop-recording/download');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return res.blob();
+  },
   desktopRecording: async (action = 'settings', body, method = body === undefined ? 'GET' : 'POST') => {
     const res = await apiFetch(`/api/desktop-recording/${action}`, {
       method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),

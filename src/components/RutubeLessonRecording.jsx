@@ -1,3 +1,4 @@
+import RutubeViewingHelp from './RutubeViewingHelp';
 import React from 'react';
 import { getRutubeEmbedUrl, getRutubeWatchUrl } from '../utils/learningGroups';
 
@@ -10,6 +11,7 @@ export default function RutubeLessonRecording({ replay }) {
     {replay?.available && embed ? <>
       <iframe src={embed} title="Запись урока на Rutube" className="aspect-video w-full border-0" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowFullScreen />
       <a className="block p-4 text-sm text-violet-700 underline" href={watch} target="_blank" rel="noreferrer">Открыть на Rutube</a>
+      <RutubeViewingHelp />
     </> : <p className="px-4 pb-4 text-sm text-slate-600" role="status">{labels[replay?.status] || 'Видео готовится к публикации.'}</p>}
   </section>;
 }

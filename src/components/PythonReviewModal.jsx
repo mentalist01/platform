@@ -1,3 +1,4 @@
+import RutubeViewingHelp from './RutubeViewingHelp';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from './SelfHostedMonacoEditor';
@@ -1860,6 +1861,7 @@ const PythonReviewModal = ({
                         <iframe title={`rutube-theory-review-${task.number}`} src={theoryRutubeUrl} className="h-full w-full" allow="clipboard-write; autoplay" allowFullScreen />
                       </div>
                       <a href={getRutubeWatchUrl(theory?.content)} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-600 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
+                      <RutubeViewingHelp />
                     </div>
                   ) : (
                     <div className="python-runtime-theory-body mt-3 text-sm text-red-500">Видео Rutube недоступно.</div>
@@ -2668,6 +2670,7 @@ const PythonReviewModal = ({
                       />
                     </div>
                     <a href={getRutubeWatchUrl(theory?.content)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-violet-500 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
+                    <RutubeViewingHelp />
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm text-red-600">Видео Rutube недоступно.</div>

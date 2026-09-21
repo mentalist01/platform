@@ -1,3 +1,4 @@
+import RutubeViewingHelp from './RutubeViewingHelp';
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, Users, Video, WifiOff, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -3405,6 +3406,7 @@ const ScheduleSection = ({
                       />
                     </div>
                     <a href={getRutubeWatchUrl(goalView.pythonTheory.content)} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-700 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
+                    <RutubeViewingHelp />
                   </div>
                 )}
                 <div className="flex items-center gap-3 border-t border-violet-100 bg-white/70 px-3.5 py-2.5">
@@ -3654,6 +3656,7 @@ const ScheduleSection = ({
                           loading="lazy"
                         />
                         <a href={getRutubeWatchUrl(material.url)} target="_blank" rel="noreferrer" className="block px-3 py-2 text-xs font-semibold text-white underline underline-offset-2">Открыть на Rutube, если плеер не работает</a>
+                        <RutubeViewingHelp />
                       </div>
                       <div className="p-4 sm:p-5">
                         <div className="flex items-start gap-3">
@@ -6049,6 +6052,7 @@ const ScheduleSection = ({
                       />
                     </div>
                     <a href={getRutubeWatchUrl(homeworkTheoryPreview.content)} target="_blank" rel="noreferrer" className="mt-2 text-xs font-semibold text-violet-700 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
+                    <RutubeViewingHelp />
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">Видео Rutube недоступно.</div>

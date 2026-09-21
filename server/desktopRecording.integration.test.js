@@ -51,6 +51,11 @@ test('real platform routes isolate devices and expose one group recording to its
     try { await request('/session'); started = true; break; } catch { await delay(200); }
   }
   assert.ok(started, `Fixture server did not start: ${logs}`);
+  await request('/desktop-recording/download', { actor: 's1', status: 403 });
+  const download = await fetch(`http://127.0.0.1:${port}/api/desktop-recording/download`, { headers: { Authorization: 'Bearer fixture-t1' } });
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get('content-type'), 'application/zip');
+  assert.equal(Buffer.from(await download.arrayBuffer()).readUInt32LE(0), 0x04034b50);
   const legacySession = await request('/lesson-replay/session', { body: { learningLessonId: 'legacy', via: 'telemost' } });
   await request('/lesson-replay/finish', { body: { sessionId: legacySession.sessionId, events: [{
     id: 'legacy-code', type: 'code', occurredAt: new Date(now).toISOString(), payload: { code: 'print(42)', language: 'python' },

@@ -10,26 +10,29 @@ import { atomicJson, readJson } from './storage.mjs';
 import { RecorderEngine } from './engine.mjs';
 import { importRecoveredRecordings } from './recovery-inbox.mjs';
 import { RutubeUploader, privateVideo, videoReady } from './rutube.mjs';
+import { writableRecordingDirectory, recordingDrives, setupFingerprint, assertSetupIdle } from './recording-storage.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const directory = process.env.IVAN100_RECORDER_HOME || path.join(os.homedir(), 'Ivan100Recorder');
 fs.mkdirSync(directory, { recursive: true });
 const file = path.join(directory, 'state.json');
 const state = readJson(file, { config: { platformUrl: 'https://ivan100.ru', autoUpload: false, configured: false }, jobs: {} });
-const recordDirectory = path.resolve(state.config.recordDirectory || path.join(os.homedir(), 'Videos', 'Ivan100 Lessons'));
+let recordDirectory = path.resolve(state.config.recordDirectory || path.join(os.homedir(), 'Videos', 'Ivan100 Lessons'));
 const save = () => atomicJson(file, state);
 for (const job of Object.values(state.jobs)) {
   if (job.status === 'uploading') {
     job.status = 'error'; job.error = 'Загрузка прервалась при закрытии пульта. Нажмите «Продолжить загрузку»: помощник проверит уже загруженный ролик.'; save();
   }
 }
-const obs = new ObsClient();
+const runtime = readJson(path.join(here, 'runtime.json'), {});
+const obs = new ObsClient(runtime.obs ? { executable: runtime.obs } : {});
 const uploader = new RutubeUploader(directory);
 const localKey = crypto.randomBytes(32).toString('base64url');
 let error = ''; let obsStatus = null; let chain = Promise.resolve(); let queueBusy = false; let uploadingId = '';
 let sourceWarnings = []; let lastSourceCheck = 0;
 const serialize = (fn) => { const next = chain.then(fn); chain = next.catch(() => {}); return next; };
-const ready = () => Boolean(state.config.configured && state.config.platform && state.config.telemost && state.config.mic);
+const ready = () => Boolean(state.config.recordDirectory && state.config.configured && state.config.platform && state.config.telemost && state.config.mic);
+const setupIdle = async () => assertSetupIdle({ active: engine.active(), uploadingId, queueBusy, outputActive: obs.connected && (await obs.status()).outputActive });
 const api = async (route, body, pairing = false) => {
   const response = await fetch(`${state.config.platformUrl}/api/desktop-recorder${route}`, {
     method: 'POST', signal: AbortSignal.timeout(10000), headers: { 'Content-Type': 'application/json',
@@ -52,9 +55,9 @@ const run = (executable, args) => new Promise((resolve, reject) => {
 async function prepare(job) {
   if (job.mp4 && fs.existsSync(job.mp4)) return;
   if (!job.file || !fs.existsSync(job.file)) throw new Error('Файл записи не найден');
-  const output = path.join(recordDirectory, `${job.title.replace(/[<>:"/\\|?*]/g, '-')}-${job.id}.mp4`);
+  const output = path.join(path.dirname(job.file), `${job.title.replace(/[<>:"/\\|?*]/g, '-')}-${job.id}.mp4`);
   const temporary = `${output}.part.mp4`;
-  await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', job.file, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', temporary]);
+  await run(runtime.ffmpeg || 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', job.file, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', temporary]);
   fs.renameSync(temporary, output); job.mp4 = output; save();
 }
 async function publish(job) {
@@ -97,6 +100,7 @@ async function queue() {
 const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
   obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId,
+  testVerified: state.config.testFingerprint === setupFingerprint(state.config),
   jobs: Object.values(state.jobs).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50),
 });
 async function body(req) {
@@ -123,13 +127,20 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && req.url === '/') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'");
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'");
       return res.end(fs.readFileSync(path.join(here, 'panel.html'), 'utf8').replace('__LOCAL_KEY__', localKey));
     }
     if (req.headers['x-recorder-key'] !== localKey) return json(res, 403, { error: 'Откройте пульт заново' });
     if (req.method === 'GET' && req.url === '/state') return json(res, 200, publicState());
     if (req.method === 'GET' && req.url === '/preview') return json(res, 200, { image: await obs.preview() });
     if (req.method === 'GET' && req.url === '/choices') return json(res, 200, await obs.choices());
+    if (req.method === 'GET' && req.url === '/storage') return json(res, 200, { drives: await recordingDrives(), recordDirectory: state.config.recordDirectory || '' });
+    if (req.method === 'GET' && req.url.startsWith('/test-video/')) {
+      const job = state.jobs[req.url.slice('/test-video/'.length)];
+      if (!job?.local || job.manual || !job.testFingerprint || !job.mp4 || !fs.existsSync(job.mp4)) throw new Error('Пробная запись ещё не готова');
+      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': fs.statSync(job.mp4).size });
+      const stream = fs.createReadStream(job.mp4); stream.on('error', () => res.destroy()); stream.pipe(res); return;
+    }
     if (req.method !== 'POST') return json(res, 404, { error: 'Not found' });
     const payload = await body(req);
     if (req.url === '/shutdown') {
@@ -138,7 +149,14 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true });
       server.close(() => process.exit(0)); return;
     }
-    if (req.url === '/rutube-login') { await uploader.login(); return json(res, 200, { ok: true }); }
+    if (req.url === '/rutube-login') {
+      if (uploadingId) throw new Error('Дождитесь текущей загрузки, затем откройте вход в Rutube');
+      await uploader.login(); return json(res, 200, { ok: true });
+    }
+    if (req.url === '/rutube-check') {
+      if (!await uploader.signedIn()) throw new Error('Войдите в Rutube в окне помощника, затем повторите проверку');
+      state.config.rutubeVerifiedAt = Date.now(); save(); return json(res, 200, { ok: true });
+    }
     if (req.url === '/upload') {
       const job = state.jobs[payload.id];
       if (!job || !['saved', 'error'].includes(job.status) || !job.file) throw new Error('Нет готовой записи');
@@ -147,17 +165,32 @@ const server = http.createServer(async (req, res) => {
     }
     await serialize(async () => {
       if (req.url === '/pair') {
+        await setupIdle();
         const result = await api('/pair', { code: payload.code, name: os.hostname() }, true);
         state.config.token = result.token; state.config.deviceId = result.deviceId; save();
       } else if (req.url === '/setup') {
+        await setupIdle();
+        if (!state.config.recordDirectory) throw new Error('Сначала выберите папку для видео в первом шаге');
         enableWebsocket(); await obs.setup(recordDirectory);
       } else if (req.url === '/configure') {
+        await setupIdle();
         const choices = await obs.choices();
         for (const key of ['platform', 'telemost', 'mic', 'screen']) {
           if (!choices[key].some((item) => item.itemValue === payload[key] && item.itemEnabled)) throw new Error(`Выберите доступный источник: ${key}`);
         }
         await obs.configure(payload);
         Object.assign(state.config, { platform: payload.platform, telemost: payload.telemost, mic: payload.mic, screen: payload.screen, configured: true }); save(); lastSourceCheck = 0;
+      } else if (req.url === '/storage') {
+        await setupIdle();
+        const selected = writableRecordingDirectory(payload.directory);
+        state.config.recordDirectory = selected; recordDirectory = selected; engine.recordDirectory = selected; save();
+      } else if (req.url === '/test-confirm') {
+        const job = state.jobs[payload.id];
+        if (!job?.local || job.manual || !job.mp4 || job.testFingerprint !== setupFingerprint(state.config)) throw new Error('Сделайте пробную запись с текущими настройками и прослушайте её');
+        state.config.testFingerprint = job.testFingerprint; state.config.testVerifiedAt = Date.now(); save();
+      } else if (req.url === '/complete-setup') {
+        if (!ready() || !state.config.token || state.config.testFingerprint !== setupFingerprint(state.config) || !state.config.rutubeVerifiedAt || !state.config.autoUpload) throw new Error('Пройдите все шаги, подтвердите проверку записи и включите автозагрузку');
+        state.config.setupCompleted = true; save();
       } else if (req.url === '/scene') {
         await obs.select(payload.mode, payload.window || state.config.program);
         if (payload.mode === 'window' && payload.window) { state.config.program = payload.window; save(); }
@@ -172,10 +205,14 @@ const server = http.createServer(async (req, res) => {
         state.config.autoUpload = payload.enabled === true; save();
       } else if (req.url === '/test-start') {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
-        await engine.start({ id: crypto.randomUUID(), title: 'Проверка записи', local: true, cutoffAt: Date.now() + 60000 });
+        await engine.start({ id: crypto.randomUUID(), title: 'Проверка записи', local: true, testFingerprint: setupFingerprint(state.config), cutoffAt: Date.now() + 60000 });
       } else if (req.url === '/manual-start') {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
         await engine.start({ id: crypto.randomUUID(), title: `Запись урока ${new Date().toLocaleString('ru-RU')}`, local: true, manual: true, cutoffAt: Date.now() + 5 * 3600000 });
+      } else if (req.url === '/test-stop') {
+        const job = engine.active();
+        if (!job?.local || job.manual || !job.testFingerprint) throw new Error('Сейчас пробная запись не идёт');
+        await engine.stop(job);
       } else if (req.url === '/stop') {
         const job = engine.active(); if (!job) throw new Error('Сейчас запись не идёт');
         await engine.stop(job);

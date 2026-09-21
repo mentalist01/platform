@@ -1,9 +1,10 @@
-﻿param([switch]$NoStartup)
+﻿param([switch]$NoStartup, [switch]$SetupDependencies, [switch]$OpenPanel)
 $ErrorActionPreference = 'Stop'
 $sourceDirectory = $PSScriptRoot
 $recorderDirectory = Join-Path $env:USERPROFILE 'Ivan100Recorder'
 $installDirectory = Join-Path $recorderDirectory 'app'
-$nodePath = (Get-Command node -ErrorAction Stop).Source
+if ($SetupDependencies) { & (Join-Path $sourceDirectory 'dependencies.ps1') }
+$nodePath = if ($RecorderDependencyPaths) { $RecorderDependencyPaths.node } else { (Get-Command node -ErrorAction Stop).Source }
 $recorderPage = $null
 try { $recorderPage = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18765/' -TimeoutSec 2 } catch { }
 if ($recorderPage) {
@@ -27,11 +28,14 @@ foreach ($dataName in @('state.json', 'rutube-browser')) {
     Copy-Item -LiteralPath $oldData -Destination $newData -Recurse
   }
 }
-$files = @('app.mjs','obs.mjs','engine.mjs','storage.mjs','recovery-inbox.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
+$files = @('app.mjs','obs.mjs','engine.mjs','storage.mjs','recording-storage.mjs','recovery-inbox.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
 foreach ($fileName in $files) { Copy-Item -LiteralPath (Join-Path $sourceDirectory $fileName) -Destination (Join-Path $installDirectory $fileName) -Force }
 Copy-Item -LiteralPath $nodePath -Destination (Join-Path $installDirectory 'node.exe') -Force
+if ($RecorderDependencyPaths) {
+  [IO.File]::WriteAllText((Join-Path $installDirectory 'runtime.json'), ($RecorderDependencyPaths | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+}
 Push-Location $installDirectory
-try { & npm.cmd ci --omit=dev --no-audit --no-fund; if($LASTEXITCODE -ne 0){throw 'Не установились зависимости Rutube'} } finally { Pop-Location }
+try { & (Join-Path (Split-Path $nodePath) 'npm.cmd') ci --omit=dev --no-audit --no-fund; if($LASTEXITCODE -ne 0){throw 'Не установились зависимости Rutube'} } finally { Pop-Location }
 $launcher = @'
 Option Explicit
 Dim shell, fso, folder, http, running
@@ -80,3 +84,8 @@ if (-not $NoStartup) {
 }
 Write-Output "Установлено: $installDirectory"
 Write-Output 'Ярлык: IVAN100 - Запись уроков. Пульт: http://127.0.0.1:18765/'
+if ($OpenPanel) {
+  Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wscript.exe') -ArgumentList ('"' + (Join-Path $installDirectory 'start.vbs') + '" background') -WindowStyle Hidden
+  Start-Sleep -Seconds 2
+  Start-Process 'http://127.0.0.1:18765/#setup'
+}
