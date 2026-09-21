@@ -35,3 +35,15 @@ test('a Telemost lesson selects its open meeting window', async () => {
   await f.obs.prepare({ platform: 'platform', telemost: 'platform', mic: 'mic' }, 'unused', 'telemost');
   assert.equal(f.configured().telemost, 'meeting');
 });
+
+test('source fitting follows the configured canvas instead of reducing 1440p to 1080p', async () => {
+  const obs = new ObsClient(); let transform;
+  obs.call = async (type, data) => {
+    if (type === 'GetSceneItemId') return { sceneItemId: 1 };
+    if (type === 'GetVideoSettings') return { baseWidth: 2560, baseHeight: 1440 };
+    if (type === 'SetSceneItemTransform') transform = data.sceneItemTransform;
+  };
+  await obs.fit('platform');
+  assert.equal(transform.boundsWidth, 2560);
+  assert.equal(transform.boundsHeight, 1440);
+});

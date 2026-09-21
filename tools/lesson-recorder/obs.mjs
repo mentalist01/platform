@@ -120,6 +120,7 @@ export class ObsClient {
     const stream = await this.call('GetStreamStatus');
     if (recording.outputActive || stream.outputActive) throw new Error('Сначала завершите текущую запись или трансляцию OBS');
     let profiles = await this.call('GetProfileList');
+    const newProfile = !profiles.profiles.includes(COLLECTION);
     if (!profiles.profiles.includes(COLLECTION)) {
       await this.call('CreateProfile', { profileName: COLLECTION });
       for (let i = 0; i < 30; i++) {
@@ -138,13 +139,13 @@ export class ObsClient {
       await delay(200);
     }
     await this.assertCollection();
-    await this.call('SetVideoSettings', { baseWidth: 1920, baseHeight: 1080, outputWidth: 1920, outputHeight: 1080, fpsNumerator: 30, fpsDenominator: 1 });
+    if (newProfile) await this.call('SetVideoSettings', { baseWidth: 1920, baseHeight: 1080, outputWidth: 1920, outputHeight: 1080, fpsNumerator: 30, fpsDenominator: 1 });
     await this.setRecordDirectory(recordDirectory);
-    for (const [category, parameterName, parameterValue] of [
+    for (const [category, parameterName, parameterValue] of newProfile ? [
       ['Output', 'Mode', 'Simple'], ['SimpleOutput', 'RecFormat2', 'mkv'],
       ['SimpleOutput', 'RecEncoder', 'x264'], ['SimpleOutput', 'RecQuality', 'Small'], ['SimpleOutput', 'ABitrate', '160'],
       ['Output', 'FilenameFormatting', '%CCYY-%MM-%DD %hh-%mm-%ss'],
-    ]) await this.call('SetProfileParameter', { parameterCategory: category, parameterName, parameterValue });
+    ] : []) await this.call('SetProfileParameter', { parameterCategory: category, parameterName, parameterValue });
     const special = await this.call('GetSpecialInputs');
     for (const name of Object.values(special).filter(Boolean)) await this.call('SetInputMute', { inputName: name, inputMuted: true });
     const scenes = (await this.call('GetSceneList')).scenes.map((s) => s.sceneName);
@@ -191,8 +192,9 @@ export class ObsClient {
   async fit(mode) {
     const sceneName = SCENES[mode]; const sourceName = INPUTS[mode];
     const { sceneItemId } = await this.call('GetSceneItemId', { sceneName, sourceName });
+    const { baseWidth, baseHeight } = await this.call('GetVideoSettings');
     await this.call('SetSceneItemTransform', { sceneName, sceneItemId, sceneItemTransform: {
-      positionX: 0, positionY: 0, rotation: 0, boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsWidth: 1920, boundsHeight: 1080, boundsAlignment: 0,
+      positionX: 0, positionY: 0, rotation: 0, boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsWidth: baseWidth, boundsHeight: baseHeight, boundsAlignment: 0,
     } });
   }
   async select(mode, window) {
