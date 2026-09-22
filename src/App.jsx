@@ -18875,7 +18875,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return normalized;
   };
   const allowedViews = user.role === 'admin'
-    ? ['admin']
+    ? ['admin', 'sessions']
     : user.role === 'teacher'
       ? [
         'schedule',
@@ -18991,6 +18991,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [callAutoStartToken, setCallAutoStartToken] = useState(0);
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sessionManagerOpen, setSessionManagerOpen] = useState(false);
+  useEffect(() => {
+    if (!sessionManagerOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setSessionManagerOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [sessionManagerOpen]);
   const [levelProfileState, setLevelProfileState] = useState({
     open: false,
     row: null,
@@ -20308,8 +20317,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
         ...(PLATFORM_CHATS_ENABLED ? [{ id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: MessageSquare }] : []),
-        { id: 'notes', label: 'Конспекты', icon: Folder },
-        { id: 'sessions', label: 'Активные сессии', icon: MonitorSmartphone }
+        { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
         { id: 'schedule', label: 'Сегодня', icon: Calendar },
@@ -20321,8 +20329,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
         ...(PLATFORM_CHATS_ENABLED ? [{ id: 'chat', label: 'Чаты', icon: MessageSquare }] : []),
-        { id: 'notes', label: 'Конспекты', icon: BookOpen },
-        { id: 'sessions', label: 'Активные сессии', icon: MonitorSmartphone }
+        { id: 'notes', label: 'Конспекты', icon: BookOpen }
       ];
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
     ? nav.filter((item) => item.id !== 'call')
@@ -20361,7 +20368,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ]
     : visibleNav;
   const studentDesktopToolNav = user.role === 'student'
-    ? ['python', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'rating', 'sessions']
+    ? ['python', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'rating']
       .map((id) => visibleNav.find((item) => item.id === id))
       .filter(Boolean)
     : [];
@@ -20394,7 +20401,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     'python',
     ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []),
     'rating',
-    'sessions',
   ];
   const studentMobileOverflowNav = user.role === 'student'
     ? visibleNav.filter((item) => (
@@ -20424,7 +20430,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
-      ...['teacher', ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []), 'notes', 'sessions']
+      ...['teacher', ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []), 'notes']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
@@ -25796,9 +25802,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="mt-2 text-[10px] font-semibold text-rose-600">{avatarError}</div>
                 )}
               </div>
+              {user.role !== 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => setSessionManagerOpen(true)}
+                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl border border-violet-200/80 bg-violet-50/90 px-3 py-2 text-xs font-semibold text-violet-700 transition hover:-translate-y-[1px] hover:border-violet-300 hover:bg-violet-100 hover:shadow-sm"
+                >
+                  <MonitorSmartphone size={14} /> Активные сессии
+                </button>
+              )}
               <button
                 onClick={onLogout}
-                className="sidebar-logout mt-2.5 w-full flex items-center justify-center gap-1.5 rounded-xl border border-rose-200/75 bg-white/85 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
+                className="sidebar-logout mt-2 w-full flex items-center justify-center gap-1.5 rounded-xl border border-rose-200/75 bg-white/85 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
               >
                 <LogOut size={14} /> Выйти
               </button>
@@ -27330,7 +27345,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onTeachersChanged={loadTeachers}
             />
           )}
-          {view === 'sessions' && (
+          {view === 'sessions' && user.role === 'admin' && (
             <SessionManagementSection user={user} />
           )}
           </React.Suspense>
@@ -27357,6 +27372,37 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           getLevelFromXp={getLevelFromXp}
           getLevelProgressFromXp={getLevelProgressFromXp}
         />
+        {sessionManagerOpen && user.role !== 'admin' && typeof document !== 'undefined'
+          ? createPortal(
+            <div
+              className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/55 p-2 backdrop-blur-sm sm:p-5"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Активные сессии"
+            >
+              <button
+                type="button"
+                className="absolute inset-0 cursor-default"
+                onClick={() => setSessionManagerOpen(false)}
+                aria-label="Закрыть активные сессии"
+              />
+              <div className="relative z-10 max-h-[calc(100vh-1rem)] w-full max-w-6xl overflow-y-auto rounded-3xl shadow-2xl sm:max-h-[calc(100vh-2.5rem)]">
+                <button
+                  type="button"
+                  onClick={() => setSessionManagerOpen(false)}
+                  className="absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-xl border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
+                  aria-label="Закрыть"
+                >
+                  <X size={20} />
+                </button>
+                <React.Suspense fallback={<div className="grid min-h-[360px] place-items-center rounded-3xl bg-white text-sm font-semibold text-slate-500">Загружаем активные сессии...</div>}>
+                  <SessionManagementSection user={user} />
+                </React.Suspense>
+              </div>
+            </div>,
+            document.body
+          )
+          : null}
         <div
           className={`fixed inset-0 z-30 transition-opacity duration-200 md:hidden ${
             menuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -27422,9 +27468,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   </div>
                 </div>
               )}
+              {user.role !== 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setSessionManagerOpen(true);
+                  }}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200/80 bg-violet-50/90 px-4 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-100 hover:shadow-sm"
+                >
+                  <MonitorSmartphone size={16} /> Активные сессии
+                </button>
+              )}
               <button
                 onClick={onLogout}
-                className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 hover:shadow-sm"
+                className="mt-2 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 hover:shadow-sm"
               >
                 <LogOut size={16} /> Выйти
               </button>
