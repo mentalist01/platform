@@ -7533,7 +7533,13 @@ const getAuthSessionId = (token) => crypto
   .slice(0, 24);
 
 const getRequestIpAddress = (req) => {
-  return String(req?.ip || req?.socket?.remoteAddress || '').trim()
+  // WebSocket upgrades are raw Node requests without Express's req.ip getter.
+  // Honor the same nearest-proxy boundary instead of accepting the first XFF.
+  const remote = String(req?.socket?.remoteAddress || '');
+  const forwarded = app.get('trust proxy fn')?.(remote, 0)
+    ? String(req?.headers?.['x-forwarded-for'] || '').split(',').at(-1).trim()
+    : '';
+  return String(req?.ip || forwarded || remote).trim()
     .replace(/^::ffff:/, '')
     .slice(0, 100);
 };
