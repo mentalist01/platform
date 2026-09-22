@@ -82,6 +82,31 @@ export const resolveGoogleCalendarStudentMatch = (event, students = []) => {
   return pickUniqueGoogleCalendarStudentMatch(exactMatches.length > 0 ? exactMatches : candidates);
 };
 
+export const attachGoogleCalendarEntryStudentMatch = (entry, students = []) => {
+  if (!entry || typeof entry !== 'object') return entry;
+  if (String(entry.studentId || '').trim()) return entry;
+  if (entry.isLearningGroupEvent || String(entry.groupId || '').trim()) return entry;
+  const matchedStudent = resolveGoogleCalendarStudentMatch(
+    { summary: entry.subject || entry.studentName },
+    students,
+  );
+  const studentId = String(matchedStudent?.id || '').trim();
+  if (!studentId) return entry;
+  return {
+    ...entry,
+    studentId,
+    studentName: String(
+      matchedStudent?.name
+      || matchedStudent?.mainName
+      || matchedStudent?.studentName
+      || matchedStudent?.nickname
+      || entry.studentName
+      || 'Ученик'
+    ).trim(),
+    isTeacherSlot: false,
+  };
+};
+
 export const googleCalendarTitleMatchesStudent = (title, student) => {
   const normalizedTitle = normalizeCalendarEventText(stripCalendarEventParentheticalText(title));
   if (!normalizedTitle) return false;

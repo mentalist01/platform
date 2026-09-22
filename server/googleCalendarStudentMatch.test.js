@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  attachGoogleCalendarEntryStudentMatch,
   googleCalendarTitleMatchesStudent,
   resolveGoogleCalendarStudentMatch,
   stripCalendarEventParentheticalText,
@@ -86,4 +87,33 @@ test('exact nickname keeps a former namesake calendar event on the former studen
     )?.id,
     'current-nikita',
   );
+});
+
+test('cached unmatched calendar entry attaches to a student added later', () => {
+  const cachedEntry = {
+    id: 'google-ical-egor',
+    subject: 'Егор',
+    studentId: '',
+    studentName: 'Егор',
+    isTeacherSlot: true,
+  };
+
+  assert.deepEqual(
+    attachGoogleCalendarEntryStudentMatch(cachedEntry, [{ id: 'egor-id', name: 'Егор' }]),
+    {
+      ...cachedEntry,
+      studentId: 'egor-id',
+      studentName: 'Егор',
+      isTeacherSlot: false,
+    },
+  );
+});
+
+test('cached group and already linked student entries keep their existing owner', () => {
+  const groupEntry = { subject: 'Егор', groupId: 'group-1', isLearningGroupEvent: true };
+  const linkedEntry = { subject: 'Егор', studentId: 'previous-id', studentName: 'Другой Егор' };
+  const roster = [{ id: 'egor-id', name: 'Егор' }];
+
+  assert.equal(attachGoogleCalendarEntryStudentMatch(groupEntry, roster), groupEntry);
+  assert.equal(attachGoogleCalendarEntryStudentMatch(linkedEntry, roster), linkedEntry);
 });

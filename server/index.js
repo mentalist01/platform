@@ -157,6 +157,7 @@ import {
   matchStudentSearchCandidate,
 } from './studentSearch.js';
 import {
+  attachGoogleCalendarEntryStudentMatch,
   googleCalendarTitleMatchesStudent,
   resolveGoogleCalendarStudentMatch as resolveGoogleCalendarStudentMatchFromTitle,
 } from './googleCalendarStudentMatch.js';
@@ -10427,6 +10428,14 @@ const enrichGoogleCalendarLearningGroupEntry = (entry, teacherId, students = [])
   };
 };
 
+const enrichGoogleCalendarEntryFromRoster = (entry, teacherId, students = []) => (
+  enrichGoogleCalendarLearningGroupEntry(
+    attachGoogleCalendarEntryStudentMatch(entry, students),
+    teacherId,
+    students,
+  )
+);
+
 const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], groups = []) => {
   if (!event || event.type !== 'VEVENT') return null;
   if (String(event.status || '').trim().toUpperCase() === 'CANCELLED') return null;
@@ -10570,7 +10579,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
     && now - cache.loadedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS
   ) {
     const entries = cache.entries.map((entry) => (
-      enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+      enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
     ));
     cache.entries = entries;
     return entries;
@@ -10582,7 +10591,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
       const entries = await inFlight.promise;
       if (Number(inFlight.toMs) >= toMs) {
         return entries.map((entry) => (
-          enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+          enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
         ));
       }
       return fetchTeacherGoogleCalendarEntries(normalizedTeacherId, {
@@ -10595,7 +10604,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
         : (error?.message || 'Не удалось загрузить Google Calendar.');
       if (options.throwOnError) throw new Error(message);
       return (cache?.entries || []).map((entry) => (
-        enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+        enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
       ));
     }
   }
@@ -10629,7 +10638,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
           calendarName: cache.calendarName || '',
         });
         return cache.entries.map((entry) => (
-          enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+          enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
         ));
       }
       if (!response.ok) {
@@ -10664,7 +10673,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
         calendarName: cache.calendarName || '',
       });
       return cache.entries.map((entry) => (
-        enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+        enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
       ));
     }
 
@@ -10688,7 +10697,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
       const leftTime = Date.parse(`${left.date}T${left.time}:00`);
       const rightTime = Date.parse(`${right.date}T${right.time}:00`);
       return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
-    }).map((entry) => enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students));
+    }).map((entry) => enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students));
     const currentSettings = getTeacherCalendarSyncSettings(normalizedTeacherId);
     if (currentSettings.enabled && currentSettings.icalUrl === settings.icalUrl) {
       reconcileGoogleCalendarLearningLessons(normalizedTeacherId, uniqueEntries, {
@@ -10734,7 +10743,7 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
     }
     if (options.throwOnError) throw new Error(message);
     return (cache?.entries || []).map((entry) => (
-      enrichGoogleCalendarLearningGroupEntry(entry, normalizedTeacherId, students)
+      enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
     ));
   } finally {
     if (teacherCalendarFetchInFlight.get(normalizedTeacherId)?.promise === loadPromise) {
