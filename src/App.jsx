@@ -6,7 +6,7 @@ import {
   ArrowLeft, ArrowRight, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
   ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronDown, Search,
-  Camera, MousePointer2, Code2, ExternalLink, MoreHorizontal, MessageSquare, Mic, Users, Video, Wallet,
+  Camera, MousePointer2, Code2, ExternalLink, MoreHorizontal, MessageSquare, Mic, MonitorSmartphone, Users, Video, Wallet,
   Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp, Target,
   ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect, ListPlus
 } from 'lucide-react';  
@@ -219,6 +219,7 @@ const loadTeacherFinanceSection = () => import('./components/TeacherFinanceSecti
 const loadTeacherLessonStartPrompt = () => import('./components/TeacherLessonStartPrompt');
 const loadTeacherPanel = () => import('./components/TeacherPanel');
 const loadTeacherStudentChatsSection = () => import('./components/TeacherStudentChatsSection');
+const loadSessionManagementSection = () => import('./components/SessionManagementSection');
 
 const AdminPanel = React.lazy(loadAdminPanel);
 const BoardTabletHost = React.lazy(() => import('./components/BoardTabletHost.jsx'));
@@ -244,6 +245,7 @@ const TeacherFinanceSection = React.lazy(loadTeacherFinanceSection);
 const TeacherLessonStartPrompt = React.lazy(loadTeacherLessonStartPrompt);
 const TeacherPanel = React.lazy(loadTeacherPanel);
 const TeacherStudentChatsSection = React.lazy(loadTeacherStudentChatsSection);
+const SessionManagementSection = React.lazy(loadSessionManagementSection);
 
 const loadCallWorkspace = () => Promise.all([loadCallSection(), loadGroupTelemostSection()]);
 const loadCollabWorkspace = () => Promise.all([loadEditor(), loadCollaborativeEditorRuntime()]);
@@ -20288,7 +20290,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const nav = user.role === 'admin'
     ? [
-      { id: 'admin', label: 'Админка', icon: Settings }
+      { id: 'admin', label: 'Админка', icon: Settings },
+      { id: 'sessions', label: 'Активные сессии', icon: MonitorSmartphone },
     ]
     : user.role === 'teacher'
       ? [
@@ -20305,7 +20308,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Управление тестами', icon: Settings },
         ...(PLATFORM_CHATS_ENABLED ? [{ id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: MessageSquare }] : []),
-        { id: 'notes', label: 'Конспекты', icon: Folder }
+        { id: 'notes', label: 'Конспекты', icon: Folder },
+        { id: 'sessions', label: 'Активные сессии', icon: MonitorSmartphone }
       ]
       : [
         { id: 'schedule', label: 'Сегодня', icon: Calendar },
@@ -20317,7 +20321,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
         ...(PLATFORM_CHATS_ENABLED ? [{ id: 'chat', label: 'Чаты', icon: MessageSquare }] : []),
-        { id: 'notes', label: 'Конспекты', icon: BookOpen }
+        { id: 'notes', label: 'Конспекты', icon: BookOpen },
+        { id: 'sessions', label: 'Активные сессии', icon: MonitorSmartphone }
       ];
   const visibleNav = (user.role === 'student' && !STUDENT_CALL_SECTION_ENABLED)
     ? nav.filter((item) => item.id !== 'call')
@@ -20356,7 +20361,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ]
     : visibleNav;
   const studentDesktopToolNav = user.role === 'student'
-    ? ['python', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'rating']
+    ? ['python', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'rating', 'sessions']
       .map((id) => visibleNav.find((item) => item.id === id))
       .filter(Boolean)
     : [];
@@ -20389,6 +20394,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     'python',
     ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []),
     'rating',
+    'sessions',
   ];
   const studentMobileOverflowNav = user.role === 'student'
     ? visibleNav.filter((item) => (
@@ -20418,7 +20424,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
-      ...['teacher', ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []), 'notes']
+      ...['teacher', ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []), 'notes', 'sessions']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean)
     ]
@@ -20449,6 +20455,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     'student-chats': 'Чаты',
     notifications: 'Увед.',
     notes: 'Консп.',
+    sessions: 'Сессии',
     admin: 'Админка',
     more: '\u0415\u0449\u0435',
   };
@@ -20475,6 +20482,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     teacher: 'violet',
     admin: 'violet',
     notes: 'violet',
+    sessions: 'violet',
     more: 'violet',
   };
   const getNavTone = (id) => navToneById[id] || 'violet';
@@ -27321,6 +27329,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teachersError={teachersError}
               onTeachersChanged={loadTeachers}
             />
+          )}
+          {view === 'sessions' && (
+            <SessionManagementSection user={user} />
           )}
           </React.Suspense>
           </div>

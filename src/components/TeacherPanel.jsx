@@ -3014,7 +3014,7 @@ const TeacherPanel = ({
                 <div
                   key={student.id}
                   onClick={studentIsCurrent ? () => onSelectStudent?.(student.id) : undefined}
-                  className={`teacher-student-card p-3 rounded-xl border flex items-start justify-between gap-3 transition-all ${
+                  className={`teacher-student-card p-3 rounded-xl border flex flex-col items-stretch gap-3 transition-all xl:flex-row xl:items-start xl:justify-between ${
                     studentIsCurrent ? 'cursor-pointer' : 'cursor-default bg-slate-50/80'
                   } ${
                     studentIsCurrent && activeStudentId === student.id
@@ -3022,7 +3022,7 @@ const TeacherPanel = ({
                       : `border-gray-200 ${studentIsCurrent ? 'bg-white hover:border-purple-200' : ''}`
                   }`}
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 w-full flex-1">
                     {editingStudentId === student.id ? (
                       <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
                         <input
@@ -3391,7 +3391,7 @@ const TeacherPanel = ({
                       </>
                     )}
                   </div>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="teacher-student-card__actions flex w-full flex-wrap items-center justify-start gap-2 border-t border-slate-100 pt-3 xl:w-auto xl:max-w-[52%] xl:justify-end xl:border-0 xl:pt-0">
                     {editingStudentId === student.id ? (
                       <>
                         <button

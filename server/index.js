@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
@@ -256,6 +256,13 @@ import {
   filterLearningLessonAnswerMessages,
   normalizeLearningLessonAnswerMessages,
 } from './learningLessonAnswerChat.js';
+import {
+  createLearningGroupChatMessage,
+  normalizeLearningGroupChatMessages,
+  serializeLearningGroupChatMessage,
+  setLearningGroupPollClosed,
+  voteInLearningGroupPoll,
+} from './learningGroupChat.js';
 import {
   buildQuestionCheckRawValue,
   createQuestionAnswerRules,
@@ -649,6 +656,7 @@ const learningAttendanceFile = path.join(dataDir, 'learning-attendance.json');
 const learningMaterialsFile = path.join(dataDir, 'learning-materials.json');
 const learningBoardResponsesFile = path.join(dataDir, 'learning-board-responses.json');
 const learningLessonAnswerChatFile = path.join(dataDir, 'learning-lesson-answer-chat.json');
+const learningGroupChatFile = path.join(dataDir, 'learning-group-chat.json');
 const rtcPresenceDir = path.join(dataDir, 'rtc-presence');
 const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENABLED, false);
 const JSON_STORAGE_BACKUPS_ENABLED = parseEnabledEnv(process.env.JSON_STORAGE_BACKUPS_ENABLED, true);
@@ -2334,6 +2342,15 @@ const writeLearningBoardResponsesDb = (value) => writeLearningJsonStore(
   learningBoardResponsesFile,
   value,
   normalizeLearningBoardResponsesStore
+);
+const readLearningGroupChatDb = () => readLearningJsonStore(
+  learningGroupChatFile,
+  normalizeLearningGroupChatMessages
+);
+const writeLearningGroupChatDb = (value) => writeLearningJsonStore(
+  learningGroupChatFile,
+  value,
+  normalizeLearningGroupChatMessages
 );
 
 const BOARD_ASSET_STUDENT_ACCESS_CACHE_MS = 5000;
@@ -7454,10 +7471,14 @@ const writeWorkbookHelperSessionsDb = (sessions, options = {}) => {
 };
 
 const serializeAuthSessionForStorage = (session) => ({
+  id: session.id,
   token: session.token,
   user: session.user,
   createdAtMs: session.createdAtMs,
+  lastSeenAtMs: session.lastSeenAtMs,
   expiresAtMs: session.expiresAtMs,
+  device: session.device,
+  ipAddress: session.ipAddress,
 });
 
 const persistAuthSessions = () => {
@@ -7466,6 +7487,7 @@ const persistAuthSessions = () => {
     writeAuthSessionsDb(payload);
     authSessions.forEach((session) => {
       session.persistedExpiresAtMs = session.expiresAtMs;
+      session.persistedLastSeenAtMs = session.lastSeenAtMs;
     });
   } catch (error) {
     console.error('[auth] failed to persist sessions:', error);
@@ -7482,6 +7504,45 @@ const schedulePersistAuthSessions = () => {
 };
 
 const createAuthToken = () => crypto.randomBytes(32).toString('hex');
+
+const getAuthSessionId = (token) => crypto
+  .createHash('sha256')
+  .update(String(token || ''))
+  .digest('hex')
+  .slice(0, 24);
+
+const getRequestIpAddress = (req) => {
+  const forwarded = String(req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+  return (forwarded || String(req?.ip || req?.socket?.remoteAddress || '').trim())
+    .replace(/^::ffff:/, '')
+    .slice(0, 100);
+};
+
+const parseAuthSessionDevice = (req) => {
+  const userAgent = String(req?.headers?.['user-agent'] || '').trim().slice(0, 1000);
+  const browser = /Edg\//i.test(userAgent)
+    ? 'Microsoft Edge'
+    : (/OPR\//i.test(userAgent)
+      ? 'Opera'
+      : (/Chrome\//i.test(userAgent)
+        ? 'Chrome'
+        : (/Firefox\//i.test(userAgent)
+          ? 'Firefox'
+          : (/Safari\//i.test(userAgent) ? 'Safari' : 'Браузер'))));
+  const os = /Android/i.test(userAgent)
+    ? 'Android'
+    : (/iPhone|iPad|iPod/i.test(userAgent)
+      ? 'iOS'
+      : (/Windows/i.test(userAgent)
+        ? 'Windows'
+        : (/Mac OS X|Macintosh/i.test(userAgent)
+          ? 'macOS'
+          : (/Linux/i.test(userAgent) ? 'Linux' : 'Неизвестная система'))));
+  const type = /iPad|Tablet/i.test(userAgent)
+    ? 'tablet'
+    : (/Mobile|Android|iPhone|iPod/i.test(userAgent) ? 'mobile' : 'desktop');
+  return { type, browser, os, label: `${browser} · ${os}`, userAgent };
+};
 
 const buildSessionUser = (user) => {
   if (!user || typeof user !== 'object') return null;
@@ -7528,11 +7589,28 @@ const normalizeStoredAuthSession = (entry) => {
   const expiresAtMs = Number(entry.expiresAtMs);
   if (!token || !user || !Number.isFinite(expiresAtMs)) return null;
   return {
+    id: String(entry.id || '').trim() || getAuthSessionId(token),
     token,
     user,
     createdAtMs: Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : Date.now(),
+    lastSeenAtMs: Number.isFinite(Number(entry.lastSeenAtMs))
+      ? Math.floor(Number(entry.lastSeenAtMs))
+      : (Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : Date.now()),
     expiresAtMs: Math.floor(expiresAtMs),
     persistedExpiresAtMs: Math.floor(expiresAtMs),
+    persistedLastSeenAtMs: Number.isFinite(Number(entry.lastSeenAtMs))
+      ? Math.floor(Number(entry.lastSeenAtMs))
+      : (Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : Date.now()),
+    device: entry.device && typeof entry.device === 'object'
+      ? {
+          type: String(entry.device.type || 'desktop').trim().slice(0, 30),
+          browser: String(entry.device.browser || 'Браузер').trim().slice(0, 80),
+          os: String(entry.device.os || 'Неизвестная система').trim().slice(0, 80),
+          label: String(entry.device.label || '').trim().slice(0, 180),
+          userAgent: String(entry.device.userAgent || '').trim().slice(0, 1000),
+        }
+      : { type: 'desktop', browser: 'Браузер', os: 'Неизвестная система', label: 'Неизвестное устройство', userAgent: '' },
+    ipAddress: String(entry.ipAddress || '').trim().slice(0, 100),
   };
 };
 
@@ -7688,7 +7766,7 @@ if (typeof authSessionSweepTimer.unref === 'function') {
   authSessionSweepTimer.unref();
 }
 
-const createAuthSession = (user) => {
+const createAuthSession = (user, req = null) => {
   const payload = buildSessionUser(user);
   if (!payload) return null;
   const now = Date.now();
@@ -7696,24 +7774,38 @@ const createAuthSession = (user) => {
     token: createAuthToken(),
     user: payload,
     createdAtMs: now,
+    lastSeenAtMs: now,
     expiresAtMs: now + AUTH_SESSION_TTL_MS,
+    device: parseAuthSessionDevice(req),
+    ipAddress: getRequestIpAddress(req),
   };
+  session.id = getAuthSessionId(session.token);
   authSessions.set(session.token, session);
   persistAuthSessions();
   return session;
 };
 
-const touchAuthSession = (session) => {
+const touchAuthSession = (session, req = null) => {
   if (!session) return;
-  const nextExpiresAtMs = Date.now() + AUTH_SESSION_TTL_MS;
+  const now = Date.now();
+  const nextExpiresAtMs = now + AUTH_SESSION_TTL_MS;
   session.expiresAtMs = nextExpiresAtMs;
+  session.lastSeenAtMs = now;
+  if (req) {
+    session.device = parseAuthSessionDevice(req);
+    session.ipAddress = getRequestIpAddress(req);
+  }
   const persistedExpiresAtMs = Number(session.persistedExpiresAtMs) || 0;
-  if (nextExpiresAtMs - persistedExpiresAtMs >= AUTH_SESSION_PERSIST_MIN_EXTENSION_MS) {
+  const persistedLastSeenAtMs = Number(session.persistedLastSeenAtMs) || 0;
+  if (
+    nextExpiresAtMs - persistedExpiresAtMs >= AUTH_SESSION_PERSIST_MIN_EXTENSION_MS
+    || now - persistedLastSeenAtMs >= 60 * 1000
+  ) {
     schedulePersistAuthSessions();
   }
 };
 
-const getAuthSession = (token) => {
+const getAuthSession = (token, req = null) => {
   if (!token) return null;
   const normalizedToken = typeof token === 'string' ? token.trim() : '';
   if (!normalizedToken) return null;
@@ -7729,7 +7821,7 @@ const getAuthSession = (token) => {
     return null;
   }
   session.user = user;
-  touchAuthSession(session);
+  touchAuthSession(session, req);
   return session;
 };
 
@@ -20940,7 +21032,7 @@ app.put(
 
 const handleUploadRequest = (req, res) => {
   const token = getAuthTokenFromRequest(req);
-  const session = getAuthSession(token);
+  const session = getAuthSession(token, req);
   if (!session) {
     clearAuthSessionCookie(res);
     return res.status(401).send('Требуется авторизация');
@@ -21250,7 +21342,7 @@ app.post('/api/login', async (req, res, next) => {
       writeAuthDb(adminAuth);
     }
     clearLoginFailures(clientKey);
-    const session = createAuthSession({ id: 'admin1', name: ADMIN_NAME, role: 'admin' });
+    const session = createAuthSession({ id: 'admin1', name: ADMIN_NAME, role: 'admin' }, req);
     respondWithSession(res, session);
     return true;
   };
@@ -21285,7 +21377,7 @@ app.post('/api/login', async (req, res, next) => {
       avatarDataUrl: normalizeTeacherAvatarDataUrl(teacher.avatarDataUrl),
       canManageGlobalTaskContent: canManageGlobalTaskContent({ role: 'teacher', id: teacher.id }),
       subscription,
-    });
+    }, req);
     return respondWithSession(res, session);
   }
 
@@ -21340,7 +21432,7 @@ app.post('/api/login', async (req, res, next) => {
     grade: normalizeStudentGrade(student.grade),
     studyStatus: normalizeStudentStudyStatus(student.studyStatus, student.grade),
     avatarDataUrl: normalizeStudentAvatarDataUrl(getStudentData(student.id)?.avatarDataUrl),
-  });
+  }, req);
   return respondWithSession(res, session);
   } catch (error) {
     return next(error);
@@ -21403,7 +21495,7 @@ app.post('/api/parent/login', async (req, res, next) => {
       role: 'parent',
       studentId: student.id,
       teacherId: student.teacherId || null,
-    });
+    }, req);
     return respondWithSession(res, session);
   } catch (error) {
     return next(error);
@@ -21484,7 +21576,7 @@ app.post('/api/signup/login', (req, res) => {
     role: 'lead',
     chatId: chat.id,
     teacherId: chat.teacherId,
-  });
+  }, req);
   return respondWithSession(res, session);
 });
 
@@ -21569,7 +21661,7 @@ registerDesktopDeviceRoutes(app, desktopRecordings, {
 
 app.use('/api', (req, res, next) => {
   const token = getAuthTokenFromRequest(req);
-  const session = getAuthSession(token);
+  const session = getAuthSession(token, req);
   if (!session) {
     clearAuthSessionCookie(res);
     return res.status(401).json({ error: 'Требуется авторизация' });
@@ -21579,7 +21671,8 @@ app.use('/api', (req, res, next) => {
   setAuthSessionCookie(res, session);
   const subscriptionExempt = req.path === '/session'
     || req.path === '/teacher-subscription'
-    || req.path === '/logout';
+    || req.path === '/logout'
+    || req.path.startsWith('/auth/sessions');
   if (isTeacherRole(req.auth) && !subscriptionExempt && !isTeacherSubscriptionAccessAllowed(req.auth)) {
     return res.status(402).json({
       error: 'Доступ приостановлен: оплатите подписку и попросите администратора подтвердить платёж.',
@@ -21638,6 +21731,83 @@ app.get('/api/session', (req, res) => {
     ...req.auth,
     token: String(req.authToken || '').trim(),
   });
+});
+
+const serializeManagedAuthSession = (session, currentToken = '') => ({
+  id: String(session?.id || '').trim() || getAuthSessionId(session?.token),
+  user: {
+    id: String(session?.user?.id || '').trim(),
+    name: String(session?.user?.name || '').trim() || 'Пользователь',
+    role: String(session?.user?.role || '').trim(),
+  },
+  current: Boolean(currentToken && session?.token === currentToken),
+  createdAt: new Date(Number(session?.createdAtMs) || 0).toISOString(),
+  lastSeenAt: new Date(Number(session?.lastSeenAtMs || session?.createdAtMs) || 0).toISOString(),
+  expiresAt: new Date(Number(session?.expiresAtMs) || 0).toISOString(),
+  device: session?.device && typeof session.device === 'object'
+    ? {
+        type: String(session.device.type || 'desktop').trim(),
+        browser: String(session.device.browser || 'Браузер').trim(),
+        os: String(session.device.os || 'Неизвестная система').trim(),
+        label: String(session.device.label || '').trim() || 'Неизвестное устройство',
+      }
+    : { type: 'desktop', browser: 'Браузер', os: 'Неизвестная система', label: 'Неизвестное устройство' },
+  ipAddress: String(session?.ipAddress || '').trim(),
+});
+
+const getVisibleManagedAuthSessions = (req) => {
+  purgeExpiredAuthSessions();
+  const wantsAll = String(req.query?.scope || '').trim().toLowerCase() === 'all';
+  const canSeeAll = isAdminRole(req.auth) && wantsAll;
+  const query = String(req.query?.q || '').trim().toLocaleLowerCase('ru-RU').slice(0, 160);
+  return Array.from(authSessions.values())
+    .filter((session) => canSeeAll || (
+      session?.user?.id === req.auth.id && session?.user?.role === req.auth.role
+    ))
+    .filter((session) => {
+      if (!query) return true;
+      return [session?.user?.name, session?.user?.id, session?.user?.role, session?.device?.label, session?.ipAddress]
+        .some((value) => String(value || '').toLocaleLowerCase('ru-RU').includes(query));
+    })
+    .sort((left, right) => (Number(right?.lastSeenAtMs) || 0) - (Number(left?.lastSeenAtMs) || 0));
+};
+
+app.get('/api/auth/sessions', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const sessions = getVisibleManagedAuthSessions(req)
+    .map((session) => serializeManagedAuthSession(session, req.authToken));
+  return res.json({
+    scope: isAdminRole(req.auth) && String(req.query?.scope || '').trim().toLowerCase() === 'all' ? 'all' : 'self',
+    sessions,
+  });
+});
+
+app.delete('/api/auth/sessions/others', (req, res) => {
+  let removed = 0;
+  Array.from(authSessions.values()).forEach((session) => {
+    if (
+      session.token !== req.authToken
+      && session?.user?.id === req.auth.id
+      && session?.user?.role === req.auth.role
+      && deleteAuthSession(session.token)
+    ) removed += 1;
+  });
+  return res.json({ ok: true, removed });
+});
+
+app.delete('/api/auth/sessions/:sessionId', (req, res) => {
+  const sessionId = String(req.params?.sessionId || '').trim();
+  const target = Array.from(authSessions.values()).find((session) => (
+    (String(session?.id || '').trim() || getAuthSessionId(session?.token)) === sessionId
+  ));
+  if (!target) return res.status(404).json({ error: 'Сессия не найдена' });
+  const ownsTarget = target?.user?.id === req.auth.id && target?.user?.role === req.auth.role;
+  if (!isAdminRole(req.auth) && !ownsTarget) return forbid(res);
+  if (target.token === req.authToken) {
+    return res.status(409).json({ error: 'Текущую сессию завершите кнопкой «Выйти»' });
+  }
+  deleteAuthSession(target.token);
+  return res.json({ ok: true, id: sessionId });
 });
 
 app.post('/api/workbook-helper/launch', (req, res) => {
@@ -24272,6 +24442,110 @@ app.get('/api/learning-materials/:materialId/download', handleLearningRoute((req
   if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'Файл материала не найден' });
   if (storage.mimeType) res.type(storage.mimeType);
   return res.download(filePath, normalizeFileName(storage.originalName || material.title || 'Материал'));
+}));
+
+const ensureLearningGroupChatParticipant = (req, group, { write = false } = {}) => {
+  const role = isStudentRole(req.auth)
+    ? 'student'
+    : ((isTeacherRole(req.auth) || isAdminRole(req.auth)) ? 'teacher' : '');
+  if (!role) failLearningRequest('Недостаточно прав', 'group_chat_forbidden', 403);
+  if (role === 'student') {
+    const isActiveMember = getActiveLearningGroupMembers(group)
+      .some((member) => member.studentId === req.auth.id);
+    if (!isActiveMember) failLearningRequest('Вы больше не состоите в этой мини-группе', 'group_chat_forbidden', 403);
+  }
+  if (write && String(group.status || '').trim() === 'completed') {
+    failLearningRequest('Чат завершённой группы доступен только для чтения', 'group_chat_read_only', 409);
+  }
+  return role;
+};
+
+const getLearningGroupChatSenderName = (req, role) => {
+  if (role === 'student') {
+    return String(findStudentById(req.auth.id, { allowDeleted: true })?.name || req.auth?.name || 'Ученик').trim();
+  }
+  return String(req.auth?.name || 'Учитель').trim();
+};
+
+app.get('/api/learning-groups/:groupId/chat', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  ensureLearningGroupChatParticipant(req, group);
+  const messages = readLearningGroupChatDb()
+    .filter((message) => message.groupId === group.id)
+    .slice(-2000)
+    .map((message) => serializeLearningGroupChatMessage(message, req.auth.id))
+    .filter(Boolean);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({
+    groupId: group.id,
+    readOnly: String(group.status || '').trim() === 'completed',
+    messages,
+  });
+}));
+
+app.post('/api/learning-groups/:groupId/chat/messages', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const role = ensureLearningGroupChatParticipant(req, group, { write: true });
+  const type = String(req.body?.type || 'text').trim().toLowerCase() === 'poll' ? 'poll' : 'text';
+  if (type === 'poll' && role !== 'teacher') {
+    failLearningRequest('Создавать опросы может учитель', 'group_chat_poll_forbidden', 403);
+  }
+  let message;
+  try {
+    message = createLearningGroupChatMessage({
+      id: crypto.randomUUID(),
+      groupId: group.id,
+      senderId: req.auth.id,
+      senderRole: role,
+      senderName: getLearningGroupChatSenderName(req, role),
+      type,
+      text: req.body?.text,
+      poll: req.body?.poll,
+    });
+  } catch (error) {
+    failLearningRequest(error?.message || 'Не удалось отправить сообщение', 'group_chat_invalid_message', 400);
+  }
+  writeLearningGroupChatDb([...readLearningGroupChatDb(), message]);
+  return res.status(201).json({ message: serializeLearningGroupChatMessage(message, req.auth.id) });
+}));
+
+app.post('/api/learning-groups/:groupId/chat/messages/:messageId/vote', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  ensureLearningGroupChatParticipant(req, group, { write: true });
+  const messages = readLearningGroupChatDb();
+  const index = messages.findIndex((message) => (
+    message.id === req.params.messageId && message.groupId === group.id
+  ));
+  if (index < 0 || messages[index].type !== 'poll') {
+    failLearningRequest('Опрос не найден', 'group_chat_poll_not_found', 404);
+  }
+  try {
+    messages[index] = voteInLearningGroupPoll(messages[index], req.auth.id, req.body?.optionIds);
+  } catch (error) {
+    const isClosed = /завершён/i.test(String(error?.message || ''));
+    failLearningRequest(error?.message || 'Не удалось сохранить голос', 'group_chat_vote_invalid', isClosed ? 409 : 400);
+  }
+  const saved = writeLearningGroupChatDb(messages)[index];
+  return res.json({ message: serializeLearningGroupChatMessage(saved, req.auth.id) });
+}));
+
+app.patch('/api/learning-groups/:groupId/chat/messages/:messageId/poll', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  ensureLearningGroupChatParticipant(req, group, { write: true });
+  const messages = readLearningGroupChatDb();
+  const index = messages.findIndex((message) => (
+    message.id === req.params.messageId && message.groupId === group.id
+  ));
+  if (index < 0 || messages[index].type !== 'poll') {
+    failLearningRequest('Опрос не найден', 'group_chat_poll_not_found', 404);
+  }
+  messages[index] = setLearningGroupPollClosed(messages[index], req.body?.closed);
+  const saved = writeLearningGroupChatDb(messages)[index];
+  return res.json({ message: serializeLearningGroupChatMessage(saved, req.auth.id) });
 }));
 
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/answer-chat', handleLearningRoute((req, res) => {
@@ -41455,7 +41729,7 @@ server.on('upgrade', (request, socket, head) => {
   }
   if (pathname === '/collab' || pathname.startsWith('/collab/')) {
     const token = getAuthTokenFromRequest(request);
-    const session = getAuthSession(token);
+    const session = getAuthSession(token, request);
     if (!session?.user) {
       rejectUpgrade(socket, 401, 'Unauthorized');
       return;
@@ -41489,7 +41763,7 @@ server.on('upgrade', (request, socket, head) => {
 
   if (pathname === '/rtc') {
     const token = getAuthTokenFromRequest(request);
-    const session = getAuthSession(token);
+    const session = getAuthSession(token, request);
     if (!session?.user) {
       rejectUpgrade(socket, 401, 'Unauthorized');
       return;
@@ -41503,7 +41777,7 @@ server.on('upgrade', (request, socket, head) => {
 
   if (pathname === '/notifications') {
     const token = getAuthTokenFromRequest(request);
-    const session = getAuthSession(token);
+    const session = getAuthSession(token, request);
     if (!session?.user) {
       rejectUpgrade(socket, 401, 'Unauthorized');
       return;

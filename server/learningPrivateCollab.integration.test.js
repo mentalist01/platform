@@ -28,10 +28,11 @@ const getFreePort = () => new Promise((resolve, reject) => {
   });
 });
 
-const requestJson = async (baseUrl, pathname, { token = '', method = 'GET', body, status = 200 } = {}) => {
+const requestJson = async (baseUrl, pathname, { token = '', method = 'GET', body, status = 200, headers = {} } = {}) => {
   const response = await fetch(`${baseUrl}${pathname}`, {
     method,
     headers: {
+      ...headers,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     },
@@ -65,6 +66,7 @@ test('private boards, code and answer chat isolate students; legacy recording is
   const students = [
     { id: 'student-a', name: 'Анна', teacherId: teacher.id, code: '710101', grade: '11', createdAt: now, deletedAt: null },
     { id: 'student-b', name: 'Илья', teacherId: teacher.id, code: '710102', grade: '11', createdAt: now, deletedAt: null },
+    { id: 'student-c', name: 'Лев', teacherId: teacher.id, code: '710103', grade: '11', createdAt: now, deletedAt: null },
   ];
   let group = createLearningGroup({ name: 'Тестовая группа', maxStudents: 3 }, { id: 'group-a', teacherId: teacher.id, now });
   group = addLearningGroupMember(group, students[0], { actorId: teacher.id, now });
@@ -101,6 +103,7 @@ test('private boards, code and answer chat isolate students; legacy recording is
       COLLAB_PERSISTENCE: '0',
       DISABLE_STARTUP_XP_REBALANCE: '1',
       LEARNING_GROUPS_ENABLED: '1',
+      ADMIN_CODE: '710000',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -117,8 +120,27 @@ test('private boards, code and answer chat isolate students; legacy recording is
     }
     assert.equal(child.exitCode, null, logs);
     const teacherLogin = await requestJson(baseUrl, '/api/login', { method: 'POST', body: { code: teacher.code } });
+    const teacherPhoneLogin = await requestJson(baseUrl, '/api/login', {
+      method: 'POST',
+      body: { code: teacher.code },
+      headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36' },
+    });
     const annaLogin = await requestJson(baseUrl, '/api/login', { method: 'POST', body: { code: students[0].code } });
     const ilyaLogin = await requestJson(baseUrl, '/api/login', { method: 'POST', body: { code: students[1].code } });
+    const outsiderLogin = await requestJson(baseUrl, '/api/login', { method: 'POST', body: { code: students[2].code } });
+    const adminLogin = await requestJson(baseUrl, '/api/login', { method: 'POST', body: { code: '710000' } });
+
+    const teacherSessions = await requestJson(baseUrl, '/api/auth/sessions', { token: teacherLogin.token });
+    assert.equal(teacherSessions.scope, 'self');
+    assert.equal(teacherSessions.sessions.length, 2);
+    const phoneSession = teacherSessions.sessions.find((session) => session.device.type === 'mobile');
+    assert.equal(phoneSession.device.browser, 'Chrome');
+    assert.equal(phoneSession.device.os, 'Android');
+    assert.equal(Object.hasOwn(phoneSession, 'token'), false);
+    const allSessions = await requestJson(baseUrl, '/api/auth/sessions?scope=all', { token: adminLogin.token });
+    assert.ok(allSessions.sessions.length >= 6);
+    await requestJson(baseUrl, `/api/auth/sessions/${phoneSession.id}`, { token: teacherLogin.token, method: 'DELETE' });
+    await requestJson(baseUrl, '/api/session', { token: teacherPhoneLogin.token, status: 401 });
 
     const settings = await requestJson(baseUrl, '/api/desktop-recording/settings', { token: teacherLogin.token });
     assert.equal(settings.legacyRecordingEnabled, false);
@@ -181,6 +203,48 @@ test('private boards, code and answer chat isolate students; legacy recording is
     assert.deepEqual(annaChat.messages.map(({ text }) => text), ['Пишите ответ', '42']);
     assert.deepEqual(ilyaChat.messages.map(({ text }) => text), ['Пишите ответ', '43']);
     assert.deepEqual(teacherChat.messages.map(({ text }) => text), ['Пишите ответ', '42', '43']);
+
+    const groupChatPath = `/api/learning-groups/${group.id}/chat`;
+    await requestJson(baseUrl, `${groupChatPath}/messages`, {
+      token: teacherLogin.token,
+      method: 'POST',
+      status: 201,
+      body: { text: 'Всем привет' },
+    });
+    const createdPoll = await requestJson(baseUrl, `${groupChatPath}/messages`, {
+      token: teacherLogin.token,
+      method: 'POST',
+      status: 201,
+      body: {
+        type: 'poll',
+        poll: {
+          question: 'Что повторить?',
+          options: [{ id: 'for', text: 'Цикл for' }, { id: 'strings', text: 'Строки' }],
+        },
+      },
+    });
+    await requestJson(baseUrl, `${groupChatPath}/messages`, {
+      token: annaLogin.token,
+      method: 'POST',
+      status: 403,
+      body: { type: 'poll', poll: { question: 'Нельзя', options: ['Да', 'Нет'] } },
+    });
+    await requestJson(baseUrl, groupChatPath, { token: outsiderLogin.token, status: 403 });
+    await requestJson(baseUrl, `${groupChatPath}/messages/${createdPoll.message.id}/vote`, {
+      token: annaLogin.token, method: 'POST', body: { optionIds: ['for'] },
+    });
+    await requestJson(baseUrl, `${groupChatPath}/messages/${createdPoll.message.id}/vote`, {
+      token: ilyaLogin.token, method: 'POST', body: { optionIds: ['for'] },
+    });
+    await requestJson(baseUrl, `${groupChatPath}/messages/${createdPoll.message.id}/vote`, {
+      token: annaLogin.token, method: 'POST', body: { optionIds: ['strings'] },
+    });
+    const groupChat = await requestJson(baseUrl, groupChatPath, { token: annaLogin.token });
+    const savedPoll = groupChat.messages.find(({ id }) => id === createdPoll.message.id);
+    assert.deepEqual(savedPoll.poll.myOptionIds, ['strings']);
+    assert.equal(savedPoll.poll.totalVoters, 2);
+    assert.deepEqual(savedPoll.poll.options.map(({ id, voteCount }) => [id, voteCount]), [['for', 1], ['strings', 1]]);
+    assert.equal(Object.hasOwn(savedPoll.poll, 'votesByUserId'), false);
   } finally {
     if (child.exitCode === null) child.kill('SIGTERM');
     await new Promise((resolve) => setTimeout(resolve, 200));

@@ -557,6 +557,25 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getAuthSessions: async (options = {}) => {
+    const params = new URLSearchParams();
+    if (options?.scope) params.set('scope', String(options.scope));
+    if (options?.query) params.set('q', String(options.query));
+    const query = params.toString();
+    const res = await apiFetch(query ? `/api/auth/sessions?${query}` : '/api/auth/sessions');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  revokeAuthSession: async (sessionId) => {
+    const res = await apiFetch(`/api/auth/sessions/${encodeURIComponent(String(sessionId || '').trim())}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  revokeOtherAuthSessions: async () => {
+    const res = await apiFetch('/api/auth/sessions/others', { method: 'DELETE' });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   updateStudentAvatar: async (avatarDataUrl) => {
     const res = await apiFetch('/api/students/avatar', {
       method: 'PATCH',
@@ -1394,6 +1413,27 @@ export const api = {
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'answer-chat'), {
       method: 'POST',
       body: { text },
+    })
+  ),
+  getLearningGroupChat: async (groupId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'chat'))
+  ),
+  sendLearningGroupChatMessage: async (groupId, payload = {}) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'chat', 'messages'), {
+      method: 'POST',
+      body: payload,
+    })
+  ),
+  voteLearningGroupChatPoll: async (groupId, messageId, optionIds = []) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'chat', 'messages', messageId, 'vote'), {
+      method: 'POST',
+      body: { optionIds: Array.isArray(optionIds) ? optionIds : [] },
+    })
+  ),
+  setLearningGroupChatPollClosed: async (groupId, messageId, closed) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'chat', 'messages', messageId, 'poll'), {
+      method: 'PATCH',
+      body: { closed: Boolean(closed) },
     })
   ),
   getLearningGroupProgress: async (groupId) => (

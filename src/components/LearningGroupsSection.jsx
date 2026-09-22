@@ -19,6 +19,7 @@ import {
   HardDrive,
   Link2,
   Loader2,
+  MessageCircle,
   PanelTop,
   Pencil,
   Play,
@@ -37,6 +38,7 @@ import {
 } from 'lucide-react';
 import { api, resolveAuthenticatedApiUrl, withStoredAuthToken } from '../services/api';
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
+import LearningGroupChat from './LearningGroupChat';
 import {
   LEARNING_GROUP_STATUS_ACTIVE,
   LEARNING_GROUP_STATUS_COMPLETED,
@@ -100,6 +102,7 @@ const TAB_ITEMS = [
   { id: 'schedule', label: 'Расписание', icon: CalendarDays },
   { id: 'lessons', label: 'Занятия', icon: Video },
   { id: 'materials', label: 'Материалы', icon: BookOpen },
+  { id: 'chat', label: 'Чат', icon: MessageCircle },
   { id: 'assignments', label: 'Домашние задания', icon: ClipboardList },
   { id: 'attendance', label: 'Посещаемость', icon: UserCheck },
 ];
@@ -2561,6 +2564,16 @@ const LearningGroupsSection = ({
                       </div>
                     )}
                   </div>
+                )}
+
+                {tab === 'chat' && (
+                  <LearningGroupChat
+                    groupId={selectedGroup.id}
+                    groupName={selectedGroup.name}
+                    role={role}
+                    userId={userId}
+                    readOnly={selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED}
+                  />
                 )}
 
                 {tab === 'assignments' && (

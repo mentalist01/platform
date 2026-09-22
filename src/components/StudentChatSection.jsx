@@ -37,6 +37,8 @@ import './ChatSections.css';
 import LinkifiedText from './LinkifiedText';
 import StudentLeaderboardProfileModal from './StudentLeaderboardProfileModal';
 import OnlinePresenceDot from './OnlinePresenceDot';
+import LearningGroupChat from './LearningGroupChat';
+import { normalizeLearningGroupList } from '../utils/learningGroups';
 
 const CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const CHAT_FILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -2384,6 +2386,10 @@ const StudentChatSection = ({
   const [notificationSettings, setNotificationSettings] = useState(null);
   const [notificationSettingsSavingKey, setNotificationSettingsSavingKey] = useState('');
   const [, setNotificationSettingsError] = useState('');
+  const [learningGroups, setLearningGroups] = useState([]);
+  const [selectedLearningGroupId, setSelectedLearningGroupId] = useState('');
+  const [learningGroupsLoading, setLearningGroupsLoading] = useState(true);
+  const [learningGroupsError, setLearningGroupsError] = useState('');
   const teacherListRef = useRef(null);
   const socialListRef = useRef(null);
   const teacherScrollBehaviorRef = useRef(null);
@@ -2412,6 +2418,30 @@ const StudentChatSection = ({
   useEffect(() => {
     socialMessagesPaginationRef.current = socialMessagesPagination;
   }, [socialMessagesPagination]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLearningGroupsLoading(true);
+    api.getLearningGroups({ includeCompleted: true, studentId: user?.id })
+      .then((payload) => {
+        if (cancelled) return;
+        const groups = normalizeLearningGroupList(payload);
+        setLearningGroups(groups);
+        setSelectedLearningGroupId((current) => (
+          groups.some((group) => group.id === current)
+            ? current
+            : (groups.find((group) => group.status !== 'completed')?.id || groups[0]?.id || '')
+        ));
+        setLearningGroupsError('');
+      })
+      .catch((loadError) => {
+        if (!cancelled) setLearningGroupsError(loadError?.message || 'Не удалось загрузить мини-группы');
+      })
+      .finally(() => {
+        if (!cancelled) setLearningGroupsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const validateAndReadAttachment = useCallback(async (file) => {
     if (!file) return null;
@@ -3470,6 +3500,14 @@ const StudentChatSection = ({
       badge: directUnreadTotal,
       activeClass: 'border-emerald-300 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-emerald-500/25',
     },
+    {
+      id: 'mini-groups',
+      label: 'Мини-группы',
+      caption: `${learningGroups.length} ${learningGroups.length === 1 ? 'группа' : 'групп'}`,
+      icon: Hash,
+      badge: 0,
+      activeClass: 'border-violet-300 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-violet-500/25',
+    },
   ];
   const selectedDirectChat = directChats.find((chat) => chat.id === selectedDirectChatId)
     || (socialChat?.type === 'direct' && socialChat.id === selectedDirectChatId ? socialChat : null);
@@ -4203,6 +4241,58 @@ const StudentChatSection = ({
                 />
               </div>
             </div>
+          )}
+        </Card>
+      )}
+
+      {activeTab === 'mini-groups' && (
+        <Card className="student-chat-panel flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+          {learningGroupsLoading ? (
+            <div className="grid min-h-[320px] place-items-center text-sm font-semibold text-slate-500">Загружаем мини-группы...</div>
+          ) : learningGroupsError ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{learningGroupsError}</div>
+          ) : learningGroups.length === 0 ? (
+            <div className="student-chat-empty-state">
+              <div className="student-chat-empty-state__card">
+                <span className="student-chat-empty-state__icon" aria-hidden="true"><Hash size={26} /></span>
+                <span className="student-chat-empty-state__kicker">Мини-группы</span>
+                <h3>Вы пока не состоите в мини-группе</h3>
+                <p>После добавления учителем здесь появится общий чат вашей группы.</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {learningGroups.length > 1 && (
+                <div className="mb-3 flex shrink-0 gap-2 overflow-x-auto pb-1">
+                  {learningGroups.map((group) => (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => setSelectedLearningGroupId(group.id)}
+                      className={`shrink-0 rounded-xl border px-3 py-2 text-sm font-bold transition ${
+                        selectedLearningGroupId === group.id
+                          ? 'border-violet-500 bg-violet-600 text-white'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-violet-300 hover:text-violet-700'
+                      }`}
+                    >
+                      {group.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {(() => {
+                const group = learningGroups.find((entry) => entry.id === selectedLearningGroupId) || learningGroups[0];
+                return group ? (
+                  <LearningGroupChat
+                    groupId={group.id}
+                    groupName={group.name}
+                    role="student"
+                    userId={user?.id}
+                    readOnly={group.status === 'completed'}
+                  />
+                ) : null;
+              })()}
+            </>
           )}
         </Card>
       )}
