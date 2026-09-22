@@ -29,6 +29,7 @@
     "monaco-editor": "^0.45.0",
     "multer": "^1.4.5-lts.1",
     "node-ical": "^0.26.0",
+    "nodemailer": "^10.0.10",
     "openseadragon": "^6.1.0",
     "prismjs": "^1.30.0",
     "qrcode": "^1.5.4",

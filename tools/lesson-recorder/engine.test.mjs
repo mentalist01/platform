@@ -53,6 +53,17 @@ test('local cutoff stops capture during a platform network outage', async (t) =>
   await assert.rejects(f.engine.tick(), /offline/);
   assert.deepEqual(f.counts(), [1, 1]); assert.equal(f.state.jobs.one.status, 'saved');
 });
+
+test('temporary internet loss keeps OBS writing the same file and reconnect does not start an upload', async (t) => {
+  const f = fixture(t); f.job.cutoffAt += 3600000;
+  f.remote({ enabled: true, jobs: [f.job] }); await f.engine.tick();
+  f.offline(); f.advance(120000);
+  await assert.rejects(f.engine.tick(), /offline/);
+  assert.deepEqual(f.counts(), [1, 0]); assert.equal(f.state.jobs.one.status, 'recording');
+  f.online(); await f.engine.tick();
+  assert.deepEqual(f.counts(), [1, 0]);
+  assert.ok(f.reports.every(report => report.status === 'recording'));
+});
 test('crash after OBS start is recovered without starting another recording', async (t) => {
   const f = fixture(t); f.state.jobs.one = { ...f.job, status: 'starting' };
   await f.obs.start('one'); await f.engine.tick();

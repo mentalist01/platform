@@ -557,22 +557,31 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  accountSecurity: async (action = '', body) => {
+    const res = await apiFetch(`/api/auth/security${action ? `/${action}` : ''}`, {
+      method: action ? 'POST' : 'GET',
+      headers: { 'X-Security-Action': '1', ...(action ? { 'Content-Type': 'application/json' } : {}) },
+      ...(action ? { body: JSON.stringify(body || {}) } : {}),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getAuthSessions: async (options = {}) => {
     const params = new URLSearchParams();
     if (options?.scope) params.set('scope', String(options.scope));
     if (options?.query) params.set('q', String(options.query));
     const query = params.toString();
-    const res = await apiFetch(query ? `/api/auth/sessions?${query}` : '/api/auth/sessions');
+    const res = await apiFetch(query ? `/api/auth/sessions?${query}` : '/api/auth/sessions', { headers: { 'X-Security-Action': '1' } });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   revokeAuthSession: async (sessionId) => {
-    const res = await apiFetch(`/api/auth/sessions/${encodeURIComponent(String(sessionId || '').trim())}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/auth/sessions/${encodeURIComponent(String(sessionId || '').trim())}`, { method: 'DELETE', headers: { 'X-Security-Action': '1' } });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
   revokeOtherAuthSessions: async () => {
-    const res = await apiFetch('/api/auth/sessions/others', { method: 'DELETE' });
+    const res = await apiFetch('/api/auth/sessions/others', { method: 'DELETE', headers: { 'X-Security-Action': '1' } });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
@@ -597,11 +606,22 @@ export const api = {
   login: async (code) => {
     const res = await apiFetch('/api/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Security-Action': '1' },
       body: JSON.stringify({ code }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
     const data = await res.json();
+    invalidateAuthSensitiveCaches();
+    return data;
+  },
+  verifyEmailLogin: async (challengeId, code) => {
+    const res = await apiFetch('/api/login/email/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Security-Action': '1' },
+      body: JSON.stringify({ challengeId, code }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const data = await parseJsonResponse(res);
     invalidateAuthSensitiveCaches();
     return data;
   },

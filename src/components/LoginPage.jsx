@@ -59,6 +59,8 @@ const LoginPage = ({ onLogin }) => {
   const initialApiBaseUrl = getConfiguredApiBaseUrl();
   const [mode, setMode] = useState(MODE_CHOICE);
   const [code, setCode] = useState('');
+  const [emailChallenge, setEmailChallenge] = useState(null);
+  const [emailCode, setEmailCode] = useState('');
   const [isCodeVisible, setIsCodeVisible] = useState(false);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -80,6 +82,7 @@ const LoginPage = ({ onLogin }) => {
 
   const handleBack = () => {
     resetState();
+    setEmailChallenge(null); setEmailCode('');
     setCode('');
     setIsCodeVisible(false);
     setName('');
@@ -96,12 +99,23 @@ const LoginPage = ({ onLogin }) => {
     setError('');
     try {
       const user = await api.login(code.trim());
+      setCode(''); setIsCodeVisible(false);
+      if (user.emailVerificationRequired) {
+        setEmailChallenge(user); setEmailCode(''); return;
+      }
       onLogin(user);
     } catch (err) {
       setError(err?.message || String(err));
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEmailSubmit = async (event) => {
+    event.preventDefault(); setLoading(true); setError('');
+    try { onLogin(await api.verifyEmailLogin(emailChallenge.challengeId, emailCode)); }
+    catch (failure) { setError(failure.message); }
+    finally { setLoading(false); }
   };
 
   const handleParentSubmit = async (event) => {
@@ -245,7 +259,16 @@ const LoginPage = ({ onLogin }) => {
           </div>
         )}
 
-        {(mode === MODE_STUDENT || mode === MODE_PARENT) && (
+        {emailChallenge && <form onSubmit={handleEmailSubmit} className="space-y-4">
+          <h2 className="text-lg font-bold text-gray-900">Подтвердите вход по почте</h2>
+          <p className="text-sm leading-relaxed text-gray-600">Этот браузер или сеть ещё не подтверждены. Код отправлен на привязанную почту; её адрес скрыт. Введите код в течение 10 минут. После подтверждения запомним этот браузер и сеть на 30 дней.</p>
+          <label className="block text-sm text-gray-700">Код из письма<input autoFocus required autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ''))} className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none focus:border-purple-500" /></label>
+          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+          <Button type="submit" className="w-full py-3" disabled={loading || emailCode.length !== 6}>{loading ? 'Проверяем…' : 'Подтвердить и войти'}</Button>
+          <p className="text-xs text-gray-500">Нет письма? Проверьте «Спам». Для нового кода начните вход заново через минуту.</p>
+          <button type="button" className="w-full text-sm text-purple-600" disabled={loading} onClick={handleBack}>Начать вход заново</button>
+        </form>}
+        {!emailChallenge && (mode === MODE_STUDENT || mode === MODE_PARENT) && (
           <form
             onSubmit={mode === MODE_PARENT ? handleParentSubmit : handleStudentSubmit}
             className="space-y-4"

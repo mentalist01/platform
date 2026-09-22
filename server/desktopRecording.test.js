@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createDesktopRecordingStore, privateRutubeVideo } from './desktopRecording.js';
+import { createDesktopRecordingStore, privateRutubeVideo, RECORDING_RECONNECT_GRACE_MS } from './desktopRecording.js';
 
 const video = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Secret_Key-123';
 function fixture(t) {
@@ -59,16 +59,36 @@ test('a lesson that never reached OBS can start again when its call resumes', (t
   assert.equal(resumed.audioMode, 'platform');
 });
 
-test('a transient disconnected tab cannot stop a live call, but an ended call stops automatically', (t) => {
+test('OBS keeps the same recording through a two-minute disconnect, then stops after five inactive minutes', (t) => {
   const f = fixture(t); const { device } = f.connect('teacher');
-  f.store.start('teacher', { key: 'lesson' }, 'Урок', f.now() + 60000);
+  const cutoff = f.now() + 3600000;
+  const job = f.store.start('teacher', { key: 'lesson' }, 'Урок', cutoff);
+  f.store.report(device, job.id, { status: 'recording' });
   f.store.poll(device, true, undefined, () => true);
   f.store.requestStop('lesson'); f.advance(16000);
   assert.equal(f.store.poll(device, true, undefined, () => true).jobs[0].desired, 'record');
-  f.advance(29000);
+  f.store.requestStop('lesson');
+  f.advance(120000);
   assert.equal(f.store.poll(device, true, undefined, () => false).jobs[0].desired, 'record');
-  f.advance(1000);
+  const resumed = f.store.start('teacher', { key: 'lesson' }, 'Урок', cutoff);
+  assert.equal(resumed.id, job.id); assert.equal(resumed.status, 'recording');
+  f.advance(RECORDING_RECONNECT_GRACE_MS - 1);
+  assert.equal(f.store.poll(device, true, undefined, () => false).jobs[0].desired, 'record');
+  f.advance(1);
   assert.equal(f.store.poll(device, true, undefined, () => false).jobs[0].desired, 'stop');
+});
+
+test('reconnection grace survives server restart and explicit finish still stops immediately', (t) => {
+  const f = fixture(t); const { device } = f.connect('teacher');
+  f.store.start('teacher', { key: 'first' }, 'Урок', f.now() + 3600000);
+  f.store.requestStop('first'); f.advance(60000);
+  const restored = createDesktopRecordingStore(f.file, { now: f.now });
+  assert.equal(restored.poll(device, true, undefined, () => false).jobs[0].desired, 'record');
+  restored.stop('first');
+  assert.equal(restored.poll(device, true).jobs[0].desired, 'stop');
+  const next = restored.start('teacher', { key: 'next' }, 'Следующий урок', f.now() + 3600000);
+  assert.equal(next.desired, 'record');
+  assert.notEqual(next.id, restored.settings('teacher').jobs.find(j => j.occurrence.key === 'first').id);
 });
 test('saved recording stops desired capture, ready is durable and cannot regress', (t) => {
   const f = fixture(t); const { device } = f.connect('teacher');

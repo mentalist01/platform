@@ -1,4 +1,10 @@
 import path from 'node:path';
+export const RUTUBE_UPLOAD_WAIT_MS = 12 * 3600_000;
+
+const friendlyTimeout = (error) => {
+  if (error?.name === 'TimeoutError') return new Error('Rutube пока не завершил загрузку или публикацию (ожидание до 12 часов). Файл сохранён. Оставьте окно Rutube открытым и нажмите «Продолжить загрузку»: повторная копия не создаётся.');
+  return error;
+};
 
 export function privateVideo(value) {
   try {
@@ -21,21 +27,30 @@ export async function videoReady(value) {
 }
 
 export async function completePrivateVideo(editor, job, persist) {
+  try {
   const access = editor.getByRole('combobox', { name: 'Доступ', exact: true });
   if ((await access.innerText()).trim() !== 'Только по ссылке') throw new Error('Не удалось установить доступ «только по ссылке». Проверьте окно Rutube.');
   const link = editor.locator('a[href*="rutube.ru/video/private/"]');
-  await link.waitFor({ timeout: 60000 });
+  job.uploadPhase = 'waiting-link'; job.error = ''; persist();
+  await link.waitFor({ timeout: RUTUBE_UPLOAD_WAIT_MS });
   const video = privateVideo(await link.getAttribute('href'));
   if (!video) throw new Error('Rutube не выдал закрытую ссылку. Файл сохранён, проверьте окно загрузки.');
   job.candidateUrl = video.url; job.uploadPhase = 'publishing'; persist();
   // A fresh upload uses Publish after moderation; editing an existing video
   // uses Save. One live locator follows either label during processing.
   const submit = editor.getByRole('button', { name: /^(?:Сохранить|Опубликовать)$/ });
-  await submit.waitFor({ state: 'visible', timeout: 60000 });
-  await submit.click({ timeout: 4 * 3600_000 });
-  await editor.waitFor({ state: 'hidden', timeout: 60000 });
+  await submit.waitFor({ state: 'visible', timeout: RUTUBE_UPLOAD_WAIT_MS });
+  await submit.click({ timeout: RUTUBE_UPLOAD_WAIT_MS });
+  await editor.waitFor({ state: 'hidden', timeout: 5 * 60_000 });
   job.url = video.url; job.status = 'processing'; job.uploadPhase = ''; job.error = ''; persist();
   return video.url;
+  } catch (error) { throw friendlyTimeout(error); }
+}
+
+export async function isCurrentUploadEditor(editor, job, title) {
+  if (!job.uploadStarted || !await editor.isVisible()) return false;
+  const currentTitle = await editor.getByRole('textbox', { name: 'Название', exact: true }).inputValue();
+  return currentTitle === title || currentTitle === path.basename(job.mp4, '.mp4').slice(0, 100);
 }
 
 // Uses a separate browser profile. No passwords or browser cookies are copied from other apps.
@@ -64,11 +79,15 @@ export class RutubeUploader {
   async upload(job, persist) {
     await this.browser();
     const page = this.page;
+    const title = `${job.title.slice(0, 55)} [${job.id}]`;
+    const editor = page.getByTestId('video-editor-layout');
+    // Retrying a slow upload must not navigate away and abort the file transfer.
+    const resumeOpenEditor = await isCurrentUploadEditor(editor, job, title);
+    if (!resumeOpenEditor) {
     await page.goto('https://studio.rutube.ru/videos', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.getByTestId('header-add-button').waitFor({ timeout: 30000 }).catch(() => {
       throw new Error('Войдите в Rutube в окне помощника, затем нажмите «Продолжить загрузку»');
     });
-    const title = `${job.title.slice(0, 55)} [${job.id}]`;
     // Rutube renders clickable <a> titles without href, so they have no Playwright link role.
     const existing = page.getByText(title, { exact: true }).or(
       page.getByText(path.basename(job.mp4, '.mp4').slice(0, 100), { exact: true })
@@ -89,7 +108,7 @@ export class RutubeUploader {
       job.uploadStarted = true; persist();
       await chooser.setFiles(job.mp4);
     }
-    const editor = page.getByTestId('video-editor-layout');
+    }
     await editor.waitFor({ state: 'visible', timeout: 60000 });
     await editor.getByRole('textbox', { name: 'Название', exact: true }).fill(title);
     // The UI defaults can change. Require explicit private selection before saving.

@@ -23,7 +23,8 @@ import leagueRuby from './assets/leagues/ruby.png';
 import leagueDiamond from './assets/leagues/diamond.png';
 import leagueAbsolute from './assets/leagues/absolute.png';
 import leagueCelestial from './assets/leagues/celestial.png';
-import LoginPage from './components/LoginPage';
+const LoginPage = React.lazy(() => import('./components/LoginPage'));
+const TeacherEmailEnrollment = React.lazy(() => import('./components/TeacherEmailEnrollment'));
 import { LogoMark, PythonLogoIcon } from './components/Identity';
 import StudentTodayOverview from './components/StudentTodayOverview';
 import MonthlyMockExamStatus from './components/MonthlyMockExamStatus';
@@ -28014,7 +28015,9 @@ const MainApp = () => {
   if (!user) {
     return (
       <>
-        <LoginPage onLogin={handleLogin} />
+        <React.Suspense fallback={<div className="app-loading-screen">Загружаем вход…</div>}>
+          <LoginPage onLogin={handleLogin} />
+        </React.Suspense>
         <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} />
       </>
     );
@@ -28059,7 +28062,7 @@ const MainApp = () => {
     );
   }
 
-  return (
+  const dashboard = (
     <>
       <DashboardLayout
         user={user}
@@ -28073,6 +28076,11 @@ const MainApp = () => {
       <ThemeToggleButton theme={theme} onToggle={handleThemeToggle} className="theme-toggle--desktop" />
     </>
   );
+  return user.role === 'teacher' ? (
+    <React.Suspense fallback={<div className="app-loading-screen">Проверяем защиту аккаунта…</div>}>
+      <TeacherEmailEnrollment key={user.id} user={user} onLogout={handleLogout}>{dashboard}</TeacherEmailEnrollment>
+    </React.Suspense>
+  ) : dashboard;
 };
 
 const App = () => {

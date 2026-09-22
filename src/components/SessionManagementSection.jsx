@@ -12,6 +12,7 @@ import {
   Tablet,
 } from 'lucide-react';
 import { api } from '../services/api';
+import AccountSecurityGate from './AccountSecurityGate';
 
 const ROLE_LABELS = {
   admin: 'Администратор',
@@ -33,7 +34,7 @@ const formatLastSeen = (value) => {
   const timestamp = Date.parse(String(value || ''));
   if (!Number.isFinite(timestamp)) return 'активность неизвестна';
   const diff = Math.max(0, Date.now() - timestamp);
-  if (diff < 90_000) return 'сейчас на платформе';
+  if (diff < 90_000) return 'активность только что';
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 60) return `${minutes} мин назад`;
   const hours = Math.floor(minutes / 60);
@@ -49,7 +50,7 @@ const getDeviceIcon = (type) => {
 
 const SessionManagementSection = ({ user }) => {
   const isAdmin = user?.role === 'admin';
-  const [scope, setScope] = useState(isAdmin ? 'all' : 'self');
+  const [scope, setScope] = useState('self');
   const [query, setQuery] = useState('');
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -64,7 +65,8 @@ const SessionManagementSection = ({ user }) => {
       setSessions(Array.isArray(payload?.sessions) ? payload.sessions : []);
       setError('');
     } catch (loadError) {
-      if (!silent) setError(loadError?.message || 'Не удалось загрузить активные сессии');
+      setSessions([]);
+      setError(loadError?.message || 'Не удалось загрузить активные сессии');
     } finally {
       if (!silent) setLoading(false);
     }
@@ -234,4 +236,6 @@ const SessionManagementSection = ({ user }) => {
   );
 };
 
-export default SessionManagementSection;
+export default function ProtectedSessions({ user }) {
+  return <AccountSecurityGate user={user}><SessionManagementSection user={user} /></AccountSecurityGate>;
+}

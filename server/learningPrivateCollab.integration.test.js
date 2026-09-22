@@ -130,18 +130,12 @@ test('private boards, code and answer chat isolate students; legacy recording is
     const outsiderLogin = await requestJson(baseUrl, '/api/login', { method: 'POST', body: { code: students[2].code } });
     const adminLogin = await requestJson(baseUrl, '/api/login', { method: 'POST', body: { code: '710000' } });
 
-    const teacherSessions = await requestJson(baseUrl, '/api/auth/sessions', { token: teacherLogin.token });
-    assert.equal(teacherSessions.scope, 'self');
-    assert.equal(teacherSessions.sessions.length, 2);
-    const phoneSession = teacherSessions.sessions.find((session) => session.device.type === 'mobile');
-    assert.equal(phoneSession.device.browser, 'Chrome');
-    assert.equal(phoneSession.device.os, 'Android');
-    assert.match(phoneSession.ipAddress, /\*/);
-    assert.equal(Object.hasOwn(phoneSession, 'token'), false);
-    const allSessions = await requestJson(baseUrl, '/api/auth/sessions?scope=all', { token: adminLogin.token });
-    assert.ok(allSessions.sessions.length >= 6);
-    await requestJson(baseUrl, `/api/auth/sessions/${phoneSession.id}`, { token: teacherLogin.token, method: 'DELETE' });
-    await requestJson(baseUrl, '/api/session', { token: teacherPhoneLogin.token, status: 401 });
+    // Listing and revocation now require a separate email-confirmed browser.
+    for (const token of [teacherLogin.token, adminLogin.token]) {
+      await requestJson(baseUrl, '/api/auth/sessions', { token, status: 403, headers: { 'X-Security-Action': '1' } });
+      await requestJson(baseUrl, '/api/auth/sessions/others', { token, method: 'DELETE', status: 403, headers: { 'X-Security-Action': '1' } });
+    }
+    await requestJson(baseUrl, '/api/session', { token: teacherPhoneLogin.token });
 
     const settings = await requestJson(baseUrl, '/api/desktop-recording/settings', { token: teacherLogin.token });
     assert.equal(settings.legacyRecordingEnabled, false);

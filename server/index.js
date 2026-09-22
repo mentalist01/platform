@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
+import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallengeCookie, setTrustedBrowserCookie } from './accountSecurity.js';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -7418,6 +7419,24 @@ const ensureAdminAuth = () => {
 };
 
 const authSessions = new Map();
+const authConnections = new Map();
+let accountSecurity = null;
+const closeAuthConnections = (token) => {
+  const entries = authConnections.get(token);
+  authConnections.delete(token);
+  for (const close of entries || []) { try { close(); } catch { /* already closed */ } }
+  accountSecurity?.revokeToken(token);
+};
+const trackAuthConnection = (token, connection, close) => {
+  if (!authSessions.has(token)) { close(); return; }
+  if (!authConnections.has(token)) authConnections.set(token, new Set());
+  const entries = authConnections.get(token);
+  entries.add(close);
+  connection.once('close', () => {
+    entries.delete(close);
+    if (!entries.size) authConnections.delete(token);
+  });
+};
 let authSessionsPersistTimer = null;
 const scheduleSyncClients = new Map();
 let scheduleSyncClientCounter = 0;
@@ -7472,6 +7491,7 @@ const writeWorkbookHelperSessionsDb = (sessions, options = {}) => {
 };
 
 const serializeAuthSessionForStorage = (session) => ({
+  emailEnrollmentRequired: session.emailEnrollmentRequired === true,
   id: session.id,
   token: session.token,
   user: session.user,
@@ -7513,8 +7533,7 @@ const getAuthSessionId = (token) => crypto
   .slice(0, 24);
 
 const getRequestIpAddress = (req) => {
-  const forwarded = String(req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
-  return (forwarded || String(req?.ip || req?.socket?.remoteAddress || '').trim())
+  return String(req?.ip || req?.socket?.remoteAddress || '').trim()
     .replace(/^::ffff:/, '')
     .slice(0, 100);
 };
@@ -7591,6 +7610,7 @@ const normalizeStoredAuthSession = (entry) => {
   if (!token || !user || !Number.isFinite(expiresAtMs)) return null;
   return {
     id: String(entry.id || '').trim() || getAuthSessionId(token),
+    emailEnrollmentRequired: entry.emailEnrollmentRequired === true,
     token,
     user,
     createdAtMs: Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : Date.now(),
@@ -7742,12 +7762,17 @@ const hydrateAuthSessions = () => {
 
 const deleteAuthSession = (token) => {
   if (!token) return false;
-  const deleted = authSessions.delete(token);
-  if (deleted) {
-    persistAuthSessions();
+  if (authSessions.has(token)) {
+    // Persist first: a reported successful logout must survive a restart.
+    writeAuthSessionsDb(Array.from(authSessions.values())
+      .filter((session) => session.token !== token).map(serializeAuthSessionForStorage));
+    authSessions.delete(token);
+    closeAuthConnections(token);
     return true;
   }
-  return deleteAuthSessionFromStorage(token);
+  const deleted = deleteAuthSessionFromStorage(token);
+  closeAuthConnections(token);
+  return deleted;
 };
 
 const purgeExpiredAuthSessions = () => {
@@ -7756,6 +7781,7 @@ const purgeExpiredAuthSessions = () => {
   for (const [token, session] of authSessions.entries()) {
     if (!session || !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= now) {
       authSessions.delete(token);
+      closeAuthConnections(token);
       changed = true;
     }
   }
@@ -7767,12 +7793,23 @@ if (typeof authSessionSweepTimer.unref === 'function') {
   authSessionSweepTimer.unref();
 }
 
+const authConnectionSweepTimer = setInterval(() => {
+  for (const token of authConnections.keys()) {
+    if ((authSessions.get(token)?.expiresAtMs || 0) <= Date.now()) {
+      try { deleteAuthSession(token); }
+      catch { closeAuthConnections(token); console.error('[auth] failed to persist expired session removal'); }
+    }
+  }
+}, 30_000);
+authConnectionSweepTimer.unref?.();
+
 const createAuthSession = (user, req = null) => {
   const payload = buildSessionUser(user);
   if (!payload) return null;
   const now = Date.now();
   const session = {
     token: createAuthToken(),
+    emailEnrollmentRequired: accountSecurity?.enrollmentRequired(payload) === true,
     user: payload,
     createdAtMs: now,
     lastSeenAtMs: now,
@@ -21321,6 +21358,35 @@ app.get('/shared-task/:token', (req, res) => {
 </html>`);
 });
 
+const accountCookieOptions = { secureCookies: AUTH_COOKIE_SECURE, sameSite: AUTH_COOKIE_SAME_SITE };
+const teacherCredentialVersion = (teacher) => crypto.createHash('sha256').update(String(teacher.codeHash || teacher.code || '')).digest('hex');
+const emailLoginIdentity = (id) => {
+  const teacher = readTeachersDb().find((entry) => entry.id === id && !entry.deletedAt);
+  if (!teacher) return null;
+  const subscription = getTeacherSubscriptionStatus(id);
+  if (!subscription.accessAllowed) return null;
+  return { credentialVersion: teacherCredentialVersion(teacher), user: {
+    id: teacher.id, name: teacher.name, role: 'teacher',
+    avatarDataUrl: normalizeTeacherAvatarDataUrl(teacher.avatarDataUrl),
+    canManageGlobalTaskContent: canManageGlobalTaskContent({ role: 'teacher', id: teacher.id }),
+    subscription,
+  } };
+};
+app.post('/api/login/email/verify', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.headers['x-security-action'] !== '1') return res.status(403).json({ error: 'Откройте форму входа на платформе.' });
+  try {
+    const { user, trustSecret } = await accountSecurity.verifyLogin(req, emailLoginIdentity);
+    const session = createAuthSession(user, req);
+    accountSecurity.associateSession(req, user, session.token, trustSecret);
+    setLoginChallengeCookie(res, '', accountCookieOptions);
+    setTrustedBrowserCookie(res, trustSecret, accountCookieOptions);
+    return respondWithSession(res, session);
+  } catch (error) {
+    return res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось подтвердить вход.' });
+  }
+});
+
 app.post('/api/login', async (req, res, next) => {
   try {
   const { code } = req.body || {};
@@ -21379,14 +21445,27 @@ app.post('/api/login', async (req, res, next) => {
         writeTeachersDb(teachers);
       }
     }
-    const session = createAuthSession({
+    const user = {
       id: teacher.id,
       name: teacher.name,
       role: 'teacher',
       avatarDataUrl: normalizeTeacherAvatarDataUrl(teacher.avatarDataUrl),
       canManageGlobalTaskContent: canManageGlobalTaskContent({ role: 'teacher', id: teacher.id }),
       subscription,
-    }, req);
+    };
+    if (accountSecurity.needsLoginCode(req, user)) {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.headers['x-security-action'] !== '1') return res.status(403).json({ error: 'Обновите страницу и повторите вход для подтверждения почты.' });
+      try {
+        const challenge = await accountSecurity.beginLogin(req, user, teacherCredentialVersion(teacher));
+        setLoginChallengeCookie(res, challenge.secret, accountCookieOptions);
+        return res.json({ emailVerificationRequired: true, challengeId: challenge.challengeId, expiresAt: challenge.expiresAt });
+      } catch (error) {
+        return res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось отправить код входа.' });
+      }
+    }
+    const session = createAuthSession(user, req);
+    accountSecurity.associateSession(req, user, session.token);
     return respondWithSession(res, session);
   }
 
@@ -21678,10 +21757,14 @@ app.use('/api', (req, res, next) => {
   req.auth = session.user;
   req.authToken = session.token;
   setAuthSessionCookie(res, session);
+  if (session.emailEnrollmentRequired && accountSecurity.enrollmentRequired(req.auth)
+    && req.path !== '/session' && req.path !== '/logout' && !req.path.startsWith('/auth/security')) {
+    return res.status(403).json({ error: 'Привяжите почту, чтобы не потерять доступ к аккаунту.', code: 'EMAIL_ENROLLMENT_REQUIRED' });
+  }
   const subscriptionExempt = req.path === '/session'
     || req.path === '/teacher-subscription'
     || req.path === '/logout'
-    || req.path.startsWith('/auth/sessions');
+    || req.path.startsWith('/auth/sessions') || req.path.startsWith('/auth/security');
   if (isTeacherRole(req.auth) && !subscriptionExempt && !isTeacherSubscriptionAccessAllowed(req.auth)) {
     return res.status(402).json({
       error: 'Доступ приостановлен: оплатите подписку и попросите администратора подтвердить платёж.',
@@ -21792,11 +21875,27 @@ const getVisibleManagedAuthSessions = (req) => {
     ))
     .filter((session) => {
       if (!query) return true;
-      return [session?.user?.name, session?.user?.id, session?.user?.role, session?.device?.label, session?.ipAddress]
+      return [session?.user?.name, session?.user?.id, session?.user?.role, session?.device?.label, maskManagedSessionIpAddress(session?.ipAddress)]
         .some((value) => String(value || '').toLocaleLowerCase('ru-RU').includes(query));
     })
     .sort((left, right) => (Number(right?.lastSeenAtMs) || 0) - (Number(left?.lastSeenAtMs) || 0));
 };
+
+accountSecurity = createAccountSecurity({
+  directory: process.env.ACCOUNT_SECURITY_DIR || path.join(dataDir, 'account-security'),
+  verifyCredential: async (auth, rawCode) => {
+    const code = normalizeAccessCode(rawCode);
+    if (!code) return false;
+    if (isAdminRole(auth)) return verifyCodeAsync(code, adminAuth?.adminCodeHash);
+    const record = isTeacherRole(auth) ? readTeachersDb().find((entry) => entry.id === auth.id)
+      : readStudentsDb().find((entry) => entry.id === (isParentRole(auth) ? auth.studentId : auth.id) && !entry.deletedAt);
+    if (record?.codeHash) return verifyCodeAsync(code, record.codeHash);
+    if (!record?.code) return false;
+    const left = Buffer.from(String(record.code)); const right = Buffer.from(code);
+    return left.length === right.length && crypto.timingSafeEqual(left, right);
+  },
+});
+registerAccountSecurityRoutes(app, accountSecurity, { secureCookies: AUTH_COOKIE_SECURE, sameSite: AUTH_COOKIE_SAME_SITE });
 
 app.get('/api/auth/sessions', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -22538,6 +22637,7 @@ app.get('/api/schedule-sync/stream', (req, res) => {
     res,
     keepAliveTimer,
   });
+  trackAuthConnection(req.authToken, res, () => res.end());
 
   writeSseEvent(res, 'ready', { ok: true, ts: Date.now() });
 
@@ -41749,6 +41849,11 @@ if (typeof rtcClientSweepInterval.unref === 'function') {
 
 server.on('upgrade', (request, socket, head) => {
   const pathname = getUpgradePathname(request?.url);
+  const openingSession = getAuthSession(getAuthTokenFromRequest(request));
+  if (openingSession?.emailEnrollmentRequired && accountSecurity.enrollmentRequired(openingSession.user)) {
+    rejectUpgrade(socket, 403, 'Email verification required');
+    return;
+  }
   if (pathname === boardTabletService.path) {
     boardTabletService.upgrade(request, socket, head);
     return;
@@ -41777,7 +41882,9 @@ server.on('upgrade', (request, socket, head) => {
     request.learningCollabAuth = session.user;
     void waitForCollabDocumentState(request.url).then(() => {
       if (socket.destroyed) return;
+      if (!getAuthSession(token)) { rejectUpgrade(socket, 401, 'Unauthorized'); return; }
       collabWss.handleUpgrade(request, socket, head, (ws) => {
+        trackAuthConnection(token, ws, () => ws.terminate());
         collabWss.emit('connection', ws, request);
       });
     }).catch((error) => {
@@ -41796,6 +41903,7 @@ server.on('upgrade', (request, socket, head) => {
     }
 
     rtcWss.handleUpgrade(request, socket, head, (ws) => {
+      trackAuthConnection(token, ws, () => ws.terminate());
       rtcWss.emit('connection', ws, request, session.user);
     });
     return;
@@ -41810,6 +41918,7 @@ server.on('upgrade', (request, socket, head) => {
     }
 
     notificationsWss.handleUpgrade(request, socket, head, (ws) => {
+      trackAuthConnection(token, ws, () => ws.terminate());
       notificationsWss.emit('connection', ws, request, session.user);
     });
     return;
