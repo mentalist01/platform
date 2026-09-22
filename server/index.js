@@ -1,6 +1,7 @@
 ﻿import express from 'express';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
+import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -21595,6 +21596,7 @@ app.use('/api', (req, res, next) => {
 });
 
 registerDesktopRecordingRoutes(app, desktopRecordings, {
+  legacyRecordingEnabled,
   teacherFor: (auth) => findStudentById(isParentRole(auth) ? auth.studentId : auth.id)?.teacherId,
   resolveLesson: async (req, res) => {
     let occurrence; let cutoffAt; let audioMode = 'telemost';
@@ -23251,7 +23253,12 @@ const closeLearningLessonCollabConnections = (lesson) => {
   const roomNames = buildLearningLessonRoomNames(lesson?.id);
   if (!roomNames) return 0;
   let closedConnections = 0;
-  [roomNames.boardDocName, roomNames.collabDocName].forEach((docName) => {
+  const bases = [roomNames.boardDocName, roomNames.collabDocName];
+  const docNames = new Set(bases);
+  for (const name of getLoadedCollabDocs()?.keys() || []) {
+    if (bases.some((base) => name.startsWith(`${base}~student~`))) docNames.add(name);
+  }
+  docNames.forEach((docName) => {
     const entry = getLoadedCollabDocEntry(docName);
     const connections = entry?.doc?.conns instanceof Map
       ? Array.from(entry.doc.conns.keys())
@@ -33471,6 +33478,8 @@ const telemostLessonReplaySweepInterval = setInterval(() => {
 if (typeof telemostLessonReplaySweepInterval.unref === 'function') {
   telemostLessonReplaySweepInterval.unref();
 }
+
+app.use('/api/lesson-replay', legacyRecordingWriteGuard());
 
 app.get('/api/lesson-replay/activity', (req, res) => {
   const student = ensureStudentAccess(req, res, req.query?.studentId);

@@ -198,7 +198,7 @@ test('learning groups keep shared work isolated while legacy student schedules r
   const child = spawn(process.execPath, ['server/index.js'], {
     cwd: workspaceDir,
     env: {
-      ...process.env,
+      ...process.env, LEGACY_LESSON_RECORDING_ENABLED: '1',
       PORT: String(port),
       NODE_ENV: 'test',
       PLATFORM_DATA_DIR: dataDir,

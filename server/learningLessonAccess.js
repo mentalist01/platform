@@ -122,6 +122,14 @@ export const buildLearningLessonPrivateCollabDocName = (sessionId, studentId) =>
     : '';
 };
 
+export const buildLearningLessonPrivateBoardDocName = (sessionId, studentId) => {
+  const baseName = buildLearningLessonBoardDocName(sessionId);
+  const normalizedStudentId = normalizeRoomToken(studentId);
+  return baseName && normalizedStudentId
+    ? `${baseName}${LESSON_PRIVATE_COLLAB_MARKER}${normalizedStudentId}`
+    : '';
+};
+
 export const buildLearningLessonRoomNames = (sessionId) => {
   const normalizedSessionId = normalizeRoomToken(sessionId);
   if (!normalizedSessionId) return null;
@@ -138,17 +146,20 @@ export const parseLearningLessonRoomTarget = (value) => {
   const roomId = normalizeRoomId(value);
   if (!roomId) return null;
 
-  if (roomId.startsWith(LESSON_COLLAB_DOC_PREFIX) && roomId.includes(LESSON_PRIVATE_COLLAB_MARKER)) {
+  const privatePrefix = [LESSON_COLLAB_DOC_PREFIX, LESSON_BOARD_DOC_PREFIX]
+    .find((prefix) => roomId.startsWith(prefix));
+  if (privatePrefix && roomId.includes(LESSON_PRIVATE_COLLAB_MARKER)) {
     const markerIndex = roomId.lastIndexOf(LESSON_PRIVATE_COLLAB_MARKER);
     const baseRoomId = roomId.slice(0, markerIndex);
     const privateStudentId = normalizeRoomToken(roomId.slice(markerIndex + LESSON_PRIVATE_COLLAB_MARKER.length));
-    const sessionId = normalizeRoomToken(baseRoomId.slice(LESSON_COLLAB_DOC_PREFIX.length));
+    const sessionId = normalizeRoomToken(baseRoomId.slice(privatePrefix.length));
     if (!sessionId || !privateStudentId) return null;
-    const expectedRoomId = buildLearningLessonPrivateCollabDocName(sessionId, privateStudentId);
+    const isBoard = privatePrefix === LESSON_BOARD_DOC_PREFIX;
+    const expectedRoomId = (isBoard ? buildLearningLessonPrivateBoardDocName : buildLearningLessonPrivateCollabDocName)(sessionId, privateStudentId);
     if (expectedRoomId !== roomId) return null;
     return {
       targetType: 'lesson',
-      kind: 'collab-private',
+      kind: isBoard ? 'board-private' : 'collab-private',
       sessionId,
       privateStudentId,
       roomId,
@@ -443,7 +454,7 @@ export const authorizeLearningRealtimeRoom = ({
     : canAccessLegacyLearningRoom(auth, target);
   const role = normalizeText(auth.role, 40).toLowerCase();
   const authId = normalizeText(auth.id);
-  const privateRoomAllowed = target.kind !== 'collab-private'
+  const privateRoomAllowed = !['collab-private', 'board-private'].includes(target.kind)
     || role === 'admin'
     || role === 'teacher'
     || (role === 'student' && authId === normalizeText(target.privateStudentId));
@@ -490,7 +501,7 @@ export const authorizeLearningCollabUpgrade = ({ requestUrl, ...options } = {}) 
   const access = authorizeLearningRealtimeRoom({
     ...options,
     roomId: docName,
-    allowedKinds: ['board', 'collab', 'collab-private', 'python'],
+    allowedKinds: ['board', 'board-private', 'collab', 'collab-private', 'python'],
     allowedSessionStatuses: Array.isArray(options.allowedSessionStatuses)
       ? options.allowedSessionStatuses
       : ['scheduled', 'active', 'completed'],

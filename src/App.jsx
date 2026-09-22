@@ -3303,8 +3303,6 @@ const createPyodideWorker = () => {
         '    if line == "":',
         '        __collab_needs_input = True',
         '        raise _CollabInputNeeded()',
-        '    sys.stdout.write(line if line.endswith("\\\\n") else line + "\\\\n")',
-        '    sys.stdout.flush()',
         '    return line.rstrip("\\\\n").rstrip("\\\\r")',
         'builtins.input = _collab_input',
         '_debug_mode = ' + (useDebugMode ? 'True' : 'False'),
@@ -11603,7 +11601,13 @@ const BoardSection = ({
       .filter(Boolean)
   )), [participantIds]);
   const isGroupLesson = Boolean(learningLessonId && learningGroupId);
-  const effectiveStudentId = isTeacher ? activeStudentId : userId;
+  const [selectedBoardTab, setSelectedBoardTab] = useState({ lessonId: '', studentId: '' });
+  const boardStudentId = isGroupLesson && !sandbox?.id
+    && selectedBoardTab.lessonId === learningLessonId
+    && (isTeacher ? learningParticipantIds.includes(selectedBoardTab.studentId) : selectedBoardTab.studentId === userId)
+    ? selectedBoardTab.studentId : '';
+  const isSharedGroupBoard = isGroupLesson && !boardStudentId;
+  const effectiveStudentId = boardStudentId || (isTeacher ? activeStudentId : userId);
   const canSaveToNotesTarget = isGroupLesson
     ? Boolean(isTeacher && learningParticipantIds.length > 0)
     : Boolean(effectiveStudentId);
@@ -11618,7 +11622,7 @@ const BoardSection = ({
     ? JSON.stringify(sandbox?.viewport || null)
     : '';
   const liveRoomId = isGroupLesson
-    ? `board-lesson-${learningLessonId}`
+    ? `board-lesson-${learningLessonId}${boardStudentId ? `~student~${boardStudentId}` : ''}`
     : (effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxSessionId}` : liveRoomId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
@@ -11799,7 +11803,7 @@ const BoardSection = ({
   const boardItemCount = boardSnapshot.itemCount;
   const boardTaskItems = boardItemsRef.current.filter((item) => item?.type === 'task');
   const responseStudentId = isGroupLesson
-    ? (isTeacher ? groupResponseStudentId : String(userId || '').trim())
+    ? (boardStudentId || (isTeacher ? groupResponseStudentId : String(userId || '').trim()))
     : effectiveStudentId;
   const groupParticipantStudents = useMemo(() => {
     const allowedIds = new Set(learningParticipantIds);
@@ -12830,7 +12834,7 @@ const BoardSection = ({
   }, [boardRevision]);
 
   useEffect(() => {
-    if (isSandbox || isGroupLesson || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
+    if (isSandbox || isSharedGroupBoard || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
       setFolders([]);
       setFoldersError('');
       setFoldersLoading(false);
@@ -12853,7 +12857,7 @@ const BoardSection = ({
         if (!cancelled) setFoldersLoading(false);
       });
     return () => { cancelled = true; };
-  }, [effectiveStudentId, isGroupLesson, isSandbox, saveTaskNumber, saveCategory]);
+  }, [effectiveStudentId, isSharedGroupBoard, isSandbox, saveTaskNumber, saveCategory]);
 
   useEffect(() => {
     setSaveFolderId('');
@@ -13456,8 +13460,8 @@ const BoardSection = ({
         file,
         Number(saveTaskNumber),
         saveCategory,
-        isGroupLesson ? null : (saveFolderId || null),
-        isGroupLesson ? '' : effectiveStudentId,
+        isSharedGroupBoard ? null : (saveFolderId || null),
+        isSharedGroupBoard ? '' : effectiveStudentId,
         {
         source: 'board-save',
         memory: {
@@ -13465,7 +13469,7 @@ const BoardSection = ({
           source: 'board-save',
           description: 'Снимок доски',
         },
-          ...(isGroupLesson ? {
+          ...(isSharedGroupBoard ? {
             learningGroupId,
             learningLessonId,
           } : {}),
@@ -17395,7 +17399,7 @@ const BoardSection = ({
       : 'board-surface-card board-surface-card--main relative overflow-visible rounded-none border-0 bg-transparent shadow-none flex min-h-0 flex-1 flex-col overflow-visible');
   const zoomLabel = `${Math.round((zoom || 1) * 100)}%`;
   const renderStudentPicker = () => {
-    if (isSandbox || !isTeacher || (hideStudentPicker && !isGroupLesson)) return null;
+    if (isSandbox || boardStudentId || !isTeacher || (hideStudentPicker && !isGroupLesson)) return null;
     const pickerStudents = isGroupLesson
       ? groupParticipantStudents
       : (Array.isArray(students) ? students : []);
@@ -17472,7 +17476,7 @@ const BoardSection = ({
 
           <div className="space-y-1">
             <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
-            {isGroupLesson ? (
+            {isSharedGroupBoard ? (
               <div className="w-full rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-sm text-purple-700">
                 Общие конспекты группы
               </div>
@@ -17556,6 +17560,29 @@ const BoardSection = ({
   ) : null;
   const boardCardContent = (
     <>
+      {isGroupLesson && !isSandbox && (
+        <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto py-1" role="tablist" aria-label="Доски группы">
+          {['', ...(isTeacher ? learningParticipantIds : [String(userId)])].map((studentId) => {
+            const student = (Array.isArray(students) ? students : []).find((entry) => entry.id === studentId);
+            const label = !studentId ? 'Общая доска' : (isTeacher ? (student?.nickname || student?.name || 'Ученик') : 'Моя доска');
+            const selected = boardStudentId === studentId;
+            return (
+              <button key={studentId || 'shared'} type="button" role="tab" aria-selected={selected}
+                className={`shrink-0 rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${selected
+                  ? 'border-purple-600 bg-purple-600 text-white'
+                  : isDarkTheme ? 'border-slate-600 bg-slate-800 text-slate-200' : 'border-purple-100 bg-white text-slate-600 hover:bg-purple-50'}`}
+                onClick={() => {
+                  if (selected) return;
+                  resetBoardInteractionState();
+                  setSaveModalOpen(false);
+                  setSelectedBoardTab({ lessonId: learningLessonId, studentId });
+                }}>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {!isSandbox && isTeacher && !hideStudentPicker && (
         <div className={`board-toolbar ${isFullscreen ? 'board-toolbar--fullscreen' : ''} ${embedded ? 'board-toolbar--embedded' : ''} ${!isFullscreen && !embedded ? 'board-toolbar--floating' : ''}`}>
           <div className="board-toolbar__strip board-toolbar__strip--actions">
@@ -19246,6 +19273,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     studentId: lessonReplayStudentId,
     learningLessonId: isGroupLessonReplayActive ? activeLearningLesson.lessonId : '',
   });
+  const legacyRecordingActive = desktopRecorder.settings?.legacyRecordingEnabled === true && !desktopRecorder.enabled;
   const applyTelemostLessonReplay = useCallback((payload = {}) => {
     const activity = payload?.activity || payload?.request?.activity || payload;
     const studentId = String(
@@ -19273,8 +19301,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     uploadLessonReplayScreenSnapshot,
     createLessonReplayAudioSink,
   } = useLessonReplayRecorder({
-    ownerId: `${user.role}:${user.id}`,
-    active: Boolean(desktopRecorder.settings) && !desktopRecorder.enabled && (callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive),
+    ownerId: legacyRecordingActive ? `${user.role}:${user.id}` : '',
+    active: legacyRecordingActive && (callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive),
     studentId: lessonReplayStudentId,
     mode: lessonReplayMode || 'platform',
     occurrenceKey: isTelemostLessonReplayActive ? telemostLessonReplay?.occurrenceKey : '',
@@ -19308,7 +19336,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, []);
 
   const startTelemostAudioCapture = useCallback(async ({ force = false, lessonId = '' } = {}) => {
-    if (desktopRecorder.enabled) return;
+    if (!legacyRecordingActive) return;
     if (
       (!isAnyTelemostLessonReplayActive && !force)
       || telemostAudioCaptureRef.current
@@ -19470,6 +19498,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [
     isAnyTelemostLessonReplayActive,
     desktopRecorder.enabled,
+    legacyRecordingActive,
     stopTelemostAudioCapture,
     createLessonReplayAudioSink,
   ]);
@@ -19697,7 +19726,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     void (async () => {
       try {
         await capturePromise;
-        if (!desktopRecorder.enabled && !telemostAudioCaptureRef.current) {
+        if (legacyRecordingActive && !telemostAudioCaptureRef.current) {
           throw new Error('Запись звука не запустилась. Разрешите захват вкладки Телемоста и аудио.');
         }
         const result = await api.activateTelemostLesson(normalizedStudentId);
@@ -19716,6 +19745,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [
     applyTelemostLessonReplay,
     desktopRecorder.enabled,
+    legacyRecordingActive,
     isGroupLessonReplayActive,
     isTelemostLessonReplayActive,
     startTelemostAudioCapture,
@@ -19836,7 +19866,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         // active on the server.  A denied/closed share must not leave a
         // phantom «занятие идёт» state behind.
         await capturePromise;
-        if (!desktopRecorder.enabled && !telemostAudioCaptureRef.current) {
+        if (legacyRecordingActive && !telemostAudioCaptureRef.current) {
           throw new Error('Запись звука не запустилась. Разрешите захват вкладки Телемоста и аудио.');
         }
         if (sourceStatus !== 'active') {
@@ -19872,6 +19902,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [
     activeLearningLesson,
     desktopRecorder.enabled,
+    legacyRecordingActive,
     isCallSessionActive,
     isCallViewAvailable,
     isGroupLessonReplayActive,
@@ -19896,7 +19927,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const isTeacherIndividualReplay = user.role === 'teacher'
       && isTelemostLessonReplayActive
       && studentId;
-    if (desktopRecorder.enabled || (!isTeacherGroupReplay && !isTeacherIndividualReplay)) {
+    if (!legacyRecordingActive || (!isTeacherGroupReplay && !isTeacherIndividualReplay)) {
       telemostCaptureLossLessonKeyRef.current = '';
       if (telemostCaptureLossTimerRef.current) {
         window.clearTimeout(telemostCaptureLossTimerRef.current);
@@ -19944,6 +19975,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     activeLearningLesson?.lessonId,
     handleFinishTelemostLesson,
     desktopRecorder.enabled,
+    legacyRecordingActive,
     isGroupLessonReplayActive,
     isTelemostLessonReplayActive,
     telemostAudioCapture.status,
@@ -24872,10 +24904,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 ? `Время по календарю вышло · автостоп в ${telemostLessonAutoFinishLabel}`
                 : telemostAudioCapture.message) || (telemostLessonAutoFinishLabel
                 ? `Доска и код пишутся до ${telemostLessonAutoFinishLabel}`
-                : 'Доска и код продолжают записываться')}
+                : (legacyRecordingActive ? 'Доска и код продолжают записываться' : 'Запись — в разделе «Запись уроков»'))}
             </p>
           </div>
-          {!desktopRecorder.enabled && !isGroupLessonReplayActive && <button
+          {legacyRecordingActive && !isGroupLessonReplayActive && <button
             type="button"
             onClick={telemostAudioCapture.status === 'recording'
               ? stopTelemostAudioCapture
@@ -26803,10 +26835,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
               hideStudentPicker={user.role === 'teacher'}
               openSaveToNotesToken={collabSaveToNotesToken}
-              onLessonReplayEvent={recordLessonReplayEvent}
-              lessonReplayActive={activeLearningLesson
+              onLessonReplayEvent={legacyRecordingActive ? recordLessonReplayEvent : null}
+              lessonReplayActive={legacyRecordingActive && (activeLearningLesson
                 ? isGroupLessonReplayActive
-                : (callSessionStatus === 'connected' || isTelemostLessonReplayActive)}
+                : (callSessionStatus === 'connected' || isTelemostLessonReplayActive))}
             />
           )}
           {isCallViewAvailable && activeLearningLesson && view === 'call' && (
@@ -26847,9 +26879,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onStatusChange={setCallSessionStatus}
               onTelemostLessonStart={applyTelemostLessonReplay}
               onTeacherTelemostOpen={handleOpenIndividualTelemost}
-              onLessonReplayEvent={recordLessonReplayEvent}
-              onLessonReplayScreenSnapshot={uploadLessonReplayScreenSnapshot}
-              createLessonReplayAudioSink={createLessonReplayAudioSink}
+              onLessonReplayEvent={legacyRecordingActive ? recordLessonReplayEvent : null}
+              onLessonReplayScreenSnapshot={legacyRecordingActive ? uploadLessonReplayScreenSnapshot : null}
+              createLessonReplayAudioSink={legacyRecordingActive ? createLessonReplayAudioSink : null}
               onRequestExpand={() => setCallPanelExpanded(true)}
               onRequestCollapse={() => setCallPanelExpanded(false)}
               onRequestOpenCall={() => navigateToView('call')}
@@ -26890,10 +26922,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
               hideStudentPicker={user.role === 'teacher'}
               theme={theme}
-              onLessonReplayEvent={recordLessonReplayEvent}
-              lessonReplayActive={activeLearningLesson
+              onLessonReplayEvent={legacyRecordingActive ? recordLessonReplayEvent : null}
+              lessonReplayActive={legacyRecordingActive && (activeLearningLesson
                 ? isGroupLessonReplayActive
-                : (callSessionStatus === 'connected' || isTelemostLessonReplayActive)}
+                : (callSessionStatus === 'connected' || isTelemostLessonReplayActive))}
             />
           )}
           {view === 'notes' && (

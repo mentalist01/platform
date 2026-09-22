@@ -175,14 +175,16 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive } = 
   app.use('/api/desktop-recorder', (_req, res) => res.status(404).json({ error: 'Not found' }));
 }
 
-export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolveLesson }) {
+export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolveLesson, legacyRecordingEnabled = false }) {
   const handle = (fn, teacherOnly = true) => async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (teacherOnly && req.auth?.role !== 'teacher') return res.status(403).json({ error: 'Только для учителя' });
     try { await fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось обновить запись' }); }
   };
-  app.get('/api/desktop-recording/settings', handle((req, res) => res.json(req.auth.role === 'teacher'
-    ? store.settings(req.auth.id) : { enabled: store.enabled(teacherFor(req.auth)) }), false));
+  app.get('/api/desktop-recording/settings', handle((req, res) => res.json({
+    ...(req.auth.role === 'teacher' ? store.settings(req.auth.id) : { enabled: store.enabled(teacherFor(req.auth)) }),
+    legacyRecordingEnabled,
+  }), false));
   app.post('/api/desktop-recording/pair', handle((req, res) => res.json(store.pair(req.auth.id))));
   app.get('/api/desktop-recording/download', handle((req, res) => {
     res.setHeader('Content-Type', 'application/zip');

@@ -30,7 +30,7 @@ test('real platform routes isolate devices and expose one group recording to its
   const port = reserve.address().port; await new Promise(resolve => reserve.close(resolve));
   const child = spawn(process.execPath, ['server/index.js'], {
     cwd: path.resolve(import.meta.dirname, '..'), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: String(port), PLATFORM_DATA_DIR: data, PLATFORM_UPLOADS_DIR: path.join(root, 'uploads'),
+    env: { ...process.env, LEGACY_LESSON_RECORDING_ENABLED: '1', PORT: String(port), PLATFORM_DATA_DIR: data, PLATFORM_UPLOADS_DIR: path.join(root, 'uploads'),
       PLATFORM_COLLAB_DIR: path.join(root, 'collab'), PLATFORM_JSON_BACKUPS_DIR: path.join(root, 'backups'), ADMIN_CODE: 'fixture-admin-only' },
   });
   let logs = ''; child.stdout.on('data', b => { logs += b; }); child.stderr.on('data', b => { logs += b; });

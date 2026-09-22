@@ -87,7 +87,7 @@ test('durable recovery survives server restarts, response loss and a failed disk
     return response.body;
   };
   const start = async () => {
-    const env = { ...process.env, PORT: String(port), NODE_ENV: 'test', PLATFORM_DATA_DIR: data,
+    const env = { ...process.env, LEGACY_LESSON_RECORDING_ENABLED: '1', PORT: String(port), NODE_ENV: 'test', PLATFORM_DATA_DIR: data,
       PLATFORM_UPLOADS_DIR: path.join(root, 'uploads'), PLATFORM_JSON_BACKUPS_DIR: path.join(root, 'backups'),
       COLLAB_PERSISTENCE: '0', DISABLE_STARTUP_XP_REBALANCE: '1' };
     // This test must never upload to a configured production bucket.

@@ -10,6 +10,7 @@ import {
   buildLearningLessonBoardDocName,
   buildLearningLessonCollabDocName,
   buildLearningLessonPrivateCollabDocName,
+  buildLearningLessonPrivateBoardDocName,
   buildLearningLessonRoomId,
   buildLearningLessonRoomNames,
   buildLearningLessonRtcRoomId,
@@ -90,12 +91,13 @@ test('parses canonical, rtc, board and collab lesson targets without parsing leg
   assert.equal(parseLearningLessonRoomTarget('collab-lesson-../../secret'), null);
 });
 
-test('private group code rooms expose one student only to that student and the lesson teacher', () => {
-  const privateRoom = buildLearningLessonPrivateCollabDocName(session.id, 'student-a');
-  assert.equal(privateRoom, `collab-lesson-${session.id}~student~student-a`);
+for (const kind of ['collab', 'board']) {
+test(`private group ${kind} rooms expose one student only to that student and the lesson teacher`, () => {
+  const privateRoom = (kind === 'board' ? buildLearningLessonPrivateBoardDocName : buildLearningLessonPrivateCollabDocName)(session.id, 'student-a');
+  assert.equal(privateRoom, `${kind}-lesson-${session.id}~student~student-a`);
   assert.deepEqual(parseLearningLessonRoomTarget(privateRoom), {
     targetType: 'lesson',
-    kind: 'collab-private',
+    kind: `${kind}-private`,
     sessionId: session.id,
     privateStudentId: 'student-a',
     roomId: privateRoom,
@@ -112,7 +114,15 @@ test('private group code rooms expose one student only to that student and the l
   assert.equal(authorize({ role: 'student', id: 'student-a' }).allowed, true);
   assert.equal(authorize({ role: 'student', id: 'student-b' }).allowed, false);
   assert.equal(authorize({ role: 'teacher', id: 'teacher-b' }).allowed, false);
+  const archive = authorizeLearningCollabUpgrade({
+    requestUrl: `/collab/${encodeURIComponent(privateRoom)}`,
+    auth: { role: 'student', id: 'student-a' },
+    sessions: [{ ...session, status: 'completed' }], groups: [group],
+  });
+  assert.equal(archive.allowed, true);
+  assert.equal(archive.readOnly, true);
 });
+}
 
 test('lesson ACL accepts admin, owner teacher, participant snapshot and active group member', () => {
   const options = { groups: [group] };

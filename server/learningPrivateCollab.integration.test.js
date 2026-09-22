@@ -7,6 +7,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
 
 import {
   addLearningGroupMember,
@@ -52,7 +54,7 @@ const closeSocket = (socket) => new Promise((resolve) => {
   socket.close();
 });
 
-test('private group code and answer chat isolate two students while the teacher sees both', { timeout: 30_000 }, async () => {
+test('private boards, code and answer chat isolate students; legacy recording is disabled', { timeout: 30_000 }, async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan-ege-private-collab-'));
   const dataDir = path.join(tempRoot, 'data');
   const uploadsDir = path.join(tempRoot, 'uploads');
@@ -93,6 +95,7 @@ test('private group code and answer chat isolate two students while the teacher 
       ...process.env,
       PORT: String(port),
       NODE_ENV: 'test',
+      LEGACY_LESSON_RECORDING_ENABLED: '0',
       PLATFORM_DATA_DIR: dataDir,
       PLATFORM_UPLOADS_DIR: uploadsDir,
       COLLAB_PERSISTENCE: '0',
@@ -117,14 +120,56 @@ test('private group code and answer chat isolate two students while the teacher 
     const annaLogin = await requestJson(baseUrl, '/api/login', { method: 'POST', body: { code: students[0].code } });
     const ilyaLogin = await requestJson(baseUrl, '/api/login', { method: 'POST', body: { code: students[1].code } });
 
+    const settings = await requestJson(baseUrl, '/api/desktop-recording/settings', { token: teacherLogin.token });
+    assert.equal(settings.legacyRecordingEnabled, false);
+    for (const route of ['session', 'events', 'snapshot', 'audio/prepare', 'audio/upload/old', 'audio/complete', 'finish', 'switch']) {
+      const result = await requestJson(baseUrl, `/api/lesson-replay/${route}`, {
+        token: teacherLogin.token, method: 'POST', body: {}, status: 410,
+      });
+      assert.equal(result.code, 'LEGACY_RECORDING_DISABLED');
+    }
+
     const socketBase = baseUrl.replace(/^http/, 'ws');
-    const room = (studentId) => encodeURIComponent(`collab-lesson-${lesson.id}~student~${studentId}`);
+    for (const kind of ['collab', 'board']) {
+    const room = (studentId) => encodeURIComponent(`${kind}-lesson-${lesson.id}~student~${studentId}`);
     const teacherAnna = await openSocket(`${socketBase}/collab/${room('student-a')}?_auth=${teacherLogin.token}`);
     const teacherIlya = await openSocket(`${socketBase}/collab/${room('student-b')}?_auth=${teacherLogin.token}`);
     const annaOwn = await openSocket(`${socketBase}/collab/${room('student-a')}?_auth=${annaLogin.token}`);
     await assert.rejects(openSocket(`${socketBase}/collab/${room('student-b')}?_auth=${annaLogin.token}`), /403/);
     await assert.rejects(openSocket(`${socketBase}/collab/${room('student-a')}?_auth=${ilyaLogin.token}`), /403/);
     await Promise.all([closeSocket(teacherAnna), closeSocket(teacherIlya), closeSocket(annaOwn)]);
+    }
+
+    const connections = [];
+    const connectBoard = async (studentId, token) => {
+      const doc = new Y.Doc();
+      const room = `board-lesson-${lesson.id}${studentId ? `~student~${studentId}` : ''}`;
+      const provider = new WebsocketProvider(`${socketBase}/collab`, room, doc, {
+        WebSocketPolyfill: WebSocket, params: { _auth: token }, disableBc: true,
+      });
+      connections.push({ provider, doc });
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Board sync timed out')), 5000);
+        provider.on('sync', (synced) => { if (synced) { clearTimeout(timeout); resolve(); } });
+      });
+      return doc.getArray('items');
+    };
+    try {
+      const annaTeacherBoard = await connectBoard('student-a', teacherLogin.token);
+      annaTeacherBoard.push([{ id: 'stroke-a', type: 'stroke', points: [{ x: 1, y: 2 }] }]);
+      const deadline = Date.now() + 5000;
+      const annaBoard = await connectBoard('student-a', annaLogin.token);
+      while (!annaBoard.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(annaBoard.get(0)?.id, 'stroke-a');
+      const ilyaBoard = await connectBoard('student-b', ilyaLogin.token);
+      const commonBoard = await connectBoard('', teacherLogin.token);
+      assert.equal(ilyaBoard.length, 0);
+      assert.equal(commonBoard.length, 0);
+      const reopened = await connectBoard('student-a', teacherLogin.token);
+      assert.equal(reopened.get(0)?.id, 'stroke-a', 'Tab switches preserve private board data');
+    } finally {
+      for (const { provider, doc } of connections) { provider.destroy(); doc.destroy(); }
+    }
 
     const chatPath = `/api/learning-groups/${group.id}/lessons/${lesson.id}/answer-chat`;
     await requestJson(baseUrl, chatPath, { token: teacherLogin.token, method: 'POST', status: 201, body: { text: 'Пишите ответ' } });
