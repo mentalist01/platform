@@ -25802,7 +25802,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="mt-2 text-[10px] font-semibold text-rose-600">{avatarError}</div>
                 )}
               </div>
-              {user.role !== 'admin' && (
+              {user.role === 'student' && (
+                <details className="mt-2.5 rounded-xl border border-slate-200 bg-white/75">
+                  <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-500">
+                    <Settings size={14} /> Настройки аккаунта
+                  </summary>
+                  <button
+                    type="button"
+                    onClick={() => setSessionManagerOpen(true)}
+                    className="flex w-full items-center gap-2 border-t border-slate-200 px-3 py-2 text-left text-xs font-semibold text-violet-700"
+                  >
+                    <Shield size={14} /> Безопасность и устройства
+                  </button>
+                </details>
+              )}
+              {user.role === 'teacher' && (
                 <button
                   type="button"
                   onClick={() => setSessionManagerOpen(true)}
@@ -27468,7 +27482,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   </div>
                 </div>
               )}
-              {user.role !== 'admin' && (
+              {user.role === 'student' && (
+                <details className="mt-4 rounded-xl border border-slate-200 bg-white/80">
+                  <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-600">
+                    <Settings size={16} /> Настройки аккаунта
+                  </summary>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setSessionManagerOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 border-t border-slate-200 px-4 py-3 text-left text-sm font-semibold text-violet-700"
+                  >
+                    <Shield size={16} /> Безопасность и устройства
+                  </button>
+                </details>
+              )}
+              {user.role === 'teacher' && (
                 <button
                   type="button"
                   onClick={() => {
