@@ -48,13 +48,33 @@ const getGoogleCalendarStudentMatchNames = (student) => Array.from(new Set(
     .filter((value) => value.length >= 2)
 ));
 
+const getGoogleCalendarStudentMatchPriority = (student, matchedName) => {
+  const primaryName = normalizeCalendarEventText(student?.name);
+  const explicitAliases = [
+    student?.mainName,
+    student?.studentName,
+    student?.nickname,
+    student?.studentNickname,
+  ]
+    .map((value) => normalizeCalendarEventText(value))
+    .filter((value) => value.length >= 2 && value !== primaryName);
+  if (explicitAliases.includes(matchedName)) return 3;
+  if (matchedName === primaryName && explicitAliases.length === 0) return 2;
+  return 1;
+};
+
 const pickUniqueGoogleCalendarStudentMatch = (matches = []) => {
   const normalizedMatches = (Array.isArray(matches) ? matches : [])
     .filter((item) => item?.student?.id && item?.name)
-    .sort((left, right) => right.name.length - left.name.length);
+    .sort((left, right) => (
+      (Number(right.priority) || 0) - (Number(left.priority) || 0)
+      || right.name.length - left.name.length
+    ));
   if (normalizedMatches.length === 0) return null;
-  const topLength = normalizedMatches[0].name.length;
-  const topMatches = normalizedMatches.filter((item) => item.name.length === topLength);
+  const topPriority = Number(normalizedMatches[0].priority) || 0;
+  const priorityMatches = normalizedMatches.filter((item) => (Number(item.priority) || 0) === topPriority);
+  const topLength = priorityMatches[0].name.length;
+  const topMatches = priorityMatches.filter((item) => item.name.length === topLength);
   const uniqueStudentIds = new Set(
     topMatches.map((item) => String(item.student.id || '').trim()).filter(Boolean)
   );
@@ -67,7 +87,11 @@ const getGoogleCalendarStudentMatchCandidates = (title, students = []) => {
   return Array.from(new Set(
     (Array.isArray(students) ? students : [])
       .flatMap((student) => (
-        getGoogleCalendarStudentMatchNames(student).map((name) => ({ student, name }))
+        getGoogleCalendarStudentMatchNames(student).map((name) => ({
+          student,
+          name,
+          priority: getGoogleCalendarStudentMatchPriority(student, name),
+        }))
       ))
       .filter((item) => calendarEventTextIncludesName(normalizedTitle, item.name))
   ));

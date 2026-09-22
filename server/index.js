@@ -21742,6 +21742,23 @@ app.get('/api/session', (req, res) => {
   });
 });
 
+const maskManagedSessionIpAddress = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  const ipv4Candidate = normalized.startsWith('::ffff:')
+    ? normalized.slice('::ffff:'.length)
+    : normalized;
+  const ipv4Parts = ipv4Candidate.split('.');
+  if (ipv4Parts.length === 4 && ipv4Parts.every((part) => /^\d{1,3}$/.test(part))) {
+    return `${ipv4Parts[0]}.${ipv4Parts[1]}.*.*`;
+  }
+  if (normalized.includes(':')) {
+    const visibleParts = normalized.split(':').filter(Boolean).slice(0, 2);
+    return visibleParts.length > 0 ? `${visibleParts.join(':')}:*` : 'IPv6 скрыт';
+  }
+  return 'Адрес скрыт';
+};
+
 const serializeManagedAuthSession = (session, currentToken = '') => ({
   id: String(session?.id || '').trim() || getAuthSessionId(session?.token),
   user: {
@@ -21761,7 +21778,7 @@ const serializeManagedAuthSession = (session, currentToken = '') => ({
         label: String(session.device.label || '').trim() || 'Неизвестное устройство',
       }
     : { type: 'desktop', browser: 'Браузер', os: 'Неизвестная система', label: 'Неизвестное устройство' },
-  ipAddress: String(session?.ipAddress || '').trim(),
+  ipAddress: maskManagedSessionIpAddress(session?.ipAddress),
 });
 
 const getVisibleManagedAuthSessions = (req) => {

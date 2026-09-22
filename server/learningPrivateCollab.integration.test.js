@@ -136,6 +136,7 @@ test('private boards, code and answer chat isolate students; legacy recording is
     const phoneSession = teacherSessions.sessions.find((session) => session.device.type === 'mobile');
     assert.equal(phoneSession.device.browser, 'Chrome');
     assert.equal(phoneSession.device.os, 'Android');
+    assert.match(phoneSession.ipAddress, /\*/);
     assert.equal(Object.hasOwn(phoneSession, 'token'), false);
     const allSessions = await requestJson(baseUrl, '/api/auth/sessions?scope=all', { token: adminLogin.token });
     assert.ok(allSessions.sessions.length >= 6);

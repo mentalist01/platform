@@ -117,3 +117,13 @@ test('cached group and already linked student entries keep their existing owner'
   assert.equal(attachGoogleCalendarEntryStudentMatch(groupEntry, roster), groupEntry);
   assert.equal(attachGoogleCalendarEntryStudentMatch(linkedEntry, roster), linkedEntry);
 });
+
+test('plain duplicate name selects the student without a different calendar nickname', () => {
+  const namesakes = [
+    { id: 'egor-with-alias', name: 'Егор', nickname: 'Егор1' },
+    { id: 'plain-egor', name: 'Егор' },
+  ];
+
+  assert.equal(resolveGoogleCalendarStudentMatch({ summary: 'Егор' }, namesakes)?.id, 'plain-egor');
+  assert.equal(resolveGoogleCalendarStudentMatch({ summary: 'Егор1' }, namesakes)?.id, 'egor-with-alias');
+});
