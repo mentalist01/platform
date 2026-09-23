@@ -530,6 +530,7 @@ const requestLearningGroupJson = async (path, options = {}) => {
 };
 
 export const api = {
+  groupAvailability: (groupId, action = '', body) => requestLearningGroupJson(`/api/learning-groups/${encodeURIComponent(groupId)}/availability${action ? `/${action}` : ''}`, action ? { method: 'POST', body } : {}),
   downloadDesktopRecorder: async () => {
     const res = await apiFetch('/api/desktop-recording/download');
     if (!res.ok) throw new Error(await parseApiError(res));

@@ -39,6 +39,7 @@ import {
 import { api, resolveAuthenticatedApiUrl, withStoredAuthToken } from '../services/api';
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
 import LearningGroupChat from './LearningGroupChat';
+import GroupAvailability from './GroupAvailability';
 import {
   LEARNING_GROUP_STATUS_ACTIVE,
   LEARNING_GROUP_STATUS_COMPLETED,
@@ -99,6 +100,7 @@ const ATTENDANCE_STATUS_META = {
 
 const TAB_ITEMS = [
   { id: 'overview', label: 'Состав', icon: Users },
+  { id: 'availability', label: 'Выбрать время', icon: CalendarDays },
   { id: 'schedule', label: 'Расписание', icon: CalendarDays },
   { id: 'lessons', label: 'Занятия', icon: Video },
   { id: 'materials', label: 'Материалы', icon: BookOpen },
@@ -573,7 +575,7 @@ const LearningGroupsSection = ({
     const upcoming = [];
     const past = [];
     const now = clockNowMs;
-    lessons.filter(isGoogleCalendarLesson).forEach((lesson) => {
+    lessons.filter(lesson => isGoogleCalendarLesson(lesson) || lesson.source === 'availability-plan').forEach((lesson) => {
       const startMs = Date.parse(getLessonStart(lesson));
       const endMs = startMs + Math.max(1, Number(lesson?.durationMinutes) || 60) * 60 * 1000;
       if (Number.isFinite(endMs)
@@ -1689,6 +1691,21 @@ const LearningGroupsSection = ({
                   </div>
                 </div>
 
+                {tab === 'availability' && (
+                  <GroupAvailability key={selectedGroup.id} groupId={selectedGroup.id} userId={userId} isTeacher={isTeacher}
+                    onApproved={() => void loadGroupDetails(selectedGroup.id)} />
+                )}
+
+                {tab === 'overview' && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
+                  <button type="button" onClick={() => setTab('availability')}
+                    className="flex w-full items-center gap-4 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-emerald-50 p-5 text-left">
+                    <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white text-violet-600 shadow-sm"><CalendarDays size={24} /></span>
+                    <span className="flex-1"><span className="block font-bold text-slate-900">Найдём время для всей группы</span>
+                      <span className="mt-1 block text-sm text-slate-600">Отметьте все удобные часы, посмотрите выбор ребят и договоритесь о двух занятиях.</span></span>
+                    <ChevronRight size={20} className="shrink-0 text-violet-600" />
+                  </button>
+                )}
+
                 {tab === 'overview' && (
                   <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                     {isTeacher && (
@@ -1847,8 +1864,8 @@ const LearningGroupsSection = ({
 
                 {tab === 'schedule' && (
                   <SectionCard
-                    title="Расписание из Google Календаря"
-                    subtitle="Занятия этой мини-группы автоматически берутся из общего календаря."
+                    title="Расписание группы"
+                    subtitle="Согласованные занятия и события из Google Календаря."
                     action={isTeacher ? (
                       <button
                         type="button"
@@ -1864,9 +1881,9 @@ const LearningGroupsSection = ({
                     <div className="mb-4 flex items-start gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-4 text-sm text-violet-900">
                       <CalendarDays size={20} className="mt-0.5 shrink-0 text-violet-600" />
                       <div>
-                        <p className="font-bold">Отдельно сохранять расписание здесь не нужно.</p>
+                        <p className="font-bold">Договоритесь о времени вместе с группой.</p>
                         <p className="mt-1 leading-relaxed text-violet-700">
-                          Создайте или измените событие с названием «{selectedGroup.name}» в Google Календаре — после синхронизации оно появится здесь и в расписании участников группы.
+                          Во вкладке «Выбрать время» каждый отмечает удобные часы. После утверждения преподавателем занятия появятся здесь. События «{selectedGroup.name}» из Google Календаря также сохраняются.
                         </p>
                       </div>
                     </div>
@@ -1875,8 +1892,8 @@ const LearningGroupsSection = ({
                         icon={CalendarDays}
                         title="Занятий группы в общем календаре пока нет"
                         text={isTeacher
-                          ? `Создайте в Google Календаре событие «${selectedGroup.name}» и нажмите «Обновить из Google».`
-                          : 'Когда преподаватель добавит занятие в общий календарь, оно появится здесь автоматически.'}
+                          ? 'Откройте подбор во вкладке «Выбрать время» или добавьте событие группы в Google Календарь.'
+                          : 'Выберите удобные часы во вкладке «Выбрать время». После согласования здесь появятся занятия.'}
                       />
                     ) : (
                       <div className="space-y-3">

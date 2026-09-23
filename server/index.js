@@ -1,4 +1,5 @@
 import express from 'express';
+import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
@@ -16495,7 +16496,12 @@ const buildStudentScheduleOverdueEntry = (entry, occurrence, paymentState) => {
 const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
   const studentId = String(student?.id || '').trim();
   const teacherId = normalizeTeacherId(student?.teacherId);
-  const rawBaseSchedule = Array.isArray(schedule) ? schedule : [];
+  materializeAvailabilitySchedules();
+  const rawBaseSchedule = [
+    ...(Array.isArray(schedule) ? schedule : []),
+    ...availabilityCalendarEntries(teacherId, true)
+      .map(entry => projectGoogleCalendarEntryForPaymentStudent(entry, student)).filter(Boolean),
+  ];
   if (!studentId || !teacherId) return rawBaseSchedule;
 
   try {
@@ -16646,6 +16652,11 @@ const doesPaymentScheduleEntryMatchStudent = (entry, student) => {
 const projectGoogleCalendarEntryForPaymentStudent = (entry, student) => {
   if (entry?.isLearningGroupEvent && entry?.groupId) {
     if (!doesGoogleCalendarLearningGroupEntryIncludeStudent(entry, student)) return null;
+    if (entry.source === 'availability-plan') return {
+      ...entry, id: `${entry.id}:${student.id}`, studentId: student.id,
+      studentName: String(student.nickname || student.name || '').trim(), isTeacherSlot: false,
+      lessonLink: entry.telemostUrl || '',
+    };
     return buildStudentScheduleEntryFromGoogleCalendar(entry, student, null);
   }
   return doesPaymentScheduleEntryMatchStudent(entry, student) ? entry : null;
@@ -16743,6 +16754,8 @@ const annotateGoogleCalendarLearningGroupPaymentStatuses = (teacherId, entry) =>
 
 const getPaymentScheduleEntries = async (teacherId, options = {}) => {
   const localEntries = getTeacherScheduleEntries(teacherId, options);
+  materializeAvailabilitySchedules();
+  const agreedEntries = expandGoogleCalendarLearningGroupPaymentEntries(teacherId, availabilityCalendarEntries(teacherId, true));
   const googleEntries = expandGoogleCalendarLearningGroupPaymentEntries(
     teacherId,
     await fetchTeacherGoogleCalendarEntries(teacherId, {
@@ -16750,7 +16763,7 @@ const getPaymentScheduleEntries = async (teacherId, options = {}) => {
       throwOnError: options.throwOnGoogleError === true,
     })
   );
-  return [...localEntries, ...googleEntries];
+  return [...localEntries, ...agreedEntries, ...googleEntries];
 };
 
 const doesTeacherCalendarEntryOccurOnDay = (entry, dayKey) => {
@@ -22771,6 +22784,7 @@ app.use('/api/learning-groups', (_req, res, next) => {
 });
 
 const getLearningGroupById = (groupId) => {
+  materializeAvailabilitySchedules();
   reconcileLearningGroupLifecycle();
   const normalizedId = String(groupId || '').trim();
   if (!normalizedId) return null;
@@ -23767,7 +23781,52 @@ const getLearningMaterialAccessError = (auth, group, material) => {
     : 'Недостаточно прав';
 };
 
+const availabilityStore = createAvailabilityStore(path.join(dataDir, 'group-availability.json'));
+let lastAvailabilityMaterialized = 0;
+const materializeAvailabilitySchedules = (force = false) => {
+  if (!LEARNING_GROUPS_ENABLED || (!force && Date.now() - lastAvailabilityMaterialized < 60000)) return;
+  const plans = availabilityStore.plans();
+  if (plans.length) {
+    const result = materializeAvailabilityPlans(plans, readLearningGroupsDb(), readLearningLessonSessionsDb(), createLearningLessonSession);
+    if (result.changed) writeLearningLessonSessionsDb(result.lessons);
+  }
+  lastAvailabilityMaterialized = Date.now();
+};
+const availabilityCalendarEntries = (teacherId, onlyGenerated = false) => {
+  const groups = readLearningGroupsDb();
+  return readLearningLessonSessionsDb().filter(lesson => lesson.teacherId === teacherId && lesson.status !== 'cancelled'
+    && (!onlyGenerated || lesson.source === 'availability-plan')).map(lesson => {
+    const group = groups.find(g => g.id === lesson.groupId);
+    const parts = getDatePartsInCalendarTimeZone(new Date(lesson.startAt));
+    const weekday = getScheduleWeekdayMetaFromDate(parts.dayKey);
+    return { id: `learning-group-session-${lesson.id}`, date: parts.dayKey, time: parts.time,
+      day: weekday.label, weekdayKey: weekday.key, weekdayOrder: weekday.order, excludedDates: [],
+      durationMinutes: lesson.durationMinutes, subject: group?.name || 'Мини-группа', groupId: lesson.groupId,
+      groupName: group?.name || 'Мини-группа', studentName: group?.name || 'Мини-группа', teacherId, studentId: '', isLearningGroupEvent: true, isTeacherSlot: false,
+      lessonId: lesson.id, participantIds: lesson.participantIds, source: lesson.source, status: lesson.status,
+      telemostUrl: lesson.telemostUrl || group?.telemostUrl || '',
+      startAt: lesson.startAt, replayKey: buildLearningGroupLessonReplayKey(lesson.id) };
+  });
+};
+registerGroupAvailability(app, {
+  store: availabilityStore, getGroup: getLearningGroupById, canManage: canManageLearningGroup,
+  getStudentName: id => { const s = findStudentById(id); return s?.nickname || s?.name || 'Ученик'; },
+  materialize: () => materializeAvailabilitySchedules(true),
+  getBusyEntries: async (group, config, force = false) => {
+    materializeAvailabilitySchedules();
+    const endMonth = new Date(Date.parse(`${config.startDate}T12:00:00Z`) + config.weeks * 7 * 86400000).toISOString().slice(0, 7);
+    const google = await fetchTeacherGoogleCalendarEntries(group.teacherId, { throughMonth: endMonth, throwOnError: true, force });
+    const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[group.teacherId]);
+    return [...getTeacherScheduleEntries(group.teacherId), ...google, ...availabilityCalendarEntries(group.teacherId)]
+      .filter(entry => !(entry.source === 'availability-plan' && entry.groupId === group.id
+        && entry.status === 'scheduled' && entry.date >= config.startDate))
+      .map(entry => annotateTeacherCalendarCancellation(group.teacherId, entry, marks));
+  },
+});
+setInterval(() => { try { materializeAvailabilitySchedules(); } catch (error) { console.error('[group-availability] schedule refresh failed:', error.message); } }, 300000).unref();
+
 app.get('/api/learning-groups', handleLearningRoute((req, res) => {
+  materializeAvailabilitySchedules();
   if (!isAdminRole(req.auth) && !isTeacherRole(req.auth) && !isStudentRole(req.auth)) return forbid(res);
   const requestedStatus = String(req.query?.status || '').trim();
   if (requestedStatus && !LEARNING_GROUP_STATUSES.has(requestedStatus)) {
@@ -32493,6 +32552,7 @@ const updateLessonHistorySnapshotTopic = (occurrenceKey, topic) => {
 };
 
 const buildResolvedStudentLessonHistory = async (student, auth, options = {}) => {
+  materializeAvailabilitySchedules();
   const studentId = String(student?.id || '').trim();
   if (!studentId) return [];
   let rawSchedule = Array.isArray(options.scheduleOverride)
@@ -35580,6 +35640,7 @@ app.post('/api/student-schedule/google-sync', async (req, res) => {
 });
 
 app.get('/api/teacher-schedule', async (req, res) => {
+  materializeAvailabilitySchedules();
   const { teacherId } = req.query || {};
   if (isStudentRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
@@ -35593,6 +35654,9 @@ app.get('/api/teacher-schedule', async (req, res) => {
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
   return res.json([
     ...localEntries,
+    ...availabilityCalendarEntries(teacher.id, true)
+      .map(entry => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
+      .map(entry => annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry)),
     ...googleEntries
       .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
       .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(
