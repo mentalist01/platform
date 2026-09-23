@@ -28,7 +28,7 @@ foreach ($dataName in @('state.json', 'rutube-browser')) {
     Copy-Item -LiteralPath $oldData -Destination $newData -Recurse
   }
 }
-$files = @('app.mjs','obs.mjs','start-day.mjs','share-bridge.mjs','share-view.html','segments.mjs','engine.mjs','storage.mjs','recording-storage.mjs','recovery-inbox.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
+$files = @('app.mjs','obs.mjs','start-day.mjs','share-bridge.mjs','share-view.html','office-follow.mjs','foreground-window.ps1','segments.mjs','engine.mjs','storage.mjs','recording-storage.mjs','recovery-inbox.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
 foreach ($fileName in $files) { Copy-Item -LiteralPath (Join-Path $sourceDirectory $fileName) -Destination (Join-Path $installDirectory $fileName) -Force }
 Copy-Item -LiteralPath $nodePath -Destination (Join-Path $installDirectory 'node.exe') -Force
 if ($RecorderDependencyPaths) {

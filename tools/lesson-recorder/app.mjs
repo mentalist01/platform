@@ -7,7 +7,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDay } from './start-day.mjs';
 import { ShareBridge } from './share-bridge.mjs';
-import { ObsClient } from './obs.mjs';
+import { ForegroundWindowReader, OfficeFollower } from './office-follow.mjs';
+import { ObsClient, SCENES, INPUTS } from './obs.mjs';
 import { atomicJson, readJson, ownedRecording } from './storage.mjs';
 import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
@@ -112,6 +113,10 @@ async function queue() {
   finally { queueBusy = false; }
 }
 const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), enabled: () => state.config.autoFollowShare !== false });
+const foregroundReader = new ForegroundWindowReader();
+const officeFollower = new OfficeFollower({ obs, reader: foregroundReader, config: () => state.config,
+  shareActive: () => Boolean(shareBridge.offer) });
+process.on('exit', () => foregroundReader.stop());
 // Prepared replacements require a deliberate click; never import or publish
 // them while polling the queue. The original files remain untouched.
 const recoveryDrafts = () => {
@@ -126,6 +131,7 @@ const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
   obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId,
   shareMessage: shareBridge.message || '',
+  officeMessage: officeFollower.message,
   recoveryDrafts: recoveryDrafts(),
   testVerified: state.config.testFingerprint === setupFingerprint(state.config),
   jobs: Object.values(state.jobs).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50),
@@ -263,6 +269,10 @@ const server = http.createServer(async (req, res) => {
       } else if (req.url === '/auto-follow') {
         state.config.autoFollowShare = payload.enabled === true; save();
         if (payload.enabled) await obs.select('platform');
+      } else if (req.url === '/auto-office') {
+        if (payload.enabled === true && !(await obs.call('GetInputList')).inputs.some(input => input.inputName === INPUTS.office)) throw new Error('Перед уроком нажмите «Начать сегодняшний день», чтобы добавить источник LibreOffice.');
+        state.config.autoOffice = payload.enabled === true; save();
+        if (payload.enabled || (await obs.status()).scene === SCENES.office) await obs.select('platform');
       } else if (req.url === '/auto-upload') {
         state.config.autoUpload = payload.enabled === true; save();
       } else if (req.url === '/test-start') {
@@ -320,4 +330,15 @@ setInterval(() => {
   }).finally(() => { ticking = false; void queue(); });
 }, 2500);
 
-setInterval(() => { void shareBridge.tick().catch((error) => { shareBridge.message = `Автовыбор демонстрации: ${error.message}`; }); }, 1000);
+let followingSources = false;
+setInterval(() => {
+  if (followingSources) return; followingSources = true;
+  void (async () => {
+    try { await shareBridge.tick(); }
+    catch (error) { shareBridge.message = `Автовыбор демонстрации: ${error.message}`; }
+    if (obsStatus) {
+      try { await officeFollower.tick(); }
+      catch (error) { officeFollower.message = `Автовыбор LibreOffice: ${error.message}`; }
+    } else foregroundReader.stop();
+  })().finally(() => { followingSources = false; });
+}, 1000);

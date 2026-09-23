@@ -4,8 +4,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export const SCENES = { share: 'IVAN100 — Демонстрация', platform: 'IVAN100 — Платформа', window: 'IVAN100 — Программа', screen: 'IVAN100 — Экран', pause: 'IVAN100 — Перерыв' };
-export const INPUTS = { share: 'IVAN100: демонстрация', platform: 'IVAN100: платформа', window: 'IVAN100: программа', screen: 'IVAN100: монитор', mic: 'IVAN100: микрофон', telemost: 'IVAN100: Телемост' };
+export const SCENES = { office: 'IVAN100 — LibreOffice', share: 'IVAN100 — Демонстрация', platform: 'IVAN100 — Платформа', window: 'IVAN100 — Программа', screen: 'IVAN100 — Экран', pause: 'IVAN100 — Перерыв' };
+export const INPUTS = { office: 'IVAN100: LibreOffice', share: 'IVAN100: демонстрация', platform: 'IVAN100: платформа', window: 'IVAN100: программа', screen: 'IVAN100: монитор', mic: 'IVAN100: микрофон', telemost: 'IVAN100: Телемост' };
 const COLLECTION = 'IVAN100 Lessons';
 const sha = (text) => crypto.createHash('sha256').update(text).digest('base64');
 
@@ -154,13 +154,14 @@ export class ObsClient {
     for (const [inputName, inputKind, inputSettings, sceneName] of [
       [INPUTS.platform, 'window_capture', { priority: 0, method: 2, client_area: true, cursor: true, capture_audio: false }, SCENES.platform],
       [INPUTS.window, 'window_capture', { priority: 0, method: 2, client_area: true, cursor: true, capture_audio: false }, SCENES.window],
+      [INPUTS.office, 'window_capture', { priority: 0, method: 2, client_area: true, cursor: true, capture_audio: false }, SCENES.office],
       [INPUTS.screen, 'monitor_capture', { monitor: 0, capture_cursor: true }, SCENES.screen],
       [INPUTS.mic, 'wasapi_input_capture', { device_id: 'default' }, SCENES.platform],
       [INPUTS.telemost, 'wasapi_process_output_capture', { priority: 0 }, SCENES.platform],
     ]) {
       if (!inputs.includes(inputName)) await this.call('CreateInput', { sceneName, inputName, inputKind, inputSettings, sceneItemEnabled: true });
     }
-    for (const sceneName of [SCENES.window, SCENES.screen]) {
+    for (const sceneName of [SCENES.window, SCENES.screen, SCENES.office]) {
       const items = (await this.call('GetSceneItemList', { sceneName })).sceneItems;
       for (const sourceName of [INPUTS.mic, INPUTS.telemost]) {
         if (!items.some((item) => item.sourceName === sourceName)) await this.call('CreateSceneItem', { sceneName, sourceName, sceneItemEnabled: true });
@@ -200,11 +201,11 @@ export class ObsClient {
   async select(mode, window) {
     await this.assertCollection();
     if (!SCENES[mode]) throw new Error('Неизвестный источник');
-    if (mode === 'window') {
+    if (mode === 'window' || mode === 'office') {
       if (!window) throw new Error('Сначала выберите окно программы в пульте');
       const choices = await this.choices();
       if (!choices.platform.some((item) => item.itemEnabled && item.itemValue === window)) throw new Error('Окно программы закрыто или свёрнуто. Откройте его и обновите список окон.');
-      await this.call('SetInputSettings', { inputName: INPUTS.window, inputSettings: { window, priority: 0 }, overlay: true });
+      await this.call('SetInputSettings', { inputName: INPUTS[mode], inputSettings: { window, priority: 0 }, overlay: true });
     }
     if (INPUTS[mode]) await this.fit(mode);
     await this.call('SetCurrentProgramScene', { sceneName: SCENES[mode] });

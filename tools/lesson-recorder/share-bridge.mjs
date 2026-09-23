@@ -50,7 +50,7 @@ export class ShareBridge {
       const scene = (await this.obs.call('GetCurrentProgramScene')).currentProgramSceneName;
       const live = this.enabled() && active && this.offer && this.readyAt && this.now() - this.readyAt < 4000;
       // Pause and deliberate manual scene choices always take precedence.
-      if (live && scene === SCENES.platform) await this.obs.select('share');
+      if (live && [SCENES.platform, SCENES.office].includes(scene)) await this.obs.select('share');
       if (!live && scene === SCENES.share) await this.obs.select('platform');
       this.message = this.offer && !live ? 'Подключаем демонстрацию к записи…' : live ? 'Записывается ваша демонстрация' : '';
     } finally { this.busy = false; }

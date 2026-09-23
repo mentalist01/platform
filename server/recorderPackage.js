@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 // Never distribute state.json, browser profiles, or credentials.
 export const recorderFiles = ['Install.cmd', 'install.ps1', 'dependencies.ps1', 'app.mjs', 'obs.mjs',
-  'start-day.mjs','share-bridge.mjs','share-view.html','segments.mjs','engine.mjs', 'storage.mjs', 'recording-storage.mjs', 'recovery-inbox.mjs', 'rutube.mjs',
+  'start-day.mjs','share-bridge.mjs','share-view.html','office-follow.mjs','foreground-window.ps1','segments.mjs','engine.mjs', 'storage.mjs', 'recording-storage.mjs', 'recovery-inbox.mjs', 'rutube.mjs',
   'panel.html', 'hotkeys.ps1', 'background.vbs', 'README.md', 'package.json', 'package-lock.json'];
 const directory = fileURLToPath(new URL('../tools/lesson-recorder/', import.meta.url));
 const table = Array.from({ length: 256 }, (_, n) => {
