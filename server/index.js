@@ -7431,11 +7431,11 @@ const ensureAdminAuth = () => {
 const authSessions = new Map();
 const authConnections = new Map();
 let accountSecurity = null;
-const closeAuthConnections = (token) => {
+const closeAuthConnections = (token, securityOptions) => {
   const entries = authConnections.get(token);
   authConnections.delete(token);
   for (const close of entries || []) { try { close(); } catch { /* already closed */ } }
-  accountSecurity?.revokeToken(token);
+  accountSecurity?.revokeToken(token, securityOptions);
 };
 const trackAuthConnection = (token, connection, close) => {
   if (!authSessions.has(token)) { close(); return; }
@@ -7776,18 +7776,18 @@ const hydrateAuthSessions = () => {
   if (hadExpired) persistAuthSessions();
 };
 
-const deleteAuthSession = (token) => {
+const deleteAuthSession = (token, securityOptions) => {
   if (!token) return false;
   if (authSessions.has(token)) {
     // Persist first: a reported successful logout must survive a restart.
     writeAuthSessionsDb(Array.from(authSessions.values())
       .filter((session) => session.token !== token).map(serializeAuthSessionForStorage));
     authSessions.delete(token);
-    closeAuthConnections(token);
+    closeAuthConnections(token, securityOptions);
     return true;
   }
   const deleted = deleteAuthSessionFromStorage(token);
-  closeAuthConnections(token);
+  closeAuthConnections(token, securityOptions);
   return deleted;
 };
 
@@ -7797,7 +7797,7 @@ const purgeExpiredAuthSessions = () => {
   for (const [token, session] of authSessions.entries()) {
     if (!session || !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= now) {
       authSessions.delete(token);
-      closeAuthConnections(token);
+      closeAuthConnections(token, { forgetBrowser: false });
       changed = true;
     }
   }
@@ -7812,8 +7812,8 @@ if (typeof authSessionSweepTimer.unref === 'function') {
 const authConnectionSweepTimer = setInterval(() => {
   for (const token of authConnections.keys()) {
     if ((authSessions.get(token)?.expiresAtMs || 0) <= Date.now()) {
-      try { deleteAuthSession(token); }
-      catch { closeAuthConnections(token); console.error('[auth] failed to persist expired session removal'); }
+      try { deleteAuthSession(token, { forgetBrowser: false }); }
+      catch { closeAuthConnections(token, { forgetBrowser: false }); console.error('[auth] failed to persist expired session removal'); }
     }
   }
 }, 30_000);
@@ -7866,7 +7866,7 @@ const getAuthSession = (token, req = null) => {
   const session = authSessions.get(normalizedToken) || getAuthSessionFromStorage(normalizedToken);
   if (!session) return null;
   if (!Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= Date.now()) {
-    deleteAuthSession(normalizedToken);
+    deleteAuthSession(normalizedToken, { forgetBrowser: false });
     return null;
   }
   const user = resolveSessionUser(session.user);
@@ -21700,7 +21700,7 @@ app.post('/api/signup/login', (req, res) => {
 
 app.post('/api/logout', (req, res) => {
   const token = getAuthTokenFromRequest(req);
-  if (token) deleteAuthSession(token);
+  if (token) deleteAuthSession(token, { forgetBrowser: false });
   clearAuthSessionCookie(res);
   res.json({ ok: true });
 });

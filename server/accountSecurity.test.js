@@ -177,6 +177,35 @@ test('ordinary login inherits verification only from the confirmed browser and m
   assert.doesNotThrow(() => f.security.requireProof(f.req({}, 'trusted-login')));
 });
 
+test('ordinary logout preserves browser trust through repeated logins and restart without extending its lifetime', async (t) => {
+  const f = fixture(t); const confirmed = await f.bind();
+  let security = f.security; let token = 'browser-a';
+  for (let i = 0; i < 3; i++) {
+    security.revokeToken(token, { forgetBrowser: false });
+    assert.throws(() => security.requireProof({ ...confirmed, authToken: token }), /Подтвердите/);
+    security = createAccountSecurity(f.options);
+    assert.equal(security.needsLoginCode(confirmed, confirmed.auth), false);
+    assert.equal(security.needsLoginCode({ ...confirmed, headers: {} }, confirmed.auth), true);
+    assert.equal(security.needsLoginCode({ ...confirmed, ip: '192.0.2.9' }, confirmed.auth), true);
+    token = `repeat-session-${i}`;
+    security.associateSession(confirmed, confirmed.auth, token);
+    assert.doesNotThrow(() => security.requireProof({ ...confirmed, authToken: token }));
+  }
+  f.tick(30 * 24 * 60 * 60_000);
+  assert.equal(security.needsLoginCode(confirmed, confirmed.auth), true);
+});
+
+test('cleanup of an older session preserves current browser trust, while explicit revocation forgets it', async (t) => {
+  const f = fixture(t); const confirmed = await f.bind();
+  f.security.associateSession(confirmed, confirmed.auth, 'newer-session');
+  f.security.revokeToken('browser-a', { forgetBrowser: false });
+  assert.equal(f.security.needsLoginCode(confirmed, confirmed.auth), false);
+  assert.doesNotThrow(() => f.security.requireProof({ ...confirmed, authToken: 'newer-session' }));
+  f.security.revokeToken('newer-session');
+  assert.equal(createAccountSecurity(f.options).needsLoginCode(confirmed, confirmed.auth), true);
+  assert.throws(() => f.security.requireProof({ ...confirmed, authToken: 'newer-session' }), /Подтвердите/);
+});
+
 test('old confirmed teacher sessions migrate once; explicit lock stays locked after restart', async (t) => {
   const f = fixture(t); const confirmed = await f.bind();
   const file = path.join(f.directory, 'accounts.json');

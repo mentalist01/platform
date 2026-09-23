@@ -291,13 +291,20 @@ export function createAccountSecurity({ directory, verifyCredential, now = Date.
     delete state.challenges[account]; save();
     return { ...grantVerifiedSession(req.auth, req.authToken), trustSecret: remember(req, req.auth) };
   };
-  const revokeToken = (token) => {
+  const revokeToken = (token, { forgetBrowser = true } = {}) => {
     const session = hash(token);
     for (const [id, grant] of grants) if (grant.session === session) grants.delete(id);
     let changed = false;
     if (state.verifiedSessions[session]) { delete state.verifiedSessions[session]; changed = true; }
     for (const [id, challenge] of Object.entries(state.challenges)) if (challenge.session === session) { delete state.challenges[id]; changed = true; }
-    for (const [id, entry] of Object.entries(state.trusted)) if (entry.sessions?.includes(session)) { delete state.trusted[id]; changed = true; }
+    for (const [id, entry] of Object.entries(state.trusted)) {
+      if (!entry.sessions?.includes(session)) continue;
+      // Signing out (or expiring a session) removes that session's authority,
+      // not the browser/IP confirmation. Explicit remote revocation forgets it.
+      if (forgetBrowser) delete state.trusted[id];
+      else entry.sessions = entry.sessions.filter((value) => value !== session);
+      changed = true;
+    }
     if (changed) save();
   };
   const lock = (req) => {

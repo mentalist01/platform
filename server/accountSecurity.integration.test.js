@@ -182,4 +182,24 @@ test('real routes require browser proof, isolate accounts and revoke live connec
   const status = await request('/auth/security'); assert.equal(status.emailLinked, true); assert.equal(status.verifiedUntil, 0); assert.equal(status.sessionVerified, true);
   await request('/logout', { token: emailLogin.token, method: 'POST', cookie: '' });
   await request('/auth/sessions', { token: emailLogin.token, cookie: cookies.anonymous, expected: 401 });
+
+  // Real logout routes must retain the browser/IP confirmation for the next
+  // login, while invalidating every old session and its management authority.
+  let repeatLogin = trustedLogin;
+  for (let i = 0; i < 3; i++) {
+    await request('/logout', { token: repeatLogin.token, method: 'POST' });
+    await request('/session', { token: repeatLogin.token, expected: 401 });
+    await request('/auth/sessions', { token: repeatLogin.token, expected: 401 });
+    if (i === 1) { await stop(); await start(); }
+    repeatLogin = await request('/login', { actor: 'main', method: 'POST', body: { code: '123456' } });
+    assert.equal(repeatLogin.id, 'teacher');
+    assert.ok(repeatLogin.token); assert.equal(repeatLogin.emailVerificationRequired, undefined);
+    await request('/auth/sessions', { token: repeatLogin.token, cookie: '' });
+  }
+  await request('/login', { actor: 'anonymous', cookie: '', method: 'POST', body: { code: '123456' }, header: false, expected: 403 });
+  const repeatSessionId = crypto.createHash('sha256').update(repeatLogin.token).digest('hex').slice(0, 24);
+  await request(`/auth/sessions/${repeatSessionId}`, { method: 'DELETE' });
+  await request('/session', { token: repeatLogin.token, expected: 401 });
+  assert.equal((await request('/auth/security')).trustedHere, false);
+  await request('/login', { cookie: cookies.main, method: 'POST', body: { code: '123456' }, header: false, expected: 403 });
 });
