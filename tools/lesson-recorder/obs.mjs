@@ -4,8 +4,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export const SCENES = { platform: 'IVAN100 — Платформа', window: 'IVAN100 — Программа', screen: 'IVAN100 — Экран', pause: 'IVAN100 — Перерыв' };
-export const INPUTS = { platform: 'IVAN100: платформа', window: 'IVAN100: программа', screen: 'IVAN100: монитор', mic: 'IVAN100: микрофон', telemost: 'IVAN100: Телемост' };
+export const SCENES = { share: 'IVAN100 — Демонстрация', platform: 'IVAN100 — Платформа', window: 'IVAN100 — Программа', screen: 'IVAN100 — Экран', pause: 'IVAN100 — Перерыв' };
+export const INPUTS = { share: 'IVAN100: демонстрация', platform: 'IVAN100: платформа', window: 'IVAN100: программа', screen: 'IVAN100: монитор', mic: 'IVAN100: микрофон', telemost: 'IVAN100: Телемост' };
 const COLLECTION = 'IVAN100 Lessons';
 const sha = (text) => crypto.createHash('sha256').update(text).digest('base64');
 

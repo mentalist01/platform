@@ -130,3 +130,23 @@ test('manual continuation keeps recording despite an old stop and publishes to i
   assert.equal(sent[1].route, '/jobs/original');
   assert.equal(sent[1].body.url, 'private-video');
 });
+
+
+test('manual start asks the platform for a bound continuation instead of making a local orphan', async (t) => {
+  const f = fixture(t); const calls = [];
+  f.engine.api = async (route, body) => {
+    calls.push([route, body]);
+    if (route === '/poll') return { enabled: true, currentLesson: { id: 'old' } };
+    if (route === '/resume') return { ...f.job, previousJobId: 'old' };
+    return {};
+  };
+  await f.engine.startForCurrentLesson();
+  assert.equal(f.engine.active().previousJobId, 'old'); assert.equal(f.engine.active().local, undefined);
+  assert.deepEqual(calls[1], ['/resume', { id: 'old' }]);
+});
+
+test('retry cannot restart OBS with the name of an existing recording', async (t) => {
+  const f = fixture(t); fs.writeFileSync(path.join(f.root, 'lesson-one.mkv'), 'original');
+  await assert.rejects(f.engine.start(f.job), /уже существует/);
+  assert.deepEqual(f.counts(), [0, 0]);
+});

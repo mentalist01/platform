@@ -7,6 +7,11 @@ const panelUrl = 'http://127.0.0.1:18765/';
 const status = { waiting: 'Ожидаем OBS', recording: 'Идёт запись', saved: 'Сохранено на компьютере', uploading: 'Загрузка в Rutube', processing: 'Обработка в Rutube', ready: 'Видео готово', error: 'Нужно действие в пульте' };
 const button = 'inline-flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50';
 const instructions = [
+  ['Демонстрация и случайная остановка', [
+    'В звонке на платформе включите демонстрацию окна, вкладки или экрана. OBS автоматически покажет именно выбранное изображение; после выключения демонстрации вернётся к платформе. В пульте должен быть включён автовыбор демонстрации.',
+    'Ручной выбор окна и «Перерыв» имеют приоритет. Для возврата к автоматике нажмите «Платформа». Во внешнем Телемосте источник по-прежнему выбирается в пульте.',
+    'Если случайно остановили запись посреди урока, нажмите «Продолжить запись урока». Помощник проверит текущее занятие и соединит части перед прикреплением. Не нужно создавать отдельную ручную запись без привязки.',
+  ]],
   ['Первая установка на Windows', [
     'Скачайте помощник кнопкой выше. Нажмите правой кнопкой по ZIP → «Извлечь всё». В распакованной папке дважды нажмите Install.cmd.',
     'Установщик проверит OBS Studio, Node.js, FFmpeg и Microsoft Edge. Если чего-то нет, предложит установить. Дождитесь окончания; если Windows запросит разрешение на установку компонента, подтвердите его. Затем откроется мастер настройки.',
@@ -17,7 +22,7 @@ const instructions = [
     'Вернитесь сюда и включите «Автоматически записывать уроки». Настройка готова: при следующих входах в Windows помощник запускается сам.',
   ]],
   ['Перед первым уроком дня', [
-    'Откройте платформу и окно, в котором будет разговор. Не сворачивайте записываемое окно. В разделе «Запись уроков» компьютер должен быть на связи, OBS — готов к записи.',
+    'Откройте платформу и пульт. Нажмите «Начать сегодняшний день»: OBS запустится и проверит сохранённые источники и папку записи. Ежедневно проходить настройку заново не нужно.',
     'Если компьютер не на связи, откройте ярлык «IVAN100 - Запись уроков» на рабочем столе Windows. Если указано «Проверьте источники», откройте пульт: он покажет, какое окно или устройство недоступно.',
     'Проверьте изображение, микрофон и звук разговора в пульте. При смене наушников, микрофона или приложения заново выберите источники и прослушайте пробную запись.',
     'Начните нужное занятие на платформе. Для Телемоста сначала запустите занятие на платформе, затем перейдите в звонок: один только вход в Телемост запись не запускает. В пульте появятся «Идёт запись» и счётчик времени.',
@@ -100,7 +105,7 @@ export default function LessonRecordingSection({ recorder }) {
         <div className="mt-5 flex flex-wrap gap-3"><a className={button} href={`${panelUrl}#setup`} target="_blank" rel="noreferrer">Открыть мастер <ExternalLink size={15} /></a><a className={button} href="#recording-instructions">Подробная инструкция ↓</a></div>
       </section>
     </div>
-    <section className="rounded-3xl border border-violet-100 bg-violet-50 p-6"><h2 className="font-bold text-slate-900">Каждый урок — отдельная запись</h2><p className="mt-2 text-sm leading-6 text-slate-600">Начните занятие на платформе → проведите урок → завершите его на платформе → начинайте следующий. Помощник загружает видео в фоне. После последнего урока оставьте компьютер включённым до статуса «Видео готово».</p></section>
+    <section className="rounded-3xl border border-violet-100 bg-violet-50 p-6"><h2 className="font-bold text-slate-900">Каждый урок — отдельная запись</h2><p className="mt-2 text-sm leading-6 text-slate-600">Нажмите «Начать сегодняшний день» в пульте → подключайтесь к урокам на платформе. Между уроками можно сразу переключаться к следующему ученику: помощник сам меняет файл. Помощник загружает видео в фоне. После последнего урока оставьте компьютер включённым до статуса «Видео готово».</p></section>
     <section className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-lg font-bold text-slate-900">Последние записи</h2>
       {settings?.jobs?.length ? <ul className="mt-3 divide-y divide-slate-100">{settings.jobs.map(job => <li key={job.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><p className="text-sm font-semibold text-slate-900">{job.title}</p><p className={`mt-1 text-xs ${job.status === 'error' ? 'text-rose-600' : 'text-slate-500'}`}>{status[job.status] || job.status}{job.error && ` · ${job.error}`}</p></div>{job.status === 'ready' ? <span className="flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 size={16} /> Прикреплено к уроку</span> : job.status === 'error' && <a className={button} href={panelUrl} target="_blank" rel="noreferrer">Открыть пульт</a>}</li>)}</ul> : <p className="mt-3 text-sm text-slate-500">Здесь появятся записи занятий после подключения помощника.</p>}
     </section>

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRecordingShareRelay } from './recordingShare.js';
 import { recorderPackage } from './recorderPackage.js';
 
 const hash = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -40,7 +41,7 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
     id: job.id, occurrence: job.occurrence, title: job.title, status: job.status,
     desired: job.desired, cutoffAt: job.cutoffAt, startedAt: job.startedAt,
     stoppedAt: job.stoppedAt || '', updatedAt: job.updatedAt, video: job.video || null,
-    error: job.error || '', deviceId: job.deviceId || '', audioMode: job.audioMode || '',
+    previousJobId: job.previousJobId || '', error: job.error || '', deviceId: job.deviceId || '', audioMode: job.audioMode || '',
   });
   const settings = (teacherId) => ({
     enabled: enabled(teacherId),
@@ -56,8 +57,9 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
       job.desired = 'stop'; job.stoppedAt = now(); job.updatedAt = now(); save();
     }
   };
+  const share = createRecordingShareRelay({ now, allowed: (teacherId, id) => enabled(teacherId) && db.jobs[id]?.teacherId === teacherId && db.jobs[id]?.desired === 'record' && db.jobs[id]?.cutoffAt > now() });
   return {
-    enabled, settings, stop,
+    enabled, settings, stop, share,
     requestStop(occurrenceKey) {
       for (const job of Object.values(db.jobs)) {
         if (job.occurrence.key !== occurrenceKey || job.desired !== 'record') continue;
@@ -99,10 +101,12 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
       db.teachers[teacherId] = { enabled: false };
       jobs(teacherId).forEach((job) => stop(job.occurrence.key)); save();
     },
-    start(teacherId, occurrence, title, cutoffAt, { audioMode = '' } = {}) {
+    start(teacherId, occurrence, title, cutoffAt, { audioMode = '', transitionFrom = '' } = {}) {
       if (!enabled(teacherId)) fail('Запись на компьютере не включена', 409);
       if (!occurrence?.key || !Number.isFinite(cutoffAt) || cutoffAt <= now()) fail('Занятие уже завершено', 409);
-      const previous = jobs(teacherId).find((job) => job.occurrence.key === occurrence.key);
+      const departing = db.jobs[transitionFrom];
+      if (departing?.teacherId === teacherId && departing.occurrence.key !== occurrence.key) stop(departing.occurrence.key);
+      const previous = jobs(teacherId).filter((job) => job.occurrence.key === occurrence.key).at(-1);
       if (previous) {
         if (previous.desired === 'record') {
           previous.lastActiveAt = now(); previous.stopRequestedAt = 0; save();
@@ -123,6 +127,35 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
         status: 'waiting', desired: 'record', audioMode, cutoffAt: Math.min(cutoffAt, now() + 5 * 3600_000), startedAt: now(), lastActiveAt: now(), updatedAt: now() };
       save(); return publicJob(db.jobs[id]);
     },
+    recoverFile(device, id, recoveryId) {
+      const previous = db.jobs[id];
+      if (!previous || previous.teacherId !== device.teacherId) fail('Запись не найдена', 404);
+      if (previous.deviceId && previous.deviceId !== device.id) fail('Запись принадлежит другому компьютеру', 409);
+      if (!/^[a-f0-9-]{36}$/i.test(recoveryId || '') || previous.desired !== 'stop') fail('Некорректное восстановление');
+      if (db.jobs[recoveryId]) {
+        if (db.jobs[recoveryId].teacherId !== device.teacherId || db.jobs[recoveryId].recoveredFrom !== id) fail('Конфликт записи', 409);
+        return publicJob(db.jobs[recoveryId]);
+      }
+      const latest = jobs(device.teacherId).filter((job) => job.occurrence.key === previous.occurrence.key).at(-1);
+      if (latest.id !== id) fail('У урока уже есть более новая запись', 409);
+      db.jobs[recoveryId] = { ...previous, id: recoveryId, recoveredFrom: id, previousJobId: '', status: 'saved', video: null, error: '', updatedAt: now() };
+      save(); return publicJob(db.jobs[recoveryId]);
+    },
+    resume(device, id, isActive) {
+      const previous = db.jobs[id];
+      if (!previous || previous.teacherId !== device.teacherId) fail('Запись не найдена', 404);
+      if (previous.deviceId && previous.deviceId !== device.id) fail('Запись принадлежит другому компьютеру', 409);
+      if (!enabled(device.teacherId) || previous.cutoffAt <= now() || !isActive?.(previous)) fail('Сначала подключитесь к нужному уроку на платформе', 409);
+      const latest = jobs(device.teacherId).filter((job) => job.occurrence.key === previous.occurrence.key).at(-1);
+      if (latest.id !== previous.id) return publicJob(latest); // retry is idempotent
+      if (previous.desired === 'record' && ['waiting', 'recording'].includes(previous.status)) return publicJob(previous);
+      if (jobs(device.teacherId).some((job) => job.desired === 'record' && job.id !== id && job.cutoffAt > now())) fail('Уже начался другой урок', 409);
+      const nextId = crypto.randomUUID();
+      db.jobs[nextId] = { id: nextId, teacherId: previous.teacherId, occurrence: previous.occurrence,
+        title: previous.title, previousJobId: id, deviceId: device.id, audioMode: previous.audioMode,
+        status: 'waiting', desired: 'record', cutoffAt: previous.cutoffAt, startedAt: now(), lastActiveAt: now(), updatedAt: now() };
+      save(); return publicJob(db.jobs[nextId]);
+    },
     poll(device, ready, isEnded = () => false, isActive = null) {
       device.lastSeenAt = now(); device.ready = ready === true;
       for (const job of jobs(device.teacherId)) {
@@ -133,7 +166,7 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
           || (isActive && now() - (job.lastActiveAt || job.startedAt) >= RECORDING_RECONNECT_GRACE_MS)) stop(job.occurrence.key);
       }
       save();
-      return { enabled: enabled(device.teacherId), serverNow: now(), jobs: jobs(device.teacherId).filter((job) => job.status !== 'ready').map(publicJob) };
+      return { currentLesson: publicJob(jobs(device.teacherId).filter((job) => job.cutoffAt > now() && isActive?.(job)).at(-1)), enabled: enabled(device.teacherId), serverNow: now(), jobs: jobs(device.teacherId).filter((job) => job.status !== 'ready').map(publicJob) };
     },
     report(device, id, payload) {
       const job = db.jobs[id];
@@ -147,6 +180,7 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
         if (!video) fail('Нужна закрытая ссылка Rutube с ключом p');
         if (job.desired !== 'stop') fail('Сначала завершите запись', 409);
         job.video = video;
+        if (Number.isFinite(payload.durationMs) && payload.durationMs > 0 && payload.durationMs <= 5 * 3600000) job.durationMs = payload.durationMs;
       }
       if (status === 'recording' && job.desired !== 'record') fail('Урок уже завершён', 409);
       job.deviceId = device.id; job.status = status;
@@ -155,10 +189,10 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
       job.updatedAt = now(); save(); return publicJob(job);
     },
     replay(key) {
-      const job = Object.values(db.jobs).find((item) => item.occurrence.key === key);
+      const job = Object.values(db.jobs).filter((item) => item.occurrence.key === key).at(-1);
       return job ? { provider: 'rutube', available: job.status === 'ready', status: job.status,
         occurrence: job.occurrence, video: job.video || null, events: [], eventCount: 0,
-        eventTypes: [], durationMs: Math.max(0, (job.stoppedAt || now()) - job.startedAt),
+        eventTypes: [], durationMs: job.durationMs || Math.max(0, (job.stoppedAt || now()) - job.startedAt),
         updatedAt: new Date(job.updatedAt).toISOString() } : null;
     },
   };
@@ -176,6 +210,13 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive } = 
     req.recorderDevice = device; next();
   });
   app.post('/api/desktop-recorder/poll', handle((req, res) => res.json(store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive))));
+  app.post('/api/desktop-recorder/start-day', handle((req, res) => {
+    store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive);
+    res.json(store.configure(req.recorderDevice.teacherId, true));
+  }));
+  app.post('/api/desktop-recorder/share', handle((req, res) => res.json(store.share.device(req.recorderDevice.teacherId, req.body || {}))));
+  app.post('/api/desktop-recorder/recover', handle((req, res) => res.json(store.recoverFile(req.recorderDevice, req.body?.id, req.body?.recoveryId))));
+  app.post('/api/desktop-recorder/resume', handle((req, res) => res.json(store.resume(req.recorderDevice, req.body?.id, isActive))));
   app.post('/api/desktop-recorder/jobs/:id', handle((req, res) => res.json(store.report(req.recorderDevice, req.params.id, req.body))));
   // Device credentials never reach the normal platform routes.
   app.use('/api/desktop-recorder', (_req, res) => res.status(404).json({ error: 'Not found' }));
@@ -191,6 +232,7 @@ export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolve
     ...(req.auth.role === 'teacher' ? store.settings(req.auth.id) : { enabled: store.enabled(teacherFor(req.auth)) }),
     legacyRecordingEnabled,
   }), false));
+  app.post('/api/desktop-recording/share', handle((req, res) => res.json(store.share.teacher(req.auth.id, req.body || {}))));
   app.post('/api/desktop-recording/pair', handle((req, res) => res.json(store.pair(req.auth.id))));
   app.get('/api/desktop-recording/download', handle((req, res) => {
     res.setHeader('Content-Type', 'application/zip');
@@ -203,7 +245,7 @@ export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolve
     const result = await resolveLesson(req, res);
     if (!result) return;
     const { occurrence, cutoffAt, audioMode } = result;
-    res.json(store.start(req.auth.id, occurrence, `Урок ${occurrence.dayKey} ${occurrence.time}`, cutoffAt, { audioMode }));
+    res.json(store.start(req.auth.id, occurrence, `Урок ${occurrence.dayKey} ${occurrence.time}`, cutoffAt, { audioMode, transitionFrom: req.body?.transitionFrom }));
   }));
   app.post('/api/desktop-recording/stop', handle((req, res) => {
     const job = store.settings(req.auth.id).jobs.find((item) => item.id === req.body?.id);

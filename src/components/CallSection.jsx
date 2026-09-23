@@ -1289,6 +1289,7 @@ const CallSection = ({
   onTeacherTelemostOpen,
   onLessonReplayEvent,
   onLessonReplayScreenSnapshot,
+  onDesktopShare,
   createLessonReplayAudioSink,
   theme = 'light',
   autoStartToken = 0,
@@ -2091,6 +2092,11 @@ const CallSection = ({
 
     remoteScreenShareStateRef.current = nextStateByPeer;
   }, [playAlertSound, remotePeers]);
+
+  useEffect(() => {
+    onDesktopShare?.(isTeacher && status === 'connected' && screenSharing ? localScreenTrackRef.current : null);
+    return () => onDesktopShare?.(null);
+  }, [isTeacher, status, screenSharing, onDesktopShare]);
 
   const lessonReplayScreenSource = useMemo(() => {
     if (!isTeacher || status !== 'connected') return null;

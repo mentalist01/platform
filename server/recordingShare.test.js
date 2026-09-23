@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createRecordingShareRelay } from './recordingShare.js';
+const id = '12345678-1234-1234-1234-123456789012';
+const offer = { type: 'offer', sdp: 'v=0\r\n' };
+test('signalling is scoped to teacher, active job and capture, expires and rejects oversized SDP', () => {
+  let time = 1; let active = true;
+  const relay = createRecordingShareRelay({ now: () => time, allowed: (teacher, job) => active && teacher === 'one' && job === 'lesson' });
+  assert.throws(() => relay.teacher('two', { action: 'offer', id, jobId: 'lesson', offer }));
+  relay.teacher('one', { action: 'offer', id, jobId: 'lesson', offer });
+  assert.equal(relay.device('two', {}), null);
+  assert.throws(() => relay.device('one', { id: 'old', answer: { type: 'answer', sdp: 'v=0' } }));
+  relay.device('one', { id, answer: { type: 'answer', sdp: 'v=0' } });
+  assert.equal(relay.teacher('one', { action: 'poll', id }).answer.type, 'answer');
+  relay.teacher('one', { action: 'stop', id: 'old' });
+  assert.equal(relay.device('one', {}).id, id);
+  time += 45001; assert.equal(relay.device('one', {}), null);
+  assert.throws(() => relay.teacher('one', { action: 'offer', id, jobId: 'lesson', offer: { ...offer, sdp: 'v=0' + 'x'.repeat(64000) } }));
+  relay.teacher('one', { action: 'offer', id, jobId: 'lesson', offer });
+  active = false; assert.equal(relay.device('one', {}), null);
+});

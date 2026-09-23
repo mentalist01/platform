@@ -23,6 +23,7 @@ export class RecorderEngine {
   }
   async start(job) {
     if (this.active()) throw new Error('Сначала завершите текущую запись');
+    if (this.state.jobs[job.id]?.file || fs.existsSync(ownedRecording(this.recordDirectory, job.id))) throw new Error('Файл этой записи уже существует. Продолжите урок новой частью, чтобы сохранить обе записи.');
     await this.obs.launch();
     if (this.obs.prepare) await this.obs.prepare(this.state.config, this.recordDirectory, job.audioMode);
     else if ((await this.obs.status()).outputActive) throw new Error('В OBS уже идёт запись. Сначала завершите её.');
@@ -69,6 +70,19 @@ export class RecorderEngine {
     if (!fs.existsSync(job.file) || fs.statSync(job.file).size === 0) throw new Error('OBS не сохранил файл записи');
     job.status = 'saved'; job.stoppedAt = this.now(); job.error = ''; this.save();
     await this.report(job, 'saved');
+  }
+  async startForCurrentLesson() {
+    if (this.active()) throw new Error('Запись уже идёт');
+    // A network error must not silently turn a bound lesson into a local-only recording.
+    if (this.state.config.token) {
+      for (const job of Object.values(this.state.jobs)) if (job.pendingReport && job.status !== 'recording') await this.flushReport(job);
+      const remote = await this.api('/poll', { ready: this.ready() });
+      if (remote.enabled && remote.currentLesson) {
+        const next = await this.api('/resume', { id: remote.currentLesson.id });
+        await this.start(next); return;
+      }
+    }
+    throw new Error('Активный урок не найден. Подключитесь к занятию на платформе; запись начнётся автоматически.');
   }
   async tick() {
     const active = this.active();

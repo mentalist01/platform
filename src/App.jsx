@@ -171,6 +171,7 @@ import './components/CollabWorkspaceLayout.css';
 import useCollabSolutionPresentation from './components/useCollabSolutionPresentation';
 const CollabSolutionCompare = React.lazy(() => import('./components/CollabSolutionCompare'));
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
+import useRecorderShare from './hooks/useRecorderShare';
 import useDesktopRecording from './hooks/useDesktopRecording';
 import LessonRecordingSection from './components/LessonRecordingSection';
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
@@ -19280,11 +19281,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : (callSessionStatus === 'connected'
     ? 'platform'
       : (isTelemostLessonReplayActive ? 'telemost' : ''));
+  const [desktopShareTrack, setDesktopShareTrack] = useState(null);
   const desktopRecorder = useDesktopRecording({
     user, active: callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive,
     studentId: lessonReplayStudentId,
     learningLessonId: isGroupLessonReplayActive ? activeLearningLesson.lessonId : '',
   });
+  useRecorderShare({ enabled: desktopRecorder.enabled && user.role === 'teacher', jobId: desktopRecorder.jobId, track: desktopShareTrack });
   const legacyRecordingActive = desktopRecorder.settings?.legacyRecordingEnabled === true && !desktopRecorder.enabled;
   const applyTelemostLessonReplay = useCallback((payload = {}) => {
     const activity = payload?.activity || payload?.request?.activity || payload;
@@ -26915,6 +26918,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               theme={theme}
               autoStartToken={callAutoStartToken}
               onStatusChange={setCallSessionStatus}
+              onDesktopShare={setDesktopShareTrack}
               onTelemostLessonStart={applyTelemostLessonReplay}
               onTeacherTelemostOpen={handleOpenIndividualTelemost}
               onLessonReplayEvent={legacyRecordingActive ? recordLessonReplayEvent : null}

@@ -117,3 +117,51 @@ test('offline or unconfigured devices cannot enable recording and revocation dis
   f.store.poll(device, true); f.store.revoke('teacher');
   assert.equal(f.store.authenticate(token), null); assert.equal(f.store.enabled('teacher'), false);
 });
+
+
+test('direct room switch stops the previous capture even before its disconnect arrives', (t) => {
+  const f = fixture(t); f.connect('teacher');
+  const one = f.store.start('teacher', { key: 'first' }, 'Первый', f.now() + 3600000);
+  const two = f.store.start('teacher', { key: 'second' }, 'Второй', f.now() + 3600000, { transitionFrom: one.id });
+  assert.equal(f.store.settings('teacher').jobs.find(j => j.id === one.id).desired, 'stop');
+  assert.equal(two.desired, 'record');
+});
+
+test('manual resume creates an idempotent bound continuation and old uploads cannot replace it', (t) => {
+  const f = fixture(t); const { device } = f.connect('teacher');
+  const first = f.store.start('teacher', { key: 'lesson' }, 'Урок', f.now() + 3600000);
+  f.store.report(device, first.id, { status: 'saved' });
+  f.store.report(device, first.id, { status: 'ready', url: video });
+  const resumed = f.store.resume(device, first.id, () => true);
+  assert.notEqual(resumed.id, first.id); assert.equal(resumed.previousJobId, first.id);
+  assert.equal(resumed.occurrence.key, 'lesson');
+  assert.equal(f.store.resume(device, first.id, () => true).id, resumed.id);
+  assert.equal(f.store.start('teacher', { key: 'lesson' }, 'Урок', f.now() + 3600000).id, resumed.id);
+  f.store.report(device, first.id, { status: 'ready', url: video });
+  assert.equal(f.store.replay('lesson').status, 'waiting');
+  f.store.report(device, resumed.id, { status: 'saved' });
+  f.store.report(device, resumed.id, { status: 'ready', url: video.replace('Secret', 'Combined') });
+  assert.match(f.store.replay('lesson').video.url, /Combined/);
+});
+
+test('continuation cannot bind a different teacher, ended lesson or past cutoff', (t) => {
+  const f = fixture(t); const { device } = f.connect('teacher'); const other = f.connect('other');
+  const job = f.store.start('teacher', { key: 'lesson' }, 'Урок', f.now() + 1000);
+  f.store.report(device, job.id, { status: 'saved' });
+  assert.throws(() => f.store.resume(other.device, job.id, () => true));
+  assert.throws(() => f.store.resume(device, job.id, () => false));
+  f.advance(1001); assert.throws(() => f.store.resume(device, job.id, () => true));
+});
+
+test('recovered full file replaces the short replay without changing the original ready job', (t) => {
+  const f = fixture(t); const { device } = f.connect('teacher');
+  const old = f.store.start('teacher', { key: 'lesson' }, 'Урок', f.now() + 1000);
+  f.store.report(device, old.id, { status: 'saved' });
+  f.store.report(device, old.id, { status: 'ready', url: video });
+  const id = '12345678-1234-1234-1234-123456789012';
+  const recovered = f.store.recoverFile(device, old.id, id);
+  assert.equal(recovered.id, id); assert.equal(f.store.recoverFile(device, old.id, id).id, id);
+  f.store.report(device, id, { status: 'ready', url: video.replace('Secret', 'Recovered') });
+  assert.match(f.store.replay('lesson').video.url, /Recovered/);
+  assert.equal(f.store.settings('teacher').jobs.find(j => j.id === old.id).video.url, video);
+});

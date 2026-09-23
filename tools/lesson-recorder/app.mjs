@@ -5,8 +5,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startDay } from './start-day.mjs';
+import { ShareBridge } from './share-bridge.mjs';
 import { ObsClient } from './obs.mjs';
 import { atomicJson, readJson } from './storage.mjs';
+import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
 import { importRecoveredRecordings } from './recovery-inbox.mjs';
 import { RutubeUploader, privateVideo, videoReady } from './rutube.mjs';
@@ -57,14 +60,22 @@ async function prepare(job) {
   if (!job.file || !fs.existsSync(job.file)) throw new Error('Файл записи не найден');
   const output = path.join(path.dirname(job.file), `${job.title.replace(/[<>:"/\\|?*]/g, '-')}-${job.id}.mp4`);
   const temporary = `${output}.part.mp4`;
-  await run(runtime.ffmpeg || 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', job.file, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', temporary]);
+  const segments = recordingSegments(job, state.jobs, recordDirectory);
+  const list = path.join(recordDirectory, `lesson-${job.id}.concat.txt`);
+  if (segments.length > 1) fs.writeFileSync(list, concatList(segments));
+  const input = segments.length > 1 ? ['-f', 'concat', '-safe', '0', '-i', list] : ['-i', job.file];
+  await run(runtime.ffmpeg || 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...input, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', temporary]);
   fs.renameSync(temporary, output); job.mp4 = output; save();
 }
 async function publish(job) {
   const video = privateVideo(job.url);
   if (!video) throw new Error('Нужна полная закрытая ссылка Rutube с ключом ?p=');
-  if (!await videoReady(video.url)) { job.status = 'processing'; save(); return; }
-  await engine.report(job, 'ready', { url: video.url });
+  if (!await videoReady(video.url)) {
+    job.status = 'processing'; save();
+    if (!job.processingReported) { await engine.report(job, 'processing'); job.processingReported = true; save(); }
+    return;
+  }
+  await engine.report(job, 'ready', { url: video.url, ...(job.durationMs ? { durationMs: job.durationMs } : {}) });
   job.status = 'ready'; job.error = ''; save();
 }
 async function upload(job) {
@@ -97,14 +108,16 @@ async function queue() {
   } catch (failure) { error = failure.message; }
   finally { queueBusy = false; }
 }
+const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), enabled: () => state.config.autoFollowShare !== false });
 const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
   obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId,
+  shareMessage: shareBridge.message || '',
   testVerified: state.config.testFingerprint === setupFingerprint(state.config),
   jobs: Object.values(state.jobs).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50),
 });
 async function body(req) {
-  let content = ''; for await (const chunk of req) { content += chunk; if (content.length > 16000) throw new Error('Запрос слишком большой'); }
+  let content = ''; for await (const chunk of req) { content += chunk; if (content.length > 70000) throw new Error('Запрос слишком большой'); }
   return content ? JSON.parse(content) : {};
 }
 function enableWebsocket() {
@@ -129,6 +142,17 @@ const server = http.createServer(async (req, res) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'");
       return res.end(fs.readFileSync(path.join(here, 'panel.html'), 'utf8').replace('__LOCAL_KEY__', localKey));
+    }
+    if (req.method === 'GET' && req.url === '/share-view') {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src blob:; connect-src 'self'; frame-ancestors 'none'");
+      return res.end(fs.readFileSync(path.join(here, 'share-view.html'), 'utf8'));
+    }
+    if (req.url === '/share-source') {
+      if (req.headers['x-share-key'] !== shareBridge.key) return json(res, 403, { error: 'Forbidden' });
+      if (req.method === 'GET') return json(res, 200, shareBridge.offer);
+      if (req.method !== 'POST') return json(res, 405, {});
+      await shareBridge.receive(await body(req)); return json(res, 200, {});
     }
     if (req.headers['x-recorder-key'] !== localKey) return json(res, 403, { error: 'Откройте пульт заново' });
     if (req.method === 'GET' && req.url === '/state') return json(res, 200, publicState());
@@ -164,7 +188,13 @@ const server = http.createServer(async (req, res) => {
       void upload(job); return json(res, 200, { ok: true });
     }
     await serialize(async () => {
-      if (req.url === '/pair') {
+      if (req.url === '/start-day') {
+        await setupIdle(); enableWebsocket();
+        await startDay({ config: state.config, obs, checkDirectory: writableRecordingDirectory,
+          platform: () => api('/start-day', { ready: true }), save });
+        obsStatus = await obs.status(); sourceWarnings = []; lastSourceCheck = 0;
+        await shareBridge.setup();
+      } else if (req.url === '/pair') {
         await setupIdle();
         const result = await api('/pair', { code: payload.code, name: os.hostname() }, true);
         state.config.token = result.token; state.config.deviceId = result.deviceId; save();
@@ -201,6 +231,9 @@ const server = http.createServer(async (req, res) => {
         if (obsStatus?.scene === 'IVAN100 — Программа') await obs.select('window', payload.window);
       } else if (req.url === '/widget') {
         const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(here, 'hotkeys.ps1')], { detached: true, stdio: 'ignore', windowsHide: true }); child.unref();
+      } else if (req.url === '/auto-follow') {
+        state.config.autoFollowShare = payload.enabled === true; save();
+        if (payload.enabled) await obs.select('platform');
       } else if (req.url === '/auto-upload') {
         state.config.autoUpload = payload.enabled === true; save();
       } else if (req.url === '/test-start') {
@@ -208,7 +241,7 @@ const server = http.createServer(async (req, res) => {
         await engine.start({ id: crypto.randomUUID(), title: 'Проверка записи', local: true, testFingerprint: setupFingerprint(state.config), cutoffAt: Date.now() + 60000 });
       } else if (req.url === '/manual-start') {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
-        await engine.start({ id: crypto.randomUUID(), title: `Запись урока ${new Date().toLocaleString('ru-RU')}`, local: true, manual: true, cutoffAt: Date.now() + 5 * 3600000 });
+        await engine.startForCurrentLesson();
       } else if (req.url === '/test-stop') {
         const job = engine.active();
         if (!job?.local || job.manual || !job.testFingerprint) throw new Error('Сейчас пробная запись не идёт');
@@ -256,3 +289,5 @@ setInterval(() => {
     } catch (failure) { error = failure.message; obsStatus = null; }
   }).finally(() => { ticking = false; void queue(); });
 }, 2500);
+
+setInterval(() => { void shareBridge.tick().catch((error) => { shareBridge.message = `Автовыбор демонстрации: ${error.message}`; }); }, 1000);
