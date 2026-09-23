@@ -12,6 +12,10 @@ import { writeDurableReplayFile } from './lessonReplayFiles.js';
 import zlib from 'zlib';
 import { createServer } from 'http';
 import { spawn } from 'child_process';
+import { pythonSandboxLaunch } from './pythonSandbox.js';
+import { browserRequestGuard, isTrustedBrowserOrigin, secureUploadedResponse } from './httpSecurity.js';
+import { fetchPublicCalendar } from './publicCalendarFetch.js';
+import { browserPushTransport, isBrowserPushEndpoint } from './pushSecurity.js';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { Worker } from 'worker_threads';
@@ -339,7 +343,8 @@ try {
 }
 
 const app = express();
-app.set('trust proxy', 1);
+app.set('trust proxy', 'loopback');
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 5175;
 const eventLoopDelayMonitor = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelayMonitor.enable();
@@ -607,6 +612,7 @@ const collabDir = resolveStoragePath(
 );
 const boardSnapshotsDir = path.join(collabDir, 'board-snapshots');
 const dataFile = path.join(dataDir, 'files.json');
+const testUploadOwnersFile = path.join(dataDir, 'test-upload-owners.json');
 const foldersFile = path.join(dataDir, 'folders.json');
 const studentsFile = path.join(dataDir, 'students.json');
 const teachersFile = path.join(dataDir, 'teachers.json');
@@ -1937,6 +1943,7 @@ app.use((req, res, next) => {
   }
   return next();
 });
+app.use(browserRequestGuard(CORS_ALLOWED_ORIGINS));
 
 const decodeLooseJsonStringPart = (value) => {
   const raw = String(value || '').replace(/\r?\n/g, '\\n');
@@ -4450,7 +4457,7 @@ const normalizePushSubscription = (value) => {
   const keys = value.keys && typeof value.keys === 'object' && !Array.isArray(value.keys) ? value.keys : {};
   const p256dh = typeof keys.p256dh === 'string' ? keys.p256dh.trim() : '';
   const auth = typeof keys.auth === 'string' ? keys.auth.trim() : '';
-  if (!endpoint || !p256dh || !auth) return null;
+  if (!endpoint || !p256dh || !auth || !isBrowserPushEndpoint(endpoint)) return null;
   const expirationRaw = value.expirationTime;
   const expirationTime = Number.isFinite(Number(expirationRaw)) ? Number(expirationRaw) : null;
   return {
@@ -7408,6 +7415,9 @@ const ensureAdminAuth = () => {
       return next;
     }
     return existing;
+  }
+  if (process.env.NODE_ENV === 'production' && !normalizeAccessCode(process.env.ADMIN_CODE)) {
+    throw new Error('Set ADMIN_CODE before the first production startup; a default administrator code is not allowed.');
   }
   const next = {
     adminCodeHash: hashCode(seedCode),
@@ -10669,9 +10679,11 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
         if (cache.etag) requestHeaders['If-None-Match'] = cache.etag;
         if (cache.lastModified) requestHeaders['If-Modified-Since'] = cache.lastModified;
       }
-      const response = await fetch(settings.icalUrl, {
+      const response = await fetchPublicCalendar(settings.icalUrl, {
         headers: requestHeaders,
         signal: abortController.signal,
+        maxBytes: GOOGLE_CALENDAR_SYNC_MAX_BYTES,
+        allowLoopback: process.env.NODE_ENV === 'test',
       });
       if (response.status === 304 && cache?.url === settings.icalUrl && cacheCoversRequestedRange) {
         cache.loadedAtMs = Date.now();
@@ -17955,11 +17967,13 @@ const sendPushNotificationToSubscriptions = async (subscriptions = [], payload, 
     return { successCount: 0, staleEndpoints: [] };
   }
   const results = await Promise.all(list.map(async (entry) => {
+    let transport;
     try {
+      transport = await browserPushTransport(entry.subscription.endpoint);
       await webpush.sendNotification(
         entry.subscription,
         JSON.stringify(payload),
-        { TTL: PUSH_TTL_SECONDS }
+        { TTL: PUSH_TTL_SECONDS, ...transport }
       );
       return { ok: true, endpoint: entry.endpoint };
     } catch (error) {
@@ -17968,6 +17982,8 @@ const sendPushNotificationToSubscriptions = async (subscriptions = [], payload, 
       }
       console.error(`[push] failed to send notification to student ${studentId}:`, error);
       return { ok: false, endpoint: entry.endpoint, stale: false };
+    } finally {
+      transport?.agent.destroy();
     }
   }));
   const successCount = results.filter((item) => item.ok).length;
@@ -18768,6 +18784,8 @@ const runChildProcess = (command, args, options = {}) => new Promise((resolve) =
   try {
     child = spawn(command, args, {
       windowsHide: true,
+      cwd: options.cwd,
+      detached: Boolean(options.detached),
       env: options.env || process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -18779,7 +18797,8 @@ const runChildProcess = (command, args, options = {}) => new Promise((resolve) =
   const terminate = () => {
     if (!child || child.killed) return;
     try {
-      child.kill();
+      if (options.detached && process.platform === 'linux') process.kill(-child.pid, 'SIGKILL');
+      else child.kill('SIGKILL');
     } catch {}
   };
 
@@ -18855,8 +18874,12 @@ const runPythonSourceForInput = async (runner, encodedSource, inputValue, timeou
   try {
     const executionTimeoutMs = timeoutMs - (Date.now() - waitStartedAtMs);
     if (executionTimeoutMs < 250) return { ok: false, timeout: true };
-    const args = [...runner.baseArgs, '-I', '-S', '-B', '-c', PYTHON_RUNNER_SCRIPT, encodedSource];
-    const execution = await runChildProcess(runner.command, args, {
+    let launch;
+    try { launch = pythonSandboxLaunch(runner, PYTHON_RUNNER_SCRIPT, encodedSource); }
+    catch (error) { console.error('[python] sandbox unavailable:', error.message); return { ok: false, launchError: true }; }
+    const execution = await runChildProcess(launch.command, launch.args, {
+      cwd: launch.cwd,
+      detached: launch.detached,
       input: String(inputValue ?? ''),
       timeoutMs: executionTimeoutMs,
       maxBufferBytes: PYTHON_RUN_MAX_BUFFER_BYTES,
@@ -21083,6 +21106,7 @@ app.put(
 );
 
 const handleUploadRequest = (req, res) => {
+  secureUploadedResponse(res, req.params.storageName || '');
   const token = getAuthTokenFromRequest(req);
   const session = getAuthSession(token, req);
   if (!session) {
@@ -39202,9 +39226,14 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
   }
 });
 
-app.post('/api/test-files', upload.single('file'), (req, res) => {
-  if (isStudentRole(req.auth)) return forbid(res);
+app.post('/api/test-files', (req, res, next) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  next();
+}, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не найден' });
+  const owners = readJsonObjectFileStrict(testUploadOwnersFile);
+  owners[req.file.filename] = { id: req.auth.id, role: req.auth.role };
+  writeJsonFileAtomic(testUploadOwnersFile, owners);
   const id = req.fileId || crypto.randomUUID();
   res.json({
     id,
@@ -39218,16 +39247,29 @@ app.post('/api/test-files', upload.single('file'), (req, res) => {
 });
 
 app.delete('/api/test-files/:storageName', (req, res) => {
-  if (isStudentRole(req.auth)) return forbid(res);
+  if (!ensureStaffWriteAccess(req, res)) return;
   const rawName = req.params.storageName || '';
   const safeName = path.basename(rawName);
   if (!safeName) return res.status(400).json({ error: 'Некорректное имя файла' });
+  // This cleanup route must never delete a note, board asset or group material.
+  if (safeName.startsWith('board-asset-')
+    || readFilesDb().some((entry) => entry.storageName === safeName)
+    || readLearningMaterialsDb().some((entry) => entry.storageName === safeName)) return forbid(res);
   if (isTestAttachmentReferenced(safeName)) {
     return res.json({ ok: true, retained: true });
   }
+  const owners = readJsonObjectFileStrict(testUploadOwnersFile);
+  const owner = owners[safeName];
+  // Legacy unreferenced files have no reliable owner; retain them rather than
+  // inferring ownership from a user-supplied filename.
+  if (!owner) return res.json({ ok: true, retained: true });
+  if (!isAdminRole(req.auth) && (owner.id !== req.auth.id || owner.role !== req.auth.role)) return forbid(res);
   const filePath = path.join(uploadsDir, safeName);
   fs.unlink(filePath, (err) => {
     if (err) return res.status(404).json({ error: 'Файл не найден' });
+    const currentOwners = readJsonObjectFileStrict(testUploadOwnersFile);
+    delete currentOwners[safeName];
+    writeJsonFileAtomic(testUploadOwnersFile, currentOwners);
     res.json({ ok: true });
   });
 });
@@ -40684,9 +40726,9 @@ const pushSweepStartTimer = setTimeout(startPushReminderSweep, PUSH_SWEEP_START_
 if (typeof pushSweepStartTimer.unref === 'function') pushSweepStartTimer.unref();
 
 const server = createServer(app);
-const collabWss = new WebSocketServer({ noServer: true });
-const rtcWss = new WebSocketServer({ noServer: true });
-const notificationsWss = new WebSocketServer({ noServer: true });
+const collabWss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
+const rtcWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+const notificationsWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 const WS_OPEN_STATE = 1;
 const RTC_SIGNAL_MAX_MESSAGE_BYTES = 64 * 1024;
 const RTC_CLIENT_STALE_TIMEOUT_MS = (() => {
@@ -41869,6 +41911,10 @@ if (typeof rtcClientSweepInterval.unref === 'function') {
 }
 
 server.on('upgrade', (request, socket, head) => {
+  if (!isTrustedBrowserOrigin(request, CORS_ALLOWED_ORIGINS)) {
+    rejectUpgrade(socket, 403, 'Untrusted origin');
+    return;
+  }
   const pathname = getUpgradePathname(request?.url);
   const openingSession = getAuthSession(getAuthTokenFromRequest(request));
   if (openingSession?.emailEnrollmentRequired && accountSecurity.enrollmentRequired(openingSession.user)) {
@@ -42125,7 +42171,7 @@ const runStartupStudentXpRebalance = () => {
 
 runStartupStudentXpRebalance();
 
-server.listen(PORT, () => {
+server.listen(PORT, process.env.PLATFORM_BIND_HOST || '127.0.0.1', () => {
   console.log(`Server running on http://localhost:${PORT}`);
   resolvePythonRunner()
     .then((runner) => {

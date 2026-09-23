@@ -313,7 +313,9 @@ test('learning groups keep shared work isolated while legacy student schedules r
     const studentBIndividualBefore = await jsonRequest(baseUrl, '/api/student-schedule', {
       token: studentB.token,
     });
-    assert.deepEqual(studentAIndividualBefore.map((entry) => entry.id), ['legacy-existing-a']);
+    // Past fixtures can also produce payment reminders as the current date
+    // advances. Only actual lessons participate in this isolation assertion.
+    assert.deepEqual(studentAIndividualBefore.filter((entry) => !entry.isSystemScheduleOccurrence).map((entry) => entry.id), ['legacy-existing-a']);
     assert.deepEqual(studentBIndividualBefore, []);
 
     const futureLessonStartAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
@@ -937,7 +939,7 @@ test('learning groups keep shared work isolated while legacy student schedules r
       body: {
         studentId: 'student-a',
         homeWork: 'Personal extra task',
-        dueAt: '2026-09-11T18:00:00.000Z',
+        dueAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         dueAtMode: 'manual',
         daysToComplete: 7,
         goals: [],
@@ -1406,7 +1408,7 @@ test('learning groups keep shared work isolated while legacy student schedules r
     const studentBIndividualAfter = await jsonRequest(baseUrl, '/api/student-schedule', {
       token: studentB.token,
     });
-    assert.deepEqual(studentBIndividualAfter.map((entry) => entry.id), [legacyCreated.id]);
+    assert.deepEqual(studentBIndividualAfter.filter((entry) => !entry.isSystemScheduleOccurrence).map((entry) => entry.id), [legacyCreated.id]);
 
     const groupAfterLegacySchedule = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}`, {
       token: teacher.token,
