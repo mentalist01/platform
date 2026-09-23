@@ -21848,12 +21848,14 @@ const maskManagedSessionIpAddress = (value) => {
   return 'Адрес скрыт';
 };
 
-const serializeManagedAuthSession = (session, currentToken = '') => ({
+const serializeManagedAuthSession = (session, currentToken = '', studentTeachers = null) => ({
   id: String(session?.id || '').trim() || getAuthSessionId(session?.token),
   user: {
     id: String(session?.user?.id || '').trim(),
     name: String(session?.user?.name || '').trim() || 'Пользователь',
     role: String(session?.user?.role || '').trim(),
+    ...(studentTeachers && session?.user?.role === 'student'
+      ? { teacher: studentTeachers.get(String(session.user.id)) || null } : {}),
   },
   current: Boolean(currentToken && session?.token === currentToken),
   createdAt: new Date(Number(session?.createdAtMs) || 0).toISOString(),
@@ -21870,21 +21872,35 @@ const serializeManagedAuthSession = (session, currentToken = '') => ({
   ipAddress: maskManagedSessionIpAddress(session?.ipAddress),
 });
 
+const getManagedSessionScope = (req) => {
+  const scope = String(req.query?.scope || '').trim().toLowerCase();
+  return isAdminRole(req.auth) && ['all', 'teachers', 'students'].includes(scope) ? scope : 'self';
+};
+
 const getVisibleManagedAuthSessions = (req) => {
   purgeExpiredAuthSessions();
-  const wantsAll = String(req.query?.scope || '').trim().toLowerCase() === 'all';
-  const canSeeAll = isAdminRole(req.auth) && wantsAll;
+  const scope = getManagedSessionScope(req);
+  const canSeeAll = scope !== 'self';
+  const role = scope === 'teachers' ? 'teacher' : scope === 'students' ? 'student' : '';
+  // Resolve the current assignment from the database: old session snapshots
+  // can still refer to a previous teacher after a student is transferred.
+  const teachers = canSeeAll ? new Map(readTeachersDb().filter((entry) => !entry.deletedAt)
+    .map((entry) => [String(entry.id), { id: String(entry.id), name: String(entry.name || '').trim() || 'Учитель' }])) : null;
+  const studentTeachers = teachers ? new Map(readStudentsDb().filter((entry) => !entry.deletedAt)
+    .map((entry) => [String(entry.id), teachers.get(String(entry.teacherId)) || null])) : null;
   const query = String(req.query?.q || '').trim().toLocaleLowerCase('ru-RU').slice(0, 160);
   return Array.from(authSessions.values())
     .filter((session) => canSeeAll || (
       session?.user?.id === req.auth.id && session?.user?.role === req.auth.role
     ))
+    .filter((session) => !role || session?.user?.role === role)
+    .sort((left, right) => (Number(right?.lastSeenAtMs) || 0) - (Number(left?.lastSeenAtMs) || 0))
+    .map((session) => serializeManagedAuthSession(session, req.authToken, studentTeachers))
     .filter((session) => {
       if (!query) return true;
-      return [session?.user?.name, session?.user?.id, session?.user?.role, session?.device?.label, maskManagedSessionIpAddress(session?.ipAddress)]
+      return [session.user.name, session.user.id, session.user.role, session.user.teacher?.name, session.device.label, session.ipAddress]
         .some((value) => String(value || '').toLocaleLowerCase('ru-RU').includes(query));
-    })
-    .sort((left, right) => (Number(right?.lastSeenAtMs) || 0) - (Number(left?.lastSeenAtMs) || 0));
+    });
 };
 
 accountSecurity = createAccountSecurity({
@@ -21905,10 +21921,9 @@ registerAccountSecurityRoutes(app, accountSecurity, { secureCookies: AUTH_COOKIE
 
 app.get('/api/auth/sessions', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const sessions = getVisibleManagedAuthSessions(req)
-    .map((session) => serializeManagedAuthSession(session, req.authToken));
+  const sessions = getVisibleManagedAuthSessions(req);
   return res.json({
-    scope: isAdminRole(req.auth) && String(req.query?.scope || '').trim().toLowerCase() === 'all' ? 'all' : 'self',
+    scope: getManagedSessionScope(req),
     sessions,
   });
 });

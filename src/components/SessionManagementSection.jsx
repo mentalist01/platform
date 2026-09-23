@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Clock3,
   Laptop,
@@ -21,6 +21,12 @@ const ROLE_LABELS = {
   parent: 'Родитель',
   lead: 'Гость',
 };
+const SESSION_SCOPES = [
+  ['all', 'Все аккаунты'],
+  ['teachers', 'Учителя'],
+  ['students', 'Ученики'],
+  ['self', 'Мои устройства'],
+];
 
 const formatDateTime = (value) => {
   const date = new Date(value);
@@ -50,25 +56,35 @@ const getDeviceIcon = (type) => {
 
 const SessionManagementSection = ({ user }) => {
   const isAdmin = user?.role === 'admin';
-  const [scope, setScope] = useState('self');
+  const [scope, setScope] = useState(isAdmin ? 'all' : 'self');
   const [query, setQuery] = useState('');
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState('');
   const [notice, setNotice] = useState('');
+  const requestId = useRef(0);
+  const selectScope = (nextScope) => {
+    if (scope === nextScope) return;
+    requestId.current++;
+    setScope(nextScope); setSessions([]); setLoading(true); setNotice('');
+    if (nextScope === 'self') setQuery('');
+  };
 
   const load = useCallback(async ({ silent = false } = {}) => {
+    const id = ++requestId.current;
     if (!silent) setLoading(true);
     try {
       const payload = await api.getAuthSessions({ scope, query: query.trim() });
+      if (id !== requestId.current) return;
       setSessions(Array.isArray(payload?.sessions) ? payload.sessions : []);
       setError('');
     } catch (loadError) {
+      if (id !== requestId.current) return;
       setSessions([]);
       setError(loadError?.message || 'Не удалось загрузить активные сессии');
     } finally {
-      if (!silent) setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
   }, [query, scope]);
 
@@ -76,6 +92,7 @@ const SessionManagementSection = ({ user }) => {
     const debounce = window.setTimeout(() => void load(), query.trim() ? 250 : 0);
     const refresh = window.setInterval(() => void load({ silent: true }), 30_000);
     return () => {
+      requestId.current++;
       window.clearTimeout(debounce);
       window.clearInterval(refresh);
     };
@@ -105,7 +122,7 @@ const SessionManagementSection = ({ user }) => {
     try {
       const result = await api.revokeOtherAuthSessions();
       setSessions((current) => current.filter((entry) => entry.current || (
-        scope === 'all' && (entry.user?.id !== user?.id || entry.user?.role !== user?.role)
+        entry.user?.id !== user?.id || entry.user?.role !== user?.role
       )));
       setNotice(`Завершено сессий: ${Number(result?.removed) || 0}.`);
     } catch (revokeError) {
@@ -145,7 +162,7 @@ const SessionManagementSection = ({ user }) => {
             </div>
             <div className="flex gap-2">
               <span className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-200">{onlineCount} активны сейчас</span>
-              <span className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-bold text-slate-200">{sessions.length} всего</span>
+              <span className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-bold text-slate-200">{sessions.length} сессий в разделе</span>
             </div>
           </div>
         </div>
@@ -153,15 +170,16 @@ const SessionManagementSection = ({ user }) => {
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             {isAdmin && (
-              <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
-                <button type="button" onClick={() => setScope('all')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${scope === 'all' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-600'}`}>Все аккаунты</button>
-                <button type="button" onClick={() => setScope('self')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${scope === 'self' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-600'}`}>Мои устройства</button>
+              <div className="inline-flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Разделы активных сессий">
+                {SESSION_SCOPES.map(([value, label]) => (
+                  <button key={value} type="button" aria-pressed={scope === value} onClick={() => selectScope(value)} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${scope === value ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}>{label}</button>
+                ))}
               </div>
             )}
-            {isAdmin && scope === 'all' && (
+            {isAdmin && scope !== 'self' && (
               <label className="relative min-w-[240px] flex-1">
                 <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Имя, роль, устройство, IP" className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-violet-400" />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Поиск сессий" placeholder="Имя, преподаватель, устройство, IP" className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-violet-400" />
               </label>
             )}
           </div>
@@ -189,11 +207,14 @@ const SessionManagementSection = ({ user }) => {
             <div className="space-y-5">
               {groups.map((group) => (
                 <section key={`${group.user?.role}:${group.user?.id}`}>
-                  {(isAdmin && scope === 'all') && (
+                  {(isAdmin && scope !== 'self') && (
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <span className="font-black text-slate-900">{group.user?.name || 'Пользователь'}</span>
                       <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-bold text-violet-700">{ROLE_LABELS[group.user?.role] || group.user?.role}</span>
                       <span className="text-xs text-slate-400">{group.sessions.length} устройств</span>
+                      {group.user?.role === 'student' && (
+                        <span className="w-full text-xs text-slate-500">{group.user.teacher ? <>Преподаватель: <span className="font-semibold text-slate-700">{group.user.teacher.name}</span></> : 'Преподаватель не назначен'}</span>
+                      )}
                     </div>
                   )}
                   <div className="grid gap-3 lg:grid-cols-2">

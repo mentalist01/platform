@@ -25,7 +25,7 @@ test('real routes require browser proof, isolate accounts and revoke live connec
     main: { id: 'teacher', role: 'teacher', name: 'Teacher' },
     other: { id: 'teacher', role: 'teacher', name: 'Teacher' },
     third: { id: 'teacher', role: 'teacher', name: 'Teacher' },
-    student: { id: 'student', role: 'student', name: 'Student', teacherId: 'teacher' },
+    student: { id: 'student', role: 'student', name: 'Student', teacherId: 'former-teacher' },
     admin: { id: 'admin1', role: 'admin', name: 'Admin' },
   };
   write('auth-sessions', Object.entries(identities).map(([token, user]) => ({ token: `fixture-${token}`, user,
@@ -107,8 +107,30 @@ test('real routes require browser proof, isolate accounts and revoke live connec
   assert.equal(list.scope, 'self'); assert.equal(list.sessions.length, 3);
   assert.equal(list.sessions.filter((s) => s.current).length, 1);
   assert.ok(list.sessions.every((s) => !s.token && s.ipAddress === '127.0.*.*'));
-  assert.equal((await request('/auth/sessions?scope=all', { actor: 'admin' })).sessions.length, 5);
+  const allAccounts = await request('/auth/sessions?scope=all', { actor: 'admin' });
+  assert.equal(allAccounts.sessions.length, 5);
+  assert.deepEqual(allAccounts.sessions.find((s) => s.user.role === 'student').user.teacher, { id: 'teacher', name: 'Teacher' });
+  const teacherSessions = await request('/auth/sessions?scope=teachers', { actor: 'admin' });
+  assert.equal(teacherSessions.scope, 'teachers'); assert.equal(teacherSessions.sessions.length, 3);
+  assert.ok(teacherSessions.sessions.every((s) => s.user.role === 'teacher'));
+  const pupilSessions = await request('/auth/sessions?scope=students', { actor: 'admin' });
+  assert.equal(pupilSessions.scope, 'students'); assert.equal(pupilSessions.sessions.length, 1);
+  assert.equal(pupilSessions.sessions[0].user.role, 'student');
+  assert.deepEqual(pupilSessions.sessions[0].user.teacher, { id: 'teacher', name: 'Teacher' }, 'Use the current teacher, not the stale login snapshot');
+  assert.equal((await request('/auth/sessions?scope=students&q=Teacher', { actor: 'admin' })).sessions.length, 1);
+  assert.equal((await request('/auth/sessions?scope=students&q=former-teacher', { actor: 'admin' })).sessions.length, 0);
+  assert.equal((await request('/auth/sessions?scope=teachers&q=Student', { actor: 'admin' })).sessions.length, 0);
+  assert.equal((await request('/auth/sessions?scope=self', { actor: 'admin' })).sessions.length, 1);
+  for (const scope of ['teachers', 'students']) {
+    const restricted = await request(`/auth/sessions?scope=${scope}`);
+    assert.equal(restricted.scope, 'self');
+    assert.ok(restricted.sessions.every((s) => s.user.id === 'teacher' && !('teacher' in s.user)));
+  }
   const studentList = await request('/auth/sessions', { actor: 'student' });
+  assert.ok(!('teacher' in studentList.sessions[0].user), 'Teacher metadata is provided only in administrator account lists');
+  const restrictedStudent = await request('/auth/sessions?scope=teachers', { actor: 'student' });
+  assert.equal(restrictedStudent.scope, 'self'); assert.equal(restrictedStudent.sessions.length, 1);
+  assert.equal(restrictedStudent.sessions[0].user.id, 'student');
   await request(`/auth/sessions/${studentList.sessions[0].id}`, { method: 'DELETE', expected: 403 });
   await request(`/auth/sessions/${list.sessions.find((s) => s.current).id}`, { method: 'DELETE', expected: 409 });
   const otherSession = list.sessions.find((s) => s.id === crypto.createHash('sha256').update('fixture-other').digest('hex').slice(0, 24));
