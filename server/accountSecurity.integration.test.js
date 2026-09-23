@@ -15,10 +15,12 @@ test('real routes require browser proof, isolate accounts and revoke live connec
   const data = path.join(root, 'data'); fs.mkdirSync(data);
   const write = (name, value) => fs.writeFileSync(path.join(data, `${name}.json`), JSON.stringify(value));
   const now = Date.now();
+  const clientIp = '203.0.113.7'; // Exercise the real nginx -> Express proxy boundary.
   const teacherCodeHash = 'scrypt$fixture-salt$' + crypto.scryptSync('123456', 'fixture-salt', 64).toString('base64');
+  const emailTeacherCodeHash = 'scrypt$fixture-salt$' + crypto.scryptSync('123458', 'fixture-salt', 64).toString('base64');
   const unboundHash = 'scrypt$fixture-salt$' + crypto.scryptSync('654321', 'fixture-salt', 64).toString('base64');
   write('teachers', [{ id: 'teacher', name: 'Teacher', codeHash: teacherCodeHash, createdAt: new Date(now).toISOString() },
-    { id: 'login-teacher', name: 'Email Teacher', codeHash: teacherCodeHash, createdAt: new Date(now).toISOString() },
+    { id: 'login-teacher', name: 'Email Teacher', codeHash: emailTeacherCodeHash, createdAt: new Date(now).toISOString() },
     { id: 'unbound-teacher', name: 'Unbound Teacher', codeHash: unboundHash, createdAt: new Date(now).toISOString() }]);
   write('students', [{ id: 'student', name: 'Student', teacherId: 'teacher', code: '123457' }]);
   const identities = {
@@ -40,7 +42,7 @@ test('real routes require browser proof, isolate accounts and revoke live connec
     verifyCredential: async () => true,
     mailerFactory: () => ({ verify: async () => {}, sendMail: async (message) => { delivered.push(message); return { accepted: [message.to] }; } }),
   });
-  const req = (name, body) => ({ auth: identities[name], authToken: `fixture-${name}`, headers: {}, ip: '127.0.0.1', body });
+  const req = (name, body) => ({ auth: identities[name], authToken: `fixture-${name}`, headers: {}, ip: clientIp, body });
   await seeder.configureMail(req('admin', { provider: 'yandex', email: 'fixture@example.com', password: 'fixture-app-password', accessCode: 'fixture' }));
   const challenges = {};
   for (const name of ['main', 'student', 'admin']) {
@@ -48,12 +50,12 @@ test('real routes require browser proof, isolate accounts and revoke live connec
     challenges[name] = { challengeId: challenge.challengeId, code: delivered.at(-1).text.match(/Ваш код: (\d{6})/)[1] };
   }
   const loginAuth = { id: 'login-teacher', role: 'teacher' };
-  const loginBind = { auth: loginAuth, authToken: 'login-binding-fixture', headers: {}, ip: '127.0.0.1',
+  const loginBind = { auth: loginAuth, authToken: 'login-binding-fixture', headers: {}, ip: clientIp,
     body: { purpose: 'bind', email: 'login@example.com', accessCode: 'fixture' } };
   const bind = await seeder.requestCode(loginBind);
   seeder.verify({ ...loginBind, body: { challengeId: bind.challengeId, code: delivered.at(-1).text.match(/Ваш код: (\d{6})/)[1] } });
-  const pendingLogin = await seeder.beginLogin({ headers: {}, ip: '127.0.0.1' }, loginAuth,
-    crypto.createHash('sha256').update(teacherCodeHash).digest('hex'));
+  const pendingLogin = await seeder.beginLogin({ headers: {}, ip: clientIp }, loginAuth,
+    crypto.createHash('sha256').update(emailTeacherCodeHash).digest('hex'));
   const loginCode = delivered.at(-1).text.match(/Ваш код: (\d{6})/)[1];
   const reserve = net.createServer(); reserve.listen(0, '127.0.0.1'); await once(reserve, 'listening');
   const port = reserve.address().port; await new Promise((resolve) => reserve.close(resolve));
@@ -81,6 +83,7 @@ test('real routes require browser proof, isolate accounts and revoke live connec
   const request = async (route, { actor = 'main', token, method = 'GET', body, expected = 200, cookie, header = true } = {}) => {
     const response = await fetch(`${base}/api${route}`, { method,
       headers: { Authorization: `Bearer ${token || `fixture-${actor}`}`, 'Content-Type': 'application/json',
+        'X-Forwarded-For': clientIp,
         ...(header ? { 'X-Security-Action': '1' } : {}), Cookie: cookie ?? cookies[actor] ?? '' },
       ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000) });
     const result = await response.json(); assert.equal(response.status, expected, `${route}: ${JSON.stringify(result)}`);
@@ -104,9 +107,10 @@ test('real routes require browser proof, isolate accounts and revoke live connec
   await request('/auth/sessions', { header: false, expected: 403 });
   await request('/auth/sessions', { actor: 'other', cookie: cookies.main, expected: 403 });
   const list = await request('/auth/sessions?scope=all');
+  assert.ok(list.sessions.every((s) => s.expiresAt === null), 'Active legacy sessions migrate without an expiry date');
   assert.equal(list.scope, 'self'); assert.equal(list.sessions.length, 3);
   assert.equal(list.sessions.filter((s) => s.current).length, 1);
-  assert.ok(list.sessions.every((s) => !s.token && s.ipAddress === '127.0.*.*'));
+  assert.ok(list.sessions.every((s) => !s.token && ['127.0.*.*', '203.0.*.*'].includes(s.ipAddress)));
   const allAccounts = await request('/auth/sessions?scope=all', { actor: 'admin' });
   assert.equal(allAccounts.sessions.length, 5);
   assert.deepEqual(allAccounts.sessions.find((s) => s.user.role === 'student').user.teacher, { id: 'teacher', name: 'Teacher' });
@@ -183,6 +187,16 @@ test('real routes require browser proof, isolate accounts and revoke live connec
   await request('/logout', { token: emailLogin.token, method: 'POST', cookie: '' });
   await request('/auth/sessions', { token: emailLogin.token, cookie: cookies.anonymous, expected: 401 });
 
+  let emailRepeat = emailLogin;
+  for (let i = 0; i < 3; i++) {
+    emailRepeat = await request('/login', { actor: 'anonymous', cookie: cookies.anonymous, method: 'POST', body: { code: '123458' } });
+    assert.equal(emailRepeat.id, 'login-teacher'); assert.ok(emailRepeat.token);
+    assert.equal((await request('/auth/security', { token: emailRepeat.token, cookie: cookies.anonymous })).trustedHere, true);
+    await request('/logout', { token: emailRepeat.token, method: 'POST', cookie: cookies.anonymous });
+    await request('/session', { token: emailRepeat.token, expected: 401 });
+    if (i === 0) { await stop(); await start(); }
+  }
+
   // Real logout routes must retain the browser/IP confirmation for the next
   // login, while invalidating every old session and its management authority.
   let repeatLogin = trustedLogin;
@@ -202,4 +216,18 @@ test('real routes require browser proof, isolate accounts and revoke live connec
   await request('/session', { token: repeatLogin.token, expected: 401 });
   assert.equal((await request('/auth/security')).trustedHere, false);
   await request('/login', { cookie: cookies.main, method: 'POST', body: { code: '123456' }, header: false, expected: 403 });
+
+  await stop();
+  const persisted = JSON.parse(fs.readFileSync(path.join(data, 'auth-sessions.json'), 'utf8'));
+  assert.ok(persisted.every((s) => s.expiresAtMs === null));
+  const studentSession = persisted.find((s) => s.token === 'fixture-student');
+  studentSession.createdAtMs = studentSession.lastSeenAtMs = now - 5 * 365 * 86400000;
+  persisted.push({ ...studentSession, token: 'expired-legacy-fixture', expiresAtMs: now - 1 });
+  write('auth-sessions', persisted);
+  await start();
+  const restored = await fetch(base + '/api/session', { headers: { Authorization: 'Bearer fixture-student' } });
+  assert.equal(restored.status, 200, 'An inactive persistent session survives a restart after years');
+  assert.match(restored.headers.get('set-cookie'), /Max-Age=34560000/);
+  await request('/session', { token: 'expired-legacy-fixture', expected: 401 });
+  await request('/session', { token: repeatLogin.token, expected: 401 });
 });

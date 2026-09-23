@@ -177,6 +177,7 @@ const apiFetch = async (input, init = {}) => {
     : '';
   delete requestInit.requestTimeoutMs;
   delete requestInit.timeoutErrorMessage;
+  const authTokenAtRequest = getStoredAuthToken();
   const authenticatedRequestInit = buildAuthenticatedRequestInit(requestInit);
   if (method === 'GET' && !Object.prototype.hasOwnProperty.call(requestInit, 'cache')) {
     authenticatedRequestInit.cache = 'no-store';
@@ -205,7 +206,9 @@ const apiFetch = async (input, init = {}) => {
   }
   try {
     const res = await fetch(requestUrl, authenticatedRequestInit);
-    if (res.status === 401) {
+    // An older tab/request can finish after the user has signed in again.
+    // Its rejected session must not clear the new account's local session.
+    if (res.status === 401 && getStoredAuthToken() === authTokenAtRequest) {
       invalidateAuthSensitiveCaches();
       clearStoredSession();
       try {

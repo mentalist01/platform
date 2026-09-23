@@ -157,7 +157,7 @@ const SessionManagementSection = ({ user }) => {
               <div>
                 <div className="text-xs font-black uppercase tracking-[0.18em] text-violet-200">Безопасность аккаунта</div>
                 <h1 className="mt-1 text-2xl font-black sm:text-3xl">Активные сессии</h1>
-                <p className="mt-1 max-w-2xl text-sm text-slate-300">Устройства, на которых сейчас выполнен вход. Незнакомую сессию можно завершить одним нажатием.</p>
+                <p className="mt-1 max-w-2xl text-sm text-slate-300">Вход сохраняется до выхода из аккаунта или завершения сессии вручную. Незнакомое устройство можно отключить одним нажатием.</p>
               </div>
             </div>
             <div className="flex gap-2">

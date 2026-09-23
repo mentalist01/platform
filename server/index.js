@@ -16,6 +16,7 @@ import { pythonSandboxLaunch } from './pythonSandbox.js';
 import { browserRequestGuard, isTrustedBrowserOrigin, secureUploadedResponse } from './httpSecurity.js';
 import { fetchPublicCalendar } from './publicCalendarFetch.js';
 import { browserPushTransport, isBrowserPushEndpoint } from './pushSecurity.js';
+import { AUTH_COOKIE_MAX_AGE_SECONDS, isAuthSessionExpired, normalizeAuthSessionExpiry } from './authSessionLifetime.js';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { Worker } from 'worker_threads';
@@ -694,20 +695,8 @@ const JSON_BODY_LIMIT = '20mb';
 const LOGIN_LIMIT = 8;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_BLOCK_MS = 10 * 60 * 1000;
-const AUTH_SESSION_TTL_MS = (() => {
-  const daysRaw = Number(process.env.AUTH_SESSION_TTL_DAYS);
-  if (Number.isFinite(daysRaw) && daysRaw > 0) return Math.round(daysRaw * 24 * 60 * 60 * 1000);
-  const hoursRaw = Number(process.env.AUTH_SESSION_TTL_HOURS);
-  if (Number.isFinite(hoursRaw) && hoursRaw > 0) return Math.round(hoursRaw * 60 * 60 * 1000);
-  return 30 * 24 * 60 * 60 * 1000;
-})();
 const AUTH_SESSION_SWEEP_MS = 10 * 60 * 1000;
 const AUTH_SESSION_PERSIST_DEBOUNCE_MS = 5000;
-const AUTH_SESSION_PERSIST_MIN_EXTENSION_MS = (() => {
-  const raw = Number(process.env.AUTH_SESSION_PERSIST_MIN_EXTENSION_MS);
-  if (Number.isFinite(raw) && raw >= 60 * 1000) return Math.floor(raw);
-  return 15 * 60 * 1000;
-})();
 const ADMIN_CODE = process.env.ADMIN_CODE || 'admin-7264';
 const ADMIN_NAME = process.env.ADMIN_NAME || 'Администратор';
 const TEACHER_CODE = process.env.TEACHER_CODE || 'admin100';
@@ -7517,7 +7506,6 @@ const persistAuthSessions = () => {
     const payload = Array.from(authSessions.values()).map((session) => serializeAuthSessionForStorage(session));
     writeAuthSessionsDb(payload);
     authSessions.forEach((session) => {
-      session.persistedExpiresAtMs = session.expiresAtMs;
       session.persistedLastSeenAtMs = session.lastSeenAtMs;
     });
   } catch (error) {
@@ -7622,8 +7610,8 @@ const normalizeStoredAuthSession = (entry) => {
   const token = typeof entry.token === 'string' ? entry.token.trim() : '';
   const user = buildSessionUser(entry.user);
   const createdAtMs = Number(entry.createdAtMs);
-  const expiresAtMs = Number(entry.expiresAtMs);
-  if (!token || !user || !Number.isFinite(expiresAtMs)) return null;
+  const expiresAtMs = normalizeAuthSessionExpiry(entry);
+  if (!token || !user || expiresAtMs === undefined) return null;
   return {
     id: String(entry.id || '').trim() || getAuthSessionId(token),
     emailEnrollmentRequired: entry.emailEnrollmentRequired === true,
@@ -7633,8 +7621,7 @@ const normalizeStoredAuthSession = (entry) => {
     lastSeenAtMs: Number.isFinite(Number(entry.lastSeenAtMs))
       ? Math.floor(Number(entry.lastSeenAtMs))
       : (Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : Date.now()),
-    expiresAtMs: Math.floor(expiresAtMs),
-    persistedExpiresAtMs: Math.floor(expiresAtMs),
+    expiresAtMs,
     persistedLastSeenAtMs: Number.isFinite(Number(entry.lastSeenAtMs))
       ? Math.floor(Number(entry.lastSeenAtMs))
       : (Number.isFinite(createdAtMs) ? Math.floor(createdAtMs) : Date.now()),
@@ -7659,7 +7646,7 @@ const getAuthSessionFromStorage = (token) => {
   for (const entry of entries) {
     const normalized = normalizeStoredAuthSession(entry);
     if (!normalized) continue;
-    if (normalized.expiresAtMs <= now) continue;
+    if (isAuthSessionExpired(normalized, now)) continue;
     if (normalized.token !== normalizedToken) continue;
     authSessions.set(normalizedToken, normalized);
     return normalized;
@@ -7681,7 +7668,7 @@ const deleteAuthSessionFromStorage = (token) => {
       changed = true;
       return;
     }
-    if (normalized.expiresAtMs <= now) {
+    if (isAuthSessionExpired(normalized, now)) {
       changed = true;
       return;
     }
@@ -7763,17 +7750,18 @@ const resolveSessionUser = (sessionUser) => {
 
 const hydrateAuthSessions = () => {
   const now = Date.now();
-  let hadExpired = false;
+  let needsPersist = false;
   readAuthSessionsDb().forEach((entry) => {
     const normalized = normalizeStoredAuthSession(entry);
-    if (!normalized) return;
-    if (normalized.expiresAtMs <= now) {
-      hadExpired = true;
+    if (!normalized) { needsPersist = true; return; }
+    if (isAuthSessionExpired(normalized, now)) {
+      needsPersist = true;
       return;
     }
     authSessions.set(normalized.token, normalized);
+    if (entry.expiresAtMs !== normalized.expiresAtMs) needsPersist = true;
   });
-  if (hadExpired) persistAuthSessions();
+  if (needsPersist) persistAuthSessions();
 };
 
 const deleteAuthSession = (token, securityOptions) => {
@@ -7795,7 +7783,7 @@ const purgeExpiredAuthSessions = () => {
   const now = Date.now();
   let changed = false;
   for (const [token, session] of authSessions.entries()) {
-    if (!session || !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= now) {
+    if (isAuthSessionExpired(session, now)) {
       authSessions.delete(token);
       closeAuthConnections(token, { forgetBrowser: false });
       changed = true;
@@ -7811,7 +7799,7 @@ if (typeof authSessionSweepTimer.unref === 'function') {
 
 const authConnectionSweepTimer = setInterval(() => {
   for (const token of authConnections.keys()) {
-    if ((authSessions.get(token)?.expiresAtMs || 0) <= Date.now()) {
+    if (isAuthSessionExpired(authSessions.get(token))) {
       try { deleteAuthSession(token, { forgetBrowser: false }); }
       catch { closeAuthConnections(token, { forgetBrowser: false }); console.error('[auth] failed to persist expired session removal'); }
     }
@@ -7829,7 +7817,7 @@ const createAuthSession = (user, req = null) => {
     user: payload,
     createdAtMs: now,
     lastSeenAtMs: now,
-    expiresAtMs: now + AUTH_SESSION_TTL_MS,
+    expiresAtMs: null,
     device: parseAuthSessionDevice(req),
     ipAddress: getRequestIpAddress(req),
   };
@@ -7842,19 +7830,13 @@ const createAuthSession = (user, req = null) => {
 const touchAuthSession = (session, req = null) => {
   if (!session) return;
   const now = Date.now();
-  const nextExpiresAtMs = now + AUTH_SESSION_TTL_MS;
-  session.expiresAtMs = nextExpiresAtMs;
   session.lastSeenAtMs = now;
   if (req) {
     session.device = parseAuthSessionDevice(req);
     session.ipAddress = getRequestIpAddress(req);
   }
-  const persistedExpiresAtMs = Number(session.persistedExpiresAtMs) || 0;
   const persistedLastSeenAtMs = Number(session.persistedLastSeenAtMs) || 0;
-  if (
-    nextExpiresAtMs - persistedExpiresAtMs >= AUTH_SESSION_PERSIST_MIN_EXTENSION_MS
-    || now - persistedLastSeenAtMs >= 60 * 1000
-  ) {
+  if (now - persistedLastSeenAtMs >= 60 * 1000) {
     schedulePersistAuthSessions();
   }
 };
@@ -7865,7 +7847,7 @@ const getAuthSession = (token, req = null) => {
   if (!normalizedToken) return null;
   const session = authSessions.get(normalizedToken) || getAuthSessionFromStorage(normalizedToken);
   if (!session) return null;
-  if (!Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= Date.now()) {
+  if (isAuthSessionExpired(session)) {
     deleteAuthSession(normalizedToken, { forgetBrowser: false });
     return null;
   }
@@ -7919,8 +7901,8 @@ const appendSetCookie = (res, cookieValue) => {
 };
 
 const setAuthSessionCookie = (res, session) => {
-  if (!session?.token || !Number.isFinite(session.expiresAtMs)) return;
-  const maxAgeSec = Math.max(0, Math.floor((session.expiresAtMs - Date.now()) / 1000));
+  if (!session?.token || isAuthSessionExpired(session)) return;
+  const maxAgeSec = AUTH_COOKIE_MAX_AGE_SECONDS;
   const cookieParts = [
     `${AUTH_COOKIE_NAME}=${encodeURIComponent(session.token)}`,
     'Path=/',
@@ -21884,7 +21866,7 @@ const serializeManagedAuthSession = (session, currentToken = '', studentTeachers
   current: Boolean(currentToken && session?.token === currentToken),
   createdAt: new Date(Number(session?.createdAtMs) || 0).toISOString(),
   lastSeenAt: new Date(Number(session?.lastSeenAtMs || session?.createdAtMs) || 0).toISOString(),
-  expiresAt: new Date(Number(session?.expiresAtMs) || 0).toISOString(),
+  expiresAt: session.expiresAtMs === null ? null : new Date(session.expiresAtMs).toISOString(),
   device: session?.device && typeof session.device === 'object'
     ? {
         type: String(session.device.type || 'desktop').trim(),

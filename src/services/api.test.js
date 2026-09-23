@@ -5,6 +5,7 @@ import {
   api,
   invalidateStudentNextLessonCache,
   invalidateTestsCache,
+  setUnauthorizedHandler,
 } from './api.js';
 
 const USER_SESSION_KEY = 'ege_user_session';
@@ -27,13 +28,35 @@ const installStorage = (authToken) => {
   return values;
 };
 
-test('replay final-save errors preserve HTTP status for recovery decisions', async () => {
+test('replay final-save errors preserve HTTP status for recovery decisions', async (t) => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+  t.after(() => { globalThis.window = previousWindow; });
   installStorage('replay-token');
   for (const status of [410, 413, 425]) {
     globalThis.fetch = async () => jsonResponse({ error: 'Запись не сохранена' }, status);
     await assert.rejects(api.finishLessonReplaySession('session', { events: [{ id: 'pending' }] }),
       (error) => error.status === status && error.message === 'Запись не сохранена');
   }
+});
+
+test('a delayed 401 from an old session cannot log out a newer login', async (t) => {
+  const storage = installStorage('previous-token');
+  let rejectOldRequest; let unauthorized = 0;
+  setUnauthorizedHandler(() => { unauthorized++; });
+  t.after(() => setUnauthorizedHandler(null));
+  globalThis.fetch = () => new Promise((resolve) => { rejectOldRequest = resolve; });
+  const request = api.getCurrentSession();
+  storage.set(USER_SESSION_KEY, JSON.stringify({ authToken: 'new-login-token' }));
+  rejectOldRequest(jsonResponse({ error: 'Old session revoked' }, 401));
+  await assert.rejects(request, /Old session revoked/);
+  assert.equal(JSON.parse(storage.get(USER_SESSION_KEY)).authToken, 'new-login-token');
+  assert.equal(unauthorized, 0);
+
+  globalThis.fetch = async () => jsonResponse({ error: 'Current session revoked' }, 401);
+  await assert.rejects(api.getCurrentSession(), /Current session revoked/);
+  assert.equal(storage.has(USER_SESSION_KEY), false);
+  assert.equal(unauthorized, 1);
 });
 
 test('tests cache deduplicates requests while returning independent object graphs', async () => {

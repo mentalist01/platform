@@ -78,7 +78,7 @@ export function createAccountSecurity({ directory, verifyCredential, now = Date.
     const entry = state.trusted[trustId(req, auth)];
     return Boolean(entry && entry.expiresAt > now() && entry.revision === state.accounts[accountKey(auth)]?.revision);
   };
-  const remember = (req, auth) => {
+  const remember = (req, auth, sessionToken = req.authToken) => {
     if (auth.role !== 'teacher' || !state.accounts[accountKey(auth)]) return '';
     const secret = cookieValue(req, TRUST_COOKIE) || crypto.randomBytes(32).toString('hex');
     const account = accountKey(auth);
@@ -87,7 +87,7 @@ export function createAccountSecurity({ directory, verifyCredential, now = Date.
     for (const [id] of entries.slice(19)) delete state.trusted[id];
     state.trusted[trustId(req, auth, secret)] = { account, revision: state.accounts[account].revision,
       createdAt: now(), expiresAt: now() + TRUST_TTL,
-      sessions: [...new Set([...previousSessions, ...(req.authToken ? [sessionKey(req)] : [])])] };
+      sessions: [...new Set([...previousSessions, ...(sessionToken ? [hash(sessionToken)] : [])])] };
     save(); return secret;
   };
   const associateSession = (req, auth, token, secret) => {
@@ -235,7 +235,9 @@ export function createAccountSecurity({ directory, verifyCredential, now = Date.
       fail(409, 'Аккаунт изменился. Начните вход заново.');
     }
     delete state.loginChallenges[challenge.account]; save();
-    return { user: identity.user, trustSecret: remember({ ...req, authToken: '' }, identity.user) };
+    // Express req.ip is an inherited getter. Spreading req drops it and records
+    // the proxy's loopback address instead of the confirmed browser's address.
+    return { user: identity.user, trustSecret: remember(req, identity.user, '') };
   });
   const requestCode = async (req) => withLock(accountKey(req.auth), async () => {
     sweep();
