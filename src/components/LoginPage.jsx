@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, LoaderCircle, Mail, ShieldCheck } from 'lucide-react';
+import VerificationCodeInput from './VerificationCodeInput';
 import { LogoMark } from './Identity';
 import { Button } from './ui';
 import { api } from '../services/api';
@@ -217,7 +218,7 @@ const LoginPage = ({ onLogin }) => {
             <span className="md:hidden"><LogoMark /></span>
             <span className="hidden md:inline">Иван на сотку</span>
           </h1>
-          <p className="text-gray-500 mt-2">Выберите, как хотите зайти</p>
+          <p className="text-gray-500 mt-2">{emailChallenge ? 'Ещё один шаг для безопасного входа' : 'Выберите, как хотите зайти'}</p>
         </div>
 
         {mode === MODE_CHOICE && (
@@ -259,14 +260,14 @@ const LoginPage = ({ onLogin }) => {
           </div>
         )}
 
-        {emailChallenge && <form onSubmit={handleEmailSubmit} className="space-y-4">
-          <h2 className="text-lg font-bold text-gray-900">Подтвердите вход по почте</h2>
-          <p className="text-sm leading-relaxed text-gray-600">Этот браузер или сеть ещё не подтверждены. Код отправлен на привязанную почту; её адрес скрыт. Введите код в течение 10 минут. После подтверждения запомним этот браузер и сеть на 30 дней.</p>
-          <label className="block text-sm text-gray-700">Код из письма<input autoFocus required autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ''))} className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none focus:border-purple-500" /></label>
-          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-          <Button type="submit" className="w-full py-3" disabled={loading || emailCode.length !== 6}>{loading ? 'Проверяем…' : 'Подтвердить и войти'}</Button>
-          <p className="text-xs text-gray-500">Нет письма? Проверьте «Спам». Для нового кода начните вход заново через минуту.</p>
-          <button type="button" className="w-full text-sm text-purple-600" disabled={loading} onClick={handleBack}>Начать вход заново</button>
+        {emailChallenge && <form onSubmit={handleEmailSubmit} className="security-login-form">
+          <div className="security-form-heading"><span className="security-icon-small"><Mail size={23} /></span><div><h3>Проверьте вашу почту</h3><p>Мы отправили вам код для входа</p></div></div>
+          <p className="security-description">Этот браузер или сеть ещё не подтверждены. Введите код из письма на вашу личную почту. Он действует 10 минут.</p>
+          <VerificationCodeInput value={emailCode} onChange={setEmailCode} disabled={loading} invalid={Boolean(error)} />
+          {error && <p role="alert" className="security-alert">{error}</p>}
+          <button type="submit" className="security-primary" disabled={loading || emailCode.length !== 6}>{loading ? <><LoaderCircle size={18} className="security-spin" /> Проверяем…</> : <>Подтвердить и войти <ArrowRight size={18} /></>}</button>
+          <p className="security-footnote"><ShieldCheck size={14} /> Запомним этот браузер и сеть на 30 дней</p>
+          <div className="security-resend"><p>Нет письма? Проверьте «Спам». Через минуту можно начать вход заново и получить новый код.</p><button type="button" className="security-link" disabled={loading} onClick={handleBack}>Начать вход заново</button></div>
         </form>}
         {!emailChallenge && (mode === MODE_STUDENT || mode === MODE_PARENT) && (
           <form

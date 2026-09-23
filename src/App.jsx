@@ -27405,7 +27405,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 <button
                   type="button"
                   onClick={() => setSessionManagerOpen(false)}
-                  className="absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-xl border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
+                  className="absolute right-3 top-3 z-20 grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-violet-500"
                   aria-label="Закрыть"
                 >
                   <X size={20} />

@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { LockKeyhole, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, CircleAlert, KeyRound, LoaderCircle, LockKeyhole, Mail, Send, Settings2, ShieldCheck } from 'lucide-react';
 import { api } from '../services/api';
-
-const inputClass = 'mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-violet-500';
-const buttonClass = 'rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50';
+import VerificationCodeInput from './VerificationCodeInput';
+import './AccountSecurity.css';
 
 function MailSetup({ onDone, verified }) {
   const [provider, setProvider] = useState('yandex');
@@ -16,7 +15,7 @@ function MailSetup({ onDone, verified }) {
     ? 'https://support.google.com/mail/answer/185833?hl=ru'
     : provider === 'mailru' ? 'https://help.mail.ru/mail/security/protection/external/'
       : 'https://yandex.ru/support/id/ru/authorization/app-passwords';
-  return <form className="space-y-3 rounded-2xl border border-violet-200 bg-violet-50 p-4" onSubmit={async (event) => {
+  return <form className="security-mail-setup" onSubmit={async (event) => {
     event.preventDefault(); setBusy(true); setError('');
     try {
       await api.accountSecurity('mail', { provider, email, password, accessCode });
@@ -24,16 +23,23 @@ function MailSetup({ onDone, verified }) {
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); setPassword(''); setAccessCode(''); }
   }}>
-    <h2 className="font-bold text-slate-900">Отправка писем от платформы</h2>
-    <p className="text-sm text-slate-600">Однократная настройка для администратора. Ученики и преподаватели будут получать коды со своего аккаунта платформы через этот ящик. Адрес отправителя виден получателям писем — лучше использовать отдельную рабочую почту.</p>
-    <label className="block text-sm">Почтовый сервис<select className={inputClass} value={provider} onChange={(e) => setProvider(e.target.value)}><option value="yandex">Яндекс</option><option value="gmail">Gmail</option><option value="mailru">Mail.ru</option></select></label>
-    <label className="block text-sm">Ящик для отправки<input className={inputClass} type="email" required autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-    <label className="block text-sm">Пароль приложения почты<input className={inputClass} type="password" required autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-    <a href={instructions} target="_blank" rel="noopener noreferrer" className="block text-sm font-semibold text-violet-700 underline">Как создать пароль приложения</a>
-    <label className="block text-sm">Код входа администратора<input className={inputClass} type="password" required autoComplete="off" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} /></label>
-    {verified && <p className="text-xs text-slate-600">Изменение также требует действующего подтверждения по почте.</p>}
-    {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
-    <button className={buttonClass} disabled={busy}>{busy ? 'Проверяем соединение…' : 'Проверить и подключить'}</button>
+    <div className="security-form-heading"><span className="security-icon-small"><Send size={20} /></span><div><span className="security-eyebrow">Для администратора</span><h3>Почта платформы</h3></div></div>
+    <p className="security-description">С этого ящика платформа отправляет коды входа. Это отдельная настройка, она не меняет вашу личную почту.</p>
+    <div className="security-notice"><CircleAlert size={17} /><p>Адрес отправителя виден в письмах. Лучше использовать отдельный рабочий ящик.</p></div>
+    <fieldset className="security-providers" disabled={busy}><legend className="security-label">Почтовый сервис</legend>
+      {[['yandex', 'Яндекс'], ['gmail', 'Gmail'], ['mailru', 'Mail.ru']].map(([value, label]) => <label key={value} className={provider === value ? 'is-selected' : ''}>
+        <input type="radio" name="mail-provider" value={value} checked={provider === value} onChange={() => setProvider(value)} /><span>{label}</span>{provider === value && <Check size={15} />}
+      </label>)}
+    </fieldset>
+    <div className="security-fields-grid">
+      <label className="security-field">Ящик для отправки<input type="email" required autoComplete="off" placeholder="mail@example.ru" disabled={busy} value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+      <label className="security-field">Пароль приложения почты<input type="password" required autoComplete="off" disabled={busy} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+    </div>
+    <a href={instructions} target="_blank" rel="noopener noreferrer" className="security-link">Как создать пароль приложения <ArrowRight size={15} /></a>
+    <label className="security-field">Код входа администратора<input type="password" required autoComplete="off" disabled={busy} value={accessCode} onChange={(e) => setAccessCode(e.target.value)} /></label>
+    {verified && <p className="security-hint">Для изменения также нужно действующее подтверждение по почте.</p>}
+    {error && <div role="alert" className="security-alert"><CircleAlert size={18} /><span>{error}</span></div>}
+    <button className="security-primary" disabled={busy}>{busy ? <LoaderCircle size={18} className="security-spin" /> : <Send size={18} />}{busy ? 'Проверяем соединение…' : 'Проверить и подключить'}</button>
   </form>;
 }
 
@@ -69,42 +75,54 @@ export default function AccountSecurityGate({ user, children, onEmailLinked }) {
     setEmail(''); setAccessCode(''); setCode(''); setChallenge(result);
   });
   const cooldown = Math.max(0, Math.ceil(((challenge?.retryAt || 0) - clock) / 1000));
-  return <div className="space-y-4 text-slate-800">
-    <section className="space-y-4 rounded-2xl border border-violet-200 bg-white p-5">
-      <h2 className="flex items-center gap-2 text-xl font-black"><LockKeyhole size={22} className="text-violet-600" /> Безопасность аккаунта</h2>
-      <p className="text-sm text-slate-600">{status?.emailLinked ? 'Почта привязана.' : status ? 'Привяжите почту, чтобы управлять устройствами.' : 'Проверяем защиту аккаунта.'} Адрес не показывается в профиле, списках сессий или другим пользователям.</p>
-      {user.role === 'teacher' && <p className="text-sm text-slate-600">Вход с нового браузера или IP-адреса защищён кодом из письма после привязки почты. Подтверждённый браузер и сеть запоминаются на 30 дней. Смена VPN также может потребовать подтверждение при новом входе. После подтверждённого входа управление сессиями доступно без повторных кодов, пока вы в аккаунте.</p>}
-      {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
-      {!status ? <button className={buttonClass} disabled={busy} onClick={() => perform(load)}>Загрузить настройки</button> : <>
-        {!status.mailConfigured && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Сначала администратору нужно подключить отправку писем. До подтверждения почты управление сессиями закрыто. Обычная работа и кнопка «Выйти» доступны.</p>}
-        {user.role === 'admin' && (!status.mailConfigured || mailSetup) && <MailSetup verified={verified} onDone={async () => { setMailSetup(false); await load(); }} />}
-        {verified && !changing ? <>
-          <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><ShieldCheck size={18} /> Этот вход подтверждён. Управление сессиями доступно, пока вы в аккаунте.</p>
-          <div className="flex flex-wrap gap-3 text-sm">
-            <button className="font-semibold text-violet-700" onClick={() => { setChanging(true); setChallenge(null); }}>Сменить почту</button>
-            {user.role === 'admin' && status.mailConfigured && <button className="font-semibold text-slate-600" onClick={() => setMailSetup((value) => !value)}>Настроить отправку писем</button>}
-          </div>
-        </> : status.mailConfigured && <form className="max-w-md space-y-3" onSubmit={(event) => { event.preventDefault(); if (!challenge) void requestCode(); else void perform(async () => {
-          const result = await api.accountSecurity('verify', { challengeId: challenge.challengeId, code });
-          setCode(''); setChallenge(null); setChanging(false); setClock(Date.now()); setStatus(result);
-          if (result.emailLinked) onEmailLinked?.();
-        }); }}>
-          <h3 className="font-bold">{purpose === 'bind' ? 'Привязать личную почту' : purpose === 'change' ? 'Подтвердить новую почту' : 'Подтвердить, что это вы'}</h3>
-          {!challenge && <>
-            {purpose !== 'manage' && <label className="block text-sm">Почта для получения кодов<input className={inputClass} type="email" autoComplete="off" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
-            {purpose === 'bind' && <label className="block text-sm">Ваш код входа в платформу<input className={inputClass} type="password" autoComplete="off" required value={accessCode} onChange={(event) => setAccessCode(event.target.value)} /></label>}
-            <p className="text-sm text-slate-500">{purpose === 'manage' ? 'Почта уже привязана, но этот вход ещё не подтверждён. Подтвердите его один раз — управление сессиями останется доступным, пока вы в аккаунте.' : 'Привязка завершится только после ввода кода из письма.'}</p>
+  const unlocked = verified && !changing;
+  const showForm = status?.mailConfigured && !unlocked;
+  return <div className="account-security-root">
+    <section className={`security-card${unlocked ? ' security-card-verified' : ''}`} aria-label="Безопасность аккаунта">
+      {unlocked ? <div className="security-success">
+        <span className="security-success-icon"><ShieldCheck size={27} /></span>
+        <div className="security-success-copy"><span className="security-eyebrow">Безопасность аккаунта</span><h2>Этот вход подтверждён</h2><p>Управляйте сессиями без повторных кодов, пока вы в аккаунте. Ваша почта скрыта.</p></div>
+        <div className="security-success-actions"><span className="security-badge"><Check size={14} /> Под защитой</span><button className="security-link" onClick={() => { setChanging(true); setChallenge(null); setError(''); }}>Сменить почту <ArrowRight size={15} /></button>
+          {user.role === 'admin' && status.mailConfigured && <button className="security-link security-link-muted" onClick={() => setMailSetup((value) => !value)} aria-expanded={mailSetup}><Settings2 size={15} /> Почта платформы</button>}
+        </div>
+      </div> : <div className="security-layout">
+        <div className="security-intro">
+          <span className="security-eyebrow"><LockKeyhole size={15} /> Безопасность аккаунта</span>
+          <div className="security-art" aria-hidden="true"><div className="security-art-icon"><ShieldCheck size={42} strokeWidth={1.5} /></div><span className="security-art-check"><Check size={17} strokeWidth={3} /></span></div>
+          <h2>{purpose === 'change' ? 'Обновим вашу почту' : status?.emailLinked ? 'Защита в ваших руках' : 'Сохраните доступ к аккаунту'}</h2>
+          <p>{purpose === 'change' ? 'Укажите новый адрес и подтвердите его кодом из письма.' : status?.emailLinked ? 'Подтвердите этот вход один раз, чтобы управлять своими устройствами.' : 'Привяжите личную почту. Она поможет защитить ваш аккаунт и управлять устройствами.'}</p>
+          <div className="security-benefits"><div><LockKeyhole size={18} /><span><strong>Почта только для вас</strong><small>Адрес не виден в профиле и другим людям</small></span></div><div><ShieldCheck size={18} /><span><strong>{user.role === 'teacher' ? 'Защита новых входов' : 'Контроль устройств'}</strong><small>{user.role === 'teacher' ? 'Новый браузер или сеть — вход с кодом из письма' : 'Проверяйте и завершайте незнакомые сессии'}</small></span></div></div>
+        </div>
+        <div className="security-content">
+          {showForm && <>
+            {purpose !== 'manage' && <ol className="security-steps" aria-label="Шаги привязки почты"><li className={!challenge ? 'is-active' : 'is-done'} aria-current={!challenge ? 'step' : undefined}><span>{challenge ? <Check size={13} /> : '1'}</span> Почта</li><li className={challenge ? 'is-active' : ''} aria-current={challenge ? 'step' : undefined}><span>2</span> Подтверждение</li></ol>}
+            <form className="security-form" onSubmit={(event) => { event.preventDefault(); if (!challenge) void requestCode(); else void perform(async () => {
+              const result = await api.accountSecurity('verify', { challengeId: challenge.challengeId, code });
+              setCode(''); setChallenge(null); setChanging(false); setClock(Date.now()); setStatus(result);
+              if (result.emailLinked) onEmailLinked?.();
+            }); }}>
+              <div className="security-form-heading"><span className="security-icon-small">{challenge ? <Mail size={23} /> : <KeyRound size={22} />}</span><div><h3>{challenge ? 'Проверьте вашу почту' : purpose === 'bind' ? 'Ваша личная почта' : purpose === 'change' ? 'Новый адрес почты' : 'Подтвердите, что это вы'}</h3><p>{challenge ? 'Мы отправили вам код подтверждения' : purpose === 'manage' ? 'Почта привязана. Осталось подтвердить этот вход' : 'Укажите адрес, к которому у вас есть доступ'}</p></div></div>
+              {!challenge ? <>
+                {purpose !== 'manage' && <label className="security-field">Электронная почта<input type="email" autoComplete="off" placeholder="you@example.ru" required disabled={busy} value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
+                {purpose === 'bind' && <label className="security-field">Ваш код входа в платформу<input type="password" autoComplete="off" required disabled={busy} value={accessCode} onChange={(event) => setAccessCode(event.target.value)} /><span className="security-hint">Код, с которым вы входите на сайт. Пароль от почты здесь не нужен.</span></label>}
+                {purpose === 'manage' && <p className="security-description">Отправим одноразовый код на вашу личную почту. После подтверждения управление будет доступно до выхода из аккаунта.</p>}
+              </> : <>
+                <VerificationCodeInput value={code} onChange={setCode} disabled={busy} invalid={Boolean(error)} />
+                <p className="security-hint">Код действует 10 минут. Можно вставить все шесть цифр сразу.</p>
+              </>}
+              {error && <div role="alert" className="security-alert"><CircleAlert size={18} /><span>{error}</span></div>}
+              <button className="security-primary" disabled={busy || (Boolean(challenge) && code.length !== 6)}>{busy ? <><LoaderCircle size={18} className="security-spin" /> Проверяем…</> : <>{challenge ? purpose === 'manage' ? 'Подтвердить вход' : 'Подтвердить почту' : 'Получить код'}<ArrowRight size={18} /></>}</button>
+              {challenge ? <div className="security-resend"><p>Нет письма? Проверьте папку «Спам».</p><button type="button" className="security-link" disabled={busy || cooldown > 0} onClick={() => { setChallenge(null); setCode(''); setError(''); }}>{cooldown ? `Запросить снова через ${cooldown} с` : 'Запросить новый код'}</button></div> : <p className="security-footnote"><LockKeyhole size={13} /> {purpose === 'manage' ? 'Адрес скрыт в целях безопасности' : 'Привязка завершится после ввода кода из письма'}</p>}
+              {changing && <button type="button" disabled={busy} className="security-link security-link-muted" onClick={() => { setChanging(false); setChallenge(null); setEmail(''); setError(''); }}><ChevronLeft size={16} /> Отменить смену почты</button>}
+            </form>
           </>}
-          {challenge && <>
-            <p className="text-sm text-slate-600">Письмо отправлено. Введите код в этом браузере в течение 10 минут. При необходимости проверьте папку «Спам».</p>
-            <label className="block text-sm">Код из письма<input className={inputClass} autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))} /></label>
-          </>}
-          <button className={buttonClass} disabled={busy}>{busy ? 'Подождите…' : challenge ? 'Подтвердить' : 'Получить код'}</button>
-          {challenge && <button type="button" className="ml-3 text-sm text-violet-700 disabled:opacity-50" disabled={busy || cooldown > 0} onClick={() => { setChallenge(null); setCode(''); }}>{cooldown ? `Новый код через ${cooldown} с` : 'Запросить новый код'}</button>}
-          {changing && <button type="button" className="ml-3 text-sm text-slate-600" onClick={() => { setChanging(false); setChallenge(null); setEmail(''); }}>Отмена</button>}
-        </form>}
-      </>}
+          {!status && <div className="security-loading"><ShieldCheck size={32} /><h3>Проверяем защиту аккаунта</h3><p className="security-description">Загружаем настройки безопасности…</p>{error && <div role="alert" className="security-alert">{error}</div>}<button className="security-secondary" disabled={busy} onClick={() => perform(load)}>Повторить проверку</button></div>}
+          {status && !status.mailConfigured && <div className="security-loading"><Mail size={32} /><h3>Подключим отправку писем</h3><p className="security-description">{user.role === 'admin' ? 'Сначала настройте рабочий ящик платформы в форме ниже. После этого можно привязать личную почту.' : 'Администратору нужно настроить отправку писем. После этого вы сможете подтвердить почту и управлять устройствами.'}</p></div>}
+        </div>
+      </div>}
+      {unlocked && error && <div role="alert" className="security-alert">{error}</div>}
+      {user.role === 'admin' && status && (!status.mailConfigured || mailSetup) && <MailSetup verified={verified} onDone={async () => { setMailSetup(false); await load(); }} />}
     </section>
-    {verified && !changing && children}
+    {unlocked && children}
   </div>;
 }
