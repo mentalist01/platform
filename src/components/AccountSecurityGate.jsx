@@ -48,7 +48,7 @@ export default function AccountSecurityGate({ user, children, onEmailLinked }) {
   const [changing, setChanging] = useState(false);
   const [mailSetup, setMailSetup] = useState(false);
   const [clock, setClock] = useState(Date.now());
-  const verified = Boolean(status?.verifiedUntil > clock);
+  const verified = Boolean(status?.sessionVerified || status?.verifiedUntil > clock);
   const load = useCallback(async () => { const result = await api.accountSecurity(); setStatus(result); return result; }, []);
   useEffect(() => {
     let active = true;
@@ -72,16 +72,15 @@ export default function AccountSecurityGate({ user, children, onEmailLinked }) {
   return <div className="space-y-4 text-slate-800">
     <section className="space-y-4 rounded-2xl border border-violet-200 bg-white p-5">
       <h2 className="flex items-center gap-2 text-xl font-black"><LockKeyhole size={22} className="text-violet-600" /> Безопасность аккаунта</h2>
-      <p className="text-sm text-slate-600">Привяжите почту, чтобы управлять устройствами. Адрес не показывается в профиле, списках сессий или другим пользователям.</p>
-      {user.role === 'teacher' && <p className="text-sm text-slate-600">После привязки почты вход с нового браузера или IP-адреса потребует код из письма. Подтверждённый браузер и сеть запоминаются на 30 дней. Смена VPN также может потребовать подтверждение. Управление сессиями каждый раз открывается отдельно на 10 минут.</p>}
+      <p className="text-sm text-slate-600">{status?.emailLinked ? 'Почта привязана.' : status ? 'Привяжите почту, чтобы управлять устройствами.' : 'Проверяем защиту аккаунта.'} Адрес не показывается в профиле, списках сессий или другим пользователям.</p>
+      {user.role === 'teacher' && <p className="text-sm text-slate-600">Вход с нового браузера или IP-адреса защищён кодом из письма после привязки почты. Подтверждённый браузер и сеть запоминаются на 30 дней. Смена VPN также может потребовать подтверждение при новом входе. После подтверждённого входа управление сессиями доступно без повторных кодов, пока вы в аккаунте.</p>}
       {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
       {!status ? <button className={buttonClass} disabled={busy} onClick={() => perform(load)}>Загрузить настройки</button> : <>
         {!status.mailConfigured && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Сначала администратору нужно подключить отправку писем. До подтверждения почты управление сессиями закрыто. Обычная работа и кнопка «Выйти» доступны.</p>}
         {user.role === 'admin' && (!status.mailConfigured || mailSetup) && <MailSetup verified={verified} onDone={async () => { setMailSetup(false); await load(); }} />}
         {verified && !changing ? <>
-          <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><ShieldCheck size={18} /> Этот браузер подтверждён до {new Date(status.verifiedUntil).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}.</p>
+          <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><ShieldCheck size={18} /> Этот вход подтверждён. Управление сессиями доступно, пока вы в аккаунте.</p>
           <div className="flex flex-wrap gap-3 text-sm">
-            <button className={buttonClass} disabled={busy} onClick={() => perform(async () => { await api.accountSecurity('lock'); setStatus((value) => ({ ...value, verifiedUntil: 0 })); setChallenge(null); })}>Закрыть управление</button>
             <button className="font-semibold text-violet-700" onClick={() => { setChanging(true); setChallenge(null); }}>Сменить почту</button>
             {user.role === 'admin' && status.mailConfigured && <button className="font-semibold text-slate-600" onClick={() => setMailSetup((value) => !value)}>Настроить отправку писем</button>}
           </div>
@@ -94,7 +93,7 @@ export default function AccountSecurityGate({ user, children, onEmailLinked }) {
           {!challenge && <>
             {purpose !== 'manage' && <label className="block text-sm">Почта для получения кодов<input className={inputClass} type="email" autoComplete="off" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
             {purpose === 'bind' && <label className="block text-sm">Ваш код входа в платформу<input className={inputClass} type="password" autoComplete="off" required value={accessCode} onChange={(event) => setAccessCode(event.target.value)} /></label>}
-            <p className="text-sm text-slate-500">{purpose === 'manage' ? 'Отправим одноразовый код на привязанную почту. Адрес скрыт.' : 'Привязка завершится только после ввода кода из письма.'}</p>
+            <p className="text-sm text-slate-500">{purpose === 'manage' ? 'Почта уже привязана, но этот вход ещё не подтверждён. Подтвердите его один раз — управление сессиями останется доступным, пока вы в аккаунте.' : 'Привязка завершится только после ввода кода из письма.'}</p>
           </>}
           {challenge && <>
             <p className="text-sm text-slate-600">Письмо отправлено. Введите код в этом браузере в течение 10 минут. При необходимости проверьте папку «Спам».</p>

@@ -78,9 +78,9 @@ test('real routes require browser proof, isolate accounts and revoke live connec
     throw new Error(`Fixture startup timeout: ${logs}`);
   };
   const cookies = {};
-  const request = async (route, { actor = 'main', method = 'GET', body, expected = 200, cookie, header = true } = {}) => {
+  const request = async (route, { actor = 'main', token, method = 'GET', body, expected = 200, cookie, header = true } = {}) => {
     const response = await fetch(`${base}/api${route}`, { method,
-      headers: { Authorization: `Bearer fixture-${actor}`, 'Content-Type': 'application/json',
+      headers: { Authorization: `Bearer ${token || `fixture-${actor}`}`, 'Content-Type': 'application/json',
         ...(header ? { 'X-Security-Action': '1' } : {}), Cookie: cookie ?? cookies[actor] ?? '' },
       ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000) });
     const result = await response.json(); assert.equal(response.status, expected, `${route}: ${JSON.stringify(result)}`);
@@ -100,7 +100,7 @@ test('real routes require browser proof, isolate accounts and revoke live connec
     assert.ok(!JSON.stringify(result).includes('@'));
   }
   await request('/auth/security/verify', { method: 'POST', body: challenges.main, expected: 400 });
-  await request('/auth/sessions', { cookie: '', expected: 403 });
+  await request('/auth/sessions', { cookie: '' });
   await request('/auth/sessions', { header: false, expected: 403 });
   await request('/auth/sessions', { actor: 'other', cookie: cookies.main, expected: 403 });
   const list = await request('/auth/sessions?scope=all');
@@ -128,6 +128,7 @@ test('real routes require browser proof, isolate accounts and revoke live connec
   await request('/login', { actor: 'anonymous', method: 'POST', body: { code: '123456' }, header: false, expected: 403 });
   const trustedLogin = await request('/login', { method: 'POST', body: { code: '123456' } });
   assert.equal(trustedLogin.role, 'teacher'); assert.ok(trustedLogin.token);
+  await request('/auth/sessions', { token: trustedLogin.token, cookie: '' });
   const studentLogin = await request('/login', { actor: 'anonymous', method: 'POST', body: { code: '123457' } });
   assert.equal(studentLogin.role, 'student'); assert.ok(studentLogin.token);
   const unboundLogin = await request('/login', { actor: 'anonymous', method: 'POST', body: { code: '654321' } });
@@ -142,6 +143,9 @@ test('real routes require browser proof, isolate accounts and revoke live connec
     cookie: `ivan100_login=${pendingLogin.secret}` });
   assert.equal(emailLogin.id, 'login-teacher'); assert.ok(emailLogin.token);
   assert.ok(!JSON.stringify(emailLogin).includes('@'));
+  await request('/auth/sessions', { token: emailLogin.token, cookie: '' });
+  assert.equal((await request('/auth/security', { token: emailLogin.token, cookie: '' })).sessionVerified, true);
+  await request('/auth/sessions', { actor: 'anonymous', cookie: cookies.anonymous, expected: 401 });
   await request('/login/email/verify', { actor: 'anonymous', method: 'POST', body,
     cookie: `ivan100_login=${pendingLogin.secret}`, expected: 400 });
   const stored = fs.readFileSync(path.join(data, 'account-security', 'accounts.json'), 'utf8');
@@ -151,6 +155,9 @@ test('real routes require browser proof, isolate accounts and revoke live connec
   await request('/session', { actor: 'other', expected: 401 });
   await request('/session', { actor: 'third', expected: 401 });
   await request('/session');
-  await request('/auth/sessions', { expected: 403 });
-  const status = await request('/auth/security'); assert.equal(status.emailLinked, true); assert.equal(status.verifiedUntil, 0);
+  await request('/auth/sessions', { cookie: '' });
+  await request('/auth/sessions', { token: emailLogin.token, cookie: '' });
+  const status = await request('/auth/security'); assert.equal(status.emailLinked, true); assert.equal(status.verifiedUntil, 0); assert.equal(status.sessionVerified, true);
+  await request('/logout', { token: emailLogin.token, method: 'POST', cookie: '' });
+  await request('/auth/sessions', { token: emailLogin.token, cookie: cookies.anonymous, expected: 401 });
 });

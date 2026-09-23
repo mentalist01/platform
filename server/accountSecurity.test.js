@@ -53,16 +53,18 @@ test('initial binding requires fresh login credential and email proof; all store
   assert.ok(!JSON.stringify(f.security.status(verified)).includes('@'));
 });
 
-test('proof requires both browser cookie and original session; codes cannot be replayed or stolen by another session', async (t) => {
+test('email proof authorizes only the current session beyond ten minutes; codes cannot be replayed', async (t) => {
   const f = fixture(t); await f.configure();
   const challenge = await f.security.requestCode(f.req({ purpose: 'bind', email: 'private@example.com', accessCode: 'own-code' }));
   assert.throws(() => f.verify(challenge, 'browser-b'), /недействителен/);
   const verified = f.verify(challenge);
   assert.throws(() => f.verify(challenge), /недействителен/);
-  assert.throws(() => f.security.requireProof(f.req()), /Подтвердите/);
+  assert.doesNotThrow(() => f.security.requireProof(f.req()));
   assert.throws(() => f.security.requireProof({ ...verified, authToken: 'browser-b' }), /Подтвердите/);
+  assert.throws(() => f.security.requireProof({ ...verified, auth: { id: 'someone-else', role: 'teacher' } }), /Подтвердите/);
   f.tick(10 * 60_000);
-  assert.throws(() => f.security.requireProof(verified), /Подтвердите/);
+  assert.doesNotThrow(() => f.security.requireProof({ ...verified, headers: {} }));
+  assert.equal(f.security.status(verified).sessionVerified, true);
 });
 
 test('resends replace old codes; expired and brute-forced codes fail', async (t) => {
@@ -80,22 +82,25 @@ test('resends replace old codes; expired and brute-forced codes fail', async (t)
 
 test('email change requires current email verification plus new email proof and invalidates previous grants', async (t) => {
   const f = fixture(t); const verified = await f.bind(); f.tick();
-  await assert.rejects(f.security.requestCode(f.req({ purpose: 'change', email: 'new@example.com' })), /Подтвердите/);
+  f.security.associateSession(verified, verified.auth, 'second-verified-session');
+  const otherSession = { ...verified, authToken: 'second-verified-session', headers: {} };
+  assert.doesNotThrow(() => f.security.requireProof(otherSession));
+  await assert.rejects(f.security.requestCode(f.req({ purpose: 'change', email: 'new@example.com' }, 'unconfirmed-session')), /Подтвердите/);
   await assert.rejects(f.security.requestCode(f.req({ purpose: 'bind', email: 'new@example.com', accessCode: 'own-code' })), /уже привязана/);
   const challenge = await f.security.requestCode({ ...verified, body: { purpose: 'change', email: 'new@example.com' } });
   assert.equal(f.mail.at(-1).to, 'new@example.com');
   const result = f.security.verify({ ...verified, body: { challengeId: challenge.challengeId, code: f.lastCode() } });
-  assert.throws(() => f.security.requireProof(verified), /Подтвердите/);
+  assert.throws(() => f.security.requireProof(otherSession), /Подтвердите/);
   assert.doesNotThrow(() => f.security.requireProof({ ...verified, headers: { cookie: `ivan100_security=${result.secret}` } }));
   f.tick(); await f.security.requestCode(f.req({ purpose: 'manage', email: 'attacker@example.com' }));
   assert.equal(f.mail.at(-1).to, 'new@example.com');
 });
 
-test('restart preserves email and limits, but requires fresh verification; logout revokes browser proof', async (t) => {
+test('restart preserves email verification for the session and limits; logout revokes it', async (t) => {
   const f = fixture(t); const verified = await f.bind();
   const restarted = createAccountSecurity(f.options);
   assert.equal(restarted.status(f.req()).emailLinked, true);
-  assert.throws(() => restarted.requireProof(verified), /Подтвердите/);
+  assert.doesNotThrow(() => restarted.requireProof({ ...verified, headers: {} }));
   await assert.rejects(restarted.requestCode(f.req({ purpose: 'manage' })), /Слишком много/);
   f.security.revokeToken('browser-a');
   assert.throws(() => f.security.requireProof(verified), /Подтвердите/);
@@ -118,7 +123,8 @@ test('only administrator can configure SMTP, and linked administrator must also 
   const request = f.req({ purpose: 'bind', email: 'admin@example.com', accessCode: 'own-code' }, 'admin-session', 'admin');
   const challenge = await f.security.requestCode(request);
   f.security.verify({ ...request, body: { challengeId: challenge.challengeId, code: f.lastCode() } });
-  await assert.rejects(f.configure(), /Подтвердите/);
+  assert.doesNotThrow(() => f.security.requireProof(request));
+  await assert.rejects(f.security.configureMail(f.req({ provider: 'gmail', email: 'sender@example.com', password: 'app-secret', accessCode: 'own-code' }, 'different-admin-session', 'admin')), /Подтвердите/);
 });
 
 test('teacher trust requires both confirmed browser and exact IP; students keep ordinary login', async (t) => {
@@ -138,7 +144,7 @@ test('teacher trust requires both confirmed browser and exact IP; students keep 
   assert.equal(f.security.needsLoginCode(confirmed, confirmed.auth), true);
 });
 
-test('login OTP binds pending browser and IP, is single use, and never grants session management', async (t) => {
+test('login OTP binds browser and IP, is single use, and authorizes the newly created session', async (t) => {
   const f = fixture(t); await f.bind(); f.tick();
   const req = { headers: {}, ip: '192.0.2.2', body: {} };
   const challenge = await f.security.beginLogin(req, f.req().auth, 'credential-v1');
@@ -148,13 +154,39 @@ test('login OTP binds pending browser and IP, is single use, and never grants se
   await assert.rejects(f.security.verifyLogin({ ...verifyReq, headers: {} }, identity), /недействителен/);
   await assert.rejects(f.security.verifyLogin({ ...verifyReq, ip: '192.0.2.3' }, identity), /недействителен/);
   const result = await f.security.verifyLogin(verifyReq, identity);
-  const signedIn = { ...f.req(), ip: req.ip, headers: { cookie: `ivan100_trusted=${result.trustSecret}` } };
+  const signedIn = { ...f.req({}, 'new-session'), ip: req.ip, headers: { cookie: `ivan100_trusted=${result.trustSecret}` } };
   assert.equal(f.security.needsLoginCode(signedIn, result.user), false);
   assert.throws(() => f.security.requireProof(signedIn), /Подтвердите/);
   await assert.rejects(f.security.verifyLogin(verifyReq, identity), /недействителен/);
   f.security.associateSession(signedIn, result.user, 'new-session');
+  assert.doesNotThrow(() => f.security.requireProof(signedIn));
+  f.tick(11 * 60_000);
+  assert.doesNotThrow(() => createAccountSecurity(f.options).requireProof({ ...signedIn, headers: {} }));
   f.security.revokeToken('new-session');
+  assert.throws(() => f.security.requireProof(signedIn), /Подтвердите/);
   assert.equal(f.security.needsLoginCode(signedIn, result.user), true);
+});
+
+test('ordinary login inherits verification only from the confirmed browser and matching IP', async (t) => {
+  const f = fixture(t); const confirmed = await f.bind();
+  for (const [token, request] of [['missing-cookie', { ...confirmed, headers: {} }], ['wrong-ip', { ...confirmed, ip: '192.0.2.25' }]]) {
+    f.security.associateSession(request, confirmed.auth, token);
+    assert.throws(() => f.security.requireProof({ ...f.req({}, token), headers: {} }), /Подтвердите/);
+  }
+  f.security.associateSession(confirmed, confirmed.auth, 'trusted-login');
+  assert.doesNotThrow(() => f.security.requireProof(f.req({}, 'trusted-login')));
+});
+
+test('old confirmed teacher sessions migrate once; explicit lock stays locked after restart', async (t) => {
+  const f = fixture(t); const confirmed = await f.bind();
+  const file = path.join(f.directory, 'accounts.json');
+  const old = JSON.parse(fs.readFileSync(file, 'utf8'));
+  delete old.verifiedSessions;
+  fs.writeFileSync(file, JSON.stringify(old));
+  const migrated = createAccountSecurity(f.options);
+  assert.doesNotThrow(() => migrated.requireProof({ ...confirmed, headers: {} }));
+  migrated.lock(confirmed);
+  assert.throws(() => createAccountSecurity(f.options).requireProof(confirmed), /Подтвердите/);
 });
 
 test('expired, brute-forced, and credential-changed login challenges cannot authorize', async (t) => {

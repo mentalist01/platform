@@ -42,6 +42,18 @@ export function createAccountSecurity({ directory, verifyCredential, now = Date.
     fs.writeFileSync(temp, JSON.stringify(state), { mode: 0o600 });
     fs.renameSync(temp, statePath);
   };
+  // Migrate existing email-confirmed teacher sessions once, without regranting
+  // access after an explicit lock or logout.
+  if (!state.verifiedSessions) {
+    state.verifiedSessions = {};
+    for (const entry of Object.values(state.trusted)) {
+      if (entry.expiresAt <= now() || entry.revision !== state.accounts[entry.account]?.revision) continue;
+      for (const session of entry.sessions || []) {
+        state.verifiedSessions[session] = { account: entry.account, revision: entry.revision };
+      }
+    }
+    save();
+  }
   const encrypt = (text, context) => {
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -80,9 +92,26 @@ export function createAccountSecurity({ directory, verifyCredential, now = Date.
   };
   const associateSession = (req, auth, token, secret) => {
     const entry = state.trusted[trustId(req, auth, secret)];
-    if (entry && entry.expiresAt > now()) {
+    if (entry && entry.expiresAt > now() && entry.revision === state.accounts[accountKey(auth)]?.revision) {
+      state.verifiedSessions[hash(token)] = { account: accountKey(auth), revision: entry.revision };
       entry.sessions = [...new Set([...(entry.sessions || []), hash(token)])]; save();
     }
+  };
+  // Main authentication middleware remains authoritative for session expiry.
+  const grantVerifiedSession = (auth, token) => {
+    const account = auth?.id && accountKey(auth);
+    const revision = state.accounts[account]?.revision;
+    if (!revision || !token) throw new Error('An email-verified account and session are required');
+    state.verifiedSessions[hash(token)] = { account, revision }; save();
+    const secret = crypto.randomBytes(32).toString('hex');
+    const grant = { session: hash(token), account, expiresAt: now() + GRANT_TTL };
+    grants.set(hash(secret), grant);
+    return { secret, verifiedUntil: grant.expiresAt };
+  };
+  const sessionVerified = (req) => {
+    const entry = state.verifiedSessions[sessionKey(req)];
+    return Boolean(req.authToken && entry && entry.account === accountKey(req.auth)
+      && entry.revision === state.accounts[entry.account]?.revision);
   };
   const proof = (req) => {
     const grant = grants.get(hash(cookieValue(req)));
@@ -114,12 +143,13 @@ export function createAccountSecurity({ directory, verifyCredential, now = Date.
     connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 20_000,
     disableFileAccess: true, disableUrlAccess: true, logger: false, debug: false,
   });
-  const requireProof = (req) => { if (!proof(req)) fail(403, 'Подтвердите управление сессиями кодом из письма.'); };
+  const requireProof = (req) => { if (!sessionVerified(req) && !proof(req)) fail(403, 'Подтвердите этот вход кодом из письма.'); };
   const enrollmentRequired = (auth) => auth?.role === 'teacher' && Boolean(state.smtp) && !state.accounts[accountKey(auth)];
   const status = (req) => ({
     emailLinked: Boolean(state.accounts[accountKey(req.auth)]),
     mailConfigured: Boolean(state.smtp),
     verifiedUntil: proof(req)?.expiresAt || 0,
+    sessionVerified: sessionVerified(req),
     trustedHere: req.auth.role === 'teacher' && trusted(req, req.auth),
     enrollmentRequired: enrollmentRequired(req.auth),
   });
@@ -254,29 +284,34 @@ export function createAccountSecurity({ directory, verifyCredential, now = Date.
     if (challenge.purpose !== 'manage') {
       state.accounts[account] = { email: challenge.email, revision: crypto.randomUUID(), verifiedAt: now() };
       for (const [id, grant] of grants) if (grant.account === account) grants.delete(id);
+      for (const [id, entry] of Object.entries(state.verifiedSessions)) if (entry.account === account) delete state.verifiedSessions[id];
       for (const [id, entry] of Object.entries(state.trusted)) if (entry.account === account) delete state.trusted[id];
       delete state.loginChallenges[account];
     }
     delete state.challenges[account]; save();
-    const secret = crypto.randomBytes(32).toString('hex');
-    const grant = { session: sessionKey(req), account, expiresAt: now() + GRANT_TTL };
-    grants.set(hash(secret), grant);
-    return { secret, verifiedUntil: grant.expiresAt, trustSecret: remember(req, req.auth) };
+    return { ...grantVerifiedSession(req.auth, req.authToken), trustSecret: remember(req, req.auth) };
   };
   const revokeToken = (token) => {
     const session = hash(token);
     for (const [id, grant] of grants) if (grant.session === session) grants.delete(id);
     let changed = false;
+    if (state.verifiedSessions[session]) { delete state.verifiedSessions[session]; changed = true; }
     for (const [id, challenge] of Object.entries(state.challenges)) if (challenge.session === session) { delete state.challenges[id]; changed = true; }
     for (const [id, entry] of Object.entries(state.trusted)) if (entry.sessions?.includes(session)) { delete state.trusted[id]; changed = true; }
     if (changed) save();
   };
-  const lock = (req) => { grants.delete(hash(cookieValue(req))); };
+  const lock = (req) => {
+    grants.delete(hash(cookieValue(req)));
+    delete state.verifiedSessions[sessionKey(req)]; save();
+  };
   return { status, configureMail, requestCode, verify, requireProof, revokeToken, lock,
     needsLoginCode, beginLogin, verifyLogin, associateSession, enrollmentRequired };
 }
 
 const cookieOptions = ({ secureCookies = true, sameSite = 'strict' } = {}) => ({ httpOnly: true, secure: secureCookies, sameSite });
+export const setSecurityProofCookie = (res, secret, options) => {
+  res.cookie(COOKIE, secret, { ...cookieOptions(options), path: '/api/auth', maxAge: GRANT_TTL });
+};
 export const setTrustedBrowserCookie = (res, secret, options) => {
   if (secret) res.cookie(TRUST_COOKIE, secret, { ...cookieOptions(options), path: '/api', maxAge: TRUST_TTL });
 };
@@ -303,7 +338,7 @@ export function registerAccountSecurityRoutes(app, security, { secureCookies = t
   app.post('/api/auth/security/code', handle(async (req, res) => res.json(await security.requestCode(req))));
   app.post('/api/auth/security/verify', handle((req, res) => {
     const { secret, verifiedUntil, trustSecret } = security.verify(req);
-    res.cookie(COOKIE, secret, { httpOnly: true, secure: secureCookies, sameSite, path: '/api/auth', maxAge: GRANT_TTL });
+    setSecurityProofCookie(res, secret, { secureCookies, sameSite });
     setTrustedBrowserCookie(res, trustSecret, { secureCookies, sameSite });
     res.json({ ...security.status(req), verifiedUntil, trustedHere: Boolean(trustSecret) });
   }));
