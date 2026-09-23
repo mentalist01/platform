@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { startDay } from './start-day.mjs';
 import { ShareBridge } from './share-bridge.mjs';
 import { ObsClient } from './obs.mjs';
-import { atomicJson, readJson } from './storage.mjs';
+import { atomicJson, readJson, ownedRecording } from './storage.mjs';
 import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
 import { importRecoveredRecordings } from './recovery-inbox.mjs';
@@ -68,6 +68,7 @@ async function prepare(job) {
   fs.renameSync(temporary, output); job.mp4 = output; save();
 }
 async function publish(job) {
+  if (job.excludeFromUpload) throw new Error('Этот исходник исключён из загрузки. Используйте подготовленную запись урока.');
   const video = privateVideo(job.url);
   if (!video) throw new Error('Нужна полная закрытая ссылка Rutube с ключом ?p=');
   if (!await videoReady(video.url)) {
@@ -79,6 +80,7 @@ async function publish(job) {
   job.status = 'ready'; job.error = ''; save();
 }
 async function upload(job) {
+  if (job.excludeFromUpload) throw new Error('Этот исходник исключён из загрузки. Используйте подготовленную запись урока.');
   if (uploadingId) throw new Error('Предыдущая загрузка ещё идёт');
   uploadingId = job.id;
   try {
@@ -98,6 +100,7 @@ async function queue() {
   try {
     importRecoveredRecordings({ directory, recordDirectory, state, save });
     for (const job of Object.values(state.jobs)) {
+      if (job.excludeFromUpload) continue;
       if (job.status === 'saved') {
         try { await prepare(job); }
         catch (failure) { job.status = 'error'; job.error = failure.message; save(); continue; }
@@ -109,10 +112,21 @@ async function queue() {
   finally { queueBusy = false; }
 }
 const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), enabled: () => state.config.autoFollowShare !== false });
+// Prepared replacements require a deliberate click; never import or publish
+// them while polling the queue. The original files remain untouched.
+const recoveryDrafts = () => {
+  const drafts = readJson(path.join(directory, 'recovery-drafts.json'), []);
+  if (!Array.isArray(drafts)) return [];
+  return drafts.filter(draft => /^[a-f0-9-]{36}$/i.test(draft.id || '') && !state.jobs[draft.id]
+    && state.jobs[draft.previousId]?.occurrence?.key && privateVideo(draft.url))
+    .map(({ id, previousId, url, durationMs, note }) => ({ id, previousId, url, durationMs,
+      title: state.jobs[previousId].title, note: String(note || '') }));
+};
 const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
   obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId,
   shareMessage: shareBridge.message || '',
+  recoveryDrafts: recoveryDrafts(),
   testVerified: state.config.testFingerprint === setupFingerprint(state.config),
   jobs: Object.values(state.jobs).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50),
 });
@@ -183,12 +197,27 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.url === '/upload') {
       const job = state.jobs[payload.id];
-      if (!job || !['saved', 'error'].includes(job.status) || !job.file) throw new Error('Нет готовой записи');
+      if (!job || job.excludeFromUpload || !['saved', 'error'].includes(job.status) || !job.file) throw new Error('Нет готовой записи');
       if (uploadingId) throw new Error('Предыдущая загрузка ещё идёт');
       void upload(job); return json(res, 200, { ok: true });
     }
     await serialize(async () => {
-      if (req.url === '/start-day') {
+      if (req.url === '/recover-file') {
+        // Import a deliberately prepared replacement, never the unfinished
+        // current output or an arbitrary path from the request.
+        if (!/^[a-f0-9-]{36}$/i.test(payload.id || '')) throw new Error('Некорректный номер записи');
+        const previous = state.jobs[payload.previousId];
+        if (!previous?.occurrence?.key || previous.local || ['starting', 'recording', 'stopping'].includes(previous.status)) throw new Error('Выберите завершённый урок');
+        if (state.jobs[payload.id]) throw new Error('Запись уже восстановлена');
+        const recording = ownedRecording(recordDirectory, payload.id);
+        if (!fs.existsSync(recording) || !fs.statSync(recording).size) throw new Error('Подготовленный файл не найден');
+        const video = privateVideo(payload.url);
+        if (!video) throw new Error('Нужна закрытая ссылка подготовленного видео');
+        const recovered = await api('/recover', { id: previous.remoteJobId || previous.id, recoveryId: payload.id });
+        const job = { ...recovered, file: recording, url: video.url, status: 'processing', createdAt: Date.now(),
+          ...(Number.isFinite(payload.durationMs) && payload.durationMs > 0 && payload.durationMs <= 18000000 ? { durationMs: payload.durationMs } : {}) };
+        state.jobs[job.id] = job; save(); await prepare(job); await publish(job);
+      } else if (req.url === '/start-day') {
         await setupIdle(); enableWebsocket();
         await startDay({ config: state.config, obs, checkDirectory: writableRecordingDirectory,
           platform: () => api('/start-day', { ready: true }), save });
@@ -255,6 +284,7 @@ const server = http.createServer(async (req, res) => {
         await engine.start(job);
       } else if (req.url === '/attach') {
         const job = state.jobs[payload.id];
+        if (job?.excludeFromUpload) throw new Error('Этот исходник исключён из загрузки. Используйте подготовленную запись урока.');
         if (!job || !job.file || ['starting', 'recording', 'stopping'].includes(job.status)) throw new Error('Запись ещё не закончена');
         const video = privateVideo(payload.url); if (!video) throw new Error('Вставьте полную ссылку «только по ссылке», включая ?p=');
         job.url = video.url; job.status = 'processing'; job.error = ''; save(); await publish(job);
