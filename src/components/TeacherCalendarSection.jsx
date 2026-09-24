@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { isNativeAndroidPushEnvironment } from '../utils/push';
-import { resolveApiUrl } from '../utils/runtimeUrls';
+import { subscribeScheduleSync } from '../services/scheduleSync';
 import { normalizeTelemostUrl } from '../utils/telemost';
 import { resolveCalendarEventHomeworkProgress } from '../utils/calendarHomeworkProgress';
 import './TeacherCalendarSection.css';
@@ -1540,7 +1540,6 @@ const TeacherCalendarSection = ({
     if (!teacherId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
       return undefined;
     }
-    const source = new window.EventSource(resolveApiUrl('/api/schedule-sync/stream'), { withCredentials: true });
     const handleScheduleSync = (event) => {
       let payload = null;
       try {
@@ -1563,11 +1562,7 @@ const TeacherCalendarSection = ({
         loadCalendarGoogleWrite({ silent: true });
       }
     };
-    source.addEventListener('schedule-sync', handleScheduleSync);
-    return () => {
-      source.removeEventListener('schedule-sync', handleScheduleSync);
-      source.close();
-    };
+    return subscribeScheduleSync(handleScheduleSync);
   }, [loadCalendarGoogleWrite, loadCalendarSyncSettings, loadLessonPanelMarks, loadTeacherCalendar, teacherId]);
 
   const loadTeacherReminderSetting = useCallback(async () => {
@@ -6684,5 +6679,4 @@ const TeacherCalendarSection = ({
 };
 
 export default TeacherCalendarSection;
-
 

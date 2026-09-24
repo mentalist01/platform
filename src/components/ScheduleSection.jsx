@@ -3,7 +3,8 @@ import { StudentLessonReschedule } from './LessonReschedule';
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, Users, Video, WifiOff, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';
+import { api, authenticatedUploadsFetch } from '../services/api';
+import { subscribeScheduleSync } from '../services/scheduleSync';
 import { prepareMonthlyMockHomeworkGoals } from '../utils/monthlyMockExam';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import ScheduleProgressTree from './ScheduleProgressTree';
@@ -1225,7 +1226,6 @@ const ScheduleSection = ({
     if (!effectiveStudentId || typeof window === 'undefined' || typeof window.EventSource !== 'function') {
       return undefined;
     }
-    const source = new window.EventSource(resolveAuthenticatedApiUrl('/api/schedule-sync/stream'), { withCredentials: true });
     const handleScheduleSync = (event) => {
       let payload = null;
       try {
@@ -1248,11 +1248,7 @@ const ScheduleSection = ({
       loadNextLesson();
       loadScheduleRequests();
     };
-    source.addEventListener('schedule-sync', handleScheduleSync);
-    return () => {
-      source.removeEventListener('schedule-sync', handleScheduleSync);
-      source.close();
-    };
+    return subscribeScheduleSync(handleScheduleSync);
   }, [effectiveStudentId, loadNextLesson, loadSchedule, loadScheduleRequests, role]);
 
   useEffect(() => {

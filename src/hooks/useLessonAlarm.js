@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
-import { resolveApiUrl } from '../utils/runtimeUrls';
+import { subscribeScheduleSync } from '../services/scheduleSync';
 import {
   buildLessonAlarms,
   createLessonAlarmPlayer,
@@ -185,8 +185,7 @@ export function useLessonAlarm(teacherId) {
       if (event?.data?.type === 'dismissed') sync();
     };
     channel?.addEventListener('message', onChannelMessage);
-    const stream = typeof EventSource === 'function' ? new EventSource(resolveApiUrl('/api/schedule-sync/stream'), { withCredentials: true }) : null;
-    stream?.addEventListener('schedule-sync', refresh);
+    const unsubscribeScheduleSync = subscribeScheduleSync(refresh);
     const cleanup = () => {
       if (cleanedUp) return;
       cleanedUp = true;
@@ -204,7 +203,7 @@ export function useLessonAlarm(teacherId) {
       window.removeEventListener('pagehide', release);
       channel?.removeEventListener('message', onChannelMessage);
       channel?.close();
-      stream?.close();
+      unsubscribeScheduleSync();
     };
     registry.set(teacherId, cleanup);
     return () => {

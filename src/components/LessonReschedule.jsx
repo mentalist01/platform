@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRight, CalendarClock, Check, ChevronLeft, ChevronRight, Clock3, Loader2, Send, X } from 'lucide-react';
-import { api, resolveAuthenticatedApiUrl } from '../services/api';
+import { api } from '../services/api';
+import { subscribeScheduleSync } from '../services/scheduleSync';
 import { addCalendarDays, AVAILABILITY_DAYS } from '../utils/groupAvailability';
 import { rescheduleWeek, lessonDateLabel, lessonTimeLabel, rescheduleStatus } from '../utils/lessonReschedule';
 import './LessonReschedule.css';
@@ -25,8 +26,8 @@ function useRequests() {
   const [rows,setRows]=useState([]);const [error,setError]=useState('');
   const reload=useCallback(async()=>{try{const data=await api.lessonReschedules();setRows(data.requests);setError('');}catch(e){setError(e.message);}},[]);
   useEffect(()=>{let alive=true;const load=()=>{if(alive)void reload();};load();const timer=setInterval(load,30000);
-    const events=new EventSource(resolveAuthenticatedApiUrl('/api/schedule-sync/stream'),{withCredentials:true});events.addEventListener('schedule-sync',load);
-    window.addEventListener('focus',load);return()=>{alive=false;clearInterval(timer);events.close();window.removeEventListener('focus',load);};},[reload]);
+    const unsubscribe=subscribeScheduleSync(load);
+    window.addEventListener('focus',load);return()=>{alive=false;clearInterval(timer);unsubscribe();window.removeEventListener('focus',load);};},[reload]);
   return {rows,error,reload};
 }
 
