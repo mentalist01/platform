@@ -407,7 +407,7 @@ const requestTeacherCalendarRefresh = (teacherId, options = {}) => {
   const inFlight = teacherCalendarRefreshInFlight.get(requestKey);
   if (inFlight) {
     if (!force || inFlight.force) return inFlight.promise;
-    return inFlight.promise.then(() => requestTeacherCalendarRefresh(normalizedTeacherId, { force: true }));
+    return inFlight.promise.catch(() => {}).then(() => requestTeacherCalendarRefresh(normalizedTeacherId, { force: true }));
   }
 
   const cached = teacherCalendarRefreshResultCache.get(requestKey);
@@ -419,6 +419,7 @@ const requestTeacherCalendarRefresh = (teacherId, options = {}) => {
     return Promise.resolve(cached.result);
   }
 
+  teacherCalendarRefreshResultCache.delete(requestKey);
   const body = { force };
   if (normalizedTeacherId) body.teacherId = normalizedTeacherId;
   const requestPromise = (async () => {

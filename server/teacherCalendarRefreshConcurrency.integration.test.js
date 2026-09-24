@@ -244,7 +244,7 @@ test('calendar refresh coalesces concurrent requests and caches background refre
     const unchangedForced = await refresh({ force: true });
     assert.equal(unchangedForced.importedCount, 1);
     assert.equal(fakeCalendar.getRequestCount(), 2);
-    assert.equal(fakeCalendar.getNotModifiedCount(), 1);
+    assert.equal(fakeCalendar.getNotModifiedCount(), 0, 'manual refresh must not send cache validators');
 
     fakeCalendar.setBody(buildIcal('second@example.test', secondDay));
     const forcedWave = await Promise.all(Array.from(

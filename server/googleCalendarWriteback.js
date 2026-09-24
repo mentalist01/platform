@@ -254,12 +254,18 @@ const getEventStartMs = (event) => {
   return Number.isFinite(parsed) ? parsed : NaN;
 };
 
-export async function listGoogleCalendarLessonEvents({accessToken,calendarId,timeMin,timeMax,fetchImpl=fetch}) {
+export async function listGoogleCalendarLessonEvents({accessToken,calendarId,timeMin,timeMax,fetchImpl=fetch,maxEvents=50_000}) {
   const items=[];let pageToken='';
+  const seenPages = new Set();
   do {
-    const query=new URLSearchParams({timeMin,timeMax,singleEvents:'true',showDeleted:'false',maxResults:'2500',...(pageToken?{pageToken}:{})});
+    const query=new URLSearchParams({...(timeMin?{timeMin}:{}),...(timeMax?{timeMax}:{}),singleEvents:'true',showDeleted:'false',maxResults:'2500',...(pageToken?{pageToken}:{})});
     const page=await googleCalendarApiRequest({accessToken,fetchImpl,path:`/calendars/${encodeURIComponent(calendarId)}/events?${query}`});
+    if (!Array.isArray(page.items) && page.items !== undefined) throw new Error('Google Calendar вернул некорректное расписание.');
     items.push(...(page.items||[]));pageToken=page.nextPageToken||'';
+    if (items.length > maxEvents || (pageToken && seenPages.has(pageToken)) || seenPages.size >= 100) {
+      throw new Error('Google Calendar вернул слишком большой список событий.');
+    }
+    if (pageToken) seenPages.add(pageToken);
   }while(pageToken);
   return items;
 }

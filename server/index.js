@@ -1,3 +1,4 @@
+import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
 import express from 'express';
 import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
@@ -10595,6 +10596,9 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
   if (!normalizedTeacherId) return [];
   const settings = getTeacherCalendarSyncSettings(normalizedTeacherId);
   if (!settings.enabled || !settings.icalUrl) return [];
+  const connection = getTeacherCalendarGoogleConnection(normalizedTeacherId);
+  const apiCalendarId = googleCalendarReadId(settings.icalUrl, connection);
+  const sourceKey = `${settings.icalUrl}|${apiCalendarId}`;
   const force = Boolean(options.force);
   const now = Date.now();
   const defaultToMs = now + (GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
@@ -10613,7 +10617,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
   if (
     !force
     && cache
-    && cache.url === settings.icalUrl
+    && cache.sourceKey === sourceKey
     && cacheCoversRequestedRange
     && now - cache.loadedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS
   ) {
@@ -10625,10 +10629,14 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
   }
 
   const inFlight = teacherCalendarFetchInFlight.get(normalizedTeacherId);
-  if (inFlight?.url === settings.icalUrl) {
+  if (inFlight?.sourceKey === sourceKey) {
+    if (force && !inFlight.force) {
+      await inFlight.promise.catch(() => {});
+      return fetchTeacherGoogleCalendarEntriesRaw(normalizedTeacherId, options);
+    }
     try {
       const entries = await inFlight.promise;
-      if (Number(inFlight.toMs) >= toMs) {
+      if (Number(inFlight.toMs) >= toMs - (Number.isFinite(requestedMonthEndMs) ? 0 : 86400000)) {
         return entries.map((entry) => (
           enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
         ));
@@ -10641,6 +10649,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
       const message = error?.name === 'AbortError'
         ? 'Google Calendar не ответил вовремя.'
         : (error?.message || 'Не удалось загрузить Google Calendar.');
+      teacherCalendarRefreshResultCache.delete(normalizedTeacherId);
       if (options.throwOnError) throw new Error(message);
       return (cache?.entries || []).map((entry) => (
         enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
@@ -10650,29 +10659,79 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
 
   const loadPromise = (async () => {
     const to = new Date(toMs);
-    const abortController = new AbortController();
-    const timeoutId = setTimeout(
-      () => abortController.abort(),
-      GOOGLE_CALENDAR_SYNC_FETCH_TIMEOUT_MS
-    );
-    if (typeof timeoutId.unref === 'function') timeoutId.unref();
-    let icalText = '';
+    let parsed;
+    let contentHash = '';
     let responseEtag = '';
     let responseLastModified = '';
-    try {
-      const requestHeaders = { 'User-Agent': 'Ivan-EGE-Calendar-Sync/1.0' };
-      if (cache?.url === settings.icalUrl && cacheCoversRequestedRange) {
-        if (cache.etag) requestHeaders['If-None-Match'] = cache.etag;
-        if (cache.lastModified) requestHeaders['If-Modified-Since'] = cache.lastModified;
-      }
-      const response = await fetchPublicCalendar(settings.icalUrl, {
-        headers: requestHeaders,
-        signal: abortController.signal,
-        maxBytes: GOOGLE_CALENDAR_SYNC_MAX_BYTES,
-        allowLoopback: process.env.NODE_ENV === 'test',
+    if (apiCalendarId) {
+      const events = await listGoogleCalendarLessonEvents({
+        accessToken: await getTeacherGoogleCalendarAccessToken(normalizedTeacherId),
+        calendarId: apiCalendarId,
+        // Keep past lessons for history and finance, just like the iCal import.
+        timeMax: to.toISOString(),
+        maxEvents: GOOGLE_CALENDAR_SYNC_MAX_EXPANDED_EVENTS,
       });
-      if (response.status === 304 && cache?.url === settings.icalUrl && cacheCoversRequestedRange) {
+      parsed = {
+        calendarName: connection.calendars.find(calendar => calendar.id === apiCalendarId)?.summary || settings.calendarName,
+        events: events.map(googleApiEventToCalendarEvent),
+      };
+    } else {
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(
+        () => abortController.abort(),
+        GOOGLE_CALENDAR_SYNC_FETCH_TIMEOUT_MS
+      );
+      if (typeof timeoutId.unref === 'function') timeoutId.unref();
+      let icalText = '';
+      try {
+        const requestHeaders = { 'User-Agent': 'Ivan-EGE-Calendar-Sync/1.0', ...(force ? { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } : {}) };
+        if (!force && cache?.sourceKey === sourceKey && cacheCoversRequestedRange) {
+          if (cache.etag) requestHeaders['If-None-Match'] = cache.etag;
+          if (cache.lastModified) requestHeaders['If-Modified-Since'] = cache.lastModified;
+        }
+        const response = await fetchPublicCalendar(settings.icalUrl, {
+          headers: requestHeaders,
+          signal: abortController.signal,
+          maxBytes: GOOGLE_CALENDAR_SYNC_MAX_BYTES,
+          allowLoopback: process.env.NODE_ENV === 'test',
+        });
+        if (response.status === 304 && cache?.sourceKey === sourceKey && cacheCoversRequestedRange) {
+          cache.loadedAtMs = Date.now();
+          updateTeacherCalendarSyncStatus(normalizedTeacherId, {
+            lastFetchedAt: new Date().toISOString(),
+            lastError: '',
+            calendarName: cache.calendarName || '',
+          });
+          return cache.entries.map((entry) => (
+            enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
+          ));
+        }
+        if (!response.ok) {
+          throw new Error(`Google Calendar вернул HTTP ${response.status}.`);
+        }
+        responseEtag = String(response.headers.get('etag') || '').trim();
+        responseLastModified = String(response.headers.get('last-modified') || '').trim();
+        const declaredBytes = Number(response.headers.get('content-length'));
+        if (Number.isFinite(declaredBytes) && declaredBytes > GOOGLE_CALENDAR_SYNC_MAX_BYTES) {
+          throw new Error('Файл Google Calendar слишком большой.');
+        }
+        icalText = await response.text();
+        if (Buffer.byteLength(icalText, 'utf8') > GOOGLE_CALENDAR_SYNC_MAX_BYTES) {
+          throw new Error('Файл Google Calendar слишком большой.');
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      contentHash = crypto.createHash('sha256').update(icalText).digest('hex');
+      if (
+        cache?.sourceKey === sourceKey
+        && cache.contentHash === contentHash
+        && cacheCoversRequestedRange
+      ) {
         cache.loadedAtMs = Date.now();
+        cache.etag = responseEtag || cache.etag || '';
+        cache.lastModified = responseLastModified || cache.lastModified || '';
         updateTeacherCalendarSyncStatus(normalizedTeacherId, {
           lastFetchedAt: new Date().toISOString(),
           lastError: '',
@@ -10682,43 +10741,9 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
           enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
         ));
       }
-      if (!response.ok) {
-        throw new Error(`Google Calendar вернул HTTP ${response.status}.`);
-      }
-      responseEtag = String(response.headers.get('etag') || '').trim();
-      responseLastModified = String(response.headers.get('last-modified') || '').trim();
-      const declaredBytes = Number(response.headers.get('content-length'));
-      if (Number.isFinite(declaredBytes) && declaredBytes > GOOGLE_CALENDAR_SYNC_MAX_BYTES) {
-        throw new Error('Файл Google Calendar слишком большой.');
-      }
-      icalText = await response.text();
-      if (Buffer.byteLength(icalText, 'utf8') > GOOGLE_CALENDAR_SYNC_MAX_BYTES) {
-        throw new Error('Файл Google Calendar слишком большой.');
-      }
-    } finally {
-      clearTimeout(timeoutId);
-    }
 
-    const contentHash = crypto.createHash('sha256').update(icalText).digest('hex');
-    if (
-      cache?.url === settings.icalUrl
-      && cache.contentHash === contentHash
-      && cacheCoversRequestedRange
-    ) {
-      cache.loadedAtMs = Date.now();
-      cache.etag = responseEtag || cache.etag || '';
-      cache.lastModified = responseLastModified || cache.lastModified || '';
-      updateTeacherCalendarSyncStatus(normalizedTeacherId, {
-        lastFetchedAt: new Date().toISOString(),
-        lastError: '',
-        calendarName: cache.calendarName || '',
-      });
-      return cache.entries.map((entry) => (
-        enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
-      ));
+      parsed = await parseGoogleCalendarInWorker(icalText, toMs);
     }
-
-    const parsed = await parseGoogleCalendarInWorker(icalText, toMs);
     const entries = [];
     parsed.events.forEach((event) => {
       const scheduleEntry = buildGoogleCalendarScheduleEntry(
@@ -10740,13 +10765,14 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
       return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
     }).map((entry) => enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students));
     const currentSettings = getTeacherCalendarSyncSettings(normalizedTeacherId);
-    if (currentSettings.enabled && currentSettings.icalUrl === settings.icalUrl) {
+    if (currentSettings.enabled && currentSettings.icalUrl === settings.icalUrl && googleCalendarReadId(currentSettings.icalUrl, getTeacherCalendarGoogleConnection(normalizedTeacherId)) === apiCalendarId) {
       reconcileGoogleCalendarLearningLessons(normalizedTeacherId, uniqueEntries, {
         fromMs: now,
         toMs: to.getTime(),
       });
       teacherCalendarSyncCache.set(normalizedTeacherId, {
         url: settings.icalUrl,
+        sourceKey,
         loadedAtMs: Date.now(),
         toMs,
         entries: uniqueEntries,
@@ -10765,6 +10791,8 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
   })();
   teacherCalendarFetchInFlight.set(normalizedTeacherId, {
     url: settings.icalUrl,
+    sourceKey,
+    force,
     toMs,
     promise: loadPromise,
   });
@@ -10776,12 +10804,12 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
       ? 'Google Calendar не ответил вовремя.'
       : (error?.message || 'Не удалось загрузить Google Calendar.');
     const currentSettings = getTeacherCalendarSyncSettings(normalizedTeacherId);
-    if (currentSettings.enabled && currentSettings.icalUrl === settings.icalUrl) {
+    if (currentSettings.enabled && currentSettings.icalUrl === settings.icalUrl && googleCalendarReadId(currentSettings.icalUrl, getTeacherCalendarGoogleConnection(normalizedTeacherId)) === apiCalendarId) {
       updateTeacherCalendarSyncStatus(normalizedTeacherId, {
-        lastFetchedAt: new Date().toISOString(),
         lastError: message,
       });
     }
+    teacherCalendarRefreshResultCache.delete(normalizedTeacherId);
     if (options.throwOnError) throw new Error(message);
     return (cache?.entries || []).map((entry) => (
       enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
@@ -10797,19 +10825,23 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => ove
   await fetchTeacherGoogleCalendarEntriesRaw(teacherId, options), teacherId, lessonRescheduleStore
 );
 
-const getTeacherCalendarRefreshSettingsKey = (settings) => [
+const getTeacherCalendarRefreshSettingsKey = (settings, teacherId) => [
   settings?.enabled ? '1' : '0',
   String(settings?.icalUrl || '').trim(),
   String(settings?.updatedAt || '').trim(),
+  googleCalendarReadId(settings?.icalUrl, getTeacherCalendarGoogleConnection(teacherId)),
 ].join('|');
 
 const runTeacherCalendarRefresh = (teacherId, auth, options = {}) => {
   const normalizedTeacherId = String(teacherId || '').trim();
   const force = options.force === true;
   const calendarSyncSettings = getTeacherCalendarSyncSettings(normalizedTeacherId);
-  const settingsKey = getTeacherCalendarRefreshSettingsKey(calendarSyncSettings);
+  const settingsKey = getTeacherCalendarRefreshSettingsKey(calendarSyncSettings, normalizedTeacherId);
   const inFlight = teacherCalendarRefreshInFlight.get(normalizedTeacherId);
-  if (inFlight?.settingsKey === settingsKey) return inFlight.promise;
+  if (inFlight?.settingsKey === settingsKey) {
+    if (!force || inFlight.force) return inFlight.promise;
+    return inFlight.promise.catch(() => {}).then(() => runTeacherCalendarRefresh(normalizedTeacherId, auth, { force: true }));
+  }
 
   const cached = teacherCalendarRefreshResultCache.get(normalizedTeacherId);
   if (
@@ -10851,6 +10883,7 @@ const runTeacherCalendarRefresh = (teacherId, auth, options = {}) => {
 
   teacherCalendarRefreshInFlight.set(normalizedTeacherId, {
     settingsKey,
+    force,
     promise: refreshPromise,
   });
   refreshPromise.finally(() => {

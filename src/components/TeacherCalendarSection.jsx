@@ -1440,14 +1440,16 @@ const TeacherCalendarSection = ({
   }, [calendarSyncSaving, calendarSyncUrl, loadCalendarSyncSettings, loadTeacherCalendar, teacherId]);
 
   const handleRefreshCalendarSync = useCallback(async () => {
-    if (!teacherId || calendarSyncRefreshing || !calendarSyncSettings?.configured) return;
+    if (!teacherId || calendarSyncRefreshing) return;
     setCalendarSyncRefreshing(true);
     setCalendarSyncError('');
     setCalendarSyncSuccess('');
     try {
-      const result = await api.refreshTeacherCalendarSync(teacherId, { force: true });
-      setCalendarSyncSettings(result?.settings || null);
-      setCalendarSyncSuccess(`Импортировано: ${Number(result?.importedCount) || 0}`);
+      if (calendarSyncSettings?.configured) {
+        const result = await api.refreshTeacherCalendarSync(teacherId, { force: true });
+        setCalendarSyncSettings(result?.settings || null);
+        setCalendarSyncSuccess('Расписание обновлено из Google Calendar.');
+      }
       await loadTeacherCalendar({ silent: true });
       await loadCalendarSyncSettings({ silent: true });
     } catch (err) {
@@ -4475,17 +4477,29 @@ const TeacherCalendarSection = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => loadTeacherCalendar({ silent: true })}
-                  disabled={loading || refreshing}
+                  onClick={handleRefreshCalendarSync}
+                  disabled={loading || refreshing || calendarSyncRefreshing}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/85 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <RefreshCcw size={13} className={refreshing ? 'animate-spin' : ''} />
-                  {refreshing ? '...' : 'Обновить'}
+                  <RefreshCcw size={13} className={refreshing || calendarSyncRefreshing ? 'animate-spin' : ''} />
+                  {refreshing || calendarSyncRefreshing ? 'Обновляем…' : 'Обновить'}
                 </button>
               </>
             )}
           </div>
         </div>
+
+        {calendarSyncSettings?.configured && (
+          <div role="status" aria-live="polite" className={`border-b px-5 py-1.5 text-xs ${calendarSyncError || calendarSyncSettings.lastError ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200/70 bg-white/80 text-slate-500'}`}>
+            {calendarSyncRefreshing ? 'Получаем актуальное расписание из Google…' : (
+              calendarSyncError || calendarSyncSettings.lastError || [
+                calendarSyncSuccess,
+                calendarSyncSettings.lastFetchedAt ? `Проверено: ${formatCalendarSyncTimestamp(calendarSyncSettings.lastFetchedAt)}` : '',
+                `Автообновление: ${GOOGLE_CALENDAR_AUTO_REFRESH_LABEL}`,
+              ].filter(Boolean).join(' · ')
+            )}
+          </div>
+        )}
 
         <div
           className="min-h-0 flex-1 grid"

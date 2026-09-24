@@ -28,6 +28,46 @@ const installStorage = (authToken) => {
   return values;
 };
 
+test('manual calendar refresh waits for background fetch then bypasses cached data', async t => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+  t.after(() => { globalThis.window = previousWindow; });
+  installStorage('calendar-refresh-fixture');
+  const requests = []; let completeBackground;
+  globalThis.fetch = async (input, init) => {
+    requests.push(JSON.parse(init.body));
+    if (requests.length === 1) return new Promise(resolve => { completeBackground = resolve; });
+    return jsonResponse({ importedCount: 2 });
+  };
+  const background = api.refreshTeacherCalendarSync('calendar-manual-fixture');
+  const manual = api.refreshTeacherCalendarSync('calendar-manual-fixture', { force: true });
+  completeBackground(jsonResponse({ importedCount: 1 }));
+  assert.equal((await background).importedCount, 1);
+  assert.equal((await manual).importedCount, 2);
+  assert.deepEqual(requests.map(request => request.force), [false, true]);
+  await api.refreshTeacherCalendarSync('calendar-manual-fixture');
+  assert.equal(requests.length, 2);
+});
+
+test('manual calendar retry still runs after an in-flight background error', async t => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+  t.after(() => { globalThis.window = previousWindow; });
+  installStorage('calendar-retry-fixture');
+  let completeBackground; let requests = 0;
+  globalThis.fetch = async () => {
+    requests++;
+    if (requests === 1) return new Promise(resolve => { completeBackground = resolve; });
+    return jsonResponse({ importedCount: 2 });
+  };
+  const background = api.refreshTeacherCalendarSync('calendar-retry-fixture');
+  const manual = api.refreshTeacherCalendarSync('calendar-retry-fixture', { force: true });
+  completeBackground(jsonResponse({ error: 'Temporary error' }, 502));
+  await assert.rejects(background, /Temporary error/);
+  assert.equal((await manual).importedCount, 2);
+  assert.equal(requests, 2);
+});
+
 test('replay final-save errors preserve HTTP status for recovery decisions', async (t) => {
   const previousWindow = globalThis.window;
   globalThis.window = { setTimeout, clearTimeout };
