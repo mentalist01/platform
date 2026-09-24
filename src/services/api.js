@@ -1,3 +1,4 @@
+import { recoverableFetch } from '../utils/recoverableFetch.js';
 import { clearStoredSession } from '../utils/theme.js';
 
 import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl, resolveUploadsUrl } from '../utils/runtimeUrls.js';
@@ -183,54 +184,23 @@ const apiFetch = async (input, init = {}) => {
     authenticatedRequestInit.cache = 'no-store';
   }
   const requestUrl = resolveAuthenticatedApiUrl(input);
-  let controller = null;
-  let timeoutId = null;
-  let timedOut = false;
-  let abortListener = null;
-  if (Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0) {
-    controller = new AbortController();
-    const sourceSignal = authenticatedRequestInit.signal;
-    if (sourceSignal) {
-      if (sourceSignal.aborted) {
-        controller.abort(sourceSignal.reason);
-      } else {
-        abortListener = () => controller.abort(sourceSignal.reason);
-        sourceSignal.addEventListener('abort', abortListener, { once: true });
-      }
-    }
-    authenticatedRequestInit.signal = controller.signal;
-    timeoutId = window.setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, requestTimeoutMs);
-  }
-  try {
-    const res = await fetch(requestUrl, authenticatedRequestInit);
-    // An older tab/request can finish after the user has signed in again.
-    // Its rejected session must not clear the new account's local session.
-    if (res.status === 401 && getStoredAuthToken() === authTokenAtRequest) {
-      invalidateAuthSensitiveCaches();
-      clearStoredSession();
-      try {
-        unauthorizedHandler?.();
-      } catch {
-        // Ignore errors inside the user-provided unauthorized handler.
-      }
-    }
-    return res;
-  } catch (error) {
-    if (timedOut) {
-      throw new Error(timeoutErrorMessage || 'Превышено время ожидания ответа сервера.');
-    }
-    throw error;
-  } finally {
-    if (timeoutId) {
-      window.clearTimeout(timeoutId);
-    }
-    if (abortListener && init?.signal) {
-      init.signal.removeEventListener('abort', abortListener);
+  const res = await recoverableFetch(requestUrl, authenticatedRequestInit, {
+    ...(Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0 ? { timeoutMs: requestTimeoutMs } : {}),
+    ...(timeoutErrorMessage ? { timeoutMessage: timeoutErrorMessage } : {}),
+    canRetry: () => getStoredAuthToken() === authTokenAtRequest,
+  });
+  // An older tab/request can finish after the user has signed in again.
+  // Its rejected session must not clear the new account's local session.
+  if (res.status === 401 && getStoredAuthToken() === authTokenAtRequest) {
+    invalidateAuthSensitiveCaches();
+    clearStoredSession();
+    try {
+      unauthorizedHandler?.();
+    } catch {
+      // Ignore errors inside the user-provided unauthorized handler.
     }
   }
+  return res;
 };
 
 const normalizeTestsStudentId = (studentId) => String(studentId || '').trim();

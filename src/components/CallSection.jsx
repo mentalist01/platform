@@ -10,12 +10,13 @@ import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { useCallAlertSounds } from '../hooks/useCallAlertSounds';
 import { shouldSaveLessonReplayScreenFrame } from '../utils/lessonReplayScreenCapture';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
+import { probeWebSocket, retireWebSocket, subscribeNetworkRecovery } from '../utils/socketRecovery.js';
 import './CallSection.css';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
 ];
-const WS_PING_INTERVAL_MS = 15000;
+const WS_PING_INTERVAL_MS = 5000;
 const AUDIO_MAX_BITRATE = 48000;
 const AUDIO_MIN_BITRATE = 32000;
 const getPositiveNumberFromEnv = (key, fallback) => {
@@ -36,7 +37,6 @@ const CAMERA_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_HEIGHT',
 const WS_RECONNECT_BASE_DELAY_MS = 900;
 const WS_RECONNECT_MAX_DELAY_MS = 8000;
 const WS_RECONNECT_JITTER_MS = 500;
-const WS_RECONNECT_MAX_ATTEMPTS = 10;
 const RTC_ICE_CANDIDATE_POOL_SIZE = (() => {
   const value = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_RTC_ICE_CANDIDATE_POOL_SIZE : undefined;
   const parsed = Number(value);
@@ -55,7 +55,7 @@ const RTC_PRESENCE_RECONNECT_JITTER_MS = 450;
 const RTC_PRESENCE_RECONNECT_MAX_ATTEMPTS = 10;
 const RTC_PRESENCE_HTTP_FALLBACK_POLL_INTERVAL_MS = 10000;
 const RTC_PRESENCE_FALLBACK_BOOT_TIMEOUT_MS = 5000;
-const WS_HEARTBEAT_TIMEOUT_MS = 45000;
+const WS_HEARTBEAT_TIMEOUT_MS = 15000;
 const JOIN_ACK_TIMEOUT_MS = 15000;
 const ROOM_RESYNC_COOLDOWN_MS = 4000;
 const PEER_DISCONNECTED_GRACE_MS = 10000;
@@ -1870,19 +1870,15 @@ const CallSection = ({
     if (manualCloseRef.current || !roomId) return false;
     if (wsReconnectTimerRef.current) return true;
     const nextAttempt = wsReconnectAttemptRef.current + 1;
-    if (nextAttempt > WS_RECONNECT_MAX_ATTEMPTS) {
-      setError('Не удалось восстановить соединение созвона. Подключитесь заново.');
-      return false;
-    }
     wsReconnectAttemptRef.current = nextAttempt;
     const baseDelay = Math.min(
       WS_RECONNECT_MAX_DELAY_MS,
-      WS_RECONNECT_BASE_DELAY_MS * (2 ** Math.max(0, nextAttempt - 1))
+      WS_RECONNECT_BASE_DELAY_MS * (2 ** Math.min(8, Math.max(0, nextAttempt - 1)))
     );
     const jitter = Math.floor(Math.random() * WS_RECONNECT_JITTER_MS);
     const delay = baseDelay + jitter;
     const reason = String(reasonText || '').trim();
-    setError(reason || `Потеряно соединение. Переподключение (${nextAttempt}/${WS_RECONNECT_MAX_ATTEMPTS})...`);
+    setError(reason || 'Связь прервалась. Восстанавливаем подключение к уроку…');
     wsReconnectTimerRef.current = setTimeout(() => {
       wsReconnectTimerRef.current = null;
       if (manualCloseRef.current || !roomId) return;
@@ -2372,7 +2368,7 @@ const CallSection = ({
       if (statusRef.current !== 'connecting') return;
       wsHadErrorRef.current = true;
       setError('Не удалось подтвердить подключение к комнате.');
-      try { ws.close(1013, 'Join timeout'); } catch {}
+      retireWebSocket(ws, 'Join timeout');
     }, JOIN_ACK_TIMEOUT_MS);
   }, [clearJoinAckTimer]);
 
@@ -3712,8 +3708,12 @@ const CallSection = ({
         if (!peerState.disconnectTimer) {
           peerState.disconnectTimer = setTimeout(() => {
             const currentPeerState = peersRef.current.get(normalizedPeerId);
-            if (!currentPeerState) return;
+            if (currentPeerState !== peerState) return;
             if (getRtcPeerConnectionState(currentPeerState.pc) !== 'disconnected') return;
+            sendWs({
+              type: 'signal', roomId: activeRoomRef.current, targetId: normalizedPeerId,
+              signal: { control: { restartConnection: true } },
+            });
             detachPeer(normalizedPeerId, { closeConnection: true });
             requestRoomResync();
           }, PEER_DISCONNECTED_GRACE_MS);
@@ -3728,6 +3728,10 @@ const CallSection = ({
       }
 
       if (state === 'failed') {
+        sendWs({
+          type: 'signal', roomId: activeRoomRef.current, targetId: normalizedPeerId,
+          signal: { control: { restartConnection: true } },
+        });
         detachPeer(normalizedPeerId, { closeConnection: true });
         requestRoomResync();
         return;
@@ -4281,7 +4285,7 @@ const CallSection = ({
       if (!joinSent) {
         wsHadErrorRef.current = true;
         setError('Не удалось отправить запрос на подключение.');
-        try { existingWs.close(); } catch {}
+        retireWebSocket(existingWs, 'Join send failed');
         return;
       }
       startJoinAckTimer(existingWs);
@@ -4326,6 +4330,10 @@ const CallSection = ({
       return;
     }
 
+    if (manualCloseRef.current) {
+      stopMicTrack(false);
+      return;
+    }
     try {
       const ws = new WebSocket(rtcWsUrl);
       wsRef.current = ws;
@@ -4338,7 +4346,7 @@ const CallSection = ({
         if (!joinSent) {
           wsHadErrorRef.current = true;
           setError('Не удалось отправить запрос на подключение.');
-          try { ws.close(); } catch {}
+          retireWebSocket(ws, 'Signalling error');
           return;
         }
         startJoinAckTimer(ws);
@@ -4350,7 +4358,7 @@ const CallSection = ({
           if (wsRef.current !== ws) return;
           if (Date.now() - lastWsPongAtRef.current >= WS_HEARTBEAT_TIMEOUT_MS) {
             setError('Потеряно соединение с сигнальным сервером.');
-            try { ws.close(1011, 'Heartbeat timeout'); } catch {}
+            retireWebSocket(ws, 'Heartbeat timeout');
             return;
           }
           sendWs({ type: 'ping' });
@@ -4364,7 +4372,7 @@ const CallSection = ({
         if (wsRef.current !== ws) return;
         wsHadErrorRef.current = true;
         setError('Ошибка сигнального канала WebSocket.');
-        try { ws.close(); } catch {}
+        retireWebSocket(ws, 'Signalling error');
       };
       ws.onclose = () => {
         if (wsRef.current !== ws) return;
@@ -4378,7 +4386,7 @@ const CallSection = ({
         wsRef.current = null;
         setSocketStatus('disconnected');
         roomResyncCooldownUntilRef.current = 0;
-        applyStatus('idle');
+        applyStatus(manualCloseRef.current ? 'idle' : 'connecting');
         activeRoomRef.current = '';
         selfClientIdRef.current = '';
         setSelfClientId('');
@@ -4404,10 +4412,11 @@ const CallSection = ({
         }
         wsHadErrorRef.current = false;
       };
+      startJoinAckTimer(ws);
     } catch (connectError) {
       clearJoinAckTimer();
       roomResyncCooldownUntilRef.current = 0;
-      applyStatus('idle');
+      applyStatus(isReconnect ? 'connecting' : 'idle');
       setSocketStatus('disconnected');
       closeAllPeers();
       const connectErrorText = normalizeErrorMessage(connectError, 'Не удалось открыть сигнальный канал.');
@@ -4430,6 +4439,28 @@ const CallSection = ({
   useEffect(() => {
     startCallRef.current = startCall;
   }, [startCall]);
+
+  useEffect(() => {
+    let cancelProbe = () => {};
+    const unsubscribe = subscribeNetworkRecovery(() => {
+      cancelProbe();
+      if (manualCloseRef.current || statusRef.current === 'idle') return;
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) {
+        cancelProbe = probeWebSocket(ws, {
+          onTimeout: () => {
+            if (wsRef.current !== ws || manualCloseRef.current) return;
+            wsHadErrorRef.current = true;
+            retireWebSocket(ws, 'Network changed');
+          },
+        });
+      } else if (wsReconnectTimerRef.current) {
+        resetWsReconnectState();
+        scheduleWsReconnect();
+      }
+    });
+    return () => { cancelProbe(); unsubscribe(); };
+  }, [resetWsReconnectState, scheduleWsReconnect]);
 
   useEffect(() => {
     const token = Number(autoStartToken) || 0;
@@ -4876,7 +4907,7 @@ const CallSection = ({
       presenceReconnectAttemptRef.current = nextAttempt;
       const baseDelay = Math.min(
         RTC_PRESENCE_RECONNECT_MAX_DELAY_MS,
-        RTC_PRESENCE_RECONNECT_DELAY_MS * (2 ** Math.max(0, nextAttempt - 1))
+        RTC_PRESENCE_RECONNECT_DELAY_MS * (2 ** Math.min(8, Math.max(0, nextAttempt - 1)))
       );
       const jitter = Math.floor(Math.random() * RTC_PRESENCE_RECONNECT_JITTER_MS);
       const reconnectDelay = baseDelay + jitter;
@@ -4946,11 +4977,7 @@ const CallSection = ({
           presencePingTimerRef.current = setInterval(() => {
             if (presenceWsRef.current !== ws) return;
             if (Date.now() - lastPresencePongAtRef.current >= WS_HEARTBEAT_TIMEOUT_MS) {
-              try {
-                ws.close(1011, 'Presence heartbeat timeout');
-              } catch {
-                // Closing a socket that is already shutting down is safe to ignore.
-              }
+              retireWebSocket(ws, 'Presence heartbeat timeout');
               return;
             }
             try {
