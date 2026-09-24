@@ -476,7 +476,7 @@ const LearningGroupsSection = ({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busyKey, setBusyKey] = useState('');
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState(isTeacher ? 'overview' : 'availability');
   const [showCompleted, setShowCompleted] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_GROUP_FORM);
@@ -1433,15 +1433,15 @@ const LearningGroupsSection = ({
 
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-4 pb-4">
-      <header className="overflow-hidden rounded-3xl border border-violet-200/80 bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 p-5 text-white shadow-lg shadow-violet-200/50 sm:p-7">
+      <header className={`overflow-hidden rounded-3xl border border-violet-200/80 bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-200/50 ${tab === 'availability' ? 'px-5 py-3' : 'p-5 sm:p-7'}`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-violet-100">
+            <div className={`${tab === 'availability' ? 'hidden' : 'flex'} items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-violet-100`}>
               <Users size={16} />
               Обучение вместе
             </div>
-            <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Мини-группы</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-violet-100 sm:text-base">
+            <h1 className={`${tab === 'availability' ? 'text-xl' : 'mt-2 text-2xl sm:text-3xl'} font-black tracking-tight`}>{isTeacher ? 'Мини-группы' : 'Моя группа'}</h1>
+            <p className={`${tab === 'availability' ? 'hidden' : ''} mt-2 max-w-2xl text-sm leading-relaxed text-violet-100 sm:text-base`}>
               {isTeacher
                 ? 'Состав, расписание, занятия и персональная проверка работ — в одном рабочем пространстве.'
                 : 'Все занятия, материалы и домашние задания вашей группы собраны здесь.'}
@@ -1548,8 +1548,8 @@ const LearningGroupsSection = ({
           ) : null}
         />
       ) : (
-        <div className="grid min-h-[580px] gap-4 lg:grid-cols-[285px_minmax(0,1fr)]">
-          <aside className="self-start rounded-3xl border border-slate-200 bg-white p-3 shadow-sm lg:sticky lg:top-4">
+        <div className={`grid min-h-[580px] gap-4 ${tab === 'availability' ? '' : 'lg:grid-cols-[285px_minmax(0,1fr)]'}`}>
+          <aside className={`min-w-0 self-start rounded-3xl border border-slate-200 bg-white p-3 shadow-sm ${tab === 'availability' ? '' : 'lg:sticky lg:top-4'}`}>
             <div className="mb-2 flex items-center justify-between gap-2 px-2 py-1">
               <span className="text-xs font-black uppercase tracking-[0.15em] text-slate-400">Ваши группы</span>
               {groups.some((group) => group.status === LEARNING_GROUP_STATUS_COMPLETED) && (
@@ -1562,7 +1562,7 @@ const LearningGroupsSection = ({
                 </button>
               )}
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:max-h-[calc(100vh-250px)] lg:space-y-2 lg:overflow-y-auto lg:pr-1">
+            <div className={`flex gap-2 overflow-x-auto pb-1 ${tab === 'availability' ? '' : 'lg:block lg:max-h-[calc(100vh-250px)] lg:space-y-2 lg:overflow-y-auto lg:pr-1'}`}>
               {visibleGroups.map((group) => {
                 const isSelected = group.id === selectedGroupId;
                 return (
@@ -1571,9 +1571,9 @@ const LearningGroupsSection = ({
                     type="button"
                     onClick={() => {
                       setSelectedGroupId(group.id);
-                      setTab('overview');
+                      setTab(isTeacher && tab !== 'availability' ? 'overview' : 'availability');
                     }}
-                    className={`min-w-[240px] rounded-2xl border p-3 text-left transition lg:min-w-0 lg:w-full ${
+                    className={`${tab === 'availability' ? 'min-w-[180px] shrink-0 rounded-xl px-3 py-2' : 'min-w-[240px] rounded-2xl p-3 lg:min-w-0 lg:w-full'} border text-left transition ${
                       isSelected
                         ? 'border-violet-300 bg-violet-50 shadow-sm ring-2 ring-violet-100'
                         : 'border-slate-200 bg-white hover:border-violet-200 hover:bg-violet-50/40'
@@ -1583,13 +1583,13 @@ const LearningGroupsSection = ({
                       <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900">{group.name}</span>
                       <ChevronRight size={16} className={isSelected ? 'text-violet-600' : 'text-slate-300'} />
                     </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div className={`${tab === 'availability' ? 'hidden' : 'mt-2 flex flex-wrap items-center gap-2'}`}>
                       <GroupStatusPill status={group.status} />
                       <span className="text-[11px] font-semibold text-slate-500">
                         Участников: {group.memberCount}
                       </span>
                     </div>
-                    {group.nextLesson && (
+                    {group.nextLesson && tab !== 'availability' && (
                       <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500">
                         <Clock3 size={13} />
                         <span className="truncate">{formatDate(getLessonStart(group.nextLesson), { withTime: true, withYear: false })}</span>

@@ -18897,6 +18897,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         'schedule',
+        'groups',
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -20325,6 +20326,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Сегодня', icon: Calendar },
+        { id: 'groups', label: 'Моя группа', icon: Users },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -20342,6 +20344,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
+        'groups',
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -20362,7 +20365,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
   const studentDesktopMainNav = user.role === 'student'
     ? [
-      ...['review', 'schedule', 'progress']
+      ...['review', 'schedule', 'groups', 'progress']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
@@ -20401,6 +20404,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ]
     : [];
   const studentMobileMorePreferredIds = [
+    'groups',
     ...(studentCanSeeReview ? ['review'] : []),
     'python',
     ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []),
@@ -26481,7 +26485,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           )}
           {view === 'recording' && user.role === 'teacher' && <LessonRecordingSection recorder={desktopRecorder} />}
-          {view === 'groups' && user.role === 'teacher' && (
+          {view === 'groups' && ['teacher', 'student'].includes(user.role) && (
             <LearningGroupsSection
               role={user.role}
               userId={user.id}
@@ -26506,6 +26510,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               PYTHON_LEVEL_ID={PYTHON_LEVEL_ID}
               LEVELS={LEVELS}
             />
+          )}
+          {view === 'schedule' && user.role === 'student' && studentLessonWorkspace.group && (
+            <button type="button" onClick={() => navigateToView('groups')}
+              className="mb-4 flex w-full items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left text-violet-900">
+              <Users size={24} className="shrink-0 text-violet-600" />
+              <span className="flex-1"><strong className="block">Выберите время занятий с группой</strong><span className="text-sm">Отметьте удобные часы и ответьте на предложение преподавателя.</span></span>
+              <ChevronRight size={20} />
+            </button>
           )}
           {view === 'schedule' && user.role === 'student' && (
             <StudentTodayOverview
