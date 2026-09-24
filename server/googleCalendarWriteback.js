@@ -219,12 +219,13 @@ export const refreshGoogleCalendarAccessToken = async ({
   };
 };
 
-const googleCalendarApiRequest = async ({ accessToken, path, method = 'GET', body, fetchImpl = fetch }) => {
+const googleCalendarApiRequest = async ({ accessToken, path, method = 'GET', body, headers = {}, fetchImpl = fetch }) => {
   const response = await fetchWithTimeout(fetchImpl, `${GOOGLE_CALENDAR_API_BASE}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${normalizeText(accessToken)}`,
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...headers,
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
@@ -252,6 +253,66 @@ const getEventStartMs = (event) => {
   const parsed = Date.parse(raw);
   return Number.isFinite(parsed) ? parsed : NaN;
 };
+
+export async function listGoogleCalendarLessonEvents({accessToken,calendarId,timeMin,timeMax,fetchImpl=fetch}) {
+  const items=[];let pageToken='';
+  do {
+    const query=new URLSearchParams({timeMin,timeMax,singleEvents:'true',showDeleted:'false',maxResults:'2500',...(pageToken?{pageToken}:{})});
+    const page=await googleCalendarApiRequest({accessToken,fetchImpl,path:`/calendars/${encodeURIComponent(calendarId)}/events?${query}`});
+    items.push(...(page.items||[]));pageToken=page.nextPageToken||'';
+  }while(pageToken);
+  return items;
+}
+
+// Operates on one instance, never the recurring series. The request marker and
+// deterministic ID make retrying an uncertain network response safe.
+export async function moveGoogleCalendarLesson({ accessToken, calendarId, requestId, iCalUid, expectedStartAt, targetStartAt, durationMinutes, summary, recoverOnly = false, fetchImpl = fetch }) {
+  const base = `/calendars/${encodeURIComponent(calendarId)}/events`;
+  const start = Date.parse(targetStartAt); const old = Date.parse(expectedStartAt);
+  const end = start + Number(durationMinutes) * 60000;
+  if (!calendarId || !requestId || !Number.isFinite(start) || !Number.isFinite(old) || !(end > start)) throw new Error('Некорректные данные переноса');
+  const api = options => googleCalendarApiRequest({accessToken,fetchImpl,...options});
+  const list = async query => {
+    const items=[];let pageToken='';
+    do {
+      const params=new URLSearchParams({...query,singleEvents:'true',showDeleted:'false',maxResults:'2500',...(pageToken?{pageToken}:{})});
+      const page=await api({path:`${base}?${params}`}); items.push(...(page.items||[]));pageToken=page.nextPageToken||'';
+    } while(pageToken);
+    return items;
+  };
+  let writeStarted=false;
+  try {
+    const prior=await list({privateExtendedProperty:`ivan100Reschedule=${requestId}`});
+    if(prior.length){
+      const event=prior.find(e=>Date.parse(e.start?.dateTime)===start && Date.parse(e.end?.dateTime)===end);
+      if(!event)throw Object.assign(new Error('Перенесённое событие уже изменено в Google. Проверьте календарь.'),{status:409});
+      return {eventId:event.id,iCalUID:event.iCalUID,calendarId};
+    }
+    if(recoverOnly)return null;
+    let event=null;
+    if(iCalUid){
+      const candidates=await list({iCalUID:iCalUid,timeMin:new Date(old-86400000).toISOString(),timeMax:new Date(old+86400000).toISOString()});
+      const exact=candidates.filter(e=>Date.parse(e.start?.dateTime)===old && Date.parse(e.end?.dateTime)-old===Number(durationMinutes)*60000);
+      if(exact.length!==1)throw Object.assign(new Error('Исходное занятие изменилось или не найдено в выбранном Google Календаре.'),{status:409});
+      event=exact[0];
+    }
+    const occupied=await list({timeMin:new Date(start).toISOString(),timeMax:new Date(end).toISOString()});
+    if(occupied.some(e=>e.id!==event?.id && e.status!=='cancelled' && e.transparency!=='transparent'
+      && !String(e.summary||'').toLocaleUpperCase('ru-RU').endsWith('(ОТМЕНЕНО)')))
+      throw Object.assign(new Error('В Google Календаре это время уже занято.'),{status:409});
+    const body={start:{dateTime:new Date(start).toISOString(),timeZone:'Europe/Moscow'},end:{dateTime:new Date(end).toISOString(),timeZone:'Europe/Moscow'},
+      extendedProperties:{private:{...(event?.extendedProperties?.private||{}),ivan100Reschedule:requestId}}};
+    writeStarted=true;
+    const moved=event ? await api({path:`${base}/${encodeURIComponent(event.id)}?sendUpdates=none`,method:'PATCH',headers:event.etag?{'If-Match':event.etag}:{},body})
+      : await api({path:`${base}?sendUpdates=none`,method:'POST',body:{...body,id:crypto.createHash('sha256').update(`ivan100-reschedule:${requestId}`).digest('hex'),summary}});
+    return {eventId:moved.id||event?.id,iCalUID:moved.iCalUID||iCalUid,calendarId};
+  } catch(error) {
+    // Definite rejections are safe to leave pending; timeouts and 5xx after
+    // a write keep a durable applying record for reconciliation on retry.
+    error.definite=!writeStarted || [400,401,403,404,412].includes(error.status);
+    throw error;
+  }
+}
 
 const chooseOccurrence = (events, expectedStartMs) => {
   const candidates = (Array.isArray(events) ? events : [])

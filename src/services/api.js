@@ -2785,6 +2785,13 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  lessonReschedules: async (path = '', body) => {
+    const res = await apiFetch(`/api/lesson-reschedules${path}`, body === undefined ? {} : {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   createStudentScheduleRequest: async (payload) => {
     const body = payload && typeof payload === 'object' ? payload : {};
     const res = await apiFetch('/api/student-schedule-requests', {

@@ -38,6 +38,7 @@ import TeacherSubscriptionGate, { TeacherSubscriptionReminder } from './componen
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
+const TeacherRescheduleInbox = React.lazy(() => import('./components/LessonReschedule').then(module => ({default:module.TeacherRescheduleInbox})));
 import StudentWeeklyRecap from './components/StudentWeeklyRecap';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import CoinGuideIcon from './components/CoinGuideTooltip';
@@ -25164,6 +25165,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           </div>
         </div>
       )}
+      {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherRescheduleInbox userId={user.id} showEmpty={isTeacherNotificationsTabOpen} /></React.Suspense>}
       {user.role === 'student' && !studentTourActive && (
         <StudentNotificationsCenter
           user={user}

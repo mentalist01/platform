@@ -1,4 +1,7 @@
 import express from 'express';
+import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
+import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
+import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
@@ -10587,7 +10590,7 @@ const parseGoogleCalendarInWorker = (icalText, toMs) => new Promise((resolve, re
   });
 });
 
-const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
+const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => {
   const normalizedTeacherId = String(teacherId || '').trim();
   if (!normalizedTeacherId) return [];
   const settings = getTeacherCalendarSyncSettings(normalizedTeacherId);
@@ -10789,6 +10792,10 @@ const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
     }
   }
 };
+
+const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => overlayReschedules(
+  await fetchTeacherGoogleCalendarEntriesRaw(teacherId, options), teacherId, lessonRescheduleStore
+);
 
 const getTeacherCalendarRefreshSettingsKey = (settings) => [
   settings?.enabled ? '1' : '0',
@@ -23781,6 +23788,7 @@ const getLearningMaterialAccessError = (auth, group, material) => {
     : 'Недостаточно прав';
 };
 
+const lessonRescheduleStore = createRescheduleStore(path.join(dataDir, 'lesson-reschedules.json'));
 const availabilityStore = createAvailabilityStore(path.join(dataDir, 'group-availability.json'));
 let lastAvailabilityMaterialized = 0;
 const materializeAvailabilitySchedules = (force = false) => {
@@ -23808,6 +23816,98 @@ const availabilityCalendarEntries = (teacherId, onlyGenerated = false) => {
       startAt: lesson.startAt, replayKey: buildLearningGroupLessonReplayKey(lesson.id) };
   });
 };
+registerLessonReschedules(app, {
+  store: lessonRescheduleStore, getStudent: findStudentById,
+  getEntries: async (teacherId, force) => {
+    materializeAvailabilitySchedules();
+    let google = await fetchTeacherGoogleCalendarEntries(teacherId, { force, throwOnError: true });
+    const connection = getTeacherCalendarGoogleConnection(teacherId);
+    if (connection.encryptedTokens && connection.calendarId) {
+      const events = await listGoogleCalendarLessonEvents({accessToken:await getTeacherGoogleCalendarAccessToken(teacherId),calendarId:connection.calendarId,
+        timeMin:new Date(Date.now()-86400000).toISOString(),timeMax:new Date(Date.now()+98*86400000).toISOString()});
+      const uids = new Set(events.map(e=>e.iCalUID).filter(Boolean));
+      const students = readStudentsDb().filter(s=>s.teacherId===teacherId && isCurrentStudent(s));
+      const groups = readLearningGroupsDb().filter(g=>g.teacherId===teacherId);
+      const live = events.flatMap(e=>{
+        if(e.status==='cancelled' || e.transparency==='transparent' || String(e.summary||'').toLocaleUpperCase('ru-RU').endsWith('(ОТМЕНЕНО)'))return [];
+        if(e.start?.date && e.end?.date) {
+          const days=[];
+          for(let ms=Date.parse(e.start.date);ms<Date.parse(e.end.date) && days.length<100;ms+=86400000)
+            days.push({id:`google-busy-${e.id}-${ms}`,date:new Date(ms).toISOString().slice(0,10),time:'00:00',durationMinutes:1440});
+          return days;
+        }
+        const item = buildGoogleCalendarScheduleEntry({type:'VEVENT',uid:e.iCalUID,start:e.start?.dateTime,end:e.end?.dateTime,
+          summary:e.summary,description:e.description,location:e.location},teacherId,students,groups);
+        return item ? [item] : [];
+      });
+      // The API is fresh; the read-only iCal feed may still show the old time.
+      google = [...google.filter(e=>!uids.has(e.externalEventId)),...live];
+    }
+    const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacherId]);
+    return [...getTeacherScheduleEntries(teacherId), ...google, ...availabilityCalendarEntries(teacherId)]
+      .map(e => annotateTeacherCalendarCancellation(teacherId, e, marks));
+  },
+  googleMove: async (row, { recoverOnly = false } = {}) => {
+    let accessToken;
+    const connection = getTeacherCalendarGoogleConnection(row.teacherId);
+    try {
+      if (!connection.calendarId) throw new Error('Подключите редактирование Google Календаря в общем календаре.');
+      accessToken = await getTeacherGoogleCalendarAccessToken(row.teacherId);
+    } catch (error) { throw Object.assign(new Error('Подключите редактирование Google Календаря в разделе «Общий календарь» и повторите подтверждение.'), { status: 409, definite: true }); }
+    return moveGoogleCalendarLesson({ accessToken, calendarId: connection.calendarId, requestId: row.id,
+      iCalUid: row.source.externalEventId || '', expectedStartAt: new Date(lessonStart(row.source)).toISOString(),
+      targetStartAt: new Date(lessonStart(row.target)).toISOString(), durationMinutes: row.target.durationMinutes,
+      summary: row.source.googleCalendarTitle || row.studentName, recoverOnly });
+  },
+  applyLocal: async row => {
+    const student = findStudentById(row.studentId);
+    if (!student || student.teacherId !== row.teacherId) throw new Error('Ученик сменил преподавателя.');
+    const data = getStudentData(student.id);
+    const moved = buildStudentScheduleEntryFromGoogleCalendar({ ...row.source, ...row.target,
+      externalEventId: row.googleResult.iCalUID || row.source.externalEventId,
+      startAt: new Date(lessonStart(row.target)).toISOString(), subject: row.source.googleCalendarTitle || row.source.subject || row.studentName,
+    }, student, { role: 'teacher', id: row.teacherId });
+    const schedule = [];
+    for (const entry of data.schedule || []) {
+      if (entry.id === moved.id) continue;
+      const isSource = !entry.groupId && entry.time === row.source.time && (entry.date ? entry.date === row.source.date : entry.weekdayKey === row.source.weekdayKey);
+      if (!isSource) schedule.push(entry);
+      else if (!entry.date) schedule.push({ ...entry, excludedDates: [...new Set([...(entry.excludedDates || []), row.source.date])] });
+    }
+    setStudentScheduleWithHomeworkSync(student.id, data, [...schedule, moved]);
+    // Payment/trial markers are tied to a dated occurrence, so carry them
+    // along instead of making a paid lesson appear unpaid after the move.
+    const marksDb = readTeacherCalendarMarksDb();
+    const marks = normalizeTeacherCalendarMarks(marksDb[row.teacherId]);
+    const targetCalendarEntry = { ...moved, id: movedGoogleEntryId(row) };
+    const financeDb = readTeacherFinanceDb();
+    const teacherFinance = getTeacherFinanceTeacherEntry(financeDb, row.teacherId);
+    for (const action of ['paid', 'trial']) {
+      const oldKey = buildTeacherCalendarPaymentMarkKey(row.teacherId, row.source, row.source.date, action);
+      const newKey = buildTeacherCalendarPaymentMarkKey(row.teacherId, targetCalendarEntry, row.target.date, action);
+      if (marks[oldKey]) { marks[newKey] = marks[oldKey]; delete marks[oldKey]; }
+      if (action === 'paid') {
+        const allocation = getPaymentAllocationByMarkKey(teacherFinance, oldKey, row.studentId);
+        if (allocation && allocation.currentMarkKey === oldKey) {
+          moveTeacherFinancePaymentAmount(teacherFinance, row.studentId, row.source.date.slice(0,7), row.target.date.slice(0,7), allocation.amount);
+          Object.assign(allocation, { currentMarkKey: newKey, currentEntryId: targetCalendarEntry.id, currentDayKey: row.target.date,
+            currentTime: row.target.time, currentDurationMinutes: row.target.durationMinutes, targetMarkKey: newKey, updatedAt: new Date().toISOString() });
+        }
+      }
+    }
+    financeDb[row.teacherId] = teacherFinance; writeTeacherFinanceDb(financeDb);
+    marksDb[row.teacherId] = marks; writeTeacherCalendarMarksDb(marksDb);
+    teacherCalendarSyncCache.delete(row.teacherId); teacherCalendarRefreshResultCache.delete(row.teacherId);
+  },
+  notify: (row, action) => {
+    notifyScheduleSyncUpdate({ scope: 'lesson-reschedule', action, teacherId: row.teacherId, studentId: row.studentId, entryId: row.id });
+    if (action === 'created') sendPushNotificationToUserKey(`teacher:${row.teacherId}`, {
+      title: 'Запрос на перенос занятия', body: `${row.studentName}: ${row.source.date}, ${row.source.time} → ${row.target.date}, ${row.target.time}`,
+      icon: '/favicon.ico', tag: `lesson-reschedule-${row.id}`, data: { url: '/?view=notifications', type: 'lesson-reschedule' },
+    }, { logTarget: `teacher:${row.teacherId}` }).catch(error => console.warn('[reschedule] push failed:', error.message));
+  },
+});
+
 registerGroupAvailability(app, {
   store: availabilityStore, getGroup: getLearningGroupById, canManage: canManageLearningGroup,
   getStudentName: id => { const s = findStudentById(id); return s?.nickname || s?.name || 'Ученик'; },
@@ -23817,7 +23917,8 @@ registerGroupAvailability(app, {
     const endMonth = new Date(Date.parse(`${config.startDate}T12:00:00Z`) + config.weeks * 7 * 86400000).toISOString().slice(0, 7);
     const google = await fetchTeacherGoogleCalendarEntries(group.teacherId, { throughMonth: endMonth, throwOnError: true, force });
     const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[group.teacherId]);
-    return [...getTeacherScheduleEntries(group.teacherId), ...google, ...availabilityCalendarEntries(group.teacherId)]
+    const reserving = lessonRescheduleStore.all().filter(r => r.teacherId === group.teacherId && r.status === 'applying').map(r => ({...r.target}));
+    return [...getTeacherScheduleEntries(group.teacherId), ...google, ...availabilityCalendarEntries(group.teacherId), ...reserving]
       .filter(entry => !(entry.source === 'availability-plan' && entry.groupId === group.id
         && entry.status === 'scheduled' && entry.date >= config.startDate))
       .map(entry => annotateTeacherCalendarCancellation(group.teacherId, entry, marks));

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { calendarMutationLocks } from './calendarMutations.js';
 import { availabilitySlots, addCalendarDays, moscowDay, weekdayIndex, AVAILABILITY_WEEKDAYS } from '../src/utils/groupAvailability.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -89,7 +90,7 @@ export function materializeAvailabilityPlans(plans, groups, lessons, createLesso
 
 export function registerGroupAvailability(app, deps) {
   const { store, getGroup, canManage, getStudentName, getBusyEntries, materialize } = deps;
-  const locks = new Map();
+  const locks = calendarMutationLocks;
   const access = (req, manage = false) => {
     const group = getGroup(req.params.groupId);
     if (!group || group.deletedAt) fail('Группа не найдена', 404);
