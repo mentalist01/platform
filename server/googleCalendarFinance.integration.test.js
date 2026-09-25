@@ -503,6 +503,19 @@ test('former namesake keeps historical Google events matched by exact nickname',
     assert.equal(formerEntry?.studentId, formerStudentId);
     assert.equal(currentEntry?.studentId, currentStudentId);
 
+    // A title-marked trial matched to an existing student is free, without
+    // requiring a manually created trial/payment marker on the platform.
+    const financeResponse = await fetch(
+      `${baseUrl}/api/teacher-finance?month=${currentLessonDay.slice(0, 7)}`,
+      { headers: { Authorization: authorization } }
+    );
+    await assertStatus(financeResponse, 200);
+    const finance = await financeResponse.json();
+    const historicalCount = formerLessonDay.slice(0, 7) === currentLessonDay.slice(0, 7) ? 1 : 0;
+    assert.equal(finance.calendarPlan.total.lessonCount, historicalCount);
+    assert.equal(finance.calendarPlan.remaining.lessonCount, historicalCount);
+    assert.equal(finance.calendarPlan.unpricedLessons.some(row => row.studentId === currentStudentId), false);
+
     const currentStudentScheduleResponse = await fetch(
       `${baseUrl}/api/student-schedule?studentId=${encodeURIComponent(currentStudentId)}`,
       { headers: { Authorization: authorization } }

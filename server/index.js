@@ -1,3 +1,4 @@
+import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
 import express from 'express';
 import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
@@ -16414,7 +16415,7 @@ const buildStudentSchedulePaymentState = ({
     normalizedDayKey
   );
   const paidMarked = Boolean(paidMarkKey && teacherMarks?.[paidMarkKey]);
-  const trialMarked = Boolean(trialMarkKey && teacherMarks?.[trialMarkKey]);
+  const trialMarked = isExplicitTrialLesson(paymentEvent) || Boolean(trialMarkKey && teacherMarks?.[trialMarkKey]);
   const cancelled = isTeacherCalendarLessonCancelled(
     normalizedTeacherId,
     paymentEvent,
@@ -16901,7 +16902,7 @@ const getPaymentCandidateLessonOccurrences = async (teacherId, student, received
       const markKey = buildTeacherCalendarPaymentMarkKey(teacherId, event, normalizedDayKey, 'paid');
       const trialMarkKey = buildTeacherCalendarPaymentMarkKey(teacherId, event, normalizedDayKey, 'trial');
       if (!markKey || teacherMarks[markKey]) return;
-      if (trialMarkKey && teacherMarks[trialMarkKey]) return;
+      if (isExplicitTrialLesson(event) || (trialMarkKey && teacherMarks[trialMarkKey])) return;
       if (isTeacherCalendarLessonCancelled(teacherId, event, normalizedDayKey, teacherMarks)) return;
       occurrences.push({
         event,

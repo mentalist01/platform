@@ -15,12 +15,12 @@ function Status({ row }) {
   </span>;
 }
 
-export default function MonthlyMockExamStatus({ role, userId, activeStudentId, students = [], refreshKey, onAssign, onOpenMocks }) {
+export default function MonthlyMockExamStatus({ role, userId, activeStudentId, students = [], refreshKey, onAssign, onOpenMocks, initiallyExpanded = false }) {
   const teacher = role === 'teacher';
   const [selectedMonth, setSelectedMonth] = useState('');
-  const [filter, setFilter] = useState('pending');
+  const [filter, setFilter] = useState(initiallyExpanded ? 'all' : 'pending');
   const [query, setQuery] = useState('');
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');

@@ -1,4 +1,7 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import MonthlyMockExamBadge from './MonthlyMockExamBadge';
+import MonthlyMockExamStatus from './MonthlyMockExamStatus';
+import { useMonthlyMockRoster } from '../hooks/useMonthlyMockRoster';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, EyeOff, FileText, GripVertical, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, X } from 'lucide-react';
 import { api } from '../services/api';
@@ -211,6 +214,9 @@ const TeacherPanel = ({
   onStudentRestored,
   onStudentUpdated,
   teacherId,
+  onAssignMonthlyMock,
+  onOpenMonthlyMocks,
+  monthlyMockRefreshKey,
   SOFT_DELETE_DAYS,
   MOCK_TASKS,
   LEVELS,
@@ -240,6 +246,17 @@ const TeacherPanel = ({
   const isSignupChatsMode = mode === 'signup-chats';
   const isTestsMode = !isSignupChatsMode;
   const [isStudentsExpanded, setIsStudentsExpanded] = useState(false);
+  const [monthlyMockStudentId, setMonthlyMockStudentId] = useState(null);
+  const monthlyMocks = useMonthlyMockRoster({ teacherId, enabled: role === 'teacher' && isStudentsExpanded && isTestsMode, refreshKey: monthlyMockRefreshKey });
+  const monthlyMockRows = new Map((monthlyMocks.data?.rows || []).map(row => [String(row.studentId), row]));
+  const refreshMonthlyMocks = monthlyMocks.refresh;
+  const closeMonthlyMocks = useCallback(() => { setMonthlyMockStudentId(null); refreshMonthlyMocks(); }, [refreshMonthlyMocks]);
+  useEffect(() => {
+    if (monthlyMockStudentId === null) return undefined;
+    const close = event => { if (event.key === 'Escape') closeMonthlyMocks(); };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [monthlyMockStudentId, closeMonthlyMocks]);
   const [isTeacherCodeExpanded, setIsTeacherCodeExpanded] = useState(false);
   const [testDb, setTestDb] = useState(null);
   const [testsLoading, setTestsLoading] = useState(false);
@@ -2940,6 +2957,20 @@ const TeacherPanel = ({
           })}
         </div>
 
+        {role === 'teacher' && <div className="monthly-mock-roster-tools">
+          <span>Пробник за {monthlyMocks.data?.period?.label || 'этот месяц'} · хотя бы один завершённый</span>
+          <button type="button" onClick={() => setMonthlyMockStudentId('')}>Все пробники и настройки</button>
+        </div>}
+        {monthlyMockStudentId !== null && createPortal(
+          <div className="monthly-mock-dialog-backdrop" onClick={closeMonthlyMocks}>
+            <div role="dialog" aria-modal="true" aria-label="Пробники за месяц" className="monthly-mock-dialog" onClick={event => event.stopPropagation()}>
+              <div className="monthly-mock-dialog__heading"><h3>Пробники учеников</h3><button type="button" autoFocus onClick={closeMonthlyMocks} aria-label="Закрыть пробники"><X size={20} /></button></div>
+              <MonthlyMockExamStatus role={role} userId={teacherId} students={students} activeStudentId={monthlyMockStudentId}
+                initiallyExpanded onAssign={id => { closeMonthlyMocks(); onAssignMonthlyMock?.(id); }}
+                onOpenMocks={id => { closeMonthlyMocks(); onOpenMonthlyMocks?.(id); }} />
+            </div>
+          </div>, document.body
+        )}
         <div className="space-y-2">
           {studentsLoading ? (
             <div className="text-sm text-gray-500">Загрузка списка...</div>
@@ -3265,6 +3296,9 @@ const TeacherPanel = ({
                         {student.nickname && (
                           <p className="teacher-student-card__nickname text-xs text-purple-600 truncate">Имя2: {student.nickname}</p>
                         )}
+                        {role === 'teacher' && studentIsCurrent && <MonthlyMockExamBadge
+                          row={monthlyMockRows.get(String(student.id))} period={monthlyMocks.data?.period} error={monthlyMocks.error}
+                          onClick={() => setMonthlyMockStudentId(String(student.id))} />}
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <span
                             className="teacher-student-card__pill inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700"

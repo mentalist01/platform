@@ -1,4 +1,5 @@
 import { isCurrentStudent } from '../src/utils/studentStudyStatus.js';
+import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 
 const DEFAULT_DURATION_MINUTES = 60;
 const MIN_DURATION_MINUTES = 15;
@@ -187,6 +188,7 @@ export const expandTeacherFinanceMonthOccurrences = ({
 const isTrial = (occurrence) => (
   Boolean(occurrence?.trial || occurrence?.isTrial || occurrence?.entry?.trial || occurrence?.entry?.isTrial)
   || String(occurrence?.status ?? occurrence?.entry?.status ?? '').trim().toLowerCase() === 'trial'
+  || isExplicitTrialLesson(occurrence?.entry || occurrence)
 );
 
 const hasOwn = (value, key) => (

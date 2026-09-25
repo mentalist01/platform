@@ -1,3 +1,4 @@
+import { isExplicitTrialLesson } from '../utils/calendarLessonType.js';
 import { LessonAlarmSettings } from './LessonAlarmControls';
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -70,7 +71,7 @@ const CALENDAR_DEFAULT_SCROLL_HOUR = 9;
 const CALENDAR_DEFAULT_SCROLL_LEAD_MINUTES = 30;
 const MIN_CALENDAR_HOUR_HEIGHT = 24;
 const MAX_CALENDAR_HOUR_HEIGHT = 56;
-const CALENDAR_VIEWPORT_RESERVED_PX = 276;
+const CALENDAR_VIEWPORT_RESERVED_PX = 180;
 const DEFAULT_EVENT_DURATION_MINUTES = 60;
 const QUICK_CREATE_TIME_STEP_MINUTES = 30;
 const DEFAULT_ONE_TIME_LESSON_SUBJECT = 'Пробное занятие';
@@ -317,7 +318,7 @@ const getLearningGroupCalendarParticipants = (entry, studentNameById = {}) => {
 };
 
 const isTrialEntry = (entry) => (
-  !String(entry?.studentId || '').trim() && !isLearningGroupCalendarEntry(entry)
+  !isLearningGroupCalendarEntry(entry) && (!String(entry?.studentId || '').trim() || isExplicitTrialLesson(entry))
 );
 const isExternalCalendarEntry = (entry) => Boolean(
   entry?.isExternalCalendarEvent || String(entry?.source || '').trim() === 'google-ical'
@@ -984,8 +985,6 @@ const TeacherCalendarSection = ({
   const [lessonPanelFinanceBusy, setLessonPanelFinanceBusy] = useState('');
   const [lessonPanelError, setLessonPanelError] = useState('');
   const [lessonPanelSuccess, setLessonPanelSuccess] = useState('');
-  const [lessonPanelHomework, setLessonPanelHomework] = useState(null);
-  const [lessonPanelHomeworkLoading, setLessonPanelHomeworkLoading] = useState(false);
   const [eventDetailsHomework, setEventDetailsHomework] = useState(null);
   const [eventDetailsHomeworkLoading, setEventDetailsHomeworkLoading] = useState(false);
   const [lessonInfoModalOpen, setLessonInfoModalOpen] = useState(false);
@@ -2358,85 +2357,18 @@ const TeacherCalendarSection = ({
     return last ? { ...last, status: 'past' } : null;
   }, [currentTimeLineNow, entries, lessonPanelMarks, studentNameById, teacherId]);
 
-  const lessonPanelStudentId = String(lessonPanelInfo?.event?.studentId || '').trim();
   const lessonPanelIsGroup = isLearningGroupCalendarEntry(lessonPanelInfo?.event);
-  const lessonPanelGroupParticipants = useMemo(
-    () => getLearningGroupCalendarParticipants(lessonPanelInfo?.event, studentNameById),
-    [lessonPanelInfo?.event, studentNameById]
-  );
-  const lessonPanelHasStudent = Boolean(lessonPanelStudentId);
-  const lessonPanelCanOpenGroup = lessonPanelIsGroup
-    && Boolean(String(lessonPanelInfo?.event?.lessonId || '').trim())
-    && lessonPanelGroupParticipants.length > 0;
-  const lessonPanelGroupDurationMinutes = Math.max(
-    15,
-    Number(lessonPanelInfo?.event?.durationMinutes)
-      || (Number(lessonPanelInfo?.event?.endMinutes) - Number(lessonPanelInfo?.event?.startMinutes))
-      || DEFAULT_EVENT_DURATION_MINUTES
-  );
-  const lessonPanelGroupStatus = String(
-    lessonPanelInfo?.event?.status || lessonPanelInfo?.event?.lessonStatus || ''
-  ).trim().toLowerCase();
-  const lessonPanelGroupStartLabel = lessonPanelInfo
-    ? formatMinutesAsTime(lessonPanelInfo.event.startMinutes)
-    : '';
-  const lessonPanelGroupFallbackStartsAt = lessonPanelInfo?.dayKey
-    && lessonPanelGroupStartLabel
-    && lessonPanelGroupStartLabel !== '--:--'
-    ? `${lessonPanelInfo.dayKey}T${lessonPanelGroupStartLabel}:00`
-    : '';
-  const lessonPanelGroupStartsAt = String(
-    lessonPanelInfo?.event?.startsAt
-      || lessonPanelInfo?.event?.startAt
-      || lessonPanelGroupFallbackStartsAt
-      || ''
-  ).trim();
-  const lessonPanelGroupStartMs = Date.parse(lessonPanelGroupStartsAt);
-  const lessonPanelGroupNotStarted = lessonPanelIsGroup
-    && Number.isFinite(lessonPanelGroupStartMs)
-    && lessonPanelGroupStartMs > currentTimeLineNow.getTime()
-    && lessonPanelGroupStatus !== 'active';
-  const lessonPanelGroupClosed = lessonPanelIsGroup && (
-    lessonPanelInfo?.status === 'past'
-    || ['completed', 'cancelled'].includes(lessonPanelGroupStatus)
-    || String(lessonPanelInfo?.event?.groupStatus || '').trim().toLowerCase() === 'completed'
-  );
-  const lessonPanelGroupReadOnly = lessonPanelGroupClosed || lessonPanelGroupNotStarted;
-  const lessonPanelGroupCanOpenTelemost = lessonPanelCanOpenGroup
-    && !lessonPanelGroupReadOnly;
-  const lessonPanelStudentSelected = lessonPanelHasStudent
-    && String(activeStudentId || '').trim() === lessonPanelStudentId;
   const lessonPanelStudentName = String(
     (lessonPanelIsGroup ? lessonPanelInfo?.event?.groupName : lessonPanelInfo?.event?.studentName)
     || lessonPanelInfo?.event?.subject
     || DEFAULT_ONE_TIME_LESSON_SUBJECT
   ).trim();
-  const lessonPanelSubject = String(lessonPanelInfo?.event?.subject || '').trim();
   const lessonPanelDateLabel = lessonPanelInfo?.dayKey
     ? formatDayMonth(new Date(`${lessonPanelInfo.dayKey}T00:00:00`))
     : '';
   const lessonPanelTimeLabel = lessonPanelInfo
     ? `${formatMinutesAsDisplayTime(lessonPanelInfo.event.startMinutes, use24HourFormat)}-${formatMinutesAsDisplayTime(lessonPanelInfo.event.endMinutes, use24HourFormat)}`
     : '';
-  const lessonPanelStatusLabel = lessonPanelInfo?.status === 'current'
-    ? 'Идёт сейчас'
-    : (lessonPanelInfo?.status === 'past' ? 'Последний урок' : 'Ближайший урок');
-  const lessonPanelLink = normalizeLessonPanelUrl(lessonPanelInfo?.event?.telemostUrl)
-    || normalizeLessonPanelUrl(lessonPanelInfo?.event?.lessonLink)
-    || normalizeLessonPanelUrl(lessonPanelInfo?.event?.boardLink);
-  const lessonPanelGroupLink = normalizeTelemostUrl(lessonPanelInfo?.event?.telemostUrl);
-  const lessonPanelCompletedMarkKey = lessonPanelInfo
-    ? buildLessonPanelMarkKey(teacherId, lessonPanelInfo, 'completed')
-    : '';
-  const lessonPanelPaidMarkKey = lessonPanelInfo
-    ? buildLessonPanelMarkKey(teacherId, lessonPanelInfo, 'paid')
-    : '';
-  const lessonPanelTrialMarkKey = lessonPanelInfo
-    ? buildLessonPanelMarkKey(teacherId, lessonPanelInfo, 'trial')
-    : '';
-  const lessonPanelCompletedMarked = Boolean(lessonPanelMarks[lessonPanelCompletedMarkKey]);
-  const lessonPanelPaidMarked = Boolean(lessonPanelMarks[lessonPanelPaidMarkKey]);
-  const lessonPanelTrialMarked = Boolean(lessonPanelMarks[lessonPanelTrialMarkKey]);
 
   const saveLessonPanelMark = useCallback(async (markKey) => {
     if (!markKey || !teacherId) return;
@@ -2493,85 +2425,12 @@ const TeacherCalendarSection = ({
     }
   }, [onOpenStudentWorkspace, onSelectStudent]);
 
-  const openLessonPanelWorkspace = useCallback((viewId) => {
-    openStudentWorkspace(viewId, lessonPanelStudentId);
-  }, [lessonPanelStudentId, openStudentWorkspace]);
 
-  const openLessonPanelGroupWorkspace = useCallback((surface = 'call') => {
-    const event = lessonPanelInfo?.event || {};
-    if (!lessonPanelCanOpenGroup || typeof onOpenLearningGroupLesson !== 'function') return;
-    const startLabel = formatMinutesAsTime(event.startMinutes);
-    const fallbackStartsAt = lessonPanelInfo?.dayKey && startLabel && startLabel !== '--:--'
-      ? `${lessonPanelInfo.dayKey}T${startLabel}:00`
-      : '';
-    const lessonContext = {
-      lessonId: String(event.lessonId || '').trim(),
-      groupId: String(event.groupId || '').trim(),
-      participantIds: lessonPanelGroupParticipants.map((member) => member.studentId),
-      groupName: String(event.groupName || event.subject || 'Мини-группа').trim(),
-      topic: String(event.topic || event.subject || 'Групповое занятие').trim(),
-      startsAt: String(event.startsAt || event.startAt || fallbackStartsAt).trim(),
-      durationMinutes: lessonPanelGroupDurationMinutes,
-      telemostUrl: normalizeTelemostUrl(event.telemostUrl),
-      status: lessonPanelGroupClosed ? 'completed' : String(event.status || '').trim(),
-      groupStatus: String(event.groupStatus || '').trim(),
-      readOnly: lessonPanelGroupReadOnly,
-      surface,
-    };
-    if (surface === 'call' && !lessonPanelGroupReadOnly && typeof onOpenLearningGroupTelemost === 'function') {
-      onOpenLearningGroupTelemost(lessonContext);
-      return;
-    }
-    onOpenLearningGroupLesson(lessonContext);
-  }, [
-    lessonPanelCanOpenGroup,
-    lessonPanelGroupParticipants,
-    lessonPanelGroupDurationMinutes,
-    lessonPanelGroupClosed,
-    lessonPanelGroupReadOnly,
-    lessonPanelInfo,
-    onOpenLearningGroupTelemost,
-    onOpenLearningGroupLesson,
-  ]);
 
-  const openLessonPanelCall = useCallback(() => {
-    if (lessonPanelIsGroup) {
-      openLessonPanelGroupWorkspace('call');
-      return;
-    }
-    openLessonPanelWorkspace('call-connect');
-  }, [lessonPanelIsGroup, openLessonPanelGroupWorkspace, openLessonPanelWorkspace]);
 
-  const handleLessonPanelClick = useCallback((event) => {
-    if (!lessonPanelHasStudent && !lessonPanelCanOpenGroup) return;
-    const interactiveTarget = event.target?.closest?.('button, a, input, textarea, select, label');
-    if (interactiveTarget && event.currentTarget.contains(interactiveTarget)) return;
-    openLessonPanelCall();
-  }, [lessonPanelCanOpenGroup, lessonPanelHasStudent, openLessonPanelCall]);
 
-  const handleLessonPanelKeyDown = useCallback((event) => {
-    if (!lessonPanelHasStudent && !lessonPanelCanOpenGroup) return;
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    openLessonPanelCall();
-  }, [lessonPanelCanOpenGroup, lessonPanelHasStudent, openLessonPanelCall]);
 
-  const openLessonPanelLink = useCallback(() => {
-    if (!lessonPanelLink || typeof window === 'undefined') return;
-    window.open(lessonPanelLink, '_blank', 'noopener,noreferrer');
-  }, [lessonPanelLink]);
 
-  const openLessonInfoModal = useCallback(() => {
-    if (!lessonPanelHasStudent) return;
-    setLessonInfoTarget({
-      studentId: lessonPanelStudentId,
-      studentName: lessonPanelStudentName,
-      dateLabel: lessonPanelDateLabel,
-      timeLabel: lessonPanelTimeLabel,
-    });
-    setLessonInfoError('');
-    setLessonInfoModalOpen(true);
-  }, [lessonPanelDateLabel, lessonPanelHasStudent, lessonPanelStudentId, lessonPanelStudentName, lessonPanelTimeLabel]);
 
   const closeLessonInfoModal = useCallback(() => {
     setLessonInfoModalOpen(false);
@@ -2607,91 +2466,6 @@ const TeacherCalendarSection = ({
     teacherId,
   ]);
 
-  const handleLessonPanelFinanceAction = useCallback(async (action) => {
-    const normalizedAction = String(action || '').trim();
-    if (!teacherId || !lessonPanelInfo || lessonPanelFinanceBusy) return;
-    const markKey = normalizedAction === 'paid' ? lessonPanelPaidMarkKey : lessonPanelCompletedMarkKey;
-    const undo = Boolean(markKey && lessonPanelMarks[markKey]);
-
-    setLessonPanelFinanceBusy(undo ? `${normalizedAction}-undo` : normalizedAction);
-    setLessonPanelError('');
-    setLessonPanelSuccess('');
-    try {
-      if (!lessonPanelStudentId) {
-        if (normalizedAction !== 'paid') return;
-        if (undo) {
-          await removeLessonPanelMark(markKey);
-        } else {
-          await saveLessonPanelMark(markKey);
-        }
-        setLessonPanelSuccess(undo
-          ? 'Отметка оплаты отменена.'
-          : 'Оплата отмечена в календаре. Ученик не сопоставлен, сумму в финансы не добавлял.');
-        return;
-      }
-      const month = getFinanceMonthFromDayKey(lessonPanelInfo.dayKey);
-      const snapshot = await api.getTeacherFinance(month, teacherId);
-      const financeStudent = (Array.isArray(snapshot?.students) ? snapshot.students : [])
-        .find((student) => String(student?.id || '').trim() === lessonPanelStudentId);
-      const record = financeStudent?.record || {};
-      const profile = financeStudent?.profile || {};
-      const currentCompleted = normalizeFinanceAmount(record.completedLessons);
-      const currentPaid = normalizeFinanceAmount(record.paidAmount);
-      const lessonPrice = normalizeFinanceAmount(record.lessonPrice ?? profile.lessonPrice);
-      const overrides = { month };
-
-      if (normalizedAction === 'completed') {
-        overrides.completedLessons = undo
-          ? Math.max(0, currentCompleted - 1)
-          : currentCompleted + 1;
-      } else if (normalizedAction === 'paid') {
-        if (lessonPrice <= 0) {
-          if (undo) {
-            await removeLessonPanelMark(markKey);
-          } else {
-            await saveLessonPanelMark(markKey);
-          }
-          setLessonPanelSuccess(undo
-            ? 'Отметка оплаты отменена.'
-            : 'Оплата отмечена в календаре. Стоимость урока в финансах не указана, сумму не добавлял.');
-          return;
-        }
-        overrides.paidAmount = undo
-          ? Math.max(0, currentPaid - lessonPrice)
-          : currentPaid + lessonPrice;
-      } else {
-        return;
-      }
-
-      await api.updateTeacherFinanceStudent(
-        lessonPanelStudentId,
-        buildTeacherFinanceLessonPayload(record, profile, overrides),
-        teacherId
-      );
-      if (undo) {
-        await removeLessonPanelMark(markKey);
-      } else {
-        await saveLessonPanelMark(markKey);
-      }
-      setLessonPanelSuccess(normalizedAction === 'completed'
-        ? (undo ? 'Отметка проведения отменена.' : 'Проведение отмечено.')
-        : (undo ? `Оплата вычтена: ${lessonPrice.toLocaleString('ru-RU')} ₽.` : `Оплата добавлена: ${lessonPrice.toLocaleString('ru-RU')} ₽.`));
-    } catch (err) {
-      setLessonPanelError(err?.message || 'Не удалось обновить финансы.');
-    } finally {
-      setLessonPanelFinanceBusy('');
-    }
-  }, [
-    lessonPanelCompletedMarkKey,
-    lessonPanelFinanceBusy,
-    lessonPanelInfo,
-    lessonPanelMarks,
-    lessonPanelPaidMarkKey,
-    lessonPanelStudentId,
-    removeLessonPanelMark,
-    saveLessonPanelMark,
-    teacherId,
-  ]);
 
   const eventDetailsStudentId = String(eventDetails?.studentId || '').trim();
   const eventDetailsHasStudent = Boolean(eventDetailsStudentId);
@@ -2751,7 +2525,7 @@ const TeacherCalendarSection = ({
     : '';
   const eventDetailsCompletedMarked = Boolean(lessonPanelMarks[eventDetailsCompletedMarkKey]);
   const eventDetailsPaidMarked = Boolean(lessonPanelMarks[eventDetailsPaidMarkKey]);
-  const eventDetailsTrialMarked = Boolean(lessonPanelMarks[eventDetailsTrialMarkKey]);
+  const eventDetailsTrialMarked = isExplicitTrialLesson(eventDetails) || Boolean(lessonPanelMarks[eventDetailsTrialMarkKey]);
   const eventDetailsCancelled = Boolean(eventDetails && isTeacherCalendarLessonCancelled(
     teacherId,
     eventDetails,
@@ -3179,35 +2953,6 @@ const TeacherCalendarSection = ({
 
   useEffect(() => {
     let cancelled = false;
-    setLessonPanelError('');
-    setLessonPanelSuccess('');
-    if (!lessonPanelStudentId) {
-      setLessonPanelHomework(null);
-      setLessonPanelHomeworkLoading(false);
-      return undefined;
-    }
-    setLessonPanelHomeworkLoading(true);
-    api.getStudentNextLesson(lessonPanelStudentId)
-      .then((data) => {
-        if (cancelled) return;
-        const latest = data?.latest && typeof data.latest === 'object'
-          ? data.latest
-          : (Array.isArray(data?.homeworks) ? data.homeworks[0] : null);
-        setLessonPanelHomework(latest || null);
-      })
-      .catch(() => {
-        if (!cancelled) setLessonPanelHomework(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLessonPanelHomeworkLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [lessonPanelStudentId]);
-
-  useEffect(() => {
-    let cancelled = false;
     if (!eventDetailsStudentId) {
       setEventDetailsHomework(null);
       setEventDetailsHomeworkLoading(false);
@@ -3290,18 +3035,6 @@ const TeacherCalendarSection = ({
     };
   }, [lessonInfoModalOpen, lessonInfoTargetStudentId]);
 
-  const lessonPanelHomeworkText = String(lessonPanelHomework?.homeWork || '').trim();
-  const lessonPanelHomeworkPreview = lessonPanelHomeworkText
-    ? lessonPanelHomeworkText.split(/\r?\n/).map((line) => line.trim()).find(Boolean)
-    : '';
-  const lessonPanelHomeworkGoalCount = Array.isArray(lessonPanelHomework?.goals)
-    ? lessonPanelHomework.goals.length
-    : 0;
-  const lessonPanelHomeworkGoalLabels = useMemo(
-    () => getLessonPanelHomeworkGoalLabels(lessonPanelHomework),
-    [lessonPanelHomework]
-  );
-  const lessonPanelHomeworkGoalsPreview = lessonPanelHomeworkGoalLabels.slice(0, 2).join('; ');
   const lessonInfoHomeworkText = String(lessonInfoHomework?.homeWork || '').trim();
   const lessonInfoHomeworkGoalCount = Array.isArray(lessonInfoHomework?.goals)
     ? lessonInfoHomework.goals.length
@@ -4430,7 +4163,7 @@ const TeacherCalendarSection = ({
     <section className="teacher-calendar-shell relative h-full min-h-0 overflow-hidden rounded-none border-0 bg-slate-50 shadow-none">
       <div className="teacher-calendar-shell__glow pointer-events-none absolute inset-0" />
       <div className="relative z-10 flex h-full min-h-0 flex-col overflow-hidden rounded-none">
-        <div className="teacher-calendar-shell__topbar flex h-14 items-center justify-between border-b border-slate-200/80 bg-white/88 px-5 backdrop-blur-xl">
+        <div className="teacher-calendar-shell__topbar flex min-h-12 shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/88 px-5 backdrop-blur-xl">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -4473,6 +4206,8 @@ const TeacherCalendarSection = ({
                 <button
                   type="button"
                   onClick={handleRefreshCalendarSync}
+                  title={`Проверено: ${formatCalendarSyncTimestamp(calendarSyncSettings?.lastFetchedAt) || 'ещё не проверяли'} · Автообновление ${GOOGLE_CALENDAR_AUTO_REFRESH_LABEL}`}
+
                   disabled={loading || refreshing || calendarSyncRefreshing}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/85 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -4484,7 +4219,7 @@ const TeacherCalendarSection = ({
           </div>
         </div>
 
-        {calendarSyncSettings?.configured && (
+        {calendarSyncSettings?.configured && (calendarSyncRefreshing || calendarSyncError || calendarSyncSettings.lastError) && (
           <div role="status" aria-live="polite" className={`border-b px-5 py-1.5 text-xs ${calendarSyncError || calendarSyncSettings.lastError ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200/70 bg-white/80 text-slate-500'}`}>
             {calendarSyncRefreshing ? 'Получаем актуальное расписание из Google…' : (
               calendarSyncError || calendarSyncSettings.lastError || [
@@ -4498,9 +4233,9 @@ const TeacherCalendarSection = ({
 
         <div
           className="min-h-0 flex-1 grid"
-          style={{ gridTemplateColumns: `${availabilityShareMode ? 0 : (sidebarCollapsed ? 72 : 296)}px minmax(0, 1fr)` }}
+          style={{ gridTemplateColumns: `${availabilityShareMode ? 0 : (sidebarCollapsed ? 64 : 248)}px minmax(0, 1fr)` }}
         >
-          <aside className={`${availabilityShareMode ? 'hidden' : ''} teacher-calendar-shell__sidebar teacher-calendar-shell__sidebar-scroll ${sidebarCollapsed ? 'w-[72px]' : 'w-[296px]'} min-h-0 overflow-y-auto overflow-x-hidden border-r border-slate-200/75 bg-white/72 p-4 backdrop-blur-md`}>
+          <aside className={`${availabilityShareMode ? 'hidden' : ''} teacher-calendar-shell__sidebar teacher-calendar-shell__sidebar-scroll ${sidebarCollapsed ? 'w-[64px]' : 'w-[248px]'} min-h-0 overflow-y-auto overflow-x-hidden border-r border-slate-200/75 bg-white/72 p-4 backdrop-blur-md`}>
             <button
               type="button"
               onClick={openQuickCreateForFocusDate}
@@ -4834,7 +4569,7 @@ const TeacherCalendarSection = ({
             className="teacher-calendar-shell__main flex min-h-0 min-w-0 flex-1 flex-col bg-white/80 backdrop-blur-[2px]"
             style={availabilityShareMode ? { gridColumn: '1 / -1' } : undefined}
           >
-            <div className="teacher-calendar-shell__toolbar border-b border-slate-200/80 bg-white/84 px-5 py-3 backdrop-blur-md">
+            <div className="teacher-calendar-shell__toolbar shrink-0 border-b border-slate-200/80 bg-white/84 px-4 py-2 backdrop-blur-md">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <button
@@ -4860,7 +4595,7 @@ const TeacherCalendarSection = ({
                   >
                     <ChevronRight size={14} />
                   </button>
-                  <div className="ml-2 font-display text-[30px] leading-none text-slate-900">{weekTitle}</div>
+                  <div className="ml-2 font-display text-[24px] leading-none text-slate-900">{weekTitle}</div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <span className="teacher-calendar-shell__metric-chip rounded-full border border-slate-200/80 bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
@@ -4874,7 +4609,7 @@ const TeacherCalendarSection = ({
                   </span>
                 </div>
               </div>
-              <div className={`mt-3 flex flex-wrap items-center gap-2 ${availabilityShareMode ? 'hidden' : ''}`}>
+              <div className={`mt-2 flex flex-wrap items-center gap-2 ${availabilityShareMode ? 'hidden' : ''}`}>
                 <label className="relative min-w-[260px] flex-1 md:max-w-md">
                   <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
@@ -5106,255 +4841,10 @@ const TeacherCalendarSection = ({
               )}
             </div>
 
-            <div className={`${availabilityShareMode ? 'hidden' : ''} teacher-calendar-shell__lesson-strip border-b border-slate-200/80 bg-white/82 px-5 py-3 backdrop-blur-md`}>
-              <div
-                className={`teacher-calendar-shell__lesson-panel flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200/80 bg-white/86 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition ${
-                  lessonPanelHasStudent || lessonPanelCanOpenGroup ? 'cursor-pointer hover:border-sky-300/80 hover:bg-sky-50/70 focus:outline-none focus:ring-2 focus:ring-sky-300/60' : ''
-                }`}
-                onClick={handleLessonPanelClick}
-                onKeyDown={handleLessonPanelKeyDown}
-                tabIndex={lessonPanelHasStudent || lessonPanelCanOpenGroup ? 0 : undefined}
-                aria-label={lessonPanelHasStudent || lessonPanelCanOpenGroup ? `Открыть занятие: ${lessonPanelStudentName}` : undefined}
-              >
-                <div className="min-w-[260px] flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
-                      lessonPanelInfo?.status === 'current'
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border-indigo-200 bg-indigo-50 text-indigo-700'
-                    }`}>
-                      {lessonPanelInfo ? lessonPanelStatusLabel : 'Пульт урока'}
-                    </span>
-                    {lessonPanelInfo && (
-                      <span className="text-xs font-semibold text-slate-500">
-                        {lessonPanelDateLabel}, {lessonPanelTimeLabel}
-                      </span>
-                    )}
-                    {lessonPanelInfo && isExternalCalendarEntry(lessonPanelInfo.event) && (
-                      <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                        Google
-                      </span>
-                    )}
-                    {lessonPanelStudentSelected && (
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        выбран
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-baseline gap-2">
-                    <div className="truncate text-lg font-black text-slate-900">
-                      {lessonPanelInfo ? lessonPanelStudentName : 'Нет ближайшего урока'}
-                    </div>
-                    {lessonPanelSubject && lessonPanelSubject !== lessonPanelStudentName && (
-                      <div className="truncate text-xs font-semibold text-slate-500">{lessonPanelSubject}</div>
-                    )}
-                  </div>
-                  {lessonPanelIsGroup ? (
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-violet-700">
-                      <Users size={13} />
-                      <span>{`${lessonPanelGroupParticipants.length} ${pluralizeRu(lessonPanelGroupParticipants.length, 'ученик', 'ученика', 'учеников')} • групповое занятие через Телемост`}</span>
-                      {lessonPanelGroupNotStarted && <span className="font-semibold text-amber-700">Телемост откроется в начале занятия</span>}
-                    </div>
-                  ) : lessonPanelHasStudent ? (
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                      {lessonPanelHomeworkLoading ? (
-                        <span>Домашка загружается...</span>
-                      ) : lessonPanelHomework ? (
-                        <>
-                          <span>{lessonPanelHomeworkPreview || 'Домашка без текста'}</span>
-                          {lessonPanelHomeworkGoalsPreview ? (
-                            <span>{lessonPanelHomeworkGoalsPreview}</span>
-                          ) : lessonPanelHomeworkGoalCount > 0 && (
-                            <span className="rounded-full bg-purple-100 px-2 py-0.5 font-semibold text-purple-700">
-                              целей: {lessonPanelHomeworkGoalCount}
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <span>Домашка пока не задана</span>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      {lessonPanelInfo ? 'Ученик не сопоставлен.' : 'В ближайшие 14 дней занятий не найдено.'}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  {lessonPanelIsGroup ? (
-                    <>
-                      {lessonPanelGroupLink && (
-                        <button
-                          type="button"
-                          onClick={() => openLessonPanelGroupWorkspace('call')}
-                          disabled={!lessonPanelGroupCanOpenTelemost || typeof onOpenLearningGroupTelemost !== 'function'}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
-                        >
-                          <ExternalLink size={12} /> Телемост
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={openLessonPanelCall}
-                        disabled={!lessonPanelGroupCanOpenTelemost}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Clock3 size={12} /> Комната группы
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openLessonPanelGroupWorkspace('board')}
-                        disabled={!lessonPanelCanOpenGroup}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Brush size={12} /> Общая доска
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openLessonPanelGroupWorkspace('collab')}
-                        disabled={!lessonPanelCanOpenGroup}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Code2 size={12} /> Общий код
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                  <button
-                    type="button"
-                    onClick={openLessonInfoModal}
-                    disabled={!lessonPanelHasStudent}
-                    title="Вспомнить прошлый урок"
-                    aria-label="Вспомнить прошлый урок"
-                  className="inline-grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Info size={14} />
-                  </button>
-                  {lessonPanelLink && (
-                    <button
-                      type="button"
-                      onClick={openLessonPanelLink}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
-                    >
-                      <ExternalLink size={12} />
-                      Ссылка
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={openLessonPanelCall}
-                    disabled={!lessonPanelHasStudent}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Clock3 size={12} />
-                    Созвон
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openLessonPanelWorkspace('board')}
-                    disabled={!lessonPanelHasStudent}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Brush size={12} />
-                    Доска
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openLessonPanelWorkspace('collab-save')}
-                    disabled={!lessonPanelHasStudent}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Code2 size={12} />
-                    Код в конспект
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openLessonPanelWorkspace('notes')}
-                    disabled={!lessonPanelHasStudent}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <BookOpen size={12} />
-                    Конспекты
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openLessonPanelWorkspace('schedule')}
-                    disabled={!lessonPanelHasStudent}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <FileText size={12} />
-                    Домашка
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openLessonPanelWorkspace('progress')}
-                    disabled={!lessonPanelHasStudent}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <CheckCircle size={12} />
-                    Задания
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleLessonPanelFinanceAction('completed')}
-                    disabled={!lessonPanelHasStudent || Boolean(lessonPanelFinanceBusy)}
-                    className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                      lessonPanelCompletedMarked
-                        ? 'border-teal-300 bg-teal-100 text-teal-800 hover:bg-teal-50'
-                        : 'border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100'
-                    }`}
-                  >
-                    <CheckCircle size={12} />
-                    {lessonPanelFinanceBusy === 'completed' || lessonPanelFinanceBusy === 'completed-undo'
-                      ? '...'
-                      : (lessonPanelCompletedMarked ? 'Снять отметку урока' : '+ урок')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleCalendarTrialMark(lessonPanelTrialMarkKey)}
-                    disabled={!lessonPanelInfo || Boolean(lessonPanelFinanceBusy)}
-                    className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                      lessonPanelTrialMarked
-                        ? 'border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-50'
-                        : 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                    }`}
-                  >
-                    <Info size={12} />
-                    {lessonPanelFinanceBusy === 'trial' || lessonPanelFinanceBusy === 'trial-undo'
-                      ? '...'
-                      : (lessonPanelTrialMarked ? 'Не пробное' : 'Пробное')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleLessonPanelFinanceAction('paid')}
-                    disabled={!lessonPanelInfo || Boolean(lessonPanelFinanceBusy)}
-                    className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                      lessonPanelPaidMarked
-                        ? 'border-rose-300 bg-rose-100 text-rose-800 hover:bg-rose-50'
-                        : 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                    }`}
-                  >
-                    <Wallet size={12} />
-                    {lessonPanelFinanceBusy === 'paid' || lessonPanelFinanceBusy === 'paid-undo'
-                      ? '...'
-                      : (lessonPanelPaidMarked ? 'Отменить оплату' : '+ оплата')}
-                  </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              {(lessonPanelError || lessonPanelSuccess) && (
-                <div className={`mt-1 text-xs ${lessonPanelError ? 'text-rose-600' : 'text-emerald-700'}`}>
-                  {lessonPanelError || lessonPanelSuccess}
-                </div>
-              )}
-            </div>
-
             <div className="teacher-calendar-shell__grid-wrap min-h-0 flex-1 overflow-hidden">
               <div className="flex h-full min-h-0 flex-col">
                 <div
-                  className="teacher-calendar-shell__grid-header grid border-b border-slate-200/80 bg-white/88"
+                  className="teacher-calendar-shell__grid-header shrink-0 grid border-b border-slate-200/80 bg-white/88"
                   style={{ gridTemplateColumns: `78px repeat(${visibleDayIndexes.length}, minmax(0, 1fr))` }}
                 >
                   <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -6549,7 +6039,8 @@ const TeacherCalendarSection = ({
                   <button
                     type="button"
                     onClick={() => toggleCalendarTrialMark(eventDetailsTrialMarkKey)}
-                    disabled={eventDetailsCancelled || !eventDetails || Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
+                    title={isExplicitTrialLesson(eventDetails) ? 'Пробное определено по названию. Чтобы изменить тип, уберите слово «пробное» из названия занятия.' : undefined}
+                    disabled={isExplicitTrialLesson(eventDetails) || eventDetailsCancelled || !eventDetails || Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
                     className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                       eventDetailsTrialMarked
                         ? 'border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-50'
@@ -6559,7 +6050,7 @@ const TeacherCalendarSection = ({
                     <Info size={12} />
                     {lessonPanelFinanceBusy === 'trial' || lessonPanelFinanceBusy === 'trial-undo'
                       ? '...'
-                      : (eventDetailsTrialMarked ? 'Не пробное' : 'Пробное')}
+                      : (isExplicitTrialLesson(eventDetails) ? 'Пробное · из названия' : eventDetailsTrialMarked ? 'Не пробное' : 'Пробное')}
                   </button>
                   <button
                     type="button"

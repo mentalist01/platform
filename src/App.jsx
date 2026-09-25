@@ -28,7 +28,6 @@ const LoginPage = React.lazy(() => import('./components/LoginPage'));
 const TeacherEmailEnrollment = React.lazy(() => import('./components/TeacherEmailEnrollment'));
 import { LogoMark, PythonLogoIcon } from './components/Identity';
 import StudentTodayOverview from './components/StudentTodayOverview';
-import MonthlyMockExamStatus from './components/MonthlyMockExamStatus';
 import { LessonAlarmNotice } from './components/LessonAlarmControls';
 import { useLessonAlarm } from './hooks/useLessonAlarm';
 import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfileModal';
@@ -26200,18 +26199,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               )}
             </div>
           )}
-          {user.role === 'teacher' && view === 'teacher-calendar' && (
-            <MonthlyMockExamStatus
-              key={user.id}
-              role={user.role}
-              userId={user.id}
-              activeStudentId={activeLearningLesson ? null : activeStudentId}
-              students={currentStudentsWithNicknames}
-              refreshKey={`${goalRefreshTick}:${homeworkSyncTick}`}
-              onAssign={handleAssignMonthlyMock}
-              onOpenMocks={handleOpenMonthlyMocks}
-            />
-          )}
           {user.role === 'teacher' && activeLearningLesson && lessonQuickNavIds.includes(view) && (
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-emerald-900 shadow-sm">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
@@ -27069,6 +27056,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onStudentDeleted={handleStudentDeleted}
               onStudentRestored={handleStudentRestored}
               onStudentUpdated={handleStudentUpdated}
+              onAssignMonthlyMock={handleAssignMonthlyMock}
+              onOpenMonthlyMocks={handleOpenMonthlyMocks}
+              monthlyMockRefreshKey={`${goalRefreshTick}:${homeworkSyncTick}`}
               teacherId={user.role === 'teacher' ? user.id : null}
               SOFT_DELETE_DAYS={SOFT_DELETE_DAYS}
               MOCK_TASKS={MOCK_TASKS}
