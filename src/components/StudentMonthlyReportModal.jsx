@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { createStudentReportCanvas } from '../utils/studentReportImage';
 
 const getCurrentMoscowMonth = () => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -101,8 +102,27 @@ const wrapCanvasText = (context, value, maxWidth) => {
   return result;
 };
 
+const saveReportCanvas = async (canvas, { studentName, month, audience }) => {
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((nextBlob) => (nextBlob ? resolve(nextBlob) : reject(new Error('image export failed'))), 'image/png');
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `${audience === 'student' ? 'Отчёт-для-ученика' : 'Отчёт'}-${sanitizeFileName(studentName)}-${month}.png`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
 const downloadReportImage = async ({ report, text, studentName, month, audience = 'parent' }) => {
   if (!String(text || '').trim()) return;
+  if (audience === 'student') {
+    const canvas = await createStudentReportCanvas({ report, text, studentName, month });
+    await saveReportCanvas(canvas, { studentName, month, audience });
+    return;
+  }
   try { await document.fonts?.ready; } catch { /* system fonts are enough */ }
 
   // A portrait image stays readable when a parent opens it in a phone messenger.
@@ -254,17 +274,7 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
   context.font = '500 16px Inter, Arial, sans-serif';
   context.fillText(`${audience === 'student' ? 'Твои итоги' : 'Персональный отчёт'} за ${String(report?.monthLabel || month || '').toLocaleLowerCase('ru-RU')}`, contentX, footerY);
 
-  const blob = await new Promise((resolve, reject) => {
-    canvas.toBlob((nextBlob) => (nextBlob ? resolve(nextBlob) : reject(new Error('image export failed'))), 'image/png');
-  });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `${audience === 'student' ? 'Отчёт-для-ученика' : 'Отчёт'}-${sanitizeFileName(studentName)}-${month}.png`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  await saveReportCanvas(canvas, { studentName, month, audience });
 };
 
 const MetricCard = ({ icon, label, value, note, tone }) => (
