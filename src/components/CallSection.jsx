@@ -11,6 +11,8 @@ import { useCallAlertSounds } from '../hooks/useCallAlertSounds';
 import { shouldSaveLessonReplayScreenFrame } from '../utils/lessonReplayScreenCapture';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 import { probeWebSocket, retireWebSocket, subscribeNetworkRecovery } from '../utils/socketRecovery.js';
+import { clearCallResume, saveCallResume } from '../utils/callResume.js';
+import { createPeerRecovery, getRtcPeerConnectionState, reconcileRtcPeer } from '../utils/peerRecovery.js';
 import './CallSection.css';
 
 const DEFAULT_ICE_SERVERS = [
@@ -58,7 +60,6 @@ const RTC_PRESENCE_FALLBACK_BOOT_TIMEOUT_MS = 5000;
 const WS_HEARTBEAT_TIMEOUT_MS = 15000;
 const JOIN_ACK_TIMEOUT_MS = 15000;
 const ROOM_RESYNC_COOLDOWN_MS = 4000;
-const PEER_DISCONNECTED_GRACE_MS = 10000;
 const PEER_CONNECTING_WARNING_DELAY_MS = 15000;
 const RTC_VIDEO_RECEIVER_SLOTS = 2;
 const SPEAKING_RMS_THRESHOLD = getPositiveNumberFromEnv('VITE_RTC_SPEAKING_RMS_THRESHOLD', 0.008);
@@ -460,17 +461,6 @@ const getRtcPeerConnectionConfig = (iceServers, iceTransportPolicy = RTC_ICE_TRA
   iceCandidatePoolSize: RTC_ICE_CANDIDATE_POOL_SIZE,
   iceTransportPolicy,
 });
-const getRtcPeerConnectionState = (pc) => {
-  const directState = typeof pc?.connectionState === 'string' ? pc.connectionState : '';
-  if (directState) return directState;
-  const iceState = typeof pc?.iceConnectionState === 'string' ? pc.iceConnectionState : '';
-  if (iceState === 'failed') return 'failed';
-  if (iceState === 'disconnected') return 'disconnected';
-  if (iceState === 'closed') return 'closed';
-  if (iceState === 'connected' || iceState === 'completed') return 'connected';
-  if (iceState === 'checking' || iceState === 'new') return 'connecting';
-  return 'new';
-};
 const getRtcPeerConnectionCtor = () => {
   if (typeof window === 'undefined') return null;
   const ctor = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
@@ -1293,6 +1283,8 @@ const CallSection = ({
   createLessonReplayAudioSink,
   theme = 'light',
   autoStartToken = 0,
+  reloadCall = null,
+  onReloadCallConsumed,
 }) => {
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? String(activeStudentId || '').trim() : String(userId || '').trim();
@@ -1451,6 +1443,8 @@ const CallSection = ({
   const wsReconnectTimerRef = useRef(null);
   const wsReconnectAttemptRef = useRef(0);
   const startCallRef = useRef(null);
+  const makeOfferRef = useRef(null);
+  const callJoinedRef = useRef(false);
   const handledAutoStartTokenRef = useRef(0);
   const presencePingTimerRef = useRef(null);
   const presenceReconnectTimerRef = useRef(null);
@@ -2860,6 +2854,7 @@ const CallSection = ({
 
   const closeAllPeers = useCallback(() => {
     peersRef.current.forEach((peerState) => {
+      peerState.recovery?.dispose();
       if (peerState.disconnectTimer) {
         clearTimeout(peerState.disconnectTimer);
         peerState.disconnectTimer = null;
@@ -2926,6 +2921,7 @@ const CallSection = ({
     const { closeConnection = true } = options;
     const peerState = peersRef.current.get(normalizedPeerId);
 
+    peerState?.recovery?.dispose();
     if (peerState?.disconnectTimer) {
       clearTimeout(peerState.disconnectTimer);
       peerState.disconnectTimer = null;
@@ -3585,6 +3581,11 @@ const CallSection = ({
       return null;
     }
 
+    const reconciliation = reconcileRtcPeer({
+      id: normalizedPeerId, peer: peerMeta, self: { userId, role }, peers: peerMetaRef.current,
+    });
+    if (reconciliation.ignore) return null;
+    reconciliation.replace.forEach(id => detachPeer(id, { closeConnection: true }));
     const existing = peersRef.current.get(normalizedPeerId);
     if (existing) {
       peerMetaRef.current.set(normalizedPeerId, {
@@ -3702,42 +3703,22 @@ const CallSection = ({
       syncRemotePeers();
     };
 
+    peerState.recovery = createPeerRecovery({
+      pc,
+      restartIce: () => {
+        if (peersRef.current.get(normalizedPeerId) !== peerState) return;
+        return makeOfferRef.current?.(normalizedPeerId, { iceRestart: true });
+      },
+      reconnect: () => {
+        if (peersRef.current.get(normalizedPeerId) !== peerState || manualCloseRef.current) return;
+        const ws = wsRef.current;
+        if (ws) retireWebSocket(ws, 'Media recovery timeout');
+      },
+    });
     const handlePeerConnectionStateChange = () => {
-      const state = getRtcPeerConnectionState(pc);
-      if (state === 'disconnected') {
-        if (!peerState.disconnectTimer) {
-          peerState.disconnectTimer = setTimeout(() => {
-            const currentPeerState = peersRef.current.get(normalizedPeerId);
-            if (currentPeerState !== peerState) return;
-            if (getRtcPeerConnectionState(currentPeerState.pc) !== 'disconnected') return;
-            sendWs({
-              type: 'signal', roomId: activeRoomRef.current, targetId: normalizedPeerId,
-              signal: { control: { restartConnection: true } },
-            });
-            detachPeer(normalizedPeerId, { closeConnection: true });
-            requestRoomResync();
-          }, PEER_DISCONNECTED_GRACE_MS);
-        }
-        refreshPeerConnectionSummary();
-        return;
-      }
-
-      if (peerState.disconnectTimer) {
-        clearTimeout(peerState.disconnectTimer);
-        peerState.disconnectTimer = null;
-      }
-
-      if (state === 'failed') {
-        sendWs({
-          type: 'signal', roomId: activeRoomRef.current, targetId: normalizedPeerId,
-          signal: { control: { restartConnection: true } },
-        });
-        detachPeer(normalizedPeerId, { closeConnection: true });
-        requestRoomResync();
-        return;
-      }
-
-      if (state === 'closed') {
+      if (peersRef.current.get(normalizedPeerId) !== peerState) return;
+      peerState.recovery.update();
+      if (getRtcPeerConnectionState(pc) === 'closed') {
         detachPeer(normalizedPeerId, { closeConnection: false });
         return;
       }
@@ -3749,20 +3730,21 @@ const CallSection = ({
     syncLocalTracksToPeer(peerState);
     refreshPeerConnectionSummary();
     return peerState;
-  }, [detachPeer, refreshPeerConnectionSummary, requestRoomResync, rtcIceServers, rtcPeerConnectionCtor, sendWs, syncLocalTracksToPeer, syncRemotePeers]);
+  }, [detachPeer, refreshPeerConnectionSummary, rtcIceServers, rtcPeerConnectionCtor, sendWs, syncLocalTracksToPeer, syncRemotePeers, userId, role]);
 
-  const makeOfferToPeer = useCallback(async (peerId) => {
+  const makeOfferToPeer = useCallback(async (peerId, { iceRestart = false } = {}) => {
     const peerState = peersRef.current.get(peerId);
     const pc = peerState?.pc;
     if (!pc || peerState.makingOffer) return false;
     const connectionState = getRtcPeerConnectionState(pc);
-    if (connectionState === 'closed' || connectionState === 'failed') return false;
+    if (connectionState === 'closed' || (connectionState === 'failed' && !iceRestart)) return false;
     if (pc.signalingState !== 'stable') return false;
     try {
       peerState.makingOffer = true;
-      const offer = await pc.createOffer();
+      const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
+      if (peersRef.current.get(peerId) !== peerState || manualCloseRef.current) return false;
       await pc.setLocalDescription(offer);
-      if (!activeRoomRef.current) return;
+      if (!activeRoomRef.current || peersRef.current.get(peerId) !== peerState || manualCloseRef.current) return false;
       sendWs({
         type: 'signal',
         roomId: activeRoomRef.current,
@@ -3777,6 +3759,8 @@ const CallSection = ({
       peerState.makingOffer = false;
     }
   }, [sendWs]);
+
+  useEffect(() => { makeOfferRef.current = makeOfferToPeer; }, [makeOfferToPeer]);
 
   const requestPeerNegotiation = useCallback((peerId, options = {}) => {
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
@@ -3988,8 +3972,12 @@ const CallSection = ({
       const normalizedError = errorText || 'Сигнальный сервер вернул ошибку.';
       setError(normalizedError);
 
-      const isJoinPhaseError = statusRef.current === 'connecting' || !activeRoomRef.current;
+      const isJoinPhaseError = !activeRoomRef.current;
       if (isJoinPhaseError) {
+        clearCallResume();
+        callJoinedRef.current = false;
+        manualCloseRef.current = true;
+        resetWsReconnectState();
         clearJoinAckTimer();
         if (wsPingTimerRef.current) {
           clearInterval(wsPingTimerRef.current);
@@ -4016,6 +4004,7 @@ const CallSection = ({
     }
 
     if (type === 'joined') {
+      callJoinedRef.current = true;
       clearJoinAckTimer();
       resetWsReconnectState();
       const normalizedRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
@@ -4090,6 +4079,8 @@ const CallSection = ({
   }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(() => {
+    clearCallResume();
+    callJoinedRef.current = false;
     manualCloseRef.current = true;
     wsHadErrorRef.current = false;
     clearJoinAckTimer();
@@ -4309,8 +4300,9 @@ const CallSection = ({
 
     try {
       const shouldPreserveMutedMic = Boolean(
-        localAudioTrackRef.current?.readyState === 'live'
-        && !localAudioTrackRef.current.enabled
+        options?.resumeMicEnabled === false
+        || (localAudioTrackRef.current?.readyState === 'live'
+          && !localAudioTrackRef.current.enabled)
       );
       await ensureMicTrack();
       if (shouldPreserveMutedMic) {
@@ -4445,6 +4437,7 @@ const CallSection = ({
     const unsubscribe = subscribeNetworkRecovery(() => {
       cancelProbe();
       if (manualCloseRef.current || statusRef.current === 'idle') return;
+      peersRef.current.forEach(peer => peer.recovery?.update());
       const ws = wsRef.current;
       if (ws?.readyState === WebSocket.OPEN) {
         cancelProbe = probeWebSocket(ws, {
@@ -4461,6 +4454,33 @@ const CallSection = ({
     });
     return () => { cancelProbe(); unsubscribe(); };
   }, [resetWsReconnectState, scheduleWsReconnect]);
+
+  useEffect(() => {
+    if (!reloadCall || reloadCall.roomId !== roomId || isHiddenUi) return undefined;
+    if (statusRef.current !== 'idle') return undefined;
+    // Defer one tick so React's development mount/cleanup cycle cannot cancel
+    // the sole resume attempt while microphone permission is pending.
+    const timer = setTimeout(() => {
+      onReloadCallConsumed?.();
+      startCallRef.current?.({ resumeMicEnabled: reloadCall.micEnabled });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [isHiddenUi, onReloadCallConsumed, reloadCall, roomId]);
+
+  useEffect(() => {
+    if (!callJoinedRef.current || !['connected', 'connecting'].includes(status)) return undefined;
+    const save = () => {
+      if (manualCloseRef.current || !callJoinedRef.current) return;
+      saveCallResume({
+        userId, role, teacherId: effectiveTeacherId, studentId: effectiveStudentId,
+        lessonId: rtcRoom.lessonId, roomId, micEnabled,
+      });
+    };
+    save();
+    const timer = setInterval(save, 10_000);
+    window.addEventListener('pagehide', save);
+    return () => { clearInterval(timer); window.removeEventListener('pagehide', save); };
+  }, [effectiveStudentId, effectiveTeacherId, micEnabled, role, roomId, rtcRoom.lessonId, status, userId]);
 
   useEffect(() => {
     const token = Number(autoStartToken) || 0;

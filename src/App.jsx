@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
+import { readCallResume } from './utils/callResume.js';
 import { createPortal } from 'react-dom';
 import { 
   BookOpen, BarChart2, LogOut, Download, FileText, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle,
@@ -18914,6 +18915,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const defaultView = user.role === 'teacher'
     ? 'teacher'
     : (user.role === 'admin' ? 'admin' : 'schedule');
+  const [reloadCall, setReloadCall] = useState(() => readCallResume(user));
   const storedLocation = readUserLocation(user);
   const storedView = storedLocation?.view;
   const urlParams = typeof window !== 'undefined'
@@ -18937,9 +18939,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? (normalizeStoredOpenTask(storedLocation?.openTask)
         || (storedView === 'python' ? fallbackPythonOpenTask : null))
     : null;
-  const storedActiveStudentId = normalizeTeacherStudentId(storedLocation?.activeStudentId);
+  const storedActiveStudentId = normalizeTeacherStudentId(reloadCall?.studentId || storedLocation?.activeStudentId);
   const shouldPreferReviewHome = false;
-  const initialView = (normalizedUrlRequestedView && allowedViews.includes(normalizedUrlRequestedView))
+  const initialView = reloadCall && isCallViewAvailable ? 'call' : (normalizedUrlRequestedView && allowedViews.includes(normalizedUrlRequestedView))
     ? normalizedUrlRequestedView
     : (restoredOpenTask?.section && allowedViews.includes(restoredOpenTask.section))
     ? restoredOpenTask.section
@@ -26931,6 +26933,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               uiMode={callUiMode}
               theme={theme}
               autoStartToken={callAutoStartToken}
+              reloadCall={reloadCall}
+              onReloadCallConsumed={() => setReloadCall(null)}
               onStatusChange={setCallSessionStatus}
               onDesktopShare={setDesktopShareTrack}
               onTelemostLessonStart={applyTelemostLessonReplay}

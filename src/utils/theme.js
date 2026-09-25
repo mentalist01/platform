@@ -1,3 +1,4 @@
+import { clearCallResume } from './callResume.js';
 export const USER_SESSION_KEY = 'ege_user_session';
 export const THEME_STORAGE_KEY = 'ege_theme';
 export const THEME_LIGHT = 'light';
@@ -12,6 +13,7 @@ export const getPreferredTheme = () => {
 };
 
 export const clearStoredSession = () => {
+  clearCallResume();
   if (typeof localStorage === 'undefined') return;
   try {
     localStorage.removeItem(USER_SESSION_KEY);
