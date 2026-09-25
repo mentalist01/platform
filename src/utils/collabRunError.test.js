@@ -149,6 +149,9 @@ test('a source code string alone is not classified as a Python exception', () =>
 });
 
 test('bare and namespaced exception types remain informative', () => {
+  assert.deepEqual(summarizeCollabRunError('SystemExit: 2'), {
+    title: 'Программа завершена с ошибкой', detail: '2', lineNumber: null,
+  });
   assert.deepEqual(summarizeCollabRunError('AssertionError'), {
     title: 'Условие проверки не выполнено', detail: 'AssertionError', lineNumber: null,
   });

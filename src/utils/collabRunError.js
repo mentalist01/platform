@@ -19,6 +19,7 @@ const EXCEPTION_TITLES = {
   OverflowError: 'Слишком большое число',
   AssertionError: 'Условие проверки не выполнено',
   KeyboardInterrupt: 'Выполнение остановлено',
+  SystemExit: 'Программа завершена с ошибкой',
 };
 
 // Traceback source lines have indentation. Only an unindented exception line

@@ -3334,6 +3334,8 @@ const createPyodideWorker = () => {
         '        return _debug_trace',
         '    if _frame.f_code.co_filename != "<collab>":',
         '        return _debug_trace',
+        '    if _event == "exception" and _arg and isinstance(_arg[1], SystemExit) and (_arg[1].code is None or _arg[1].code == 0):',
+        '        return _debug_trace',
         '    if _event not in ("line", "return", "exception"):',
         '        return _debug_trace',
         '    if len(_debug_events) >= _debug_trace_limit:',
@@ -3361,7 +3363,10 @@ const createPyodideWorker = () => {
         '    exec(_compiled, _globals, _globals)',
         'except _CollabInputNeeded:',
         '    pass',
-        'except Exception:',
+        'except SystemExit as _exit:',
+        '    if _exit.code is not None and _exit.code != 0:',
+        '        print(f"SystemExit: {_exit.code}", file=sys.stderr)',
+        'except BaseException:',
         '    traceback.print_exc()',
         '    if _debug_mode:',
         '        _exc_type, _exc_value, _tb = sys.exc_info()',
@@ -3462,6 +3467,9 @@ const createPyodideWorker = () => {
             appendStderr('\\nРисунок turtle слишком большой и не был показан.\\n');
           }
         } catch { /* no-op */ }
+      } catch (err) {
+        // A runtime failure must not erase output already sent by the program.
+        appendStderr(err && err.message ? err.message : String(err));
       } finally {
         try {
           pyodide.globals.delete('__collab_debug_events');
@@ -7399,14 +7407,20 @@ const CollabSection = ({
       `_input = ${JSON.stringify(String(inputValue ?? ''))}`,
       '_stdout = io.StringIO()',
       '_stderr = io.StringIO()',
+      '_original_streams = (sys.stdin, sys.stdout, sys.stderr)',
       'sys.stdin = io.StringIO(_input)',
       'sys.stdout = _stdout',
       'sys.stderr = _stderr',
       '_globals = {}',
       'try:',
       `    exec(${JSON.stringify(String(source ?? ''))}, _globals, _globals)`,
-      'except Exception:',
+      'except SystemExit as _exit:',
+      '    if _exit.code is not None and _exit.code != 0:',
+      '        print(f"SystemExit: {_exit.code}", file=sys.stderr)',
+      'except BaseException:',
       '    traceback.print_exc()',
+      'finally:',
+      '    sys.stdin, sys.stdout, sys.stderr = _original_streams',
       '__output = _stdout.getvalue()',
       '__error = _stderr.getvalue()',
     ].join('\n');
