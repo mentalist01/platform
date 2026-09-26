@@ -95,8 +95,11 @@ export class RecorderEngine {
     const remote = await this.api('/poll', { ready: this.ready() });
     // Complete the old file before considering the next lesson, regardless of
     // server ordering. Uploading that file is independent of the next capture.
+    this.currentLesson = remote.currentLesson || null;
     for (const wanted of remote.jobs) {
       const local = this.state.jobs[wanted.id];
+      // Refresh display metadata without changing the file name or lesson binding.
+      if (local && typeof wanted.lessonName === 'string') local.lessonName = wanted.lessonName;
       if (wanted.desired === 'stop' && local && ['starting', 'recording', 'stopping'].includes(local.status)) await this.stop(local);
     }
     for (const wanted of remote.jobs) {

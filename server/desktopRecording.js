@@ -25,7 +25,7 @@ export function privateRutubeVideo(value) {
 }
 
 // The server stores metadata only. Recording files and Rutube credentials stay on the PC.
-export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
+export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFor = () => '' } = {}) {
   let db = { teachers: {}, devices: {}, jobs: {} };
   try { db = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   const pairs = new Map();
@@ -39,6 +39,7 @@ export function createDesktopRecordingStore(file, { now = Date.now } = {}) {
   const jobs = (teacherId) => Object.values(db.jobs).filter((job) => job.teacherId === teacherId);
   const publicJob = (job) => job && ({
     id: job.id, occurrence: job.occurrence, title: job.title, status: job.status,
+    lessonName: String(lessonNameFor(job) || '').trim().slice(0, 150),
     desired: job.desired, cutoffAt: job.cutoffAt, startedAt: job.startedAt,
     stoppedAt: job.stoppedAt || '', updatedAt: job.updatedAt, video: job.video || null,
     previousJobId: job.previousJobId || '', error: job.error || '', deviceId: job.deviceId || '', audioMode: job.audioMode || '',

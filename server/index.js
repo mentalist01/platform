@@ -642,7 +642,16 @@ const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json
 const teacherCalendarGoogleFile = path.join(dataDir, 'teacher-calendar-google.json');
 const lessonTopicsFile = path.join(dataDir, 'lesson-topics.json');
 const lessonHistoryFile = path.join(dataDir, 'lesson-history.json');
-const desktopRecordings = createDesktopRecordingStore(path.join(dataDir, 'desktop-recordings.json'));
+const desktopRecordings = createDesktopRecordingStore(path.join(dataDir, 'desktop-recordings.json'), {
+  lessonNameFor: (job) => {
+    if (job.occurrence.lessonId) {
+      const context = getLearningGroupReplayContext(job.occurrence.lessonId);
+      return context?.group?.teacherId === job.teacherId ? context.group.name : '';
+    }
+    const student = findStudentById(job.occurrence.studentId);
+    return student?.teacherId === job.teacherId ? student.name : '';
+  },
+});
 const lessonReplaysDir = path.join(dataDir, 'lesson-replays');
 const lessonReplaySnapshotsDir = path.join(dataDir, 'lesson-replay-snapshots');
 const lessonReplayAudioDir = path.join(dataDir, 'lesson-replay-audio');

@@ -6,12 +6,12 @@ import test from 'node:test';
 import { createDesktopRecordingStore, privateRutubeVideo, RECORDING_RECONNECT_GRACE_MS } from './desktopRecording.js';
 
 const video = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Secret_Key-123';
-function fixture(t) {
+function fixture(t, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-recorder-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   let time = 1800000000000;
   const file = path.join(root, 'recordings.json');
-  const store = createDesktopRecordingStore(file, { now: () => time });
+  const store = createDesktopRecordingStore(file, { now: () => time, ...options });
   const connect = (teacherId) => {
     const paired = store.exchange(store.pair(teacherId).code, teacherId);
     const device = store.authenticate(paired.token);
@@ -20,6 +20,22 @@ function fixture(t) {
   };
   return { root, file, store, connect, now: () => time, advance: (ms) => { time += ms; } };
 }
+test('lesson names are resolved for existing recordings without changing file titles or teacher scope', (t) => {
+  let name = 'Олег';
+  const f = fixture(t, { lessonNameFor: job => job.occurrence.studentId === 'student' ? name : 'Группа 1' });
+  const { device } = f.connect('teacher');
+  const other = f.connect('other');
+  const original = f.store.start('teacher', { key: 'lesson', studentId: 'student' }, 'Урок 2026-09-26 17:00', f.now() + 60000);
+  name = 'Олег Иванов';
+  const refreshed = f.store.poll(device, true, undefined, () => true);
+  assert.equal(refreshed.currentLesson.lessonName, name);
+  assert.equal(refreshed.jobs[0].title, original.title);
+  assert.equal(f.store.poll(other.device, true).jobs.length, 0);
+  f.store.stop('lesson');
+  const group = f.store.start('teacher', { key: 'group', lessonId: 'group-lesson' }, 'Урок группы', f.now() + 60000);
+  assert.equal(group.lessonName, 'Группа 1');
+});
+
 test('Rutube lessons require a real HTTPS private URL and preserve its key', () => {
   assert.equal(privateRutubeVideo(video).embedUrl, 'https://rutube.ru/play/embed/1234567890abcdef1234567890abcdef/?p=Secret_Key-123');
   for (const invalid of [video.replace('https:', 'http:'), video.replace('rutube.ru', 'rutube.ru.evil.test'), video.split('?')[0], video.replace('/private', ''), video.replace('rutube.ru', 'user@rutube.ru')]) assert.equal(privateRutubeVideo(invalid), null);

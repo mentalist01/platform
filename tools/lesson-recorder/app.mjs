@@ -130,6 +130,7 @@ const recoveryDrafts = () => {
 const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
   obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId,
+  currentLesson: engine.currentLesson || null,
   shareMessage: shareBridge.message || '',
   officeMessage: officeFollower.message,
   recoveryDrafts: recoveryDrafts(),

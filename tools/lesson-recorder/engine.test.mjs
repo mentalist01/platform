@@ -32,6 +32,17 @@ test('repeated server polls start exactly once and explicit finish stops once', 
   assert.deepEqual(f.counts(), [1, 1]); assert.equal(f.state.jobs.one.status, 'saved');
 });
 
+test('poll refreshes the student name without restarting the recording or renaming its file', async (t) => {
+  const f = fixture(t); await f.engine.start(f.job);
+  const named = { ...f.job, lessonName: 'Олег' };
+  f.remote({ enabled: true, jobs: [named], currentLesson: named });
+  await f.engine.tick();
+  assert.equal(f.state.jobs.one.lessonName, 'Олег');
+  assert.equal(f.engine.currentLesson.lessonName, 'Олег');
+  assert.equal(f.state.jobs.one.title, 'Урок');
+  assert.deepEqual(f.counts(), [1, 0]);
+});
+
 test('back-to-back lessons switch files in one poll while the saved file waits for upload', async (t) => {
   const f = fixture(t); await f.engine.start(f.job);
   const next = { ...f.job, id: 'two', audioMode: 'platform' };
