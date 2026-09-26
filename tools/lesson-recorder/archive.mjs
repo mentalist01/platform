@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { atomicJson, readJson } from './storage.mjs';
 import { searchArchive, topicTags } from './archive-search.mjs';
 import { publishArchiveClip } from './archive-publish.mjs';
+import { queueEstimate, rememberSpeed } from './archive-eta.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const extensions = new Set(['.mp4', '.mkv', '.mov', '.webm', '.m4v']);
@@ -148,7 +149,7 @@ export class LessonArchive {
       return this.state();
     } finally { this.scanning = false; }
   }
-  state() { return { ...this.data, work: this.work, blocked: this.blocked, scanning: this.scanning, submitting: Boolean(this.submitting), setup: this.setup, setupError: this.setupError || '', error: this.error || '', ready: !!this.transcriber, folder: this.recordDirectory() }; }
+  state() { return { ...this.data, eta: queueEstimate({ ...this.data, work: this.work, blocked: this.blocked }), work: this.work, blocked: this.blocked, scanning: this.scanning, submitting: Boolean(this.submitting), setup: this.setup, setupError: this.setupError || '', error: this.error || '', ready: !!this.transcriber, folder: this.recordDirectory() }; }
   enqueue(ids, model = 'base') {
     if (!['base', 'small'].includes(model)) throw new Error('Неизвестная модель');
     for (const id of ids) {
@@ -159,7 +160,7 @@ export class LessonArchive {
       }
       if (item.status === 'done') continue;
       if (!this.data.queue.includes(id)) this.data.queue.push(id);
-      item.model ||= model; item.status = this.work?.id === id ? item.status : 'queued'; item.error = '';
+      item.model ||= model; item.status = this.work?.id === id ? item.status : 'queued'; item.error = ''; delete item.durationError;
     }
     this.data.model = model; this.data.paused = false; this.save(); this.runTick();
   }
@@ -176,6 +177,18 @@ export class LessonArchive {
     item.duration = Number(JSON.parse(raw).format?.duration);
     if (!Number.isFinite(item.duration) || item.duration <= 0) throw new Error('Не удалось определить длительность видео');
     this.save(); return item.duration;
+  }
+  async measureQueue() {
+    for (const id of [...this.data.queue]) {
+      if (this.data.paused || this.isBusy()) throw new Error('paused');
+      const item = this.item(id);
+      if (item.duration > 0 || item.durationError) continue;
+      try { await this.probe(item); }
+      catch (e) {
+        if (this.data.paused || this.isBusy()) throw e;
+        item.durationError = String(e.message).slice(-300);
+      }
+    }
   }
   async tick() {
     this.blocked = Boolean(this.isBusy());
@@ -194,18 +207,26 @@ export class LessonArchive {
     }
     if (this.data.paused || !this.data.queue.length) return;
     const id = this.data.queue[0]; const item = this.item(id);
-    this.work = { kind: 'transcribe', id, title: item.title, phase: 'prepare', seconds: item.processed || 0 };
+    this.work = { kind: 'transcribe', id, title: item.title, model: item.model || 'base', phase: 'inspect', seconds: item.processed || 0, chunkStart: item.processed || 0 };
     item.status = 'processing'; this.save();
     const wav = path.join(this.root, 'work', `${id}.wav`);
     try {
+      await this.measureQueue();
+      this.work.phase = 'prepare';
       const python = await this.detectPython();
       await this.probe(item);
       const start = item.processed || 0; const length = Math.min(CHUNK, item.duration - start);
+      const startedAt = Date.now(); let modelStartedAt = 0; let modelSeconds = 0;
       await this.command(this.ffmpeg, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-ss', String(start), '-i', this.source(item), '-t', String(length), '-vn', '-ac', '1', '-ar', '16000', '-threads', '2', wav]);
       if (this.data.paused || this.isBusy()) throw new Error('paused');
       const segments = []; let done = false; let workerError = '';
       await this.command(python.exe, [...python.args, '-X', 'utf8', path.join(here, 'archive-worker.py'), '--input', wav, '--model', item.model || 'base'], { onLine: line => {
         if (line.phase) this.work.phase = line.phase;
+        if (line.phase === 'model') modelStartedAt = Date.now();
+        if (line.phase === 'transcribing') {
+          this.work.inferenceStartedAt = Date.now();
+          if (modelStartedAt) modelSeconds = (Date.now() - modelStartedAt) / 1000;
+        }
         if (line.error) workerError = line.error;
         if (line.done) done = true;
         if (Number.isFinite(line.start) && Number.isFinite(line.end) && line.text) { segments.push({ start: start + line.start, end: Math.min(item.duration, start + line.end), text: String(line.text) }); this.work.seconds = start + line.end; }
@@ -214,6 +235,9 @@ export class LessonArchive {
       const old = this.transcript(id);
       const combined = [...old.segments.filter(s => s.start < start), ...segments];
       atomicJson(this.transcriptPath(id), { model: item.model, signature: item.signature, segments: combined });
+      // Exclude a one-time long model download from the steady processing rate.
+      this.data.speedSamples = rememberSpeed(this.data.speedSamples, { model: item.model || 'base', audioSeconds: length,
+        wallSeconds: Math.max(0.001, (Date.now() - startedAt) / 1000 - (modelSeconds > 60 ? modelSeconds : 0)) });
       item.processed = Math.min(item.duration, start + length); item.tags = topicTags(combined);
       if (item.processed >= item.duration - 0.1) { item.status = 'done'; this.data.queue.shift(); }
       else item.status = 'queued';
@@ -232,11 +256,12 @@ export class LessonArchive {
     if (!title || title.length > 100) throw new Error('Укажите название длиной до 100 символов');
     if (!this.prepareMaterial || !this.materialPublisher) throw new Error('Обновите пульт для добавления материалов');
     const item = this.item(payload.id); clipRange(payload.start, payload.end, item.duration || Infinity);
-    this.submitting = true; this.error = ''; this.pause();
+    this.submitting = true; this.error = '';
     try {
+      const target = await this.prepareMaterial();
+      this.pause();
       for (let i = 0; this.work?.kind === 'transcribe' && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 100));
       if (this.work) throw new Error('Распознавание ещё останавливается. Повторите через несколько секунд.');
-      const target = await this.prepareMaterial();
       const clip = await this.exportClip({ ...payload, title, autoPublish: true, teacherId: target.teacherId });
       return clip;
     } finally { this.submitting = false; }

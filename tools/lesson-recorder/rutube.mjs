@@ -35,6 +35,8 @@ export async function completePrivateVideo(editor, job, persist) {
   await link.waitFor({ timeout: RUTUBE_UPLOAD_WAIT_MS });
   const video = privateVideo(await link.getAttribute('href'));
   if (!video) throw new Error('Rutube не выдал закрытую ссылку. Файл сохранён, проверьте окно загрузки.');
+  const previous = privateVideo(job.candidateUrl);
+  if (previous && previous.id !== video.id) throw new Error('Открыт другой ролик Rutube. Загрузка остановлена, чтобы не изменить чужое видео.');
   job.candidateUrl = video.url; job.uploadPhase = 'publishing'; persist();
   // Keep a unique recovery label during transfer, then publish theory with the
   // exact user title. candidateUrl is already persisted before renaming.
@@ -115,6 +117,11 @@ export class RutubeUploader {
     }
     }
     await editor.waitFor({ state: 'visible', timeout: 60000 });
+    if (job.autoPublish && job.candidateUrl) {
+      const recoveryLink = editor.locator('a[href*="rutube.ru/video/private/"]');
+      await recoveryLink.waitFor({ timeout: 60000 });
+      if (privateVideo(await recoveryLink.getAttribute('href'))?.id !== privateVideo(job.candidateUrl)?.id) throw new Error('Найден другой ролик с таким названием. Проверьте исходную загрузку.');
+    }
     await editor.getByRole('textbox', { name: 'Название', exact: true }).fill(title);
     // The UI defaults can change. Require explicit private selection before saving.
     const access = editor.getByRole('combobox', { name: 'Доступ', exact: true });

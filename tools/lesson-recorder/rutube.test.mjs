@@ -13,6 +13,13 @@ test('theory publishes the exact user title only after retaining its private rec
   await completePrivateVideo(f.editor, f.job, f.persist);
   assert.equal(title, f.job.title); assert.equal(f.job.url, url);
 });
+
+test('a retry cannot publish a different video with a coincident title', async () => {
+  const f = editorFixture(); f.job.autoPublish = true; f.job.title = 'Theory';
+  f.job.candidateUrl = 'https://rutube.ru/video/private/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/?p=Test_Key';
+  await assert.rejects(completePrivateVideo(f.editor, f.job, f.persist), /другой ролик/);
+  assert.equal(f.clicks(), 0); assert.equal(f.job.url, undefined);
+});
 function editorFixture({ button = 'Опубликовать', access = 'Только по ссылке', closeError = false } = {}) {
   let clicks = 0; let closed = false; const snapshots = []; const job = { status: 'uploading' };
   const editor = {

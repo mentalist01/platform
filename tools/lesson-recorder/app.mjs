@@ -135,7 +135,13 @@ archive = new LessonArchive({ directory, recordDirectory: () => state.config.rec
   jobs: () => Object.values(state.jobs), ffmpeg: runtime.ffmpeg || 'ffmpeg',
   isBusy: () => Boolean(engine.active() || obsStatus?.outputActive || uploadingId || queueBusy || updater.busy),
   prepareMaterial: async () => {
-    const result = await api('/archive/status', {});
+    let result;
+    try { result = await api('/archive/status', {}); }
+    catch (error) {
+      if (error.message === 'Not found') throw new Error('На платформе ещё не установлено добавление материалов из архива. Пока можно сохранить MP4 на компьютере.');
+      if (error instanceof TypeError || error.name === 'TimeoutError') throw new Error('Платформа сейчас недоступна. Попробуйте после восстановления сайта или сохраните MP4 на компьютере.');
+      throw error;
+    }
     if (!result.available || result.destination !== 'teacher-library' || !result.teacherId) throw new Error('На платформе ещё не установлено добавление материалов из архива');
     return result;
   },

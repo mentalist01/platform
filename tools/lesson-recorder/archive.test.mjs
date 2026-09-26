@@ -141,3 +141,23 @@ test('unavailable platform rejects material creation before a clip is exported o
   await assert.rejects(f.archive.createMaterial({ id: item.id, start: 1, end: 3, title: 'Theory' }), /offline/);
   assert.equal(f.archive.data.clips.length, 0); assert.equal(f.archive.submitting, false); assert.equal(f.archive.work, null);
 });
+
+test('queue durations are measured before recognition and cancelled chunks add no speed samples', async t => {
+  const f = fixture(t);
+  for (const name of ['one.mp4','two.mp4']) fs.writeFileSync(path.join(f.recordings, name), 'source');
+  await f.archive.scan(); f.archive.data.queue = f.archive.data.items.map(i => i.id); f.archive.data.paused = false;
+  f.archive.transcriber = { exe: 'python', args: [] }; let stopped = false;
+  f.archive.command = async (exe, _args, options = {}) => {
+    if (exe === 'ffprobe') return JSON.stringify({ format: { duration: 600 } });
+    if (options.onLine) {
+      assert.ok(f.archive.data.items.every(i => i.duration === 600));
+      options.onLine({ start: 1, end: 20, text: 'Объяснение' });
+      if (stopped) { f.archive.pause(); throw Error('cancelled'); }
+      options.onLine({ done: true });
+    }
+    return '';
+  };
+  await f.archive.tick(); assert.equal(f.archive.data.speedSamples.length, 1);
+  stopped = true; await f.archive.tick(); assert.equal(f.archive.data.speedSamples.length, 1);
+  assert.equal(f.archive.state().eta.unknownCount, 0); assert.equal(f.archive.state().eta.paused, true);
+});
