@@ -36,6 +36,9 @@ export async function completePrivateVideo(editor, job, persist) {
   const video = privateVideo(await link.getAttribute('href'));
   if (!video) throw new Error('Rutube не выдал закрытую ссылку. Файл сохранён, проверьте окно загрузки.');
   job.candidateUrl = video.url; job.uploadPhase = 'publishing'; persist();
+  // Keep a unique recovery label during transfer, then publish theory with the
+  // exact user title. candidateUrl is already persisted before renaming.
+  if (job.autoPublish) await editor.getByRole('textbox', { name: 'Название', exact: true }).fill(job.title);
   // A fresh upload uses Publish after moderation; editing an existing video
   // uses Save. One live locator follows either label during processing.
   const submit = editor.getByRole('button', { name: /^(?:Сохранить|Опубликовать)$/ });
@@ -89,13 +92,15 @@ export class RutubeUploader {
       throw new Error('Войдите в Rutube в окне помощника, затем нажмите «Продолжить загрузку»');
     });
     // Rutube renders clickable <a> titles without href, so they have no Playwright link role.
-    const existing = page.getByText(title, { exact: true }).or(
+    let existing = page.getByText(title, { exact: true }).or(
       page.getByText(path.basename(job.mp4, '.mp4').slice(0, 100), { exact: true })
     );
+    if (job.autoPublish && job.candidateUrl) existing = existing.or(page.getByText(job.title, { exact: true }));
     // The header appears before the video list. Wait for a prior upload to render.
     if (job.uploadStarted) await existing.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {
       throw new Error('Загрузка уже начиналась. Найдите ролик в Rutube и вставьте его закрытую ссылку в пульт; повторная копия не создаётся.');
     });
+    if (await existing.count() > 1) throw new Error('В Rutube несколько роликов с таким названием. Проверьте загрузку, повторная копия не создаётся.');
     if (await existing.count()) {
       await existing.click();
     } else {

@@ -1,9 +1,10 @@
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Never distribute state.json, browser profiles, or credentials.
-export const recorderFiles = ['Install.cmd', 'install.ps1', 'dependencies.ps1', 'app.mjs', 'obs.mjs',
+export const recorderFiles = ['archive.mjs', 'archive-publish.mjs', 'archive-search.mjs', 'archive-worker.py', 'archive-requirements.txt', 'archive.html', 'updater.mjs', 'update-worker.mjs', 'Install.cmd', 'install.ps1', 'dependencies.ps1', 'app.mjs', 'obs.mjs',
   'start-day.mjs','share-bridge.mjs','share-view.html','office-follow.mjs','foreground-window.ps1','segments.mjs','engine.mjs', 'storage.mjs', 'recording-storage.mjs', 'recovery-inbox.mjs', 'rutube.mjs',
   'panel.html', 'hotkeys.ps1', 'background.vbs', 'README.md', 'package.json', 'package-lock.json'];
 const directory = fileURLToPath(new URL('../tools/lesson-recorder/', import.meta.url));
@@ -20,8 +21,9 @@ function crc32(data) {
 // Small, uncompressed ZIP, compatible with Windows Explorer.
 export function recorderPackage() {
   const entries = []; const central = []; let offset = 0;
-  for (const name of recorderFiles) {
-    let data = fs.readFileSync(path.join(directory, name));
+  const packageFiles = [...recorderFiles, 'release.json'];
+  for (const name of packageFiles) {
+    let data = name === 'release.json' ? Buffer.from(JSON.stringify(recorderRelease().manifest)) : fs.readFileSync(path.join(directory, name));
     if (name.endsWith('.cmd')) data = Buffer.from(data.toString('utf8').replace(/\r?\n/g, '\r\n'));
     if (name.endsWith('.ps1') && !data.subarray(0, 3).equals(Buffer.from([239, 187, 191]))) {
       data = Buffer.concat([Buffer.from([239, 187, 191]), data]); // Windows PowerShell 5.1 UTF-8.
@@ -38,7 +40,18 @@ export function recorderPackage() {
     offset += local.length + filename.length + data.length;
   }
   const directoryData = Buffer.concat(central); const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(recorderFiles.length, 8); end.writeUInt16LE(recorderFiles.length, 10);
+  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(packageFiles.length, 8); end.writeUInt16LE(packageFiles.length, 10);
   end.writeUInt32LE(directoryData.length, 12); end.writeUInt32LE(offset, 16);
   return Buffer.concat([...entries, directoryData, end]);
+}
+
+let cachedRelease;
+export function recorderRelease() {
+  if (cachedRelease) return cachedRelease;
+  const files = Object.fromEntries(recorderFiles.map(name => [name, fs.readFileSync(path.join(directory, name), 'utf8').replace(/\r\n/g, '\n').replace(/^\uFEFF/, '')]));
+  const version = JSON.parse(files['package.json']).version;
+  const bundle = Buffer.from(JSON.stringify({ version, files }));
+  const id = crypto.createHash('sha256').update(bundle).digest('hex');
+  cachedRelease = { manifest: { id, version, sha256: id, bytes: bundle.length }, bundle };
+  return cachedRelease;
 }

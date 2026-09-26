@@ -8,6 +8,7 @@ import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
+import { addRecorderMaterial } from './recorderMaterials.js';
 import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
 import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallengeCookie, setTrustedBrowserCookie } from './accountSecurity.js';
 import path from 'path';
@@ -21776,6 +21777,18 @@ app.post('/api/payment-notifications/macrodroid', async (req, res) => {
 });
 
 registerDesktopDeviceRoutes(app, desktopRecordings, {
+  archiveStatus: (teacherId) => {
+    const teacher = readTeachersDb().find(t => t.id === teacherId);
+    if (!teacher) throw Object.assign(new Error('Преподаватель не найден'), { status: 404 });
+    if (!isTeacherSubscriptionAccessAllowed({ ...teacher, role: 'teacher' })) throw Object.assign(new Error('Доступ к платформе приостановлен'), { status: 402 });
+    return { available: true, destination: 'teacher-library', teacherId };
+  },
+  archiveMaterial: (teacherId, payload) => {
+    const teacher = readTeachersDb().find(t => t.id === teacherId);
+    if (!teacher) throw Object.assign(new Error('Преподаватель не найден'), { status: 404 });
+    if (!isTeacherSubscriptionAccessAllowed({ ...teacher, role: 'teacher' })) throw Object.assign(new Error('Доступ к платформе приостановлен'), { status: 402 });
+    return addRecorderMaterial(teacherId, payload, { read: readLearningMaterialsDb, write: writeLearningMaterialsDb });
+  },
   isActive: (job) => {
     if (job.occurrence.lessonId) return getLearningGroupReplayContext(job.occurrence.lessonId)?.lesson.status === 'active';
     const student = findStudentById(job.occurrence.studentId);

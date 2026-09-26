@@ -1,4 +1,6 @@
 import http from 'node:http';
+import { RecorderUpdater } from './updater.mjs';
+import { LessonArchive } from './archive.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -36,19 +38,31 @@ let error = ''; let obsStatus = null; let chain = Promise.resolve(); let queueBu
 let sourceWarnings = []; let lastSourceCheck = 0;
 const serialize = (fn) => { const next = chain.then(fn); chain = next.catch(() => {}); return next; };
 const ready = () => Boolean(state.config.recordDirectory && state.config.configured && state.config.platform && state.config.telemost && state.config.mic);
-const setupIdle = async () => assertSetupIdle({ active: engine.active(), uploadingId, queueBusy, outputActive: obs.connected && (await obs.status()).outputActive });
+const setupIdle = async () => {
+  if (archive?.work || archive?.setup || archive?.submitting) throw new Error('Дождитесь окончания обработки архива или поставьте её на паузу');
+  return assertSetupIdle({ active: engine.active(), uploadingId, queueBusy, outputActive: obs.connected && (await obs.status()).outputActive });
+};
+let updater; let pendingUpdate; let archive;
 const api = async (route, body, pairing = false) => {
   const response = await fetch(`${state.config.platformUrl}/api/desktop-recorder${route}`, {
     method: 'POST', signal: AbortSignal.timeout(10000), headers: { 'Content-Type': 'application/json',
-      ...(pairing ? {} : { Authorization: `Bearer ${state.config.token}` }) }, body: JSON.stringify(route === '/poll' ? { ...body, ready: ready() && !!obsStatus && !sourceWarnings.length } : body),
+      ...(pairing ? {} : { Authorization: `Bearer ${state.config.token}` }) }, body: JSON.stringify(route === '/poll' ? { ...body, ready: !updater?.busy && ready() && !!obsStatus && !sourceWarnings.length, ...updater?.info(Boolean(engine.active() || uploadingId || queueBusy || obsStatus?.outputActive || archive?.work || archive?.setup)) } : body),
   });
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) throw new Error('На платформе ещё не установлен модуль записи на компьютере');
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || `Платформа: ${response.status}`);
+  if (route === '/poll') pendingUpdate = result.updateRequest;
   return result;
 };
 const engine = new RecorderEngine({ obs, state, save, api, recordDirectory, ready });
+updater = new RecorderUpdater({ directory, here, config: () => state.config, assertIdle: setupIdle,
+  report: () => api('/poll', {}),
+  shutdown: async () => {
+    await uploader.context?.close().catch(() => {}); foregroundReader.stop(); save();
+    server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 1000);
+  },
+});
 const run = (executable, args) => new Promise((resolve, reject) => {
   const child = spawn(executable, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
@@ -97,7 +111,7 @@ async function upload(job) {
   } finally { uploadingId = ''; }
 }
 async function queue() {
-  if (queueBusy) return; queueBusy = true;
+  if (queueBusy || updater.busy || uploadingId || archive?.work || archive?.submitting) return; queueBusy = true;
   try {
     importRecoveredRecordings({ directory, recordDirectory, state, save });
     for (const job of Object.values(state.jobs)) {
@@ -117,6 +131,35 @@ const foregroundReader = new ForegroundWindowReader();
 const officeFollower = new OfficeFollower({ obs, reader: foregroundReader, config: () => state.config,
   shareActive: () => Boolean(shareBridge.offer) });
 process.on('exit', () => foregroundReader.stop());
+archive = new LessonArchive({ directory, recordDirectory: () => state.config.recordDirectory,
+  jobs: () => Object.values(state.jobs), ffmpeg: runtime.ffmpeg || 'ffmpeg',
+  isBusy: () => Boolean(engine.active() || obsStatus?.outputActive || uploadingId || queueBusy || updater.busy),
+  prepareMaterial: async () => {
+    const result = await api('/archive/status', {});
+    if (!result.available || result.destination !== 'teacher-library' || !result.teacherId) throw new Error('На платформе ещё не установлено добавление материалов из архива');
+    return result;
+  },
+  materialPublisher: {
+    upload: async (clip, persist) => {
+      if (uploadingId || queueBusy) throw new Error('Предыдущая загрузка ещё идёт');
+      uploadingId = clip.id;
+      try { await uploader.upload(clip, persist); } finally { uploadingId = ''; }
+    },
+    ready: videoReady,
+    attach: payload => api('/archive/material', payload),
+  },
+  publishClip: async (clip, persist) => {
+    if (uploadingId || queueBusy) throw new Error('Предыдущая загрузка ещё идёт');
+    uploadingId = clip.id; clip.status = 'uploading'; clip.error = ''; persist();
+    try {
+      if (!clip.url) await uploader.upload(clip, persist);
+      clip.status = await videoReady(clip.url) ? 'ready' : 'processingVideo'; persist();
+    } catch (failure) { clip.status = 'error'; clip.error = failure.message; persist(); }
+    finally { uploadingId = ''; }
+  },
+});
+void archive.detectPython().catch(() => {});
+process.on('exit', () => archive.close());
 // Prepared replacements require a deliberate click; never import or publish
 // them while polling the queue. The original files remain untouched.
 const recoveryDrafts = () => {
@@ -129,6 +172,7 @@ const recoveryDrafts = () => {
 };
 const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
+  updater: updater.info(),
   obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId,
   currentLesson: engine.currentLesson || null,
   shareMessage: shareBridge.message || '',
@@ -159,6 +203,11 @@ const server = http.createServer(async (req, res) => {
   if (!['127.0.0.1:18765', 'localhost:18765'].includes(host)) return json(res, 403, { error: 'Forbidden host' });
   if (req.headers.origin && !['http://127.0.0.1:18765', 'http://localhost:18765'].includes(req.headers.origin)) return json(res, 403, { error: 'Forbidden origin' });
   try {
+    if (req.url === '/archive' || req.url.startsWith('/archive/')) {
+      if (updater.busy && req.method !== 'GET') return json(res, 409, { error: 'Пульт обновляется. Дождитесь завершения.' });
+      if (await archive.handle(req, res, { key: localKey, json, body })) return;
+    }
+    if (req.method === 'GET' && req.url === '/health') return json(res, 200, { releaseId: updater.installed.id });
     if (req.method === 'GET' && req.url === '/') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'");
@@ -187,8 +236,10 @@ const server = http.createServer(async (req, res) => {
       const stream = fs.createReadStream(job.mp4); stream.on('error', () => res.destroy()); stream.pipe(res); return;
     }
     if (req.method !== 'POST') return json(res, 404, { error: 'Not found' });
+    if (updater.busy) return json(res, 409, { error: 'Пульт обновляется. Подождите завершения.' });
     const payload = await body(req);
     if (req.url === '/shutdown') {
+      if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте обработку архива на паузу и дождитесь завершения текущей операции');
       if (engine.active() || uploadingId || queueBusy || (obs.connected && (await obs.status()).outputActive)) throw new Error('Сначала дождитесь окончания записи и загрузки');
       await uploader.context?.close(); save();
       json(res, 200, { ok: true });
@@ -209,6 +260,7 @@ const server = http.createServer(async (req, res) => {
       void upload(job); return json(res, 200, { ok: true });
     }
     await serialize(async () => {
+      if (updater.busy) throw new Error('Пульт обновляется. Подождите завершения.');
       if (req.url === '/recover-file') {
         // Import a deliberately prepared replacement, never the unfinished
         // current output or an arbitrary path from the request.
@@ -312,7 +364,7 @@ server.on('error', (failure) => { console.error(failure.code === 'EADDRINUSE' ? 
 server.listen(18765, '127.0.0.1', () => console.log('Пульт: http://127.0.0.1:18765'));
 let ticking = false;
 setInterval(() => {
-  if (ticking) return; ticking = true;
+  if (ticking || updater.busy) return; ticking = true;
   void serialize(async () => {
     try {
       await engine.tick();
@@ -327,13 +379,14 @@ setInterval(() => {
         lastSourceCheck = Date.now();
       }
       error = '';
+      if (pendingUpdate) await updater.install(pendingUpdate);
     } catch (failure) { error = failure.message; obsStatus = null; }
   }).finally(() => { ticking = false; void queue(); });
 }, 2500);
 
 let followingSources = false;
 setInterval(() => {
-  if (followingSources) return; followingSources = true;
+  if (followingSources || updater.busy) return; followingSources = true;
   void (async () => {
     try { await shareBridge.tick(); }
     catch (error) { shareBridge.message = `Автовыбор демонстрации: ${error.message}`; }

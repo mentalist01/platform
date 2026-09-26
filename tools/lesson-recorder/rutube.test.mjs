@@ -3,6 +3,16 @@ import test from 'node:test';
 import { completePrivateVideo, isCurrentUploadEditor, RUTUBE_UPLOAD_WAIT_MS } from './rutube.mjs';
 
 const url = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Test_Key';
+
+test('theory publishes the exact user title only after retaining its private recovery link', async () => {
+  const f = editorFixture(); f.job.autoPublish = true; f.job.title = 'Задание 7: звук';
+  const role = f.editor.getByRole.bind(f.editor); let title = '';
+  f.editor.getByRole = (kind, options) => kind === 'textbox' ? { fill: async value => {
+    assert.equal(f.job.candidateUrl, url); title = value;
+  } } : role(kind, options);
+  await completePrivateVideo(f.editor, f.job, f.persist);
+  assert.equal(title, f.job.title); assert.equal(f.job.url, url);
+});
 function editorFixture({ button = 'Опубликовать', access = 'Только по ссылке', closeError = false } = {}) {
   let clicks = 0; let closed = false; const snapshots = []; const job = { status: 'uploading' };
   const editor = {

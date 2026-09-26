@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { recorderFiles, recorderPackage } from './recorderPackage.js';
+import { recorderFiles as sourceFiles, recorderPackage, recorderRelease } from './recorderPackage.js';
+
+const recorderFiles = [...sourceFiles, 'release.json'];
 
 test('Windows package contains only distributable files and valid central directory entries', () => {
   const zip = recorderPackage(); const end = zip.length - 22;
@@ -18,6 +20,7 @@ test('Windows package contains only distributable files and valid central direct
     files.set(name.replace('IVAN100-Recorder/', ''), data); position += 46 + length;
   }
   assert.equal(position, end);
+  assert.deepEqual(JSON.parse(files.get('release.json')), recorderRelease().manifest);
   assert.deepEqual([...files.keys()], recorderFiles);
   for (const [name, data] of files) {
     assert.doesNotMatch(name, /state\.json|runtime\.json|browser|node_modules|\.env/);
