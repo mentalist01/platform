@@ -39,7 +39,7 @@ export function pythonSandboxLaunch(runner, script, encodedSource, {
 } = {}) {
   if (platform !== 'linux') {
     if (production) throw new Error('Production Python checks require the Linux sandbox');
-    return { command: runner.command, args: [...runner.baseArgs, '-I', '-S', '-B', '-c', script, encodedSource], cwd: os.tmpdir() };
+    return { command: runner.command, args: [...runner.baseArgs, '-X', 'utf8', '-I', '-S', '-B', '-c', script, encodedSource], cwd: os.tmpdir() };
   }
   // No fallback to an unsandboxed interpreter if installation or startup fails.
   if (!exists('/usr/bin/bwrap') || !exists('/usr/bin/python3')) throw new Error('Python sandbox is unavailable');

@@ -1,3 +1,6 @@
+import { PYTHON_IO_EXTRA_TASKS, PYTHON_IO_SEPARATOR_TESTS, repairPythonIoTests } from './pythonIoTestData.js';
+import { repairPythonCurriculumTests } from './pythonCurriculumRepairs.js';
+
 const CURRICULUM_VERSION = 1;
 const LEVEL_ID = 'python';
 
@@ -149,7 +152,7 @@ const definitions = [
         summary: 'Считайте три слова и строку-разделитель. Выведите слова одной функцией print(), передав разделитель через параметр sep.',
         input: 'Три слова и разделитель, каждое значение на новой строке.', output: 'Три слова с заданным разделителем.',
         starterCode: "first = input()\nsecond = input()\nthird = input()\nseparator = input()\n\n# Используйте print(..., sep=separator)",
-        tests: [test('a\nb\nc\n-', 'a-b-c'), test('один\nдва\nтри\n | ', 'один | два | три'), test('1\n2\n3\n', '123'), test('x\ny\nz\n#', 'x#y#z')],
+        tests: PYTHON_IO_SEPARATOR_TESTS,
       },
       {
         id: 'python-io-future-age', section: 'format', title: 'Возраст в будущем',
@@ -166,6 +169,7 @@ const definitions = [
         starterCode: "name = input()\ncity = input()\nage = int(input())\n\n# Выведите аккуратную карточку",
         tests: [test('Иван\nМосква\n17', 'Имя: Иван\nГород: Москва\nВозраст: 17'), test('Anna\nOmsk\n20', 'Имя: Anna\nГород: Omsk\nВозраст: 20'), test('Ли\nУфа\n15', 'Имя: Ли\nГород: Уфа\nВозраст: 15'), test('X\nY\n1', 'Имя: X\nГород: Y\nВозраст: 1')],
       },
+      ...PYTHON_IO_EXTRA_TASKS,
     ],
   },
   {
@@ -1016,6 +1020,8 @@ export const migratePythonCoreCurriculaTestsDb = (testsDbValue) => {
     };
     changed = true;
   });
+  changed = repairPythonIoTests(testsDb) || changed;
+  changed = repairPythonCurriculumTests(testsDb) || changed;
   return { testsDb, changed };
 };
 

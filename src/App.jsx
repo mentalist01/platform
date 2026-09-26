@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
+import { parseTestsFileContent } from './utils/pythonTestData.js';
 import { readCallResume } from './utils/callResume.js';
 import { createPortal } from 'react-dom';
 import { 
@@ -1900,48 +1901,6 @@ const formatPerDayRateLabel = (value) => {
   return num.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 };
 
-const parseTestsFromText = (content) => {
-  const normalized = String(content ?? '').replace(/\r\n/g, '\n');
-  const blocks = normalized.split(/\n-{3,}\n/);
-  const tests = blocks.map((block) => {
-    const lines = block.split('\n');
-    let section = '';
-    const inputLines = [];
-    const outputLines = [];
-    lines.forEach((line) => {
-      const trimmed = line.trim().toLowerCase();
-      if (trimmed === 'input:' || trimmed === 'in:' || trimmed === 'stdin:') {
-        section = 'input';
-        return;
-      }
-      if (trimmed === 'output:' || trimmed === 'out:' || trimmed === 'stdout:') {
-        section = 'output';
-        return;
-      }
-      if (section === 'input') inputLines.push(line);
-      if (section === 'output') outputLines.push(line);
-    });
-    const input = inputLines.join('\n').trimEnd();
-    const output = outputLines.join('\n').trimEnd();
-    return { input, output };
-  });
-  return tests.filter((test) => test.input || test.output);
-};
-
-const parseTestsFileContent = (content) => {
-  const trimmed = String(content ?? '').trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    const data = JSON.parse(trimmed);
-    const list = Array.isArray(data) ? data : data?.tests;
-    if (!Array.isArray(list)) return [];
-    return list.map((item) => ({
-      input: String(item?.input ?? '').trimEnd(),
-      output: String(item?.output ?? '').trimEnd(),
-    })).filter((test) => test.input || test.output);
-  }
-  return parseTestsFromText(content);
-};
 
 const extractIframeSrc = (value) => {
   const text = String(value ?? '').trim();

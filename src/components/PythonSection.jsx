@@ -1,3 +1,4 @@
+import { preparePythonTests } from '../utils/pythonTestData.js';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, Plus, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
@@ -789,12 +790,7 @@ const PythonSection = ({
     const title = newTaskTitle.trim();
     const starterCode = normalizeCodeText(newStarterCode).trim();
     if (!manageTaskNumber) return;
-    const preparedTests = newTests
-      .map((test) => ({
-        input: String(test?.input ?? '').trimEnd(),
-        output: String(test?.output ?? '').trimEnd(),
-      }))
-      .filter((test) => test.input || test.output);
+    const preparedTests = preparePythonTests(newTests);
     if (!question) {
       setQuestionError('Введите условие задачи.');
       return;

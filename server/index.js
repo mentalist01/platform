@@ -1,3 +1,4 @@
+import { PYTHON_RUNNER_SCRIPT } from './pythonRunnerSource.js';
 import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
 import express from 'express';
@@ -1148,42 +1149,7 @@ const PYTHON_RUN_RATE_WINDOW_MS = (() => {
   if (Number.isFinite(parsed) && parsed >= 10_000) return Math.floor(parsed);
   return 60_000;
 })();
-const PYTHON_RUNNER_SCRIPT = [
-  'import ast',
-  'import builtins as _builtins',
-  'from base64 import b64decode',
-  'import sys',
-  'import traceback',
-  'source = b64decode(sys.argv[1]).decode("utf-8", "replace")',
-  'forbidden_names = {"__builtins__", "__import__", "open", "eval", "exec", "compile", "globals", "locals", "vars", "getattr", "setattr", "delattr", "breakpoint", "help"}',
-  'forbidden_modules = {"os", "sys", "subprocess", "socket", "pathlib", "shutil", "ctypes", "inspect", "importlib", "pickle", "marshal"}',
-  'forbidden_calls = {"__import__", "open", "eval", "exec", "compile", "globals", "locals", "vars", "getattr", "setattr", "delattr"}',
-  'forbidden_nodes = (ast.Import, ast.ImportFrom, ast.With, ast.AsyncWith, ast.Try, ast.Raise, ast.Global, ast.Nonlocal, ast.ClassDef)',
-  'tree = ast.parse(source, mode="exec")',
-  'for node in ast.walk(tree):',
-  '    if isinstance(node, forbidden_nodes):',
-  '        raise RuntimeError("Недопустимая конструкция Python")',
-  '    if isinstance(node, ast.Name) and node.id in forbidden_names:',
-  '        raise RuntimeError("Недопустимое имя в коде")',
-  '    if isinstance(node, ast.Attribute) and node.attr.startswith("__"):',
-  '        raise RuntimeError("Недопустимый доступ к атрибуту")',
-  '    if isinstance(node, ast.alias) and node.name.split(".")[0] in forbidden_modules:',
-  '        raise RuntimeError("Импорт модулей запрещен")',
-  '    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in forbidden_calls:',
-  '        raise RuntimeError("Недопустимый вызов функции")',
-  'safe_builtin_names = {',
-  '    "abs", "all", "any", "bin", "bool", "chr", "dict", "divmod", "enumerate", "filter", "float", "hex",',
-  '    "int", "len", "list", "map", "max", "min", "oct", "ord", "pow", "print", "range", "reversed",',
-  '    "round", "set", "sorted", "str", "sum", "tuple", "zip", "input"',
-  '}',
-  'safe_builtins = {name: getattr(_builtins, name) for name in safe_builtin_names}',
-  'globals_ns = {"__name__": "__main__", "__builtins__": safe_builtins}',
-  'try:',
-  '    exec(compile(tree, "<submitted>", "exec"), globals_ns, globals_ns)',
-  'except Exception:',
-  '    traceback.print_exc()',
-  '    raise',
-].join('\n');
+
 const PYTHON_RUNNER_CANDIDATES = (() => {
   const envRunner = typeof process.env.PYTHON_EXECUTABLE === 'string'
     ? process.env.PYTHON_EXECUTABLE.trim()
