@@ -2033,6 +2033,7 @@ const LearningGroupsSection = ({
                             || lessonPast
                             || ['cancelled', 'completed'].includes(String(lesson.status || '').trim());
                           const isRoomOpenable = !lessonClosed && !telemostTooEarly;
+                          const isVoiceOpenable = !groupCompleted && !['cancelled', 'completed'].includes(String(lesson.status || '').trim());
                           const isWorkspaceOpenable = lesson.status !== 'cancelled';
                           const isWorkspaceReadOnly = lessonClosed || (lessonNotStarted && !isTeacher);
                           const isEditing = editingLessonId === lessonId;
@@ -2177,10 +2178,10 @@ const LearningGroupsSection = ({
                                 <button
                                   type="button"
                                   onClick={() => handleOpenLesson(lesson, 'call')}
-                                  disabled={!isRoomOpenable}
+                                  disabled={!isVoiceOpenable}
                                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
                                 >
-                                  <Video size={16} /> {telemostTooEarly ? 'Доступ за 5 минут до начала' : lessonClosed ? 'Встреча закрыта' : 'Голосовые каналы'}
+                                  <Video size={16} /> {isVoiceOpenable ? 'Голосовые каналы' : 'Встреча закрыта'}
                                 </button>
                                 <button
                                   type="button"

@@ -250,9 +250,21 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
 
     const futureLesson = await request(`${root}/lessons`, { method: 'POST', status: 201, body: { startAt: new Date(Date.now() + 60 * 60_000).toISOString(), durationMinutes: 60 } });
     const futureChannels = await request(`${root}/lessons/${futureLesson.lesson.id}/voice-channels`);
-    assert.equal(futureChannels.canJoin, false);
+    assert.equal(futureChannels.canJoin, true);
     t.send({ type: 'join', roomId: futureChannels.channels[0].roomId });
-    await t.take('error');
+    await t.take('joined');
+    const earlyStudent = await open(first.token);
+    earlyStudent.send({ type: 'join', roomId: futureChannels.channels[0].roomId });
+    await earlyStudent.take('joined');
+    const futureUrl = `${root}/lessons/${futureLesson.lesson.id}/voice-channels`;
+    assert.equal((await request(`${futureUrl}/distribute`, { method: 'POST', body: {} })).movedCount, 1);
+    await earlyStudent.take('channel-move');
+    earlyStudent.send({ type: 'join', roomId: futureChannels.channels[1].roomId });
+    await earlyStudent.take('joined');
+    await request(`${root}/lessons/${futureLesson.lesson.id}`, { method: 'PATCH', body: { status: 'cancelled' } });
+    await earlyStudent.take('session-ended');
+    await t.take('session-ended');
+    assert.equal((await request(futureUrl)).canJoin, false);
 
     await request(`${root}/lessons/${lesson.id}`, { method: 'PATCH', body: { status: 'completed' } });
     await a.take('session-ended');

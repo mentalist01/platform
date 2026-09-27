@@ -378,6 +378,7 @@ export const authorizeLearningRealtimeRoom = ({
   students,
   allowedKinds,
   allowedSessionStatuses,
+  allowRtcOutsideSchedule = false,
   authorizeAdditionalRoom,
 } = {}) => {
   if (!auth || !normalizeText(auth.id) || !normalizeText(auth.role, 40)) {
@@ -437,6 +438,7 @@ export const authorizeLearningRealtimeRoom = ({
   if (
     target.targetType === 'lesson'
     && target.kind === 'rtc'
+    && !allowRtcOutsideSchedule
     && (
       (Number.isFinite(windowState.startMs)
         && windowState.startMs - LEARNING_LESSON_EARLY_JOIN_MS > Date.now())

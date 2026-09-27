@@ -109,7 +109,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
 
   const channels = snapshot?.channels || [];
   const selected = channels.find((channel) => channel.id === selectedId);
-  const canConnect = snapshot?.canJoin && !['completed', 'cancelled'].includes(lesson.status);
+  const canConnect = snapshot?.canJoin;
   const statusLabel = callStatus === 'connected' ? 'Вы в канале' : callStatus === 'connecting' ? 'Подключение…' : 'Связь отключена';
 
   return (

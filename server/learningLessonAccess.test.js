@@ -433,6 +433,23 @@ test('group workspace stays writable for the thirty-minute overrun window', () =
   assert.equal(buildAccess(31 * 60 * 1000).readOnly, true);
 });
 
+test('native voice can ignore schedule without bypassing membership or closed-session checks', () => {
+  const authorize = (status, authId = 'student-a', startAt = new Date(Date.now() + 86400000).toISOString()) => authorizeLearningRealtimeRoom({
+    auth: { role: 'student', id: authId },
+    roomId: `rtc:lesson:${session.id}`,
+    sessions: [{ ...session, status, startAt }],
+    groups: [group],
+    allowedKinds: ['rtc'],
+    allowedSessionStatuses: ['scheduled', 'active'],
+    allowRtcOutsideSchedule: true,
+  });
+  assert.equal(authorize('scheduled').allowed, true);
+  assert.equal(authorize('active', 'student-a', new Date(Date.now() - 86400000).toISOString()).allowed, true);
+  assert.equal(authorize('scheduled', 'outsider').allowed, false);
+  assert.equal(authorize('completed').allowed, false);
+  assert.equal(authorize('cancelled').allowed, false);
+});
+
 test('attendance normalization creates a stable student-per-session identity', () => {
   const record = normalizeLearningAttendanceRecord({
     sessionId: 'session-a',

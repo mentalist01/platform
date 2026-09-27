@@ -41459,14 +41459,16 @@ const getRtcRoomAccessError = (auth, roomMeta) => {
     students: readStudentsDb(),
     allowedKinds: ['rtc'],
     allowedSessionStatuses: LEARNING_LESSON_LIVE_STATUSES,
+    allowRtcOutsideSchedule: true,
   });
   if (access.allowed) {
     if (roomMeta.targetType === 'lesson') {
       const lesson = access.target.session;
-      const startMs = Date.parse(lesson.startAt);
-      const endMs = startMs + Math.max(15, Number(lesson.durationMinutes) || 60) * 60_000 + LEARNING_LESSON_OVERRUN_GRACE_MS;
-      if (startMs - LEARNING_LESSON_EARLY_JOIN_MS > Date.now() || endMs <= Date.now()) return 'Занятие ещё не началось или уже завершено';
       const group = readLearningGroupsDb().find((entry) => entry.id === lesson.groupId);
+      if (!group || group.status === 'completed') return 'Группа уже завершена';
+      if (isStudentRole(auth) && !getActiveLearningGroupMembers(group).some(member => member.studentId === auth.id)) {
+        return 'Недостаточно прав для этой комнаты';
+      }
       if (!getLearningVoiceChannels(group, lesson).some((channel) => channel.roomId === roomMeta.roomId)) {
         return 'Голосовой канал не найден';
       }
@@ -42472,4 +42474,3 @@ server.listen(PORT, process.env.PLATFORM_BIND_HOST || '127.0.0.1', () => {
       console.warn('[python] runner warmup failed:', error?.message || error);
     });
 });
-
