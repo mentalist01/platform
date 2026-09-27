@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { parseTestsFileContent } from './utils/pythonTestData.js';
 import { readCallResume } from './utils/callResume.js';
 import { createPortal } from 'react-dom';
@@ -26119,7 +26119,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       <Icon size={18} />
                       <span className="truncate leading-none">
                         {item.id === 'call' && activeLearningLesson
-                          ? 'Телемост'
+                          ? (activeLearningLesson.callProvider === 'telemost' ? 'Телемост' : 'Голосовые каналы')
                           : (mobileNavLabels[item.id] || item.label)}
                       </span>
                     </button>
