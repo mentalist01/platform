@@ -188,6 +188,7 @@ const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
   updater: updater.info(),
   obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId,
+  preparingUpload: queueBusy, archiveBusy: Boolean(archive.work || archive.setup || archive.submitting),
   currentLesson: engine.currentLesson || null,
   shareMessage: shareBridge.message || '',
   officeMessage: officeFollower.message,

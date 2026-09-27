@@ -9,6 +9,19 @@ const headline = vm.runInNewContext(`(${source})`);
 const job = { id: 'one', status: 'recording', lessonName: 'Олег', title: 'Урок 2026-09-26 17:00' };
 const live = { jobs: [job], obs: { outputActive: true, outputTimecode: '00:12:34.500' } };
 
+const startReason = vm.runInNewContext(`(${panel.slice(panel.indexOf('function pythonStartReason('), panel.indexOf('function pythonButtons('))})`);
+test('Python record button explains temporary blockers and re-enables once idle', () => {
+  const idle = { jobs: [], obs: { outputActive: false }, paired: true, ready: true };
+  assert.equal(startReason(idle, {}), '');
+  assert.match(startReason({ ...idle, uploadingId: 'previous' }, {}), /загрузки/);
+  assert.match(startReason({ ...idle, preparingUpload: true }, {}), /подготовки/);
+  assert.match(startReason({ ...idle, archiveBusy: true }, {}), /паузу/);
+  assert.match(startReason({ ...idle, ...live }, {}), /текущую запись/);
+  assert.match(startReason(idle, null), /тему и подраздел/);
+  assert.match(startReason({ ...idle, ready: false }, {}), /OBS/);
+  assert.equal(startReason(idle, {}), '');
+});
+
 test('headline shows the actual recording student and OBS elapsed time', () => {
   const view = headline(live);
   assert.equal(view.name, 'Олег');

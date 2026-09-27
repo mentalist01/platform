@@ -3377,7 +3377,7 @@ html[data-theme='dark'] .call-telemost-fallback__action:hover {
   }
 }
 
-button.call-game-overlay__row {
+.call-game-overlay__mic {
   appearance: none;
   padding: 0;
   border: 0;
@@ -3388,11 +3388,14 @@ button.call-game-overlay__row {
   cursor: pointer;
   pointer-events: auto;
 }
-button.call-game-overlay__row:focus-visible {
+.call-game-overlay__mic:focus-visible {
   outline: 2px solid #a78bfa;
   outline-offset: 4px;
   opacity: 1;
 }
-button.call-game-overlay__row:disabled { cursor: wait; }
+.call-game-overlay__mic:disabled { cursor: wait; }
+.call-game-overlay-shell { cursor: grab; user-select: none; touch-action: none; }
+.call-game-overlay-shell:active { cursor: grabbing; }
+.call-game-overlay__mic { display: inline-flex; cursor: pointer; }
 
 .call-game-overlay-shell[data-group-lesson='true'] { bottom: 128px; }

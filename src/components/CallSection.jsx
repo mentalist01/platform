@@ -838,21 +838,17 @@ const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
             : participant.hasAudio
               ? 'молчит'
               : 'нет аудио';
-        const Row = participant.isSelf ? 'button' : 'div';
         const micLabel = participant.isMuted ? 'Включить свой микрофон' : 'Выключить свой микрофон';
+        const micVisual = participant.isMuted
+          ? <span className="call-game-overlay__icon" aria-label="Микрофон выключен"><MicOff size={13} /></span>
+          : <span className="call-game-overlay__meter" aria-hidden="true"><span /><span /><span /></span>;
         return (
-          <Row
+          <div
             key={`voice-overlay-${participant.id}`}
-            type={participant.isSelf ? 'button' : undefined}
-            onClick={participant.isSelf ? participant.onToggleMic : undefined}
-            onDoubleClick={participant.isSelf ? (event) => event.stopPropagation() : undefined}
-            disabled={participant.isSelf ? participant.micDisabled : undefined}
-            aria-label={participant.isSelf ? micLabel : undefined}
-            aria-pressed={participant.isSelf ? participant.isMuted : undefined}
             className="call-game-overlay__row"
             data-speaking={participant.isSpeaking ? 'true' : 'false'}
             data-muted={participant.isMuted ? 'true' : 'false'}
-            title={participant.isSelf ? micLabel : `${participant.title}: ${participantStateText}`}
+            title={`${participant.title}: ${participantStateText}`}
           >
             <span className="call-game-overlay__avatar" aria-hidden="true">
               {participant.initial}
@@ -861,25 +857,18 @@ const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
               <span className="call-game-overlay__name">
                 {participant.title}
               </span>
-              {!participant.isMuted && (
-                <span className="call-game-overlay__meter" aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-              )}
-              {participant.isMuted && (
-                <span className="call-game-overlay__icon" aria-label="Микрофон выключен">
-                  <MicOff size={13} />
-                </span>
-              )}
+              {participant.isSelf ? <button type="button" className="call-game-overlay__mic"
+                onClick={participant.onToggleMic} onDoubleClick={event => event.stopPropagation()}
+                disabled={participant.micDisabled} aria-label={micLabel} aria-pressed={participant.isMuted} title={micLabel}>
+                {micVisual}
+              </button> : micVisual}
               {!participant.isMuted && participant.isScreenSharing && (
                 <span className="call-game-overlay__icon" aria-label="Показывает экран">
                   <MonitorUp size={13} />
                 </span>
               )}
             </span>
-          </Row>
+          </div>
         );
       })}
       </div>
@@ -1425,6 +1414,7 @@ const CallSection = ({
   const floatingPanelRef = useRef(null);
   const inlinePanelRef = useRef(null);
   const panelDragStateRef = useRef(null);
+  const panelDragClickSuppressedUntil = useRef(0);
   const activeRoomRef = useRef('');
   const manualCloseRef = useRef(false);
   const statusRef = useRef(status);
@@ -3132,7 +3122,6 @@ const CallSection = ({
     }
     const targetRef = panelKind === 'collapsed' ? collapsedPanelRef.current : floatingPanelRef.current;
     if (!targetRef) return;
-    event.preventDefault();
     event.stopPropagation();
     stopPanelDrag();
 
@@ -3142,24 +3131,12 @@ const CallSection = ({
     const pointerOffsetX = event.clientX - rect.left;
     const pointerOffsetY = event.clientY - rect.top;
 
-    if (panelKind === 'collapsed' && !collapsedPanelPosition) {
-      setCollapsedPanelPosition(clampPanelPositionToViewport({
-        x: rect.left,
-        y: rect.top,
-      }, panelWidth, panelHeight));
-    }
-    if (panelKind === 'floating' && !floatingPanelPosition) {
-      const anchoredPosition = clampPanelPositionToViewport({
-        x: rect.left,
-        y: rect.top,
-      }, panelWidth, panelHeight);
-      setFloatingPanelPosition({
-        ...anchoredPosition,
-        width: panelWidth,
-      });
-    }
-
+    let moved = false;
     const onPointerMove = (moveEvent) => {
+      if (moveEvent.pointerId !== event.pointerId) return;
+      if (!moved && Math.hypot(moveEvent.clientX - event.clientX, moveEvent.clientY - event.clientY) < 5) return;
+      moved = true;
+      moveEvent.preventDefault();
       const nextPosition = clampPanelPositionToViewport({
         x: moveEvent.clientX - pointerOffsetX,
         y: moveEvent.clientY - pointerOffsetY,
@@ -3174,14 +3151,9 @@ const CallSection = ({
       }
     };
     const onPointerUp = () => {
+      if (moved) panelDragClickSuppressedUntil.current = Date.now() + 350;
       stopPanelDrag();
     };
-
-    if (targetRef.setPointerCapture && Number.isFinite(event.pointerId)) {
-      try {
-        targetRef.setPointerCapture(event.pointerId);
-      } catch {}
-    }
 
     panelDragStateRef.current = {
       onPointerMove,
@@ -3192,7 +3164,7 @@ const CallSection = ({
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);
-  }, [collapsedPanelPosition, floatingPanelPosition, stopPanelDrag]);
+  }, [stopPanelDrag]);
 
   const stopLocalSelfSpeakingObserver = useCallback(() => {
     const cleanup = localSelfSpeakingObserverCleanupRef.current;
@@ -6096,8 +6068,8 @@ const CallSection = ({
         className="call-collapsed-shell call-game-overlay-shell fixed bottom-20 right-4 z-50 md:bottom-20 md:right-6"
         style={collapsedPanelStyle}
         onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
-        onDoubleClick={collapsedOpenHandler}
-        title="Перетащить overlay. Двойной клик откроет звонок."
+        onDoubleClick={() => { if (Date.now() >= panelDragClickSuppressedUntil.current) collapsedOpenHandler?.(); }}
+        title="Перетащите панель. Двойной клик по имени или аватару откроет звонок."
       >
         <CallGameVoiceOverlay participants={overlayVoiceParticipants} className={collapsedCardClass} />
       </div>

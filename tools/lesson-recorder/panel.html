@@ -55,6 +55,7 @@
 <label for="python-title">Название видео</label><input id="python-title" maxlength="100" placeholder="Например: Цикл for — первые задачи">
 <label id="python-replace-label" class="wizard-note hidden"><input id="python-replace" type="checkbox"> Заменить существующее видео RuTube в этом подразделе. Остальная теория сохранится.</label>
 <div class="row" style="margin-top:16px"><button id="python-start" class="primary" disabled>Записать урок Python</button><button id="python-stop" disabled>Завершить и прикрепить</button></div>
+<p id="python-start-reason" class="caption" role="status"></p>
 <p class="caption">Для переключения на редактор Python выберите «Окно программы» после начала записи. Загрузка запускается автоматически для этой записи. Оставьте компьютер включённым до завершения. Максимальная длительность записи — 3 часа.</p></section>
 <section id="recovery-card" class="card queue hidden"><h2>Восстановленная запись</h2><div id="recovery-drafts"></div></section>
 <section class="card queue"><h2>Записи и загрузки</h2><div id="jobs"><p>Здесь появятся записи уроков.</p></div></section>
@@ -68,7 +69,18 @@ function pythonTask(){return pythonCatalog?.tasks.find(t=>String(t.number)===$('
 function pythonSubsection(){return pythonTask()?.subsections.find(s=>s.id===$('python-subsection').value);}
 function pythonSelection(){const task=pythonTask();const section=pythonSubsection();$('python-replace').checked=false;$('python-replace-label').classList.toggle('hidden',!section?.existingUrl);$('python-title').value=task&&section?(task.title+(section.id==='__default__'?'':' — '+section.title)).slice(0,100):'';pythonButtons();}
 function pythonSections(){const task=pythonTask();$('python-subsection').innerHTML=(task?.subsections||[]).map(s=>`<option value="${esc(s.id)}">${esc(s.title)}</option>`).join('');pythonSelection();}
-function pythonButtons(){const active=current?.jobs.find(j=>['starting','recording','stopping'].includes(j.status));const locked=busy||!!active||!!current?.obs?.outputActive;for(const id of ['python-task','python-subsection','python-title','python-replace'])$(id).disabled=locked;$('python-refresh').disabled=locked||!current?.paired;$('python-start').disabled=locked||!pythonSubsection()||!current?.ready||!!current?.uploadingId;$('python-stop').disabled=busy||!active?.pythonTheory;}
+function pythonStartReason(state,section,working=false){
+  if(working)return 'Выполняем предыдущую команду…';
+  if(!state)return 'Подключаемся к пульту…';
+  if(state.jobs?.some(j=>['starting','recording','stopping'].includes(j.status))||state.obs?.outputActive)return 'Сначала завершите текущую запись.';
+  if(state.uploadingId||state.preparingUpload)return 'Дождитесь подготовки и загрузки предыдущего видео. Кнопка включится автоматически.';
+  if(state.archiveBusy)return 'Поставьте распознавание архива на паузу перед записью.';
+  if(!state.paired)return 'Подключите компьютер к платформе в настройках пульта.';
+  if(!state.ready)return state.sourceWarnings?.join(' ')||'Проверьте OBS, окно записи и микрофон в настройках пульта.';
+  if(!section)return 'Выберите тему и подраздел для записи.';
+  return '';
+}
+function pythonButtons(){const active=current?.jobs.find(j=>['starting','recording','stopping'].includes(j.status));const locked=busy||!!active||!!current?.obs?.outputActive;for(const id of ['python-task','python-subsection','python-title','python-replace'])$(id).disabled=locked;$('python-refresh').disabled=locked||!current?.paired;const reason=pythonStartReason(current,pythonSubsection(),busy);$('python-start').disabled=!!reason;$('python-start-reason').textContent=reason;$('python-stop').disabled=busy||!active?.pythonTheory;}
 async function loadPythonTopics(){pythonCatalog=await request('/python/catalog');$('python-task').innerHTML='<option value="">Выберите тему…</option>'+pythonCatalog.tasks.map(t=>`<option value="${t.number}">${esc(t.title)}</option>`).join('');pythonSections();$('python-status').textContent='Выберите, к какой теме прикрепить запись.';}
 const labels={waiting:'Ожидаем OBS',starting:'Запускаем запись',recording:'Идёт запись',stopping:'Останавливаем',saved:'Файл сохранён',uploading:'Загрузка в Rutube',processing:'Обработка в Rutube',ready:'Видео готово',error:'Нужно действие'};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -98,7 +110,7 @@ function renderRecordingHeadline(state,unavailable=false){
   $('status').textContent=view.status;$('status').className='badge'+(view.tone==='live'?' live':'');
 }
 async function request(route,data){const r=await fetch(route,{...(route==='/state'?{signal:AbortSignal.timeout(8000)}:{}),method:data===undefined?'GET':'POST',headers:{'X-Recorder-Key':key,'Content-Type':'application/json'},...(data===undefined?{}:{body:JSON.stringify(data)})});if(r.status===403&&route==='/state'){location.reload();throw Error('Переподключаемся к пульту…');}const v=await r.json();if(!r.ok)throw Error(v.error);return v;}
-async function act(fn){if(busy)return;busy=true;localError='';try{await fn()}catch(e){localError=e.message;$('error').textContent=localError;$('error').scrollIntoView({block:'nearest'});}finally{busy=false;await refresh();}}
+async function act(fn){if(busy)return;busy=true;localError='';pythonButtons();try{await fn()}catch(e){localError=e.message;$('error').textContent=localError;$('error').scrollIntoView({block:'nearest'});}finally{busy=false;pythonButtons();await refresh();}}
 function showStep(value){step=Math.max(0,Math.min(4,value));document.querySelectorAll('[data-page]').forEach(p=>p.classList.toggle('hidden',Number(p.dataset.page)!==step));document.querySelectorAll('[data-step]').forEach(b=>{if(Number(b.dataset.step)===step)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});$('previous-step').disabled=step===0;$('next-step').classList.toggle('hidden',step===4);$('step-label').textContent='Шаг '+(step+1)+' из 5';}
 function completedSteps(){return [!!current?.config.recordDirectory,!!current?.config.configured,!!current?.paired,!!current?.testVerified,!!current?.config.rutubeVerifiedAt&&!!current?.config.autoUpload];}
 async function drives(){const data=await request('/storage');const selected=$('drive').value;$('drive').innerHTML=data.drives.map(d=>`<option value="${esc(d.root)}">${esc(d.root)} — свободно ${(d.free/1073741824).toFixed(1)} ГБ из ${(d.size/1073741824).toFixed(0)}</option>`).join('');const preferred=data.drives.find(d=>d.root.toUpperCase()==='D:\\')||[...data.drives].sort((a,b)=>b.free-a.free)[0];const folder=$('record-directory').value||data.recordDirectory;const disk=data.drives.find(d=>folder.toLowerCase().startsWith(d.root.toLowerCase()));$('drive').value=disk?.root||selected||preferred?.root||'';if(!$('drive').value)$('drive').value=preferred?.root||'';if(!folder&&$('drive').value)$('record-directory').value=$('drive').value+'Видео\\Ivan100 Lessons';else if(!$('record-directory').value)$('record-directory').value=folder;}
