@@ -113,9 +113,9 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
   fs.mkdirSync(dataDir);
   const now = new Date(Date.now() - 60_000).toISOString();
   const seed = (name, value) => fs.writeFileSync(path.join(dataDir, name), JSON.stringify(value));
-  seed('teachers.json', [{ id: 'teacher-a', name: 'Teacher A', code: '110001', createdAt: now }]);
+  seed('teachers.json', [{ id: 'teacher-a', name: 'Teacher A', code: '110001', createdAt: now }, { id: 'teacher-b', name: 'Teacher B', code: '110002', createdAt: now }]);
   seed('students.json', Array.from({ length: 21 }, (_, i) => ({
-    id: `student-${i + 1}`, name: `Student ${i + 1}`, teacherId: 'teacher-a',
+    id: `student-${i + 1}`, name: `Student ${i + 1}`, nickname: `Nickname ${i + 1}`, teacherId: 'teacher-a',
     code: String(110101 + i), createdAt: now, deletedAt: null,
   })));
   seed('progress.json', {});
@@ -152,6 +152,7 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
   try {
     await waitForServer(baseUrl, child, () => logs);
     const teacher = await login(baseUrl, '110001');
+    const otherTeacher = await login(baseUrl, '110002');
     const first = await login(baseUrl, '110101');
     const second = await login(baseUrl, '110102');
     const outsider = await login(baseUrl, '110121');
@@ -169,6 +170,16 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
     assert.equal(initial.channels.length, 21);
     assert.equal(initial.canJoin, true);
     assert.equal(initial.channels[0].name, 'Общий канал');
+    assert.equal(initial.channels[1].name, 'Student 1');
+    const renameUrl = `${url}/${initial.channels[1].id}`;
+    await request(renameUrl, { method: 'PATCH', token: first.token, status: 403, body: { name: 'No' } });
+    await request(renameUrl, { method: 'PATCH', token: otherTeacher.token, status: 403, body: { name: 'No' } });
+    await request(renameUrl, { method: 'PATCH', status: 400, body: { name: '  ' } });
+    await request(`${url}/unknown`, { method: 'PATCH', status: 404, body: { name: 'No' } });
+    await request(renameUrl, { method: 'PATCH', status: 409, body: { name: 'Общий канал' } });
+    const renamed = await request(renameUrl, { method: 'PATCH', body: { name: 'Анна — практика' } });
+    assert.equal(renamed.channel.roomId, initial.channels[1].roomId);
+    assert.equal((await request(url, { token: first.token })).channels[1].name, 'Анна — практика');
     await request(url, { token: outsider.token, status: 403 });
     await request(url, { token: first.token, method: 'POST', status: 403, body: { name: 'Не разрешено' } });
     await request(url, { method: 'POST', status: 400, body: { name: '  ' } });
@@ -179,6 +190,9 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
     const otherLesson = await request(`${root}/lessons`, { method: 'POST', status: 201, body: { startAt: now, durationMinutes: 60 } });
     const otherChannels = await request(`${root}/lessons/${otherLesson.lesson.id}/voice-channels`);
     assert.equal(otherChannels.channels.at(-1).name, 'Работа в паре');
+    assert.equal(otherChannels.channels[1].name, 'Анна — практика');
+    await request(renameUrl, { method: 'PATCH', body: { reset: true } });
+    assert.equal((await request(url)).channels[1].name, 'Student 1');
     assert.notEqual(otherChannels.channels.at(-1).roomId, (await request(url)).channels.at(-1).roomId);
 
     const a = await open(first.token);
@@ -192,6 +206,9 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
     assert.equal(joinedA.peers.length, 0);
     b.send({ type: 'join', roomId: separate });
     assert.equal((await b.take('joined')).peers.length, 0);
+    const eventInOtherChannel = await waitForValue(() => a.inbox.find(message => message.type === 'voice-channel-presence' && message.roomId === separate));
+    assert.deepEqual(eventInOtherChannel.participants.map(peer => peer.userId), ['student-2']);
+    assert.equal(x.inbox.some(message => message.type === 'voice-channel-presence'), false);
     t.send({ type: 'join', roomId: general });
     const joinedT = await t.take('joined');
     assert.deepEqual(joinedT.peers.map((peer) => peer.userId), ['student-1']);
@@ -208,6 +225,8 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
     t.send({ type: 'join', roomId: separate });
     assert.deepEqual((await t.take('joined')).peers.map((peer) => peer.userId), ['student-2']);
     assert.equal((await a.take('peer-left')).peerId, joinedT.selfId);
+    const livePresence = await waitForValue(() => a.inbox.findLast(message => message.type === 'voice-channel-presence' && message.roomId === separate && message.participants.length === 2));
+    assert.deepEqual(livePresence.participants.map(peer => peer.userId).sort(), ['student-2', 'teacher-a']);
     const presence = await request(url, { token: first.token });
     assert.deepEqual(presence.channels[0].participants.map((peer) => peer.userId), ['student-1']);
     assert.deepEqual(presence.channels[1].participants.map((peer) => peer.userId).sort(), ['student-2', 'teacher-a']);

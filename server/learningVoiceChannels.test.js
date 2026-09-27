@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getLearningVoiceChannels, normalizeLearningVoiceChannels } from './learningVoiceChannels.js';
+import { getLearningVoiceChannels, normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './learningVoiceChannels.js';
 import { normalizeLearningGroup, updateLearningGroup } from './learningGroups.js';
 import { authorizeLearningRealtimeRoom, parseLearningLessonRoomTarget } from './learningLessonAccess.js';
 import { normalizeLessonHistoryRecord } from './lessonHistory.js';
@@ -35,6 +35,23 @@ test('custom channels persist through normal group edits and reject malformed re
   assert.deepEqual(normalizeLearningVoiceChannels([
     ...voiceChannels, ...voiceChannels, { id: 'general', name: 'Общий' }, { id: 'custom-../bad', name: 'Bad' },
   ]), voiceChannels);
+});
+
+test('channel labels use Name1; overrides survive edits and remain scoped to one group', () => {
+  const lesson = { id: 'l', participantIds: ['a'] };
+  const students = [{ id: 'a', name: 'Анна', nickname: 'Имя2' }];
+  const original = getLearningVoiceChannels({}, lesson, students)[1];
+  assert.equal(original.name, 'Анна');
+  const names = { [original.id]: '  Практика\u0000  ', general: 'Разбор' };
+  const group = normalizeLearningGroup({ id: 'g', teacherId: 't', name: 'Группа', voiceChannelNames: names });
+  const edited = updateLearningGroup(group, { name: 'Группа 2' });
+  const renamed = getLearningVoiceChannels(edited, lesson, students)[1];
+  assert.equal(renamed.name, 'Практика');
+  assert.equal(renamed.defaultName, 'Анна');
+  assert.equal(renamed.roomId, original.roomId);
+  assert.equal(getLearningVoiceChannels({}, lesson, students)[1].name, 'Анна');
+  assert.equal(students[0].name, 'Анна');
+  assert.deepEqual(normalizeVoiceChannelNames({ ...names, '__bad__': 'Invalid', 'student-x': 'Invalid' }), { [original.id]: 'Практика', general: 'Разбор' });
 });
 
 test('channel rooms retain lesson ACL and reject malformed or ambiguous suffixes', () => {

@@ -1,5 +1,5 @@
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
-import { normalizeLearningVoiceChannels } from './learningVoiceChannels.js';
+import { normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './learningVoiceChannels.js';
 
 const GROUP_STATUSES = new Set(['forming', 'ready', 'active', 'completed']);
 const MEMBER_STATUSES = new Set(['active', 'removed']);
@@ -274,6 +274,7 @@ export const normalizeLearningGroup = (value) => {
     name,
     telemostUrl: normalizeTelemostUrl(value.telemostUrl),
     voiceChannels: normalizeLearningVoiceChannels(value.voiceChannels),
+    voiceChannelNames: normalizeVoiceChannelNames(value.voiceChannelNames),
     plannedStartDate: normalizeDayKey(value.plannedStartDate || value.startDate),
     pricePerLesson: normalizeLessonPrice(value.pricePerLesson ?? value.lessonPrice),
     admissionsOpen: !startedAt && !completedAt && value.admissionsOpen !== false,

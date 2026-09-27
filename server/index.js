@@ -24260,6 +24260,30 @@ app.post('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels', handl
   return res.status(201).json({ channel });
 }));
 
+app.patch('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels/:channelId', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId, { manage: true });
+  if (!lesson) return;
+  if (group.status === 'completed') failLearningRequest('Группа завершена', 'group_completed', 409);
+  const channels = getLearningVoiceChannels(group, lesson, readStudentsDb());
+  const channel = channels.find((entry) => entry.id === req.params.channelId);
+  if (!channel) failLearningRequest('Канал не найден', 'channel_not_found', 404);
+  const reset = req.body?.reset === true;
+  const name = reset ? channel.defaultName : normalizeVoiceChannelName(req.body?.name);
+  if (!name) failLearningRequest('Введите название канала', 'invalid_channel_name');
+  if (!reset && channels.some((entry) => entry.id !== channel.id && entry.name.toLocaleLowerCase('ru') === name.toLocaleLowerCase('ru'))) {
+    failLearningRequest('Канал с таким названием уже есть', 'duplicate_channel', 409);
+  }
+  const voiceChannelNames = { ...group.voiceChannelNames };
+  if (reset || name === channel.defaultName) delete voiceChannelNames[channel.id];
+  else voiceChannelNames[channel.id] = name;
+  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), {
+    ...group, voiceChannelNames, updatedAt: new Date().toISOString(),
+  }));
+  return res.json({ channel: { ...channel, name } });
+}));
+
 const moveLearningVoiceParticipants = (mode) => handleLearningRoute((req, res) => {
   const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!group) return;
@@ -41769,6 +41793,22 @@ const sendRtcPresenceUpdateToClient = (client, roomId) => {
 };
 
 const broadcastRtcPresenceUpdate = (roomId) => {
+  const target = parseRtcRoomId(roomId);
+  if (target?.targetType === 'lesson') {
+    const payload = {
+      type: 'voice-channel-presence', lessonId: target.sessionId, roomId,
+      participants: Array.from(rtcRooms.get(roomId)?.values() || []).map((entry) => ({
+        userId: entry.auth.id, name: entry.auth.name, role: entry.auth.role,
+        isScreenSharing: Boolean(entry.isScreenSharing),
+      })),
+    };
+    rtcClientsBySocket.forEach((client) => {
+      const watched = parseRtcRoomId(client.roomId || client.watchedRoomId);
+      if (watched?.sessionId === target.sessionId && !getRtcRoomAccessError(client.auth, target)) {
+        sendRtcPayload(client.ws, payload);
+      }
+    });
+  }
   const watchers = rtcPresenceWatchers.get(roomId);
   if (!watchers || watchers.size === 0) return;
   watchers.forEach((watcherClient) => {

@@ -19143,6 +19143,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'teacher' ? storedActiveStudentId : null
   ));
   const [activeLearningLesson, setActiveLearningLesson] = useState(null);
+  const [studentGroupAccess, setStudentGroupAccess] = useState({ userId: '', hasGroups: false, loaded: false });
+  const studentHasGroups = studentGroupAccess.userId === user.id && studentGroupAccess.hasGroups;
   const [studentLessonWorkspace, setStudentLessonWorkspace] = useState(() => ({
     status: user.role === 'student' ? 'loading' : 'individual',
     group: null,
@@ -20303,7 +20305,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Сегодня', icon: Calendar },
-        { id: 'groups', label: 'Моя группа', icon: Users },
+        ...(studentHasGroups ? [{ id: 'groups', label: 'Моя группа', icon: Users }] : []),
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -20321,7 +20323,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
-        'groups',
+        ...(studentHasGroups ? ['groups'] : []),
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -20333,7 +20335,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'lesson',
       ]
       : []
-  ), [studentCanSeeReview, user.role]);
+  ), [studentCanSeeReview, studentHasGroups, user.role]);
   const studentLessonNavIds = STUDENT_CALL_SECTION_ENABLED
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
@@ -22024,6 +22026,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         user.id
       );
       if (studentLessonWorkspaceRequestRef.current !== requestId) return null;
+      // Accessible archives still need a navigation entry for old materials.
+      setStudentGroupAccess({ userId: user.id, hasGroups: normalizeLearningGroupList(groupsPayload).length > 0, loaded: true });
       if (activeGroups.length === 0) {
         setStudentLessonWorkspace({ status: 'individual', group: null, error: '' });
         setActiveLearningLesson(null);
@@ -22124,13 +22128,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
     const timer = window.setInterval(refresh, 60 * 1000);
     window.addEventListener('focus', refresh);
+    window.addEventListener('learning-groups-changed', refresh);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener('focus', refresh);
+      window.removeEventListener('learning-groups-changed', refresh);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [refreshStudentLessonWorkspace, user.role]);
+
+  useEffect(() => {
+    if (user.role === 'student' && view === 'groups' && studentGroupAccess.userId === user.id
+      && studentGroupAccess.loaded && !studentGroupAccess.hasGroups) navigateToView('schedule');
+  }, [navigateToView, studentGroupAccess, user.id, user.role, view]);
 
   const handleSelectLessonTarget = useCallback(async (targetValue) => {
     if (user.role !== 'teacher') return;
@@ -26174,7 +26185,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               )}
             </div>
           )}
-          {user.role === 'teacher' && activeLearningLesson && lessonQuickNavIds.includes(view) && (
+          {user.role === 'teacher' && activeLearningLesson?.callProvider === 'telemost' && lessonQuickNavIds.includes(view) && (
             <div className="mb-2 flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-emerald-900 shadow-sm">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
                 <Users size={18} />
@@ -26869,8 +26880,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               theme={theme}
               visible={view === 'call'}
               onOpenCall={() => navigateToView('call')}
-              onOpenBoard={() => navigateToView('board')}
-              onOpenCollab={() => navigateToView('collab')}
               onBack={handleLeaveLearningGroupLesson}
             />
           )}

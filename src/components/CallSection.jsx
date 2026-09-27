@@ -814,11 +814,23 @@ const exitDocumentFullscreen = async () => {
 };
 
 const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
+  const largeGroup = participants.length > 3;
+  const [expansion, setExpansion] = useState({ largeGroup, expanded: false });
+  if (expansion.largeGroup !== largeGroup) setExpansion({ largeGroup, expanded: false });
+  const expanded = expansion.largeGroup === largeGroup && expansion.expanded;
   if (!participants.length) return null;
   const overlayClassName = ['call-game-overlay', className].filter(Boolean).join(' ');
+  const shownParticipants = largeGroup && !expanded
+    ? participants.filter(participant => participant.isSelf)
+    : participants;
   return (
     <div className={overlayClassName}>
-      {participants.map((participant) => {
+      {largeGroup && <button type="button" className="call-game-overlay__toggle" aria-expanded={expanded}
+        onClick={() => setExpansion({ largeGroup, expanded: !expanded })} onDoubleClick={event => event.stopPropagation()}>
+        <Users size={15} /> Участники: {participants.length} · {expanded ? 'Свернуть' : 'Показать'}
+      </button>}
+      <div className={`call-game-overlay__list ${largeGroup && expanded ? 'is-expanded' : ''}`}>
+      {shownParticipants.map((participant) => {
         const participantStateText = participant.isMuted
           ? 'микрофон выключен'
           : participant.isSpeaking
@@ -870,6 +882,7 @@ const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
           </Row>
         );
       })}
+      </div>
     </div>
   );
 };
@@ -1285,6 +1298,7 @@ const CallSection = ({
   onRequestOpenCall,
   onStatusChange,
   onChannelMove,
+  onChannelPresence,
   onMicStateChange,
   initialMicEnabled = true,
   onTelemostLessonStart,
@@ -4036,6 +4050,11 @@ const CallSection = ({
       return;
     }
 
+    if (type === 'voice-channel-presence') {
+      onChannelPresence?.(payload);
+      return;
+    }
+
     if (type === 'joined') {
       callJoinedRef.current = true;
       clearJoinAckTimer();
@@ -4109,7 +4128,7 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [isGroupLesson, onChannelMove, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
+  }, [isGroupLesson, onChannelMove, onChannelPresence, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(() => {
     callAttemptRef.current += 1;
@@ -5007,6 +5026,10 @@ const CallSection = ({
         setPresenceError(serverMessage || fallbackMessage);
         return;
       }
+      if (type === 'voice-channel-presence') {
+        onChannelPresence?.(payload);
+        return;
+      }
       if (type !== 'presence-update') return;
       const payloadRoomId = typeof payload?.roomId === 'string' ? payload.roomId.trim() : '';
       if (payloadRoomId && payloadRoomId !== roomId) return;
@@ -5097,7 +5120,7 @@ const CallSection = ({
       stopHttpPolling();
       closePresenceSocket();
     };
-  }, [closePresenceSocket, mapPresenceParticipants, roomId, rtcWsUrl, status]);
+  }, [closePresenceSocket, mapPresenceParticipants, onChannelPresence, roomId, rtcWsUrl, status]);
 
   useEffect(() => {
     if (status === 'connected') {

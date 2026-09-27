@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Code2, Headphones, LayoutDashboard, Loader2, LogOut, Megaphone, Mic, Plus, Users } from 'lucide-react';
+import { ArrowLeft, Headphones, Loader2, LogOut, Megaphone, Mic, Pencil, Plus, Users } from 'lucide-react';
 import { api } from '../services/api';
 import CallSection from './CallSection';
 import './GroupVoiceChannels.css';
 
-export default function GroupVoiceChannels({ lesson, user, students, theme, visible, onOpenCall, onOpenBoard, onOpenCollab, onBack }) {
+export default function GroupVoiceChannels({ lesson, user, students, theme, visible, onOpenCall, onBack }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -13,10 +13,14 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const [callStatus, setCallStatus] = useState('idle');
   const [channelName, setChannelName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState('');
+  const [editedName, setEditedName] = useState('');
+  const [renaming, setRenaming] = useState(false);
   const [moving, setMoving] = useState('');
   const micPreferenceRef = useRef(true);
   const [notice, setNotice] = useState('');
   const refreshRef = useRef(null);
+  const presenceRevisionRef = useRef(0);
   const isTeacher = user.role === 'teacher' || user.role === 'admin';
   const { groupId, lessonId } = lesson;
 
@@ -24,21 +28,30 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     let active = true;
     let timeout;
     let pending = false;
+    let refreshAgain = false;
     const refresh = async () => {
-      if (pending || !active) return;
+      if (!active) return;
+      if (pending) { refreshAgain = true; return; }
       pending = true;
+      const presenceRevision = presenceRevisionRef.current;
       clearTimeout(timeout);
       try {
         const next = await api.getLearningVoiceChannels(groupId, lessonId);
         if (!active) return;
-        setSnapshot(next);
+        setSnapshot((current) => {
+          // A slower HTTP response must not undo a newer WebSocket update.
+          if (!current || presenceRevision === presenceRevisionRef.current) return next;
+          const latest = new Map(current.channels.map(channel => [channel.id, channel.participants]));
+          return { ...next, channels: next.channels.map(channel => ({ ...channel, participants: latest.get(channel.id) || channel.participants })) };
+        });
         setLoadError('');
         setSelectedId((current) => (next.canJoin && next.channels?.some((channel) => channel.id === current) ? current : ''));
       } catch (error) {
         if (active) setLoadError(error?.message || 'Не удалось обновить голосовые каналы.');
       } finally {
         pending = false;
-        if (active) timeout = setTimeout(refresh, 3000);
+        if (active) timeout = setTimeout(refresh, refreshAgain ? 0 : 3000);
+        refreshAgain = false;
       }
     };
     refreshRef.current = refresh;
@@ -50,10 +63,25 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     };
   }, [groupId, lessonId]);
 
+  const onChannelPresence = useCallback((payload) => {
+    if (payload.lessonId !== lessonId || !Array.isArray(payload.participants)) return;
+    presenceRevisionRef.current += 1;
+    setSnapshot(current => current && ({
+      ...current,
+      channels: current.channels.map(channel => channel.roomId === payload.roomId
+        ? { ...channel, participants: payload.participants } : channel),
+    }));
+  }, [lessonId]);
+  const onCallStatusChange = useCallback((status) => {
+    setCallStatus(status);
+    void refreshRef.current?.();
+  }, []);
+
   const leave = useCallback(() => {
     setSelectedId('');
     setCallStatus('idle');
     setNotice('Вы вышли из голосового канала.');
+    void refreshRef.current?.();
   }, []);
 
   const join = (channelId) => {
@@ -63,6 +91,22 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     setConnectionKey((key) => key + 1);
     setCallStatus('connecting');
     setNotice('');
+  };
+
+  const renameChannel = async (reset = false) => {
+    if (renaming || (!reset && !editedName.trim())) return;
+    setRenaming(true);
+    setActionError('');
+    try {
+      const { channel } = await api.renameLearningVoiceChannel(groupId, lessonId, editingId, reset ? { reset: true } : { name: editedName.trim() });
+      setSnapshot(current => ({ ...current, channels: current.channels.map(entry => entry.id === channel.id ? { ...entry, ...channel } : entry) }));
+      setEditingId('');
+      setNotice('Название сохранено для этой группы, включая следующие занятия.');
+    } catch (error) {
+      setActionError(error?.message || 'Не удалось переименовать канал.');
+    } finally {
+      setRenaming(false);
+    }
   };
 
   const createChannel = async (event) => {
@@ -98,7 +142,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     try {
       const result = await (mode === 'general' ? api.gatherLearningVoiceChannels : api.distributeLearningVoiceChannels)(groupId, lessonId);
       if (mode === 'general') join('general');
-      setNotice(`Переключаем учеников: ${result.movedCount}. ${mode === 'general' ? 'Собираемся в общем канале.' : 'Каждый переходит в канал со своим именем.'}`);
+      setNotice(`Переключаем учеников: ${result.movedCount}. ${mode === 'general' ? 'Собираемся в общем канале.' : 'Каждый переходит в свой канал.'}`);
       await refreshRef.current?.();
     } catch (error) {
       setActionError(error?.message || 'Не удалось переключить каналы.');
@@ -115,36 +159,39 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   return (
     <div className="group-voice" data-theme={theme}>
       <div hidden={!visible}>
-        <header className="group-voice__header">
-          <div>
-            <span className="group-voice__eyebrow"><Headphones size={16} /> Голосовые каналы</span>
-            <h2>{lesson.groupName || 'Групповое занятие'}</h2>
-            <p>{lesson.topic || 'Совместная практика'} · {lesson.participantIds?.length || 0} учеников</p>
-          </div>
-          <div className="group-voice__tools">
-            <button type="button" onClick={onOpenBoard}><LayoutDashboard size={17} /> Доска</button>
-            <button type="button" onClick={onOpenCollab}><Code2 size={17} /> Редактор</button>
-            <button type="button" onClick={onBack}><ArrowLeft size={17} /> Выйти из занятия</button>
-          </div>
-        </header>
         {(loadError || actionError) && <p className="group-voice__error" role="alert">{actionError || loadError}</p>}
         {notice && <p className="group-voice__notice" role="status">{notice}</p>}
         {snapshot && !canConnect && <p className="group-voice__notice">{snapshot.joinError || 'Голосовая связь недоступна для завершённого занятия.'}</p>}
         <div className="group-voice__layout">
           <aside className="group-voice__sidebar" aria-label="Голосовые каналы занятия">
             <div className="group-voice__sidebar-title"><Users size={17} /> Каналы группы</div>
+            <button type="button" className="group-voice__back" onClick={onBack}><ArrowLeft size={15} /> К мини-группе</button>
             {!snapshot && !loadError && <p className="group-voice__loading"><Loader2 size={18} className="animate-spin" /> Загружаем каналы…</p>}
             <div className="group-voice__channels">
               {channels.map((channel) => {
                 const active = selectedId === channel.id;
-                const participants = channel.participants || [];
+                // Local connection status wins over a stale HTTP membership snapshot.
+                const participants = (channel.participants || []).filter(participant => participant.userId !== user.id);
+                if (active && callStatus === 'connected') participants.push({
+                  ...(channel.participants || []).find(participant => participant.userId === user.id),
+                  userId: user.id, name: user.name, role: user.role,
+                });
                 return (
                   <div className={`group-voice__channel ${active ? 'is-active' : ''}`} key={channel.id}>
-                    <button type="button" disabled={!canConnect} onClick={() => join(channel.id)} aria-pressed={active} aria-label={`Войти в канал ${channel.name}`}>
+                    <div className="group-voice__channel-row">
+                    <button className="group-voice__join" type="button" disabled={!canConnect} onClick={() => join(channel.id)} aria-pressed={active} aria-label={`Войти в канал ${channel.name}`}>
                       <Mic size={18} />
                       <span><strong>{channel.name}</strong><small>{active ? statusLabel : channel.studentId === user.id ? 'Ваш канал' : 'Нажмите, чтобы войти'}</small></span>
                       <span className="group-voice__count">{participants.length}</span>
                     </button>
+                    {isTeacher && <button type="button" className="group-voice__rename" aria-label={`Переименовать канал ${channel.name}`} title="Переименовать канал" disabled={renaming} onClick={() => { setEditingId(channel.id); setEditedName(channel.name); setActionError(''); }}><Pencil size={14} /></button>}
+                    </div>
+                    {isTeacher && editingId === channel.id && <form className="group-voice__edit" onSubmit={event => { event.preventDefault(); void renameChannel(); }}>
+                      <label htmlFor={`rename-${channel.id}`}>Название в этой группе</label>
+                      <input id={`rename-${channel.id}`} autoFocus value={editedName} disabled={renaming} onChange={event => setEditedName(event.target.value)} maxLength={60} onKeyDown={event => { if (event.key === 'Escape' && !renaming) setEditingId(''); }} />
+                      <div><button type="submit" disabled={renaming || !editedName.trim()}>{renaming ? 'Сохраняем…' : 'Сохранить'}</button><button type="button" disabled={renaming} onClick={() => setEditingId('')}>Отмена</button></div>
+                      {channel.defaultName && channel.name !== channel.defaultName && <button type="button" disabled={renaming} onClick={() => renameChannel(true)}>Вернуть исходное название</button>}
+                    </form>}
                     {participants.length > 0 && <ul>{participants.map((participant) => (
                       <li key={participant.userId}><i />{participant.name || 'Участник'}{participant.role === 'teacher' ? ' · преподаватель' : ''}{participant.isScreenSharing ? ' · экран' : ''}</li>
                     ))}</ul>}
@@ -194,7 +241,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 teacherId={user.role === 'teacher' ? user.id : user.teacherId}
                 students={students} lessonId={lessonId} groupId={groupId} channelId={selected.id}
                 participantIds={lesson.participantIds} hideStudentPicker theme={theme}
-                autoStartToken={1} onStatusChange={setCallStatus}
+                autoStartToken={1} onStatusChange={onCallStatusChange} onChannelPresence={onChannelPresence}
                 initialMicEnabled={micPreferenceRef.current} onMicStateChange={rememberMic} onChannelMove={onChannelMove}
                 uiMode={visible ? 'full' : 'collapsed'} onRequestOpenCall={onOpenCall}
               />
@@ -202,13 +249,6 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
           </main>
         </div>
       </div>
-      {!visible && selected && canConnect && (
-        <div className="group-voice__dock">
-          <Headphones size={18} /><span>{selected.name}<small>{statusLabel}</small></span>
-          <button type="button" onClick={onOpenCall}>Каналы</button>
-          <button type="button" onClick={leave} aria-label="Выйти из голосового канала"><LogOut size={18} /></button>
-        </div>
-      )}
     </div>
   );
 }

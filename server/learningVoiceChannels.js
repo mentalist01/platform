@@ -17,6 +17,13 @@ export const normalizeLearningVoiceChannels = (value) => {
   }).slice(0, MAX_CUSTOM_VOICE_CHANNELS);
 };
 
+export const normalizeVoiceChannelNames = (value) => Object.fromEntries(
+  Object.entries(value && typeof value === 'object' && !Array.isArray(value) ? value : {})
+    .filter(([id]) => /^(general|student-[a-f0-9]{24}|custom-[a-zA-Z0-9-]{1,80})$/.test(id))
+    .map(([id, name]) => [id, normalizeVoiceChannelName(name)])
+    .filter(([, name]) => name)
+);
+
 // Configuration belongs to the group; media rooms belong to one lesson only.
 export const getLearningVoiceChannels = (group, lesson, students = []) => {
   const byId = new Map(students.map((student) => [student.id, student]));
@@ -27,15 +34,18 @@ export const getLearningVoiceChannels = (group, lesson, students = []) => {
       const student = byId.get(studentId);
       return {
         id: `student-${createHash('sha256').update(String(studentId)).digest('hex').slice(0, 24)}`,
-        name: normalizeVoiceChannelName(student?.nickname || student?.name) || `Ученик ${index + 1}`,
+        name: normalizeVoiceChannelName(student?.name) || `Ученик ${index + 1}`,
         studentId,
         kind: 'student',
       };
     }),
     ...normalizeLearningVoiceChannels(group?.voiceChannels).map((channel) => ({ ...channel, kind: 'custom' })),
   ];
+  const names = normalizeVoiceChannelNames(group?.voiceChannelNames);
   return channels.map((channel) => ({
     ...channel,
+    name: names[channel.id] || channel.name,
+    defaultName: channel.name,
     roomId: buildLessonRtcRoomId(lesson?.id, channel.id),
   }));
 };

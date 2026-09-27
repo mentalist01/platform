@@ -1269,6 +1269,9 @@ export const api = {
   createLearningVoiceChannel: async (groupId, lessonId, name) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'voice-channels'), { method: 'POST', body: { name } })
   ),
+  renameLearningVoiceChannel: async (groupId, lessonId, channelId, payload) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'voice-channels', channelId), { method: 'PATCH', body: payload })
+  ),
   gatherLearningVoiceChannels: async (groupId, lessonId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'voice-channels', 'gather'), { method: 'POST', body: {} })
   ),
@@ -3075,5 +3078,4 @@ export const api = {
   },
   uploadFileMemorySnapshot,
 };
-
 
