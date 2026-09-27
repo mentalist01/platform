@@ -9,6 +9,7 @@ import { createAvailabilityStore, registerGroupAvailability, materializeAvailabi
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import { addRecorderMaterial } from './recorderMaterials.js';
+import { recorderPythonCatalog, attachRecorderPythonTheory } from './recorderPythonTheory.js';
 import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
 import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallengeCookie, setTrustedBrowserCookie } from './accountSecurity.js';
 import path from 'path';
@@ -21726,6 +21727,11 @@ app.get('/api/client-build-version', (_req, res) => {
   });
 });
 
+app.get('/api/availability', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ available: true });
+});
+
 app.post('/api/payment-notifications/tbank', async (req, res) => {
   const payload = parseLoosePaymentNotificationBody(req.body);
   const secretCheck = validatePaymentNotificationSecret(req, payload);
@@ -21779,6 +21785,24 @@ app.post('/api/payment-notifications/macrodroid', async (req, res) => {
 });
 
 registerDesktopDeviceRoutes(app, desktopRecordings, {
+  pythonCatalog: (teacherId) => {
+    const teacher = readTeachersDb().find(t => t.id === teacherId);
+    if (!teacher) throw Object.assign(new Error('Преподаватель не найден'), { status: 404 });
+    if (!isTeacherSubscriptionAccessAllowed({ ...teacher, role: 'teacher' })) throw Object.assign(new Error('Доступ к платформе приостановлен'), { status: 402 });
+    return { teacherId, tasks: recorderPythonCatalog(readTestsDbForTeacher(teacherId), LEADERBOARD_PROFILE_DEFAULT_PYTHON_TASKS) };
+  },
+  pythonMaterial: (teacherId, payload) => {
+    const teacher = readTeachersDb().find(t => t.id === teacherId);
+    if (!teacher) throw Object.assign(new Error('Преподаватель не найден'), { status: 404 });
+    if (!isTeacherSubscriptionAccessAllowed({ ...teacher, role: 'teacher' })) throw Object.assign(new Error('Доступ к платформе приостановлен'), { status: 402 });
+    const global = readJsonObjectFileStrict(testsFile);
+    const store = readTeacherTaskContentStore();
+    const tests = mergeTeacherTestsDb(global, store.teachers?.[teacherId]);
+    const result = attachRecorderPythonTheory(tests, LEADERBOARD_PROFILE_DEFAULT_PYTHON_TASKS, teacherId, payload);
+    if (result.created) writeTeacherTaskContentStore(applyTeacherTestsUpdate(store, teacherId, global, result.tests).store);
+    const { tests: _tests, ...material } = result;
+    return material;
+  },
   archiveStatus: (teacherId) => {
     const teacher = readTeachersDb().find(t => t.id === teacherId);
     if (!teacher) throw Object.assign(new Error('Преподаватель не найден'), { status: 404 });
@@ -29560,6 +29584,26 @@ app.get('/api/telemost', (req, res) => {
     telemostUrl: normalizeTelemostUrl(student.telemostUrl),
     updatedAt: String(student.telemostUrlUpdatedAt || '').trim(),
   });
+});
+
+// Cache only links belonging to this account. Removed group members do not get
+// a live meeting link merely because they retain access to historical lessons.
+app.get('/api/lesson-fallback', (req, res) => {
+  if (!isTeacherRole(req.auth) && !isStudentRole(req.auth)) return forbid(res);
+  const students = readStudentsDb().filter(student => !student.deletedAt && (isStudentRole(req.auth)
+    ? student.id === req.auth.id : student.teacherId === req.auth.id));
+  const groups = readLearningGroupsDb().filter(group => !group.deletedAt && group.status !== 'completed' && (isStudentRole(req.auth)
+    ? isLearningGroupMember(group, req.auth.id, { activeOnly: true }) : group.teacherId === req.auth.id));
+  const links = [
+    ...students.map(student => ({ id: `student:${student.id}`, name: isStudentRole(req.auth) ? 'Индивидуальный урок' : student.name, url: normalizeTelemostUrl(student.telemostUrl) })),
+    ...groups.map(group => ({ id: `group:${group.id}`, name: group.name, url: normalizeTelemostUrl(group.telemostUrl) })),
+    ...readLearningLessonSessionsDb().filter(lesson => groups.some(g => g.id === lesson.groupId)
+      && !['completed', 'cancelled'].includes(lesson.status)
+      && Math.abs(Date.parse(lesson.startAt) - Date.now()) < 24 * 60 * 60_000)
+      .map(lesson => ({ id: `lesson:${lesson.id}`, name: `${groups.find(g => g.id === lesson.groupId).name} · ${lesson.topic || 'Занятие'}`, url: normalizeTelemostUrl(lesson.telemostUrl) })),
+  ].filter(link => link.url);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ links });
 });
 
 app.post('/api/telemost/join', async (req, res) => {

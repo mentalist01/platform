@@ -161,3 +161,11 @@ test('retry cannot restart OBS with the name of an existing recording', async (t
   await assert.rejects(f.engine.start(f.job), /уже существует/);
   assert.deepEqual(f.counts(), [0, 0]);
 });
+
+test('fallback capture ignores stale server stop after recovery but still obeys local cutoff', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, fallbackMode: true });
+  f.remote({ enabled: true, jobs: [{ ...f.job, desired: 'stop' }] });
+  await f.engine.tick(); assert.deepEqual(f.counts(), [1, 0]);
+  f.offline(); f.advance(1001); await assert.rejects(f.engine.tick(), /offline/);
+  assert.deepEqual(f.counts(), [1, 1]); assert.equal(f.state.jobs.one.status, 'saved');
+});

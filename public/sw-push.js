@@ -53,15 +53,18 @@ const findPrivateHomeworkAsset = async (request) => {
 
 const handleNavigationRequest = async (request) => {
   const shellCache = await caches.open('ivan-ege-shell-v2');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4500);
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, { signal: controller.signal });
+    if (response.status >= 500) throw new Error('Platform unavailable');
     if (response?.ok) {
       await shellCache.put('/', response.clone());
     }
     return response;
   } catch {
     return (await shellCache.match(request)) || (await shellCache.match('/')) || Response.error();
-  }
+  } finally { clearTimeout(timeout); }
 };
 
 const handleStaticRequest = async (request) => {

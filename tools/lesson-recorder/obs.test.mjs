@@ -36,6 +36,16 @@ test('a Telemost lesson selects its open meeting window', async () => {
   assert.equal(f.configured().telemost, 'meeting');
 });
 
+test('Python theory mutes conversation, then an ordinary lesson restores it', async () => {
+  const f = fixture(); const original = f.obs.call; const mutes = [];
+  f.obs.call = async (method, payload) => { if (method === 'SetInputMute') mutes.push(payload); return original(method, payload); };
+  const config = { platform: 'platform', telemost: 'closed', mic: 'mic' };
+  await f.obs.prepare(config, 'unused', 'teacher');
+  assert.equal(mutes.find(m => m.inputName.endsWith('Телемост')).inputMuted, true);
+  mutes.length = 0; await f.obs.prepare(config, 'unused', 'platform');
+  assert.equal(mutes.find(m => m.inputName.endsWith('Телемост')).inputMuted, false);
+});
+
 test('source fitting follows the configured canvas instead of reducing 1440p to 1080p', async () => {
   const obs = new ObsClient(); let transform;
   obs.call = async (type, data) => {

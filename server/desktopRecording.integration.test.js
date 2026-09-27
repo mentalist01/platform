@@ -14,13 +14,14 @@ test('real platform routes isolate devices and expose one group recording to its
   const write = (name, value) => fs.writeFileSync(path.join(data, `${name}.json`), JSON.stringify(value));
   const now = Date.now(); const old = new Date(now - 86400000).toISOString();
   const participants = Array.from({ length: 8 }, (_, index) => `s${index + 1}`);
+  write('tests', { 101: { python: [{ id: 'exercise', answer: '42' }], pythonTheory: { type: 'text', content: 'Original theory' } } });
   write('teachers', [{ id: 't1', name: 'Test teacher' }, { id: 't2', name: 'Other teacher' }]);
-  write('students', [...participants, 'outside', 'late'].map(id => ({ id, name: id, teacherId: 't1', createdAt: id === 'late' ? new Date(now).toISOString() : old })));
+  write('students', [...participants, 'outside', 'late'].map(id => ({ id, name: id, teacherId: 't1', telemostUrl: `https://telemost.yandex.ru/j/fixture-${id}`, createdAt: id === 'late' ? new Date(now).toISOString() : old })));
   write('auth-sessions', ['t1', 't2', ...participants, 'outside', 'late'].map(id => ({
     token: `fixture-${id}`, user: { id, name: id, role: id.startsWith('t') ? 'teacher' : 'student', teacherId: 't1' },
     createdAtMs: now, expiresAtMs: now + 3600000,
   })));
-  write('learning-groups', [{ id: 'g1', name: 'Test group', teacherId: 't1', startedAt: old, createdAt: old,
+  write('learning-groups', [{ id: 'g1', name: 'Test group', telemostUrl: 'https://telemost.yandex.ru/j/fixture-group', teacherId: 't1', startedAt: old, createdAt: old,
     members: participants.map(studentId => ({ studentId, joinedAt: old, status: 'active' })) }]);
   write('learning-lesson-sessions', [{ id: 'legacy', groupId: 'g1', teacherId: 't1', participantIds: participants,
     startAt: new Date(now - 121 * 60000).toISOString(), durationMinutes: 120, status: 'active', createdAt: old },
@@ -64,6 +65,25 @@ test('real platform routes isolate devices and expose one group recording to its
   await request('/desktop-recording/pair', { actor: 's1', body: {}, status: 403 });
   const { code } = await request('/desktop-recording/pair', { body: {} });
   const { token } = await request('/desktop-recorder/pair', { body: { code, name: 'Fixture PC' } });
+  assert.equal((await request('/availability', { token: 'invalid' })).available, true);
+  const studentLinks = (await request('/lesson-fallback', { actor: 's1' })).links;
+  assert.deepEqual(studentLinks.map(l => l.id).sort(), ['group:g1', 'student:s1']);
+  assert.equal((await request('/lesson-fallback', { actor: 't2' })).links.length, 0);
+  assert.equal((await request('/lesson-fallback', { actor: 'outside' })).links.length, 1);
+  await request('/desktop-recorder/python/catalog', { actor: 's1', body: {}, status: 401 });
+  const catalog = await request('/desktop-recorder/python/catalog', { token, body: {} });
+  assert.equal(catalog.teacherId, 't1'); assert.ok(catalog.tasks.some(t => t.number === 101));
+  const pythonVideo = { recordingId: '00000000-0000-4000-8000-000000000089', teacherId: 't1', taskNumber: 101,
+    subsectionId: '__default__', expectedUrl: '', title: 'Python input', url: 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Fixture_Key' };
+  await request('/desktop-recorder/python/material', { token, body: { ...pythonVideo, teacherId: 't2' }, status: 403 });
+  await request('/desktop-recorder/python/material', { token, body: pythonVideo, status: 201 });
+  assert.equal((await request('/desktop-recorder/python/material', { token, body: pythonVideo })).created, false);
+  const ownTests = await request('/tests');
+  assert.equal(ownTests[101].pythonTheoryBySubsection.__default__.rutube.content, pythonVideo.url);
+  assert.equal(ownTests[101].pythonTheoryBySubsection.__default__.text.content, 'Original theory');
+  assert.equal(ownTests[101].python[0].answer, '42');
+  assert.equal((await request('/tests', { actor: 's1' }))[101].pythonTheoryBySubsection.__default__.rutube.content, pythonVideo.url);
+  assert.equal((await request('/tests', { actor: 't2' }))[101].pythonTheoryBySubsection, undefined);
   assert.equal((await request('/desktop-recorder/archive/status', { token, body: {} })).teacherId, 't1');
   await request('/desktop-recorder/archive/status', { actor: 's1', body: {}, status: 401 });
   const theory = { clipId: '00000000-0000-4000-8000-000000000012', title: 'Задание 7: звук / теория', url: 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Fixture_Key', teacherId: 't2', sharedTeacherIds: ['t2'], groupId: 'other-group' };

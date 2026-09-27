@@ -99,11 +99,14 @@ export class ObsClient {
       if (call) config.telemost = call.itemValue;
     }
     for (const [key, label] of [['platform', 'платформы'], ['telemost', 'звука разговора'], ['mic', 'микрофона']]) {
+      if (key === 'telemost' && audioMode === 'teacher') continue;
       if (!choices[key].some((item) => item.itemEnabled && item.itemValue === config[key])) {
         throw new Error(`Не найден источник ${label}. Откройте нужное окно и проверьте выбор в пульте.`);
       }
     }
     await this.configure(config);
+    await this.call('SetInputMute', { inputName: INPUTS.telemost, inputMuted: audioMode === 'teacher' });
+    await this.call('SetInputMute', { inputName: INPUTS.mic, inputMuted: false });
   }
   async setRecordDirectory(recordDirectory) {
     await this.assertCollection();

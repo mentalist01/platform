@@ -14,6 +14,8 @@ import { ObsClient, SCENES, INPUTS } from './obs.mjs';
 import { atomicJson, readJson, ownedRecording } from './storage.mjs';
 import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
+import { startPythonTheory, publishPythonTheory } from './python-theory.mjs';
+import { enterFallback } from './fallback.mjs';
 import { importRecoveredRecordings } from './recovery-inbox.mjs';
 import { RutubeUploader, privateVideo, videoReady } from './rutube.mjs';
 import { writableRecordingDirectory, recordingDrives, setupFingerprint, assertSetupIdle } from './recording-storage.mjs';
@@ -49,9 +51,9 @@ const api = async (route, body, pairing = false) => {
       ...(pairing ? {} : { Authorization: `Bearer ${state.config.token}` }) }, body: JSON.stringify(route === '/poll' ? { ...body, ready: !updater?.busy && ready() && !!obsStatus && !sourceWarnings.length, ...updater?.info(Boolean(engine.active() || uploadingId || queueBusy || obsStatus?.outputActive || archive?.work || archive?.setup)) } : body),
   });
   const contentType = response.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) throw new Error('На платформе ещё не установлен модуль записи на компьютере');
+  if (!contentType.includes('application/json')) throw Object.assign(new Error('Платформа не отвечает корректно'), { status: response.status });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || `Платформа: ${response.status}`);
+  if (!response.ok) throw Object.assign(new Error(result.error || `Платформа: ${response.status}`), { status: response.status });
   if (route === '/poll') pendingUpdate = result.updateRequest;
   return result;
 };
@@ -82,8 +84,10 @@ async function prepare(job) {
   await run(runtime.ffmpeg || 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...input, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', temporary]);
   fs.renameSync(temporary, output); job.mp4 = output; save();
 }
+const retryPublication = failure => failure.status >= 500 || ['TypeError', 'TimeoutError', 'AbortError'].includes(failure.name);
 async function publish(job) {
   if (job.excludeFromUpload) throw new Error('Этот исходник исключён из загрузки. Используйте подготовленную запись урока.');
+  if (job.pythonTheory) return publishPythonTheory(job, { api, ready: videoReady, save });
   const video = privateVideo(job.url);
   if (!video) throw new Error('Нужна полная закрытая ссылка Rutube с ключом ?p=');
   if (!await videoReady(video.url)) {
@@ -101,12 +105,12 @@ async function upload(job) {
   try {
     await prepare(job);
     job.status = 'uploading'; job.uploadPhase = ''; job.error = ''; save();
-    await engine.report(job, 'uploading');
-    await uploader.upload(job, save);
-    await engine.report(job, 'processing');
+    await engine.report(job, 'uploading').catch(() => {});
+    if (!job.url) await uploader.upload(job, save);
+    await engine.report(job, 'processing').catch(() => {});
     await publish(job);
   } catch (failure) {
-    job.status = 'error'; job.error = failure.message; save();
+    job.status = job.url && retryPublication(failure) ? 'processing' : 'error'; job.error = failure.message; save();
     await engine.report(job, 'error', { error: job.error }).catch(() => {});
   } finally { uploadingId = ''; }
 }
@@ -119,14 +123,18 @@ async function queue() {
       if (job.status === 'saved') {
         try { await prepare(job); }
         catch (failure) { job.status = 'error'; job.error = failure.message; save(); continue; }
-        if (state.config.autoUpload && !job.local) await upload(job);
+        if (job.pythonTheory || (state.config.autoUpload && !job.local)) await upload(job);
       }
-      if (job.status === 'processing' && job.url) await publish(job);
+      if (job.status === 'processing' && job.url && Date.now() >= (job.nextPublishAt || 0)) {
+        job.nextPublishAt = Date.now() + 30000; save();
+        try { await publish(job); }
+        catch (failure) { job.status = retryPublication(failure) ? 'processing' : 'error'; job.error = failure.message; save(); }
+      }
     }
   } catch (failure) { error = failure.message; }
   finally { queueBusy = false; }
 }
-const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), enabled: () => state.config.autoFollowShare !== false });
+const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), enabled: () => !engine.active()?.pythonTheory && !engine.active()?.fallbackMode && state.config.autoFollowShare !== false });
 const foregroundReader = new ForegroundWindowReader();
 const officeFollower = new OfficeFollower({ obs, reader: foregroundReader, config: () => state.config,
   shareActive: () => Boolean(shareBridge.offer) });
@@ -235,6 +243,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/preview') return json(res, 200, { image: await obs.preview() });
     if (req.method === 'GET' && req.url === '/choices') return json(res, 200, await obs.choices());
     if (req.method === 'GET' && req.url === '/storage') return json(res, 200, { drives: await recordingDrives(), recordDirectory: state.config.recordDirectory || '' });
+    if (req.method === 'GET' && req.url === '/python/catalog') return json(res, 200, await api('/python/catalog', {}));
     if (req.method === 'GET' && req.url.startsWith('/test-video/')) {
       const job = state.jobs[req.url.slice('/test-video/'.length)];
       if (!job?.local || job.manual || !job.testFingerprint || !job.mp4 || !fs.existsSync(job.mp4)) throw new Error('Пробная запись ещё не готова');
@@ -337,16 +346,26 @@ const server = http.createServer(async (req, res) => {
       } else if (req.url === '/test-start') {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
         await engine.start({ id: crypto.randomUUID(), title: 'Проверка записи', local: true, testFingerprint: setupFingerprint(state.config), cutoffAt: Date.now() + 60000 });
+      } else if (req.url === '/python/start') {
+        if (!ready()) throw new Error('Сначала настройте запись и выберите микрофон в пульте');
+        if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте распознавание архива на паузу перед записью');
+        if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
+        await startPythonTheory({ api, engine, payload });
       } else if (req.url === '/manual-start') {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
         await engine.startForCurrentLesson();
+      } else if (req.url === '/fallback') {
+        if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте обработку архива на паузу');
+        await enterFallback({ engine, obs, payload, save });
+        obsStatus = await obs.status();
       } else if (req.url === '/test-stop') {
         const job = engine.active();
         if (!job?.local || job.manual || !job.testFingerprint) throw new Error('Сейчас пробная запись не идёт');
         await engine.stop(job);
       } else if (req.url === '/stop') {
         const job = engine.active(); if (!job) throw new Error('Сейчас запись не идёт');
-        await engine.stop(job);
+        try { await engine.stop(job); }
+        catch (failure) { if (job.status !== 'saved') throw failure; }
       } else if (req.url === '/retry-start') {
         const job = state.jobs[payload.id];
         if (!job || job.file || job.status !== 'error' || job.cutoffAt <= Date.now()) throw new Error('Эту запись нельзя перезапустить');
@@ -373,7 +392,8 @@ setInterval(() => {
   if (ticking || updater.busy) return; ticking = true;
   void serialize(async () => {
     try {
-      await engine.tick();
+      let platformError = '';
+      try { await engine.tick(); } catch (failure) { platformError = failure.message; }
       if (ready() || obs.connected) obsStatus = await obs.status();
       if (ready() && Date.now() - lastSourceCheck > 10000) {
         const choices = await obs.choices();
@@ -384,7 +404,7 @@ setInterval(() => {
         }
         lastSourceCheck = Date.now();
       }
-      error = '';
+      error = platformError ? `Ошибка синхронизации: ${platformError}. Локальное состояние записи показано выше.` : '';
       if (pendingUpdate) await updater.install(pendingUpdate);
     } catch (failure) { error = failure.message; obsStatus = null; }
   }).finally(() => { ticking = false; void queue(); });

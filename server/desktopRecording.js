@@ -199,7 +199,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
   };
 }
 
-export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, archiveStatus, archiveMaterial } = {}) {
+export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, archiveStatus, archiveMaterial, pythonCatalog, pythonMaterial } = {}) {
   const handle = (fn) => (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось сохранить состояние записи' }); }
@@ -214,6 +214,15 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, arc
   app.post('/api/desktop-recorder/archive/status', handle((req, res) => {
     if (!archiveStatus) return res.status(503).json({ error: 'Добавление материалов из пульта ещё не настроено' });
     res.json(archiveStatus(req.recorderDevice.teacherId));
+  }));
+  app.post('/api/desktop-recorder/python/catalog', handle((req, res) => {
+    if (!pythonCatalog) return res.status(503).json({ error: 'Запись теории Python ещё не настроена' });
+    res.json(pythonCatalog(req.recorderDevice.teacherId));
+  }));
+  app.post('/api/desktop-recorder/python/material', handle((req, res) => {
+    if (!pythonMaterial) return res.status(503).json({ error: 'Запись теории Python ещё не настроена' });
+    const result = pythonMaterial(req.recorderDevice.teacherId, req.body || {});
+    res.status(result.created ? 201 : 200).json(result);
   }));
   app.post('/api/desktop-recorder/archive/material', handle((req, res) => {
     if (!archiveMaterial) return res.status(503).json({ error: 'Добавление материалов из пульта ещё не настроено' });

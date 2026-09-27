@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
+import LessonFallback from './components/LessonFallback.jsx';
 import { parseTestsFileContent } from './utils/pythonTestData.js';
 import { readCallResume } from './utils/callResume.js';
 import { createPortal } from 'react-dom';
@@ -28087,10 +28088,10 @@ const MainApp = () => {
     </>
   );
   return user.role === 'teacher' ? (
-    <React.Suspense fallback={<div className="app-loading-screen">Проверяем защиту аккаунта…</div>}>
+    <><LessonFallback user={user} /><React.Suspense fallback={<div className="app-loading-screen">Проверяем защиту аккаунта…</div>}>
       <TeacherEmailEnrollment key={user.id} user={user} onLogout={handleLogout}>{dashboard}</TeacherEmailEnrollment>
-    </React.Suspense>
-  ) : dashboard;
+    </React.Suspense></>
+  ) : <><LessonFallback user={user} />{dashboard}</>;
 };
 
 const App = () => {

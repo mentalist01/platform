@@ -25,7 +25,7 @@ export class RecorderEngine {
     if (this.active()) throw new Error('Сначала завершите текущую запись');
     if (this.state.jobs[job.id]?.file || fs.existsSync(ownedRecording(this.recordDirectory, job.id))) throw new Error('Файл этой записи уже существует. Продолжите урок новой частью, чтобы сохранить обе записи.');
     await this.obs.launch();
-    if (this.obs.prepare) await this.obs.prepare(this.state.config, this.recordDirectory, job.audioMode);
+    if (this.obs.prepare) await this.obs.prepare({ ...this.state.config, ...job.captureConfig }, this.recordDirectory, job.audioMode);
     else if ((await this.obs.status()).outputActive) throw new Error('В OBS уже идёт запись. Сначала завершите её.');
     // Persist the intent first: a crash after StartRecord must not create a second recording.
     const local = { ...job, status: 'starting', error: '', createdAt: this.now() };
@@ -100,14 +100,14 @@ export class RecorderEngine {
       const local = this.state.jobs[wanted.id];
       // Refresh display metadata without changing the file name or lesson binding.
       if (local && typeof wanted.lessonName === 'string') local.lessonName = wanted.lessonName;
-      if (wanted.desired === 'stop' && local && ['starting', 'recording', 'stopping'].includes(local.status)) await this.stop(local);
+      if (wanted.desired === 'stop' && local && !local.fallbackMode && ['starting', 'recording', 'stopping'].includes(local.status)) await this.stop(local);
     }
     for (const wanted of remote.jobs) {
       const local = this.state.jobs[wanted.id];
       if (wanted.desired === 'stop') continue;
       if (!remote.enabled || !this.ready() || wanted.cutoffAt <= this.now()) continue;
       if (!local && !this.active()) await this.start(wanted);
-      else if (local?.status === 'recording') await this.report(local, 'recording');
+      else if (local?.status === 'recording' && !local.fallbackMode) await this.report(local, 'recording');
     }
     for (const job of Object.values(this.state.jobs)) {
       // A saved file must eventually appear on the platform even with automatic upload off.
