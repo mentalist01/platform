@@ -826,13 +826,21 @@ const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
             : participant.hasAudio
               ? 'молчит'
               : 'нет аудио';
+        const Row = participant.isSelf ? 'button' : 'div';
+        const micLabel = participant.isMuted ? 'Включить свой микрофон' : 'Выключить свой микрофон';
         return (
-          <div
+          <Row
             key={`voice-overlay-${participant.id}`}
+            type={participant.isSelf ? 'button' : undefined}
+            onClick={participant.isSelf ? participant.onToggleMic : undefined}
+            onDoubleClick={participant.isSelf ? (event) => event.stopPropagation() : undefined}
+            disabled={participant.isSelf ? participant.micDisabled : undefined}
+            aria-label={participant.isSelf ? micLabel : undefined}
+            aria-pressed={participant.isSelf ? participant.isMuted : undefined}
             className="call-game-overlay__row"
             data-speaking={participant.isSpeaking ? 'true' : 'false'}
             data-muted={participant.isMuted ? 'true' : 'false'}
-            title={`${participant.title}: ${participantStateText}`}
+            title={participant.isSelf ? micLabel : `${participant.title}: ${participantStateText}`}
           >
             <span className="call-game-overlay__avatar" aria-hidden="true">
               {participant.initial}
@@ -859,7 +867,7 @@ const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
                 </span>
               )}
             </span>
-          </div>
+          </Row>
         );
       })}
     </div>
@@ -1264,6 +1272,7 @@ const CallSection = ({
   students,
   activeStudentId,
   lessonId,
+  channelId = 'general',
   groupId,
   participantIds,
   onSelectStudent,
@@ -1275,6 +1284,9 @@ const CallSection = ({
   onRequestCollapse,
   onRequestOpenCall,
   onStatusChange,
+  onChannelMove,
+  onMicStateChange,
+  initialMicEnabled = true,
   onTelemostLessonStart,
   onTeacherTelemostOpen,
   onLessonReplayEvent,
@@ -1291,9 +1303,10 @@ const CallSection = ({
   const effectiveTeacherId = String(teacherId || '').trim();
   const rtcRoom = useMemo(() => resolveCallRtcRoom({
     lessonId,
+    channelId,
     teacherId: effectiveTeacherId,
     studentId: effectiveStudentId,
-  }), [effectiveStudentId, effectiveTeacherId, lessonId]);
+  }), [channelId, effectiveStudentId, effectiveTeacherId, lessonId]);
   const { isGroupLesson, roomId } = rtcRoom;
   const normalizedGroupId = String(groupId ?? '').trim();
   const normalizedParticipantIds = useMemo(
@@ -1316,6 +1329,7 @@ const CallSection = ({
   }, [role, userId]);
 
   const [status, setStatus] = useState('idle');
+  const callAttemptRef = useRef(0);
   const [socketStatus, setSocketStatus] = useState('disconnected');
   const [error, setError] = useState('');
   const [presenceError, setPresenceError] = useState('');
@@ -1537,6 +1551,10 @@ const CallSection = ({
   useEffect(() => {
     onStatusChange?.(status);
   }, [onStatusChange, status]);
+
+  useEffect(() => {
+    if (status === 'connected') onMicStateChange?.(micEnabled);
+  }, [micEnabled, onMicStateChange, status]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1974,7 +1992,7 @@ const CallSection = ({
     const profile = getConnectionAdaptiveProfile(quality, highVideoLoadRef.current);
     const isCamera = kind === 'camera';
     const maxBitrate = isCamera ? profile.cameraBitrate : profile.screenBitrate;
-    const maxFramerate = isCamera ? profile.cameraFramerate : profile.screenFramerate;
+    const maxFramerate = isCamera ? profile.cameraFramerate : (isGroupLesson ? Math.min(15, profile.screenFramerate) : profile.screenFramerate);
     const scaleResolutionDownBy = Math.max(1, isCamera ? profile.cameraScale : profile.screenScale);
     try {
       const params = sender.getParameters() || {};
@@ -1990,7 +2008,7 @@ const CallSection = ({
       params.encodings = encodings;
       sender.setParameters(params).catch(() => {});
     } catch {}
-  }, []);
+  }, [isGroupLesson]);
 
   const retuneAllPeerSenders = useCallback((qualityOverride) => {
     const quality = normalizeConnectionQuality(qualityOverride || connectionQualityRef.current);
@@ -3428,6 +3446,7 @@ const CallSection = ({
     if (!navigator?.mediaDevices?.getUserMedia) {
       throw new Error('Браузер не поддерживает доступ к микрофону.');
     }
+    const microphoneAttempt = callAttemptRef.current;
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -3437,6 +3456,10 @@ const CallSection = ({
       },
       video: false,
     });
+    if (microphoneAttempt !== callAttemptRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error('Подключение отменено.');
+    }
     const rawTrack = stream.getAudioTracks()[0];
     if (!rawTrack) {
       throw new Error('Не удалось получить аудиодорожку.');
@@ -3523,6 +3546,7 @@ const CallSection = ({
       throw new Error('Браузер не поддерживает доступ к веб-камере.');
     }
 
+    const cameraAttempt = callAttemptRef.current;
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
@@ -3532,6 +3556,10 @@ const CallSection = ({
       },
     });
 
+    if (cameraAttempt !== callAttemptRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error('Включение камеры отменено.');
+    }
     const track = stream.getVideoTracks()[0];
     if (!track) {
       throw new Error('Не удалось получить видеодорожку веб-камеры.');
@@ -3967,13 +3995,17 @@ const CallSection = ({
       return;
     }
 
-    if (type === 'error') {
+    if (type === 'error' || type === 'session-ended' || type === 'channel-move') {
+      const isChannelMove = type === 'channel-move' && isGroupLesson && typeof onChannelMove === 'function';
+      const movingMicEnabled = Boolean(localAudioTrackRef.current?.enabled);
+      if (type === 'session-ended') manualCloseRef.current = true;
       const errorText = typeof payload?.error === 'string' ? payload.error.trim() : '';
       const normalizedError = errorText || 'Сигнальный сервер вернул ошибку.';
-      setError(normalizedError);
+      setError(isChannelMove ? '' : normalizedError);
 
-      const isJoinPhaseError = !activeRoomRef.current;
+      const isJoinPhaseError = type === 'session-ended' || type === 'channel-move' || !activeRoomRef.current;
       if (isJoinPhaseError) {
+        callAttemptRef.current += 1;
         clearCallResume();
         callJoinedRef.current = false;
         manualCloseRef.current = true;
@@ -3999,6 +4031,7 @@ const CallSection = ({
         setSocketStatus('disconnected');
         roomResyncCooldownUntilRef.current = 0;
         applyStatus('idle');
+        if (isChannelMove) onChannelMove({ ...payload, micEnabled: movingMicEnabled });
       }
       return;
     }
@@ -4076,9 +4109,10 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
+  }, [isGroupLesson, onChannelMove, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(() => {
+    callAttemptRef.current += 1;
     clearCallResume();
     callJoinedRef.current = false;
     manualCloseRef.current = true;
@@ -4298,6 +4332,7 @@ const CallSection = ({
     wsHadErrorRef.current = false;
     clearJoinAckTimer();
 
+    const callAttempt = ++callAttemptRef.current;
     try {
       const shouldPreserveMutedMic = Boolean(
         options?.resumeMicEnabled === false
@@ -4305,6 +4340,9 @@ const CallSection = ({
           && !localAudioTrackRef.current.enabled)
       );
       await ensureMicTrack();
+      if (callAttempt !== callAttemptRef.current) {
+        return;
+      }
       if (shouldPreserveMutedMic) {
         if (localAudioTrackRef.current?.readyState === 'live') {
           localAudioTrackRef.current.enabled = false;
@@ -4315,6 +4353,7 @@ const CallSection = ({
         setMicEnabled(false);
       }
     } catch (micError) {
+      if (callAttempt !== callAttemptRef.current) return;
       roomResyncCooldownUntilRef.current = 0;
       applyStatus('idle');
       setSocketStatus('disconnected');
@@ -4497,8 +4536,8 @@ const CallSection = ({
     const callStarter = startCallRef.current;
     if (typeof callStarter !== 'function') return;
     handledAutoStartTokenRef.current = token;
-    callStarter();
-  }, [autoStartToken, effectiveStudentId, isGroupLesson, isHiddenUi, roomId, status]);
+    callStarter({ resumeMicEnabled: initialMicEnabled });
+  }, [initialMicEnabled, autoStartToken, effectiveStudentId, isGroupLesson, isHiddenUi, roomId, status]);
 
   useEffect(() => {
     const hasOnlyPendingPeerConnections = status === 'connected'
@@ -4723,9 +4762,10 @@ const CallSection = ({
 
     setScreenBusy(true);
     setError('');
+    const screenAttempt = callAttemptRef.current;
     try {
       const videoConstraints = {
-        frameRate: { ideal: SCREEN_MAX_FRAMERATE, max: SCREEN_MAX_FRAMERATE },
+        frameRate: { ideal: isGroupLesson ? 15 : SCREEN_MAX_FRAMERATE, max: isGroupLesson ? 15 : SCREEN_MAX_FRAMERATE },
         width: { ideal: SCREEN_MAX_WIDTH, max: SCREEN_MAX_WIDTH },
         height: { ideal: SCREEN_MAX_HEIGHT, max: SCREEN_MAX_HEIGHT },
       };
@@ -4748,6 +4788,10 @@ const CallSection = ({
           audio: false,
         });
       }
+      if (screenAttempt !== callAttemptRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const track = stream.getVideoTracks()[0];
       const screenAudioTrack = stream.getAudioTracks()[0] || null;
       if (!track) {
@@ -4758,7 +4802,7 @@ const CallSection = ({
         track.contentHint = 'detail';
       } catch {}
       track.applyConstraints?.({
-        frameRate: { ideal: SCREEN_MAX_FRAMERATE, max: SCREEN_MAX_FRAMERATE },
+        frameRate: { ideal: isGroupLesson ? 15 : SCREEN_MAX_FRAMERATE, max: isGroupLesson ? 15 : SCREEN_MAX_FRAMERATE },
         width: { ideal: SCREEN_MAX_WIDTH, max: SCREEN_MAX_WIDTH },
         height: { ideal: SCREEN_MAX_HEIGHT, max: SCREEN_MAX_HEIGHT },
       }).catch(() => {});
@@ -4795,6 +4839,7 @@ const CallSection = ({
     }
   }, [
     disposeLocalMixedAudioProcessing,
+    isGroupLesson,
     playAlertSound,
     renegotiatePeers,
     screenBusy,
@@ -5063,6 +5108,7 @@ const CallSection = ({
   }, [startConnectionStatsPolling, status, stopConnectionStatsPolling]);
 
   useEffect(() => () => {
+    handledAutoStartTokenRef.current = 0;
     stopCall();
   }, [stopCall]);
 
@@ -5276,6 +5322,8 @@ const CallSection = ({
       subtitle: micEnabled ? 'Микрофон включен' : 'Микрофон выключен',
       initial: 'В',
       isSelf: true,
+      onToggleMic: toggleMic,
+      micDisabled: micBusy || !isConnected,
       isSpeaking: selfSpeaking,
       isMuted: !micEnabled,
       isCameraEnabled: cameraEnabled,
@@ -6021,58 +6069,14 @@ const CallSection = ({
     const collapsedPanelNode = (
       <div
         ref={collapsedPanelRef}
+        data-group-lesson={isGroupLesson ? 'true' : undefined}
         className="call-collapsed-shell call-game-overlay-shell fixed bottom-20 right-4 z-50 md:bottom-20 md:right-6"
         style={collapsedPanelStyle}
         onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
         onDoubleClick={collapsedOpenHandler}
         title="Перетащить overlay. Двойной клик откроет звонок."
       >
-        <div className={collapsedCardClass}>
-          {overlayVoiceParticipants.map((participant) => {
-              const participantStateText = participant.isMuted
-                ? 'микрофон выключен'
-                : participant.isSpeaking
-                  ? 'говорит'
-                  : participant.hasAudio
-                    ? 'молчит'
-                    : 'нет аудио';
-              return (
-                <div
-                  key={`voice-overlay-${participant.id}`}
-                  className="call-game-overlay__row"
-                  data-speaking={participant.isSpeaking ? 'true' : 'false'}
-                  data-muted={participant.isMuted ? 'true' : 'false'}
-                  title={`${participant.title}: ${participantStateText}`}
-                >
-                  <span className="call-game-overlay__avatar" aria-hidden="true">
-                    {participant.initial}
-                  </span>
-                  <span className="call-game-overlay__plate">
-                    <span className="call-game-overlay__name">
-                      {participant.title}
-                    </span>
-                    {!participant.isMuted && (
-                      <span className="call-game-overlay__meter" aria-hidden="true">
-                        <span />
-                        <span />
-                        <span />
-                      </span>
-                    )}
-                    {participant.isMuted && (
-                      <span className="call-game-overlay__icon" aria-label="Микрофон выключен">
-                        <MicOff size={13} />
-                      </span>
-                    )}
-                    {!participant.isMuted && participant.isScreenSharing && (
-                      <span className="call-game-overlay__icon" aria-label="Показывает экран">
-                        <MonitorUp size={13} />
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-        </div>
+        <CallGameVoiceOverlay participants={overlayVoiceParticipants} className={collapsedCardClass} />
       </div>
     );
     const collapsedPanelPortal = typeof document !== 'undefined'
@@ -6495,7 +6499,7 @@ const CallSection = ({
                 )}
               </section>
             )}
-              {isTeacher && isConnected && (
+              {isTeacher && isConnected && !isGroupLesson && (
                 <>
                   <div className={statsGridTextClass}>
                     <p className={statCardClass}>

@@ -176,12 +176,17 @@ export const parseLearningLessonRoomTarget = (value) => {
   ];
   const match = prefixes.find((entry) => roomId.startsWith(entry.prefix));
   if (!match) return null;
-  const sessionId = normalizeRoomToken(roomId.slice(match.prefix.length));
+  const suffix = roomId.slice(match.prefix.length);
+  const parts = match.kind === 'rtc' ? suffix.split(':channel:') : [suffix];
+  if (parts.length > 2) return null;
+  const channelId = parts.length === 2 ? normalizeRoomToken(parts[1]) : '';
+  if (parts.length === 2 && (!channelId || channelId !== parts[1] || channelId === 'general')) return null;
+  const sessionId = normalizeRoomToken(parts[0]);
   if (!sessionId) return null;
   const names = buildLearningLessonRoomNames(sessionId);
   const expectedRoomId = {
     lesson: names.roomId,
-    rtc: names.rtcRoomId,
+    rtc: `${names.rtcRoomId}${channelId ? `:channel:${channelId}` : ''}`,
     board: names.boardDocName,
     collab: names.collabDocName,
   }[match.kind];
@@ -192,6 +197,7 @@ export const parseLearningLessonRoomTarget = (value) => {
     sessionId,
     roomId,
     canonicalRoomId: names.roomId,
+    ...(channelId ? { channelId } : {}),
     legacy: false,
   };
 };

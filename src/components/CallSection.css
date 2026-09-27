@@ -3372,3 +3372,23 @@ html[data-theme='dark'] .call-telemost-fallback__action:hover {
     width: 100%;
   }
 }
+
+button.call-game-overlay__row {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+}
+button.call-game-overlay__row:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 4px;
+  opacity: 1;
+}
+button.call-game-overlay__row:disabled { cursor: wait; }
+
+.call-game-overlay-shell[data-group-lesson='true'] { bottom: 128px; }

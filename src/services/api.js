@@ -1263,6 +1263,18 @@ export const api = {
   getLearningGroupLessonAttendance: async (groupId, lessonId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'attendance'))
   ),
+  getLearningVoiceChannels: async (groupId, lessonId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'voice-channels'))
+  ),
+  createLearningVoiceChannel: async (groupId, lessonId, name) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'voice-channels'), { method: 'POST', body: { name } })
+  ),
+  gatherLearningVoiceChannels: async (groupId, lessonId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'voice-channels', 'gather'), { method: 'POST', body: {} })
+  ),
+  distributeLearningVoiceChannels: async (groupId, lessonId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'voice-channels', 'distribute'), { method: 'POST', body: {} })
+  ),
   updateLearningGroupLessonAttendance: async (groupId, lessonId, records = []) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'attendance'), {
       method: 'PUT',

@@ -1,4 +1,5 @@
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
+import { normalizeLearningVoiceChannels } from './learningVoiceChannels.js';
 
 const GROUP_STATUSES = new Set(['forming', 'ready', 'active', 'completed']);
 const MEMBER_STATUSES = new Set(['active', 'removed']);
@@ -272,6 +273,7 @@ export const normalizeLearningGroup = (value) => {
     teacherId,
     name,
     telemostUrl: normalizeTelemostUrl(value.telemostUrl),
+    voiceChannels: normalizeLearningVoiceChannels(value.voiceChannels),
     plannedStartDate: normalizeDayKey(value.plannedStartDate || value.startDate),
     pricePerLesson: normalizeLessonPrice(value.pricePerLesson ?? value.lessonPrice),
     admissionsOpen: !startedAt && !completedAt && value.admissionsOpen !== false,
@@ -492,6 +494,7 @@ export const normalizeLearningLessonSession = (value) => {
     status,
     roomId: `lesson:${id}`,
     rtcRoomId: `rtc:lesson:${id}`,
+    voiceGatheredAt: normalizeIsoTimestamp(value.voiceGatheredAt),
     boardDocName: `board-lesson-${id}`,
     collabDocName: `collab-lesson-${id}`,
     createdAt: normalizeIsoTimestamp(value.createdAt),

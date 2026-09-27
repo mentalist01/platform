@@ -1111,8 +1111,7 @@ const LearningGroupsSection = ({
     event.preventDefault();
     if (!selectedGroup) return;
     const parsedTelemost = parseTelemostUrl(lessonForm.telemostUrl);
-    const groupTelemostUrl = parseTelemostUrl(selectedGroup.telemostUrl).url;
-    if (parsedTelemost.error || (!parsedTelemost.url && !groupTelemostUrl)) {
+    if (parsedTelemost.error) {
       setError(parsedTelemost.error || 'Сначала укажите постоянную ссылку Телемоста в настройках группы.');
       return;
     }
@@ -1154,8 +1153,7 @@ const LearningGroupsSection = ({
     const parsedTelemost = isCompletedGroup
       ? { url: '', error: '' }
       : parseTelemostUrl(lessonEditForm.telemostUrl);
-    const groupTelemostUrl = parseTelemostUrl(selectedGroup.telemostUrl).url;
-    if (!isCompletedGroup && (parsedTelemost.error || (!parsedTelemost.url && !groupTelemostUrl))) {
+    if (!isCompletedGroup && parsedTelemost.error) {
       setError(parsedTelemost.error || 'Сначала укажите постоянную ссылку Телемоста в настройках группы.');
       return;
     }
@@ -1184,7 +1182,7 @@ const LearningGroupsSection = ({
   };
 
   const handleOpenLesson = (lesson, surface) => {
-    if (!selectedGroup || !['board', 'collab'].includes(surface) || typeof onOpenLessonRoom !== 'function') return;
+    if (!selectedGroup || !['call', 'board', 'collab'].includes(surface) || typeof onOpenLessonRoom !== 'function') return;
     const startsAt = getLessonStart(lesson);
     const durationMinutes = Math.max(15, Number(lesson?.durationMinutes) || 60);
     const startsAtMs = Date.parse(startsAt);
@@ -1516,7 +1514,7 @@ const LearningGroupsSection = ({
               <BusyButtonContent busy={busyKey === 'create-group'} busyLabel="Создаём..." icon={Plus}>Создать</BusyButtonContent>
             </button>
             <div className="md:col-span-3">
-              <Field label="Постоянная ссылка Телемоста" hint="можно добавить позже">
+              <Field label="Резервная ссылка Телемоста" hint="необязательно">
                 <input
                   value={createForm.telemostUrl}
                   onChange={(event) => setCreateForm((current) => ({ ...current, telemostUrl: event.target.value }))}
@@ -1962,7 +1960,7 @@ const LearningGroupsSection = ({
                     )}
 
                     {isTeacher && selectedGroup.status === LEARNING_GROUP_STATUS_ACTIVE && (
-                      <SectionCard title="Запланировать занятие" subtitle="Участники фиксируются на момент создания, а встреча проходит в Яндекс Телемосте.">
+                      <SectionCard title="Запланировать занятие" subtitle="Участники фиксируются на момент создания, голосовые каналы доступны прямо на платформе.">
                         <form onSubmit={handleCreateLesson} className="grid gap-3 lg:grid-cols-[190px_130px_minmax(0,1fr)_auto] lg:items-end">
                           <Field label="Дата и время">
                             <input
@@ -1998,7 +1996,7 @@ const LearningGroupsSection = ({
                             <BusyButtonContent busy={busyKey === 'create-lesson'} busyLabel="Добавляем..." icon={Plus}>Добавить</BusyButtonContent>
                           </button>
                           <div className="lg:col-span-4">
-                            <Field label="Другая ссылка для этого занятия" hint="необязательно">
+                            <Field label="Резервная ссылка Телемоста для занятия" hint="необязательно">
                               <input
                                 value={lessonForm.telemostUrl}
                                 onChange={(event) => setLessonForm((current) => ({ ...current, telemostUrl: event.target.value }))}
@@ -2128,7 +2126,7 @@ const LearningGroupsSection = ({
                                   </div>
                                   <div className="mt-3 grid gap-3 lg:grid-cols-2">
                                     {selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                                      <Field label="Другая ссылка для этого занятия" hint="пусто — ссылка группы">
+                                      <Field label="Резервная ссылка Телемоста для занятия" hint="пусто — ссылка группы">
                                         <input
                                           value={lessonEditForm.telemostUrl}
                                           onChange={(event) => setLessonEditForm((current) => ({ ...current, telemostUrl: event.target.value }))}
@@ -2168,38 +2166,22 @@ const LearningGroupsSection = ({
                                 </form>
                               )}
 
+                              {telemostUrl && isRoomOpenable && (
+                                <button type="button" className="mt-3 text-xs text-slate-500 underline" onClick={() => onOpenLearningGroupTelemost?.({
+                                  lessonId, groupId: selectedGroup.id, participantIds: getLessonParticipants(lesson, selectedGroup),
+                                  groupName: selectedGroup.name, topic: lesson.topic, startsAt: getLessonStart(lesson),
+                                  durationMinutes: lessonDurationMinutes, telemostUrl, status: lesson.status, groupStatus: selectedGroup.status,
+                                })}>Резервный звонок в Телемосте</button>
+                              )}
                               <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                                {telemostUrl && isRoomOpenable ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => onOpenLearningGroupTelemost?.({
-                                      lessonId,
-                                      groupId: selectedGroup.id,
-                                      participantIds: getLessonParticipants(lesson, selectedGroup),
-                                      groupName: selectedGroup.name,
-                                      topic: lesson.topic,
-                                      startsAt: getLessonStart(lesson),
-                                      durationMinutes: lessonDurationMinutes,
-                                      telemostUrl,
-                                      status: String(lesson?.status || '').trim(),
-                                      groupStatus: selectedGroup.status,
-                                    })}
-                                    disabled={typeof onOpenLearningGroupTelemost !== 'function'}
-                                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2.5 text-sm font-bold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    <ExternalLink size={16} /> Открыть Телемост
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    disabled
-                                    className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-200 px-3 py-2.5 text-sm font-bold text-slate-500"
-                                  >
-                                    <Video size={16} /> {telemostTooEarly
-                                      ? 'Доступ за 5 минут до начала'
-                                      : (isRoomOpenable ? 'Ссылка не настроена' : 'Встреча закрыта')}
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenLesson(lesson, 'call')}
+                                  disabled={!isRoomOpenable}
+                                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
+                                >
+                                  <Video size={16} /> {telemostTooEarly ? 'Доступ за 5 минут до начала' : lessonClosed ? 'Встреча закрыта' : 'Голосовые каналы'}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => handleOpenLesson(lesson, 'board')}

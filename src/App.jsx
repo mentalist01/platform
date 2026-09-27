@@ -218,6 +218,7 @@ const loadStudentLeaderboardSection = () => import('./components/StudentLeaderbo
 const loadSignupGuestChat = () => import('./components/SignupGuestChat');
 const loadLearningGroupsSection = () => import('./components/LearningGroupsSection');
 const loadGroupTelemostSection = () => import('./components/GroupTelemostSection');
+const GroupVoiceChannels = React.lazy(() => import('./components/GroupVoiceChannels'));
 const loadTeacherCalendarSection = () => import('./components/TeacherCalendarSection');
 const loadTeacherFinanceSection = () => import('./components/TeacherFinanceSection');
 const loadTeacherLessonStartPrompt = () => import('./components/TeacherLessonStartPrompt');
@@ -19235,7 +19236,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       || Date.parse(telemostLessonReplay.autoFinishAt) > Date.now()
     )
   );
-  const isGroupLessonReplayActive = isLearningGroupLessonReplayActive(activeLearningLesson);
+  const isGroupLessonReplayActive = activeLearningLesson?.callProvider === 'telemost' && isLearningGroupLessonReplayActive(activeLearningLesson);
   const isAnyTelemostLessonReplayActive = isTelemostLessonReplayActive || isGroupLessonReplayActive;
   useEffect(() => {
     const blockerKey = `active-call:${user.role}:${user.id}`;
@@ -19813,6 +19814,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       }
     }
     const lessonContext = {
+      callProvider: 'telemost',
       lessonId,
       groupId,
       participantIds,
@@ -21994,7 +21996,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           ...current,
           notStarted: false,
           readOnly: false,
-          replayActive: current.surface === 'call' ? true : current.replayActive,
+          replayActive: current.callProvider === 'telemost' && current.surface === 'call' ? true : current.replayActive,
         };
       });
     };
@@ -22082,7 +22084,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       };
       setActiveLearningLesson((current) => (
         current?.lessonId === nextLessonContext.lessonId && current?.replayActive
-          ? { ...nextLessonContext, replayActive: true }
+          ? { ...nextLessonContext, replayActive: true, callProvider: current.callProvider }
           : nextLessonContext
       ));
       return nextLessonContext;
@@ -26858,7 +26860,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 : (callSessionStatus === 'connected' || isTelemostLessonReplayActive))}
             />
           )}
-          {isCallViewAvailable && activeLearningLesson && view === 'call' && (
+          {isCallViewAvailable && activeLearningLesson && activeLearningLesson.callProvider !== 'telemost' && (
+            <GroupVoiceChannels
+              key={activeLearningLesson.lessonId}
+              lesson={activeLearningLesson}
+              user={user}
+              students={currentStudentsWithNicknames}
+              theme={theme}
+              visible={view === 'call'}
+              onOpenCall={() => navigateToView('call')}
+              onOpenBoard={() => navigateToView('board')}
+              onOpenCollab={() => navigateToView('collab')}
+              onBack={handleLeaveLearningGroupLesson}
+            />
+          )}
+          {isCallViewAvailable && activeLearningLesson?.callProvider === 'telemost' && view === 'call' && (
             <GroupTelemostSection
               role={user.role}
               groupName={activeLearningLesson.groupName}

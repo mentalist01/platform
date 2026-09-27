@@ -14,6 +14,7 @@ import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallenge
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { getLearningVoiceChannels, MAX_CUSTOM_VOICE_CHANNELS, normalizeVoiceChannelName } from './learningVoiceChannels.js';
 import { createLessonReplayEventLog } from './lessonReplayEventLog.js';
 import { createLessonReplayReceipts } from './lessonReplayReceipts.js';
 import { writeDurableReplayFile } from './lessonReplayFiles.js';
@@ -352,6 +353,7 @@ try {
 }
 
 const app = express();
+const rtcClientsBySocket = new Map();
 app.set('trust proxy', 'loopback');
 app.disable('x-powered-by');
 const PORT = process.env.PORT || 5175;
@@ -688,7 +690,7 @@ const RTC_PRESENCE_FS_ENABLED = parseEnabledEnv(process.env.RTC_PRESENCE_FS_ENAB
 const JSON_STORAGE_BACKUPS_ENABLED = parseEnabledEnv(process.env.JSON_STORAGE_BACKUPS_ENABLED, true);
 const JSON_STORAGE_SPLIT_CHATS_ENABLED = parseEnabledEnv(process.env.JSON_STORAGE_SPLIT_CHATS_ENABLED, true);
 const LEARNING_GROUPS_ENABLED = parseEnabledEnv(process.env.LEARNING_GROUPS_ENABLED, true);
-const LEARNING_GROUP_RTC_ENABLED = parseEnabledEnv(process.env.LEARNING_GROUP_RTC_ENABLED, false);
+const LEARNING_GROUP_RTC_ENABLED = parseEnabledEnv(process.env.LEARNING_GROUP_RTC_ENABLED, true);
 const BOARD_COLLAB_PERSISTENCE_RAW = process.env.BOARD_COLLAB_PERSISTENCE || process.env.COLLAB_PERSIST_BOARD;
 const MAX_TASK_BYTES = 200 * 1024 * 1024;
 const MAX_LESSON_SHARED_TASK_BYTES = 500 * 1024 * 1024;
@@ -23639,6 +23641,14 @@ const closeLearningLessonCollabConnections = (lesson) => {
       }
     });
   });
+  rtcClientsBySocket.forEach((client) => {
+    if (parseRtcRoomId(client.roomId)?.sessionId !== lesson.id) return;
+    const accessError = getRtcRoomAccessError(client.auth, parseRtcRoomId(client.roomId));
+    if (!accessError) return;
+    leaveRtcRoom(client);
+    sendRtcPayload(client.ws, { type: 'session-ended', error: accessError });
+    closedConnections += 1;
+  });
   return closedConnections;
 };
 
@@ -24201,6 +24211,80 @@ app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute
   }
   return res.json({ lesson: serializeLearningLessonForAuth(updated, req.auth, group) });
 }));
+
+app.get('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId);
+  if (!lesson) return;
+  const channels = getLearningVoiceChannels(group, lesson, readStudentsDb());
+  const joinError = getRtcRoomAccessError(req.auth, parseRtcRoomId(lesson.rtcRoomId));
+  res.set('Cache-Control', 'no-store');
+  return res.json({
+    enabled: LEARNING_GROUP_RTC_ENABLED,
+    canJoin: !joinError,
+    joinError,
+    gatherRequestedAt: lesson.voiceGatheredAt || '',
+    channels: channels.map((channel) => ({
+      ...channel,
+      participants: Array.from(rtcRooms.get(channel.roomId)?.values() || []).map((client) => ({
+        userId: client.auth.id,
+        name: client.auth.name,
+        role: client.auth.role,
+        isScreenSharing: Boolean(client.isScreenSharing),
+      })),
+    })),
+  });
+}));
+
+app.post('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId, { manage: true });
+  if (!lesson) return;
+  if (group.status === 'completed' || ['completed', 'cancelled'].includes(lesson.status)) {
+    failLearningRequest('Занятие завершено', 'lesson_not_live', 409);
+  }
+  const name = normalizeVoiceChannelName(req.body?.name);
+  if (!name) failLearningRequest('Введите название канала', 'invalid_channel_name');
+  if (group.voiceChannels.length >= MAX_CUSTOM_VOICE_CHANNELS) {
+    failLearningRequest('Можно создать до 12 дополнительных каналов', 'channel_limit', 409);
+  }
+  if (getLearningVoiceChannels(group, lesson, readStudentsDb()).some((channel) => channel.name.toLocaleLowerCase('ru') === name.toLocaleLowerCase('ru'))) {
+    failLearningRequest('Канал с таким названием уже есть', 'duplicate_channel', 409);
+  }
+  const channel = { id: `custom-${crypto.randomUUID()}`, name };
+  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), {
+    ...group, voiceChannels: [...group.voiceChannels, channel], updatedAt: new Date().toISOString(),
+  }));
+  return res.status(201).json({ channel });
+}));
+
+const moveLearningVoiceParticipants = (mode) => handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId, { manage: true });
+  if (!lesson) return;
+  const joinError = getRtcRoomAccessError(req.auth, parseRtcRoomId(lesson.rtcRoomId));
+  if (joinError) failLearningRequest(joinError, 'lesson_not_live', 409);
+  const channels = getLearningVoiceChannels(group, lesson);
+  const moved = [];
+  // Only participants already in voice are moved. No absent user's mic is opened.
+  rtcClientsBySocket.forEach((client) => {
+    if (!isStudentRole(client.auth) || parseRtcRoomId(client.roomId)?.sessionId !== lesson.id) return;
+    const target = mode === 'general' ? channels[0] : channels.find(channel => channel.studentId === client.auth.id);
+    if (!target || getRtcRoomAccessError(client.auth, parseRtcRoomId(target.roomId))) return;
+    if (client.roomId === target.roomId) return;
+    // End old signaling membership before asking the browser to stop its media
+    // and reconnect. Peers in the previous room receive peer-left immediately.
+    leaveRtcRoom(client);
+    sendRtcPayload(client.ws, { type: 'channel-move', channelId: target.id, mode });
+    moved.push(client.auth.id);
+  });
+  return res.json({ movedCount: moved.length, mode });
+});
+app.post('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels/gather', moveLearningVoiceParticipants('general'));
+app.post('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels/distribute', moveLearningVoiceParticipants('individual'));
 
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/attendance', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
@@ -40918,7 +41002,6 @@ const RTC_PRESENCE_FILE_STALE_TIMEOUT_MS = (() => {
 const rtcRooms = new Map();
 const rtcPresenceWatchers = new Map();
 const rtcCodeSyncWatchers = new Map();
-const rtcClientsBySocket = new Map();
 const notificationClientsBySocket = new Map();
 
 const getUpgradePathname = (requestUrl) => {
@@ -41343,6 +41426,7 @@ const parseRtcRoomId = (value) => {
     return {
       roomId: lessonTarget.roomId,
       sessionId: lessonTarget.sessionId,
+      channelId: lessonTarget.channelId || 'general',
       targetType: 'lesson',
       legacy: false,
     };
@@ -41376,7 +41460,19 @@ const getRtcRoomAccessError = (auth, roomMeta) => {
     allowedKinds: ['rtc'],
     allowedSessionStatuses: LEARNING_LESSON_LIVE_STATUSES,
   });
-  if (access.allowed) return '';
+  if (access.allowed) {
+    if (roomMeta.targetType === 'lesson') {
+      const lesson = access.target.session;
+      const startMs = Date.parse(lesson.startAt);
+      const endMs = startMs + Math.max(15, Number(lesson.durationMinutes) || 60) * 60_000 + LEARNING_LESSON_OVERRUN_GRACE_MS;
+      if (startMs - LEARNING_LESSON_EARLY_JOIN_MS > Date.now() || endMs <= Date.now()) return 'Занятие ещё не началось или уже завершено';
+      const group = readLearningGroupsDb().find((entry) => entry.id === lesson.groupId);
+      if (!getLearningVoiceChannels(group, lesson).some((channel) => channel.roomId === roomMeta.roomId)) {
+        return 'Голосовой канал не найден';
+      }
+    }
+    return '';
+  }
   if (access.reason === 'session-not-live') return 'Занятие уже завершено или отменено';
   if (access.reason === 'unknown-room') return 'Комната созвона не найдена';
   if (access.reason === 'invalid-room-kind' || access.reason === 'invalid-room') return 'Некорректная комната созвона';
@@ -41766,6 +41862,16 @@ const leaveRtcRoom = (client) => {
 const joinRtcRoom = (client, roomMeta) => {
   if (!client || !roomMeta) return;
   const { roomId } = roomMeta;
+  if (roomMeta.targetType === 'lesson') {
+    // One voice connection per account within a lesson, including other tabs.
+    // The old browser must stop its peers, not reconnect into the previous channel.
+    rtcClientsBySocket.forEach((other) => {
+      if (other === client || other.auth.id !== client.auth.id || other.auth.role !== client.auth.role) return;
+      if (parseRtcRoomId(other.roomId)?.sessionId !== roomMeta.sessionId) return;
+      leaveRtcRoom(other);
+      sendRtcPayload(other.ws, { type: 'session-ended', error: 'Вы вошли в голосовой канал в другой вкладке.' });
+    });
+  }
   if (client.roomId && client.roomId !== roomId) {
     leaveRtcRoom(client);
   }
@@ -41975,6 +42081,12 @@ const handleRtcMessage = (client, rawData, isBinary) => {
       sendRtcPayload(client.ws, { type: 'error', error: 'Комната не найдена' });
       return;
     }
+    const accessError = getRtcRoomAccessError(client.auth, parseRtcRoomId(client.roomId));
+    if (accessError) {
+      leaveRtcRoom(client);
+      sendRtcPayload(client.ws, { type: 'session-ended', error: accessError });
+      return;
+    }
     const targetId = typeof payload?.targetId === 'string' ? payload.targetId.trim() : '';
     const signal = payload?.signal && typeof payload.signal === 'object' ? payload.signal : null;
     if (!targetId || !signal) {
@@ -42062,6 +42174,14 @@ const runRtcClientSweep = () => {
     if (!client.ws || client.ws.readyState !== WS_OPEN_STATE) {
       cleanupRtcClient(client, { closeSocket: false });
       return;
+    }
+    const roomMeta = parseRtcRoomId(client.roomId);
+    if (roomMeta?.targetType === 'lesson') {
+      const accessError = getRtcRoomAccessError(client.auth, roomMeta);
+      if (accessError) {
+        leaveRtcRoom(client);
+        sendRtcPayload(client.ws, { type: 'session-ended', error: accessError });
+      }
     }
     const lastHeartbeatAt = Number(client.lastHeartbeatAt) || 0;
     if (!lastHeartbeatAt) return;

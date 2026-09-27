@@ -3,7 +3,7 @@ const SAFE_LESSON_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._~-]*$/;
 
 const normalizeId = (value) => String(value ?? '').trim();
 
-export const buildLessonRtcRoomId = (lessonId) => {
+export const buildLessonRtcRoomId = (lessonId, channelId = 'general') => {
   const normalizedLessonId = normalizeId(lessonId);
   if (
     !normalizedLessonId
@@ -12,7 +12,9 @@ export const buildLessonRtcRoomId = (lessonId) => {
   ) {
     return '';
   }
-  return `rtc:lesson:${normalizedLessonId}`;
+  const channel = normalizeId(channelId);
+  if (!channel || channel.length > 160 || !SAFE_LESSON_ID_PATTERN.test(channel)) return '';
+  return `rtc:lesson:${normalizedLessonId}${channel === 'general' ? '' : `:channel:${channel}`}`;
 };
 
 export const buildLegacyRtcRoomId = (teacherId, studentId) => {
@@ -23,10 +25,10 @@ export const buildLegacyRtcRoomId = (teacherId, studentId) => {
     : '';
 };
 
-export const resolveCallRtcRoom = ({ lessonId, teacherId, studentId } = {}) => {
+export const resolveCallRtcRoom = ({ lessonId, teacherId, studentId, channelId = 'general' } = {}) => {
   const requestedLessonId = normalizeId(lessonId);
   if (requestedLessonId) {
-    const roomId = buildLessonRtcRoomId(requestedLessonId);
+    const roomId = buildLessonRtcRoomId(requestedLessonId, channelId);
     return {
       mode: 'group',
       isGroupLesson: true,

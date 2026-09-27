@@ -53,3 +53,12 @@ test('normalizes and deduplicates group participant ids', () => {
   );
   assert.deepEqual(normalizeRtcParticipantIds(null), []);
 });
+
+test('channels use distinct lesson rooms and reject delimiter injection', () => {
+  assert.equal(buildLessonRtcRoomId('lesson-1', 'general'), 'rtc:lesson:lesson-1');
+  assert.equal(buildLessonRtcRoomId('lesson-1', 'student-a'), 'rtc:lesson:lesson-1:channel:student-a');
+  assert.equal(resolveCallRtcRoom({ lessonId: 'lesson-1', channelId: 'custom-pair' }).roomId, 'rtc:lesson:lesson-1:channel:custom-pair');
+  for (const invalid of ['', '../general', 'x:channel:y', 'x/y', 'a'.repeat(161)]) {
+    assert.equal(buildLessonRtcRoomId('lesson-1', invalid), '');
+  }
+});

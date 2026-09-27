@@ -918,7 +918,6 @@ const TeacherCalendarSection = ({
   onSelectStudent = null,
   onOpenStudentWorkspace = null,
   onOpenLearningGroupLesson = null,
-  onOpenLearningGroupTelemost = null,
 }) => {
   const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const [entries, setEntries] = useState([]);
@@ -2502,7 +2501,6 @@ const TeacherCalendarSection = ({
   const eventDetailsLink = normalizeLessonPanelUrl(eventDetails?.telemostUrl)
     || normalizeLessonPanelUrl(eventDetails?.lessonLink)
     || normalizeLessonPanelUrl(eventDetails?.boardLink);
-  const eventDetailsGroupLink = normalizeTelemostUrl(eventDetails?.telemostUrl);
   const eventDetailsLessonInfo = useMemo(
     () => (eventDetails ? { event: eventDetails, dayKey: eventDetailsDayKey } : null),
     [eventDetails, eventDetailsDayKey]
@@ -2592,10 +2590,6 @@ const TeacherCalendarSection = ({
     || String(eventDetails?.groupStatus || '').trim().toLowerCase() === 'completed'
   );
   const eventDetailsGroupReadOnly = eventDetailsGroupClosed || eventDetailsGroupNotStarted;
-  const eventDetailsGroupCanOpenTelemost = eventDetailsIsGroup
-    && eventDetailsGroupParticipants.length > 0
-    && Boolean(String(eventDetails?.lessonId || '').trim())
-    && !eventDetailsGroupReadOnly;
   const eventDetailsHomeworkText = String(eventDetailsHomework?.homeWork || '').trim();
   const eventDetailsHomeworkPreview = eventDetailsHomeworkText
     ? eventDetailsHomeworkText.split(/\r?\n/).map((line) => line.trim()).find(Boolean)
@@ -2638,10 +2632,6 @@ const TeacherCalendarSection = ({
       readOnly: eventDetailsGroupReadOnly,
       surface,
     };
-    if (surface === 'call' && !eventDetailsGroupReadOnly && typeof onOpenLearningGroupTelemost === 'function') {
-      onOpenLearningGroupTelemost(lessonContext);
-      return;
-    }
     onOpenLearningGroupLesson(lessonContext);
   }, [
     eventDetails,
@@ -2652,7 +2642,6 @@ const TeacherCalendarSection = ({
     eventDetailsGroupReadOnly,
     eventDetailsCancelled,
     eventDetailsIsGroup,
-    onOpenLearningGroupTelemost,
     onOpenLearningGroupLesson,
   ]);
 
@@ -5903,27 +5892,15 @@ const TeacherCalendarSection = ({
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                   {eventDetailsIsGroup ? (
                     <>
-                      {eventDetailsGroupLink && (
-                        <button
-                          type="button"
-                          onClick={() => openEventDetailsGroupWorkspace('call')}
-                          disabled={eventDetailsCancelled || !eventDetailsGroupCanOpenTelemost || typeof onOpenLearningGroupTelemost !== 'function'}
-                          title={eventDetailsGroupNotStarted ? 'Телемост будет доступен в момент начала занятия' : 'Открыть Телемост'}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
-                        >
-                          <ExternalLink size={12} />
-                          Телемост
-                        </button>
-                      )}
                       <button
                         type="button"
                         onClick={() => openEventDetailsGroupWorkspace('call')}
-                        disabled={eventDetailsCancelled || !eventDetailsGroupCanOpenTelemost}
-                        title={eventDetailsGroupNotStarted ? 'Комната группы будет доступна в момент начала занятия' : 'Открыть комнату группы'}
+                        disabled={eventDetailsCancelled || !eventDetails?.lessonId || eventDetailsGroupParticipants.length === 0 || eventDetailsGroupClosed || typeof onOpenLearningGroupLesson !== 'function'}
+                        title="Открыть голосовые каналы"
                         className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        <Clock3 size={12} />
-                        Комната группы
+                        <Users size={12} />
+                        Голосовые каналы
                       </button>
                       <button
                         type="button"

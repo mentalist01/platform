@@ -789,7 +789,7 @@ const TeacherLessonStartPrompt = ({
                   className="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-300/45 bg-violet-300/12 px-5 py-5 text-base font-black text-violet-100 transition hover:-translate-y-0.5 hover:bg-violet-300/20"
                 >
                   <Video size={21} />
-                  Открыть Телемост
+                  Резервный звонок в Телемосте
                   <ExternalLink size={16} />
                 </button>
               ) : (
@@ -799,7 +799,7 @@ const TeacherLessonStartPrompt = ({
                     : groupLessonNotStarted
                     ? 'Телемост откроется в момент начала занятия.'
                     : groupLessonReady
-                    ? 'Ссылка на Телемост для этого занятия не указана.'
+                    ? 'Голосовые каналы доступны по кнопке «Открыть занятие группы».'
                     : 'Группа ещё не запущена. Для старта нужен хотя бы один ученик и статус «Занимается».'}
                 </div>
               )}
