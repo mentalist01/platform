@@ -1281,6 +1281,7 @@ const CallSection = ({
   onRequestStudentsRefresh,
   studentsLoading,
   hideStudentPicker = false,
+  channelSelectionMode = false,
   uiMode = 'full',
   onRequestExpand,
   onRequestCollapse,
@@ -6057,6 +6058,12 @@ const CallSection = ({
 
   if (isHiddenUi) {
     return null;
+  }
+
+  // Group channels provide their own entry screen. Keep the media lifecycle
+  // mounted so a channel click can connect without a second prejoin screen.
+  if (channelSelectionMode && isGroupLesson && !isConnected) {
+    return resolvedError ? <p className="group-voice__error" role="alert">{resolvedError}</p> : null;
   }
 
   if (isCollapsedUi) {

@@ -169,7 +169,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
             {!snapshot && !loadError && <p className="group-voice__loading"><Loader2 size={18} className="animate-spin" /> Загружаем каналы…</p>}
             <div className="group-voice__channels">
               {channels.map((channel) => {
-                const active = selectedId === channel.id;
+                const active = selectedId === channel.id && callStatus !== 'idle';
                 // Local connection status wins over a stale HTTP membership snapshot.
                 const participants = (channel.participants || []).filter(participant => participant.userId !== user.id);
                 if (active && callStatus === 'connected') participants.push({
@@ -218,7 +218,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
             <p className="group-voice__hint">Слышны только участники выбранного канала. Все участники занятия могут переходить между каналами.</p>
           </aside>
           <main className="group-voice__main">
-            {selected && canConnect ? (
+            {selected && canConnect && callStatus === 'connected' ? (
               <div className="group-voice__current">
                 <span><Headphones size={18} /><strong>{selected.name}</strong></span>
                 <button type="button" onClick={leave}><LogOut size={17} /> Выйти из канала</button>
@@ -228,7 +228,8 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 <Headphones size={42} />
                 <h3>Выберите голосовой канал</h3>
                 <p>Соберитесь в общем канале для разбора или перейдите в отдельный для работы с преподавателем.</p>
-                <button type="button" disabled={!canConnect} onClick={() => join('general')}>Войти в общий канал</button>
+                {callStatus === 'connecting' ? <p role="status"><Loader2 size={18} className="animate-spin" /> Подключаемся: {selected?.name}…</p>
+                  : <button type="button" disabled={!canConnect} onClick={() => join('general')}>Войти в общий канал</button>}
                 <small>Микрофон включится после подключения. Камера — по желанию.</small>
               </div>
             )}
@@ -240,7 +241,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 role={user.role} userId={user.id} userName={user.name} userAvatarDataUrl={user.avatarDataUrl}
                 teacherId={user.role === 'teacher' ? user.id : user.teacherId}
                 students={students} lessonId={lessonId} groupId={groupId} channelId={selected.id}
-                participantIds={lesson.participantIds} hideStudentPicker theme={theme}
+                participantIds={lesson.participantIds} hideStudentPicker channelSelectionMode theme={theme}
                 autoStartToken={1} onStatusChange={onCallStatusChange} onChannelPresence={onChannelPresence}
                 initialMicEnabled={micPreferenceRef.current} onMicStateChange={rememberMic} onChannelMove={onChannelMove}
                 uiMode={visible ? 'full' : 'collapsed'} onRequestOpenCall={onOpenCall}
