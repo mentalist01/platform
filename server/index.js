@@ -6609,8 +6609,9 @@ const getStudentChatVisibleName = (student, options = {}) => (
 
 const getStudentChatVisibleNameById = (studentId, fallback = '', options = {}) => {
   const id = String(studentId || '').trim();
-  const student = id ? findStudentById(id) : null;
+  const student = id ? findStudentById(id, { allowDeleted: true }) : null;
   if (student?.id) return getStudentChatVisibleName(student, options);
+  if (!shouldExposeStudentNicknames(options)) return 'Ученик';
   const fallbackText = String(fallback || '').trim();
   return fallbackText || 'Ученик';
 };
@@ -23090,16 +23091,17 @@ const replaceLearningStoreEntry = (entries, nextEntry) => (
   entries.map((entry) => entry.id === nextEntry.id ? nextEntry : entry)
 );
 
-const serializeLearningStudentSummary = (studentId) => {
+const serializeLearningStudentSummary = (studentId, auth = null) => {
   const student = findStudentById(studentId, { allowDeleted: true });
   if (!student) return { id: studentId, studentId, name: 'Ученик' };
   const progress = getStudentData(student.id);
+  const staffView = isAdminRole(auth) || isTeacherRole(auth);
   return {
     id: student.id,
     studentId: student.id,
-    name: String(student.nickname || student.name || 'Ученик').trim() || 'Ученик',
+    name: getStudentChatVisibleName(student, { exposeStudentNicknames: staffView }),
     fullName: String(student.name || '').trim(),
-    nickname: String(student.nickname || '').trim(),
+    ...(staffView ? { nickname: String(student.nickname || '').trim() } : {}),
     grade: normalizeStudentGrade(student.grade),
     avatarDataUrl: normalizeStudentAvatarDataUrl(progress?.avatarDataUrl),
   };
@@ -23205,7 +23207,7 @@ const serializeLearningGroupForAuth = (group, auth) => {
   const members = serialized.members
     .filter((member) => staffView || (currentStudentMember && member.status === 'active') || member.studentId === auth?.id)
     .map((member) => {
-      const student = serializeLearningStudentSummary(member.studentId);
+      const student = serializeLearningStudentSummary(member.studentId, auth);
       if (staffView) return { ...member, ...student, student };
       const { addedById: _addedById, removedById: _removedById, overrideReason: _overrideReason, ...safeMember } = member;
       return { ...safeMember, ...student, student };
@@ -23624,11 +23626,10 @@ const isStudentHomeworkEntrySubmitted = (entry) => {
   );
 };
 
-const serializeLearningAttendanceForAuth = (record) => ({
-  ...record,
-  student: serializeLearningStudentSummary(record.studentId),
-  studentName: serializeLearningStudentSummary(record.studentId).name,
-});
+const serializeLearningAttendanceForAuth = (record, auth) => {
+  const student = serializeLearningStudentSummary(record.studentId, auth);
+  return { ...record, student, studentName: student.name };
+};
 
 const writeLearningAttendanceUpdates = (records) => {
   const byKey = new Map(readLearningAttendanceDb().map((record) => (
@@ -24008,7 +24009,9 @@ registerLessonReschedules(app, {
 
 registerGroupAvailability(app, {
   store: availabilityStore, getGroup: getLearningGroupById, canManage: canManageLearningGroup,
-  getStudentName: id => { const s = findStudentById(id); return s?.nickname || s?.name || 'Ученик'; },
+  getStudentName: (id, auth) => getStudentChatVisibleName(findStudentById(id, { allowDeleted: true }), {
+    exposeStudentNicknames: isAdminRole(auth) || isTeacherRole(auth),
+  }),
   materialize: () => materializeAvailabilitySchedules(true),
   getBusyEntries: async (group, config, force = false) => {
     materializeAvailabilitySchedules();
@@ -24383,7 +24386,7 @@ app.get('/api/learning-groups/:groupId/lessons/:lessonId/attendance', handleLear
   if (!lesson) return;
   let records = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
   if (isStudentRole(req.auth)) records = records.filter((record) => record.studentId === req.auth.id);
-  return res.json({ records: records.map(serializeLearningAttendanceForAuth) });
+  return res.json({ records: records.map((record) => serializeLearningAttendanceForAuth(record, req.auth)) });
 }));
 
 app.put('/api/learning-groups/:groupId/lessons/:lessonId/attendance', handleLearningRoute((req, res) => {
@@ -24426,7 +24429,7 @@ app.put('/api/learning-groups/:groupId/lessons/:lessonId/attendance', handleLear
   });
   writeLearningAttendanceUpdates(updates);
   const records = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
-  return res.json({ records: records.map(serializeLearningAttendanceForAuth) });
+  return res.json({ records: records.map((record) => serializeLearningAttendanceForAuth(record, req.auth)) });
 }));
 
 app.get('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, res) => {
@@ -24613,7 +24616,7 @@ app.get('/api/learning-groups/:groupId/assignments/:assignmentId/submissions', h
   if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
   const submissions = readLearningSubmissionsDb()
     .filter((entry) => entry.assignmentId === assignment.id)
-    .map((entry) => ({ ...entry, student: serializeLearningStudentSummary(entry.studentId) }));
+    .map((entry) => ({ ...entry, student: serializeLearningStudentSummary(entry.studentId, req.auth) }));
   return res.json({ submissions });
 }));
 
@@ -24987,6 +24990,13 @@ const getLearningGroupChatSenderName = (req, role) => {
   return String(req.auth?.name || 'Учитель').trim();
 };
 
+const serializeLearningGroupChatMessageForAuth = (message, auth) => {
+  const serialized = serializeLearningGroupChatMessage(message, auth?.id);
+  if (!serialized || !isStudentRole(auth) || serialized.senderRole !== 'student') return serialized;
+  // Stored sender labels may predate the public-name policy.
+  return { ...serialized, senderName: getStudentChatVisibleNameById(serialized.senderId) };
+};
+
 app.get('/api/learning-groups/:groupId/chat', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
   if (!group) return;
@@ -24994,7 +25004,7 @@ app.get('/api/learning-groups/:groupId/chat', handleLearningRoute((req, res) => 
   const messages = readLearningGroupChatDb()
     .filter((message) => message.groupId === group.id)
     .slice(-2000)
-    .map((message) => serializeLearningGroupChatMessage(message, req.auth.id))
+    .map((message) => serializeLearningGroupChatMessageForAuth(message, req.auth))
     .filter(Boolean);
   res.setHeader('Cache-Control', 'no-store');
   return res.json({
@@ -25028,7 +25038,7 @@ app.post('/api/learning-groups/:groupId/chat/messages', handleLearningRoute((req
     failLearningRequest(error?.message || 'Не удалось отправить сообщение', 'group_chat_invalid_message', 400);
   }
   writeLearningGroupChatDb([...readLearningGroupChatDb(), message]);
-  return res.status(201).json({ message: serializeLearningGroupChatMessage(message, req.auth.id) });
+  return res.status(201).json({ message: serializeLearningGroupChatMessageForAuth(message, req.auth) });
 }));
 
 app.post('/api/learning-groups/:groupId/chat/messages/:messageId/vote', handleLearningRoute((req, res) => {
@@ -25049,7 +25059,7 @@ app.post('/api/learning-groups/:groupId/chat/messages/:messageId/vote', handleLe
     failLearningRequest(error?.message || 'Не удалось сохранить голос', 'group_chat_vote_invalid', isClosed ? 409 : 400);
   }
   const saved = writeLearningGroupChatDb(messages)[index];
-  return res.json({ message: serializeLearningGroupChatMessage(saved, req.auth.id) });
+  return res.json({ message: serializeLearningGroupChatMessageForAuth(saved, req.auth) });
 }));
 
 app.patch('/api/learning-groups/:groupId/chat/messages/:messageId/poll', handleLearningRoute((req, res) => {
@@ -25065,7 +25075,7 @@ app.patch('/api/learning-groups/:groupId/chat/messages/:messageId/poll', handleL
   }
   messages[index] = setLearningGroupPollClosed(messages[index], req.body?.closed);
   const saved = writeLearningGroupChatDb(messages)[index];
-  return res.json({ message: serializeLearningGroupChatMessage(saved, req.auth.id) });
+  return res.json({ message: serializeLearningGroupChatMessageForAuth(saved, req.auth) });
 }));
 
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/answer-chat', handleLearningRoute((req, res) => {
@@ -25173,7 +25183,7 @@ app.get('/api/learning-groups/:groupId/progress', handleLearningRoute((req, res)
     }, { pending: 0, present: 0, partial: 0, absent: 0, excused: 0 });
     return {
       studentId,
-      student: serializeLearningStudentSummary(studentId),
+      student: serializeLearningStudentSummary(studentId, req.auth),
       assignments: {
         total: studentAssignments.length,
         submitted: submittedCount,

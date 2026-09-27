@@ -112,9 +112,13 @@ export function registerGroupAvailability(app, deps) {
     try { if (poll.status === 'open') blocked = busySlots(poll.config, await getBusyEntries(group, poll.config)); }
     catch { calendarError = 'Не удалось проверить календарь преподавателя. Выбор и утверждение временно недоступны. Попробуйте обновить позже.'; }
     return { canManage: canEdit, closed: group.status === 'completed', blocked, calendarError,
-      poll: { ...poll, members: memberIds.map(id => ({ id, name: getStudentName(id) })),
+      poll: { ...poll, members: memberIds.map(id => ({ id, name: getStudentName(id, auth) })),
         answers: Object.fromEntries(memberIds.filter(id => poll.answers[id]).map(id => [id, poll.answers[id]])),
-        proposal: poll.proposal ? { ...poll.proposal, votes: Object.fromEntries(memberIds.filter(id => poll.proposal.votes[id]).map(id => [id, poll.proposal.votes[id]])) } : null } };
+        proposal: poll.proposal ? { ...poll.proposal,
+          // Rebuild old saved names for this viewer; historical proposals may contain a private teacher label.
+          authorName: poll.proposal.authorRole === 'teacher' || poll.proposal.authorName === 'Преподаватель'
+            ? 'Преподаватель' : getStudentName(poll.proposal.authorId, auth),
+          votes: Object.fromEntries(memberIds.filter(id => poll.proposal.votes[id]).map(id => [id, poll.proposal.votes[id]])) } : null } };
   };
   const route = action => async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -161,7 +165,8 @@ export function registerGroupAvailability(app, deps) {
           if (slots.length !== 2 || slots.some(id => !all.some(s => s.id === id)) || new Set(slots.map(id => all.find(s => s.id === id).day)).size !== 2) fail('Выберите два занятия в разные дни');
           const blocked = busySlots(poll.config, await getBusyEntries(group, poll.config));
           if (slots.some(id => blocked[id])) fail('Это время занято у преподавателя. Выберите другое.', 409);
-          poll.proposal = { id: crypto.randomUUID(), slots, authorId: req.auth.id, authorName: canManage(req.auth, group) ? 'Преподаватель' : getStudentName(req.auth.id),
+          poll.proposal = { id: crypto.randomUUID(), slots, authorId: req.auth.id, authorRole: canManage(req.auth, group) ? 'teacher' : 'student',
+            authorName: canManage(req.auth, group) ? 'Преподаватель' : getStudentName(req.auth.id, req.auth),
             comment: text(body.comment), votes: {}, createdAt: Date.now() };
         } else if (action === 'vote') {
           if (req.auth.role !== 'student' || !membersOf(group).includes(req.auth.id)) fail('Подтверждение нужно от ученика', 403);

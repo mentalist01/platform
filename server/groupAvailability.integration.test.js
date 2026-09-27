@@ -13,7 +13,7 @@ test('full server: pupil choices become group lessons and teacher/student calend
   const seed=(name,value)=>fs.writeFileSync(path.join(data,name),JSON.stringify(value));
   const createdAt=new Date().toISOString();
   seed('teachers.json',[{id:'t',name:'Teacher',code:'110001',createdAt},{id:'other',name:'Other',code:'220001',createdAt}]);
-  seed('students.json',['a','b','outsider'].map((id,i)=>({id,teacherId:i<2?'t':'other',name:id,code:String(110101+i),createdAt,deletedAt:null})));
+  seed('students.json',['a','b','outsider'].map((id,i)=>({id,teacherId:i<2?'t':'other',name:id,nickname:`PRIVATE_ALIAS_${id}`,code:String(110101+i),createdAt,deletedAt:null})));
   const startDate=addCalendarDays(moscowDay(),1); const occupiedDay=weekdayIndex(startDate);
   seed('progress.json',{a:{schedule:[{id:'private-lesson',weekdayKey:AVAILABILITY_WEEKDAYS[occupiedDay],time:'10:00',durationMinutes:60,subject:'PRIVATE NAME'}],homeworks:[],mockAttempts:{}},b:{schedule:[],homeworks:[],mockAttempts:{}}});
   seed('tests.json',{}); seed('mock-exams.json',[]);
@@ -36,18 +36,40 @@ test('full server: pupil choices become group lessons and teacher/student calend
   await boot(); const teacher=(await req('/login','',{code:'110001'})).token;
   const tokens=await Promise.all(['110101','110102','110103'].map(async code=>(await req('/login','',{code})).token));
   const group=(await req('/learning-groups',teacher,{name:'Together',studentIds:['a','b'],plannedStartDate:startDate},201)).group;
+  const assertPublicNames = value => assert.ok(!JSON.stringify(value).includes('PRIVATE_ALIAS_'), 'Private teacher names must not reach a student response');
+  assert.equal(group.members.find(m=>m.id==='b').name,'PRIVATE_ALIAS_b','Teachers retain their private labels');
+  assert.equal(group.members.find(m=>m.id==='b').student.nickname,'PRIVATE_ALIAS_b');
+  const studentGroup=(await req(`/learning-groups/${group.id}`,tokens[0])).group;
+  assertPublicNames(studentGroup);
+  assert.deepEqual(studentGroup.members.map(m=>m.name).sort(),['a','b']);
+  assert.ok(studentGroup.members.every(m=>!Object.hasOwn(m,'nickname')&&!Object.hasOwn(m.student,'nickname')));
+  for (const url of ['/learning-groups', `/learning-groups/${group.id}?role=teacher&exposeStudentNicknames=true`, '/student-social-chats', '/students/leaderboard']) {
+    assertPublicNames(await req(url,tokens[0]));
+  }
+  await req('/students',tokens[0],undefined,403);
   const base=`/learning-groups/${group.id}/availability`;
   await req(base,'',undefined,401); await req(base,tokens[2],undefined,403);
   const opened=await req(`${base}/open`,teacher,{startDate,durationMinutes:60,startMinute:600,endMinute:1200,days:[0,1,2,3,4,5,6]});
   assert.ok(opened.blocked[`${occupiedDay}-600`]); assert.ok(!JSON.stringify(opened).includes('PRIVATE NAME'));
+  assert.equal(opened.poll.members.find(m=>m.id==='b').name,'PRIVATE_ALIAS_b');
+  const publicPoll=await req(base,tokens[0]);
+  assertPublicNames(publicPoll);
+  assert.deepEqual(publicPoll.poll.members.map(m=>m.name).sort(),['a','b']);
   const roundId=opened.poll.id; const slots=['0-720','3-720'];
   for(const token of tokens.slice(0,2)) await req(`${base}/answer`,token,{roundId,version:0,choices:Object.fromEntries(slots.map(s=>[s,'yes']))});
   const p=(await req(`${base}/propose`,tokens[0],{roundId,slots})).poll.proposal;
+  assert.equal(p.authorName,'a'); assertPublicNames(p);
+  assert.equal((await req(base,teacher)).poll.proposal.authorName,'PRIVATE_ALIAS_a');
+  assertPublicNames(await req(base,tokens[1]));
   for(const token of tokens.slice(0,2)) await req(`${base}/vote`,token,{roundId,proposalId:p.id,choice:'yes'});
   assert.equal((await req(`${base}/approve`,teacher,{roundId,proposalId:p.id})).poll.status,'approved');
   const lessons=(await req(`/learning-groups/${group.id}/lessons`,teacher)).lessons;
   assert.equal(lessons.length,16); assert.ok(lessons.every(l=>l.source==='availability-plan'));
   assert.equal(new Set(lessons.map(l=>l.id)).size,16);
+  assertPublicNames(await req(`/learning-groups/${group.id}/progress`,tokens[0]));
+  assertPublicNames(await req(`/learning-groups/${group.id}/lessons/${lessons[0].id}/attendance`,tokens[0]));
+  const posted=await req(`/learning-groups/${group.id}/chat/messages`,tokens[0],{text:'Hello'},201);
+  assert.equal(posted.message.senderName,'a'); assertPublicNames(posted);
   const calendar=await req('/teacher-schedule',teacher);
   assert.equal(calendar.filter(e=>e.groupId===group.id).length,16);
   const studentCalendar=await req('/student-schedule?studentId=a',tokens[0]);
@@ -55,7 +77,21 @@ test('full server: pupil choices become group lessons and teacher/student calend
   assert.ok(studentCalendar.some(e=>e.lessonId===lessons[0].id));
   const outsiderCalendar=await req('/student-schedule?studentId=outsider',tokens[2]);
   assert.ok(!outsiderCalendar.some(e=>e.groupId===group.id));
-  await stop(); await boot();
+  await stop();
+  // Simulate historical snapshots created before viewer-aware serialization.
+  const polls=JSON.parse(fs.readFileSync(path.join(data,'group-availability.json'),'utf8'));
+  polls[group.id].proposal.authorName='PRIVATE_ALIAS_a'; delete polls[group.id].proposal.authorRole;
+  seed('group-availability.json',polls);
+  seed('learning-group-chat.json',['a','removed-student'].map(id=>({id:`legacy-${id}`,groupId:group.id,
+    senderId:id,senderRole:'student',senderName:`PRIVATE_ALIAS_${id}`,type:'text',text:'Old message',createdAt,updatedAt:createdAt})));
+  await boot();
+  const historicalPoll=await req(base,tokens[1]); assertPublicNames(historicalPoll);
+  assert.equal(historicalPoll.poll.proposal.authorName,'a');
+  const historicalChat=await req(`/learning-groups/${group.id}/chat`,tokens[1]); assertPublicNames(historicalChat);
+  assert.equal(historicalChat.messages.find(m=>m.senderId==='a').senderName,'a');
+  assert.equal(historicalChat.messages.find(m=>m.senderId==='removed-student').senderName,'Ученик');
+  const teacherChat=await req(`/learning-groups/${group.id}/chat`,teacher);
+  assert.equal(teacherChat.messages.find(m=>m.senderId==='a').senderName,'PRIVATE_ALIAS_a');
   const again=await req(`/learning-groups/${group.id}/lessons`,teacher);
   assert.deepEqual(again.lessons.map(l=>l.id).sort(),lessons.map(l=>l.id).sort());
 });
