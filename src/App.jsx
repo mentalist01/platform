@@ -19242,10 +19242,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const blockerKey = `active-call:${user.role}:${user.id}`;
     setClientBuildReloadBlocked(
       blockerKey,
-      isCallSessionActive || isAnyTelemostLessonReplayActive
+      isCallSessionActive || isAnyTelemostLessonReplayActive || Boolean(activeLearningLesson)
     );
     return () => setClientBuildReloadBlocked(blockerKey, false);
-  }, [isAnyTelemostLessonReplayActive, isCallSessionActive, user.id, user.role]);
+  }, [activeLearningLesson, isAnyTelemostLessonReplayActive, isCallSessionActive, user.id, user.role]);
   const lessonReplayStudentId = isGroupLessonReplayActive
     ? (user.role === 'student' ? user.id : '')
     : (callSessionStatus === 'connected'
