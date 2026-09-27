@@ -4,13 +4,24 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
-import { availabilityConfig, busySlots, createAvailabilityStore, materializeAvailabilityPlans, registerGroupAvailability } from './groupAvailability.js';
+import { availabilityConfig, currentAvailabilityConfig, busySlots, createAvailabilityStore, materializeAvailabilityPlans, registerGroupAvailability } from './groupAvailability.js';
 import { addCalendarDays, moscowDay, availabilitySlots, rankedSlots, suggestedPair } from '../src/utils/groupAvailability.js';
 
 const tomorrow = addCalendarDays(moscowDay(), 1);
 const config = (extra = {}) => ({ startDate: tomorrow, durationMinutes: 60, startMinute: 600, endMinute: 1260, days: [0,1,2,3,4,5,6], weeks: 8, ...extra });
 const member = id => ({ studentId: id, status: 'active' });
 const group = id => ({ id, teacherId: 't', name: 'Группа', status: 'active', members: [member('a'), member('b')] });
+
+test('an old open poll does not mark passed weekdays busy and still checks eight future weeks', () => {
+  const now=Date.parse('2026-09-27T17:00:00Z');
+  const cfg=config({startDate:'2026-09-24'});
+  assert.equal(currentAvailabilityConfig(cfg,now).startDate,'2026-09-28');
+  assert.deepEqual(busySlots(cfg,[],now),{});
+  const actual=busySlots(cfg,[{date:'2026-09-24',time:'10:00'}, {date:'2026-11-22',time:'11:00'}],now);
+  assert.equal(actual['3-600'],undefined);
+  assert.deepEqual(actual['6-660'],['2026-11-22']);
+  assert.equal(busySlots({...cfg,startDate:'2026-09-27'},[],now)['6-600'],undefined);
+});
 
 test('validates real dates, hours, duration and weekdays; Moscow date boundary', () => {
   assert.equal(moscowDay(Date.parse('2026-09-23T22:30:00Z')), '2026-09-24');

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
+import { GROUP_SHARED_CODE_ID, groupCodeTabs, groupCodeRoom } from './utils/groupCodeRooms.js';
 import { parseTestsFileContent } from './utils/pythonTestData.js';
 import { readCallResume } from './utils/callResume.js';
 import { createPortal } from 'react-dom';
@@ -3893,7 +3894,6 @@ const CollabSection = ({
     ? (String(sandbox?.id || sandbox?.branchId || 'lesson-replay').trim() || 'lesson-replay')
     : '';
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
-  const collabReadOnly = sandboxReadOnly || Boolean(readOnly && isGroupLesson);
   const groupParticipantRoster = useMemo(() => {
     if (!isGroupLesson) return [];
     const studentsById = new Map(
@@ -3910,7 +3910,8 @@ const CollabSection = ({
       };
     });
   }, [isGroupLesson, learningParticipantIds, students, userId, userName]);
-  const [activeGroupParticipantId, setActiveGroupParticipantId] = useState('');
+  const [activeGroupParticipantId, setActiveGroupParticipantId] = useState(GROUP_SHARED_CODE_ID);
+  const codeLessonRef = useRef(learningLessonId);
   const [groupParticipantOrder, setGroupParticipantOrder] = useState([]);
   useEffect(() => {
     if (!isGroupLesson) {
@@ -3929,9 +3930,13 @@ const CollabSection = ({
     }
     const nextOrder = [...new Set([...storedOrder, ...availableIds])].filter((id) => allowed.has(id));
     setGroupParticipantOrder(nextOrder);
+    const lessonChanged = codeLessonRef.current !== learningLessonId;
+    codeLessonRef.current = learningLessonId;
     setActiveGroupParticipantId((current) => {
-      if (!isTeacher) return String(userId || '').trim();
-      return allowed.has(current) ? current : (nextOrder[0] || '');
+      if (lessonChanged) return GROUP_SHARED_CODE_ID;
+      if (current === GROUP_SHARED_CODE_ID) return current;
+      if (!isTeacher) return current === String(userId || '').trim() ? current : GROUP_SHARED_CODE_ID;
+      return allowed.has(current) ? current : GROUP_SHARED_CODE_ID;
     });
   }, [groupParticipantRoster, isGroupLesson, isTeacher, learningLessonId, userId]);
   const orderedGroupParticipants = useMemo(() => {
@@ -3951,11 +3956,15 @@ const CollabSection = ({
     return ordered;
   }, [groupParticipantOrder, groupParticipantRoster]);
   const effectiveGroupParticipantId = isGroupLesson
-    ? (isTeacher ? (activeGroupParticipantId || orderedGroupParticipants[0]?.id || '') : String(userId || '').trim())
+    ? (activeGroupParticipantId || GROUP_SHARED_CODE_ID)
     : '';
   const activeGroupParticipantName = isGroupLesson
-    ? (groupParticipantRoster.find((participant) => participant.id === effectiveGroupParticipantId)?.name || 'Ученик')
+    ? (effectiveGroupParticipantId === GROUP_SHARED_CODE_ID ? 'Общий код'
+      : groupParticipantRoster.find((participant) => participant.id === effectiveGroupParticipantId)?.name || 'Ученик')
     : '';
+  const collabReadOnly = sandboxReadOnly || Boolean(isGroupLesson && (
+    readOnly || (!isTeacher && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID)
+  ));
   const sandboxReadOnlyCodeState = isSandbox && sandboxReadOnly
     ? (sandbox?.code && typeof sandbox.code === 'object' ? sandbox.code : sandbox)
     : null;
@@ -4093,9 +4102,7 @@ const CollabSection = ({
     ? Boolean(isTeacher && learningParticipantIds.length > 0)
     : Boolean(effectiveStudentId);
   const liveRoomId = isGroupLesson
-    ? (effectiveGroupParticipantId
-      ? `collab-lesson-${learningLessonId}~student~${effectiveGroupParticipantId}`
-      : null)
+    ? groupCodeRoom(learningLessonId, effectiveGroupParticipantId)
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const collabDocumentReady = Boolean(
@@ -8739,7 +8746,8 @@ const CollabSection = ({
     ? 'connecting'
     : status;
   const statusLabel = collabReadOnly && !isSandbox
-    ? 'Архив · только просмотр'
+    ? (!readOnly && isGroupLesson && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID
+      ? 'Общий код · показывает учитель' : 'Архив · только просмотр')
     : isSandbox
     ? (sandboxReadOnly ? 'Запись урока' : 'Локальная копия')
     : status === 'connected'
@@ -9577,6 +9585,8 @@ const CollabSection = ({
   };
   const reorderGroupParticipantTabs = (orderedIds) => {
     if (!isTeacher || !isGroupLesson) return;
+    if (orderedIds[0] !== GROUP_SHARED_CODE_ID) return;
+    orderedIds = orderedIds.filter(id => id !== GROUP_SHARED_CODE_ID);
     const available = new Set(groupParticipantRoster.map((participant) => participant.id));
     const normalized = Array.isArray(orderedIds) ? orderedIds.map(String) : [];
     if (
@@ -9682,7 +9692,8 @@ const CollabSection = ({
               <Code2 size={21} />
             </span>
             <strong>Здесь можно написать или вставить код</strong>
-            <span>{isSandbox ? 'Изменения остаются только в этой копии' : 'Учитель и ученик видят правки в этом варианте'}</span>
+            <span>{isSandbox ? 'Изменения остаются только в этой копии' : isGroupLesson && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID
+              ? 'Код преподавателя виден всей группе' : 'Учитель и ученик видят правки в этом варианте'}</span>
             <kbd>Ctrl+V вставить · F5 запустить</kbd>
           </div>
         )}
@@ -11395,12 +11406,10 @@ const CollabSection = ({
             onDelete={deleteCodeSolution}
             onReorder={reorderCodeSolutionTabs}
             canReorder={isTeacher && !collabReadOnly}
-            participants={isGroupLesson ? (isTeacher
-              ? orderedGroupParticipants
-              : orderedGroupParticipants.filter((participant) => participant.id === effectiveGroupParticipantId)) : []}
+            participants={isGroupLesson ? groupCodeTabs(orderedGroupParticipants, role, userId) : []}
             activeParticipantId={effectiveGroupParticipantId}
             onSelectParticipant={(participantId) => {
-              if (!isTeacher || participantId === effectiveGroupParticipantId) {
+              if (participantId === effectiveGroupParticipantId) {
                 selectCodeSolution(DEFAULT_COLLAB_SOLUTION_ID);
                 return;
               }
@@ -28091,8 +28100,10 @@ const MainApp = () => {
     <><LessonFallback user={user} /><React.Suspense fallback={<div className="app-loading-screen">Проверяем защиту аккаунта…</div>}>
       <TeacherEmailEnrollment key={user.id} user={user} onLogout={handleLogout}>{dashboard}</TeacherEmailEnrollment>
     </React.Suspense></>
-  ) : <><LessonFallback user={user} />{dashboard}</>;
+  ) : <><LessonFallback user={user} /><React.Suspense fallback={null}><LessonPaceFeedback key={user.id} user={user} /></React.Suspense>{dashboard}</>;
 };
+
+const LessonPaceFeedback = React.lazy(() => import('./components/LessonPaceFeedback.jsx'));
 
 const App = () => {
   if (isWorkbookHelperPrivacyRoute()) {

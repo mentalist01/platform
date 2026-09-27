@@ -617,6 +617,7 @@ export const normalizeLearningAssignment = (value) => {
     homework: normalizeLearningHomeworkTemplate(value.homework || value.homeworkTemplate),
     materialIds: normalizeStringIds(value.materialIds, 100),
     recipientIds: normalizeStringIds(value.recipientIds, Infinity),
+    recipientMode: value.recipientMode === 'selected' ? 'selected' : 'all',
     status,
     publishedAt: normalizeIsoTimestamp(value.publishedAt),
     createdAt: normalizeIsoTimestamp(value.createdAt),
@@ -643,6 +644,12 @@ export const createLearningAssignment = (groupValue, payload = {}, options = {})
   const dueAt = rawDueAt ? normalizeIsoTimestamp(rawDueAt) : '';
   if (rawDueAt && !dueAt) fail('Некорректный срок задания', 'invalid_assignment_due_at');
   const now = getNowIso(options.now);
+  const activeIds = getActiveLearningGroupMembers(group).map((member) => member.studentId);
+  const selected = payload.recipientMode === 'selected' || (payload.recipientMode !== 'all' && Object.prototype.hasOwnProperty.call(payload, 'recipientIds'));
+  const recipientIds = selected ? normalizeStringIds(payload.recipientIds, Infinity) : activeIds;
+  if (selected && (!recipientIds.length || recipientIds.some(id => !activeIds.includes(id)))) {
+    fail('Выберите участников группы для домашнего задания', 'invalid_assignment_recipient', 400);
+  }
   return normalizeLearningAssignment({
     id,
     groupId: group.id,
@@ -653,7 +660,8 @@ export const createLearningAssignment = (groupValue, payload = {}, options = {})
     dueAt,
     homework: payload.homework || payload.homeworkTemplate,
     materialIds: payload.materialIds,
-    recipientIds: getActiveLearningGroupMembers(group).map((member) => member.studentId),
+    recipientIds,
+    recipientMode: selected ? 'selected' : 'all',
     status: payload.status === 'draft' ? 'draft' : 'assigned',
     publishedAt: payload.status === 'draft' ? '' : now,
     createdAt: now,
@@ -678,6 +686,9 @@ export const updateLearningAssignment = (assignmentValue, patch = {}, options = 
   if (Object.prototype.hasOwnProperty.call(patch, 'materialIds')) next.materialIds = normalizeStringIds(patch.materialIds, 100);
   if (Object.prototype.hasOwnProperty.call(patch, 'recipientIds')) {
     next.recipientIds = normalizeStringIds(patch.recipientIds, Infinity);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'recipientMode')) {
+    next.recipientMode = patch.recipientMode === 'selected' ? 'selected' : 'all';
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'homework') || Object.prototype.hasOwnProperty.call(patch, 'homeworkTemplate')) {
     next.homework = normalizeLearningHomeworkTemplate(patch.homework || patch.homeworkTemplate);

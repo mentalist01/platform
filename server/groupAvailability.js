@@ -20,7 +20,14 @@ export function availabilityConfig(value, now = Date.now()) {
   return { startDate, durationMinutes, startMinute, endMinute, days, weeks: 8, timezone: 'Europe/Moscow' };
 }
 const minuteOf = time => { const m = /^(\d{1,2}):(\d{2})$/.exec(time || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
+// A poll can remain open for several days. Past occurrences are not conflicts
+// with the future weekly plan; continue checking a full eight-week horizon.
+export function currentAvailabilityConfig(config, now = Date.now()) {
+  const today = moscowDay(now);
+  return { ...config, startDate: config.startDate < today ? addCalendarDays(today, 1) : config.startDate };
+}
 export function busySlots(config, entries, now = Date.now()) {
+  config = currentAvailabilityConfig(config, now);
   const busy = [];
   // Include the previous day, so a lesson crossing midnight blocks its tail.
   for (let offset = -1; offset < config.weeks * 7; offset++) {
@@ -42,7 +49,7 @@ export function busySlots(config, entries, now = Date.now()) {
       const date = addCalendarDays(config.startDate, offset);
       if (weekdayIndex(date) !== slot.day) continue;
       const start = Date.parse(`${date}T${slot.time}:00+03:00`); const end = start + config.durationMinutes * 60000;
-      if (start <= now || busy.some(b => start < b.end && end > b.start)) dates.push(date);
+      if (start > now && busy.some(b => start < b.end && end > b.start)) dates.push(date);
     }
     if (dates.length) blocked[slot.id] = dates;
   }
@@ -122,6 +129,7 @@ export function registerGroupAvailability(app, deps) {
         if (group.status === 'completed') fail('Группа завершена', 409);
       }
       let poll = store.get(group.id); const body = req.body || {};
+      if (poll?.status === 'open') poll.config = currentAvailabilityConfig(poll.config);
       if (action === 'open') {
         if ((poll?.id || '') !== (body.previousRoundId || '')) fail('Подбор уже изменился. Обновите страницу.', 409);
         const config = availabilityConfig(body);
@@ -169,7 +177,6 @@ export function registerGroupAvailability(app, deps) {
           group = access(req, true);
           const members = membersOf(group);
           if (!members.length || members.some(id => !['yes', 'maybe'].includes(proposal.votes[id]?.choice))) fail('Дождитесь согласия каждого участника группы', 409);
-          if (poll.config.startDate < moscowDay()) fail('Дата начала уже прошла. Откройте новый подбор с актуальной датой.', 409);
           const blocked = busySlots(poll.config, busy);
           if (proposal.slots.some(id => blocked[id])) fail('Время занято у преподавателя. Предложите другую пару занятий.', 409);
           poll.plan = { id: proposal.id, config: poll.config, slots: proposal.slots, approvedAt: Date.now() };

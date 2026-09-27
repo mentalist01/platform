@@ -192,6 +192,8 @@ const TeacherHomeworkComposer = ({
   studentId = '',
   studentLabel = '',
   targetType = 'student',
+  groupRecipients = [],
+  recipientsReadOnly = false,
   groupMaterials = [],
   onMaterialCreated,
   form,
@@ -1172,7 +1174,7 @@ const TeacherHomeworkComposer = ({
               {editing
                 ? 'Проверьте состав домашки и условия заданий перед сохранением.'
                 : (isGroupTarget
-                    ? 'Одно задание появится в обычной домашке каждого участника группы. Выполнение и проверка останутся индивидуальными.'
+                    ? 'Задание появится в обычной домашке выбранных учеников. Выполнение и проверка останутся индивидуальными.'
                     : 'Незаконченные задания уже перенесены. Просматривайте условия справа и оставляйте только нужные номера.')}
             </p>
             {!editing && restoredDraftLabel ? (
@@ -1207,6 +1209,22 @@ const TeacherHomeworkComposer = ({
             </button>
           </div>
         </header>
+        {isGroupTarget && <fieldset className="shrink-0 border-b border-slate-200 bg-[rgb(var(--surface))] px-5 py-3" disabled={composerBusy || recipientsReadOnly}>
+          <legend className="sr-only">Кому задать домашку</legend>
+          <div className="flex flex-wrap items-center gap-4 text-sm">
+            <strong>Кому задать</strong>
+            <label className="flex items-center gap-2"><input type="radio" name="learning-assignment-recipients" checked={form.recipientMode !== 'selected'} onChange={() => onChangeForm({ recipientMode: 'all' })} />Всей группе</label>
+            <label className="flex items-center gap-2"><input type="radio" name="learning-assignment-recipients" checked={form.recipientMode === 'selected'} onChange={() => onChangeForm({ recipientMode: 'selected' })} />Выбранным ученикам</label>
+          </div>
+          {form.recipientMode === 'selected' && <div className="mt-3 flex max-h-28 flex-wrap gap-2 overflow-y-auto" aria-label="Получатели домашнего задания">
+            {groupRecipients.filter(member => member.status === 'active' || form.recipientIds?.includes(member.studentId)).map(member => <label key={member.studentId} className="flex items-center gap-2 rounded-xl border border-violet-200 px-3 py-2 text-sm">
+              <input type="checkbox" checked={form.recipientIds?.includes(member.studentId) || false} onChange={event => onChangeForm({ recipientIds: event.target.checked
+                ? [...new Set([...(form.recipientIds || []), member.studentId])]
+                : (form.recipientIds || []).filter(id => id !== member.studentId) })} />
+              {member.name || 'Ученик'}
+            </label>)}
+          </div>}
+        </fieldset>}
 
         {!preparing && (
           <nav className="grid shrink-0 grid-cols-2 gap-1 border-b border-slate-200 bg-[rgb(var(--surface))] p-2 lg:hidden" aria-label="Раздел конструктора домашки">
@@ -1950,7 +1968,7 @@ const TeacherHomeworkComposer = ({
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
               {saving
                 ? 'Сохраняем…'
-                : (editing ? 'Сохранить изменения' : (isGroupTarget ? 'Назначить группе' : 'Задать домашку'))}
+                : (editing ? 'Сохранить изменения' : (isGroupTarget ? (form.recipientMode === 'selected' ? 'Назначить выбранным' : 'Назначить группе') : 'Задать домашку'))}
             </button>
           </div>
         </footer>

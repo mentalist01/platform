@@ -488,7 +488,7 @@ const getLearningGroupApiPath = (groupId = '', ...segments) => {
   return suffix ? `${LEARNING_GROUPS_API_BASE}/${suffix}` : LEARNING_GROUPS_API_BASE;
 };
 
-const requestLearningGroupJson = async (path, options = {}) => {
+export const requestLearningGroupJson = async (path, options = {}) => {
   const method = String(options?.method || 'GET').toUpperCase();
   const init = { method };
   if (Object.prototype.hasOwnProperty.call(options, 'body')) {
@@ -3078,4 +3078,3 @@ export const api = {
   },
   uploadFileMemorySnapshot,
 };
-

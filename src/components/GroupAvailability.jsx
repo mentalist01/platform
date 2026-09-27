@@ -158,7 +158,7 @@ export default function GroupAvailability({ groupId, userId, isTeacher, onApprov
                 const freeCount = daySlots.filter(slot => !blocked[slot.id]).length;
                 const visibleSlots = daySlots.filter(slot => showBusy || !blocked[slot.id] || pair.includes(slot.id) || (!manage && draft[slot.id]));
                 return <section key={i} className={`ga-day-options ${day === i ? 'ga-mobile-active' : ''}`} aria-label={AVAILABILITY_DAY_NAMES[i]}>
-                  <div className="ga-options-day"><strong>{AVAILABILITY_DAYS[i]}</strong><small>{freeCount ? `Доступно: ${freeCount}` : 'Нет свободного времени'}</small></div>
+                  <div className="ga-options-day"><strong>{AVAILABILITY_DAYS[i]}</strong><small>{freeCount ? `Доступно: ${freeCount}` : 'Нет постоянного окна'}</small></div>
                   <div className="ga-options-list">{visibleSlots.map(slot => {
                     const people = slotPeople(slot.id, members, poll.answers);
                     const can = people.filter(p => ['yes', 'maybe'].includes(p.choice)); const mine = draft[slot.id];
@@ -168,11 +168,11 @@ export default function GroupAvailability({ groupId, userId, isTeacher, onApprov
                       <strong className="ga-option-time">{slot.time}–{slot.end}</strong>
                       <span className="ga-option-status">{taken ? <><LockKeyhole size={11} /> Занято</> : (composing || manage) && pairSelected ? <><Check size={12} /> Выбрано</> : !manage && !composing && mine ? <>{mine === 'yes' ? <Check size={12} /> : <Heart size={12} />}{mine === 'yes' ? 'Удобно' : 'Могу'}</> : can.length ? <>{all ? <CheckCheck size={12} /> : <Users size={11} />}{all ? 'Могут все' : `Могут ${can.length}/${members.length}`}</> : 'Можно выбрать'}</span>
                     </button>;
-                  })}{!visibleSlots.length && <div className="ga-day-unavailable"><LockKeyhole size={17} /><span>Учитель занят</span></div>}</div>
+                  })}{!visibleSlots.length && <div className="ga-day-unavailable"><LockKeyhole size={17} /><span>Есть пересечения в ближайшие 8 недель</span></div>}</div>
                 </section>;
               })}
             </div>
-            <div className="ga-legend"><span><i className="ga-legend-common" /> Подходит всем</span><span>{showBusy ? 'Занятое время заштриховано' : 'Занятые варианты скрыты'}</span><span>Время московское · каждый вариант — {poll.config.durationMinutes} минут</span></div>
+            <div className="ga-legend"><span><i className="ga-legend-common" /> Подходит всем</span><span>{showBusy ? 'Занятое время заштриховано' : 'Занятые варианты скрыты'}</span><span>Москва · {poll.config.durationMinutes} минут · проверяем 8 недель с {dateLabel(poll.config.startDate)}. Нажмите занятый вариант, чтобы увидеть даты пересечений.</span></div>
           </div>
           <aside className="ga-sidebar"><div className="ga-side-card"><span className="ga-eyebrow">СОВПАДЕНИЯ ГРУППЫ</span><h3>Ближе к общему времени <Sparkles size={18} /></h3>{results.filter(s => s.yes + s.maybe > 0).slice(0, 4).map(s => <button className="ga-match" key={s.id} onClick={() => { setFocusSlot(s.id); setDay(s.day); }}><span><strong>{slotLabel(s.id, poll.config)}</strong><small>{s.yes + s.maybe === members.length ? 'Подходит всем!' : `Могут ${s.yes + s.maybe} из ${members.length}`}{s.pending ? ` · ждём ${s.pending}` : ''}</small></span><span className="ga-match-count">{s.yes + s.maybe}<small>/{members.length}</small></span></button>)}{!results.some(s => s.yes + s.maybe > 0) && <p>Здесь появятся лучшие варианты, когда ребята сохранят свой выбор.</p>}{members.some(m => !poll.answers[m.id]) && <p className="ga-waiting">Ждём: {members.filter(m => !poll.answers[m.id]).map(m => m.name).join(', ')}.</p>}{!composing && <button className="ga-soft" onClick={beginProposal} disabled={!canChoose || changed}><Plus size={16} /> Предложить два занятия</button>}</div>
             {selected && <div className="ga-side-card ga-detail"><span className="ga-eyebrow">КТО МОЖЕТ В ЭТО ВРЕМЯ</span><h3>{slotLabel(selected.id, poll.config)}</h3>{blocked[selected.id] ? <p>Учитель занят {blocked[selected.id].map(dateLabel).join(', ')}. Выберите другое время.</p> : slotPeople(selected.id, members, poll.answers).map((m, i) => <div className="ga-person" key={m.id}><Avatar member={m} index={i} /><span>{m.name}</span><small className={`ga-choice-${m.choice}`}>{labels[m.choice]}</small></div>)}</div>}

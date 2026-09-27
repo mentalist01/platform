@@ -1,4 +1,5 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
+import { LessonPaceResults } from './LessonPaceFeedback.jsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
@@ -817,6 +818,8 @@ const LearningGroupsSection = ({
       dayPlanManualLayout: null,
       issuedAt: assignment?.publishedAt || '',
       materialIds: uniqueStrings(assignment?.materialIds),
+      recipientMode: assignment?.recipientMode === 'selected' ? 'selected' : 'all',
+      recipientIds: uniqueStrings(assignment?.recipientIds),
     };
   }, [
     GOAL_TYPE_MOCK,
@@ -967,6 +970,12 @@ const LearningGroupsSection = ({
     }
     const homeWork = cleanString(assignmentComposerForm.homeWork);
     const materialIds = uniqueStrings(assignmentComposerForm.materialIds);
+    const recipientMode = assignmentComposerForm.recipientMode === 'selected' ? 'selected' : 'all';
+    const recipientIds = uniqueStrings(assignmentComposerForm.recipientIds);
+    if (recipientMode === 'selected' && !recipientIds.length) {
+      setAssignmentComposerError('Выберите хотя бы одного ученика.');
+      return;
+    }
     if (!homeWork && goals.length === 0 && materialIds.length === 0) {
       setAssignmentComposerError('Добавьте текст, задание, пробник или видео.');
       return;
@@ -979,6 +988,8 @@ const LearningGroupsSection = ({
       lessonId: getLessonId(matchingLesson) || cleanString(assignmentComposerEditing?.lessonId),
       status,
       materialIds,
+      recipientMode,
+      ...(recipientMode === 'selected' ? { recipientIds } : {}),
       homework: {
         homeWork,
         lessonLink: cleanString(assignmentComposerForm.lessonLink),
@@ -1012,7 +1023,8 @@ const LearningGroupsSection = ({
       } else {
         await api.createLearningGroupAssignment(selectedGroup.id, payload);
       }
-      setNotice(draft ? 'Черновик групповой домашки сохранён.' : 'Домашнее задание назначено всей группе.');
+      setNotice(draft ? 'Черновик домашки сохранён.' : recipientMode === 'all'
+        ? 'Домашнее задание назначено всей группе.' : `Домашнее задание назначено выбранным ученикам: ${recipientIds.length}.`);
       setAssignmentComposerOpen(false);
       setAssignmentComposerEditing(null);
       await loadGroupDetails(selectedGroup.id);
@@ -2095,6 +2107,7 @@ const LearningGroupsSection = ({
                                 )}
                               </div>
 
+                              {isTeacher && lesson.status === 'completed' && <LessonPaceResults groupId={selectedGroup.id} lessonId={lessonId} />}
                               {isTeacher && isEditing && (
                                 <form onSubmit={(event) => void handleSaveLesson(event, lesson)} className="mt-4 rounded-2xl border border-violet-100 bg-violet-50/60 p-4">
                                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[190px_130px_minmax(0,1fr)]">
@@ -2483,7 +2496,9 @@ const LearningGroupsSection = ({
                     )}
 
                     {materials.length === 0 ? (
-                      <EmptyState icon={BookOpen} title="Библиотека пока пуста" text="Добавьте видео один раз, затем прикрепляйте его к домашкам разных групп и учеников." />
+                      <EmptyState icon={BookOpen} title={isTeacher ? 'Библиотека пока пуста' : 'Материалы появятся здесь'} text={isTeacher
+                        ? 'Добавьте видео один раз, затем прикрепляйте его к домашкам разных групп и учеников.'
+                        : 'Когда преподаватель задаст вам видео в домашку, оно появится здесь и останется доступным после выполнения.'} />
                     ) : (
                       <div className="grid gap-3 xl:grid-cols-2">
                         {materials.map((material) => {
@@ -2881,6 +2896,8 @@ const LearningGroupsSection = ({
           studentId=""
           studentLabel={selectedGroup?.name || 'Мини-группа'}
           targetType="group"
+          groupRecipients={selectedGroup?.members || []}
+          recipientsReadOnly={selectedGroup?.status === LEARNING_GROUP_STATUS_COMPLETED}
           form={assignmentComposerForm}
           groupMaterials={materials}
           onMaterialCreated={(material) => setGroups((current) => current.map((group) => (

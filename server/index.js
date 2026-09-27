@@ -6,6 +6,7 @@ import { createRescheduleStore, registerLessonReschedules, overlayReschedules, m
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
+import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import { addRecorderMaterial } from './recorderMaterials.js';
@@ -21157,7 +21158,8 @@ const handleUploadRequest = (req, res) => {
   let learningMaterialGroup = null;
   if (learningMaterial) {
     learningMaterialGroup = getLearningGroupById(learningMaterial.groupId);
-    const accessError = learningMaterialGroup
+    const accessError = isStudentRole(req.auth) && studentAssignedLearningMaterial(req.auth.id, learningMaterial)
+      ? '' : learningMaterialGroup
       ? getLearningMaterialAccessError(req.auth, learningMaterialGroup, learningMaterial)
       : 'Материал не найден';
     if (accessError) {
@@ -23256,7 +23258,7 @@ const getLearningMaterialStorage = (material) => {
 const serializeLearningMaterialForAuth = (material, auth) => {
   const storage = getLearningMaterialStorage(material);
   const downloadUrl = storage.storageName
-    ? (material.scope === 'teacher' || !material.groupId
+    ? (isStudentRole(auth) || material.scope === 'teacher' || !material.groupId
         || (isTeacherRole(auth) && auth.id !== material.teacherId && material.sharedTeacherIds?.includes(auth.id))
         ? `/api/learning-materials/${encodeURIComponent(material.id)}/download`
         : `/api/learning-groups/${encodeURIComponent(material.groupId)}/materials/${encodeURIComponent(material.id)}/download`)
@@ -23589,6 +23591,7 @@ const synchronizeLearningGroupAssignmentRecipients = (group, options = {}) => {
     if (
       assignment.groupId !== groupId
       || assignment.deletedAt
+      || assignment.recipientMode === 'selected'
       || !['draft', 'assigned'].includes(assignment.status)
       || assignment.recipientIds.includes(addedStudentId)
     ) return assignment;
@@ -23824,8 +23827,12 @@ if (typeof learningGroupLifecycleSweepInterval.unref === 'function') {
 }
 
 const getLearningMaterialAccessError = (auth, group, material) => {
-  if (!material || material.deletedAt || material.groupId !== group?.id) return 'Материал не найден';
+  if (!canReuseLearningMaterialInGroup(material, group)) return 'Материал не найден';
   if (!canReadLearningGroup(auth, group)) return 'Недостаточно прав';
+  if (isStudentRole(auth)) {
+    if (studentAssignedLearningMaterial(auth.id, material, group)) return '';
+    if (material.groupId !== group.id || isHomeworkVideoMaterial(material)) return 'Недостаточно прав';
+  }
   if (isStudentRole(auth) && !canStudentReadLearningGroupRecord(
     group,
     auth.id,
@@ -23844,7 +23851,42 @@ const getLearningMaterialAccessError = (auth, group, material) => {
     : 'Недостаточно прав';
 };
 
+const isHomeworkVideoMaterial = material => material.kind === 'video'
+  || /^video\//i.test(material.mimeType || '')
+  || /(?:rutube\.ru|youtu\.be|youtube\.com|\.mp4(?:[?#]|$)|\.webm(?:[?#]|$))/i.test(material.url || '');
+
+// Homework history survives completion, so completed assignments keep the
+// material unlocked. Drafts and somebody else's personal work never do.
+const studentAssignedLearningMaterial = (studentId, material, group = null) => {
+  if (!material || material.deletedAt) return false;
+  const groups = group ? [group] : readLearningGroupsDb().filter(entry => !entry.deletedAt);
+  const assigned = readLearningAssignmentsDb().some(assignment => {
+    const ownerGroup = groups.find(entry => entry.id === assignment.groupId);
+    return ownerGroup && canReuseLearningMaterialInGroup(material, ownerGroup)
+      && !assignment.deletedAt && assignment.status !== 'draft'
+      && assignment.materialIds.includes(material.id)
+      && canStudentReadLearningGroupAssignment(ownerGroup, studentId, assignment);
+  });
+  if (assigned) return true;
+  const student = findStudentById(studentId);
+  if (!student || (group && student.teacherId !== group.teacherId)
+    || !canReuseLearningMaterialInGroup(material, { teacherId: student.teacherId })) return false;
+  return (readProgressDb()[studentId]?.homeworks || []).some(homework => (
+    !homework.deletedAt && !homework.learningAssignmentId && homework.source !== LEARNING_GROUP_HOMEWORK_SOURCE
+    && homework.status !== 'draft' && normalizeHomeworkMaterialIds(homework.materialIds).includes(material.id)
+  ));
+};
+
 const lessonRescheduleStore = createRescheduleStore(path.join(dataDir, 'lesson-reschedules.json'));
+registerLessonPace(app, {
+  store: createLessonPaceStore(path.join(dataDir, 'lesson-pace.json')),
+  lessons: () => { reconcileLearningGroupLifecycle(); return readLearningLessonSessionsDb(); },
+  groupById: getLearningGroupById,
+  canManage: canManageLearningGroup,
+  canRead: (auth, lesson, group) => Boolean(group && !group.deletedAt
+    && canStudentReadLearningGroupLesson(group, auth.id, lesson)),
+  studentName: id => findStudentById(id, { allowDeleted: true })?.name || 'Ученик',
+});
 const availabilityStore = createAvailabilityStore(path.join(dataDir, 'group-availability.json'));
 let lastAvailabilityMaterialized = 0;
 const materializeAvailabilitySchedules = (force = false) => {
@@ -24459,9 +24501,17 @@ app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearn
   }
   const assignment = getLearningAssignmentById(group.id, req.params.assignmentId);
   if (!assignment) failLearningRequest('Задание не найдено', 'assignment_not_found', 404);
+  const requestedRecipientMode = req.body?.recipientMode || (
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'recipientIds') ? 'selected' : assignment.recipientMode
+  );
   const assignmentPatch = {
     ...(req.body || {}),
-    ...(req.body?.status === 'assigned' && assignment.status === 'draft'
+    ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'recipientIds') && !req.body?.recipientMode
+      ? { recipientMode: 'selected' } : {}),
+    ...((req.body?.recipientMode === 'all' || (
+        req.body?.status === 'assigned' && assignment.status === 'draft'
+        && requestedRecipientMode !== 'selected'
+      ))
       ? {
           recipientIds: getActiveLearningGroupMembers(group).map((member) => member.studentId),
         }
@@ -24470,7 +24520,8 @@ app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearn
   if (Object.prototype.hasOwnProperty.call(assignmentPatch, 'recipientIds')) {
     const activeStudentIds = new Set(getActiveLearningGroupMembers(group).map((member) => member.studentId));
     const requestedIds = Array.isArray(assignmentPatch.recipientIds) ? assignmentPatch.recipientIds.map(String) : [];
-    if (requestedIds.some((studentId) => !activeStudentIds.has(studentId))) {
+    if ((assignmentPatch.recipientMode === 'selected' && !requestedIds.length)
+      || requestedIds.some((studentId) => !activeStudentIds.has(studentId) && !assignment.recipientIds.includes(studentId))) {
       failLearningRequest('Получатель не является участником группы', 'invalid_assignment_recipient', 400);
     }
   }
@@ -24589,7 +24640,7 @@ app.get('/api/learning-groups/:groupId/materials', handleLearningRoute((req, res
     failLearningRequest('Занятие не найдено', 'lesson_not_found', 404);
   }
   let materials = readLearningMaterialsDb().filter((material) => (
-    material.groupId === group.id
+    (material.groupId === group.id || (isStudentRole(req.auth) && studentAssignedLearningMaterial(req.auth.id, material, group)))
     && !material.deletedAt
     && (!requestedLessonId || material.lessonId === requestedLessonId)
   ));
@@ -24840,7 +24891,7 @@ app.get('/api/learning-materials', handleLearningRoute((req, res) => {
     .filter((material) => (
       (material.teacherId === teacherId || material.sharedTeacherIds?.includes(teacherId))
       && !material.deletedAt
-      && (!material.groupId || material.scope === 'teacher' || material.kind === 'video' || material.sharedTeacherIds?.includes(teacherId))
+      && (!material.groupId || material.scope === 'teacher' || isHomeworkVideoMaterial(material) || material.sharedTeacherIds?.includes(teacherId))
     ))
     .sort((left, right) => Date.parse(right.updatedAt || right.createdAt || 0) - Date.parse(left.updatedAt || left.createdAt || 0));
   return res.json({
@@ -24896,11 +24947,13 @@ app.delete('/api/learning-materials/:materialId', handleLearningRoute((req, res)
 }));
 
 app.get('/api/learning-materials/:materialId/download', handleLearningRoute((req, res) => {
-  if (!isStaffRole(req.auth)) return forbid(res);
+  if (!isStaffRole(req.auth) && !isStudentRole(req.auth)) return forbid(res);
   const teacherId = getLearningMaterialLibraryTeacherId(req);
   const material = readLearningMaterialsDb().find((entry) => (
     entry.id === req.params.materialId
-      && (entry.teacherId === teacherId || entry.sharedTeacherIds?.includes(teacherId))
+      && (isStudentRole(req.auth) ? (studentAssignedLearningMaterial(req.auth.id, entry)
+          || (entry.groupId && !getLearningMaterialAccessError(req.auth, getLearningGroupById(entry.groupId), entry)))
+        : (entry.teacherId === teacherId || entry.sharedTeacherIds?.includes(teacherId)))
       && !entry.deletedAt
   ));
   if (!material) failLearningRequest('Материал не найден', 'material_not_found', 404);
