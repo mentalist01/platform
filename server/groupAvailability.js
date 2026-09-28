@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { calendarMutationLocks } from './calendarMutations.js';
 import { availabilitySlots, addCalendarDays, moscowDay, weekdayIndex, AVAILABILITY_WEEKDAYS } from '../src/utils/groupAvailability.js';
 
@@ -36,6 +37,7 @@ export function busySlots(config, entries, now = Date.now()) {
       if (entry.cancelled || entry.isCancelled || ['cancelled', 'canceled'].includes(entry.status)
         || entry.excludedDates?.includes(date) || entry.cancelledDates?.includes(date)) continue;
       if (entry.date ? entry.date !== date : entry.weekdayKey !== AVAILABILITY_WEEKDAYS[day]) continue;
+      if (!isScheduleEntryInDateRange(entry, date)) continue;
       const minutes = minuteOf(entry.time);
       if (!Number.isFinite(minutes)) continue;
       const start = Date.parse(`${date}T00:00:00+03:00`) + minutes * 60000;

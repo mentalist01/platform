@@ -1,5 +1,7 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
-import { StudentLessonReschedule } from './LessonReschedule';
+const StudentLessonReschedule = React.lazy(() => import('./LessonReschedule').then(m => ({ default: m.StudentLessonReschedule })));
+import { isScheduleEntryInDateRange } from '../utils/scheduleDateRange';
+const StudentWeeklySchedule = React.lazy(() => import('./WeeklySchedule').then(m => ({ default: m.StudentWeeklySchedule })));
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, Users, Video, WifiOff, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -385,6 +387,7 @@ const buildCurrentWeekScheduleEntries = (entries = [], weekDays = []) => {
         if (!weekDay) return null;
         const excludedDates = Array.isArray(normalized.excludedDates) ? normalized.excludedDates : [];
         if (excludedDates.includes(weekDay.dateKey)) return null;
+        if (!isScheduleEntryInDateRange(normalized, weekDay.dateKey)) return null;
       }
       return {
         ...normalized,
@@ -766,6 +769,7 @@ const ScheduleSection = ({
   const [showHistory, setShowHistory] = useState(false);
   const [showLessonHistory, setShowLessonHistory] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [weeklyScheduleOpen, setWeeklyScheduleOpen] = useState(false);
   const [lessonHistory, setLessonHistory] = useState([]);
   const [lessonHistoryTotal, setLessonHistoryTotal] = useState(0);
   const [lessonReplayStorageTotalBytes, setLessonReplayStorageTotalBytes] = useState(0);
@@ -5383,6 +5387,7 @@ const ScheduleSection = ({
               </div>
             </div>
             <div className="student-today-schedule-card__actions flex flex-wrap items-center gap-2">
+              {role === 'student' && <button type="button" onClick={() => setWeeklyScheduleOpen(true)} className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700"><CalendarDays size={14}/>Выбрать время занятий</button>}
               {role === 'student' && <button type="button" onClick={() => setRescheduleOpen(true)} className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700"><CalendarDays size={14}/>Перенести занятие</button>}
               {role === 'teacher' && effectiveStudentId && (
                 <button
@@ -5435,7 +5440,8 @@ const ScheduleSection = ({
           </div>
 
           <div className="space-y-4">
-              {rescheduleOpen && <StudentLessonReschedule onClose={() => setRescheduleOpen(false)} />}
+              {rescheduleOpen && <React.Suspense fallback={<p role="status">Загружаем перенос…</p>}><StudentLessonReschedule onClose={() => setRescheduleOpen(false)} /></React.Suspense>}
+              {weeklyScheduleOpen && <React.Suspense fallback={<p role="status">Загружаем выбор времени…</p>}><StudentWeeklySchedule onClose={() => setWeeklyScheduleOpen(false)} /></React.Suspense>}
               {scheduleRequestNotice && (
                 <div className="schedule-shell__notice-success rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-700">
                   {scheduleRequestNotice}

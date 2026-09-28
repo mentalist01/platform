@@ -1,3 +1,4 @@
+import { isScheduleEntryInDateRange } from './scheduleDateRange.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LOOKAHEAD_WEEKS = 16;
 const MAX_TIME_ZONE_OFFSET_MINUTES = 14 * 60;
@@ -85,6 +86,7 @@ const parseEntryTime = (value) => {
 };
 
 const isEntryOnDay = (entry, date, dayKey, weekdayOrder = getWeekdayOrder(date)) => {
+  if (!isScheduleEntryInDateRange(entry, dayKey)) return false;
   const explicitDay = String(entry?.date || '').trim();
   if (explicitDay) return Boolean(parseDayKey(explicitDay)) && explicitDay === dayKey;
   const entryWeekdayOrder = resolveEntryWeekdayOrder(entry);

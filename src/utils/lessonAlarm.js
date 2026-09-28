@@ -1,4 +1,5 @@
 import { isTeacherCalendarLessonCancelled } from './teacherCalendarCancellation.js';
+import { isScheduleEntryInDateRange } from './scheduleDateRange.js';
 
 export const LESSON_ALARM_LEAD_MS = 5 * 60_000;
 export const LESSON_ALARM_PREFS_PREFIX = 'lesson-alarm-v2:';
@@ -20,6 +21,7 @@ export function buildLessonAlarms(entries = [], teacherId, marks = {}, now = Dat
       date.setHours(0, 0, 0, 0);
       date.setDate(date.getDate() + offset);
       const key = dayKey(date);
+      if (!isScheduleEntryInDateRange(entry, key)) continue;
       if (entry.date ? entry.date !== key : (date.getDay() || 7) !== order) continue;
       if ((entry.excludedDates || []).includes(key) || isTeacherCalendarLessonCancelled(teacherId, entry, key, marks)) continue;
       date.setHours(Number(match[1]), Number(match[2]), 0, 0);

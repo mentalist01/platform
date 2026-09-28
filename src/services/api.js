@@ -33,7 +33,7 @@ const appendAuthTokenToUrl = (value, authToken) => {
   }
 };
 
-const parseApiError = async (res) => {
+export const parseApiError = async (res) => {
   const contentType = res.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
     try {
@@ -66,7 +66,7 @@ const notifyHomeworkChestGranted = (payload) => {
   }));
 };
 
-const parseJsonResponse = async (res) => {
+export const parseJsonResponse = async (res) => {
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
     const text = await res.text();
@@ -169,7 +169,7 @@ const invalidateAuthSensitiveCaches = () => {
   invalidateStudentNextLessonCache();
 };
 
-const apiFetch = async (input, init = {}) => {
+export const apiFetch = async (input, init = {}) => {
   const method = String(init?.method || 'GET').toUpperCase();
   const requestInit = { ...init };
   const requestTimeoutMs = Number(requestInit.requestTimeoutMs);
@@ -2768,13 +2768,6 @@ export const api = {
     }
     const qs = search.toString();
     const res = await apiFetch(qs ? `/api/student-schedule-requests?${qs}` : '/api/student-schedule-requests');
-    if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
-  },
-  lessonReschedules: async (path = '', body) => {
-    const res = await apiFetch(`/api/lesson-reschedules${path}`, body === undefined ? {} : {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },

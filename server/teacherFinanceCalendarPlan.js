@@ -1,3 +1,4 @@
+import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { isCurrentStudent } from '../src/utils/studentStudyStatus.js';
 import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 
@@ -168,7 +169,7 @@ export const expandTeacherFinanceMonthOccurrences = ({
 
     for (let day = 1; day <= month.daysInMonth; day += 1) {
       const dayKey = buildDayKey(month.year, month.month, day);
-      if (dayKey < recurringStartDay || excludedDates.has(dayKey)) continue;
+      if (dayKey < recurringStartDay || excludedDates.has(dayKey) || !isScheduleEntryInDateRange(entry, dayKey)) continue;
       const date = new Date(Date.UTC(month.year, month.month - 1, day));
       const sundayBasedOrder = date.getUTCDay();
       const candidateWeekdayOrder = sundayBasedOrder === 0 ? 7 : sundayBasedOrder;
@@ -484,7 +485,7 @@ export const summarizeCurrentTeacherStudentsSchedule = ({
     }
 
     candidateDays.forEach(({ dayKey, weekdayOrder, weekdayKey }) => {
-      if (excludedDates.has(dayKey)) return;
+      if (excludedDates.has(dayKey) || !isScheduleEntryInDateRange(entry, dayKey)) return;
       const occurrenceKey = [studentId, dayKey, time, durationMinutes].join(':');
       if (seenOccurrenceKeys.has(occurrenceKey)) return;
       seenOccurrenceKeys.add(occurrenceKey);

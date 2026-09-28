@@ -1,3 +1,4 @@
+import { isScheduleEntryInDateRange } from '../utils/scheduleDateRange';
 import { isExplicitTrialLesson } from '../utils/calendarLessonType.js';
 import { LessonAlarmSettings } from './LessonAlarmControls';
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1969,7 +1970,7 @@ const TeacherCalendarSection = ({
       if (!Number.isFinite(dayIndex) || dayIndex < 0 || dayIndex > 6) return;
       if (!dateKey) {
         const recurringDayKey = toDayKey(weekDays[dayIndex]);
-        if (entry.excludedDates?.includes(recurringDayKey)) return;
+        if (entry.excludedDates?.includes(recurringDayKey) || !isScheduleEntryInDateRange(entry, recurringDayKey)) return;
       }
 
       const clampedStart = Math.max(dayStartMinutes, Math.min(dayEndMinutes - 15, startMinutesRaw));
@@ -3202,7 +3203,7 @@ const TeacherCalendarSection = ({
         && entryWeekday <= 7
         && entryWeekday === weekday;
       if (!isMatchingDate && !isRecurringMatch) return;
-      if (isRecurringMatch && entry.excludedDates?.includes(dateKey)) return;
+      if (isRecurringMatch && (entry.excludedDates?.includes(dateKey) || !isScheduleEntryInDateRange(entry, dateKey))) return;
       if (isTeacherCalendarLessonCancelled(teacherId, entry, dateKey, lessonPanelMarks)) return;
       blockedIntervals.push({
         start: entryTime,

@@ -1,3 +1,6 @@
+import { registerWeeklySchedules, applyWeeklySchedule, weeklyReservations } from './weeklySchedule.js';
+import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
+import { weeklyScheduleLabel } from '../src/utils/weeklySchedule.js';
 import { PYTHON_RUNNER_SCRIPT } from './pythonRunnerSource.js';
 import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
@@ -9280,6 +9283,7 @@ const buildStudentScheduleEntry = (payload = {}, options = {}) => {
   return {
     entry: {
       id: existing?.id || crypto.randomUUID(),
+      ...(existing?.source === 'weekly-request' ? { source: existing.source, weeklyRequestId: existing.weeklyRequestId, repeatFrom: existing.repeatFrom, repeatUntil: existing.repeatUntil } : {}),
       date: rawDate || null,
       day: weekdayMeta.label,
       weekdayKey: weekdayMeta.key,
@@ -16443,7 +16447,7 @@ const getStudentScheduleOccurrenceDays = (entry, nowInfo) => {
   const excludedDates = new Set(normalizeScheduleExcludedDates(entry?.excludedDates));
   const pushDay = (result, dayKey) => {
     const normalizedDayKey = normalizeDayKey(dayKey);
-    if (!normalizedDayKey || excludedDates.has(normalizedDayKey)) return;
+    if (!normalizedDayKey || excludedDates.has(normalizedDayKey) || !isScheduleEntryInDateRange(entry, normalizedDayKey)) return;
     const dayNumber = dayKeyToNumber(normalizedDayKey);
     if (!Number.isFinite(dayNumber)) return;
     if (Number.isFinite(nowInfo?.trackingStartNumber) && dayNumber < nowInfo.trackingStartNumber) return;
@@ -16791,7 +16795,7 @@ const getPaymentScheduleEntries = async (teacherId, options = {}) => {
 const doesTeacherCalendarEntryOccurOnDay = (entry, dayKey) => {
   const normalizedDayKey = normalizeDayKey(dayKey);
   const time = normalizeScheduleTime(entry?.time);
-  if (!normalizedDayKey || !time) return false;
+  if (!normalizedDayKey || !time || !isScheduleEntryInDateRange(entry, normalizedDayKey)) return false;
   if (normalizeScheduleExcludedDates(entry?.excludedDates).includes(normalizedDayKey)) return false;
   const explicitDate = normalizeDayKey(entry?.date);
   if (explicitDate) return explicitDate === normalizedDayKey;
@@ -23878,6 +23882,7 @@ const studentAssignedLearningMaterial = (studentId, material, group = null) => {
   ));
 };
 
+const weeklyScheduleStore = createRescheduleStore(path.join(dataDir, 'weekly-schedules.json'));
 const lessonRescheduleStore = createRescheduleStore(path.join(dataDir, 'lesson-reschedules.json'));
 registerLessonPace(app, {
   store: createLessonPaceStore(path.join(dataDir, 'lesson-pace.json')),
@@ -23915,15 +23920,13 @@ const availabilityCalendarEntries = (teacherId, onlyGenerated = false) => {
       startAt: lesson.startAt, replayKey: buildLearningGroupLessonReplayKey(lesson.id) };
   });
 };
-registerLessonReschedules(app, {
-  store: lessonRescheduleStore, getStudent: findStudentById,
-  getEntries: async (teacherId, force) => {
+const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '') => {
     materializeAvailabilitySchedules();
-    let google = await fetchTeacherGoogleCalendarEntries(teacherId, { force, throwOnError: true });
+    let google = await fetchTeacherGoogleCalendarEntries(teacherId, { force, throwOnError: true, ...(throughDay ? { throughMonth: throughDay.slice(0,7) } : {}) });
     const connection = getTeacherCalendarGoogleConnection(teacherId);
     if (connection.encryptedTokens && connection.calendarId) {
       const events = await listGoogleCalendarLessonEvents({accessToken:await getTeacherGoogleCalendarAccessToken(teacherId),calendarId:connection.calendarId,
-        timeMin:new Date(Date.now()-86400000).toISOString(),timeMax:new Date(Date.now()+98*86400000).toISOString()});
+        timeMin:new Date(Date.now()-86400000).toISOString(),timeMax:throughDay ? `${throughDay}T23:59:59+03:00` : new Date(Date.now()+98*86400000).toISOString()});
       const uids = new Set(events.map(e=>e.iCalUID).filter(Boolean));
       const students = readStudentsDb().filter(s=>s.teacherId===teacherId && isCurrentStudent(s));
       const groups = readLearningGroupsDb().filter(g=>g.teacherId===teacherId);
@@ -23943,9 +23946,30 @@ registerLessonReschedules(app, {
       google = [...google.filter(e=>!uids.has(e.externalEventId)),...live];
     }
     const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacherId]);
-    return [...getTeacherScheduleEntries(teacherId), ...google, ...availabilityCalendarEntries(teacherId)]
+    return [...getTeacherScheduleEntries(teacherId), ...google, ...availabilityCalendarEntries(teacherId), ...weeklyReservations(weeklyScheduleStore, teacherId),
+      ...lessonRescheduleStore.all().filter(r => r.teacherId === teacherId && r.status === 'applying').map(r => ({ ...r.target, rescheduleRequestId: r.id }))]
       .map(e => annotateTeacherCalendarCancellation(teacherId, e, marks));
+};
+registerWeeklySchedules(app, {
+  store: weeklyScheduleStore, getStudent: findStudentById,
+  getSchedule: id => getStudentData(id).schedule || [], getEntries: getFreshLessonCalendarEntries,
+  applyLocal: row => {
+    const data = getStudentData(row.studentId);
+    const schedule = applyWeeklySchedule(data.schedule || [], row);
+    setStudentScheduleWithHomeworkSync(row.studentId, data, schedule);
   },
+  notify: (row, action) => {
+    notifyScheduleSyncUpdate({ scope: 'weekly-schedule', action, teacherId: row.teacherId, studentId: row.studentId, entryId: row.id });
+    const target = action === 'created' ? `teacher:${row.teacherId}` : `student:${row.studentId}`;
+    sendPushNotificationToUserKey(target, {
+      title: action === 'created' ? 'Выбор постоянного расписания' : action === 'approved' ? 'Расписание подтверждено' : 'Ответ на запрос расписания',
+      body: `${row.studentName}: ${weeklyScheduleLabel(row)}`, icon: '/favicon.ico', tag: `weekly-schedule-${row.id}`,
+      data: { url: '/?view=notifications', type: 'weekly-schedule' },
+    }, { logTarget: target }).catch(error => console.warn('[weekly-schedule] push failed:', error.message));
+  },
+});
+registerLessonReschedules(app, {
+  store: lessonRescheduleStore, getStudent: findStudentById, getEntries: getFreshLessonCalendarEntries,
   googleMove: async (row, { recoverOnly = false } = {}) => {
     let accessToken;
     const connection = getTeacherCalendarGoogleConnection(row.teacherId);
@@ -24019,7 +24043,7 @@ registerGroupAvailability(app, {
     const google = await fetchTeacherGoogleCalendarEntries(group.teacherId, { throughMonth: endMonth, throwOnError: true, force });
     const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[group.teacherId]);
     const reserving = lessonRescheduleStore.all().filter(r => r.teacherId === group.teacherId && r.status === 'applying').map(r => ({...r.target}));
-    return [...getTeacherScheduleEntries(group.teacherId), ...google, ...availabilityCalendarEntries(group.teacherId), ...reserving]
+    return [...getTeacherScheduleEntries(group.teacherId), ...google, ...availabilityCalendarEntries(group.teacherId), ...reserving, ...weeklyReservations(weeklyScheduleStore, group.teacherId)]
       .filter(entry => !(entry.source === 'availability-plan' && entry.groupId === group.id
         && entry.status === 'scheduled' && entry.date >= config.startDate))
       .map(entry => annotateTeacherCalendarCancellation(group.teacherId, entry, marks));

@@ -1,3 +1,4 @@
+import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
 
@@ -244,7 +245,7 @@ export const expandLessonScheduleOccurrences = ({
     for (let dayNumber = fromNumber; dayNumber <= cappedToNumber; dayNumber += 1) {
       const dayKey = numberToDayKey(dayNumber);
       if (explicitDayKey ? dayKey !== explicitDayKey : getWeekdayOrder(dayKey) !== weekdayOrder) continue;
-      if (excludedDates.has(dayKey)) continue;
+      if (excludedDates.has(dayKey) || !isScheduleEntryInDateRange(entry, dayKey)) continue;
       const key = buildLessonTopicOccurrenceKey({
         studentId: normalizedStudentId,
         dayKey,

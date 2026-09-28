@@ -1,3 +1,4 @@
+import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import {
   buildLessonTopicOccurrenceKey,
   normalizeLessonDayKey,
@@ -373,7 +374,7 @@ export const buildStudentLessonHistory = ({
     for (let dayNumber = fromNumber; dayNumber <= toNumber; dayNumber += 1) {
       const dayKey = numberToDayKey(dayNumber);
       if (explicitDayKey ? dayKey !== explicitDayKey : getWeekdayOrder(dayKey) !== weekdayOrder) continue;
-      if (excludedDates.has(dayKey)) continue;
+      if (excludedDates.has(dayKey) || !isScheduleEntryInDateRange(entry, dayKey)) continue;
       mergeOccurrence(occurrenceMap, {
         studentId: normalizedStudentId,
         dayKey,

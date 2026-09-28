@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { withTeacherCalendarLock } from './calendarMutations.js';
 import { addCalendarDays, moscowDay, weekdayIndex, AVAILABILITY_WEEKDAYS, clockTime } from '../src/utils/groupAvailability.js';
 import { rescheduleWeek, lessonStart, lessonEnd } from '../src/utils/lessonReschedule.js';
@@ -34,6 +35,7 @@ export function expandRescheduleOccurrences(entries, from, days = 7) {
     for (const e of entries) {
       if (e.cancelled || e.isCancelled || ['cancelled', 'canceled'].includes(e.status) || e.excludedDates?.includes(date) || e.cancelledDates?.includes(date)) continue;
       if (e.date ? e.date !== date : e.weekdayKey !== AVAILABILITY_WEEKDAYS[weekdayIndex(date)]) continue;
+      if (!isScheduleEntryInDateRange(e, date)) continue;
       if (!isTime(e.time)) continue;
       result.push({ ...e, date, durationMinutes: Math.max(15, Number(e.durationMinutes) || 60) });
     }
@@ -93,6 +95,7 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
   };
   const checkFree = (entries, source, target, teacherId, requestId, retry = false) => {
     const occupied = expandRescheduleOccurrences(entries, target.date, 1)
+      .filter(e => e.rescheduleRequestId !== requestId || !requestId)
       .filter(e => !(e.studentId === source.studentId && !isGroup(e) && ((e.date === source.date && e.time === source.time)
         || (retry && source.externalEventId && e.externalEventId === source.externalEventId && e.date === target.date && e.time === target.time))));
     if (occupied.some(e => overlaps(e, target)) || reservations(teacherId).some(r => r.id !== requestId && overlaps(r.target, target))) fail('Это время уже занято. Выберите другой вариант.', 409);
