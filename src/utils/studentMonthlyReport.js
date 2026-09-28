@@ -386,6 +386,7 @@ const formatMockDelta = (value) => {
 
 const buildParentMockJourneyText = ({ studentName, grammar, mocks, pickPhrase }) => {
   const scoreLabel = formatMockScore(mocks.latestScore);
+  const mockDate = mocks.latestDate ? ` от ${mocks.latestDate}` : '';
   const startLabel = formatMockScore(mocks.firstScore);
   const previousMonthLabel = formatMockScore(mocks.previousMonthScore);
   const startDeltaLabel = formatMockDelta(mocks.deltaFromStart);
@@ -393,16 +394,16 @@ const buildParentMockJourneyText = ({ studentName, grammar, mocks, pickPhrase })
   const hasStartComparison = mocks.historyCount > 1 && mocks.deltaFromStart != null;
   const hasMonthComparison = mocks.previousMonthScore != null && mocks.deltaFromPreviousMonth != null;
   const currentSummary = mocks.count > 1
-    ? `${studentName} ${grammar.wrote} ${mocks.count} ${pluralize(mocks.count, 'пробник', 'пробника', 'пробников')} за месяц. Последний результат - ${scoreLabel}, лучший - ${formatMockScore(mocks.bestScore)}.`
-    : `${studentName} ${grammar.wrote} пробник на ${scoreLabel}.`;
+    ? `${studentName} ${grammar.wrote} ${mocks.count} ${pluralize(mocks.count, 'пробник', 'пробника', 'пробников')} за месяц. Последний результат${mockDate} - ${scoreLabel}, лучший - ${formatMockScore(mocks.bestScore)}.`
+    : `${studentName} ${grammar.wrote} пробник${mockDate} на ${scoreLabel}.`;
 
   if (!hasStartComparison && !hasMonthComparison) {
     return pickPhrase([
-      `В этом месяце ${studentName} ${grammar.wrote} первый пробник и ${grammar.scored} ${scoreLabel}. Это наша отправная точка, дальше будем отслеживать прогресс.`,
-      `${studentName} ${grammar.wrote} первый пробник на ${scoreLabel}. Теперь у нас есть начальный результат, от которого будем двигаться дальше.`,
-      `Первый пробник ${studentName} - ${scoreLabel}. Это стартовый результат, дальше будем смотреть на динамику.`,
-      `Получили первый результат пробника - ${scoreLabel}. Зафиксировали точку старта и теперь сможем видеть рост по месяцам.`,
-      `${studentName} ${grammar.wrote} первый пробник на ${scoreLabel}. От этого результата будем считать дальнейший прогресс.`,
+      `В этом месяце ${studentName} ${grammar.wrote} первый пробник${mockDate} и ${grammar.scored} ${scoreLabel}. Это наша отправная точка, дальше будем отслеживать прогресс.`,
+      `${studentName} ${grammar.wrote} первый пробник${mockDate} на ${scoreLabel}. Теперь у нас есть начальный результат, от которого будем двигаться дальше.`,
+      `Первый пробник ${studentName}${mockDate} - ${scoreLabel}. Это стартовый результат, дальше будем смотреть на динамику.`,
+      `Получили первый результат пробника${mockDate} - ${scoreLabel}. Зафиксировали точку старта и теперь сможем видеть рост по месяцам.`,
+      `${studentName} ${grammar.wrote} первый пробник${mockDate} на ${scoreLabel}. От этого результата будем считать дальнейший прогресс.`,
     ], 3);
   }
 
@@ -448,6 +449,7 @@ const buildParentMockJourneyText = ({ studentName, grammar, mocks, pickPhrase })
 
 const buildStudentMockJourneyText = ({ mocks, pickPhrase }) => {
   const scoreLabel = formatMockScore(mocks.latestScore);
+  const mockDate = mocks.latestDate ? ` от ${mocks.latestDate}` : '';
   const startLabel = formatMockScore(mocks.firstScore);
   const previousMonthLabel = formatMockScore(mocks.previousMonthScore);
   const startDeltaLabel = formatMockDelta(mocks.deltaFromStart);
@@ -455,8 +457,8 @@ const buildStudentMockJourneyText = ({ mocks, pickPhrase }) => {
   const hasStartComparison = mocks.historyCount > 1 && mocks.deltaFromStart != null;
   const hasMonthComparison = mocks.previousMonthScore != null && mocks.deltaFromPreviousMonth != null;
   const currentSummary = mocks.count > 1
-    ? `В этом месяце у тебя было ${mocks.count} ${pluralize(mocks.count, 'пробник', 'пробника', 'пробников')}. Последний результат - ${scoreLabel}, лучший - ${formatMockScore(mocks.bestScore)}.`
-    : `Твой результат пробника - ${scoreLabel}.`;
+    ? `В этом месяце у тебя было ${mocks.count} ${pluralize(mocks.count, 'пробник', 'пробника', 'пробников')}. Последний результат${mockDate} - ${scoreLabel}, лучший - ${formatMockScore(mocks.bestScore)}.`
+    : `Твой результат пробника${mockDate} - ${scoreLabel}.`;
 
   if (!hasStartComparison && !hasMonthComparison) {
     return pickPhrase([
@@ -656,6 +658,7 @@ export const buildStudentMonthlyReport = ({
       count: mocksInMonth.length,
       historyCount: allMocks.length,
       latestScore: latestMock ? latestMock.reportScore : null,
+      latestDate: latestMock ? formatReportDate(latestMock.reportTimestamp) : '',
       bestScore: mockScores.length > 0 ? Math.max(...mockScores) : null,
       averageScore: mockScores.length > 0
         ? Math.round(mockScores.reduce((sum, score) => sum + score, 0) / mockScores.length)

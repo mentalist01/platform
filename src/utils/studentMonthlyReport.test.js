@@ -44,7 +44,7 @@ test('monthly report combines lessons, homework deadlines and mock progress', ()
   assert.equal(report.metrics.mocks.deltaFromStart, 16);
   assert.equal(report.metrics.mocks.deltaFromPreviousMonth, 16);
   assert.match(report.text, /70%/);
-  assert.match(report.text, /пробник на 43 балла/);
+  assert.match(report.text, /пробник от 10 сентября на 43 балла/);
   assert.match(report.text, /16 баллов/);
   assert.doesNotMatch(report.text, /Python|Сентябрьский пробник|Ещё в работе|2 ч 30 мин|просроч|в срок|[—–]/u);
 });
@@ -268,4 +268,50 @@ test('mock journey wording changes while preserving all comparison facts', () =>
     assert.match(report.parentText, /50 баллов|10 баллов/u);
     assert.match(report.parentText, /15 баллов|45 баллов/u);
   });
+});
+
+
+test('every first-mock wording includes the actual date in words for both audiences', () => {
+  // UTC is still August; report dates follow Moscow time, like the lesson calendar.
+  for (let variant = 0; variant < 30; variant++) {
+    const report = buildStudentMonthlyReport({
+      student: { id: 'dated-first', name: 'Александр' }, month: '2026-09',
+      nowMs: Date.parse('2026-09-28T12:00:00+03:00') + variant,
+      mockEntries: [{ id: 'first', score: 48, dateMs: Date.parse('2026-08-31T21:30:00Z') }],
+    });
+    assert.equal(report.metrics.mocks.latestDate, '1 сентября');
+    for (const text of [report.parentText, report.studentText]) {
+      assert.match(text, /пробник[^\n]*от 1 сентября[^\n]*48 баллов/u);
+      assert.doesNotMatch(text, /01\.09|31 августа/u);
+    }
+  }
+});
+
+test('reports date the latest mock, including repeated attempts and previous-month comparisons', () => {
+  for (let variant = 0; variant < 30; variant++) {
+    for (const repeated of [false, true]) {
+      const report = buildStudentMonthlyReport({
+        student: { id: 'dated-progress', name: 'Анна' }, month: '2026-09',
+        nowMs: Date.parse('2026-09-28T12:00:00+03:00') + variant,
+        mockEntries: [
+          { id: 'first', score: 20, date: '2026-08-01T12:00:00+03:00' },
+          ...(repeated ? [{ id: 'earlier', score: 60, date: '2026-09-01T12:00:00+03:00' }] : []),
+          { id: 'latest', score: 48, date: '2026-09-18T12:00:00+03:00' },
+        ],
+      });
+      assert.equal(report.metrics.mocks.latestDate, '18 сентября');
+      for (const text of [report.parentText, report.studentText]) {
+        assert.match(text, /от 18 сентября[^\n]*48 баллов/u);
+        assert.doesNotMatch(text, /18\.09/u);
+      }
+    }
+  }
+});
+
+test('reports without a mock do not invent an exam date', () => {
+  const report = buildStudentMonthlyReport({student: {id: 'no-mock', name: 'Иван'}, month: '2026-09',
+    nowMs: Date.parse('2026-09-28T12:00:00+03:00'), mockEntries: []});
+  assert.equal(report.metrics.mocks.latestDate, '');
+  assert.match(report.parentText, /Пробника в этом месяце пока не было/u);
+  assert.doesNotMatch(report.parentText + report.studentText, /пробника? от \d/u);
 });

@@ -344,15 +344,21 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
     const previouslyFocused = document.activeElement;
     document.body.style.overflow = 'hidden';
     closeButtonRef.current?.focus({ preventScroll: true });
+    // Parent polling may replace onClose; only opening/closing the modal should move focus.
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus({ preventScroll: true });
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') onClose?.();
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus({ preventScroll: true });
-    };
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
   const handleCopy = async () => {
