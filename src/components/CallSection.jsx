@@ -4103,7 +4103,7 @@ const CallSection = ({
     }
   }, [isGroupLesson, onChannelMove, onChannelPresence, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
-  const stopCall = useCallback(() => {
+  const stopCall = useCallback(({ endRecording = false } = {}) => {
     callAttemptRef.current += 1;
     clearCallResume();
     callJoinedRef.current = false;
@@ -4120,7 +4120,7 @@ const CallSection = ({
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN && activeRoomRef.current) {
       try {
-        ws.send(JSON.stringify({ type: 'leave', roomId: activeRoomRef.current }));
+        ws.send(JSON.stringify({ type: 'leave', roomId: activeRoomRef.current, endRecording }));
       } catch {}
     }
     if (ws) {
@@ -6648,7 +6648,7 @@ const CallSection = ({
                 <div className="call-controls-group call-controls-group--danger">
                   <button
                     type="button"
-                    onClick={stopCall}
+                    onClick={() => stopCall({ endRecording: true })}
                     disabled={!canStop}
                     className={`${compactControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
                     aria-label="Завершить звонок"

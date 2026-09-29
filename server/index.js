@@ -42239,7 +42239,17 @@ const handleRtcMessage = (client, rawData, isBinary) => {
   }
 
   if (type === 'leave') {
+    // Use the authenticated socket's actual room, not a client-supplied target.
+    const departingRoom = parseRtcRoomId(client.roomId);
     leaveRtcRoom(client);
+    if (payload?.endRecording === true && departingRoom?.targetType === 'student') {
+      const remaining = rtcRooms.get(departingRoom.roomId);
+      const teacherStillPresent = Array.from(remaining?.values() || []).some(peer =>
+        peer.auth?.role === 'teacher' && peer.auth.id === departingRoom.teacherId);
+      if (!remaining?.size || (client.auth.role === 'teacher' && !teacherStillPresent)) {
+        desktopRecordings.stopPlatformCall(departingRoom.teacherId, departingRoom.studentId);
+      }
+    }
     sendRtcPayload(client.ws, { type: 'left' });
     return;
   }

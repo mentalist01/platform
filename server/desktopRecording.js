@@ -52,15 +52,24 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     })),
     jobs: jobs(teacherId).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 12).map(publicJob),
   });
-  const stop = (occurrenceKey) => {
+  const stop = (occurrenceKey, reason = 'lesson-ended') => {
     for (const job of Object.values(db.jobs)) {
       if (job.occurrence.key !== occurrenceKey || job.desired === 'stop') continue;
-      job.desired = 'stop'; job.stoppedAt = now(); job.updatedAt = now(); save();
+      job.desired = 'stop'; job.stopReason = reason; job.stoppedAt = now(); job.updatedAt = now(); save();
     }
   };
   const share = createRecordingShareRelay({ now, allowed: (teacherId, id) => enabled(teacherId) && db.jobs[id]?.teacherId === teacherId && db.jobs[id]?.desired === 'record' && db.jobs[id]?.cutoffAt > now() });
   return {
     enabled, settings, stop, share,
+    stopPlatformCall(teacherId, studentId) {
+      // An explicit hangup must not wait for the reconnect grace. Scope it to
+      // this individual platform call, never a group or Telemost recording.
+      for (const job of jobs(teacherId)) {
+        if (job.audioMode === 'platform' && !job.occurrence.lessonId && job.occurrence.studentId === studentId) {
+          stop(job.occurrence.key, 'explicit-hangup');
+        }
+      }
+    },
     requestStop(occurrenceKey) {
       for (const job of Object.values(db.jobs)) {
         if (job.occurrence.key !== occurrenceKey || job.desired !== 'record') continue;
@@ -164,7 +173,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
         if (job.desired !== 'record') continue;
         if (isActive?.(job)) { job.lastActiveAt = now(); job.stopRequestedAt = 0; }
         else if ((job.stopRequestedAt && now() - job.stopRequestedAt >= RECORDING_RECONNECT_GRACE_MS)
-          || (isActive && now() - (job.lastActiveAt || job.startedAt) >= RECORDING_RECONNECT_GRACE_MS)) stop(job.occurrence.key);
+          || (isActive && now() - (job.lastActiveAt || job.startedAt) >= RECORDING_RECONNECT_GRACE_MS)) stop(job.occurrence.key, 'reconnect-timeout');
       }
       save();
       return { currentLesson: publicJob(jobs(device.teacherId).filter((job) => job.cutoffAt > now() && isActive?.(job)).at(-1)), enabled: enabled(device.teacherId), serverNow: now(), jobs: jobs(device.teacherId).filter((job) => job.status !== 'ready').map(publicJob) };

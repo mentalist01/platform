@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
+import WebSocket from 'ws';
 
 test('real platform routes isolate devices and expose one group recording to its participants', { timeout: 60000 }, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-platform-integration-'));
@@ -139,4 +140,40 @@ test('real platform routes isolate devices and expose one group recording to its
   await request('/learning-groups/g1/members/late', { method: 'DELETE' });
   assert.equal((await request('/lesson-history?studentId=late', { actor: 'late' })).items.length, 0, 'Cached shared archives must be revoked after leaving');
   await request(mediaRoute, { actor: 'late', status: 403 });
+  // Real RTC leave messages distinguish a button press from a refresh/outage.
+  const sockets = [];
+  t.after(() => sockets.forEach(ws => ws.terminate()));
+  const connectRtc = async actor => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/rtc?_auth=fixture-${actor}`);
+    sockets.push(ws); await once(ws, 'open'); return ws;
+  };
+  const sendRtc = (ws, payload, expected) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { ws.off('message', listener); reject(Error(`Missing RTC ${expected}`)); }, 4000);
+    const listener = raw => { const result = JSON.parse(String(raw)); if (result.type === expected || result.type === 'error') {
+      clearTimeout(timer); ws.off('message', listener); result.type === 'error' ? reject(Error(result.error)) : resolve(result);
+    } };
+    ws.on('message', listener); ws.send(JSON.stringify(payload));
+  });
+  const roomId = 'rtc:t1:s1';
+  const teacherRtc = await connectRtc('t1'), pupilRtc = await connectRtc('s1'), outsiderRtc = await connectRtc('t2');
+  await sendRtc(teacherRtc, {type:'join',roomId}, 'joined');
+  await sendRtc(pupilRtc, {type:'join',roomId}, 'joined');
+  const individual = await request('/desktop-recording/start', {body:{studentId:'s1'}});
+  await request(`/desktop-recorder/jobs/${individual.id}`, {token,body:{status:'recording'}});
+  const desired = async () => (await request('/desktop-recorder/poll', {token,body:{ready:true}})).jobs.find(j => j.id === individual.id).desired;
+  await sendRtc(outsiderRtc, {type:'leave',roomId,endRecording:true}, 'left');
+  assert.equal(await desired(), 'record', 'Forged room IDs cannot end another teacher recording');
+  await sendRtc(teacherRtc, {type:'leave',roomId}, 'left');
+  assert.equal(await desired(), 'record', 'Navigation retains reconnect grace');
+  await sendRtc(teacherRtc, {type:'join',roomId}, 'joined');
+  await sendRtc(pupilRtc, {type:'leave',roomId,endRecording:true}, 'left');
+  assert.equal(await desired(), 'record', 'Teacher can finish explaining after pupil leaves');
+  const teacherOtherTab = await connectRtc('t1');
+  await sendRtc(teacherOtherTab, {type:'join',roomId}, 'joined');
+  await sendRtc(teacherRtc, {type:'leave',roomId,endRecording:true}, 'left');
+  assert.equal(await desired(), 'record', 'Another teacher tab is still in the call');
+  await sendRtc(teacherOtherTab, {type:'leave',roomId,endRecording:true}, 'left');
+  assert.equal(await desired(), 'stop', 'Intentional final teacher hangup stops immediately');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(data,'desktop-recordings.json'))).jobs[individual.id].stopReason,'explicit-hangup');
+
 });

@@ -181,3 +181,21 @@ test('recovered full file replaces the short replay without changing the origina
   assert.match(f.store.replay('lesson').video.url, /Recovered/);
   assert.equal(f.store.settings('teacher').jobs.find(j => j.id === old.id).video.url, video);
 });
+
+
+test('explicit platform hangup stops only the matching individual recording immediately', t => {
+  const f = fixture(t); const { device } = f.connect('teacher'); f.connect('other');
+  const job = f.store.start('teacher', { key: 'individual', studentId: 'pupil' }, 'Lesson', f.now() + 3600000, { audioMode: 'platform' });
+  f.store.stopPlatformCall('other', 'pupil'); f.store.stopPlatformCall('teacher', 'another');
+  assert.equal(f.store.poll(device, true, undefined, () => true).jobs[0].desired, 'record');
+  f.store.stopPlatformCall('teacher', 'pupil');
+  assert.equal(f.store.poll(device, true, undefined, () => true).jobs[0].desired, 'stop');
+  assert.equal(JSON.parse(fs.readFileSync(f.file)).jobs[job.id].stopReason, 'explicit-hangup');
+  const telemost = f.store.start('teacher', { key: 'telemost', studentId: 'pupil' }, 'External', f.now() + 3600000, { audioMode: 'telemost' });
+  f.store.stopPlatformCall('teacher', 'pupil');
+  assert.equal(f.store.settings('teacher').jobs.find(j => j.id === telemost.id).desired, 'record');
+  f.store.stop('telemost');
+  const group = f.store.start('teacher', { key: 'group', studentId: 'pupil', lessonId: 'g' }, 'Group', f.now() + 3600000, { audioMode: 'platform' });
+  f.store.stopPlatformCall('teacher', 'pupil');
+  assert.equal(f.store.settings('teacher').jobs.find(j => j.id === group.id).desired, 'record');
+});
