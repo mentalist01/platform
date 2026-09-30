@@ -1,3 +1,4 @@
+import { calculateLessonPrice } from '../src/utils/lessonPricing.js';
 import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { isCurrentStudent } from '../src/utils/studentStudyStatus.js';
 import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
@@ -206,12 +207,9 @@ const normalizePrice = (value) => {
 const getOccurrencePrice = (occurrence, student) => {
   if (hasOwn(occurrence, 'lessonPrice')) return normalizePrice(occurrence.lessonPrice);
   if (hasOwn(occurrence?.entry, 'lessonPrice')) return normalizePrice(occurrence.entry.lessonPrice);
-  if (hasOwn(student?.record, 'lessonPrice')) {
-    const recordPrice = normalizePrice(student.record.lessonPrice);
-    if (recordPrice > 0) return recordPrice;
-  }
-  if (hasOwn(student, 'lessonPrice')) return normalizePrice(student.lessonPrice);
-  return normalizePrice(student?.profile?.lessonPrice);
+  const rate = { ...student?.profile, ...student?.record };
+  if (hasOwn(student, 'lessonPrice')) rate.lessonPrice = student.lessonPrice;
+  return calculateLessonPrice(rate, occurrence?.durationMinutes ?? occurrence?.entry?.durationMinutes);
 };
 
 const normalizeOccurrence = (occurrence) => {

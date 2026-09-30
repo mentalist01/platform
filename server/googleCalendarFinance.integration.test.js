@@ -346,6 +346,28 @@ test('finance loads Google Calendar through the end of a selected distant month'
     assert.equal(allocations[0].status, 'credit');
     assert.equal(allocations[0].sourceEntryId, legacyEntry.id);
     assert.equal(allocations[0].amount, 2000);
+    const setRate = async (pricingMode, lessonPrice) => {
+      const response = await fetch(`${baseUrl}/api/teacher-finance/students/${studentId}`, {
+        method: 'PATCH', headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: selectedMonth, pricingMode, lessonPrice }),
+      });
+      await assertStatus(response, 200);
+      return response.json();
+    };
+    const durationFinance = await setRate('per90Minutes', 4500);
+    assert.equal(durationFinance.calendarPlan.total.revenue, 3000, 'Google 60-minute event at 4500 per 90 minutes');
+    const payFarLesson = async (paid) => {
+      const response = await fetch(`${baseUrl}/api/teacher-lesson-payment`, {
+        method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paid, occurrence: { externalEventId: 'far-finance@example.test', studentId, dayKey: selectedMonthLastDay, time: '20:00' } }),
+      });
+      await assertStatus(response, 200);
+      return response.json();
+    };
+    assert.equal((await payFarLesson(true)).amount, 3000);
+    const afterRateChange = await setRate('perHour', 2000);
+    assert.equal(afterRateChange.calendarPlan.actual.revenue, 3000, 'Google prepayment survives rate change');
+    assert.equal((await payFarLesson(false)).amount, 3000);
   } finally {
     await stopServer(child);
     await stopHttpServer(calendarServer);

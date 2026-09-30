@@ -678,22 +678,7 @@ const markLessonPanelMarksMigrated = (teacherId) => {
   } catch {}
 };
 
-const buildTeacherFinanceLessonPayload = (record = {}, profile = {}, overrides = {}) => ({
-  month: overrides.month,
-  pricingMode: String(record.pricingMode || profile.pricingMode || 'perLesson') === 'monthly' ? 'monthly' : 'perLesson',
-  lessonPrice: normalizeFinanceAmount(record.lessonPrice ?? profile.lessonPrice),
-  monthlyRate: normalizeFinanceAmount(record.monthlyRate ?? profile.monthlyRate),
-  plannedLessons: normalizeFinanceAmount(record.plannedLessons ?? profile.plannedLessons),
-  completedLessons: normalizeFinanceAmount(overrides.completedLessons ?? record.completedLessons),
-  cancelledLessons: normalizeFinanceAmount(record.cancelledLessons),
-  paidAmount: normalizeFinanceAmount(overrides.paidAmount ?? record.paidAmount),
-  extraCharge: normalizeFinanceAmount(record.extraCharge),
-  discount: normalizeFinanceAmount(record.discount),
-  expenses: normalizeFinanceAmount(record.expenses),
-  commissionAmount: normalizeFinanceAmount(record.commissionAmount ?? profile.commissionAmount),
-  paymentDay: record.paymentDay ?? profile.paymentDay ?? null,
-  note: typeof record.note === 'string' ? record.note : '',
-});
+const buildTeacherFinanceLessonPayload = (_record, _profile, overrides = {}) => ({ ...overrides });
 
 const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -2692,38 +2677,31 @@ const TeacherCalendarSection = ({
         return;
       }
       const month = getFinanceMonthFromDayKey(eventDetailsDayKey);
+      if (normalizedAction === 'paid') {
+        const { setLessonPayment } = await import('../services/lessonPayments.js');
+        const result = await setLessonPayment(teacherId, {
+          ...eventDetailsLessonInfo.event,
+          dayKey: eventDetailsDayKey,
+          studentId: eventDetailsStudentId,
+          time: eventDetailsLessonInfo.event.time || formatMinutesAsTime(eventDetailsLessonInfo.event.startMinutes),
+        }, !undo);
+        const nextMarks = normalizeLessonPanelMarks(result.marks);
+        setLessonPanelMarks(nextMarks);
+        writeLessonPanelMarks(teacherId, nextMarks);
+        setLessonPanelSuccess(`${undo ? 'Оплата вычтена' : 'Оплата добавлена'}: ${result.amount.toLocaleString('ru-RU')} ₽.`);
+        return;
+      }
       const snapshot = await api.getTeacherFinance(month, teacherId);
       const financeStudent = (Array.isArray(snapshot?.students) ? snapshot.students : [])
         .find((student) => String(student?.id || '').trim() === eventDetailsStudentId);
       const record = financeStudent?.record || {};
       const profile = financeStudent?.profile || {};
       const currentCompleted = normalizeFinanceAmount(record.completedLessons);
-      const currentPaid = normalizeFinanceAmount(record.paidAmount);
-      const lessonPrice = normalizeFinanceAmount(record.lessonPrice ?? profile.lessonPrice);
-      const overrides = { month };
-
-      if (normalizedAction === 'completed') {
-        overrides.completedLessons = undo
-          ? Math.max(0, currentCompleted - 1)
-          : currentCompleted + 1;
-      } else if (normalizedAction === 'paid') {
-        if (lessonPrice <= 0) {
-          if (undo) {
-            await removeLessonPanelMark(markKey);
-          } else {
-            await saveLessonPanelMark(markKey);
-          }
-          setLessonPanelSuccess(undo
-            ? 'Отметка оплаты отменена.'
-            : 'Оплата отмечена в календаре. Стоимость урока в финансах не указана, сумму не добавлял.');
-          return;
-        }
-        overrides.paidAmount = undo
-          ? Math.max(0, currentPaid - lessonPrice)
-          : currentPaid + lessonPrice;
-      } else {
-        return;
-      }
+      if (normalizedAction !== 'completed') return;
+      const overrides = {
+        month,
+        completedLessons: undo ? Math.max(0, currentCompleted - 1) : currentCompleted + 1,
+      };
 
       await api.updateTeacherFinanceStudent(
         eventDetailsStudentId,
@@ -2735,9 +2713,7 @@ const TeacherCalendarSection = ({
       } else {
         await saveLessonPanelMark(markKey);
       }
-      setLessonPanelSuccess(normalizedAction === 'completed'
-        ? (undo ? 'Отметка проведения отменена.' : 'Проведение отмечено.')
-        : (undo ? `Оплата вычтена: ${lessonPrice.toLocaleString('ru-RU')} ₽.` : `Оплата добавлена: ${lessonPrice.toLocaleString('ru-RU')} ₽.`));
+      setLessonPanelSuccess(undo ? 'Отметка проведения отменена.' : 'Проведение отмечено.');
     } catch (err) {
       setLessonPanelError(err?.message || 'Не удалось обновить финансы.');
     } finally {

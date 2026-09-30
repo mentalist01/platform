@@ -66,6 +66,7 @@ const sumMoney = (values) => roundToTwoDecimals(
 );
 
 export const calculateTeacherStudentProfitability = ({
+  pricingMode = 'perLesson',
   commissionAmount = 0,
   lessonPrice = 0,
   completedOccurrences = [],
@@ -92,7 +93,7 @@ export const calculateTeacherStudentProfitability = ({
     allocatedReceivedRevenue,
     calendarReceivedRevenue
   );
-  const inferredPaidLessonCount = normalizedLessonPrice > 0
+  const inferredPaidLessonCount = pricingMode === 'perLesson' && normalizedLessonPrice > 0
     ? Math.floor((receivedRevenue + 0.001) / normalizedLessonPrice)
     : 0;
   const paidLessonCount = Math.max(
@@ -126,7 +127,7 @@ export const calculateTeacherStudentProfitability = ({
     remainingToPayback,
     paybackPercent,
     isPaidBack: normalizedCommission > 0 && paybackRevenue >= normalizedCommission,
-    lessonsRemaining: normalizedCommission > 0 && normalizedLessonPrice > 0
+    lessonsRemaining: pricingMode === 'perLesson' && normalizedCommission > 0 && normalizedLessonPrice > 0
       ? Math.ceil(remainingToPayback / normalizedLessonPrice)
       : null,
   };

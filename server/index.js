@@ -1,3 +1,4 @@
+import { calculateLessonPrice, isDurationPricing, lessonRateAt, normalizePricingHistory, recordPricingChange, matchLessonPaymentTotal } from '../src/utils/lessonPricing.js';
 import { registerWeeklySchedules, applyWeeklySchedule, weeklyReservations } from './weeklySchedule.js';
 import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { weeklyScheduleLabel } from '../src/utils/weeklySchedule.js';
@@ -3448,7 +3449,7 @@ const writePaymentSenderLinksDb = (data) => {
   writeJsonFileAtomic(paymentSenderLinksFile, normalizePaymentSenderLinksDb(data));
 };
 
-const TEACHER_FINANCE_PRICING_MODES = new Set(['perLesson', 'monthly']);
+const TEACHER_FINANCE_PRICING_MODES = new Set(['perLesson', 'perHour', 'per90Minutes', 'monthly']);
 const TEACHER_FINANCE_HISTORY_LIMIT = 12;
 const TEACHER_FINANCE_PROFILE_NOTE_MAX_LENGTH = 400;
 const TEACHER_FINANCE_STUDENT_NOTE_MAX_LENGTH = 1200;
@@ -3754,6 +3755,7 @@ const normalizeTeacherFinanceProfile = (value) => {
   return {
     pricingMode: normalizeTeacherFinancePricingMode(source.pricingMode, fallback.pricingMode),
     lessonPrice: roundTeacherFinanceNumber(source.lessonPrice),
+    pricingHistory: normalizePricingHistory(source.pricingHistory),
     commissionAmount: roundTeacherFinanceNumber(source.commissionAmount),
     monthlyRate: roundTeacherFinanceNumber(source.monthlyRate),
     plannedLessons: roundTeacherFinanceNumber(source.plannedLessons),
@@ -4030,7 +4032,7 @@ const getTeacherFinanceStudentAvailableCredit = (teacherEntry, studentId) => (
   )
 );
 
-const calculateTeacherFinanceStudentMetrics = (record) => {
+const calculateTeacherFinanceStudentMetrics = (record, calendarAmounts = null) => {
   const pricingMode = normalizeTeacherFinancePricingMode(record?.pricingMode);
   const lessonPrice = roundTeacherFinanceNumber(record?.lessonPrice);
   const monthlyRate = roundTeacherFinanceNumber(record?.monthlyRate);
@@ -4043,10 +4045,10 @@ const calculateTeacherFinanceStudentMetrics = (record) => {
   const expenses = roundTeacherFinanceNumber(record?.expenses);
   const plannedRevenue = pricingMode === 'monthly'
     ? monthlyRate
-    : roundTeacherFinanceNumber(lessonPrice * plannedLessons);
+    : roundTeacherFinanceNumber(calendarAmounts?.plannedRevenue ?? lessonPrice * plannedLessons);
   const accruedRevenue = pricingMode === 'monthly'
     ? monthlyRate
-    : roundTeacherFinanceNumber(lessonPrice * completedLessons);
+    : roundTeacherFinanceNumber(calendarAmounts?.accruedRevenue ?? lessonPrice * completedLessons);
   const netAccrued = roundTeacherFinanceNumber(accruedRevenue + extraCharge - discount - expenses, { allowNegative: true });
   const outstanding = roundTeacherFinanceNumber(netAccrued - paidAmount, { allowNegative: true });
   const completionRate = plannedLessons > 0
@@ -4078,7 +4080,7 @@ const calculateTeacherFinanceStudentMetrics = (record) => {
   };
 };
 
-const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, teacherStudents = []) => {
+const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, teacherStudents = [], calendarAmounts = {}) => {
   const normalizedMonthKey = normalizeTeacherFinanceMonthKey(monthKey) || getCurrentTeacherFinanceMonthKey();
   const currentEntry = normalizeTeacherFinanceTeacherEntry(teacherEntry);
   const monthData = currentEntry.months[normalizedMonthKey] || {
@@ -4117,7 +4119,7 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
     const student = studentsById.get(studentId) || null;
     const profile = normalizeTeacherFinanceProfile(currentEntry.studentProfiles[studentId]);
     const record = normalizeTeacherFinanceStudentRecord(monthData.students[studentId], profile);
-    const metrics = calculateTeacherFinanceStudentMetrics(record);
+    const metrics = calculateTeacherFinanceStudentMetrics(record, calendarAmounts[studentId]);
     const availableCredit = availableCreditByStudentId.get(studentId) || 0;
     const fullName = typeof student?.name === 'string' && student.name.trim()
       ? student.name.trim()
@@ -16562,6 +16564,7 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
     if (key && !googleEntryByMatchKey.has(key)) googleEntryByMatchKey.set(key, entry);
   });
 
+  const financeEntry = getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherId);
   const overdueByKey = new Map();
   const annotateEntry = (entry, options = {}) => {
     const statesByDate = {};
@@ -16586,6 +16589,11 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
         nowInfo,
       });
       if (!paymentState) return;
+      paymentState.amount = paymentState.trial || paymentState.cancelled ? 0
+        : getLessonPriceForPaymentOccurrence(financeEntry, studentId, {
+          ...sourceEntry, dayKey: occurrence.dayKey,
+          paidAt: paymentState.paid ? teacherMarks[paymentState.paidMarkKey] : '',
+        }).lessonPrice;
       statesByDate[occurrence.dayKey] = paymentState;
       if (
         paymentState.overdue
@@ -16953,8 +16961,21 @@ const getTeacherFinanceStudentRecordForMonth = (teacherEntry, studentId, month) 
 };
 
 const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence) => {
-  const month = normalizeTeacherFinanceMonthKey(String(occurrence?.dayKey || '').slice(0, 7));
+  const event = occurrence?.event || occurrence?.entry || occurrence;
+  const dayKey = occurrence?.dayKey || occurrence?.date || event?.date || '';
+  const time = occurrence?.time || event?.time || '00:00';
+  const durationMinutes = normalizeScheduleDurationMinutes(occurrence?.durationMinutes ?? event?.durationMinutes);
+  const month = normalizeTeacherFinanceMonthKey(String(dayKey).slice(0, 7));
   if (!month) return { month: '', lessonPrice: 0 };
+  const allocated = Object.values(teacherEntry?.paymentAllocations || {}).find((allocation) => (
+    allocation.studentId === studentId && allocation.status === 'allocated'
+    && allocation.currentDayKey === dayKey && allocation.currentTime === time
+    && allocation.currentDurationMinutes === durationMinutes
+    && (allocation.currentGroupId || '') === (occurrence?.groupId || event?.groupId || '')
+  ));
+  if (allocated) return { month, lessonPrice: allocated.amount };
+  const ledger = teacherEntry?.lessonLedger?.[[studentId, dayKey, time, durationMinutes].join(':')];
+  if (!occurrence?.groupId && !event?.groupId && ledger?.lessonPrice > 0) return { month, lessonPrice: ledger.lessonPrice };
   const groupId = String(occurrence?.groupId || '').trim();
   if (groupId) {
     const group = getLearningGroupById(groupId);
@@ -16970,7 +16991,14 @@ const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence)
     }
   }
   const { profile, record } = getTeacherFinanceStudentRecordForMonth(teacherEntry, studentId, month);
-  const lessonPrice = roundTeacherFinanceNumber(record.lessonPrice || profile.lessonPrice);
+  const utcWall = Date.parse(`${dayKey}T${time}:00Z`);
+  const startsAt = Number.isFinite(utcWall)
+    ? new Date(utcWall - getCalendarOffsetMinutesAt(utcWall) * 60_000).toISOString() : '';
+  const rate = lessonRateAt(profile, record, {
+    dayKey, startsAt, paidAt: occurrence?.paidAt,
+    hasMonthlyRate: Object.hasOwn(teacherEntry?.months?.[month]?.students?.[studentId] || {}, 'lessonPrice'),
+  });
+  const lessonPrice = calculateLessonPrice(rate, durationMinutes);
   return { month, lessonPrice };
 };
 
@@ -17123,6 +17151,7 @@ const buildTeacherFinanceProfitability = async (
         sourceEntryId,
         sourceSignature,
         groupId: String(entry?.groupId || '').trim(),
+        paidAt: paymentState.paid ? teacherMarks[paymentState.paidMarkKey] : '',
         trial: false,
         paid: false,
       };
@@ -17161,7 +17190,7 @@ const buildTeacherFinanceProfitability = async (
       time: occurrence.time,
       durationMinutes: occurrence.durationMinutes,
       lessonPrice,
-      paid: Boolean(existing?.paid || occurrence.paid),
+      paid: Boolean(occurrence.paid),
       sourceEntryId: existing?.sourceEntryId || occurrence.sourceEntryId,
       sourceSignature: existing?.sourceSignature || occurrence.sourceSignature,
       recordedAt: existing?.recordedAt || recordedAt,
@@ -17214,7 +17243,7 @@ const buildTeacherFinanceProfitability = async (
     const { lessonPrice } = getLessonPriceForPaymentOccurrence(
       currentEntry,
       studentId,
-      occurrence
+      { ...occurrence, paidAt: paymentState.paid ? teacherMarks[paymentState.paidMarkKey] : '' }
     );
     const existing = calendarOccurrencesByKey.get(occurrence.occurrenceKey);
     if (existing) {
@@ -17310,6 +17339,19 @@ const buildTeacherFinanceProfitability = async (
     });
   });
   const monthlyPlanOccurrences = Array.from(monthlyPlanOccurrencesByKey.values());
+  const calendarAmountsByStudent = {};
+  students.forEach((student) => {
+    const profile = currentEntry.studentProfiles[student.id];
+    if (isDurationPricing(profile?.pricingMode) || profile?.pricingHistory?.some((change) => (
+      isDurationPricing(change.before.pricingMode) || isDurationPricing(change.after.pricingMode)
+    ))) calendarAmountsByStudent[student.id] = { plannedRevenue: 0, accruedRevenue: 0 };
+  });
+  monthlyPlanOccurrences.forEach((occurrence) => {
+    const amounts = calendarAmountsByStudent[occurrence.studentId];
+    if (!amounts || occurrence.trial || !occurrence.dayKey.startsWith(`${calendarPlanMonth}-`)) return;
+    amounts.plannedRevenue += occurrence.lessonPrice;
+    if (occurrence.finished) amounts.accruedRevenue += occurrence.lessonPrice;
+  });
   const calendarPlan = {
     ...summarizeTeacherFinanceCalendarPlan({
       monthKey: calendarPlanMonth,
@@ -17359,6 +17401,7 @@ const buildTeacherFinanceProfitability = async (
     const profitability = calculateTeacherStudentProfitability({
       commissionAmount: profile.commissionAmount,
       lessonPrice: currentLessonPrice,
+      pricingMode: profile.pricingMode,
       completedOccurrences: studentOccurrences,
       monthlyPaidAmounts: Object.values(currentEntry.months || {}).map((monthData) => (
         normalizeTeacherFinanceStudentRecord(
@@ -17381,6 +17424,7 @@ const buildTeacherFinanceProfitability = async (
   });
   return {
     profitabilityByStudent,
+    calendarAmountsByStudent,
     incomeByMonth,
     calendarPlan,
     lessonLedger: nextLedger,
@@ -17395,7 +17439,7 @@ const buildTeacherFinanceResponseWithProfitability = async (teacherId, monthKey)
   } catch (error) {
     console.warn('[payment-credit] finance reconciliation failed:', error?.message || error);
   }
-  const response = buildTeacherFinanceResponse(teacherId, monthKey);
+  let response = buildTeacherFinanceResponse(teacherId, monthKey);
   const teacherStudents = readStudentsDb().filter(
     (student) => normalizeTeacherId(student?.teacherId) === normalizeTeacherId(teacherId)
   );
@@ -17407,6 +17451,10 @@ const buildTeacherFinanceResponseWithProfitability = async (teacherId, monthKey)
     teacherStudents,
     monthKey
   );
+  response = {
+    ...response,
+    ...buildTeacherFinanceMonthSnapshot(teacherId, monthKey, teacherEntry, teacherStudents, profitabilityResult.calendarAmountsByStudent),
+  };
   if (
     Object.keys(profitabilityResult.ledgerUpdates || {}).length > 0
     || (profitabilityResult.ledgerDeletes || []).length > 0
@@ -17463,35 +17511,17 @@ const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, par
   if (lessonPrice <= 0) {
     return { status: 'pending', reason: 'У ученика не указана стоимость урока в финансах.' };
   }
-  const rawLessonCount = parsed.amount / lessonPrice;
-  const lessonCount = Math.round(rawLessonCount);
-  if (!Number.isInteger(lessonCount) || lessonCount < 1 || Math.abs(parsed.amount - (lessonPrice * lessonCount)) > 0.01) {
-    return {
-      status: 'pending',
-      reason: `Сумма ${parsed.amount} ₽ не совпала со стоимостью урока ${lessonPrice} ₽ или ее кратным числом.`,
-    };
-  }
-  if (lessonCount > PAYMENT_AUTO_APPLY_MAX_LESSONS) {
-    return {
-      status: 'pending',
-      reason: `Сумма похожа на оплату за ${lessonCount} урок(а). Автоматически отмечаю до ${PAYMENT_AUTO_APPLY_MAX_LESSONS}, нужна ручная проверка.`,
-    };
-  }
-  const selectedOccurrences = occurrences.slice(0, lessonCount);
-  if (selectedOccurrences.length < lessonCount) {
-    return { status: 'pending', reason: 'Не хватает неоплаченных уроков для этой суммы.' };
-  }
-  const priceMismatch = selectedOccurrences.some((occurrence) => {
-    const { lessonPrice: occurrencePrice } = getLessonPriceForPaymentOccurrence(teacherEntry, studentId, occurrence);
-    return Math.abs(roundTeacherFinanceNumber(occurrencePrice) - lessonPrice) > 0.01;
-  });
-  if (priceMismatch) {
-    return { status: 'pending', reason: 'У выбранных уроков разная стоимость, нужна ручная проверка.' };
+  const selectedOccurrences = matchLessonPaymentTotal(parsed.amount, occurrences,
+    (occurrence) => getLessonPriceForPaymentOccurrence(teacherEntry, studentId, occurrence).lessonPrice,
+    PAYMENT_AUTO_APPLY_MAX_LESSONS);
+  if (!selectedOccurrences.length) {
+    return { status: 'pending', reason: 'Сумма не совпала с полной стоимостью ближайших неоплаченных занятий. Нужна ручная проверка.' };
   }
 
   const nowIso = new Date().toISOString();
   const paymentMarkValue = normalizeTeacherCalendarMarkValue(parsed.receivedAt || nowIso);
   selectedOccurrences.forEach((occurrence) => {
+    const { lessonPrice } = getLessonPriceForPaymentOccurrence(teacherEntry, studentId, occurrence);
     const month = normalizeTeacherFinanceMonthKey(String(occurrence.dayKey || '').slice(0, 7));
     if (!month) return;
     const { profile, monthData, record } = getTeacherFinanceStudentRecordForMonth(teacherEntry, studentId, month);
@@ -17548,7 +17578,7 @@ const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, par
 
   return {
     status: 'applied',
-    reason: `Оплата применена: ${selectedOccurrences.length} урок(а), ${lessonPrice * selectedOccurrences.length} ₽.`,
+    reason: `Оплата применена: ${selectedOccurrences.length} урок(а), ${parsed.amount} ₽.`,
     teacherId,
     studentId,
     studentName: String(student?.nickname || student?.name || 'Ученик').trim(),
@@ -35479,7 +35509,9 @@ const getParentLessonPayment = (student, occurrence, financeContext) => {
     status: trial ? 'trial' : (paid ? 'paid' : 'unpaid'),
     paid,
     trial,
-    amount: roundTeacherFinanceNumber(ledgerEntry?.lessonPrice),
+    amount: trial ? 0 : getLessonPriceForPaymentOccurrence(financeContext?.teacherEntry, studentId, {
+      ...occurrence, paidAt: paid ? financeContext?.teacherMarks?.[paidMarkKey] : '',
+    }).lessonPrice,
   };
 };
 
@@ -35560,7 +35592,7 @@ const isReliableParentHomeworkEntry = (entry) => {
   return Boolean(dateParts?.dayKey && dateParts.dayKey >= PARENT_HOMEWORK_RELIABLE_SINCE_DAY_KEY);
 };
 
-const buildParentFinanceSummary = (student) => {
+const buildParentFinanceSummary = async (student) => {
   const month = getCurrentTeacherFinanceMonthKey();
   const financeContext = getParentFinanceContext(student);
   const { profile, record } = getTeacherFinanceStudentRecordForMonth(
@@ -35568,7 +35600,12 @@ const buildParentFinanceSummary = (student) => {
     student.id,
     month
   );
-  const metrics = calculateTeacherFinanceStudentMetrics(record);
+  let calendarAmounts = null;
+  if (isDurationPricing(profile.pricingMode) || profile.pricingHistory.length) {
+    const result = await buildTeacherFinanceProfitability(student.teacherId, financeContext.teacherEntry, [student], month);
+    calendarAmounts = result.calendarAmountsByStudent[student.id];
+  }
+  const metrics = calculateTeacherFinanceStudentMetrics(record, calendarAmounts);
   return {
     month,
     pricingMode: record.pricingMode,
@@ -35644,7 +35681,7 @@ app.get('/api/parent/overview', async (req, res) => {
         },
         entries: reliableParentHomeworkEntries.map(compactParentHomeworkEntry),
       },
-      finance: buildParentFinanceSummary(student),
+      finance: await buildParentFinanceSummary(student),
     });
   } catch (error) {
     console.error('[parent] failed to build overview:', error);
@@ -36723,7 +36760,7 @@ const makeTeacherFinancePaymentAllocation = ({
   const { lessonPrice } = getLessonPriceForPaymentOccurrence(
     teacherEntry,
     normalizedStudentId,
-    occurrence
+    { ...occurrence, paidAt: markValue }
   );
   const amount = roundTeacherFinanceNumber(lessonPrice);
   if (amount <= 0) return null;
@@ -37448,6 +37485,77 @@ app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
   }
 });
 
+app.post('/api/teacher-lesson-payment', async (req, res) => {
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const teacher = ensureTeacherAccess(req, res, isTeacherRole(req.auth) ? req.auth.id : req.body?.teacherId);
+  if (!teacher) return;
+  const payload = req.body?.occurrence || {};
+  const paid = req.body?.paid;
+  const dayKey = normalizeDayKey(payload.dayKey || payload.date);
+  if (typeof paid !== 'boolean' || !dayKey) return res.status(400).json({ error: 'Укажите занятие и состояние оплаты' });
+  const student = ensureStudentAccess(req, res, payload.studentId, { allowDeleted: true });
+  if (!student) return;
+  if (normalizeTeacherId(student.teacherId) !== teacher.id) return forbid(res);
+  try {
+    const entries = await getPaymentScheduleEntries(teacher.id, {
+      includeDeletedStudents: true, googleCalendarThroughMonth: dayKey.slice(0, 7),
+    });
+    const source = findTeacherCalendarCancellationSource(entries, payload);
+    if (!source || source.groupId || String(source.studentId) !== student.id) {
+      return res.status(404).json({ error: 'Индивидуальное занятие не найдено' });
+    }
+    const occurrence = { ...source, studentId: student.id, dayKey, date: dayKey };
+    const marksDb = readTeacherCalendarMarksDb();
+    const marks = normalizeTeacherCalendarMarks(marksDb[teacher.id]);
+    if (paid && (isTeacherCalendarLessonCancelled(teacher.id, occurrence, dayKey, marks)
+      || isExplicitTrialLesson(occurrence)
+      || marks[buildTeacherCalendarPaymentMarkKey(teacher.id, occurrence, dayKey, 'trial')])) {
+      return res.status(409).json({ error: 'Нельзя начислить оплату за отменённое или пробное занятие' });
+    }
+    // Read both files after the calendar await. All arithmetic and writes below
+    // are synchronous; repeated requests cannot add/subtract the payment twice.
+    const financeDb = readTeacherFinanceDb();
+    const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, teacher.id);
+    const markKey = buildTeacherCalendarPaymentMarkKey(teacher.id, occurrence, dayKey, 'paid');
+    const wasPaid = Boolean(marks[markKey]);
+    const nowIso = new Date().toISOString();
+    let allocation = getPaymentAllocationByMarkKey(teacherEntry, markKey, student.id);
+    const existingAmount = allocation?.status === 'allocated' && allocation.currentMarkKey === markKey
+      ? allocation.amount : null;
+    const amount = existingAmount ?? getLessonPriceForPaymentOccurrence(teacherEntry, student.id, {
+      ...occurrence, paidAt: wasPaid ? marks[markKey] : '',
+    }).lessonPrice;
+    if (paid && amount <= 0) return res.status(409).json({ error: 'Сначала укажите стоимость занятия у ученика' });
+    if (wasPaid !== paid) {
+      updateTeacherFinanceStudentPaidAmount(teacherEntry, student.id, dayKey.slice(0, 7), paid ? amount : -amount, nowIso);
+      if (paid) {
+        marks[markKey] = nowIso;
+        allocation = makeTeacherFinancePaymentAllocation({
+          teacherEntry, studentId: student.id, markKey, markValue: nowIso, occurrence, nowIso,
+        });
+        if (allocation) teacherEntry.paymentAllocations[markKey] = allocation;
+      } else {
+        delete marks[markKey];
+        if (allocation && allocation.currentMarkKey === markKey) {
+          allocation.status = 'refunded';
+          allocation.updatedAt = nowIso;
+        }
+      }
+      const ledgerKey = [student.id, dayKey, occurrence.time, normalizeScheduleDurationMinutes(occurrence.durationMinutes)].join(':');
+      if (teacherEntry.lessonLedger[ledgerKey]) teacherEntry.lessonLedger[ledgerKey].paid = paid;
+      financeDb[teacher.id] = teacherEntry;
+      writeTeacherFinanceDb(financeDb);
+      marksDb[teacher.id] = marks;
+      writeTeacherCalendarMarksDb(marksDb);
+      notifyScheduleSyncUpdate({ scope: 'teacher-calendar-marks', action: 'lesson-payment', teacherId: teacher.id, studentId: student.id });
+    }
+    return res.json({ marks, amount, paid });
+  } catch (error) {
+    console.error('[lesson-payment]', error?.message || error);
+    return res.status(500).json({ error: 'Не удалось сохранить оплату занятия' });
+  }
+});
+
 app.get('/api/teacher-calendar-marks', (req, res) => {
   const { teacherId } = req.query || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
@@ -37924,6 +38032,7 @@ app.patch('/api/teacher-finance/students/:studentId', async (req, res) => {
   const currentRecord = normalizeTeacherFinanceStudentRecord(currentMonth.students?.[student.id], currentProfile);
   const profile = normalizeTeacherFinanceProfile({ ...currentProfile, ...(req.body || {}) });
   const nowIso = new Date().toISOString();
+  profile.pricingHistory = recordPricingChange(currentProfile, profile, nowIso);
   const record = {
     ...normalizeTeacherFinanceStudentRecord({ ...currentRecord, ...(req.body || {}) }, profile),
     updatedAt: nowIso,

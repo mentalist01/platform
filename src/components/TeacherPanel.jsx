@@ -1,3 +1,4 @@
+import { LESSON_PRICING_OPTIONS, lessonPricingLabel, isDurationPricing, calculateLessonPrice } from '../utils/lessonPricing.js';
 import MonthlyMockExamBadge from './MonthlyMockExamBadge';
 import MonthlyMockExamStatus from './MonthlyMockExamStatus';
 import { useMonthlyMockRoster } from '../hooks/useMonthlyMockRoster';
@@ -297,6 +298,8 @@ const TeacherPanel = ({
   const [editStudentLeaderboardAliasInitial, setEditStudentLeaderboardAliasInitial] = useState('');
   const [editStudentCoinsGrant, setEditStudentCoinsGrant] = useState('');
   const [editStudentLessonPrice, setEditStudentLessonPrice] = useState('');
+  const [editStudentPricingMode, setEditStudentPricingMode] = useState('perLesson');
+  const [editStudentPricingModeInitial, setEditStudentPricingModeInitial] = useState('perLesson');
   const [editStudentLessonPriceInitial, setEditStudentLessonPriceInitial] = useState('');
   const [editStudentCommissionAmount, setEditStudentCommissionAmount] = useState('');
   const [editStudentCommissionAmountInitial, setEditStudentCommissionAmountInitial] = useState('');
@@ -368,9 +371,8 @@ const TeacherPanel = ({
   const getStudentLessonPrice = useCallback((studentId, snapshot = teacherFinanceSnapshot) => {
     const row = getStudentFinanceRow(studentId, snapshot);
     const recordPrice = Number(row?.record?.lessonPrice);
-    if (Number.isFinite(recordPrice) && recordPrice > 0) return recordPrice;
     const profilePrice = Number(row?.profile?.lessonPrice);
-    return Number.isFinite(profilePrice) && profilePrice > 0 ? profilePrice : 0;
+    return Number.isFinite(profilePrice) ? profilePrice : (recordPrice || 0);
   }, [getStudentFinanceRow, teacherFinanceSnapshot]);
 
   const getStudentCommissionAmount = useCallback((studentId, snapshot = teacherFinanceSnapshot) => {
@@ -542,6 +544,9 @@ const TeacherPanel = ({
   useEffect(() => {
     if (!editingStudentId) return;
     const nextLessonPrice = toFinanceInputValue(getStudentLessonPrice(editingStudentId));
+    const nextMode = getStudentFinanceRow(editingStudentId)?.profile?.pricingMode || 'perLesson';
+    setEditStudentPricingMode((prev) => prev === editStudentPricingModeInitial ? nextMode : prev);
+    setEditStudentPricingModeInitial(nextMode);
     const nextCommissionAmount = toFinanceInputValue(getStudentCommissionAmount(editingStudentId));
     setEditStudentLessonPrice((prev) => (
       prev === editStudentLessonPriceInitial ? nextLessonPrice : prev
@@ -555,6 +560,8 @@ const TeacherPanel = ({
     teacherFinanceSnapshot,
     editingStudentId,
     editStudentLessonPriceInitial,
+    editStudentPricingModeInitial,
+    getStudentFinanceRow,
     editStudentCommissionAmountInitial,
     getStudentLessonPrice,
     getStudentCommissionAmount,
@@ -2261,7 +2268,7 @@ const TeacherPanel = ({
     }
   };
 
-  const saveStudentFinanceProfile = async (studentId, lessonPrice, commissionAmount) => {
+  const saveStudentFinanceProfile = async (studentId, lessonPrice, commissionAmount, pricingMode) => {
     const normalizedId = String(studentId || '').trim();
     if (!normalizedId) return null;
     let snapshot = teacherFinanceSnapshot;
@@ -2274,21 +2281,10 @@ const TeacherPanel = ({
     const record = row?.record && typeof row.record === 'object' ? row.record : {};
     const payload = {
       month,
-      pricingMode: record.pricingMode || profile.pricingMode || 'perLesson',
+      pricingMode: pricingMode || profile.pricingMode || record.pricingMode || 'perLesson',
       lessonPrice,
       commissionAmount,
-      monthlyRate: Number.isFinite(Number(record.monthlyRate)) ? Number(record.monthlyRate) : Number(profile.monthlyRate) || 0,
-      plannedLessons: Number.isFinite(Number(record.plannedLessons)) ? Number(record.plannedLessons) : Number(profile.plannedLessons) || 0,
-      completedLessons: Number(record.completedLessons) || 0,
-      cancelledLessons: Number(record.cancelledLessons) || 0,
-      paidAmount: Number(record.paidAmount) || 0,
-      extraCharge: Number(record.extraCharge) || 0,
-      discount: Number(record.discount) || 0,
-      expenses: Number(record.expenses) || 0,
-      paymentDay: record.paymentDay ?? profile.paymentDay ?? null,
-      note: typeof record.note === 'string' && record.note.trim()
-        ? record.note.trim()
-        : (typeof profile.note === 'string' ? profile.note.trim() : ''),
+
     };
     const nextSnapshot = await api.updateTeacherFinanceStudent(normalizedId, payload, teacherId);
     setTeacherFinanceSnapshot(nextSnapshot && typeof nextSnapshot === 'object' ? nextSnapshot : snapshot);
@@ -2354,6 +2350,9 @@ const TeacherPanel = ({
     setEditStudentNickname(student.nickname || '');
     setEditStudentLessonPrice(lessonPrice);
     setEditStudentLessonPriceInitial(lessonPrice);
+    const pricingMode = getStudentFinanceRow(student.id)?.profile?.pricingMode || 'perLesson';
+    setEditStudentPricingMode(pricingMode);
+    setEditStudentPricingModeInitial(pricingMode);
     setEditStudentCommissionAmount(commissionAmount);
     setEditStudentCommissionAmountInitial(commissionAmount);
     setEditStudentGrade(normalizeStudentGradeValue(student.grade));
@@ -2458,8 +2457,8 @@ const TeacherPanel = ({
           ? STUDENT_STUDY_STATUS_ACTIVE
           : STUDENT_STUDY_STATUS_INACTIVE
       );
-      if (nextLessonPrice !== initialLessonPrice || nextCommissionAmount !== initialCommissionAmount) {
-        await saveStudentFinanceProfile(student.id, nextLessonPrice, nextCommissionAmount);
+      if (nextLessonPrice !== initialLessonPrice || nextCommissionAmount !== initialCommissionAmount || editStudentPricingMode !== editStudentPricingModeInitial) {
+        await saveStudentFinanceProfile(student.id, nextLessonPrice, nextCommissionAmount, editStudentPricingMode);
       }
       cancelEditStudent();
     } catch (err) {
@@ -3080,7 +3079,7 @@ const TeacherPanel = ({
                         />
                         <div className="grid gap-2 sm:grid-cols-2">
                           <label className="block min-w-0">
-                            <span className="mb-1 block text-[11px] font-semibold text-gray-500">Стоимость занятия</span>
+                            <span className="mb-1 block text-[11px] font-semibold text-gray-500">Стоимость · {lessonPricingLabel(editStudentPricingMode).toLowerCase()}</span>
                             <div className="relative">
                               <input
                                 type="text"
@@ -3096,6 +3095,18 @@ const TeacherPanel = ({
                               />
                               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400">₽</span>
                             </div>
+                            <select aria-label="Как считать стоимость занятия" value={editStudentPricingMode}
+                              onChange={(event) => setEditStudentPricingMode(event.target.value)}
+                              className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+                              {LESSON_PRICING_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                              {editStudentPricingMode === 'monthly' ? <option value="monthly">За месяц</option> : null}
+                            </select>
+                            <span className="mt-1 block text-[10px] text-gray-500">
+                              {isDurationPricing(editStudentPricingMode)
+                                ? `60 мин — ${calculateLessonPrice({ lessonPrice: parseLessonPriceInput(editStudentLessonPrice), pricingMode: editStudentPricingMode }, 60).toLocaleString('ru-RU')} ₽; 90 мин — ${calculateLessonPrice({ lessonPrice: parseLessonPriceInput(editStudentLessonPrice), pricingMode: editStudentPricingMode }, 90).toLocaleString('ru-RU')} ₽. По длительности в расписании.`
+                                : 'Одинаковая сумма за каждое занятие.'}
+                              {' Новая ставка действует на предстоящие неоплаченные занятия.'}
+                            </span>
                           </label>
                           <label className="block min-w-0">
                             <span className="mb-1 block text-[11px] font-semibold text-gray-500">Комиссия за ученика</span>

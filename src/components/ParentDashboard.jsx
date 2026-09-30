@@ -1,3 +1,4 @@
+import { summarizeUnpaidLessons } from '../utils/lessonPaymentSummary.js';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
@@ -184,50 +185,6 @@ const getPaymentState = (entry, dayKey) => {
   return PAYMENT_META[status] ? { ...resolved, status } : { status: 'pending' };
 };
 
-const summarizeUnpaidLessons = (schedule = [], lessons = [], lessonPrice = 0) => {
-  const unpaidOccurrenceKeys = new Set();
-  const unpaidDateKeys = new Set();
-  (Array.isArray(schedule) ? schedule : []).forEach((entry) => {
-    const statesByDate = entry?.payment?.statesByDate;
-    if (!statesByDate || typeof statesByDate !== 'object') return;
-    Object.entries(statesByDate).forEach(([dayKey, state]) => {
-      if (state?.status !== 'unpaid') return;
-      unpaidOccurrenceKeys.add([
-        dayKey,
-        String(entry?.time || '').trim(),
-        Number(entry?.durationMinutes) || 60,
-      ].join(':'));
-      if (parseDayKey(dayKey)) unpaidDateKeys.add(dayKey);
-    });
-  });
-
-  const unpaidHistory = (Array.isArray(lessons) ? lessons : [])
-    .filter((lesson) => lesson?.payment?.status === 'unpaid');
-  unpaidHistory.forEach((lesson) => {
-    const dayKey = String(lesson?.dayKey || lesson?.date || '').trim();
-    if (parseDayKey(dayKey)) unpaidDateKeys.add(dayKey);
-  });
-  const count = Math.max(unpaidOccurrenceKeys.size, unpaidHistory.length);
-  const configuredPrice = Math.max(0, Number(lessonPrice) || 0);
-  const historyAmount = unpaidHistory.reduce(
-    (total, lesson) => total + Math.max(0, Number(lesson?.payment?.amount) || 0),
-    0,
-  );
-  const historyAmountIsComplete = count > 0
-    && unpaidHistory.length === count
-    && unpaidHistory.every((lesson) => Number(lesson?.payment?.amount) > 0);
-  const amountKnown = count > 0 && (configuredPrice > 0 || historyAmountIsComplete);
-  const amount = historyAmountIsComplete
-    ? historyAmount
-    : (configuredPrice > 0 ? configuredPrice * count : 0);
-
-  return {
-    count,
-    amount,
-    amountKnown,
-    dates: Array.from(unpaidDateKeys).sort((left, right) => left.localeCompare(right, 'ru')),
-  };
-};
 
 const formatUnpaidLessonCount = (value) => {
   const count = Math.max(0, Math.round(Number(value) || 0));
@@ -594,7 +551,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
   const unpaidLessons = summarizeUnpaidLessons(
     overview?.schedule,
     lessons,
-    finance.lessonPrice,
+    finance,
   );
   const unpaidLessonDetail = formatUnpaidLessonDetail(unpaidLessons);
   const monthlyOutstanding = Math.max(0, Number(finance.outstanding) || 0);

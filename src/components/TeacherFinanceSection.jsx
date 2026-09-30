@@ -1,3 +1,4 @@
+import { LESSON_PRICING_OPTIONS, lessonPricingLabel, isDurationPricing, calculateLessonPrice } from '../utils/lessonPricing.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Calculator,
@@ -334,6 +335,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
   const [commissionDrafts, setCommissionDrafts] = useState({});
   const [commissionBaselines, setCommissionBaselines] = useState({});
   const [lessonPriceDrafts, setLessonPriceDrafts] = useState({});
+  const [pricingModeDrafts, setPricingModeDrafts] = useState({});
   const [lessonPriceErrors, setLessonPriceErrors] = useState({});
   const [loading, setLoading] = useState(true);
   const [monthLoading, setMonthLoading] = useState(false);
@@ -350,18 +352,21 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
     const nextSnapshot = data && typeof data === 'object' ? data : {};
     const drafts = {};
     const priceDrafts = {};
+    const modeDrafts = {};
     (Array.isArray(nextSnapshot.students) ? nextSnapshot.students : []).forEach((student) => {
       drafts[student.id] = toInputValue(student?.profile?.commissionAmount);
+      modeDrafts[student.id] = student?.profile?.pricingMode || student?.record?.pricingMode || 'perLesson';
       const recordPrice = Number(student?.record?.lessonPrice);
       const profilePrice = Number(student?.profile?.lessonPrice);
       priceDrafts[student.id] = toInputValue(
-        Number.isFinite(recordPrice) && recordPrice > 0 ? recordPrice : profilePrice
+        Number.isFinite(profilePrice) ? profilePrice : recordPrice
       );
     });
     setSnapshot(nextSnapshot);
     setCommissionDrafts(drafts);
     setCommissionBaselines(drafts);
     setLessonPriceDrafts(priceDrafts);
+    setPricingModeDrafts(modeDrafts);
     setLessonPriceErrors({});
   };
 
@@ -575,6 +580,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
         {
           month: calendarPlanMonthKey || snapshot?.month || new Date().toISOString().slice(0, 7),
           lessonPrice,
+          pricingMode: pricingModeDrafts[studentId] || 'perLesson',
         },
         teacherId
       );
@@ -902,7 +908,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end xl:min-w-[420px]">
                             <label className="min-w-0 flex-1">
                               <span className="mb-1 block text-[9px] font-black uppercase tracking-[0.1em] text-amber-700">
-                                Стоимость занятия
+                                Стоимость · {lessonPricingLabel(pricingModeDrafts[group.studentId]).toLowerCase()}
                               </span>
                               <div className="relative">
                                 <input
@@ -923,6 +929,13 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                                 />
                                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₽</span>
                               </div>
+                              <select value={pricingModeDrafts[group.studentId] || 'perLesson'}
+                                onChange={(event) => setPricingModeDrafts((current) => ({ ...current, [group.studentId]: event.target.value }))}
+                                aria-label={`Расчёт стоимости для ${group.studentName}`}
+                                className="mt-2 w-full rounded-xl border border-amber-200 bg-white p-2 text-sm">
+                                {LESSON_PRICING_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                {pricingModeDrafts[group.studentId] === 'monthly' ? <option value="monthly">За месяц</option> : null}
+                              </select>
                             </label>
                             <Button
                               type="button"
@@ -1352,7 +1365,7 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                         {metrics.paybackLessonCount > metrics.lessonCount ? (
                           <span>{`${formatLessonCount(metrics.paybackLessonCount)} оплачено`}</span>
                         ) : null}
-                        <span>{lessonPrice > 0 ? `${formatMoney(lessonPrice)} за занятие` : 'Стоимость занятия не указана'}</span>
+                        <span>{lessonPrice > 0 ? `${formatMoney(lessonPrice)} ${lessonPricingLabel(student?.profile?.pricingMode).toLowerCase()}` : 'Стоимость занятия не указана'}</span>
                       </div>
                     </div>
 
@@ -1382,6 +1395,37 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
                     </div>
                   </div>
 
+                  <div className="rounded-2xl border border-violet-100 bg-violet-50/50 p-3">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="text-xs font-semibold text-slate-600">
+                        Стоимость, ₽
+                        <input inputMode="decimal" value={lessonPriceDrafts[student.id] ?? ''}
+                          onChange={(event) => handleLessonPriceChange(student.id, event.target.value)}
+                          aria-label={`Ставка для ${student.displayName}`}
+                          className="mt-1 block w-36 rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm" />
+                      </label>
+                      <label className="text-xs font-semibold text-slate-600">
+                        Расчёт
+                        <select value={pricingModeDrafts[student.id] || 'perLesson'}
+                          onChange={(event) => setPricingModeDrafts((current) => ({ ...current, [student.id]: event.target.value }))}
+                          aria-label={`Расчёт стоимости для ${student.displayName}`}
+                          className="mt-1 block rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm">
+                          {LESSON_PRICING_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          {pricingModeDrafts[student.id] === 'monthly' ? <option value="monthly">За месяц</option> : null}
+                        </select>
+                      </label>
+                      <Button onClick={() => handleSaveLessonPrice(student.id)} disabled={savingLessonPriceStudentId === student.id}>
+                        {savingLessonPriceStudentId === student.id ? 'Сохраняю…' : 'Сохранить стоимость'}
+                      </Button>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {isDurationPricing(pricingModeDrafts[student.id])
+                        ? `60 мин — ${formatMoney(calculateLessonPrice({ lessonPrice: parseAmount(lessonPriceDrafts[student.id]), pricingMode: pricingModeDrafts[student.id] }, 60))}; 90 мин — ${formatMoney(calculateLessonPrice({ lessonPrice: parseAmount(lessonPriceDrafts[student.id]), pricingMode: pricingModeDrafts[student.id] }, 90))}. По длительности в расписании.`
+                        : 'Одинаковая сумма за каждое занятие.'}
+                      {' Новая ставка действует на предстоящие неоплаченные занятия.'}
+                    </p>
+                    {lessonPriceErrors[student.id] ? <p role="alert" className="mt-1 text-xs text-rose-600">{lessonPriceErrors[student.id]}</p> : null}
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                     <div className="teacher-finance-simple__metric rounded-2xl border border-violet-200 bg-violet-50/75 p-3" data-tone="violet">
                       <div className="text-[10px] font-black uppercase tracking-[0.12em] text-violet-700">Доход по календарю</div>
