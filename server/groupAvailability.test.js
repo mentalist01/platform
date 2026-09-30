@@ -57,6 +57,18 @@ test('empty answer differs from not answered, and ranking ignores blocked times'
   assert.deepEqual(suggestedPair(poll,{}), ['0-600','1-600']);
   assert.deepEqual(suggestedPair(poll,{'0-600':['x']}), ['1-600']);
 });
+test('materialization reuses an existing Google occurrence at the same group time', () => {
+  const now = Date.parse('2026-09-23T08:00:00Z');
+  const plan = { groupId: 'g', id: 'p', config: config({ startDate: '2026-09-28' }), slots: ['0-600'] };
+  const google = { id: 'google', groupId: 'g', source: 'google-calendar', status: 'scheduled', startAt: '2026-09-28T07:00:00Z', durationMinutes: 60 };
+  const create = (g, p, opts) => ({ ...p, id: opts.id, groupId: g.id, status: 'scheduled' });
+  const result = materializeAvailabilityPlans([plan], [group('g')], [google], create, now);
+  assert.equal(result.lessons.filter(l => Date.parse(l.startAt) === Date.parse(google.startAt)).length, 1);
+  const next = materializeAvailabilityPlans([plan], [group('g')], result.lessons, create, now);
+  assert.equal(next.changed, false);
+  assert.equal(next.lessons[0].id, 'google');
+});
+
 test('approved schedule survives reload, derives stable occurrences, preserves history and manual cancellations', t => {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ga-store-')); t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
   const file=path.join(dir,'polls.json'); const store=createAvailabilityStore(file);
@@ -99,7 +111,7 @@ async function fixture(t) {
     const payload=await r.json();assert.equal(r.status,status,JSON.stringify(payload));return payload;
   };
   const open=async(gid='g')=>(await call('open',config(),'t','teacher',gid)).poll.id;
-  return {call,open,state,store};
+  return {call,open,state,store,file:path.join(dir,'polls.json')};
 }
 test('API isolates groups, rejects removed pupils, validates answers and preserves concurrent responses', async t=>{
   const {call,open,state}=await fixture(t); const roundId=await open();
@@ -153,6 +165,45 @@ test('simultaneous approvals of two groups cannot reserve the same teacher time'
   state.hook=async()=>{state.entries=state.approved.length?[{weekdayKey:'monday',time:'10:00'}]:[];};
   await Promise.all(requests.map((r,i)=>call('approve',r.body,'t','teacher',r.gid,i?409:200)));
   assert.equal(state.approved.length,1);
+});
+
+test('reopening an approved plan retains availability and lessons, includes newcomers and requires fresh consent', async t => {
+  const { call, open, state, store, file } = await fixture(t);
+  const roundId = await open();
+  const choices = { '0-600': 'yes', '3-600': 'maybe', '5-720': 'yes' };
+  for (const id of ['a', 'b']) await call('answer', { roundId, version: 0, choices }, id, 'student');
+  const proposalId = (await call('propose', { roundId, slots: ['0-600', '3-600'] })).poll.proposal.id;
+  for (const id of ['a', 'b']) await call('vote', { roundId, proposalId, choice: 'yes' }, id, 'student');
+  const approved = (await call('approve', { roundId, proposalId })).poll;
+  assert.deepEqual(approved.answers.a.choices, choices);
+  state.groups[0].members.push(member('c'));
+  assert.equal((await call()).poll.members.length, 3);
+  await call('reopen', { roundId }, 'a', 'student', 'g', 403);
+  await call('reopen', { roundId: 'stale' }, 't', 'teacher', 'g', 409);
+  state.down = true;
+  await call('reopen', { roundId }, 't', 'teacher', 'g', 503);
+  assert.equal(store.get('g').status, 'approved');
+  state.down = false;
+  const reopened = (await call('reopen', { roundId })).poll;
+  assert.notEqual(reopened.id, roundId);
+  assert.equal(reopened.status, 'open');
+  assert.deepEqual(reopened.answers, approved.answers);
+  assert.deepEqual(reopened.plan, approved.plan);
+  assert.equal(reopened.proposal, null);
+  assert.equal(reopened.answers.c, undefined);
+  assert.deepEqual(store.plans()[0].slots, approved.plan.slots);
+  await call('answer', { roundId, version: 1, choices }, 'a', 'student', 'g', 409);
+  await call('answer', { roundId: reopened.id, version: 0, choices }, 'c', 'student');
+  const nextId = (await call('propose', { roundId: reopened.id, slots: ['0-660', '3-660'] })).poll.proposal.id;
+  for (const id of ['a', 'b']) await call('vote', { roundId: reopened.id, proposalId: nextId, choice: 'yes' }, id, 'student');
+  await call('approve', { roundId: reopened.id, proposalId: nextId }, 't', 'teacher', 'g', 409);
+  await call('vote', { roundId: reopened.id, proposalId: nextId, choice: 'maybe' }, 'c', 'student');
+  const changed = (await call('approve', { roundId: reopened.id, proposalId: nextId })).poll;
+  assert.deepEqual(changed.plan.slots, ['0-660', '3-660']);
+  assert.deepEqual(changed.answers.a.choices, choices);
+  assert.deepEqual(createAvailabilityStore(file).get('g').answers, changed.answers);
+  state.groups[0].status = 'completed';
+  await call('reopen', { roundId: changed.id }, 't', 'teacher', 'g', 409);
 });
 test('membership removed while external calendar is loading cannot submit an answer', async t=>{
   const {call,open,state}=await fixture(t); const roundId=await open();

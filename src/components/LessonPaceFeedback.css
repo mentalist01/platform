@@ -1,4 +1,4 @@
-.lesson-pace-backdrop{position:fixed;inset:0;z-index:1900;display:grid;place-items:center;background:#18112e90;backdrop-filter:blur(6px);padding:18px}
+.lesson-pace-backdrop{position:fixed;inset:0;z-index:100000;display:grid;place-items:center;background:#18112e90;backdrop-filter:blur(6px);padding:18px}
 .lesson-pace-dialog{width:min(760px,100%);max-height:calc(100dvh - 36px);overflow:auto;border-radius:28px;padding:clamp(22px,5vw,44px);background:rgb(var(--surface,255 255 255));color:rgb(var(--ink,30 25 45));box-shadow:0 24px 100px #190b3940;outline:none}
 .lesson-pace-eyebrow{font-size:12px;font-weight:800;color:#8950df}
 .lesson-pace-dialog h2{font-size:clamp(25px,4vw,34px);font-weight:900;margin:12px 0}

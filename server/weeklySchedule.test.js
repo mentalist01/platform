@@ -13,9 +13,10 @@ const now = () => Date.parse('2026-09-28T09:00:00+03:00');
 async function fixture(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'weekly-'));
   const file = path.join(dir, 'requests.json'), store = createRescheduleStore(file);
-  const state = { students: { a:{id:'a',name:'Аня',teacherId:'t'}, b:{id:'b',name:'Боря',teacherId:'t'} }, schedules:{a:[],b:[]}, extra:[], writes:0, notices:[] };
+  const state = { groupStudents: new Set(), students: { a:{id:'a',name:'Аня',teacherId:'t'}, b:{id:'b',name:'Боря',teacherId:'t'} }, schedules:{a:[],b:[]}, extra:[], writes:0, notices:[] };
   const app = express(); app.use(express.json()); app.use((req,_res,next) => { const [role,id] = String(req.headers.authorization || '').split(':'); req.auth={role,id}; next(); });
   registerWeeklySchedules(app, { store, now, getStudent:id=>state.students[id], getSchedule:id=>state.schedules[id],
+    canRequestIndividualSchedule: id => !state.groupStudents.has(id),
     getEntries: async teacherId => { if (options.load) await options.load(state); return [...state.extra,...Object.entries(state.schedules).flatMap(([studentId, entries])=>entries.map(e=>({...e,studentId}))),...weeklyReservations(store,teacherId)]; },
     applyLocal: row => { state.schedules[row.studentId]=applyWeeklySchedule(state.schedules[row.studentId],row,now()); state.writes++; if(options.apply)options.apply(state); },
     notify:(r,a)=>state.notices.push(a),
@@ -58,7 +59,38 @@ test('two students requesting same weekly hours cannot both get approved; reject
 test('lost local response retries safely without duplicating weekly entries',async t=>{
   const {req,create,state,store}=await fixture(t,{apply:s=>{if(s.writes===1)throw Error('write response lost');}});const row=await create();
   await req(`/${row.id}/approve`,'teacher:t',{},503);assert.equal(store.get(row.id).status,'applying');await req(`/${row.id}/cancel`,'student:a',{},409);
+  state.groupStudents.add('a');
   await req(`/${row.id}/approve`,'teacher:t',{});assert.equal(state.schedules.a.length,2);
+});
+
+test('mini-group membership blocks new weekly requests and pending approval, but allows history and cancellation', async t => {
+  const { req, create, state } = await fixture(t);
+  const row = await create();
+  state.groupStudents.add('a');
+  await req('/availability', 'student:a', undefined, 403);
+  await req('', 'student:a', {}, 403);
+  assert.equal((await req()).requests[0].id, row.id);
+  assert.match((await req(`/${row.id}/preview`, 'teacher:t')).conflict, /мини-группы/);
+  await req(`/${row.id}/approve`, 'teacher:t', {}, 403);
+  assert.equal(state.writes, 0);
+  assert.equal((await req(`/${row.id}/cancel`, 'student:a', {})).status, 'cancelled');
+  state.groupStudents.delete('a');
+  const next = await create();
+  assert.equal((await req(`/${next.id}/approve`, 'teacher:t', {})).status, 'approved');
+});
+
+test('joining a mini-group during weekly calendar lookup blocks availability, creation and approval', async t => {
+  for (const action of ['availability', 'create', 'approve']) {
+    let join = false;
+    const { req, create, state, store } = await fixture(t, { load: s => { if (join) s.groupStudents.add('a'); } });
+    const row = action === 'approve' ? await create() : null;
+    join = true;
+    if (action === 'availability') await req('/availability', 'student:a', undefined, 403);
+    if (action === 'create') await req('', 'student:a', { startDate: '2026-10-05', slots: ['0-600'], baseSignature: '[]' }, 403);
+    if (action === 'approve') await req(`/${row.id}/approve`, 'teacher:t', {}, 403);
+    assert.equal(state.writes, 0);
+    assert.ok(store.all().every(r => r.status === 'pending'));
+  }
 });
 test('changed roster and calendar failures cannot publish availability or approve',async t=>{
   const f=await fixture(t);const row=await f.create();f.state.students.a.teacherId='other';await f.req(`/${row.id}/approve`,'teacher:t',{},403);

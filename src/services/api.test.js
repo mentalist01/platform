@@ -28,6 +28,21 @@ const installStorage = (authToken) => {
   return values;
 };
 
+test('schedule options are opt-in and legacy schedule callers still receive an array', async t => {
+  installStorage('schedule-options-token');
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  const urls = [];
+  globalThis.fetch = async input => {
+    urls.push(String(input));
+    return jsonResponse(String(input).includes('includeOptions=1')
+      ? { schedule: [], canRequestIndividualSchedule: false } : []);
+  };
+  assert.deepEqual(await api.getStudentSchedule('a'), []);
+  assert.deepEqual(await api.getStudentSchedule('', true), { schedule: [], canRequestIndividualSchedule: false });
+  assert.deepEqual(urls, ['/api/student-schedule?studentId=a', '/api/student-schedule?includeOptions=1']);
+});
+
 test('manual calendar refresh waits for background fetch then bypasses cached data', async t => {
   const previousWindow = globalThis.window;
   globalThis.window = { setTimeout, clearTimeout };

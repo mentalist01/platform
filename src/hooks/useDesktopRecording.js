@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 
-export default function useDesktopRecording({ user, active, studentId, learningLessonId }) {
+export default function useDesktopRecording({ user, active, studentId, learningLessonId, audioMode }) {
   const [settings, setSettings] = useState(null);
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState('');
@@ -20,13 +20,13 @@ export default function useDesktopRecording({ user, active, studentId, learningL
   useEffect(() => {
     if (!enabled || user.role !== 'teacher') return undefined;
     let cancelled = false; let busy = false;
-    const transitionFrom = jobRef.current?.id || '';
+    const transitionFrom = jobRef.current?.id;
     let first = true;
     const synchronize = async () => {
       if (busy) return; busy = true;
       try {
         if (active && (studentId || learningLessonId)) {
-          const job = await api.desktopRecording('start', { studentId, learningLessonId, ...(first ? { transitionFrom } : {}) });
+          const job = await api.desktopRecording('start', { studentId, learningLessonId, audioMode, transitionFrom: first ? transitionFrom : undefined });
           first = false;
           if (!cancelled) { jobRef.current = job; setJobId(job.id); }
         } else if (jobRef.current) {
@@ -40,6 +40,6 @@ export default function useDesktopRecording({ user, active, studentId, learningL
     void synchronize(); const timer = setInterval(synchronize, 4000);
     // Navigation/refresh must not end the server's lesson or the OBS recording.
     return () => { cancelled = true; clearInterval(timer); };
-  }, [active, enabled, learningLessonId, studentId, user.role]);
+  }, [active, audioMode, enabled, learningLessonId, studentId, user.role]);
   return { enabled, jobId, settings, error, refresh };
 }

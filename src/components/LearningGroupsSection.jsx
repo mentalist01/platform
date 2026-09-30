@@ -1,6 +1,7 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
 import { LessonPaceResults } from './LessonPaceFeedback.jsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+const LearningGroupLessonReplay = React.lazy(() => import('./LearningGroupLessonReplay'));
 import {
   AlertCircle,
   BarChart3,
@@ -478,6 +479,7 @@ const LearningGroupsSection = ({
   const [notice, setNotice] = useState('');
   const [busyKey, setBusyKey] = useState('');
   const [tab, setTab] = useState(isTeacher ? 'overview' : 'availability');
+  const [replayLesson, setReplayLesson] = useState(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_GROUP_FORM);
@@ -1443,6 +1445,9 @@ const LearningGroupsSection = ({
 
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-4 pb-4">
+      {replayLesson && <React.Suspense fallback={<p role="status">Загружаем запись занятия…</p>}>
+        <LearningGroupLessonReplay key={`${replayLesson.groupId}:${replayLesson.lessonId}`} groupId={replayLesson.groupId} lessonId={replayLesson.lessonId} onClose={() => setReplayLesson(null)} />
+      </React.Suspense>}
       <header className={`overflow-hidden rounded-3xl border border-violet-200/80 bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-200/50 ${tab === 'availability' ? 'px-5 py-3' : 'p-5 sm:p-7'}`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -2107,6 +2112,12 @@ const LearningGroupsSection = ({
                                 )}
                               </div>
 
+                              {lesson.status !== 'cancelled' && (lessonClosed || lesson.recording?.available || lesson.recording?.status) && (
+                                <button type="button" onClick={() => setReplayLesson({ groupId: selectedGroup.id, lessonId })}
+                                  className="mt-4 inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-bold text-violet-700">
+                                  <Video size={16} /> Запись занятия
+                                </button>
+                              )}
                               {isTeacher && lesson.status === 'completed' && <LessonPaceResults groupId={selectedGroup.id} lessonId={lessonId} />}
                               {isTeacher && isEditing && (
                                 <form onSubmit={(event) => void handleSaveLesson(event, lesson)} className="mt-4 rounded-2xl border border-violet-100 bg-violet-50/60 p-4">

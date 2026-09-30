@@ -35,11 +35,15 @@ export function weeklyReservations(store, teacherId) {
     })));
 }
 
-export function registerWeeklySchedules(app, { store, getStudent, getSchedule, getEntries, applyLocal, notify = () => {}, now = Date.now }) {
+export function registerWeeklySchedules(app, { store, getStudent, getSchedule, getEntries, applyLocal, canRequestIndividualSchedule = () => true, notify = () => {}, now = Date.now }) {
+  const checkIndividualAccess = studentId => {
+    if (!canRequestIndividualSchedule(studentId)) fail('Расписание мини-группы меняет преподаватель для всей группы.', 403);
+  };
   const studentAccess = auth => {
     if (auth?.role !== 'student') fail('Нет доступа', 403);
     const s = getStudent(auth.id);
     if (!s || s.deletedAt || !s.teacherId) fail('Преподаватель не назначен', 403);
+    checkIndividualAccess(s.id);
     return { ...s };
   };
   const access = (auth, id) => {
@@ -104,7 +108,7 @@ export function registerWeeklySchedules(app, { store, getStudent, getSchedule, g
     let conflict = '';
     if (row.status === 'pending') {
       const entries = await getEntries(row.teacherId, true, addCalendarDays(row.config.startDate, 56)); access(req.auth, row.id);
-      try { check(row, entries); } catch (e) { conflict = e.message; }
+      try { checkIndividualAccess(row.studentId); check(row, entries); } catch (e) { conflict = e.message; }
     }
     return { request: serialize(row), conflict };
   }));
@@ -117,8 +121,10 @@ export function registerWeeklySchedules(app, { store, getStudent, getSchedule, g
       if (row.status === 'approved' && action === 'approve') return serialize(row);
       if (!['pending','applying'].includes(row.status)) fail('Запрос уже обработан', 409);
       if (action === 'approve') {
+        if (row.status === 'pending') checkIndividualAccess(row.studentId);
         if (!getSchedule(row.studentId).some(e => e.weeklyRequestId === row.id)) {
           const entries = await getEntries(row.teacherId, true, addCalendarDays(row.config.startDate, 56)); access(req.auth, row.id); check(row, entries);
+          if (row.status === 'pending') checkIndividualAccess(row.studentId);
           row = store.put({ ...row, status: 'applying' });
         }
         // Synchronous, idempotent local write; no remote calendar mutation is required.

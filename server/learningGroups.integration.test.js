@@ -597,6 +597,10 @@ test('learning groups keep shared work isolated while legacy student schedules r
     );
     assert.equal(studentAReplayDetail.replay.occurrence.key, teacherReplaySession.occurrenceKey);
     assert.equal(studentBReplayDetail.replay.occurrence.key, teacherReplaySession.occurrenceKey);
+    const groupReplay = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/lessons/${replayLessonId}/replay`, { token: studentB.token });
+    assert.equal(groupReplay.replay.occurrence.key, teacherReplaySession.occurrenceKey);
+    assert.ok(groupReplay.replay.events.some(event => event.type === 'board'));
+    assert.ok(groupReplay.replay.events.some(event => event.type === 'audio'));
     const sharedCodeEvent = studentBReplayDetail.replay.events.find((event) => (
       event.id === 'shared-code-event'
     ));

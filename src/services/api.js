@@ -2259,11 +2259,12 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getStudentSchedule: async (studentId) => {
+  getStudentSchedule: async (studentId, includeOptions) => {
     const params = new URLSearchParams();
-    if (studentId) params.append('studentId', studentId);
-    const qs = params.toString();
-    const res = await apiFetch(qs ? `/api/student-schedule?${qs}` : '/api/student-schedule');
+    if (studentId) params.set('studentId', studentId);
+    if (includeOptions) params.set('includeOptions', '1');
+    const qs = String(params);
+    const res = await apiFetch(`/api/student-schedule${qs ? `?${qs}` : ''}`);
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();
   },

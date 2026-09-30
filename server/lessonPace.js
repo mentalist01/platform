@@ -23,9 +23,7 @@ export function registerLessonPace(app, { store, lessons, groupById, canRead, ca
   app.get('/api/learning-lesson-feedback/pending', (req, res) => {
     res.set('Cache-Control', 'no-store');
     if (req.auth?.role !== 'student') return res.status(403).json({ error: 'Опрос доступен ученику' });
-    const since = Date.now() - 7 * 86400000;
     const lesson = lessons().filter(lesson => ended(lesson)
-      && Date.parse(lesson.completedAt || lesson.startAt) >= since
       && lesson.participantIds.includes(req.auth.id)
       && canRead(req.auth, lesson, groupById(lesson.groupId))
       && !store.get(lesson.id, req.auth.id))
@@ -56,7 +54,9 @@ export function registerLessonPace(app, { store, lessons, groupById, canRead, ca
     res.set('Cache-Control', 'no-store');
     const found = target(req, res); if (!found) return;
     if (!canManage(req.auth, found.group)) return res.status(403).json({ error: 'Ответы доступны преподавателю' });
-    res.json({ responses: store.list(found.lesson.id).map(row => ({ ...row, name: studentName(row.studentId) })),
-      total: found.lesson.participantIds.length });
+    const responses = store.list(found.lesson.id).map(row => ({ ...row, name: studentName(row.studentId) }));
+    res.json({ responses, total: found.lesson.participantIds.length,
+      pendingStudents: found.lesson.participantIds.filter(id => !responses.some(row => row.studentId === id))
+        .map(studentId => ({ studentId, name: studentName(studentId) })) });
   });
 }

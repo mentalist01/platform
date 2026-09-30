@@ -29,6 +29,9 @@ test('pace feedback is personal, limited to finished lessons, persisted and visi
   await call('learning-groups/g/lessons/live/pace','a','student',{value:50},409);
   for(const value of [-1,101,0.5,'50',null]) await call(endpoint,'a','student',{value},400);
   await call(endpoint,'a','student',{value:0,studentId:'b'});
+  const results = await call(endpoint, 't', 'teacher');
+  assert.deepEqual(results.pendingStudents, [{ studentId: 'b', name: 'b' }]);
+  assert.equal(results.responses[0].value, 0);
   assert.equal(store.get('done','b'),undefined);
   assert.equal((await call('learning-lesson-feedback/pending')).lesson,null);
   assert.equal((await call('learning-lesson-feedback/pending','b')).lesson.id,'done');
@@ -36,4 +39,11 @@ test('pace feedback is personal, limited to finished lessons, persisted and visi
   assert.equal((await call(endpoint,'t','teacher')).responses.length,1);
   assert.equal(createLessonPaceStore(file).get('done','a').value,100);
   await call(endpoint,'other','teacher',undefined,403);
+  lessons.push({ id: 'old', groupId: 'g', status: 'completed', participantIds: ['a'],
+    startAt: new Date(Date.now() - 30 * 86400000).toISOString() });
+  assert.equal((await call('learning-lesson-feedback/pending')).lesson.id, 'old', 'Unanswered feedback never expires after seven days');
+  assert.equal((await call('learning-lesson-feedback/pending')).lesson.id, 'old', 'Reopening does not dismiss feedback');
+  await call('learning-groups/g/lessons/old/pace', 'a', 'student', { value: 35 });
+  assert.equal((await call('learning-lesson-feedback/pending')).lesson, null);
+  assert.equal(createLessonPaceStore(file).get('old', 'a').value, 35);
 });

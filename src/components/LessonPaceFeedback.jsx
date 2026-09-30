@@ -12,7 +12,7 @@ export default function LessonPaceFeedback({ user, transport = lessonPaceApi }) 
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const delayed = useRef(new Map());
+  const answered = useRef(new Set());
   const dialog = useRef(null);
   useEffect(() => {
     if (user?.role !== 'student') return;
@@ -22,7 +22,7 @@ export default function LessonPaceFeedback({ user, transport = lessonPaceApi }) 
       pending = true;
       try {
         const next = (await transport.getPendingLessonPace()).lesson;
-        if (alive && next && (delayed.current.get(next.id) || 0) < Date.now()) {
+        if (alive && next && !answered.current.has(next.id)) {
           setLesson(current => current || next);
         }
       } catch { /* Lessons stay usable during an outage. */ }
@@ -30,27 +30,45 @@ export default function LessonPaceFeedback({ user, transport = lessonPaceApi }) 
     };
     void refresh();
     const timer = setInterval(refresh, 30000);
-    return () => { alive = false; clearInterval(timer); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      alive = false; clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
   }, [transport, user?.id, user?.role]);
   useEffect(() => {
     setValue(50); setTouched(false); setError('');
     if (!lesson) return;
     const previous = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     dialog.current?.focus();
-    return () => { if (previous?.isConnected) previous.focus(); };
+    const keepFocus = event => { if (!dialog.current?.contains(event.target)) dialog.current?.focus(); };
+    document.addEventListener('focusin', keepFocus);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('focusin', keepFocus);
+      if (previous?.isConnected) previous.focus();
+    };
   }, [lesson]);
   if (user?.role !== 'student' || !lesson) return null;
-  const later = () => { delayed.current.set(lesson.id, Date.now() + 30 * 60000); setLesson(null); };
   const save = async () => {
     setSaving(true); setError('');
     try {
       await transport.saveLessonPace(lesson.groupId, lesson.id, value);
-      delayed.current.set(lesson.id, Infinity); setLesson(null);
+      answered.current.add(lesson.id);
+      setLesson(null);
+      try {
+        const next = (await transport.getPendingLessonPace()).lesson;
+        if (next && !answered.current.has(next.id)) setLesson(next);
+      } catch { /* Remaining unanswered lessons will be retried by the refresh. */ }
     } catch (cause) { setError(cause.message || 'Не удалось сохранить. Попробуйте ещё раз.'); }
     finally { setSaving(false); }
   };
   const keyDown = event => {
-    if (event.key === 'Escape' && !saving) { event.preventDefault(); later(); }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); }
     if (event.key !== 'Tab') return;
     const elements = [...dialog.current.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
     const first = elements[0], last = elements.at(-1);
@@ -63,12 +81,13 @@ export default function LessonPaceFeedback({ user, transport = lessonPaceApi }) 
       <h2 id="lesson-pace-title">Как тебе темп урока?</h2>
       <p>{lesson.topic || 'Занятие'} · {new Date(lesson.startAt).toLocaleDateString('ru-RU')}</p>
       <p>Ответ увидит преподаватель. Это поможет выбрать удобный темп следующего занятия.</p>
+      <p>Выбери оценку и отправь её, чтобы продолжить.</p>
       <div className="lesson-pace-current" aria-live="polite">{paceLabel(value)}</div>
       <input aria-label="Насколько я поспеваю за темпом урока" aria-valuetext={paceLabel(value)} type="range" min="0" max="100" step="1" value={value} disabled={saving}
         onChange={event => { setValue(Number(event.target.value)); setTouched(true); }} />
       <div className="lesson-pace-labels"><span>Отстаю,<br />ничего не успеваю</span><button disabled={saving} onClick={() => { setValue(50); setTouched(true); }}>Всё круто,<br />я в темпе занятия</button><span>Слишком легко,<br />нужен темп быстрее</span></div>
       {error && <p role="alert">{error}</p>}
-      <div className="lesson-pace-actions"><button disabled={saving} onClick={later}>Позже</button><button className="lesson-pace-submit" disabled={saving || !touched} onClick={save}>{saving ? 'Сохраняем…' : 'Отправить оценку'}</button></div>
+      <div className="lesson-pace-actions"><button className="lesson-pace-submit" disabled={saving || !touched} onClick={save}>{saving ? 'Сохраняем…' : 'Отправить оценку'}</button></div>
     </section>
   </div>, document.body);
 }
@@ -89,8 +108,8 @@ export function LessonPaceResults({ groupId, lessonId, transport = lessonPaceApi
   return <div className="lesson-pace-results"><button onClick={() => setOpen(!open)} aria-expanded={open}>Темп урока — ответы учеников</button>
     {open && <div>{error && <p role="alert">{error}</p>}{!data && !error && <p>Загружаем…</p>}
       {data && <><p>Ответили {data.responses.length} из {data.total}</p>{data.responses.map(row => <div className="lesson-pace-response" key={row.studentId}>
-        <strong>{row.name}</strong><span>{paceLabel(row.value)}</span><meter min="0" max="100" value={row.value} aria-label={`${row.name}: ${paceLabel(row.value)}`} />
-      </div>)}</>}
+        <strong>{row.name}</strong><span>{paceLabel(row.value)} · {row.value}/100</span><meter min="0" max="100" value={row.value} aria-label={`${row.name}: ${paceLabel(row.value)}`} />
+      </div>)}{data.pendingStudents?.map(row => <div className="lesson-pace-response" key={row.studentId}><strong>{row.name}</strong><span>Ещё не оценил темп</span></div>)}</>}
     </div>}
   </div>;
 }

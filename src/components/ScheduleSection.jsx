@@ -1,8 +1,8 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import RutubeViewingHelp from './RutubeViewingHelp';
 const StudentLessonReschedule = React.lazy(() => import('./LessonReschedule').then(m => ({ default: m.StudentLessonReschedule })));
 import { isScheduleEntryInDateRange } from '../utils/scheduleDateRange';
 const StudentWeeklySchedule = React.lazy(() => import('./WeeklySchedule').then(m => ({ default: m.StudentWeeklySchedule })));
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Bell, BellOff, BookOpen, Calendar, CalendarDays, CheckCircle, ChevronRight, Clock3, EyeOff, HardDrive, History, ListChecks, Pencil, RefreshCcw, Save, Target, Trash2, Users, Video, WifiOff, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { api, authenticatedUploadsFetch } from '../services/api';
@@ -788,6 +788,7 @@ const ScheduleSection = ({
   const [lessonDetailReloadKey, setLessonDetailReloadKey] = useState(0);
   const [scheduleCompactMode, setScheduleCompactMode] = useState(false);
   const [lessonSchedule, setLessonSchedule] = useState([]);
+  const [individualScheduleAccess, setIndividualScheduleAccess] = useState(null);
   const [lessonTopicsByOccurrence, setLessonTopicsByOccurrence] = useState({});
   const [lessonTopicsLoading, setLessonTopicsLoading] = useState(false);
   const [lessonTopicsRefreshKey, setLessonTopicsRefreshKey] = useState(0);
@@ -854,6 +855,16 @@ const ScheduleSection = ({
   const homeworkRewardDialogTriggerRef = React.useRef(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  const canRequestIndividualSchedule = role === 'student'
+    && individualScheduleAccess?.studentId === effectiveStudentId
+    && individualScheduleAccess.allowed;
+
+  useEffect(() => {
+    if (!canRequestIndividualSchedule) {
+      setRescheduleOpen(false);
+      setWeeklyScheduleOpen(false);
+    }
+  }, [canRequestIndividualSchedule]);
   const requestStudentId = role === 'teacher' ? effectiveStudentId : '';
   const mockAttemptStudentId = role === 'student' ? null : effectiveStudentId;
   const useNativeAndroidPush = isNativeAndroidPushEnvironment();
@@ -1010,17 +1021,20 @@ const ScheduleSection = ({
   const loadSchedule = useCallback(async () => {
     if (!effectiveStudentId) {
       setLessonSchedule([]);
+      setIndividualScheduleAccess(null);
       setScheduleEditingId(null);
       setScheduleForm({ ...DEFAULT_SCHEDULE_FORM });
       return;
     }
     setScheduleLoading(true);
     try {
-      const data = await api.getStudentSchedule(requestStudentId);
-      setLessonSchedule(sortScheduleEntries(Array.isArray(data) ? data : []));
+      const data = await api.getStudentSchedule(requestStudentId, true);
+      setLessonSchedule(sortScheduleEntries(Array.isArray(data?.schedule) ? data.schedule : []));
+      setIndividualScheduleAccess({ studentId: effectiveStudentId, allowed: data?.canRequestIndividualSchedule === true });
       setScheduleError('');
     } catch (err) {
       setLessonSchedule([]);
+      setIndividualScheduleAccess(null);
       setScheduleError(err?.message || err);
     } finally {
       setScheduleLoading(false);
@@ -1314,7 +1328,7 @@ const ScheduleSection = ({
         : {};
       const [nextLessonResult, scheduleResult, scheduleRequestsResult, studentDataResult] = await Promise.allSettled([
         api.getStudentNextLesson(requestStudentId),
-        api.getStudentSchedule(requestStudentId),
+        api.getStudentSchedule(requestStudentId, true),
         role === 'teacher' ? api.getStudentScheduleRequests(requestParams) : Promise.resolve([]),
         api.getStudentData(requestStudentId),
       ]);
@@ -1336,9 +1350,12 @@ const ScheduleSection = ({
         }
       }
       if (scheduleResult.status === 'fulfilled') {
-        setLessonSchedule(sortScheduleEntries(Array.isArray(scheduleResult.value) ? scheduleResult.value : []));
+        const data = scheduleResult.value;
+        setLessonSchedule(sortScheduleEntries(Array.isArray(data?.schedule) ? data.schedule : []));
+        setIndividualScheduleAccess({ studentId: effectiveStudentId, allowed: data?.canRequestIndividualSchedule === true });
         setScheduleError('');
       } else {
+        setIndividualScheduleAccess(null);
         setScheduleError(scheduleResult.reason?.message || scheduleResult.reason);
       }
       if (scheduleRequestsResult.status === 'fulfilled') {
@@ -5387,8 +5404,8 @@ const ScheduleSection = ({
               </div>
             </div>
             <div className="student-today-schedule-card__actions flex flex-wrap items-center gap-2">
-              {role === 'student' && <button type="button" onClick={() => setWeeklyScheduleOpen(true)} className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700"><CalendarDays size={14}/>Выбрать время занятий</button>}
-              {role === 'student' && <button type="button" onClick={() => setRescheduleOpen(true)} className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700"><CalendarDays size={14}/>Перенести занятие</button>}
+              {canRequestIndividualSchedule && <button type="button" onClick={() => setWeeklyScheduleOpen(true)} className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700"><CalendarDays size={14}/>Выбрать время занятий</button>}
+              {canRequestIndividualSchedule && <button type="button" onClick={() => setRescheduleOpen(true)} className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700"><CalendarDays size={14}/>Перенести занятие</button>}
               {role === 'teacher' && effectiveStudentId && (
                 <button
                   type="button"
@@ -5440,8 +5457,8 @@ const ScheduleSection = ({
           </div>
 
           <div className="space-y-4">
-              {rescheduleOpen && <React.Suspense fallback={<p role="status">Загружаем перенос…</p>}><StudentLessonReschedule onClose={() => setRescheduleOpen(false)} /></React.Suspense>}
-              {weeklyScheduleOpen && <React.Suspense fallback={<p role="status">Загружаем выбор времени…</p>}><StudentWeeklySchedule onClose={() => setWeeklyScheduleOpen(false)} /></React.Suspense>}
+              {canRequestIndividualSchedule && rescheduleOpen && <React.Suspense fallback={<p role="status">Загружаем перенос…</p>}><StudentLessonReschedule onClose={() => setRescheduleOpen(false)} /></React.Suspense>}
+              {canRequestIndividualSchedule && weeklyScheduleOpen && <React.Suspense fallback={<p role="status">Загружаем выбор времени…</p>}><StudentWeeklySchedule onClose={() => setWeeklyScheduleOpen(false)} /></React.Suspense>}
               {scheduleRequestNotice && (
                 <div className="schedule-shell__notice-success rounded-2xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs font-semibold text-emerald-700">
                   {scheduleRequestNotice}

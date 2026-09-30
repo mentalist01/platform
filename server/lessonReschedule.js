@@ -62,11 +62,15 @@ export function overlayReschedules(entries, teacherId, store) {
 
 export const movedGoogleEntryId = row => `google-ical-${crypto.createHash('sha1').update(`${row.teacherId}:${row.googleResult.iCalUID || row.source.externalEventId}:${new Date(lessonStart(row.target)).toISOString()}`).digest('hex').slice(0,18)}`;
 
-export function registerLessonReschedules(app, { store, getStudent, getEntries, googleMove, applyLocal, notify = () => {}, now = Date.now }) {
+export function registerLessonReschedules(app, { store, getStudent, getEntries, googleMove, applyLocal, canRequestIndividualSchedule = () => true, notify = () => {}, now = Date.now }) {
+  const checkIndividualAccess = studentId => {
+    if (!canRequestIndividualSchedule(studentId)) fail('Расписание мини-группы меняет преподаватель для всей группы.', 403);
+  };
   const studentAccess = auth => {
     if (auth?.role !== 'student') fail('Нет доступа', 403);
     const student = getStudent(auth.id);
     if (!student || student.deletedAt || !student.teacherId) fail('Преподаватель не назначен', 403);
+    checkIndividualAccess(student.id);
     return student;
   };
   const requestAccess = (auth, id) => {
@@ -160,6 +164,7 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
     const lessons=ownLessons(entries,getStudent(row.studentId));
     let proposed=current, conflict='';
     try {
+      if(current.status==='pending') checkIndividualAccess(current.studentId);
       proposed=proposedRequest(current,lessons,req.query.lessonKey);
       if(current.status==='pending'){checkOtherRequests(proposed);checkTarget(proposed.target,proposed.source);checkFree(entries,proposed.source,proposed.target,proposed.teacherId,proposed.id);}
     } catch(e) { conflict=e.message; }
@@ -180,6 +185,7 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
         if(row.status==='applying')fail('Перенос уже начат. Сначала завершите синхронизацию.',409);
         row=store.put({...row,status:action==='cancel'?'cancelled':'rejected',resolvedAt:now(),resolutionNote:String(req.body?.note||'').trim().slice(0,400)});
       }else{
+        if(row.status==='pending') checkIndividualAccess(row.studentId);
         if(row.status==='applying' && req.body?.lessonKey && req.body.lessonKey!==occurrenceKey(row.source)) fail('Перенос уже начат. Исходное занятие менять нельзя.',409);
         if(row.status==='applying' && !row.googleResult){
           // Recover a committed Google write before consulting the feed: it may
@@ -190,6 +196,7 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
         }
         if(!row.googleResult){
           const entries=await loadEntries(row.teacherId); requestAccess(req.auth,row.id);
+          if(row.status==='pending') checkIndividualAccess(row.studentId);
           row=proposedRequest(row,ownLessons(entries,getStudent(row.studentId)),req.body?.lessonKey);
           if(req.body?.sourceDurationMinutes !== undefined && Number(req.body.sourceDurationMinutes)!==row.source.durationMinutes) fail('Длительность занятия изменилась. Проверьте перенос заново.',409);
           checkOtherRequests(row);

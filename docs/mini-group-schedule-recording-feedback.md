@@ -1,0 +1,17 @@
+# Mini-group schedules, recordings and pace feedback
+
+Active members of a non-completed group use their group's timetable. Individual weekly scheduling and lesson transfer controls are hidden; the server also rejects new requests and pending approvals while that membership exists. Leaving or completing the group restores individual scheduling. An already applying calendar operation can still recover safely.
+
+Approving a group timetable keeps all student availability answers. The approved view now displays those answers and participant details. **Мини-группы → Выбрать время → Изменить расписание** reopens the same availability conditions with a new round ID, retaining saved choices and the currently approved plan. New participants can answer and existing participants can revise their own answers. A new proposal requires fresh consent from every current member. Reopening does not alter scheduled lesson IDs, recordings or calendar bookings. Separately created Google Calendar events retain their existing calendar editing flow.
+
+Google Calendar imports and approved group availability plans can describe one occurrence under different IDs and titles. Calendars merge matching group, date, time and duration, retaining the Google payment identity. Group lesson lists prefer the Google session, except an active session or a session with existing recording data or feedback is preserved. No stored lesson or recording is deleted; distinct recordings remain accessible. Plan generation avoids creating another copy of an imported occurrence.
+
+The teacher's successful connection to a native group voice channel starts desktop recording in platform audio mode. Switching channels or returning to the board keeps the job running. Completing the lesson or the server cutoff ends it. Telemost keeps its existing audio mode. The local recorder must be enabled and connected; its errors appear in the voice channel view.
+
+The same lesson replay is available in lesson history and **Моя группа → Занятия → Запись занятия**. The group endpoint uses lesson participant and teacher access checks and the existing player for Rutube or platform audio, board and code recordings.
+
+After a completed group lesson, the student must select and save a pace value from 0 to 100. Escape and clicking outside cannot dismiss the prompt. Unanswered lessons remain pending without an expiry and are checked on entry, focus and periodically. Saving is confirmed by the server before the prompt closes; another unanswered lesson is shown next. Teacher results are under **Мини-группы → Занятия → Темп урока — ответы учеников**, including named values, pace labels and students who have not answered.
+
+Validation: 146 automated tests passed, covering membership restrictions, calendar and plan duplicates, payments, transfers, replay permissions and persistence, desktop recording lifecycle, native versus Telemost audio mode, recorder engine and OBS source configuration, reopened availability and new member consent. Production build and targeted lint passed. Browser checks used an isolated copy of the actual application and API: membership controls, mandatory feedback after reload, teacher results, shared board/code playback, mobile feedback layout, saved availability after approval and new participant choices.
+
+Real microphone capture and audio quality during a live group lesson were not exercised. Existing teacher recorder processes were left running; a short live recording remains the practical check for microphone/device configuration.

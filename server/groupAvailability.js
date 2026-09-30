@@ -90,6 +90,9 @@ export function materializeAvailabilityPlans(plans, groups, lessons, createLesso
       const startAt = `${date}T${slot.time}:00+03:00`; if (Date.parse(startAt) <= now) continue;
       const id = crypto.createHash('sha256').update(`${group.id}|${plan.id}|${date}|${slot.id}`).digest('hex').slice(0, 32);
       if (result.some(l => l.id === id)) continue; // Includes manually cancelled instances.
+      if (result.some(l => l.groupId === group.id && l.source === 'google-calendar'
+        && l.status !== 'cancelled' && Date.parse(l.startAt) === Date.parse(startAt)
+        && Number(l.durationMinutes) === plan.config.durationMinutes)) continue;
       result.push(createLesson(group, { startAt, durationMinutes: plan.config.durationMinutes, topic: group.name,
         source: 'availability-plan', scheduleEntryId: `${plan.id}:${slot.id}` }, { id, allowBeforeStart: true })); changed = true;
     }
@@ -126,12 +129,12 @@ export function registerGroupAvailability(app, deps) {
     res.setHeader('Cache-Control', 'no-store');
     let release; let tail; let lockKey;
     try {
-      let group = access(req, ['open', 'approve'].includes(action));
+      let group = access(req, ['open', 'reopen', 'approve'].includes(action));
       if (action !== 'get') {
         lockKey = group.teacherId;
         const previous = locks.get(lockKey) || Promise.resolve();
         tail = new Promise(resolve => { release = resolve; }); locks.set(lockKey, tail);
-        await previous; group = access(req, ['open', 'approve'].includes(action));
+        await previous; group = access(req, ['open', 'reopen', 'approve'].includes(action));
         if (group.status === 'completed') fail('Группа завершена', 409);
       }
       let poll = store.get(group.id); const body = req.body || {};
@@ -143,6 +146,13 @@ export function registerGroupAvailability(app, deps) {
         await getBusyEntries(group, config);
         poll = { id: crypto.randomUUID(), config, status: 'open', answers: {}, proposal: null,
           plan: poll?.plan || null, updatedAt: Date.now() };
+      } else if (action === 'reopen') {
+        if (!poll || poll.id !== body.roundId || poll.status !== 'approved') fail('Расписание уже изменилось. Обновите страницу.', 409);
+        const config = currentAvailabilityConfig(poll.config);
+        await getBusyEntries(group, config);
+        // Availability is independent of the approved pair. Preserve every
+        // pupil's saved choices; a new round invalidates stale confirmations.
+        poll = { ...poll, id: crypto.randomUUID(), config, status: 'open', proposal: null };
       } else if (action !== 'get') {
         if (!poll || poll.id !== body.roundId || poll.status !== 'open') fail('Этот подбор уже завершён или изменился. Обновите страницу.', 409);
         if (action === 'answer') {
@@ -190,7 +200,7 @@ export function registerGroupAvailability(app, deps) {
           poll.status = 'approved';
         }
       }
-      group = access(req, ['open', 'approve'].includes(action));
+      group = access(req, ['open', 'reopen', 'approve'].includes(action));
       if (action !== 'get') {
         if (group.status === 'completed') fail('Группа завершена', 409);
         poll.updatedAt = Date.now(); store.put(group.id, poll); if (action === 'approve') materialize();
@@ -200,5 +210,5 @@ export function registerGroupAvailability(app, deps) {
     finally { if (release) { release(); if (locks.get(lockKey) === tail) locks.delete(lockKey); } }
   };
   app.get('/api/learning-groups/:groupId/availability', route('get'));
-  for (const action of ['open', 'answer', 'propose', 'vote', 'approve']) app.post(`/api/learning-groups/:groupId/availability/${action}`, route(action));
+  for (const action of ['open', 'reopen', 'answer', 'propose', 'vote', 'approve']) app.post(`/api/learning-groups/:groupId/availability/${action}`, route(action));
 }

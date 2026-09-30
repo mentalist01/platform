@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Headphones, Loader2, LogOut, Megaphone, Mic, Pencil, Plus, Users } from 'lucide-react';
 import { api } from '../services/api';
 import CallSection from './CallSection';
+import useDesktopRecording from '../hooks/useDesktopRecording';
+import useRecorderShare from '../hooks/useRecorderShare';
 import './GroupVoiceChannels.css';
 
 export default function GroupVoiceChannels({ lesson, user, students, theme, visible, onOpenCall, onBack }) {
@@ -11,6 +13,8 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const [selectedId, setSelectedId] = useState('');
   const [connectionKey, setConnectionKey] = useState(0);
   const [callStatus, setCallStatus] = useState('idle');
+  const [recordingRequested, setRecordingRequested] = useState(false);
+  const [desktopShareTrack, setDesktopShareTrack] = useState(null);
   const [channelName, setChannelName] = useState('');
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState('');
@@ -23,6 +27,9 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const presenceRevisionRef = useRef(0);
   const isTeacher = user.role === 'teacher' || user.role === 'admin';
   const { groupId, lessonId } = lesson;
+  const recorder = useDesktopRecording({ user, learningLessonId: lessonId, audioMode: 'platform',
+    active: recordingRequested && snapshot?.canJoin !== false });
+  useRecorderShare({ enabled: recorder.enabled && isTeacher, jobId: recorder.jobId, track: desktopShareTrack });
 
   useEffect(() => {
     let active = true;
@@ -74,8 +81,9 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   }, [lessonId]);
   const onCallStatusChange = useCallback((status) => {
     setCallStatus(status);
+    if (isTeacher && status === 'connected') setRecordingRequested(true);
     void refreshRef.current?.();
-  }, []);
+  }, [isTeacher]);
 
   const leave = useCallback(() => {
     setSelectedId('');
@@ -84,9 +92,13 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     void refreshRef.current?.();
   }, []);
 
-  const join = (channelId) => {
+  const join = async (channelId) => {
     if (!snapshot?.canJoin) return;
     if (selectedId === channelId && callStatus !== 'idle') return;
+    if (isTeacher && lesson.status !== 'active') {
+      try { await api.updateLearningGroupLesson(groupId, lessonId, { status: 'active' }); }
+      catch (error) { setActionError(error?.message || 'Не удалось начать занятие'); return; }
+    }
     setSelectedId(channelId);
     setConnectionKey((key) => key + 1);
     setCallStatus('connecting');
@@ -160,6 +172,11 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     <div className="group-voice" data-theme={theme}>
       <div hidden={!visible}>
         {(loadError || actionError) && <p className="group-voice__error" role="alert">{actionError || loadError}</p>}
+        {isTeacher && recordingRequested && recorder.enabled && <p className="group-voice__notice" role="status">
+          {recorder.error || (recorder.settings?.jobs?.find(job => job.id === recorder.jobId)?.status === 'recording'
+            ? 'Занятие записывается. Запись продолжится при переходе между каналами.'
+            : 'Запись занятия включена. Проверьте её состояние в локальном пульте.')}
+        </p>}
         {notice && <p className="group-voice__notice" role="status">{notice}</p>}
         {snapshot && !canConnect && <p className="group-voice__notice">{snapshot.joinError || 'Голосовая связь недоступна для завершённого занятия.'}</p>}
         <div className="group-voice__layout">
@@ -243,6 +260,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 students={students} lessonId={lessonId} groupId={groupId} channelId={selected.id}
                 participantIds={lesson.participantIds} hideStudentPicker channelSelectionMode theme={theme}
                 autoStartToken={1} onStatusChange={onCallStatusChange} onChannelPresence={onChannelPresence}
+                onDesktopShare={setDesktopShareTrack}
                 initialMicEnabled={micPreferenceRef.current} onMicStateChange={rememberMic} onChannelMove={onChannelMove}
                 uiMode={visible ? 'full' : 'collapsed'} onRequestOpenCall={onOpenCall}
               />

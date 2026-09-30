@@ -11,9 +11,10 @@ const source={id:'lesson',studentId:'a',studentName:'Аня',date:'2026-09-25',t
 async function fixture(t,options={}) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'reschedule-unit-'));
   const file=path.join(root,'requests.json');const store=createRescheduleStore(file);
-  const state={entries:[source],writes:0,applied:0,notices:[],students:{a:{id:'a',name:'Аня',teacherId:'t'},b:{id:'b',name:'Боря',teacherId:'t'}}};
+  const state={groupStudents:new Set(),entries:[source],writes:0,applied:0,notices:[],students:{a:{id:'a',name:'Аня',teacherId:'t'},b:{id:'b',name:'Боря',teacherId:'t'}}};
   const app=express();app.use(express.json());app.use((req,_res,next)=>{const [role,id]=String(req.headers.authorization||'').split(':');req.auth={role,id};next();});
   registerLessonReschedules(app,{store,now:options.now||now,getStudent:id=>structuredClone(state.students[id]),getEntries:async()=>options.getEntries?options.getEntries(state):state.entries,
+    canRequestIndividualSchedule:id=>!state.groupStudents.has(id),
     googleMove:async(row,opt)=>{if(options.googleMove)return options.googleMove(row,opt,state);if(opt?.recoverOnly)return null;state.writes++;state.moved=structuredClone(row);return {eventId:'event',iCalUID:'uid'};},
     applyLocal:async row=>{state.applied++;if(options.applyLocal)await options.applyLocal(row,state);else state.entries=[{...row.target,studentId:row.studentId,externalEventId:'uid'}];},
     notify:(row,action)=>state.notices.push(action)});
@@ -62,10 +63,46 @@ test('two pupils competing for a slot cannot both receive approval',async t=>{
 test('lost Google response recovers committed write before stale feed conflict; local retry survives restart',async t=>{
   const {req,create,state,store}=await fixture(t,{googleMove:async(row,opt,s)=>{if(opt?.recoverOnly)return {eventId:'new',iCalUID:'new-uid'};s.writes++;s.entries.push({...row.target,studentId:'a',externalEventId:'new-uid'});throw Error('timeout');}});
   const row=await create();await req(`/${row.id}/approve`,'teacher:t',{},503);assert.equal(store.get(row.id).status,'applying');
+  state.groupStudents.add('a');
   assert.equal((await req(`/${row.id}/preview`,'teacher:t')).conflict,'','Recovery must stay available when Google already contains the new event');
   await req(`/${row.id}/cancel`,'student:a',{},409);
   assert.equal((await req(`/${row.id}/approve`,'teacher:t',{})).status,'approved');assert.equal(state.writes,1);assert.equal(state.applied,1);
 });
+test('mini-group membership blocks individual transfers and pending approval, but preserves history and rejection', async t => {
+  const { req, create, state } = await fixture(t);
+  const row = await create();
+  state.groupStudents.add('a');
+  await req('/availability', 'student:a', undefined, 403);
+  await req('', 'student:a', {}, 403);
+  assert.equal((await req()).requests[0].id, row.id);
+  assert.match((await req(`/${row.id}/preview`, 'teacher:t')).conflict, /мини-группы/);
+  await req(`/${row.id}/approve`, 'teacher:t', {}, 403);
+  assert.equal(state.writes, 0);
+  assert.equal(state.applied, 0);
+  assert.equal((await req(`/${row.id}/reject`, 'teacher:t', {})).status, 'rejected');
+  state.groupStudents.delete('a');
+  const next = await create();
+  assert.equal((await req(`/${next.id}/approve`, 'teacher:t', {})).status, 'approved');
+});
+
+test('joining a mini-group during transfer calendar lookup blocks availability, creation and approval', async t => {
+  for (const action of ['availability', 'create', 'approve']) {
+    let join = false;
+    const { req, create, state, store } = await fixture(t, { getEntries: s => {
+      if (join) s.groupStudents.add('a');
+      return s.entries;
+    } });
+    const row = action === 'approve' ? await create() : null;
+    join = true;
+    if (action === 'availability') await req('/availability', 'student:a', undefined, 403);
+    if (action === 'create') await req('', 'student:a', { lessonKey: occurrenceKey(source), date: '2026-09-28', time: '18:00' }, 403);
+    if (action === 'approve') await req(`/${row.id}/approve`, 'teacher:t', {}, 403);
+    assert.equal(state.writes, 0);
+    assert.equal(state.applied, 0);
+    assert.ok(store.all().every(r => r.status === 'pending'));
+  }
+});
+
 test('definite Google rejection never changes local schedule, allows cancel',async t=>{
   const {req,create,state,store}=await fixture(t,{googleMove:async()=>{throw Object.assign(Error('Connect Google'),{status:409,definite:true});}});
   const row=await create();await req(`/${row.id}/approve`,'teacher:t',{},409);assert.equal(store.get(row.id).status,'pending');assert.equal(state.applied,0);

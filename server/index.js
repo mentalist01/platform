@@ -1,5 +1,6 @@
 import { calculateLessonPrice, isDurationPricing, lessonRateAt, normalizePricingHistory, recordPricingChange, matchLessonPaymentTotal } from '../src/utils/lessonPricing.js';
 import { registerWeeklySchedules, applyWeeklySchedule, weeklyReservations } from './weeklySchedule.js';
+import { deduplicateGroupScheduleEntries, deduplicateGroupLessonSessions } from './groupScheduleDuplicates.js';
 import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { weeklyScheduleLabel } from '../src/utils/weeklySchedule.js';
 import { PYTHON_RUNNER_SCRIPT } from './pythonRunnerSource.js';
@@ -16525,11 +16526,11 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
   const studentId = String(student?.id || '').trim();
   const teacherId = normalizeTeacherId(student?.teacherId);
   materializeAvailabilitySchedules();
-  const rawBaseSchedule = [
+  const rawBaseSchedule = deduplicateGroupScheduleEntries([
     ...(Array.isArray(schedule) ? schedule : []),
-    ...availabilityCalendarEntries(teacherId, true)
+    ...availabilityCalendarEntries(teacherId, true, true)
       .map(entry => projectGoogleCalendarEntryForPaymentStudent(entry, student)).filter(Boolean),
-  ];
+  ]);
   if (!studentId || !teacherId) return rawBaseSchedule;
 
   try {
@@ -21907,6 +21908,7 @@ registerDesktopRecordingRoutes(app, desktopRecordings, {
       if (!context) return null;
       if (context.lesson.status !== 'active') { res.status(409).json({ error: 'Сначала начните занятие' }); return null; }
       occurrence = buildLearningGroupReplayOccurrence(context);
+      audioMode = req.body.audioMode === 'platform' ? 'platform' : 'telemost';
       cutoffAt = occurrence.endMs + LEARNING_LESSON_OVERRUN_GRACE_MS;
     } else {
       const student = ensureStudentAccess(req, res, req.body?.studentId);
@@ -23265,8 +23267,10 @@ const serializeLearningLessonForAuth = (lesson, auth = null, groupValue = null) 
   const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || currentStudentMember;
   const telemostUrlOverride = canUseTelemost ? normalizeTelemostUrl(lesson?.telemostUrl) : '';
   const groupTelemostUrl = canUseTelemost ? normalizeTelemostUrl(group?.telemostUrl) : '';
+  const recording = getLessonReplaySummary(buildLearningGroupLessonReplayKey(lesson.id));
   return {
     ...lesson,
+    recording: { available: recording.available === true, provider: recording.provider || 'platform', status: recording.status || '' },
     ...(names || {}),
     telemostUrl: telemostUrlOverride || groupTelemostUrl,
     telemostUrlOverride,
@@ -23914,9 +23918,14 @@ const studentAssignedLearningMaterial = (studentId, material, group = null) => {
 
 const weeklyScheduleStore = createRescheduleStore(path.join(dataDir, 'weekly-schedules.json'));
 const lessonRescheduleStore = createRescheduleStore(path.join(dataDir, 'lesson-reschedules.json'));
+const lessonPaceStore = createLessonPaceStore(path.join(dataDir, 'lesson-pace.json'));
+const readResolvedGroupLessonSessions = () => deduplicateGroupLessonSessions(readLearningLessonSessionsDb(), lesson => {
+  const recording = getLessonReplaySummary(buildLearningGroupLessonReplayKey(lesson.id));
+  return recording.available || recording.provider === 'rutube' || recording.eventCount > 0 || lessonPaceStore.list(lesson.id).length > 0;
+});
 registerLessonPace(app, {
-  store: createLessonPaceStore(path.join(dataDir, 'lesson-pace.json')),
-  lessons: () => { reconcileLearningGroupLifecycle(); return readLearningLessonSessionsDb(); },
+  store: lessonPaceStore,
+  lessons: () => { reconcileLearningGroupLifecycle(); return readResolvedGroupLessonSessions(); },
   groupById: getLearningGroupById,
   canManage: canManageLearningGroup,
   canRead: (auth, lesson, group) => Boolean(group && !group.deletedAt
@@ -23934,10 +23943,10 @@ const materializeAvailabilitySchedules = (force = false) => {
   }
   lastAvailabilityMaterialized = Date.now();
 };
-const availabilityCalendarEntries = (teacherId, onlyGenerated = false) => {
+const availabilityCalendarEntries = (teacherId, onlyGenerated = false, includeImported = false) => {
   const groups = readLearningGroupsDb();
-  return readLearningLessonSessionsDb().filter(lesson => lesson.teacherId === teacherId && lesson.status !== 'cancelled'
-    && (!onlyGenerated || lesson.source === 'availability-plan')).map(lesson => {
+  return readResolvedGroupLessonSessions().filter(lesson => lesson.teacherId === teacherId && lesson.status !== 'cancelled'
+    && (!onlyGenerated || lesson.source === 'availability-plan' || (includeImported && lesson.source === 'google-calendar'))).map(lesson => {
     const group = groups.find(g => g.id === lesson.groupId);
     const parts = getDatePartsInCalendarTimeZone(new Date(lesson.startAt));
     const weekday = getScheduleWeekdayMetaFromDate(parts.dayKey);
@@ -23946,6 +23955,7 @@ const availabilityCalendarEntries = (teacherId, onlyGenerated = false) => {
       durationMinutes: lesson.durationMinutes, subject: group?.name || 'Мини-группа', groupId: lesson.groupId,
       groupName: group?.name || 'Мини-группа', studentName: group?.name || 'Мини-группа', teacherId, studentId: '', isLearningGroupEvent: true, isTeacherSlot: false,
       lessonId: lesson.id, participantIds: lesson.participantIds, source: lesson.source, status: lesson.status,
+      ...(lesson.externalEventId ? { externalEventId: lesson.externalEventId, externalOccurrenceId: lesson.externalOccurrenceId, externalCalendarProvider: 'Google Calendar' } : {}),
       telemostUrl: lesson.telemostUrl || group?.telemostUrl || '',
       startAt: lesson.startAt, replayKey: buildLearningGroupLessonReplayKey(lesson.id) };
   });
@@ -23980,7 +23990,21 @@ const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '', 
       ...lessonRescheduleStore.all().filter(r => r.teacherId === teacherId && r.status === 'applying').map(r => ({ ...r.target, rescheduleRequestId: r.id }))]
       .map(e => annotateTeacherCalendarCancellation(teacherId, e, marks));
 };
+const canRequestIndividualSchedule = studentId => {
+  const student = findStudentById(studentId);
+  if (!student || student.deletedAt || !student.teacherId) return false;
+  return !readLearningGroupsDb().some(group => !group.deletedAt && group.status !== 'completed'
+    && group.teacherId === student.teacherId && isLearningGroupMember(group, student.id, { activeOnly: true }));
+};
+
+const notifyLearningGroupScheduleAccess = group => {
+  for (const member of group.members || []) {
+    notifyScheduleSyncUpdate({ scope: 'learning-group-membership', teacherId: group.teacherId, studentId: member.studentId, entryId: group.id });
+  }
+};
+
 registerWeeklySchedules(app, {
+  canRequestIndividualSchedule,
   store: weeklyScheduleStore, getStudent: findStudentById,
   getSchedule: id => getStudentData(id).schedule || [], getEntries: getFreshLessonCalendarEntries,
   applyLocal: row => {
@@ -23999,6 +24023,7 @@ registerWeeklySchedules(app, {
   },
 });
 registerLessonReschedules(app, {
+  canRequestIndividualSchedule,
   store: lessonRescheduleStore, getStudent: findStudentById, getEntries: getFreshLessonCalendarEntries,
   googleMove: async (row, { recoverOnly = false } = {}) => {
     let accessToken;
@@ -24156,6 +24181,7 @@ app.post('/api/learning-groups', handleLearningRoute((req, res) => {
     group = addLearningGroupMember(group, student, { actorId: req.auth.id });
   });
   writeLearningGroupsDb([group, ...readLearningGroupsDb()]);
+  notifyLearningGroupScheduleAccess(group);
   return res.status(201).json({ group: serializeLearningGroupForAuth(group, req.auth) });
 }));
 
@@ -24192,6 +24218,7 @@ app.post('/api/learning-groups/:groupId/members', handleLearningRoute((req, res)
   writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
   synchronizeLearningGroupAssignmentRecipients(updated, { addedStudentId: student.id });
   syncLearningGroupUpcomingLessonParticipants(updated);
+  notifyLearningGroupScheduleAccess(updated);
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
@@ -24204,6 +24231,7 @@ app.delete('/api/learning-groups/:groupId/members/:studentId', handleLearningRou
   closeLearningGroupStudentLessonConnections(group.id, removedStudentId);
   syncLearningGroupUpcomingLessonParticipants(updated);
   synchronizeLearningGroupHomeworksForStudent(removedStudentId);
+  notifyLearningGroupScheduleAccess(updated);
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
@@ -24221,6 +24249,7 @@ app.post('/api/learning-groups/:groupId/complete', handleLearningRoute((req, res
   const updated = completeLearningGroup(group, { actorId: req.auth.id });
   writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
   reconcileLearningGroupLifecycle(Date.now(), { force: true });
+  notifyLearningGroupScheduleAccess(updated);
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
@@ -24238,7 +24267,7 @@ app.put('/api/learning-groups/:groupId/schedule', handleLearningRoute((req, res)
 app.get('/api/learning-groups/:groupId/lessons', handleLearningRoute(async (req, res) => {
   const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
   if (!group) return;
-  let lessons = readLearningLessonSessionsDb().filter((lesson) => lesson.groupId === group.id);
+  let lessons = readResolvedGroupLessonSessions().filter((lesson) => lesson.groupId === group.id);
   if (isStudentRole(req.auth)) {
     lessons = lessons.filter((lesson) => canAccessLearningLessonSessionRecord(req.auth, lesson, {
       group,
@@ -32810,6 +32839,10 @@ app.get('/api/student-schedule', async (req, res) => {
     schedule = data.schedule || [];
   }
   const responseSchedule = await buildStudentSchedulePaymentResponse(student, schedule);
+  if (req.query.includeOptions === '1') {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ schedule: responseSchedule, canRequestIndividualSchedule: canRequestIndividualSchedule(student.id) });
+  }
   res.json(responseSchedule);
 });
 
@@ -32955,7 +32988,7 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
   const learningGroupsById = new Map(
     readLearningGroupsDb().map((group) => [String(group?.id || '').trim(), group])
   );
-  const groupLessonSchedule = readLearningLessonSessionsDb()
+  const groupLessonSchedule = readResolvedGroupLessonSessions()
     .filter((lesson) => (
       Array.isArray(lesson?.participantIds)
       && String(lesson?.status || '').trim() !== 'cancelled'
@@ -33509,6 +33542,19 @@ const serializeLessonReplayForClient = (replay) => {
     })),
   };
 };
+
+app.get('/api/learning-groups/:groupId/lessons/:lessonId/replay', (req, res) => {
+  const context = ensureLearningGroupReplayAccess(req, res, req.params.lessonId);
+  if (!context) return;
+  if (context.group.deletedAt || context.group.id !== req.params.groupId) return res.status(404).json({ error: 'Занятие не найдено' });
+  const occurrence = buildLearningGroupReplayOccurrence(context);
+  if (!occurrence) return res.status(404).json({ error: 'Занятие не найдено' });
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({
+    lesson: { ...occurrence, topic: context.lesson.topic, groupName: context.group.name },
+    replay: desktopRecordings.replay(occurrence.key) || serializeLessonReplayForClient(readLessonReplay(occurrence.key)),
+  });
+});
 
 const serializeStudentLessonHistoryEntry = (entry, replayStorage = null, student = null) => ({
   key: entry.key,
@@ -36051,7 +36097,7 @@ app.get('/api/teacher-schedule', async (req, res) => {
     .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
     .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(entry, homeworkProgressByStudentId));
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
-  return res.json([
+  return res.json(deduplicateGroupScheduleEntries([
     ...localEntries,
     ...availabilityCalendarEntries(teacher.id, true)
       .map(entry => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
@@ -36062,7 +36108,7 @@ app.get('/api/teacher-schedule', async (req, res) => {
         annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry),
         homeworkProgressByStudentId
       )),
-  ]);
+  ]));
 });
 
 const getTeacherCalendarCancellationStudentIds = (entry) => Array.from(new Set([
