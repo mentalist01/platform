@@ -13,8 +13,8 @@ async function fixture(t,options={}) {
   const file=path.join(root,'requests.json');const store=createRescheduleStore(file);
   const state={entries:[source],writes:0,applied:0,notices:[],students:{a:{id:'a',name:'Аня',teacherId:'t'},b:{id:'b',name:'Боря',teacherId:'t'}}};
   const app=express();app.use(express.json());app.use((req,_res,next)=>{const [role,id]=String(req.headers.authorization||'').split(':');req.auth={role,id};next();});
-  registerLessonReschedules(app,{store,now,getStudent:id=>structuredClone(state.students[id]),getEntries:async()=>options.getEntries?options.getEntries(state):state.entries,
-    googleMove:async(row,opt)=>{if(options.googleMove)return options.googleMove(row,opt,state);if(opt?.recoverOnly)return null;state.writes++;return {eventId:'event',iCalUID:'uid'};},
+  registerLessonReschedules(app,{store,now:options.now||now,getStudent:id=>structuredClone(state.students[id]),getEntries:async()=>options.getEntries?options.getEntries(state):state.entries,
+    googleMove:async(row,opt)=>{if(options.googleMove)return options.googleMove(row,opt,state);if(opt?.recoverOnly)return null;state.writes++;state.moved=structuredClone(row);return {eventId:'event',iCalUID:'uid'};},
     applyLocal:async row=>{state.applied++;if(options.applyLocal)await options.applyLocal(row,state);else state.entries=[{...row.target,studentId:row.studentId,externalEventId:'uid'}];},
     notify:(row,action)=>state.notices.push(action)});
   const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
@@ -89,4 +89,74 @@ test('Google feed overlay hides old occurrence until observed, then allows futur
   const moved=overlayReschedules([row.source],'t',store);assert.equal(moved.length,1);assert.equal(moved[0].time,'18:00');
   overlayReschedules(moved,'t',store);assert.equal(store.get('r').feedObserved,true);
   assert.deepEqual(overlayReschedules([],'t',store),[]);
+});
+
+test('previous missed lessons are available, future stays default, and past-only schedule can be moved',async t=>{
+  const {req,state}=await fixture(t);
+  const past={...source,id:'past',date:'2026-09-23',durationMinutes:90};
+  state.entries.push(past,{...past,id:'old',date:'2026-06-25'}, {...past,id:'group',groupId:'g'}, {...past,id:'cancelled',date:'2026-09-22',cancelled:true});
+  let data=await req('/availability');
+  assert.equal(data.selectedKey,occurrenceKey(source));
+  assert.deepEqual(data.lessons.filter(e=>e.isPast).map(e=>e.key),[occurrenceKey(past)]);
+  data=await req(`/availability?lessonKey=${encodeURIComponent(occurrenceKey(past))}`);
+  assert.equal(data.selectedKey,occurrenceKey(past));assert.equal(data.lessons.find(e=>e.isPast).durationMinutes,90);
+  state.entries=[past];assert.equal((await req('/availability')).selectedKey,occurrenceKey(past));
+  const row=await req('','student:a',{lessonKey:occurrenceKey(past),date:'2026-09-28',time:'18:00'});
+  assert.equal((await req(`/${row.id}/approve`,'teacher:t',{})).status,'approved');
+  assert.equal(state.moved.source.date,past.date);assert.equal(state.moved.target.durationMinutes,90);
+});
+
+test('teacher previews and approves another own occurrence without moving the pupil original choice',async t=>{
+  const {req,create,state,store}=await fixture(t);const past={...source,id:'missed',date:'2026-09-23',durationMinutes:90};state.entries.push(past);
+  const row=await create();const preview=await req(`/${row.id}/preview?lessonKey=${encodeURIComponent(occurrenceKey(past))}`,'teacher:t');
+  assert.equal(preview.request.source.key,occurrenceKey(past));assert.equal(preview.request.target.durationMinutes,90);assert.equal(preview.conflict,'');
+  assert.equal(preview.request.requestedSource.key,occurrenceKey(source));assert.equal(store.get(row.id).source.date,source.date);assert.equal(state.writes,0);
+  const approved=await req(`/${row.id}/approve`,'teacher:t',{lessonKey:occurrenceKey(past),sourceDurationMinutes:90,note:'Переносим пропущенное'});
+  assert.equal(approved.source.key,occurrenceKey(past));assert.equal(approved.requestedSource.key,occurrenceKey(source));assert.equal(state.moved.target.durationMinutes,90);
+  assert.equal((await req('','student:a')).requests[0].source.key,occurrenceKey(past));
+});
+
+test('correction checks the complete new duration and blocks another pending request for that lesson',async t=>{
+  const {req,create,state,store}=await fixture(t);const past={...source,id:'missed',date:'2026-09-23',durationMinutes:90};state.entries.push(past);
+  const row=await create();state.entries.push({id:'busy',date:'2026-09-28',time:'19:00',durationMinutes:60});
+  assert.ok((await req(`/${row.id}/preview?lessonKey=${encodeURIComponent(occurrenceKey(past))}`,'teacher:t')).conflict);
+  await req(`/${row.id}/approve`,'teacher:t',{lessonKey:occurrenceKey(past)},409);assert.equal(state.writes,0);
+  assert.equal(store.get(row.id).source.date,source.date);
+  state.entries=state.entries.filter(e=>e.id!=='busy');
+  const other=await req('','student:a',{lessonKey:occurrenceKey(past),date:'2026-09-29',time:'18:00'});
+  await req(`/${row.id}/approve`,'teacher:t',{lessonKey:occurrenceKey(past)},409);
+  await req(`/${other.id}/cancel`,'student:a',{});
+  await req(`/${row.id}/approve`,'teacher:t',{lessonKey:occurrenceKey(past)});
+  assert.equal(state.writes,1);
+});
+
+test('teacher cannot substitute another pupil, group, cancelled or out-of-range lesson',async t=>{
+  const {req,create,state}=await fixture(t);
+  const invalid=[{...source,id:'other',studentId:'b'}, {...source,id:'group',groupId:'g'}, {...source,id:'cancelled',cancelled:true}, {...source,id:'too-old',date:'2026-06-01'}];state.entries.push(...invalid);
+  const row=await create();
+  for(const e of invalid){await req(`/${row.id}/approve`,'teacher:t',{lessonKey:occurrenceKey(e)},409);assert.ok((await req(`/${row.id}/preview?lessonKey=${encodeURIComponent(occurrenceKey(e))}`,'teacher:t')).conflict);}
+  assert.equal(state.writes,0);
+});
+
+test('teacher can repair a deleted original choice but must review a changed duration again',async t=>{
+  const {req,create,state}=await fixture(t);const past={...source,id:'missed',date:'2026-09-23',durationMinutes:90};state.entries.push(past);
+  const row=await create();state.entries=state.entries.filter(e=>e.id!==source.id);
+  const preview=await req(`/${row.id}/preview`,'teacher:t');assert.ok(preview.conflict);assert.ok(preview.lessons.some(e=>e.key===occurrenceKey(past)));
+  await req(`/${row.id}/approve`,'teacher:t',{lessonKey:occurrenceKey(past),sourceDurationMinutes:60},409);
+  await req(`/${row.id}/approve`,'teacher:t',{lessonKey:occurrenceKey(past),sourceDurationMinutes:90});assert.equal(state.writes,1);
+});
+
+test('a request remains approvable after its original lesson time passes',async t=>{
+  let at=now();const {req,create,state}=await fixture(t,{now:()=>at});const row=await create();
+  at=Date.parse('2026-09-26T10:00:00+03:00');
+  assert.equal((await req(`/${row.id}/preview`,'teacher:t')).conflict,'');
+  await req(`/${row.id}/approve`,'teacher:t',{});assert.equal(state.writes,1);
+});
+
+test('an uncertain Google write cannot be redirected to a different source on retry',async t=>{
+  const {req,create,state,store}=await fixture(t,{googleMove:async(_row,opt,s)=>{if(opt?.recoverOnly)return {eventId:'new',iCalUID:'new-uid'};s.writes++;throw Error('timeout');}});
+  const past={...source,id:'past',date:'2026-09-23'};state.entries.push(past);const row=await create();
+  await req(`/${row.id}/approve`,'teacher:t',{},503);
+  await req(`/${row.id}/approve`,'teacher:t',{lessonKey:occurrenceKey(past)},409);assert.equal(store.get(row.id).source.date,source.date);
+  await req(`/${row.id}/approve`,'teacher:t',{lessonKey:occurrenceKey(source)});assert.equal(state.writes,1);
 });

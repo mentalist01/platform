@@ -4,14 +4,14 @@ import crypto from 'node:crypto';
 import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { withTeacherCalendarLock } from './calendarMutations.js';
 import { addCalendarDays, moscowDay, weekdayIndex, AVAILABILITY_WEEKDAYS, clockTime } from '../src/utils/groupAvailability.js';
-import { rescheduleWeek, lessonStart, lessonEnd } from '../src/utils/lessonReschedule.js';
+import { rescheduleWeek, lessonStart, lessonEnd, RESCHEDULE_LOOKBACK_DAYS } from '../src/utils/lessonReschedule.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const isDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T12:00:00Z`)) && new Date(`${v}T12:00:00Z`).toISOString().slice(0, 10) === v;
 const isTime = v => typeof v === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(v);
 const isGroup = e => !!(e.groupId || e.isLearningGroupEvent);
 export const occurrenceKey = e => `${e.externalEventId || e.id}|${e.date}|${e.time}`;
-const publicLesson = e => ({ key: occurrenceKey(e), date: e.date, time: e.time, durationMinutes: e.durationMinutes });
+const publicLesson = (e, at) => ({ key: occurrenceKey(e), date: e.date, time: e.time, durationMinutes: e.durationMinutes, isPast: lessonStart(e) <= at });
 const overlaps = (a, b) => lessonStart(a) < lessonEnd(b) && lessonEnd(a) > lessonStart(b);
 
 export function createRescheduleStore(file) {
@@ -77,14 +77,28 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
     return row;
   };
   const serialize = row => ({ id: row.id, studentName: row.studentName, studentId: row.studentId, status: row.status,
-    source: publicLesson(row.source), target: publicLesson(row.target), comment: row.comment, createdAt: row.createdAt, resolvedAt: row.resolvedAt,
+    source: publicLesson(row.source, now()), target: publicLesson(row.target, now()), requestedSource: publicLesson(row.requestedSource || row.source, now()),
+    comment: row.comment, createdAt: row.createdAt, resolvedAt: row.resolvedAt,
     error: row.lastError || '', resolutionNote: row.resolutionNote || '' });
   const ownLessons = (entries, student) => {
-    const all = expandRescheduleOccurrences(entries, moscowDay(now()), 85).filter(e => e.studentId === student.id && !isGroup(e) && lessonStart(e) > now());
+    const all = expandRescheduleOccurrences(entries, addCalendarDays(moscowDay(now()), -RESCHEDULE_LOOKBACK_DAYS), RESCHEDULE_LOOKBACK_DAYS + 85)
+      .filter(e => e.studentId === student.id && !isGroup(e) && e.date >= addCalendarDays(moscowDay(now()), -RESCHEDULE_LOOKBACK_DAYS));
     // Imported and manual copies at the same time describe one lesson. Prefer
     // Google's identity so approval updates the real event instead of duplicating it.
     return [...new Map(all.sort((a,b) => Number(!!a.externalEventId)-Number(!!b.externalEventId))
       .map(e => [`${e.date}|${e.time}`, e])).values()].sort((a,b) => lessonStart(a)-lessonStart(b));
+  };
+  const loadEntries = teacherId => getEntries(teacherId, true, '', { fromDay: addCalendarDays(moscowDay(now()), -RESCHEDULE_LOOKBACK_DAYS) });
+  const proposedRequest = (row, lessons, key) => {
+    if (key && row.status !== 'pending' && key !== occurrenceKey(row.source)) fail('Перенос уже начат. Исходное занятие менять нельзя.', 409);
+    if (row.status !== 'pending') return row;
+    const source = lessons.find(e => occurrenceKey(e) === (key || occurrenceKey(row.source)));
+    if (!source || (!key && source.durationMinutes !== row.source.durationMinutes)) fail('Исходное занятие изменилось. Выберите занятие для переноса заново.', 409);
+    return { ...row, requestedSource: row.requestedSource || row.source, source, target: { ...row.target, durationMinutes: source.durationMinutes } };
+  };
+  const checkOtherRequests = row => {
+    if (store.all().some(r => r.id !== row.id && r.studentId === row.studentId && occurrenceKey(r.source) === occurrenceKey(row.source) && ['pending', 'applying'].includes(r.status)))
+      fail('Для этого занятия уже есть другой запрос. Сначала обработайте или отмените его.', 409);
   };
   const reservations = teacherId => store.all().filter(r => r.teacherId === teacherId && (r.status === 'applying' || (r.googleResult && !r.feedObserved)));
   const checkTarget = (target, source) => {
@@ -110,9 +124,9 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
   app.get('/api/lesson-reschedules/availability', route(async req => {
     const student = studentAccess(req.auth); const week = req.query.week || rescheduleWeek(1, now());
     if (!isDate(week) || weekdayIndex(week)!==0 || week < rescheduleWeek(0,now()) || week > rescheduleWeek(12,now())) fail('Выберите неделю в ближайшие три месяца');
-    const entries=await getEntries(student.teacherId, true);
+    const entries=await loadEntries(student.teacherId);
     if(studentAccess(req.auth).teacherId!==student.teacherId) fail('Преподаватель изменился',409);
-    const lessons=ownLessons(entries, student); const source=lessons.find(e=>occurrenceKey(e)===req.query.lessonKey) || (!req.query.lessonKey ? lessons[0] : null);
+    const lessons=ownLessons(entries, student); const source=lessons.find(e=>occurrenceKey(e)===req.query.lessonKey) || (!req.query.lessonKey ? lessons.find(e=>lessonStart(e)>now()) || lessons.at(-1) : null);
     if (req.query.lessonKey && !source) fail('Занятие уже изменилось. Выберите его заново.',409);
     const occupied=expandRescheduleOccurrences(entries,week);
     const days=Array.from({length:7},(_,n)=>{const date=addCalendarDays(week,n); const slots=[];
@@ -124,30 +138,35 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
       }
       return {date,slots};
     });
-    return {week,lessons:lessons.map(publicLesson),selectedKey:source?occurrenceKey(source):'',days};
+    return {week,lessons:lessons.map(e=>publicLesson(e,now())),selectedKey:source?occurrenceKey(source):'',days};
   }));
   app.post('/api/lesson-reschedules', route(async req => {
     const student=studentAccess(req.auth);
     return withTeacherCalendarLock(student.teacherId,async()=>{
-      const entries=await getEntries(student.teacherId,true); const fresh=studentAccess(req.auth);
+      const entries=await loadEntries(student.teacherId); const fresh=studentAccess(req.auth);
       if(fresh.teacherId!==student.teacherId) fail('Преподаватель изменился',409);
       const source=ownLessons(entries,student).find(e=>occurrenceKey(e)===req.body?.lessonKey); if(!source) fail('Занятие уже изменилось. Выберите его заново.',409);
       const target={date:req.body?.date,time:req.body?.time,durationMinutes:source.durationMinutes}; checkTarget(target,source); checkFree(entries,source,target,student.teacherId);
       const existing=store.all().find(r=>r.studentId===student.id && occurrenceKey(r.source)===occurrenceKey(source) && ['pending','applying'].includes(r.status));
       if(existing) fail('Для этого занятия уже отправлен запрос. Сначала отмените его или дождитесь ответа.',409);
-      const row=store.put({id:crypto.randomUUID(),teacherId:student.teacherId,studentId:student.id,studentName:student.name||'Ученик',source,target,
+      const row=store.put({id:crypto.randomUUID(),teacherId:student.teacherId,studentId:student.id,studentName:student.name||'Ученик',source,requestedSource:source,target,
         status:'pending',comment:String(req.body.comment||'').trim().slice(0,400),createdAt:now()});
       notify(row,'created');return serialize(row);
     });
   }));
   app.get('/api/lesson-reschedules/:id/preview', route(async req => {
     const row=requestAccess(req.auth,req.params.id); if(req.auth.role!=='teacher')fail('Нет доступа',403);
-    const entries=await getEntries(row.teacherId,true); requestAccess(req.auth,row.id);
-    const days=[...new Set([row.source.date,row.target.date])];
+    const entries=await loadEntries(row.teacherId); const current=requestAccess(req.auth,row.id);
+    const lessons=ownLessons(entries,getStudent(row.studentId));
+    let proposed=current, conflict='';
+    try {
+      proposed=proposedRequest(current,lessons,req.query.lessonKey);
+      if(current.status==='pending'){checkOtherRequests(proposed);checkTarget(proposed.target,proposed.source);checkFree(entries,proposed.source,proposed.target,proposed.teacherId,proposed.id);}
+    } catch(e) { conflict=e.message; }
+    const days=[...new Set([proposed.source.date,proposed.target.date])];
     const busy=days.flatMap(date=>expandRescheduleOccurrences(entries,date,1).filter(e=>e.date===date).map(e=>({date:e.date,time:e.time,durationMinutes:e.durationMinutes,
-      source:e.studentId===row.studentId&&e.date===row.source.date&&e.time===row.source.time})));
-    let conflict=''; try{if(row.status==='pending'){checkTarget(row.target,row.source);checkFree(entries,row.source,row.target,row.teacherId,row.id);}}catch(e){conflict=e.message;}
-    return {request:serialize(row),busy,conflict};
+      source:e.studentId===row.studentId&&e.date===proposed.source.date&&e.time===proposed.source.time&&!isGroup(e)})));
+    return {request:serialize(proposed),lessons:lessons.map(e=>publicLesson(e,now())),busy,conflict};
   }));
   app.post('/api/lesson-reschedules/:id/:action', route(async req => {
     const first=requestAccess(req.auth,req.params.id); const action=req.params.action;
@@ -161,6 +180,7 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
         if(row.status==='applying')fail('Перенос уже начат. Сначала завершите синхронизацию.',409);
         row=store.put({...row,status:action==='cancel'?'cancelled':'rejected',resolvedAt:now(),resolutionNote:String(req.body?.note||'').trim().slice(0,400)});
       }else{
+        if(row.status==='applying' && req.body?.lessonKey && req.body.lessonKey!==occurrenceKey(row.source)) fail('Перенос уже начат. Исходное занятие менять нельзя.',409);
         if(row.status==='applying' && !row.googleResult){
           // Recover a committed Google write before consulting the feed: it may
           // already contain the moved lesson, including a newly created UID.
@@ -169,8 +189,10 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
           if(recovered) row=store.put({...row,googleResult:recovered});
         }
         if(!row.googleResult){
-          const entries=await getEntries(row.teacherId,true); requestAccess(req.auth,row.id);
-          if(row.status==='pending' && !ownLessons(entries,getStudent(row.studentId)).some(e=>occurrenceKey(e)===occurrenceKey(row.source)&&e.durationMinutes===row.source.durationMinutes))fail('Исходное занятие изменилось. Отклоните запрос и попросите выбрать заново.',409);
+          const entries=await loadEntries(row.teacherId); requestAccess(req.auth,row.id);
+          row=proposedRequest(row,ownLessons(entries,getStudent(row.studentId)),req.body?.lessonKey);
+          if(req.body?.sourceDurationMinutes !== undefined && Number(req.body.sourceDurationMinutes)!==row.source.durationMinutes) fail('Длительность занятия изменилась. Проверьте перенос заново.',409);
+          checkOtherRequests(row);
           checkTarget(row.target,row.source);checkFree(entries,row.source,row.target,row.teacherId,row.id,row.status==='applying');
           row=store.put({...row,status:'applying',lastError:''});
           try { row=store.put({...row,googleResult:await googleMove(row)}); }

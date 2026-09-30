@@ -1,4 +1,5 @@
 import { addCalendarDays, moscowDay, weekdayIndex, clockTime } from './groupAvailability.js';
+export const RESCHEDULE_LOOKBACK_DAYS = 90;
 export const rescheduleWeek = (offset = 1, now = Date.now()) => addCalendarDays(moscowDay(now), -weekdayIndex(moscowDay(now)) + offset * 7);
 export const lessonStart = lesson => Date.parse(`${lesson.date}T${lesson.time}:00+03:00`);
 export const lessonEnd = lesson => lessonStart(lesson) + lesson.durationMinutes * 60000;

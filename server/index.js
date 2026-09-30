@@ -23950,13 +23950,13 @@ const availabilityCalendarEntries = (teacherId, onlyGenerated = false) => {
       startAt: lesson.startAt, replayKey: buildLearningGroupLessonReplayKey(lesson.id) };
   });
 };
-const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '') => {
+const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '', { fromDay = '' } = {}) => {
     materializeAvailabilitySchedules();
     let google = await fetchTeacherGoogleCalendarEntries(teacherId, { force, throwOnError: true, ...(throughDay ? { throughMonth: throughDay.slice(0,7) } : {}) });
     const connection = getTeacherCalendarGoogleConnection(teacherId);
     if (connection.encryptedTokens && connection.calendarId) {
       const events = await listGoogleCalendarLessonEvents({accessToken:await getTeacherGoogleCalendarAccessToken(teacherId),calendarId:connection.calendarId,
-        timeMin:new Date(Date.now()-86400000).toISOString(),timeMax:throughDay ? `${throughDay}T23:59:59+03:00` : new Date(Date.now()+98*86400000).toISOString()});
+        timeMin:fromDay ? `${fromDay}T00:00:00+03:00` : new Date(Date.now()-86400000).toISOString(),timeMax:throughDay ? `${throughDay}T23:59:59+03:00` : new Date(Date.now()+98*86400000).toISOString()});
       const uids = new Set(events.map(e=>e.iCalUID).filter(Boolean));
       const students = readStudentsDb().filter(s=>s.teacherId===teacherId && isCurrentStudent(s));
       const groups = readLearningGroupsDb().filter(g=>g.teacherId===teacherId);
