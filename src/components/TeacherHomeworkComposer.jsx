@@ -27,6 +27,7 @@ import {
 
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import PythonVideoHomeworkPicker from './PythonVideoHomeworkPicker';
+import LessonRecordingHomeworkPicker from './LessonRecordingHomeworkPicker';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
 import {
   HOMEWORK_ASSIGNMENT_TIER_OPTIONAL,
@@ -190,6 +191,7 @@ const TeacherHomeworkComposer = ({
   discarding = false,
   draftRestoredAt = '',
   studentId = '',
+  teacherId = '',
   studentLabel = '',
   targetType = 'student',
   groupRecipients = [],
@@ -1322,6 +1324,12 @@ const TeacherHomeworkComposer = ({
                   />
                 </label>
 
+                <LessonRecordingHomeworkPicker teacherId={teacherId} studentId={studentId} materials={availableMaterials}
+                  disabled={saving || draftSaving || discarding || preparing} onBusyChange={setMaterialCreating}
+                  onCreated={material => {
+                    setCreatedMaterials(current => [...current, material]); onMaterialCreated?.(material);
+                    onChangeForm?.({ materialIds: [...new Set([...(form?.materialIds || []), material.id])] });
+                  }} />
                 <PythonVideoHomeworkPicker tasks={pythonTaskOptions} testsDb={testsDb} levelId={pythonLevelId}
                   disabled={saving || draftSaving || discarding || preparing} onBusyChange={setMaterialCreating}
                   onCreated={(material) => {
@@ -1334,7 +1342,7 @@ const TeacherHomeworkComposer = ({
                     <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">
                       <Video size={14} /> Видео и материалы
                     </div>
-                    <p className="mb-2 text-[11px] text-[rgb(var(--ink-soft))]">Найдите материал в общей библиотеке. Выбранное видео с мини-тестом появится прямо в домашке.</p>
+                    <p className="mb-2 text-[11px] text-[rgb(var(--ink-soft))]">Найдите материал в общей библиотеке. Выбранное видео или материал появится прямо в домашке.</p>
                     <input
                       type="search"
                       value={materialSearch}
@@ -1395,7 +1403,7 @@ const TeacherHomeworkComposer = ({
                               <strong className="block truncate text-sm">{material?.title || 'Материал'}</strong>
                               <small className="block text-[10px] font-semibold text-[rgb(var(--ink-soft))]">
                                 {material?.kind === 'video'
-                                  ? `Видео · мини-тест из ${Array.isArray(material?.quizQuestions) ? material.quizQuestions.length : 0} вопр.`
+                                  ? (material.quizQuestions?.length ? `Видео · мини-тест из ${material.quizQuestions.length} вопр.` : 'Видео · посмотреть запись')
                                   : 'Материал'}
                               </small>
                             </span>

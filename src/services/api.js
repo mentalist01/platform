@@ -501,6 +501,11 @@ export const requestLearningGroupJson = async (path, options = {}) => {
 };
 
 export const api = {
+  studentNameAvailability: body => requestLearningGroupJson('/api/students/name-availability', { method: 'POST', body }),
+  lessonRecordingLibrary: (id = '', body = {}) => requestLearningGroupJson(id
+    ? `/api/lesson-recording-library/${encodeURIComponent(id)}/material`
+    : `/api/lesson-recording-library${body.teacherId ? `?teacherId=${encodeURIComponent(body.teacherId)}` : ''}`,
+    id ? { method: 'POST', body } : {}),
   groupAvailability: (groupId, action = '', body) => requestLearningGroupJson(`/api/learning-groups/${encodeURIComponent(groupId)}/availability${action ? `/${action}` : ''}`, action ? { method: 'POST', body } : {}),
   downloadDesktopRecorder: async () => {
     const res = await apiFetch('/api/desktop-recording/download');
@@ -1364,38 +1369,24 @@ export const api = {
     const params = new URLSearchParams();
     if (options?.teacherId) params.set('teacherId', String(options.teacherId));
     const query = params.toString();
-    const res = await apiFetch(query ? `/api/learning-materials?${query}` : '/api/learning-materials');
-    if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
+    return requestLearningGroupJson(query ? `/api/learning-materials?${query}` : '/api/learning-materials');
   },
-  getLearningMaterialTeachers: async () => {
-    const res = await apiFetch('/api/learning-materials/teachers');
-    if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
-  },
-  updateLearningMaterialSharing: async (materialId, sharedTeacherIds) => {
-    const res = await apiFetch(`/api/learning-materials/${encodeURIComponent(materialId)}/sharing`, {
+  getLearningMaterialTeachers: async () => requestLearningGroupJson('/api/learning-materials/teachers'),
+  updateLearningMaterialSharing: async (materialId, sharedTeacherIds) => (
+    requestLearningGroupJson(`/api/learning-materials/${encodeURIComponent(materialId)}/sharing`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sharedTeacherIds }),
-    });
-    if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
-  },
-  createLearningMaterial: async (payload = {}) => {
-    const res = await apiFetch('/api/learning-materials', {
+      body: { sharedTeacherIds },
+    })
+  ),
+  createLearningMaterial: async (payload = {}) => (
+    requestLearningGroupJson('/api/learning-materials', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
-  },
-  deleteLearningMaterial: async (materialId) => {
-    const res = await apiFetch(`/api/learning-materials/${encodeURIComponent(materialId)}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error(await parseApiError(res));
-    return parseJsonResponse(res);
-  },
+      body: payload,
+    })
+  ),
+  deleteLearningMaterial: async (materialId) => (
+    requestLearningGroupJson(`/api/learning-materials/${encodeURIComponent(materialId)}`, { method: 'DELETE' })
+  ),
   getLearningGroupLessonResponses: async (groupId, lessonId, options = {}) => {
     const params = new URLSearchParams();
     if (options?.studentId) params.set('studentId', String(options.studentId));

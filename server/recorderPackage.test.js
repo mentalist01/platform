@@ -4,6 +4,18 @@ import { recorderFiles as sourceFiles, recorderPackage, recorderRelease } from '
 
 const recorderFiles = [...sourceFiles, 'release.json'];
 
+test('Windows installer copies every local module imported by installed recorder modules', () => {
+  const bundle = JSON.parse(recorderRelease().bundle);
+  const listed = bundle.files['install.ps1'].match(/\$files = @\(([^)]*)\)/)[1];
+  const installed = new Set([...listed.matchAll(/'([^']+)'/g)].map(match => match[1]));
+  for (const name of installed) {
+    if (!name.endsWith('.mjs')) continue;
+    for (const match of bundle.files[name].matchAll(/(?:from\s*|import\s*)['"]\.\/([^'"]+)['"]/g)) {
+      assert.ok(installed.has(match[1]), `${name} imports ${match[1]}, but the installer omits it`);
+    }
+  }
+});
+
 test('Windows package contains only distributable files and valid central directory entries', () => {
   const zip = recorderPackage(); const end = zip.length - 22;
   assert.equal(zip.readUInt32LE(end), 0x06054b50);

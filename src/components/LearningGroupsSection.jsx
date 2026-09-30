@@ -2905,6 +2905,7 @@ const LearningGroupsSection = ({
           discarding={false}
           draftRestoredAt=""
           studentId=""
+          teacherId={selectedGroup?.teacherId}
           studentLabel={selectedGroup?.name || 'Мини-группа'}
           targetType="group"
           groupRecipients={selectedGroup?.members || []}

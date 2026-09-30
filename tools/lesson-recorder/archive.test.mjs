@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { LessonArchive, byteRange, clipRange } from './archive.mjs';
+import { LessonArchive, byteRange, clipRange, materialRange } from './archive.mjs';
 import { searchArchive } from './archive-search.mjs';
 
 function fixture(t, options = {}) {
@@ -15,6 +15,37 @@ function fixture(t, options = {}) {
   t.after(() => { archive.close(); const resolved = fs.realpathSync(root); assert.equal(path.dirname(resolved), fs.realpathSync(os.tmpdir())); assert.match(path.basename(resolved), /^ivan-archive-test-/); fs.rmSync(resolved, { recursive: true, force: true }); });
   return { archive, root, recordings };
 }
+test('whole lessons reuse their ready private video without cutting/uploading or changing source; fragment limit remains', async t => {
+  const url = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=private';
+  let uploads = 0; let attached;
+  const f = fixture(t, { prepareMaterial: async () => ({ teacherId: 't' }), materialPublisher: {
+    upload: async () => { uploads++; }, ready: async () => true, attach: async payload => { attached = payload; return { material: { id: 'whole-material' } }; },
+  } });
+  fs.writeFileSync(path.join(f.recordings, 'lesson.mp4'), 'original'); await f.archive.scan();
+  const item = f.archive.data.items[0]; item.duration = 5400; item.url = url;
+  f.archive.command = async () => { throw Error('Must not process a ready video'); };
+  const clip = await f.archive.createMaterial({ id: item.id, whole: true, title: 'Задание 3 — полный урок', start: 20, end: 30 });
+  assert.equal(clip.start, 0); assert.equal(clip.end, 5400);
+  await f.archive.tick(); assert.equal(clip.materialId, 'whole-material'); assert.equal(uploads, 0);
+  assert.equal(attached.durationSeconds, 5400); assert.equal(attached.url, url);
+  assert.equal(fs.readFileSync(item.file, 'utf8'), 'original');
+  assert.equal((await f.archive.createMaterial({ id: item.id, whole: true, title: clip.title })).id, clip.id);
+  assert.throws(() => materialRange(0, 5400, 5400, false));
+  assert.deepEqual(materialRange(10, 20, 5400, true), { start: 0, end: 5400 });
+  assert.throws(() => materialRange(0, 10, Infinity, true));
+});
+test('a whole unpublished lesson exports its full duration beyond the fragment limit and preserves the source', async t => {
+  const f = fixture(t, { prepareMaterial: async () => ({ teacherId: 't' }), materialPublisher: {} });
+  fs.writeFileSync(path.join(f.recordings, 'long.mkv'), 'original'); await f.archive.scan();
+  const item = f.archive.data.items[0]; item.duration = 5400; let exported;
+  f.archive.command = async (_exe, args) => { exported = args; fs.writeFileSync(args.at(-1), 'full video'); return ''; };
+  const clip = await f.archive.createMaterial({ id: item.id, whole: true, title: 'Весь урок' });
+  assert.equal(clip.start, 0); assert.equal(clip.end, 5400); assert.equal(clip.materialStatus, 'queued');
+  assert.ok(exported.includes('copy')); assert.ok(!exported.includes('-t'));
+  assert.equal(fs.readFileSync(item.file, 'utf8'), 'original');
+  assert.equal(fs.readFileSync(clip.mp4, 'utf8'), 'full video');
+});
+
 test('catalog excludes active lessons, test files and duplicate recorder MKV/MP4; rescan retains progress', async t => {
   const jobs = []; const f = fixture(t, { jobs: () => jobs });
   for (const [id, status, local] of [['a', 'ready', false], ['b', 'recording', false], ['c', 'saved', true]]) {

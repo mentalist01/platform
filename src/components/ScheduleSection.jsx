@@ -14,6 +14,7 @@ import StudentSearchSelect from './StudentSearchSelect';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
+import RecordingHomeworkHandoff from './RecordingHomeworkHandoff';
 import TeacherHomeworkReviewModal from './TeacherHomeworkReviewModal';
 import HomeworkDayPlan from './HomeworkDayPlan';
 import { Button, Card } from './ui';
@@ -3681,7 +3682,7 @@ const ScheduleSection = ({
                         <div className="flex items-start gap-3">
                           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-violet-600 text-white"><Video size={18} /></span>
                           <div className="min-w-0">
-                            <div className="text-[10px] font-black uppercase tracking-[0.15em] text-violet-600">Посмотреть и ответить</div>
+                            <div className="text-[10px] font-black uppercase tracking-[0.15em] text-violet-600">{questions.length ? 'Посмотреть и ответить' : 'Посмотреть видео'}</div>
                             <h5 className="mt-1 text-lg font-black leading-tight text-slate-950">{material.title || 'Видео к уроку'}</h5>
                           </div>
                         </div>
@@ -3722,7 +3723,7 @@ const ScheduleSection = ({
                           </div>
                         )}
                         {videoQuizErrors[quizKey] && <div className="mt-3 text-xs font-bold text-rose-600" role="alert">{videoQuizErrors[quizKey]}</div>}
-                        {role === 'student' && (
+                        {role === 'student' && questions.length > 0 && (
                           <button
                             type="button"
                             onClick={() => void handleSubmitVideoQuiz(entry, material)}
@@ -3733,6 +3734,7 @@ const ScheduleSection = ({
                             {busy ? 'Проверяем…' : (result ? 'Проверить ещё раз' : 'Проверить ответы')}
                           </button>
                         )}
+                        {questions.length === 0 && <p className="mt-4 text-sm text-slate-600">После просмотра отметьте пункт «Посмотреть» в списке домашней работы.</p>}
                       </div>
                     </div>
                   </article>
@@ -4534,6 +4536,7 @@ const ScheduleSection = ({
   const openNewHomeworkComposer = async (prefill = null) => {
     if (!effectiveStudentId || role !== 'teacher') return;
     const isMonthlyMockPrefill = prefill?.source === 'monthly-mock';
+    const recordingIds = prefill?.source === 'recording' ? [prefill.materialId].filter(Boolean) : [];
     const normalizedPrefill = prefill && typeof prefill === 'object' && prefill.source === 'mock-analysis'
       ? {
           mockExamId: normalizeMockExamId(prefill.mockExamId),
@@ -4840,6 +4843,7 @@ const ScheduleSection = ({
       ? {
           ...restoredDraftForm,
           goals: carryoverGoals,
+          materialIds: [...new Set([...(restoredDraftForm.materialIds || []), ...recordingIds])],
         }
       : {
           homeWork: carryover.homeWork,
@@ -4857,7 +4861,7 @@ const ScheduleSection = ({
           dayPlanWeekdays: [...DEFAULT_HOMEWORK_PLAN_WEEKDAYS],
           dayPlanManualLayout: null,
           issuedAt: '',
-          materialIds: [],
+          materialIds: recordingIds,
         });
     setHomeworkCarryoverSummary(carryoverSummary);
     if (restoredDraftForm && normalizedPrefill?.mockExamId) {
@@ -5793,6 +5797,11 @@ const ScheduleSection = ({
 
       {role === 'teacher' && (
         <Card className="overflow-hidden border-purple-200/70 bg-gradient-to-br from-white via-purple-50/55 to-fuchsia-50/45 shadow-[0_14px_34px_rgba(124,58,237,0.12)]">
+          <RecordingHomeworkHandoff teacherId={selectedStudent?.teacherId} students={studentsList} selectedStudent={selectedStudent} onSelectStudent={onSelectStudent}
+            onOpen={async material => {
+              setHomeworkMaterials(current => [material, ...current.filter(entry => entry.id !== material.id)]);
+              return openNewHomeworkComposer({ source: 'recording', materialId: material.id });
+            }} />
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
               <span className="inline-grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-purple-600 text-white shadow-lg shadow-purple-500/20">
@@ -5977,6 +5986,7 @@ const ScheduleSection = ({
           discarding={homeworkDraftDiscarding}
           draftRestoredAt={editingId ? '' : homeworkDraft?.updatedAt}
           studentId={requestStudentId}
+          teacherId={selectedStudent?.teacherId}
           studentLabel={selectedStudent ? getStudentLabel(selectedStudent) : ''}
           groupMaterials={homeworkMaterials}
           onMaterialCreated={(material) => setHomeworkMaterials((current) => [material, ...current])}

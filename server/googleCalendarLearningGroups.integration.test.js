@@ -337,6 +337,23 @@ test('Google group occurrences create one stable lesson and project independent 
     assert.equal(refresh.importedCount, 4);
     assert.equal(refresh.updatedStudentCount, 2);
 
+    const availabilityPath = '/api/learning-groups/group-active/availability';
+    const availability = await jsonRequest(baseUrl, `${availabilityPath}/open`, {
+      token: teacher.token, method: 'POST',
+      body: { startDate: shiftDayKey(todayKey, 1), durationMinutes: 60, startMinute: 1080, endMinute: 1320, days: [0, 1, 2, 3, 4, 5, 6] },
+    });
+    const googleSlot = day => `${(new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7}-1200`;
+    assert.equal(availability.blocked[googleSlot(activeDay)], undefined, 'The actual imported Google lesson of this group remains selectable');
+    for (const day of [readyDay, individualDay, ambiguousDay]) {
+      assert.ok(availability.blocked[googleSlot(day)], 'Other groups, individual lessons and ambiguous Google matches remain blocked');
+    }
+    const studentAvailability = await jsonRequest(baseUrl, availabilityPath, { token: studentA.token });
+    assert.equal(studentAvailability.blocked[googleSlot(activeDay)], undefined);
+    await jsonRequest(baseUrl, `${availabilityPath}/answer`, {
+      token: studentA.token, method: 'POST',
+      body: { roundId: availability.poll.id, version: 0, choices: { [googleSlot(activeDay)]: 'yes' } },
+    });
+
     const teacherSchedule = await jsonRequest(baseUrl, '/api/teacher-schedule', { token: teacher.token });
     const googleEntries = teacherSchedule.filter((entry) => entry.source === 'google-ical');
     assert.equal(googleEntries.length, 4);

@@ -915,7 +915,8 @@ export const normalizeLearningMaterial = (value) => {
   const scope = value.scope === 'teacher' || !groupId ? 'teacher' : 'group';
   if (!id || !teacherId || (scope === 'group' && !groupId)) return null;
   const visibility = MATERIAL_VISIBILITIES.has(value.visibility) ? value.visibility : 'group';
-  const kind = MATERIAL_KINDS.has(value.kind) ? value.kind : 'resource';
+  const kind = value.kind === 'resource' && id.startsWith('recorder-') && /^https:\/\/(?:www\.)?rutube\.ru\//i.test(value.url || '')
+    ? 'video' : MATERIAL_KINDS.has(value.kind) ? value.kind : 'resource';
   const lessonId = visibility === 'lesson' ? cleanText(value.lessonId, 180) : '';
   if (visibility === 'lesson' && !lessonId) return null;
   const content = cleanText(value.content, 50000);
@@ -936,6 +937,8 @@ export const normalizeLearningMaterial = (value) => {
     content,
     url,
     quizQuestions: kind === 'video' ? normalizeLearningVideoQuiz(value.quizQuestions ?? value.quiz) : [],
+    recordingSource: cleanText(value.recordingSource, 180),
+    durationSeconds: Math.max(0, Math.min(43200, Number(value.durationSeconds) || 0)),
     fileId,
     storageName,
     originalName: cleanText(value.originalName, 500),
@@ -978,6 +981,8 @@ export const createLearningMaterial = (groupValue, payload = {}, options = {}) =
     content: payload.content,
     url: payload.url,
     quizQuestions: payload.quizQuestions ?? payload.quiz,
+    recordingSource: options.recordingSource,
+    durationSeconds: options.durationSeconds,
     fileId: payload.fileId,
     storageName: payload.storageName,
     originalName: payload.originalName,
@@ -993,7 +998,7 @@ export const createLearningMaterial = (groupValue, payload = {}, options = {}) =
     if (!/^https:\/\/(?:www\.)?rutube\.ru\//iu.test(material.url)) {
       fail('Укажите ссылку на видео с RuTube', 'invalid_rutube_url');
     }
-    if (material.quizQuestions.length === 0) {
+    if (material.quizQuestions.length === 0 && !options.allowVideoWithoutQuiz) {
       fail('Добавьте хотя бы один вопрос мини-теста', 'video_quiz_required');
     }
   }

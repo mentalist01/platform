@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, EyeOff, FileText, GripVertical, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, X } from 'lucide-react';
 import { api } from '../services/api';
+import useStudentNameAvailability from '../hooks/useStudentNameAvailability';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import {
   DEFAULT_QUESTION_LABEL_COLOR,
@@ -271,6 +272,8 @@ const TeacherPanel = ({
   const [questionInsertMode, setQuestionInsertMode] = useState(QUESTION_INSERT_MODE_END);
   const [questionInsertPosition, setQuestionInsertPosition] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentNickname, setNewStudentNickname] = useState('');
+  const studentNameCheck = useStudentNameAvailability(newStudentName, newStudentNickname, teacherId);
   const [newStudentGrade, setNewStudentGrade] = useState('11');
   const [newStudentEgeScore, setNewStudentEgeScore] = useState('');
   const [studentStudyFilter, setStudentStudyFilter] = useState(STUDENT_STUDY_STATUS_ACTIVE);
@@ -2141,6 +2144,7 @@ const TeacherPanel = ({
   );
 
   const handleCreateStudent = async () => {
+    if (studentActionLoading || !studentNameCheck.canCreate) return;
     const name = newStudentName.trim();
     if (!name) {
       setStudentActionError('Введите имя ученика');
@@ -2159,6 +2163,7 @@ const TeacherPanel = ({
     setStudentActionLoading(true);
     try {
       const created = await api.createStudent(name, teacherId, {
+        nickname: newStudentNickname.trim(),
         grade,
         studyStatus: STUDENT_STUDY_STATUS_ACTIVE,
         informaticsEgeScore: egeScore,
@@ -2173,6 +2178,7 @@ const TeacherPanel = ({
         setIsStudentsExpanded(true);
       }
       setNewStudentName('');
+      setNewStudentNickname('');
       setNewStudentGrade('11');
       setNewStudentEgeScore('');
       setStudentActionError('');
@@ -2864,14 +2870,32 @@ const TeacherPanel = ({
         ) : (
         <>
         <div className="flex flex-col md:flex-row gap-2 mb-4">
+          <div className="min-w-0 flex-1 space-y-2">
           <input
             type="text"
+            aria-label="Основное имя нового ученика"
+            aria-describedby="new-student-name-status"
+            maxLength={60}
+            disabled={studentActionLoading}
             value={newStudentName}
             onChange={(e) => { setNewStudentName(e.target.value); setStudentActionError(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter') handleCreateStudent(); }}
             placeholder="Имя ученика"
-            className="flex-1 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
+            className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none"
           />
+          <input type="text" aria-label="Имя 2 нового ученика" maxLength={60}
+            value={newStudentNickname} disabled={studentActionLoading}
+            onChange={event => { setNewStudentNickname(event.target.value); setStudentActionError(''); }}
+            onKeyDown={event => { if (event.key === 'Enter') handleCreateStudent(); }}
+            placeholder={studentNameCheck.nicknameRequired ? 'Имя 2 — обязательно, должно быть свободным' : 'Имя 2 — необязательно'}
+            aria-describedby="new-student-name-status"
+            className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none" />
+          <p id="new-student-name-status" role="status" aria-live="polite"
+            className={`text-xs ${studentNameCheck.canCreate ? 'text-green-700' : 'text-amber-700'}`}>
+            {studentNameCheck.pending ? 'Проверяем основное имя и имя 2…' : studentNameCheck.message || 'Проверим среди всех основных имён и имён 2.'}
+            {studentNameCheck.error && <button type="button" className="ml-2 underline" onClick={studentNameCheck.retry}>Повторить проверку</button>}
+          </p>
+          </div>
           <div className="inline-flex shrink-0 rounded-xl border border-gray-200 bg-gray-50 p-1">
             {STUDENT_GRADE_OPTIONS.map((option) => {
               const isActive = normalizeStudentGradeValue(newStudentGrade) === option.value;
@@ -2907,7 +2931,7 @@ const TeacherPanel = ({
               className="w-full px-4 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none md:w-32"
             />
           )}
-          <Button onClick={handleCreateStudent} disabled={studentActionLoading || !newStudentName.trim()}>
+          <Button onClick={handleCreateStudent} disabled={studentActionLoading || !studentNameCheck.canCreate}>
             <Plus size={16}/> Добавить
           </Button>
         </div>

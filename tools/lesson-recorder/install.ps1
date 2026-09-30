@@ -1,4 +1,4 @@
-﻿param([switch]$NoStartup, [switch]$SetupDependencies, [switch]$OpenPanel)
+param([switch]$NoStartup, [switch]$SetupDependencies, [switch]$OpenPanel)
 $ErrorActionPreference = 'Stop'
 $sourceDirectory = $PSScriptRoot
 $recorderDirectory = Join-Path $env:USERPROFILE 'Ivan100Recorder'
@@ -28,7 +28,7 @@ foreach ($dataName in @('state.json', 'rutube-browser')) {
     Copy-Item -LiteralPath $oldData -Destination $newData -Recurse
   }
 }
-$files = @('archive.mjs','archive-eta.mjs','archive-publish.mjs','archive-search.mjs','archive-worker.py','archive-requirements.txt','archive.html','updater.mjs','update-worker.mjs','release.json','app.mjs','obs.mjs','start-day.mjs','share-bridge.mjs','share-view.html','office-follow.mjs','foreground-window.ps1','segments.mjs','engine.mjs','storage.mjs','recording-storage.mjs','recovery-inbox.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
+$files = @('archive.mjs','archive-eta.mjs','archive-publish.mjs','archive-search.mjs','archive-worker.py','archive-requirements.txt','archive.html','updater.mjs','update-worker.mjs','release.json','app.mjs','obs.mjs','start-day.mjs','share-bridge.mjs','share-view.html','office-follow.mjs','foreground-window.ps1','segments.mjs','engine.mjs','fallback.mjs','python-theory.mjs','storage.mjs','recording-storage.mjs','recovery-inbox.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
 foreach ($fileName in $files) { Copy-Item -LiteralPath (Join-Path $sourceDirectory $fileName) -Destination (Join-Path $installDirectory $fileName) -Force }
 Copy-Item -LiteralPath $nodePath -Destination (Join-Path $installDirectory 'node.exe') -Force
 if ($RecorderDependencyPaths) {

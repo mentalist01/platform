@@ -28,6 +28,29 @@ const installStorage = (authToken) => {
   return values;
 };
 
+test('name checks and recording homework use authenticated JSON requests and encode library scope', async t => {
+  installStorage('recording-homework-fixture');
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  const calls = [];
+  globalThis.fetch = async (url, init) => { calls.push({ url: String(url), ...init }); return jsonResponse({ ok: true }); };
+  await api.studentNameAvailability({ name: 'Александр', nickname: 'Саша 10' });
+  await api.lessonRecordingLibrary('', { teacherId: 't a' });
+  await api.lessonRecordingLibrary('job/a', { title: 'Задание 3', teacherId: 't a' });
+  await api.getLearningMaterials({ teacherId: 't a' });
+  await api.createLearningMaterial({ title: 'Видео' });
+  await api.updateLearningMaterialSharing('material/a', ['t']);
+  await api.deleteLearningMaterial('material/a');
+  assert.deepEqual(calls.map(call => [call.url, call.method]), [
+    ['/api/students/name-availability', 'POST'], ['/api/lesson-recording-library?teacherId=t%20a', 'GET'],
+    ['/api/lesson-recording-library/job%2Fa/material', 'POST'], ['/api/learning-materials?teacherId=t+a', 'GET'],
+    ['/api/learning-materials', 'POST'], ['/api/learning-materials/material%2Fa/sharing', 'PATCH'], ['/api/learning-materials/material%2Fa', 'DELETE'],
+  ]);
+  assert.deepEqual(JSON.parse(calls[0].body), { name: 'Александр', nickname: 'Саша 10' });
+  assert.deepEqual(JSON.parse(calls[2].body), { title: 'Задание 3', teacherId: 't a' });
+  assert.ok(calls.every(call => new Headers(call.headers).get('Authorization') === 'Bearer recording-homework-fixture'));
+});
+
 test('schedule options are opt-in and legacy schedule callers still receive an array', async t => {
   installStorage('schedule-options-token');
   const previousFetch = globalThis.fetch;

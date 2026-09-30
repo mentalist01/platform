@@ -14,7 +14,8 @@ import { createAvailabilityStore, registerGroupAvailability, materializeAvailabi
 import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
-import { addRecorderMaterial } from './recorderMaterials.js';
+import { addRecorderMaterial, recordingLibrary, addLessonRecordingMaterial } from './recorderMaterials.js';
+import { studentNameAvailability, assertStudentNamesAvailable } from './studentNameAvailability.js';
 import { recorderPythonCatalog, attachRecorderPythonTheory } from './recorderPythonTheory.js';
 import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
 import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallengeCookie, setTrustedBrowserCookie } from './accountSecurity.js';
@@ -23310,7 +23311,7 @@ const serializeLearningMaterialForAuth = (material, auth) => {
     downloadUrl,
   };
   if (!isStudentRole(auth)) return serialized;
-  const { storageName: _storageName, ...studentProjection } = serialized;
+  const { storageName: _storageName, recordingSource: _recordingSource, ...studentProjection } = serialized;
   return {
     ...studentProjection,
     quizQuestions: (Array.isArray(studentProjection.quizQuestions) ? studentProjection.quizQuestions : [])
@@ -23339,7 +23340,7 @@ const buildLearningGroupHomeworkText = (assignment) => (
 );
 
 const buildLearningVideoChecklistText = (material) => (
-  `Посмотреть «${String(material?.title || 'видео').trim()}» и пройти мини-тест`
+  `Посмотреть «${String(material?.title || 'видео').trim()}»${material?.quizQuestions?.length ? ' и пройти мини-тест' : ''}`
 );
 
 const normalizeHomeworkMaterialIds = (value) => Array.from(new Set(
@@ -24099,8 +24100,6 @@ registerGroupAvailability(app, {
     const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[group.teacherId]);
     const reserving = lessonRescheduleStore.all().filter(r => r.teacherId === group.teacherId && r.status === 'applying').map(r => ({...r.target}));
     return [...getTeacherScheduleEntries(group.teacherId), ...google, ...availabilityCalendarEntries(group.teacherId), ...reserving, ...weeklyReservations(weeklyScheduleStore, group.teacherId)]
-      .filter(entry => !(entry.source === 'availability-plan' && entry.groupId === group.id
-        && entry.status === 'scheduled' && entry.date >= config.startDate))
       .map(entry => annotateTeacherCalendarCancellation(group.teacherId, entry, marks));
   },
 });
@@ -24983,6 +24982,25 @@ app.get('/api/learning-materials', handleLearningRoute((req, res) => {
   return res.json({
     materials: materials.map((material) => serializeLearningMaterialForAuth(material, req.auth)),
   });
+}));
+
+const recordingLibraryJobs = teacherId => desktopRecordings.libraryJobs(teacherId).map(job => ({ ...job, teacherId }));
+app.get('/api/lesson-recording-library', handleLearningRoute((req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const teacherId = getLearningMaterialLibraryTeacherId(req);
+  if (!teacherId) failLearningRequest('Преподаватель не найден', 'teacher_not_found', 404);
+  return res.json({ recordings: recordingLibrary(teacherId, recordingLibraryJobs(teacherId), readLearningMaterialsDb()) });
+}));
+
+app.post('/api/lesson-recording-library/:id/material', handleLearningRoute((req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const teacherId = getLearningMaterialLibraryTeacherId(req);
+  if (!teacherId) failLearningRequest('Преподаватель не найден', 'teacher_not_found', 404);
+  const result = addLessonRecordingMaterial(teacherId, req.params.id, req.body || {}, {
+    jobs: recordingLibraryJobs(teacherId), read: readLearningMaterialsDb, write: writeLearningMaterialsDb,
+  });
+  return res.status(result.created ? 201 : 200).json({ material: serializeLearningMaterialForAuth(result.material, req.auth) });
 }));
 
 app.post('/api/learning-materials', handleLearningRoute((req, res) => {
@@ -29159,8 +29177,14 @@ app.post('/api/students/altar/upgrade', (req, res) => {
   });
 });
 
+app.post('/api/students/name-availability', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  return res.json(studentNameAvailability(readStudentsDb(), req.body?.name, req.body?.nickname));
+});
+
 app.post('/api/students', (req, res) => {
-  const { name, teacherId, grade, informaticsEgeScore, studyStatus } = req.body || {};
+  const { name, nickname, teacherId, grade, informaticsEgeScore, studyStatus } = req.body || {};
   if (isStudentRole(req.auth)) return forbid(res);
   const studentName = normalizeStudentName(name);
   if (!studentName) return res.status(400).json({ error: 'Введите имя ученика' });
@@ -29199,12 +29223,15 @@ app.post('/api/students', (req, res) => {
   }
 
   const students = readStudentsDb();
+  const studentNickname = normalizeStudentNickname(nickname);
+  try { assertStudentNamesAvailable(students, studentName, studentNickname); }
+  catch (error) { return res.status(error.status).json({ error: error.message, code: error.code }); }
   const plainCode = generateStudentCode(students, teachers);
   const entry = {
     id: crypto.randomUUID(),
     name: studentName,
     teacherId: resolvedTeacherId,
-    nickname: '',
+    nickname: studentNickname,
     grade: studentGrade,
     studyStatus: studentStudyStatus,
     informaticsEgeScore: studentGrade === STUDENT_GRADE_GRADUATE ? studentInformaticsEgeScore : null,
@@ -30016,6 +30043,10 @@ app.patch('/api/students/:id', (req, res) => {
   const updated = { ...students[idx] };
   if (hasName) updated.name = studentName;
   if (hasNickname) updated.nickname = studentNickname;
+  if (updated.name !== students[idx].name || updated.nickname !== students[idx].nickname) {
+    try { assertStudentNamesAvailable(students, updated.name, updated.nickname, id); }
+    catch (error) { return res.status(error.status).json({ error: error.message, code: error.code }); }
+  }
   if (hasGrade) updated.grade = studentGrade;
   if (hasTelemostUrl) {
     updated.telemostUrl = studentTelemostUrl;

@@ -140,6 +140,7 @@ const officeFollower = new OfficeFollower({ obs, reader: foregroundReader, confi
   shareActive: () => Boolean(shareBridge.offer) });
 process.on('exit', () => foregroundReader.stop());
 archive = new LessonArchive({ directory, recordDirectory: () => state.config.recordDirectory,
+  platformUrl: () => state.config.platformUrl,
   jobs: () => Object.values(state.jobs), ffmpeg: runtime.ffmpeg || 'ffmpeg',
   isBusy: () => Boolean(engine.active() || obsStatus?.outputActive || uploadingId || queueBusy || updater.busy),
   prepareMaterial: async () => {
@@ -218,7 +219,8 @@ const server = http.createServer(async (req, res) => {
   if (!['127.0.0.1:18765', 'localhost:18765'].includes(host)) return json(res, 403, { error: 'Forbidden host' });
   if (req.headers.origin && !['http://127.0.0.1:18765', 'http://localhost:18765'].includes(req.headers.origin)) return json(res, 403, { error: 'Forbidden origin' });
   try {
-    if (req.url === '/archive' || req.url.startsWith('/archive/')) {
+    const pathname = new URL(req.url, 'http://127.0.0.1:18765').pathname;
+    if (pathname === '/archive' || pathname.startsWith('/archive/')) {
       if (updater.busy && req.method !== 'GET') return json(res, 409, { error: 'Пульт обновляется. Дождитесь завершения.' });
       if (await archive.handle(req, res, { key: localKey, json, body })) return;
     }

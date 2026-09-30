@@ -61,6 +61,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
   const share = createRecordingShareRelay({ now, allowed: (teacherId, id) => enabled(teacherId) && db.jobs[id]?.teacherId === teacherId && db.jobs[id]?.desired === 'record' && db.jobs[id]?.cutoffAt > now() });
   return {
     enabled, settings, stop, share,
+    libraryJobs: teacherId => jobs(teacherId).map(publicJob),
     stopPlatformCall(teacherId, studentId) {
       // An explicit hangup must not wait for the reconnect grace. Scope it to
       // this individual platform call, never a group or Telemost recording.

@@ -58,6 +58,14 @@ export function busySlots(config, entries, now = Date.now()) {
   return blocked;
 }
 
+// Group identity comes from the server's calendar importer, never from a
+// matching title, participant list or coincident start time.
+export function groupAvailabilityBusyEntries(group, entries) {
+  if (!group?.id) return entries;
+  return entries.filter(entry => entry.groupId !== group.id || entry.learningGroupMatchAmbiguous
+    || (entry.teacherId && entry.teacherId !== group.teacherId));
+}
+
 export function createAvailabilityStore(file) {
   // A single file atomically commits the approved plan and the discussion.
   // Lesson instances are idempotently derived from that durable plan.
@@ -102,6 +110,7 @@ export function materializeAvailabilityPlans(plans, groups, lessons, createLesso
 
 export function registerGroupAvailability(app, deps) {
   const { store, getGroup, canManage, getStudentName, getBusyEntries, materialize } = deps;
+  const busyEntries = async (group, config, force = false) => groupAvailabilityBusyEntries(group, await getBusyEntries(group, config, force));
   const locks = calendarMutationLocks;
   const access = (req, manage = false) => {
     const group = getGroup(req.params.groupId);
@@ -114,7 +123,7 @@ export function registerGroupAvailability(app, deps) {
     const canEdit = canManage(auth, group);
     if (!poll) return { poll: null, canManage: canEdit, closed: group.status === 'completed' };
     let blocked = {}; let calendarError = '';
-    try { if (poll.status === 'open') blocked = busySlots(poll.config, await getBusyEntries(group, poll.config)); }
+    try { if (poll.status === 'open') blocked = busySlots(poll.config, await busyEntries(group, poll.config)); }
     catch { calendarError = 'Не удалось проверить календарь преподавателя. Выбор и утверждение временно недоступны. Попробуйте обновить позже.'; }
     return { canManage: canEdit, closed: group.status === 'completed', blocked, calendarError,
       poll: { ...poll, members: memberIds.map(id => ({ id, name: getStudentName(id, auth) })),
@@ -143,13 +152,13 @@ export function registerGroupAvailability(app, deps) {
         if ((poll?.id || '') !== (body.previousRoundId || '')) fail('Подбор уже изменился. Обновите страницу.', 409);
         const config = availabilityConfig(body);
         // Never publish selectable slots when the busy calendar is unavailable.
-        await getBusyEntries(group, config);
+        await busyEntries(group, config);
         poll = { id: crypto.randomUUID(), config, status: 'open', answers: {}, proposal: null,
           plan: poll?.plan || null, updatedAt: Date.now() };
       } else if (action === 'reopen') {
         if (!poll || poll.id !== body.roundId || poll.status !== 'approved') fail('Расписание уже изменилось. Обновите страницу.', 409);
         const config = currentAvailabilityConfig(poll.config);
-        await getBusyEntries(group, config);
+        await busyEntries(group, config);
         // Availability is independent of the approved pair. Preserve every
         // pupil's saved choices; a new round invalidates stale confirmations.
         poll = { ...poll, id: crypto.randomUUID(), config, status: 'open', proposal: null };
@@ -161,7 +170,7 @@ export function registerGroupAvailability(app, deps) {
           if ((old?.version || 0) !== body.version) fail('Ваш ответ уже изменён в другой вкладке. Обновите страницу.', 409);
           if (!body.choices || Array.isArray(body.choices) || typeof body.choices !== 'object') fail('Выберите удобное время');
           const allowed = new Set(availabilitySlots(poll.config).map(s => s.id));
-          const blocked = busySlots(poll.config, await getBusyEntries(group, poll.config));
+          const blocked = busySlots(poll.config, await busyEntries(group, poll.config));
           const choices = {};
           for (const [id, value] of Object.entries(body.choices)) {
             if (!allowed.has(id) || !['yes', 'maybe'].includes(value)) fail('Некорректное время');
@@ -175,7 +184,7 @@ export function registerGroupAvailability(app, deps) {
           const slots = [...new Set(Array.isArray(body.slots) ? body.slots : [])];
           const all = availabilitySlots(poll.config);
           if (slots.length !== 2 || slots.some(id => !all.some(s => s.id === id)) || new Set(slots.map(id => all.find(s => s.id === id).day)).size !== 2) fail('Выберите два занятия в разные дни');
-          const blocked = busySlots(poll.config, await getBusyEntries(group, poll.config));
+          const blocked = busySlots(poll.config, await busyEntries(group, poll.config));
           if (slots.some(id => blocked[id])) fail('Это время занято у преподавателя. Выберите другое.', 409);
           poll.proposal = { id: crypto.randomUUID(), slots, authorId: req.auth.id, authorRole: canManage(req.auth, group) ? 'teacher' : 'student',
             authorName: canManage(req.auth, group) ? 'Преподаватель' : getStudentName(req.auth.id, req.auth),
@@ -190,7 +199,7 @@ export function registerGroupAvailability(app, deps) {
           if (!proposal || proposal.id !== body.proposalId) fail('Предложение изменилось. Обновите страницу.', 409);
           // Fetch remote calendar, then reread roster: an added pupil must not
           // be silently omitted while waiting for a network response.
-          const busy = await getBusyEntries(group, poll.config, true);
+          const busy = await busyEntries(group, poll.config, true);
           group = access(req, true);
           const members = membersOf(group);
           if (!members.length || members.some(id => !['yes', 'maybe'].includes(proposal.votes[id]?.choice))) fail('Дождитесь согласия каждого участника группы', 409);

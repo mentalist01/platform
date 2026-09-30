@@ -13,7 +13,7 @@ export async function publishArchiveClip(clip, { persist, upload, ready, attach,
     clip.materialStatus = 'processing'; clip.status = 'processingVideo'; persist();
     if (!await ready(clip.url)) { clip.nextPublishAt = now() + 30000; persist(); return; }
     clip.materialStatus = 'attaching'; clip.status = 'ready'; persist();
-    const result = await attach({ clipId: clip.id, title: clip.title, url: clip.url });
+    const result = await attach({ clipId: clip.id, title: clip.title, url: clip.url, durationSeconds: Number(clip.durationMs || 0) / 1000 });
     if (!result?.material?.id) throw new Error('Платформа не подтвердила добавление материала');
     clip.materialId = result.material.id; clip.materialStatus = 'done'; clip.error = ''; clip.nextPublishAt = 0; persist();
   } catch (error) {

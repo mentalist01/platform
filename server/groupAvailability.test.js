@@ -4,13 +4,29 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
-import { availabilityConfig, currentAvailabilityConfig, busySlots, createAvailabilityStore, materializeAvailabilityPlans, registerGroupAvailability } from './groupAvailability.js';
+import { availabilityConfig, currentAvailabilityConfig, busySlots, groupAvailabilityBusyEntries, createAvailabilityStore, materializeAvailabilityPlans, registerGroupAvailability } from './groupAvailability.js';
 import { addCalendarDays, moscowDay, availabilitySlots, rankedSlots, suggestedPair } from '../src/utils/groupAvailability.js';
 
 const tomorrow = addCalendarDays(moscowDay(), 1);
 const config = (extra = {}) => ({ startDate: tomorrow, durationMinutes: 60, startMinute: 600, endMinute: 1260, days: [0,1,2,3,4,5,6], weeks: 8, ...extra });
 const member = id => ({ studentId: id, status: 'active' });
 const group = id => ({ id, teacherId: 't', name: 'Группа', status: 'active', members: [member('a'), member('b')] });
+
+test('only this group reservations are excluded; other groups, individuals and ambiguous matches still block', () => {
+  const own = { groupId: 'g', teacherId: 't', weekdayKey: 'monday', time: '10:00', durationMinutes: 60 };
+  const entries = [{ ...own, id: 'own-google', source: 'google-ical', isLearningGroupEvent: true },
+    { ...own, id: 'own-plan', source: 'availability-plan' },
+    { ...own, id: 'other-group', groupId: 'g2', time: '11:00' },
+    { id: 'individual', weekdayKey: 'thursday', time: '10:00', studentId: 'a' },
+    { ...own, id: 'ambiguous', learningGroupMatchAmbiguous: true, time: '12:00' },
+    { ...own, id: 'foreign-teacher', teacherId: 'u', time: '13:00' },
+    { id: 'same-title', subject: 'Группа', weekdayKey: 'friday', time: '10:00' }];
+  const filtered = groupAvailabilityBusyEntries(group('g'), entries);
+  assert.deepEqual(filtered.map(entry => entry.id), ['other-group', 'individual', 'ambiguous', 'foreign-teacher', 'same-title']);
+  const blocked = busySlots(config({ startDate: '2026-09-28' }), filtered, Date.parse('2026-09-27T08:00:00Z'));
+  assert.equal(blocked['0-600'], undefined);
+  for (const slot of ['0-660', '3-600', '0-720', '0-780', '4-600']) assert.ok(blocked[slot], slot);
+});
 
 test('an old open poll does not mark passed weekdays busy and still checks eight future weeks', () => {
   const now=Date.parse('2026-09-27T17:00:00Z');
@@ -205,6 +221,27 @@ test('reopening an approved plan retains availability and lessons, includes newc
   state.groups[0].status = 'completed';
   await call('reopen', { roundId: changed.id }, 't', 'teacher', 'g', 409);
 });
+test('own Google lessons can be selected, approved and selected again; a new individual conflict prevents approval', async t => {
+  const { call, open, state } = await fixture(t);
+  const own = { groupId: 'g', source: 'google-ical', isLearningGroupEvent: true, time: '10:00', durationMinutes: 60 };
+  state.entries = [{ ...own, weekdayKey: 'monday' }, { ...own, weekdayKey: 'thursday' },
+    { ...own, groupId: 'g2', weekdayKey: 'monday', time: '11:00' }];
+  const roundId = await open();
+  const snapshot = await call();
+  assert.equal(snapshot.blocked['0-600'], undefined); assert.ok(snapshot.blocked['0-660']);
+  const choices = { '0-600': 'yes', '3-600': 'yes' };
+  for (const id of ['a', 'b']) await call('answer', { roundId, version: 0, choices }, id, 'student');
+  const proposalId = (await call('propose', { roundId, slots: Object.keys(choices) })).poll.proposal.id;
+  for (const id of ['a', 'b']) await call('vote', { roundId, proposalId, choice: 'yes' }, id, 'student');
+  state.entries.push({ weekdayKey: 'thursday', time: '10:15', durationMinutes: 60 });
+  await call('approve', { roundId, proposalId }, 't', 'teacher', 'g', 409);
+  state.entries.pop(); await call('approve', { roundId, proposalId });
+  const reopened = await call('reopen', { roundId });
+  assert.equal(reopened.blocked['0-600'], undefined); assert.equal(reopened.blocked['3-600'], undefined);
+  assert.ok(reopened.blocked['0-660']); assert.deepEqual(reopened.poll.answers.a.choices, choices);
+  await call('answer', { roundId: reopened.poll.id, version: 1, choices }, 'a', 'student');
+});
+
 test('membership removed while external calendar is loading cannot submit an answer', async t=>{
   const {call,open,state}=await fixture(t); const roundId=await open();
   state.hook=async()=>{state.groups[0].members[0].status='removed';};
