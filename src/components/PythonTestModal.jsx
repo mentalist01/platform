@@ -31,6 +31,7 @@ import { api } from '../services/api';
 import useQuestionSolveTimer from '../hooks/useQuestionSolveTimer';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
+import PythonTestResultCard from './PythonTestResultCard';
 import { Button } from './ui';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { THEME_DARK, normalizeTheme } from '../utils/theme';
@@ -261,7 +262,6 @@ const PythonTestModal = ({
   createPyodideWorker,
   withStudentId,
   isGoogleDocEmbedUrl,
-  normalizeOutput,
   PYODIDE_RUN_TIMEOUT_MS,
   ALLOW_MAIN_THREAD_PYTHON_FALLBACK,
   normalizeOutputForComparison,
@@ -500,6 +500,8 @@ const PythonTestModal = ({
 
   useEffect(() => {
     setIsQuestionExpanded(true);
+    setTestResults([]);
+    setRunnerError('');
   }, [currentIndex]);
 
   useEffect(() => {
@@ -1064,8 +1066,6 @@ const PythonTestModal = ({
     if (currentId) {
       loadQuestionCode(current, currentId).catch(() => {});
     }
-    setTestResults([]);
-    setRunnerError('');
   }, [questions, currentIndex, studentId, task?.number, solvedCodeById]);
 
   useEffect(() => {
@@ -2689,65 +2689,17 @@ const PythonTestModal = ({
               <div className={`mt-4 rounded-2xl border px-3 py-3 text-sm ${softCardClass} ${secondaryTextClass}`}>Учитель еще не добавил тесты.</div>
             ) : (
               <div className="python-runtime-scrollbar mt-2.5 min-h-0 space-y-2 overflow-y-auto pr-1">
-                {testsToShow.map((item, idx) => {
-                  const result = testResults[idx];
-                  const passed = result?.passed;
-                  const testCardClass = passed === undefined
-                    ? (isDarkTheme ? 'border-slate-700/60 bg-slate-800/35' : 'border-slate-200 bg-slate-50')
-                    : (passed
-                        ? (isDarkTheme ? 'border-emerald-400/25 bg-emerald-500/10' : 'border-emerald-200 bg-emerald-50')
-                        : (isDarkTheme ? 'border-red-400/25 bg-red-500/10' : 'border-red-200 bg-red-50'));
-                  const statusTextClass = passed === undefined
-                    ? mutedTextClass
-                    : (passed
-                        ? (isDarkTheme ? 'text-emerald-200' : 'text-emerald-700')
-                        : (isDarkTheme ? 'text-red-200' : 'text-red-600'));
-                  const inputPreview = item.input || '—';
-                  const expectedPreview = item.output || '—';
-                  const actualPreview = result
-                    ? (result.error ? `Ошибка: ${result.error}` : (normalizeOutput(result.output) || '—'))
-                    : '—';
-                  const rowTitle = [
-                    `Вход: ${inputPreview}`,
-                    `Ожидалось: ${expectedPreview}`,
-                    `Вывод: ${actualPreview}`,
-                  ].join('\n');
-                  return (
-                    <div
-                      key={`${idx}-${item.input}`}
-                      style={{ '--python-test-i': `${idx}` }}
-                      data-result={passed === undefined ? 'idle' : (passed ? 'passed' : 'failed')}
-                      className={`python-runtime-test-card rounded-[14px] border px-2.5 py-2 text-[11px] md:text-xs ${testCardClass}`}
-                      title={rowTitle}
-                    >
-                      <div className="python-runtime-test-card-header flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[8px] border text-[9px] font-bold ${softCardClass} ${secondaryTextClass}`}>
-                            {idx + 1}
-                          </span>
-                          <span className={`truncate font-bold ${primaryTextClass}`}>{`Тест ${idx + 1}`}</span>
-                        </div>
-                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusTextClass} ${passed === undefined ? softCardClass : ''}`}>
-                          {passed === undefined ? 'Не проверено' : (passed ? 'Пройден' : 'Ошибка')}
-                        </span>
-                      </div>
-                      <div className="python-runtime-test-details mt-2 grid grid-cols-3 gap-1.5">
-                        <div className="python-runtime-test-value min-w-0 rounded-[9px] border px-2 py-1.5">
-                          <span className={`block text-[8px] font-bold uppercase tracking-[0.14em] ${mutedTextClass}`}>Вход</span>
-                          <code className={`mt-0.5 block truncate text-[10px] ${secondaryTextClass}`} title={inputPreview}>{inputPreview}</code>
-                        </div>
-                        <div className="python-runtime-test-value min-w-0 rounded-[9px] border px-2 py-1.5">
-                          <span className={`block text-[8px] font-bold uppercase tracking-[0.14em] ${mutedTextClass}`}>Ожидалось</span>
-                          <code className={`mt-0.5 block truncate text-[10px] ${secondaryTextClass}`} title={expectedPreview}>{expectedPreview}</code>
-                        </div>
-                        <div className="python-runtime-test-value min-w-0 rounded-[9px] border px-2 py-1.5">
-                          <span className={`block text-[8px] font-bold uppercase tracking-[0.14em] ${mutedTextClass}`}>Результат</span>
-                          <code className={`mt-0.5 block truncate text-[10px] ${secondaryTextClass}`} title={actualPreview}>{actualPreview}</code>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {testsToShow.map((item, idx) => (
+                  <PythonTestResultCard
+                    key={`${currentId}:${idx}`}
+                    index={idx}
+                    input={item.input}
+                    expectedOutput={item.output}
+                    result={testResults[idx]}
+                    isDarkTheme={isDarkTheme}
+                    onExpand={() => setIsQuestionExpanded(false)}
+                  />
+                ))}
               </div>
             )}
           </div>

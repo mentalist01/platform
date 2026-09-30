@@ -1,0 +1,96 @@
+.python-runtime-modal-shell--solve .python-runtime-test-toggle {
+  display: block;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 6px;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-toggle:focus-visible {
+  outline: 2px solid var(--rt-purple);
+  outline-offset: 4px;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-card:not([open]) .python-runtime-test-collapse-label,
+.python-runtime-modal-shell--solve .python-runtime-test-card[open] .python-runtime-test-expand-label,
+.python-runtime-modal-shell--solve .python-runtime-test-card[open] .python-runtime-test-preview {
+  display: none;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-card[open] .python-runtime-test-chevron {
+  transform: rotate(180deg);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-preview .python-runtime-test-value code {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-expanded {
+  margin-top: 12px;
+  border-top: 1px solid var(--rt-border);
+  padding-top: 12px;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-whitespace input {
+  accent-color: var(--rt-purple);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-full-field {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--rt-border);
+  border-radius: 9px;
+  background: var(--rt-card);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-output-comparison {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 8px;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-full-label {
+  border-bottom: 1px solid var(--rt-border);
+  padding: 8px 10px;
+  color: var(--rt-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-full-value {
+  margin: 0;
+  padding: 10px;
+  color: var(--rt-text);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+  user-select: text;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-empty-value {
+  margin: 0;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-error {
+  border-color: color-mix(in srgb, var(--rt-red) 45%, var(--rt-border));
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-error .python-runtime-test-full-label,
+.python-runtime-modal-shell--solve .python-runtime-test-mismatch {
+  color: var(--rt-red);
+}
+
+.python-runtime-modal-shell--solve .python-runtime-test-mismatch {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}

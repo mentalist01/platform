@@ -2930,6 +2930,7 @@ const PythonSection = ({
           task={reviewTask}
           onClose={() => setReviewTask(null)}
           studentId={effectiveStudentId}
+          withStudentId={withStudentId}
           testDb={testsDb}
           PYTHON_LEVEL_ID={PYTHON_LEVEL_ID}
           ensurePyodideReady={ensurePyodideReady}
