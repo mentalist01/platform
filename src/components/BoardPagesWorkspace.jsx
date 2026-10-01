@@ -3,7 +3,7 @@ import {PanelLeft,Plus,ChevronLeft,ChevronRight,ChevronDown,X,Pencil,Users} from
 import {loadYjsRuntime} from '../utils/collaborationRuntime.js';
 import {getCollabWsUrl} from '../utils/runtimeUrls.js';
 import {getStoredAuthToken} from '../services/api.js';
-import {FIRST_BOARD_PAGE_ID,MAX_BOARD_PAGES,boardPageBookRoom,boardPageRoom,boardPagesList,boardPageSummonTarget} from '../utils/boardPages.js';
+import {FIRST_BOARD_PAGE_ID,MAX_BOARD_PAGES,boardPageBookRoom,boardPageRoom,boardPagesList,boardPageSummonTarget,boardPageInitialState} from '../utils/boardPages.js';
 import './BoardPagesWorkspace.css';
 import BoardSelectionClipboard from './BoardSelectionClipboard.jsx';
 
@@ -22,8 +22,9 @@ function PagedBoardWorkspace(props) {
   const base=group ? `board-lesson-${lessonId}` : (teacherId && (teacher?activeStudentId:userId) ? `board-${teacherId}-${teacher?activeStudentId:userId}` : null);
   const bookRoom=boardPageBookRoom(base);
   const storageKey=bookRoom ? `board-page:${bookRoom}:${role}:${userId}` : '';
-  const [pages,setPages]=useState(()=>boardPagesList(null));
-  const [pageId,setPageId]=useState(FIRST_BOARD_PAGE_ID),[studentId,setStudentId]=useState('');
+  const [initialPage]=useState(()=>{try{return boardPageInitialState(window.localStorage.getItem(storageKey));}catch{return boardPageInitialState(null);}});
+  const [pages,setPages]=useState(initialPage.pages);
+  const [pageId,setPageId]=useState(initialPage.pageId),[studentId,setStudentId]=useState('');
   const boardStudentId=group && (teacher ? (canvasProps.participantIds || []).includes(studentId) : studentId===userId) ? studentId : '';
   const [open,setOpen]=useState(false),[connected,setConnected]=useState(false),[peers,setPeers]=useState([]);
   const [editing,setEditing]=useState(''),[title,setTitle]=useState(''),[error,setError]=useState(''),[navigation,setNavigation]=useState(null);
@@ -41,10 +42,11 @@ function PagedBoardWorkspace(props) {
       const doc=new Y.Doc(),provider=new WebsocketProvider(getCollabWsUrl(),bookRoom,doc,{params:{_auth:getStoredAuthToken() || ''},disableBc:true});
       const map=doc.getMap('pages'),control=doc.getMap('pageControl');
       runtime.current={doc,provider,map,control};
-      let restored=false;
       const update=()=>{
+        // Keep the remembered canvas while the initially empty manifest syncs.
+        // Validating before sync opened page 1 before the intended canvas.
+        if(!provider.synced)return;
         const next=boardPagesList(map);setPages(next);
-        if(provider.synced && !restored){restored=true;try{const saved=window.localStorage.getItem(storageKey);if(next.some(p=>p.id===saved))setPageId(saved);}catch{/* Storage is optional. */}}
         setPageId(current=>next.some(p=>p.id===current)?current:FIRST_BOARD_PAGE_ID);
       };
       const controls=()=>{

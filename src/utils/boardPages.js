@@ -2,6 +2,13 @@ export const FIRST_BOARD_PAGE_ID = 'main';
 export const MAX_BOARD_PAGES = 300;
 const PAGE_ID = /^[a-zA-Z0-9_-]{8,80}$/;
 
+export function boardPageInitialState(savedPageId) {
+  const pageId=typeof savedPageId==='string' && PAGE_ID.test(savedPageId) ? savedPageId : FIRST_BOARD_PAGE_ID;
+  const pages=boardPagesList(null);
+  if(pageId!==FIRST_BOARD_PAGE_ID)pages.push({id:pageId,title:'Страница',createdAt:0});
+  return {pageId,pages};
+}
+
 export function parseBoardPageRoom(roomId) {
   if (typeof roomId !== 'string' || !roomId.startsWith('board-') || roomId.length > 760) return null;
   if (roomId.endsWith('~pages')) {

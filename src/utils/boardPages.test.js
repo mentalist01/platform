@@ -2,7 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import {authorizeLearningCollabUpgrade} from '../../server/learningLessonAccess.js';
-import {boardPagesList,boardPageRoom,boardPageBookRoom,parseBoardPageRoom,boardPageSummonTarget} from './boardPages.js';
+import {boardPagesList,boardPageRoom,boardPageBookRoom,parseBoardPageRoom,boardPageSummonTarget,boardPageInitialState} from './boardPages.js';
+
+test('remembered pages can open directly before the manifest sync without accepting malformed room IDs',()=>{
+  const state=boardPageInitialState('page-test-02');
+  assert.equal(state.pageId,'page-test-02');
+  assert.equal(state.pages.find(page=>page.id===state.pageId)?.title,'Страница');
+  assert.equal(boardPageRoom('board-teacher-student',state.pageId),'board-teacher-student~page~page-test-02');
+  for(const value of [null,undefined,'main','../secret','page~page~other','short',42])assert.equal(boardPageInitialState(value).pageId,'main');
+});
 
 test('page rooms preserve legacy first-page names and private window ownership',()=>{
   const base='board-lesson-lesson-a',page='page-test-02';

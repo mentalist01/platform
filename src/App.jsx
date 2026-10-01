@@ -230,7 +230,8 @@ const loadSessionManagementSection = () => import('./components/SessionManagemen
 
 const AdminPanel = React.lazy(loadAdminPanel);
 const BoardTabletHost = React.lazy(() => import('./components/BoardTabletHost.jsx'));
-const BoardPagesWorkspace = React.lazy(() => import('./components/BoardPagesWorkspace.jsx'));
+const loadBoardPagesWorkspace = () => import('./components/BoardPagesWorkspace.jsx');
+const BoardPagesWorkspace = React.lazy(loadBoardPagesWorkspace);
 const CallSection = React.lazy(loadCallSection);
 const Editor = React.lazy(loadEditor);
 const FinalReviewSection = React.lazy(loadFinalReviewSection);
@@ -257,7 +258,7 @@ const SessionManagementSection = React.lazy(loadSessionManagementSection);
 
 const loadCallWorkspace = () => Promise.all([loadCallSection(), loadGroupTelemostSection()]);
 const loadCollabWorkspace = () => Promise.all([loadEditor(), loadCollaborativeEditorRuntime()]);
-const loadBoardWorkspace = () => loadYjsRuntime();
+const loadBoardWorkspace = () => Promise.all([loadBoardPagesWorkspace(),loadYjsRuntime()]);
 const loadTeacherComms = () => Promise.all([loadTeacherPanel(), loadTeacherStudentChatsSection()]);
 
 const VIEW_SECTION_LOADERS = Object.freeze({
